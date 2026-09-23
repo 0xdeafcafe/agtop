@@ -193,7 +193,14 @@ func (d *drawer) folded() {
 	if w := len([]rune(ask)); w > askW {
 		ask = string([]rune(ask)[:askW-1]) + "…"
 	}
-	left := "  " + faint("▸") + " " + d.mark() + " " + dim(fmt.Sprintf("#%d", t.N)) + "  " + styledAsk(ask, cSub)
+	who := styledAsk(ask, cSub)
+	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
+		who = dim("◌ picked up on its own")
+	}
+	if t.From != "" {
+		who = dim("◌ "+t.From+" · ") + sub(ask)
+	}
+	left := "  " + faint("▸") + " " + d.mark() + " " + dim(fmt.Sprintf("#%d", t.N)) + "  " + who
 	if outcome != "" && outcome != text("") {
 		left += "  " + dim("→") + " " + outcome
 	}
@@ -225,13 +232,20 @@ func (d *drawer) open() {
 		ask = "picked up on its own"
 	}
 	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
-	rows := wrap(styledAsk(oneLine(ask), cText+bold), min(headW, capProse))
+	styled, label := styledAsk(oneLine(ask), cText+bold), dim("you")
+	if strings.TrimSpace(t.Prompt) == "" && t.From == "" && len(t.Images) == 0 {
+		styled, label = dim("picked up on its own"), dim("◌")
+	}
+	if t.From != "" {
+		styled, label = sub(oneLine(ask)), dim("◌ "+t.From)
+	}
+	rows := wrap(styled, min(headW-len([]rune(stripANSI(label)))+3, capProse))
 	if len(rows) > 3 {
 		rows = append(rows[:2], rows[2]+dim(" …"))
 	}
 	for i, r := range rows {
 		if i == 0 {
-			d.add(d.ref, band, d.spine()+" "+faint("▾")+" "+d.mark()+" "+dim("you")+"  "+r, right)
+			d.add(d.ref, band, d.spine()+" "+faint("▾")+" "+d.mark()+" "+label+"  "+r, right)
 		} else {
 			d.add(d.ref, band, d.spine()+"          "+r, "")
 		}

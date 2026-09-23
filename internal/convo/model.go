@@ -80,6 +80,9 @@ type Turn struct {
 	Model   string // the main agent's model for this turn
 	Effort  string
 	Images  []string // names of images sent with the prompt
+	// From is set when the turn wasn't started by you: a background task
+	// reporting back, another session's message, a subagent's report.
+	From string
 
 	steps map[string]*Step
 	ver   int
@@ -357,6 +360,16 @@ func (s *Session) message(m headless.Message, now time.Time) {
 }
 
 func (s *Session) results(m headless.Message, now time.Time) {
+	// Text Claude Code injects as a user message (a background task
+	// finishing, another session's message) starts a turn of its own.
+	for _, b := range m.Blocks {
+		if b.Type == "text" && strings.HasPrefix(strings.TrimSpace(b.Text), "<") {
+			if from, text, ok := Injected(b.Text); ok && s.Live() == nil {
+				s.Apply(host.Sent{Text: text}, now)
+				s.Turns[len(s.Turns)-1].From = from
+			}
+		}
+	}
 	for _, b := range m.Blocks {
 		if b.Type != "tool_result" {
 			continue

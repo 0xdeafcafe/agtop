@@ -161,22 +161,8 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.loadPreview()
 		}
 	case "left":
+		// In Agents, ← has nothing to go back to; sections fold with enter.
 		if empty {
-			switch {
-			case m.full:
-				m.full = false
-				if m.wide() {
-					m.preview = false
-				}
-			case m.preview:
-				m.preview = false
-			case strings.HasPrefix(m.sel, "§"):
-				if t := strings.TrimPrefix(m.sel, "§"); !m.folded(t) {
-					m.toggleFold(t)
-				}
-			}
-			// Otherwise ← has nothing to close; it never walks the
-			// selection up onto a group title.
 			return nil
 		}
 	case "esc":

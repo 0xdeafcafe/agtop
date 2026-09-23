@@ -447,3 +447,19 @@ func TestShellTurnsAndStyling(t *testing.T) {
 		}
 	}
 }
+
+func TestInjectedPrompts(t *testing.T) {
+	cases := []struct{ in, from, text string }{
+		{"<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"lint lane\" finished</summary>\n</task-notification>", "background task · completed", `Agent "lint lane" finished`},
+		{`<cross-session-message from="uds:/x" from-name="agent wrapper">agtop: my edits are committed</cross-session-message>`, "message from agent wrapper", "agtop: my edits are committed"},
+	}
+	for _, c := range cases {
+		from, text, ok := Injected(c.in)
+		if !ok || from != c.from || text != c.text {
+			t.Errorf("%q: got %q %q %v", c.in[:20], from, text, ok)
+		}
+	}
+	if _, _, ok := Injected("please fix <b>this</b>"); ok {
+		t.Error("ordinary text starting with a word isn't injected")
+	}
+}

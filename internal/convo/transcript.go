@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -121,7 +122,14 @@ func (t *Tail) apply(b []byte) bool {
 			if live := s.Live(); live != nil && live.Prompt != "" {
 				s.Apply(headless.Result{Subtype: "success"}, at)
 			}
+			from, text2, injected := Injected(text)
+			if injected {
+				text = text2
+			}
 			s.Apply(host.Sent{Text: text, Images: images}, at)
+			if injected {
+				s.Turns[len(s.Turns)-1].From = from
+			}
 			if cmd, ok := strings.CutPrefix(text, "! "); ok {
 				s.shellStart(cmd, at)
 			}
@@ -256,3 +264,48 @@ func (s *Session) shellResult(t *Turn, out shellOut, at time.Time) {
 	}
 	s.Apply(headless.Result{Subtype: "success"}, at)
 }
+
+// Injected recognises text Claude Code puts in a user message that you
+// didn't type, and says who it's from and what it says in a line.
+func Injected(s string) (from, text string, ok bool) {
+	t := strings.TrimSpace(s)
+	switch {
+	case strings.HasPrefix(t, "<task-notification>"):
+		status := between(t, "<status>", "</status>")
+		sum := between(t, "<summary>", "</summary>")
+		from = "background task"
+		if status != "" {
+			from += " · " + status
+		}
+		return from, firstLine(firstNonEmpty(sum, "finished")), true
+	case strings.HasPrefix(t, "<cross-session-message"):
+		name := attr(t, "from-name")
+		body := t[strings.Index(t, ">")+1:]
+		body = strings.TrimSuffix(strings.TrimSpace(body), "</cross-session-message>")
+		return "message from " + firstNonEmpty(name, "another session"), firstLine(body), true
+	case strings.HasPrefix(t, "<agent-message"):
+		body := t[strings.Index(t, ">")+1:]
+		body = strings.TrimSuffix(strings.TrimSpace(body), "</agent-message>")
+		return "a subagent reported back", firstLine(stripTags(body)), true
+	case strings.HasPrefix(t, "<") && strings.Contains(t, "</"):
+		// Some other wrapper: drop the tags, keep the words.
+		return "Claude Code", firstLine(stripTags(t)), true
+	}
+	return "", s, false
+}
+
+func attr(s, name string) string {
+	i := strings.Index(s, name+`="`)
+	if i < 0 {
+		return ""
+	}
+	rest := s[i+len(name)+2:]
+	if j := strings.IndexByte(rest, '"'); j >= 0 {
+		return rest[:j]
+	}
+	return ""
+}
+
+var tagRe = regexp.MustCompile(`<[^>]{1,80}>`)
+
+func stripTags(s string) string { return strings.TrimSpace(tagRe.ReplaceAllString(s, " ")) }

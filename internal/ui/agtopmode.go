@@ -692,7 +692,11 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	default:
 		top += dim(" · enter sends")
 	}
-	b := box{w: w, focused: m.paneFocus, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back), anchor: c.anchor - 1,
+	typing := m.paneFocus && c.sel == "" && !c.cardFocus
+	if m.paneFocus && !typing {
+		top = dim("typing returns here · ↓ past the last row or esc")
+	}
+	b := box{w: w, focused: typing, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back), anchor: c.anchor - 1,
 		lead: paint(cOrange, "❯ "), holder: "a message for this agent", maxRows: 6}
 	if c.searching {
 		b = box{w: w, focused: m.paneFocus, topL: paint(cOrange, "search this session") + dim(" · ↑↓ pick · enter jumps · esc closes"),
@@ -891,18 +895,17 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	case "left":
-		// ← walks up: out of an opened subagent, from a step to its turn,
-		// then back to Agents.
-		if empty && c.subOpen != "" && m.viewName(c) == "subagents" {
-			c.subOpen, c.subTail, c.sel = "", nil, ""
-			return nil
-		}
+		// ← only ever means back: out of an opened subagent, off a
+		// selected row, then to Agents. It never folds anything.
 		if empty {
-			if turn, _, ok := strings.Cut(c.sel, ":"); ok && strings.HasPrefix(c.sel, "t") {
-				c.sel, c.selMoved = turn, true
-				return nil
+			switch {
+			case c.subOpen != "" && m.viewName(c) == "subagents":
+				c.subOpen, c.subTail, c.sel = "", nil, ""
+			case c.sel != "":
+				c.sel = ""
+			default:
+				m.leavePane()
 			}
-			m.leavePane()
 			return nil
 		}
 	case "[", "]":
@@ -974,6 +977,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.setSideWidth(m.sideWidth() + d)
 			return nil
 		}
+	}
+	if k.Text != "" && c.sel != "" {
+		c.sel = "" // typing returns to the box: nothing stays highlighted
 	}
 	buf, pos, anchor, copied, _ := editSel(c.input, max(0, len(c.input)-c.back), c.anchor-1, k, s)
 	c.input, c.back, c.anchor = buf, len(buf)-pos, anchor+1
@@ -1091,6 +1097,11 @@ func (m *Model) moveSel(c *hostConn, d int) {
 		if r == cur {
 			i = j
 		}
+	}
+	if i+d >= len(refs) && cur != "" {
+		// ↓ past the last row: back to typing, nothing highlighted.
+		c.sel, c.subSel = "", ""
+		return
 	}
 	i = max(0, min(len(refs)-1, i+d))
 	if c.subOpen != "" && m.viewName(c) == "subagents" {
