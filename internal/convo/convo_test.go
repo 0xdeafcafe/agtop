@@ -282,18 +282,17 @@ func TestOverview(t *testing.T) {
 		t.Log("\n" + out)
 	}
 	for _, w := range []string{
-		"main agent   opus 5.5 · 1M · effort high",
-		"of 1M",
-		"permissions  auto",
-		"$1.25   1 turn · 1h 01m working",
-		"tool calls   3   1 failed",
-		"#1           opus 5.5 · 1M   effort high",
-		"most used: Bash",
+		"now  opus 5.5 · 1M · effort high · permissions auto",
+		"context of 1M",
+		"$1.25",
+		"1h 01m",
+		"3  ✗1",
+		"Tools  3 calls",
 		"Bash",
 		"3 cold starts, all expected",
 		"1 × new subagent · 1 × session start",
 		"idle past the cache's hour · 1h 01m idle · main · rewrote 21k",
-		"Explore      ×1   haiku 4.5",
+		"Explore   ×1    haiku 4.5",
 	} {
 		if !strings.Contains(out, w) {
 			t.Errorf("missing %q in\n%s", w, out)

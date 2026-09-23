@@ -1,7 +1,11 @@
 package convo
 
 import (
+	"github.com/charmbracelet/x/ansi"
+	"math"
+
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"regexp"
 	"sort"
 	"strings"
@@ -170,105 +174,175 @@ func (s *Session) Overview(o Options) []Line {
 	}
 	label := func(k string) string { return "    " + dim(fmt.Sprintf("%-13s", k)) }
 
-	// --- now ---
-	section("Now", "")
+	t := s.Totals(o.Now)
 	model := s.Info.Model
-	if n := len(s.Requests); n > 0 {
-		for i := n - 1; i >= 0; i-- {
-			if s.Requests[i].Agent == "" && s.Requests[i].Model != "" {
-				model = s.Requests[i].Model
-				break
-			}
+	for i := len(s.Requests) - 1; i >= 0; i-- {
+		if s.Requests[i].Agent == "" && s.Requests[i].Model != "" {
+			model = s.Requests[i].Model
+			break
 		}
 	}
-	if model == "" {
-		model = s.Model
+	model = firstNonEmpty(model, s.Model)
+	effort := firstNonEmpty(s.Info.Effort, "default")
+
+	// --- tiles: the numbers that matter, at a glance ---
+	hit := 0.0
+	if all := t.CacheRead + t.CacheOut + t.In; all > 0 {
+		hit = float64(t.CacheRead) / float64(all)
 	}
-	effort := s.Info.Effort
-	if effort == "" {
-		effort = "default"
-	}
-	main := text(PrettyModel(model)) + dim(" · effort ") + text(effort)
-	if s.Context > 0 {
-		win := int(claude.ContextWindow(model))
+	ctx, ctxLabel := "—", "context"
+	ctxCol := cText
+	if s.Context > 0 && model != "" {
+		win := claude.ContextWindow(model)
 		pct := float64(s.Context) / float64(win)
-		main += dim("   context ") + bar(pct, 10, cGreen) + " " + sub(fmt.Sprintf("%.0f%% of %s", pct*100, tokens(win)))
+		ctx, ctxLabel = fmt.Sprintf("%.0f%%", pct*100), "context of "+tokens(int(win))
+		switch {
+		case pct >= 0.8:
+			ctxCol = cRed
+		case pct >= 0.5:
+			ctxCol = cYellow
+		}
 	}
-	add(label("main agent")+main, "")
+	calls := paint(cText+bold, fmt.Sprint(t.ToolCalls))
+	if t.Failed > 0 {
+		calls += "  " + paint(cRed, fmt.Sprintf("✗%d", t.Failed))
+	}
+	spent := t.Cost
+	if spent == 0 {
+		spent = s.Cost() // a transcript carries no totals: price each call
+	}
+	tiles := []struct{ value, label string }{
+		{paint(cText+bold, firstNonEmpty(money(spent), "$0")), dim("spent")},
+		{paint(cText+bold, dur(t.Working)), dim("working")},
+		{paint(cText+bold, fmt.Sprint(t.Turns)), dim("turns")},
+		{calls, dim("tool calls")},
+		{paint(ctxCol+bold, ctx), dim(ctxLabel)},
+		{paint(cText+bold, fmt.Sprintf("%.0f%%", hit*100)), dim("from cache")},
+	}
+	per := max(3, min(len(tiles), (w-4)/16))
+	tw := (w - 4) / per
+	for start := 0; start < len(tiles); start += per {
+		var top, bottom strings.Builder
+		for _, tl := range tiles[start:min(len(tiles), start+per)] {
+			top.WriteString(" " + fitTo(tl.value, tw-2) + " ")
+			bottom.WriteString(" " + fitTo(tl.label, tw-2) + " ")
+		}
+		out = append(out, Line{Text: row(bgWell, "  "+top.String(), "", o.Width, w)}, Line{Text: row(bgWell, "  "+bottom.String(), "", o.Width, w)})
+		out = append(out, Line{Text: ""})
+	}
+	perm := ""
+	if s.Info.PermissionMode != "" {
+		perm = dim(" · permissions ") + text(s.Info.PermissionMode)
+	}
+	add("  "+dim("now  ")+text(PrettyModel(model))+dim(" · effort ")+text(effort)+perm+
+		dim("   in ")+text(tokens(t.In+t.CacheRead+t.CacheOut))+dim(" · out ")+text(tokens(t.Out))+dim(fmt.Sprintf(" · %d requests", t.Requests)), "")
 	for _, st := range s.byID {
 		if (st.Tool == "Task" || st.Tool == "Agent") && st.Status == Running {
-			kind := readInput(st.Input).str("subagent_type")
-			m := ""
-			for i := len(s.Requests) - 1; i >= 0; i-- {
-				if s.Requests[i].Agent == kind {
-					m = s.Requests[i].Model
-					break
-				}
-			}
-			add(label("⇉ "+kind)+text(PrettyModel(m))+dim("   "+oneLine(readInput(st.Input).str("description"))),
+			add("  "+paint(cOrange, "⇉ ")+text(readInput(st.Input).str("subagent_type"))+dim("   "+oneLine(readInput(st.Input).str("description"))),
 				paint(cOrange, dur(o.Now.Sub(st.Start))))
 		}
 	}
-	if s.Info.PermissionMode != "" {
-		add(label("permissions")+text(s.Info.PermissionMode), "")
-	}
 
-	// --- totals ---
-	t := s.Totals(o.Now)
-	section("Totals", "")
-	add(label("spent")+paint(cText+bold, money(t.Cost))+dim("   "+plural(t.Turns, "turn")+" · "+dur(t.Working)+" working"), "")
-	add(label("tool calls")+text(fmt.Sprint(t.ToolCalls))+dim(fmt.Sprintf("   %d failed", t.Failed)), "")
-	add(label("tokens")+dim("in ")+text(tokens(t.In+t.CacheRead+t.CacheOut))+dim("   out ")+text(tokens(t.Out))+dim(fmt.Sprintf("   %d requests", t.Requests)), "")
-
-	// --- model and effort by turn ---
-	if len(s.Turns) > 0 {
-		section("Model and effort", "by turn")
+	// --- per turn: cost as bars, then model and effort as a strip ---
+	if len(s.Turns) > 1 {
+		cols := min(len(s.Turns), w-12)
+		turns := s.Turns[len(s.Turns)-cols:]
+		costs := s.turnCosts()
+		most := 0.0
+		for _, tn := range turns {
+			most = max(most, costs[tn])
+		}
+		section("Per turn", fmt.Sprintf("last %d · cost, and model and effort", cols))
+		if most > 0 {
+			levels := []rune(" ▁▂▃▄▅▆▇█")
+			var hi, lo strings.Builder
+			for _, tn := range turns {
+				// Two rows, so small turns still show a sliver.
+				v := int(costs[tn] / most * 16)
+				if costs[tn] > 0 {
+					v = max(v, 1)
+				}
+				hi.WriteRune(levels[max(0, min(8, v-8))])
+				lo.WriteRune(levels[max(0, min(8, v))])
+			}
+			add("    "+paint(cOrange, hi.String()), dim(money(most)+" top"))
+			add("    "+paint(cOrange, lo.String()), "")
+		}
+		// One cell per turn in the model's colour; effort as its shade.
+		var strip strings.Builder
+		seen := map[string]string{}
+		var legend []string
+		for _, tn := range turns {
+			m := PrettyModel(tn.Model)
+			col := modelColour(m)
+			if _, ok := seen[m]; !ok && m != "" {
+				seen[m] = col
+				legend = append(legend, paint(col, "■ ")+sub(m))
+			}
+			glyph := "▆"
+			switch tn.Effort {
+			case "low":
+				glyph = "▂"
+			case "medium":
+				glyph = "▄"
+			case "xhigh", "max":
+				glyph = "█"
+			}
+			strip.WriteString(paint(col, glyph))
+		}
+		add("    "+strip.String(), "")
+		add("    "+strings.Join(legend, "   ")+dim("   · taller is more effort"), "")
+		// Where it changed, in words.
 		type span struct {
 			from, to      int
 			model, effort string
 		}
 		var spans []span
 		for _, tn := range s.Turns {
-			m, e := PrettyModel(tn.Model), tn.Effort
-			if e == "" {
-				e = "default"
-			}
+			m, e := PrettyModel(tn.Model), firstNonEmpty(tn.Effort, "default")
 			if n := len(spans); n > 0 && spans[n-1].model == m && spans[n-1].effort == e {
 				spans[n-1].to = tn.N
 				continue
 			}
 			spans = append(spans, span{tn.N, tn.N, m, e})
 		}
-		for _, sp := range spans {
-			r := fmt.Sprintf("#%d", sp.from)
-			if sp.to != sp.from {
-				r = fmt.Sprintf("#%d–#%d", sp.from, sp.to)
+		if len(spans) > 1 {
+			for _, sp := range spans {
+				r := fmt.Sprintf("#%d", sp.from)
+				if sp.to != sp.from {
+					r = fmt.Sprintf("#%d–#%d", sp.from, sp.to)
+				}
+				add("    "+dim(fmt.Sprintf("%-11s", r))+text(sp.model)+dim(" · effort ")+text(sp.effort), "")
 			}
-			add("    "+dim(fmt.Sprintf("%-13s", r))+text(sp.model)+dim("   effort ")+text(sp.effort), "")
 		}
+		first, last := turns[0].N, turns[len(turns)-1].N
+		add("    "+dim(fitTo(fmt.Sprintf("#%d", first), cols-len(fmt.Sprint(last))-1)+fmt.Sprintf("#%d", last)), "")
 	}
 
 	// --- tools ---
 	var ts []*ToolStat
-	if len(s.Tools) > 0 {
-		for _, v := range s.Tools {
-			if v.Calls > 0 {
-				ts = append(ts, v)
-			}
+	for _, v := range s.Tools {
+		if v.Calls > 0 {
+			ts = append(ts, v)
 		}
-		sort.Slice(ts, func(i, j int) bool {
-			if ts[i].Calls != ts[j].Calls {
-				return ts[i].Calls > ts[j].Calls
-			}
-			return ts[i].Name < ts[j].Name
-		})
 	}
+	sort.Slice(ts, func(i, j int) bool {
+		if ts[i].Calls != ts[j].Calls {
+			return ts[i].Calls > ts[j].Calls
+		}
+		return ts[i].Name < ts[j].Name
+	})
 	if len(ts) > 0 {
-		section("Tools", "most used: "+ts[0].Name)
-		top := ts[0].Calls
+		section("Tools", plural(t.ToolCalls, "call"))
+		nameW := 8
+		for _, v := range ts {
+			nameW = max(nameW, min(26, cellw.String(v.Name)))
+		}
+		top := math.Sqrt(float64(ts[0].Calls))
+		barW := max(10, min(30, w-nameW-30))
 		for i, v := range ts {
-			if i >= 10 && !o.Verbose {
-				add("    "+dim(fmt.Sprintf("… %d more tools", len(ts)-i)), "")
+			if i >= 12 && !o.Verbose {
+				add("    "+dim(fmt.Sprintf("… %d more tools · ctrl+o shows all", len(ts)-i)), "")
 				break
 			}
 			right := ""
@@ -278,17 +352,14 @@ func (s *Session) Overview(o Options) []Line {
 			if v.Failed > 0 {
 				right = paint(cRed, fmt.Sprintf("%d failed", v.Failed)) + "   " + right
 			}
-			add("    "+text(fmt.Sprintf("%-13s", truncateCells(v.Name, 13)))+bar(float64(v.Calls)/float64(top), 24, cSub)+" "+text(fmt.Sprint(v.Calls)), right)
+			// Square-root scale, so the second tool isn't an empty bar.
+			add("    "+text(fitTo(truncateCells(v.Name, nameW), nameW))+"  "+bar(math.Sqrt(float64(v.Calls))/top, barW, cSub)+" "+text(fmt.Sprint(v.Calls)), right)
 		}
 	}
 
 	// --- cache ---
 	if t.Requests > 0 {
 		cold := s.ColdStarts()
-		hit := 0.0
-		if all := t.CacheRead + t.CacheOut + t.In; all > 0 {
-			hit = float64(t.CacheRead) / float64(all)
-		}
 		expected, idle, odd := 0, 0, 0
 		kinds := map[string]int{}
 		for _, c := range cold {
@@ -310,6 +381,7 @@ func (s *Session) Overview(o Options) []Line {
 			}
 		}
 		section("Cache", meta)
+		add(label("hit rate")+bar(hit, 20, cGreen)+" "+text(fmt.Sprintf("%.0f%%", hit*100)), "")
 		add(label("read")+text(tokens(t.CacheRead))+dim("   written ")+text(tokens(t.CacheOut)), "")
 		if expected > 0 {
 			var parts []string
@@ -378,9 +450,21 @@ func (s *Session) Overview(o Options) []Line {
 		}
 		sort.Strings(names)
 		section("Subagents", "")
+		nameW := 8
+		for _, n := range names {
+			nameW = max(nameW, min(30, cellw.String(n)))
+		}
 		for _, n := range names {
 			a := subs[n]
-			add("    "+text(fmt.Sprintf("%-13s", truncateCells(n, 13)))+dim(fmt.Sprintf("×%d   ", a.runs))+text(PrettyModel(a.model)), dim(plural(a.steps, "step")))
+			right := ""
+			if a.steps > 0 {
+				right = dim(plural(a.steps, "step"))
+			}
+			m := ""
+			if a.model != "" {
+				m = text(PrettyModel(a.model))
+			}
+			add("    "+text(fitTo(truncateCells(n, nameW), nameW))+dim(fmt.Sprintf("  ×%-4d ", a.runs))+m, right)
 		}
 	}
 	return out
@@ -414,3 +498,52 @@ func (s *Session) LastWords() string {
 
 // Tokens formats a token count the way the overview does.
 func Tokens(n int) string { return tokens(n) }
+
+// modelColour tells models apart in the strip.
+func modelColour(m string) string {
+	switch {
+	case strings.Contains(strings.ToLower(m), "opus"):
+		return cOrange
+	case strings.Contains(strings.ToLower(m), "sonnet"):
+		return cBlue
+	case strings.Contains(strings.ToLower(m), "haiku"):
+		return cGreen
+	case strings.Contains(strings.ToLower(m), "fable"):
+		return cYellow
+	}
+	return cSub
+}
+
+// fitTo pads or cuts styled text to exactly w cells.
+func fitTo(s string, w int) string {
+	n := cellw.String(stripANSI(s))
+	if n > w {
+		return ansi.Truncate(s, w, "…")
+	}
+	return s + blanks(w-n)
+}
+
+// turnCosts prices each turn: what the Result said, or else every model
+// call (subagents' too) made while it ran.
+func (s *Session) turnCosts() map[*Turn]float64 {
+	out := make(map[*Turn]float64, len(s.Turns))
+	ti := 0
+	for _, r := range s.Requests {
+		for ti+1 < len(s.Turns) && !r.At.Before(s.Turns[ti+1].Start) {
+			ti++
+		}
+		if ti < len(s.Turns) {
+			u := r.Usage
+			out[s.Turns[ti]] += claude.Cost(r.Model, claude.TokenUsage{
+				Input: int64(u.InputTokens), Output: int64(u.OutputTokens),
+				CacheRead: int64(u.CacheReadInputTokens), CacheWrite1h: int64(u.CacheCreationInputTokens),
+			}, false)
+		}
+	}
+	for _, t := range s.Turns {
+		if t.Cost > 0 {
+			out[t] = t.Cost
+		}
+	}
+	return out
+}
