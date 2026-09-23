@@ -420,6 +420,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.tick++
 		m.refresh()
+		m.followTail()
 		cmds := []tea.Cmd{tick()}
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())

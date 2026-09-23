@@ -18,8 +18,23 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
-// Pane views for an agtop-mode session, cycled with [ and ].
+// Pane views, cycled with [ and ]: every session has a conversation and an
+// overview; a running Claude Code session also has its live screen.
 var paneViews = []string{"conversation", "overview"}
+
+func (m *Model) views(c *hostConn) []string {
+	if c.client == nil {
+		if a := m.focused(); a != nil && liveCapable(a) {
+			return []string{"conversation", "overview", "screen"}
+		}
+	}
+	return paneViews
+}
+
+func (m *Model) viewName(c *hostConn) string {
+	v := m.views(c)
+	return v[c.view%len(v)]
+}
 
 // hostConn is the open connection to the selected agtop-mode session: its
 // host client, the conversation built from what the host sends, and how the
@@ -27,7 +42,8 @@ var paneViews = []string{"conversation", "overview"}
 type hostConn struct {
 	key    string
 	id     string
-	client *host.Client
+	client *host.Client // an agtop session's host; nil when read from a transcript
+	tail   *convo.Tail  // a Claude Code session's transcript, followed as it grows
 	sess   *convo.Session
 	ready  bool // the replay has been drawn at least once
 
@@ -116,30 +132,70 @@ func (c *hostConn) next() tea.Cmd {
 func (m *Model) syncHost() tea.Cmd {
 	a := m.focused()
 	_, paneW, _ := m.layout()
-	want := a != nil && a.Agtop && a.PID != 0 && paneW > 0 && m.mode == modeList
-	if !want {
-		if m.host != nil {
-			_ = m.host.client.Close()
-			m.host = nil
-		}
-		m.hostOpening = ""
-		if a == nil || !a.Agtop {
+	showing := a != nil && paneW > 0 && m.mode == modeList
+	hosted := showing && a.Agtop && a.PID != 0
+	fromFile := showing && !hosted && a.TranscriptPath != ""
+	if !hosted && !fromFile {
+		m.dropHost()
+		if a == nil {
 			m.paneFocus = false
 		}
 		return nil
 	}
-	if m.host != nil && m.host.key == a.Key {
+	if m.host != nil && m.host.key == a.Key && (m.host.client != nil) == hosted {
 		return nil
 	}
 	if m.hostOpening == a.Key {
 		return nil
 	}
-	if m.host != nil {
-		_ = m.host.client.Close()
-		m.host = nil
-	}
+	m.dropHost()
 	m.hostOpening = a.Key
+	if fromFile {
+		return openTail(a)
+	}
 	return openHost(a)
+}
+
+func (m *Model) dropHost() {
+	if m.host != nil && m.host.client != nil {
+		_ = m.host.client.Close()
+	}
+	m.host, m.hostOpening = nil, ""
+}
+
+// openTail reads a Claude Code session's transcript in the background the
+// first time; after that the tick takes in only what's new.
+func openTail(a *fleet.Agent) tea.Cmd {
+	key, id, path := a.Key, a.ID, a.TranscriptPath
+	return func() tea.Msg {
+		t := convo.NewTail(path)
+		if _, err := t.Read(); err != nil {
+			return hostOpenMsg{key: key, err: err}
+		}
+		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true}}
+	}
+}
+
+// followTail takes in new transcript lines, and closes the last turn once
+// the agent has stopped working (transcripts don't always mark it).
+func (m *Model) followTail() {
+	c := m.host
+	if c == nil || c.tail == nil {
+		return
+	}
+	_, _ = c.tail.Read()
+	a := m.agentByKey(c.key)
+	if a == nil {
+		return
+	}
+	if live := c.sess.Live(); live != nil && !a.Live() {
+		c.sess.Apply(headless.Result{Subtype: "success"}, time.Now())
+	}
+	c.sess.Info.Cwd = a.Cwd
+	c.sess.Info.CostUSD = a.Spend.Cost
+	if c.sess.Info.Model == "" {
+		c.sess.Info.Model = a.Spend.Model
+	}
 }
 
 func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
@@ -151,10 +207,14 @@ func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 	}
 	m.hostOpening = ""
 	if msg.err != nil {
-		m.flash("couldn't reach the session: "+msg.err.Error(), true)
+		m.flash("couldn't open the session: "+msg.err.Error(), true)
 		return nil
 	}
 	m.host = msg.c
+	if m.host.client == nil {
+		m.followTail()
+		return nil
+	}
 	return m.host.next()
 }
 
@@ -211,13 +271,13 @@ func spread(left, right string, w int) string {
 // shows something else.
 func (m *Model) agtopPane(w, h int) []string {
 	a := m.focused()
-	if a == nil || !a.Agtop {
+	if a == nil {
 		return nil
 	}
 	c := m.host
 	if c == nil || c.key != a.Key {
-		if a.PID == 0 {
-			return m.stoppedPane(a, w, h)
+		if !a.Agtop {
+			return nil // still loading; the summary shows meanwhile
 		}
 		return []string{"", dim("  connecting to " + oneLine(a.DisplayName) + "…")}
 	}
@@ -229,9 +289,17 @@ func (m *Model) agtopPane(w, h int) []string {
 	o := convo.Options{Width: w, Now: time.Now(), Tick: m.tick, Open: c.open, Verbose: c.verbose,
 		Selected: c.sel, Focused: m.paneFocus}
 	var body []convo.Line
-	if c.view == 1 {
+	switch m.viewName(c) {
+	case "screen":
+		for _, l := range m.liveLines(w) {
+			body = append(body, convo.Line{Text: l})
+		}
+		if len(body) == 0 {
+			body = []convo.Line{{Text: ""}, {Text: dim("  connecting to its screen…")}}
+		}
+	case "overview":
 		body = s.Overview(o)
-	} else {
+	default:
 		body = s.Render(o)
 		if len(body) == 0 {
 			body = []convo.Line{{Text: ""}, {Text: dim("  nothing yet · type below to start")}}
@@ -283,6 +351,17 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	}
 	state := dim("idle")
 	switch {
+	case c.client == nil:
+		switch {
+		case a.NeedsYou() || a.Waiting():
+			state = paint(cYellow+bold, "● needs you")
+		case a.Live():
+			state = paint(cOrange, "✻ working")
+		case a.PID != 0:
+			state = dim("◦ idle")
+		default:
+			state = dim("⏹ stopped")
+		}
 	case info.Limit != nil:
 		state = paint(cYellow, "⏸ "+limitText(info.Limit))
 	case info.Retry != nil && info.Retry.GaveUp:
@@ -339,6 +418,16 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 		meta += dim(" · ") + paint(col, mode)
 	}
 	conn := paint(cGreen, "●") + dim(" connected")
+	if c.client == nil {
+		switch {
+		case a.Agtop:
+			conn = dim("stopped · a message resumes it")
+		case a.Interactive:
+			conn = dim("Claude Code in a terminal")
+		default:
+			conn = dim("Claude Code · from its transcript")
+		}
+	}
 	if (info.Limit != nil || info.Retry != nil) && !info.CacheWarm.IsZero() {
 		if time.Now().Before(info.CacheWarm) {
 			conn = dim("cache warm until ") + paint(cGreen, info.CacheWarm.Local().Format("15:04")) + "   " + conn
@@ -349,8 +438,8 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	row2 := spread("  "+meta, conn+" ", w)
 
 	var tabs []string
-	for i, v := range paneViews {
-		if i == c.view {
+	for i, v := range m.views(c) {
+		if i == c.view%len(m.views(c)) {
 			tabs = append(tabs, bgTabOn+paint(cText+bold, " "+v+" ")+reset+bgChrome)
 		} else {
 			tabs = append(tabs, paint(cSub, " "+v+" "))
@@ -366,6 +455,9 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	}
 	if c.verbose {
 		chips += paint(cOrange, "ctrl+o all shown") + "  "
+	}
+	if m.viewName(c) == "screen" {
+		chips = dim("enter types into it · ctrl+] comes back · ctrl+f full screen") + "  "
 	}
 	row3 := spread("  "+strings.Join(tabs, " ")+dim("   [ ]"), chips, w)
 	return []string{onBg(bgChrome, row1, w), onBg(bgChrome, row2, w), onBg(bgChrome, row3, w),
@@ -443,6 +535,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	}
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
 	switch {
+	case c.client == nil && a.Interactive:
+		top += dim(" · open in a terminal, so reply there")
+	case c.client == nil && a.Agtop:
+		top += dim(" · stopped; ") + paint(cOrange, "enter resumes it") + dim(" with your message")
+	case c.client == nil:
+		top += dim(" · enter replies through Claude Code")
 	case isQuestion(s.Pending()):
 		top += dim(" · ") + paint(cYellow, "pick above, or type your own answer · enter sends it")
 	case len(s.Pending()) > 0:
@@ -538,17 +636,6 @@ func approvalBody(r *headless.PermissionRequest, cwd string, w int) []string {
 	return out
 }
 
-func (m *Model) stoppedPane(a *fleet.Agent, w, h int) []string {
-	out := []string{
-		onBg(bgChrome, spread(faint("▍")+paint(cBright+bold, oneLine(a.DisplayName))+"   "+dim("⏹ stopped"), "", w), w),
-		onBg(bgChrome, "  "+dim(tildify(a.Cwd)), w),
-		"",
-		"  " + dim("This session's host isn't running. Its conversation is saved."),
-		"  " + dim("Enter resumes it here, headless, where you left off."),
-	}
-	return out
-}
-
 // --- keys ---
 
 // paneKey handles a key while an agtop-mode session's pane has focus. The
@@ -602,6 +689,10 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	case "enter":
+		if empty && m.viewName(c) == "screen" && m.canEmbed() {
+			m.embedded = true // keys go to Claude Code's own screen
+			return nil
+		}
 		if empty && len(c.images) > 0 {
 			return m.sendPane(c, false)
 		}
@@ -638,11 +729,11 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 	case "[", "]":
 		if empty {
-			d := 1
+			d, n := 1, len(m.views(c))
 			if s == "[" {
 				d = -1
 			}
-			c.view = (c.view + d + len(paneViews)) % len(paneViews)
+			c.view = (c.view%n + d + n) % n
 			c.scroll = 0
 			return nil
 		}
@@ -661,6 +752,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	case "ctrl+x":
+		if c.client == nil {
+			return m.stopOrRemove(m.focused())
+		}
 		if c.sess.Live() != nil && time.Since(c.stopArmed) > 2*time.Second {
 			c.stopArmed = time.Now()
 			m.flash("stopping the turn · ctrl+x again stops the session", false)
@@ -673,6 +767,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		return nil
 	case "shift+tab":
+		if c.client == nil {
+			return nil
+		}
 		modes := []string{"default", "acceptEdits", "plan", "auto"}
 		cur := c.sess.Info.PermissionMode
 		next := modes[0]
@@ -738,6 +835,9 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	c.lastSend = time.Now()
 	if a := m.focused(); a != nil {
 		m.markSeen(a)
+	}
+	if c.client == nil {
+		return m.sendOffline(c, text, images)
 	}
 	if len(images) > 0 {
 		return hostCmd(func() error { return c.client.SendImages(text, images) })
@@ -810,13 +910,43 @@ func (m *Model) leavePane() {
 	}
 }
 
-// focusPane moves keys into the selected agtop-mode agent's pane.
-func (m *Model) focusPane(a *fleet.Agent) tea.Cmd {
-	if a == nil || !a.Agtop {
+// sendOffline sends from the message box of a session agtop isn't hosting:
+// a stopped agtop session resumes with it, a Claude Code session gets it as
+// a reply through its daemon.
+func (m *Model) sendOffline(c *hostConn, text string, images []string) tea.Cmd {
+	a := m.agentByKey(c.key)
+	switch {
+	case a == nil:
+		return nil
+	case a.Interactive:
+		m.flash(a.DisplayName+" is open in a terminal; reply there", true)
+		return nil
+	case a.Agtop:
+		cfg, err := host.ReadConfig(a.ID)
+		if err != nil {
+			cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
+		}
+		cfg.Resume, cfg.Prompt, cfg.Images = true, text, images
+		m.flash("resuming "+a.DisplayName+"…", false)
+		return func() tea.Msg {
+			if _, err := host.Spawn(cfg); err != nil {
+				return doneMsg{err: err}
+			}
+			return doneMsg{text: "resumed " + a.DisplayName}
+		}
+	case len(images) > 0:
+		m.flash("images go to agtop-mode sessions; /agtop moves this one over", true)
 		return nil
 	}
-	if a.PID == 0 {
-		return m.resume(a)
+	m.loader.Nudge(a.Key)
+	m.markSeen(a)
+	return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
+}
+
+// focusPane moves keys into the selected agtop-mode agent's pane.
+func (m *Model) focusPane(a *fleet.Agent) tea.Cmd {
+	if a == nil {
+		return nil
 	}
 	m.preview, m.paneFocus = true, true
 	return m.loadPreview()

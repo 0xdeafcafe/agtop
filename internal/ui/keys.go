@@ -131,7 +131,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.loadPreview()
 		}
 	case "right":
-		if empty && a != nil && a.Agtop {
+		if empty && a != nil && !strings.HasPrefix(m.sel, "§") {
 			return m.focusPane(a)
 		}
 		if empty {
@@ -198,14 +198,10 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.toggleFold(t)
 			return nil
 		}
-		if empty && a != nil && a.Agtop {
+		// Enter on an agent opens its Session with the keys in its message
+		// box, whatever kind of session it is.
+		if empty && a != nil && m.inKind == inPrompt {
 			return m.focusPane(a)
-		}
-		// A Claude Code agent with its screen beside the list: type into it
-		// there rather than leaving agtop.
-		if empty && a != nil && m.listW > 0 && m.canEmbed() {
-			m.claudeView, m.embedded = 0, true
-			return nil
 		}
 		return m.submit()
 	case "f2":
@@ -261,8 +257,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	case "[", "]":
 		if empty && a != nil {
-			if a.Agtop && m.host != nil {
-				m.host.view = (m.host.view + 1) % len(paneViews)
+			if c := m.host; c != nil && c.key == a.Key {
+				n := len(m.views(c))
+				c.view = (c.view%n + 1) % n
 			} else {
 				m.claudeView = 1 - m.claudeView
 			}
