@@ -117,8 +117,11 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string)
 	} else {
 		d.folded()
 	}
-	// The gap between turns is plain: the running turn's rail ends with it.
-	d.lines = append(d.lines, Line{Text: row("", "", "", d.o.Width, d.cw)})
+	// An open turn ends with a plain gap (the running turn's rail ends
+	// with it); folded turns stack row on row.
+	if open {
+		d.lines = append(d.lines, Line{Text: row("", "", "", d.o.Width, d.cw)})
+	}
 	s.cache[t] = cached{key: key, lines: d.lines}
 	return d.lines
 }

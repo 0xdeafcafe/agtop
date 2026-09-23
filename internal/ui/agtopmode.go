@@ -826,6 +826,19 @@ func (m *Model) agtopPane(w, h int) []string {
 		out = append(out, l.Text)
 		c.rowRefs = append(c.rowRefs, l.Ref)
 	}
+	// Scrolled into a turn whose heading is off the top: pin the heading
+	// there, so you always know whose turn you're reading.
+	if m.viewName(c) == "conversation" && start > 0 && end > start && !c.searching {
+		for i := start; i >= 0; i-- {
+			if r := body[i].Ref; isTurnRef(r) {
+				if i < start && !isTurnRef(body[start].Ref) {
+					out[len(head)] = body[i].Text
+					c.rowRefs[len(head)] = r
+				}
+				break
+			}
+		}
+	}
 	if c.scroll > 0 {
 		pill := selBG + " " + paint(cText, fmt.Sprintf("↓ %d more · end follows", c.scroll)) + " " + reset
 		out = append(out, spread("", pill, w))
@@ -2170,4 +2183,17 @@ func cardHint(c *hostConn, keys string) string {
 		return paint(cOrange, "▸ ") + keys + dim("   ·   esc back to typing")
 	}
 	return dim("↑ to answer   ·   or alt+y alt+a alt+n from the box")
+}
+
+// isTurnRef is a turn's own row ("t12"), not one of its steps.
+func isTurnRef(r string) bool {
+	if len(r) < 2 || r[0] != 't' {
+		return false
+	}
+	for _, c := range r[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
