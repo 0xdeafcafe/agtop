@@ -165,6 +165,7 @@ type hostConn struct {
 	// Answering Claude's questions, one at a time.
 	qFor      string
 	qIdx      int
+	qCursor   int // the option ↑↓ is on while the card has the keys
 	qPicked   map[int]bool
 	qAnswer   map[string]string
 	stopArmed time.Time
@@ -1336,7 +1337,7 @@ func questions(req *headless.PermissionRequest) (title string, qs []question) {
 // syncQuestion resets the answering state when a new question arrives.
 func (c *hostConn) syncQuestion(req *headless.PermissionRequest) {
 	if c.qFor != req.ID {
-		c.qFor, c.qIdx, c.qPicked, c.qAnswer = req.ID, 0, map[int]bool{}, map[string]string{}
+		c.qFor, c.qIdx, c.qCursor, c.qPicked, c.qAnswer = req.ID, 0, 0, map[int]bool{}, map[string]string{}
 	}
 }
 
@@ -1365,29 +1366,68 @@ func (m *Model) questionCard(c *hostConn, req *headless.PermissionRequest, w int
 	for _, l := range wrap(q.Question, w-8) {
 		cl(paint(cYellow, "▍") + "     " + paint(cText+bold, l))
 	}
-	for i, o := range q.Options {
-		mark := paint(cText+bold, fmt.Sprint(i+1))
-		if q.MultiSelect {
-			box := "☐"
-			if c.qPicked[i] {
-				box = paint(cGreen, "☑")
-			}
-			mark += " " + box
-		}
-		line := paint(cYellow, "▍") + "   " + mark + "  " + paint(cText, o.Label)
-		if o.Description != "" {
-			line += dim("  " + oneLine(o.Description))
-		}
-		cl(ansi.Truncate(line, w, "…"))
+	edge := paint(cYellow, "▍")
+	if c.cardFocus {
+		edge = paint(cOrange, "▍")
 	}
-	keysHint := fmt.Sprintf("1–%d picks · s skips", len(q.Options))
+	cl(edge)
+	descW := min(w-14, 100)
+	for i, o := range q.Options {
+		label := strings.TrimSpace(o.Label)
+		rec := strings.Contains(strings.ToLower(label), "(recommended)")
+		if rec {
+			label = strings.TrimSpace(strings.Replace(strings.Replace(label, "(Recommended)", "", 1), "(recommended)", "", 1))
+		}
+		num := paint(cSub, fmt.Sprint(i+1))
+		box := ""
+		if q.MultiSelect {
+			box = dim("☐ ")
+			if c.qPicked[i] {
+				box = paint(cGreen, "☑ ")
+			}
+		}
+		name := paint(cText+bold, label)
+		if rec {
+			name += "  " + paint(cGreen, "recommended")
+		}
+		sel := c.cardFocus && c.qCursor == i
+		row := edge + "   " + num + "  " + box + name
+		if sel {
+			row = edge + " " + paint(cOrange, "▸") + " " + num + "  " + box + name
+		}
+		if sel {
+			out = append(out, onBg(selBG, row, w))
+		} else {
+			cl(row)
+		}
+		// Descriptions wrap under their option, two lines at most.
+		for j, l := range wrap(oneLine(o.Description), descW) {
+			if j == 2 {
+				cl(edge + "        " + dim("…"))
+				break
+			}
+			if o.Description == "" {
+				break
+			}
+			cl(edge + "        " + dim(l))
+		}
+	}
+	own := dim("✎ answer in your own words: type below and press enter")
+	if c.cardFocus && c.qCursor == len(q.Options) {
+		own = paint(cOrange, "▸ ") + paint(cText, "✎ answer in your own words: type below and press enter")
+		out = append(out, onBg(selBG, edge+"   "+own, w))
+	} else {
+		cl(edge + "   " + own)
+	}
+	cl(edge)
+	keysHint := "↑↓ choose · enter picks · 1–" + fmt.Sprint(len(q.Options)) + " · s skips"
 	if q.MultiSelect {
-		keysHint = fmt.Sprintf("1–%d toggles · enter confirms · s skips", len(q.Options))
+		keysHint = "↑↓ choose · space toggles · enter confirms · s skips"
 	}
 	if c.cardFocus {
-		cl(paint(cOrange, "▍") + "   " + cardHint(c, paint(cSub, keysHint)))
+		cl(edge + "   " + cardHint(c, paint(cSub, keysHint)))
 	} else {
-		cl(paint(cYellow, "▍") + "   " + dim("↑ to pick an option   ·   or type your own answer below and press enter"))
+		cl(edge + "   " + dim("↑ to choose an option   ·   or type your own answer below"))
 	}
 	return out
 }
@@ -1402,6 +1442,34 @@ func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s stri
 		return nil, false
 	}
 	q := qs[c.qIdx]
+	if c.cardFocus && empty {
+		switch s {
+		case "up":
+			c.qCursor = max(0, c.qCursor-1)
+			return nil, true
+		case "down":
+			if c.qCursor >= len(q.Options) {
+				return nil, false // past the last row: back to the box
+			}
+			c.qCursor++
+			return nil, true
+		case "space":
+			if q.MultiSelect && c.qCursor < len(q.Options) {
+				c.qPicked[c.qCursor] = !c.qPicked[c.qCursor]
+				return nil, true
+			}
+		case "enter":
+			switch {
+			case c.qCursor >= len(q.Options):
+				c.cardFocus = false // "your own words": type in the box
+				return nil, true
+			case !q.MultiSelect:
+				return m.answerQuestion(c, req, qs, q.Options[c.qCursor].Label), true
+			case len(c.qPicked) == 0:
+				c.qPicked[c.qCursor] = true
+			}
+		}
+	}
 	if empty && len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
 		i := int(s[0] - '1')
 		if i >= len(q.Options) {
@@ -1430,14 +1498,6 @@ func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s stri
 			return m.answerQuestion(c, req, qs, strings.Join(picked, ", ")), true
 		}
 		return nil, true
-	case "esc":
-		if empty {
-			id := req.ID
-			c.qFor = ""
-			return hostCmd(func() error {
-				return c.client.Deny(id, "The user skipped the question; carry on with your best judgement.", false)
-			}), true
-		}
 	}
 	return nil, false
 }
@@ -1447,7 +1507,7 @@ func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s stri
 func (m *Model) answerQuestion(c *hostConn, req *headless.PermissionRequest, qs []question, answer string) tea.Cmd {
 	c.qAnswer[qs[c.qIdx].Question] = answer
 	c.qIdx++
-	c.qPicked = map[int]bool{}
+	c.qPicked, c.qCursor = map[int]bool{}, 0
 	if c.qIdx < len(qs) {
 		return nil
 	}

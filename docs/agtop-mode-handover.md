@@ -130,9 +130,16 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 - [ ] `isOpen` re-renders the whole session on every toggle.
 - [ ] `onHostLines` applies the last replay stamp to later live events in the same batch.
 - [ ] The narrow "waiting on you" row shows the raw tool name "AskUserQuestion".
-- [ ] Question card option descriptions truncate instead of wrapping.
+- [x] Question card option descriptions truncate instead of wrapping. Fixed after the handover: descriptions wrap under each option, "recommended" is a chip, ↑↓/enter/space choose while the card has focus, and a last row offers "answer in your own words". esc no longer skips.
 
 ### 2. Features the user asked for, not built yet
+
+- [ ] **Slash commands in the Session's message box.** The user can't run `/clear`, `/compact` and so on from agtop mode today.
+  - Typing `/` should open a picker above the box. Use the same row style as the Settings rows, with the command in bold white and its description dim.
+  - The data comes from `convo.Session.Commands`, filled by the host's `initialize` reply (72 commands on the user's setup); narrow it as they type, and tab completes.
+  - Enter sends `/cmd args` as the message; headless Claude Code runs slash commands it supports in stream-json (check which ones: `/compact` should work).
+  - `/clear` needs agtop to handle it: start a fresh conversation in the same folder. That means spawning a new host session and selecting it, while the old one stays in the list.
+  - agtop's own commands (`/agtop`, `/width`, `/done`, `/rename`, …) should appear in the same picker, marked as agtop's.
 
 - [ ] **Queue view** in the strip: edit in place, reorder (shift+↑↓), merge, drop, send now, **hold**. Needs a `hold` op in the host, plus queue item ids. The client already has `EditQueued/MoveQueued/MergeQueued/SendQueued/RemoveQueued`; nothing calls them yet.
 - [ ] **Tasks view:** the full list (now / next / done), including subagents' tasks. Data is in `convo.Session.Tasks` (TodoWrite, TaskCreate, TaskUpdate).
