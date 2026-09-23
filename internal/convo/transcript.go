@@ -225,7 +225,6 @@ func (t *Tail) apply(b []byte) bool {
 	return false
 }
 
-
 // prompt reads a user line as something you typed: plain text or text and
 // image blocks, not a tool result. Command wrappers are unwrapped.
 func prompt(raw json.RawMessage) (string, []string, bool) {
