@@ -369,3 +369,43 @@ func TestSubagents(t *testing.T) {
 		}
 	}
 }
+
+func TestChanges(t *testing.T) {
+	s := session()
+	s.Apply(headless.Result{Subtype: "success"}, at(50))
+	ch := s.Changes()
+	if len(ch) != 2 || ch[0].Add != 2 || ch[0].Del != 1 || !ch[1].New || ch[1].Add != 3 {
+		t.Fatalf("changes: %+v %+v", ch[0], ch[1])
+	}
+	out := plain(s.ChangesView(Options{Width: 110, Now: at(60), Open: map[string]bool{"chg:/work/agtop/internal/daemon/attach.go": true}}))
+	for _, w := range []string{"This session  2 files · +5 −1", "internal/daemon/attach.go", "#1", "61 + ", "new · 3 lines"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in\n%s", w, out)
+		}
+	}
+}
+
+func TestSearch(t *testing.T) {
+	s := session()
+	cases := []struct {
+		q    string
+		want []string // refs
+	}{
+		{"is:failed", []string{"t2:s:b2"}},
+		{"is:edit", []string{"t1:s:e1", "t2:s:w1"}},
+		{"file:editor.go", []string{"t2:s:w1"}},
+		{"alt screen", []string{"t1"}},
+		{"is:you attach", []string{"t1"}},
+		{"unreachable", []string{"t2:s:b2"}},
+		{"turn:2 is:cmd", []string{"t2:s:b2", "t2:s:b3"}},
+	}
+	for _, c := range cases {
+		var got []string
+		for _, h := range s.Search(c.q) {
+			got = append(got, h.Ref)
+		}
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%q: got %v want %v", c.q, got, c.want)
+		}
+	}
+}

@@ -20,7 +20,7 @@ import (
 
 // Pane views, cycled with [ and ]: every session has a conversation and an
 // overview; a running Claude Code session also has its live screen.
-var paneViews = []string{"conversation", "overview"}
+var paneViews = []string{"conversation", "overview", "changes"}
 
 func (m *Model) views(c *hostConn) []string {
 	v := append([]string{}, paneViews...)
@@ -174,6 +174,10 @@ type hostConn struct {
 	subTail *convo.Tail
 	subOpen string
 	subSel  string // selection inside the opened subagent
+
+	// Search: ctrl+f turns the message box into a search box.
+	searching bool
+	query     []rune
 }
 
 type hostOpenMsg struct {
@@ -395,7 +399,13 @@ func (m *Model) agtopPane(w, h int) []string {
 	o := convo.Options{Width: w, Now: time.Now(), Tick: m.tick, Open: c.open, Verbose: c.verbose,
 		Selected: c.sel, Focused: m.paneFocus}
 	var body []convo.Line
-	switch m.viewName(c) {
+	view := m.viewName(c)
+	if c.searching {
+		view = "search"
+		body = s.SearchView(string(c.query), o)
+	}
+	switch view {
+	case "search":
 	case "screen":
 		for _, l := range m.liveLines(w) {
 			body = append(body, convo.Line{Text: l})
@@ -405,6 +415,8 @@ func (m *Model) agtopPane(w, h int) []string {
 		}
 	case "overview":
 		body = s.Overview(o)
+	case "changes":
+		body = s.ChangesView(o)
 	case "subagents":
 		if c.subOpen != "" {
 			o.Selected = c.subSel
@@ -671,6 +683,10 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	}
 	b := box{w: w, focused: m.paneFocus, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back),
 		lead: paint(cOrange, "❯ "), holder: "a message for this agent", maxRows: 6}
+	if c.searching {
+		b = box{w: w, focused: m.paneFocus, topL: paint(cOrange, "search this session") + dim(" · ↑↓ pick · enter jumps · esc closes"),
+			text: c.query, cursor: len(c.query), lead: paint(cOrange, "⌕ "), holder: "words, or is:failed file:host.go turn:3", maxRows: 1}
+	}
 	if mode := s.Info.PermissionMode; mode != "" {
 		b.topR = paint(cOrange, mode)
 	}
@@ -764,6 +780,13 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	c := m.host
 	if c == nil {
 		m.paneFocus = false
+		return nil
+	}
+	if c.searching {
+		return m.searchKey(c, k, s)
+	}
+	if s == "ctrl+f" {
+		c.searching, c.query, c.sel = true, nil, ""
 		return nil
 	}
 	empty := len(c.input) == 0
@@ -1390,4 +1413,37 @@ func (m *Model) answerQuestion(c *hostConn, req *headless.PermissionRequest, qs 
 	id := req.ID
 	c.qFor = ""
 	return hostCmd(func() error { return c.client.Allow(id, b, false) })
+}
+
+// searchKey handles keys while the message box is a search box.
+func (m *Model) searchKey(c *hostConn, k tea.KeyPressMsg, s string) tea.Cmd {
+	switch s {
+	case "esc", "ctrl+f":
+		c.searching, c.query, c.sel = false, nil, ""
+		return nil
+	case "up", "down":
+		m.moveSel(c, map[string]int{"up": -1, "down": 1}[s])
+		return nil
+	case "enter":
+		if c.sel == "" && len(c.bodyRefs) > 0 {
+			c.sel = c.bodyRefs[0]
+		}
+		if c.sel == "" {
+			return nil
+		}
+		// Jump: back to the conversation with the match's turn opened and
+		// the match selected.
+		turn, _, isStep := strings.Cut(c.sel, ":")
+		c.open[turn] = true
+		if isStep {
+			c.open[c.sel] = true
+		}
+		c.view, c.searching, c.query, c.selMoved = 0, false, nil, true
+		return nil
+	}
+	buf, _, ok := edit(c.query, len(c.query), k, s)
+	if ok && !strings.Contains(string(buf), "\n") {
+		c.query, c.sel = buf, ""
+	}
+	return nil
 }

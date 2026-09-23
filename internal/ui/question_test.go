@@ -53,3 +53,12 @@ func TestAnswerQuestions(t *testing.T) {
 	}
 	_ = tea.KeyPressMsg{}
 }
+
+// A transcript-backed Session that finishes loading after you've moved on
+// has no host client; discarding it must not crash.
+func TestStaleTranscriptOpen(t *testing.T) {
+	m := &Model{hostOpening: "acct/other"}
+	m.onHostOpen(hostOpenMsg{key: "acct/old", c: &hostConn{key: "acct/old"}})
+	m.hostOpening = "acct/old"
+	m.dropHost()
+}

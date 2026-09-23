@@ -286,4 +286,10 @@ func (c *Client) SetEffort(e string) error { return c.do(op{Op: "effort", Effort
 // Stop ends the session and its host; the conversation is kept.
 func (c *Client) Stop() error { return c.do(op{Op: "stop"}) }
 
-func (c *Client) Close() error { return c.c.Close() }
+// Close ends the connection; it's safe on a nil client.
+func (c *Client) Close() error {
+	if c == nil || c.c == nil {
+		return nil
+	}
+	return c.c.Close()
+}
