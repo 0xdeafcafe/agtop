@@ -262,6 +262,10 @@ func keys(pairs ...string) string {
 func (m *Model) layout() (listW, paneW, bodyH int) {
 	listW = m.w
 	showing := m.full || m.preview || m.wide()
+	if m.zen {
+		listW, paneW = 0, m.w // zen is the one agent, full width
+		showing = false
+	}
 	if showing {
 		// The list keeps at least a quarter of the screen and 30 columns;
 		// if that leaves the pane too narrow to read, there's no split.
@@ -361,7 +365,9 @@ func (m *Model) listView() string {
 	}
 	var pane []string
 	if paneW > 0 {
-		if pane = m.agtopPane(paneW-3, paneH); pane == nil {
+		if m.zen && len(m.zenQueue()) == 0 {
+			pane = m.zenQuiet(paneW-3, paneH)
+		} else if pane = m.agtopPane(paneW-3, paneH); pane == nil {
 			// A Claude Code agent's Session: its live screen or a summary,
 			// switched with [ ], under the same strip an agtop session has.
 			var body []string
@@ -1061,6 +1067,9 @@ func (m *Model) badges(a *fleet.Agent) string {
 // edge says where the text goes and what enter will do; the agent pane's
 // own input is the same box, so the two always read alike.
 func (m *Model) promptLines(w int) []string {
+	if m.zen {
+		return nil // zen answers in the Session's own box
+	}
 	a := m.selected()
 	text := string(m.input)
 	b := box{w: w, focused: !m.sessionFocused(), text: m.input, cursor: m.cursorPos(),

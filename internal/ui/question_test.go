@@ -3,9 +3,11 @@ package ui
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
@@ -61,4 +63,35 @@ func TestStaleTranscriptOpen(t *testing.T) {
 	m.onHostOpen(hostOpenMsg{key: "acct/old", c: &hostConn{key: "acct/old"}})
 	m.hostOpening = "acct/old"
 	m.dropHost()
+}
+
+func TestZenQueue(t *testing.T) {
+	now := time.Now()
+	ag := func(key string, age time.Duration, blocked bool) *fleet.Agent {
+		a := &fleet.Agent{Key: key, PID: 1}
+		a.UpdatedAt = now.Add(-age)
+		if blocked {
+			a.State = "blocked"
+		} else {
+			a.State = "working"
+		}
+		return a
+	}
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{
+		ag("new", time.Minute, true), ag("busy", time.Hour, false), ag("old", 10*time.Minute, true),
+	}}, zen: true}
+	m.zenPick()
+	if m.sel != "old" || !m.paneFocus {
+		t.Fatalf("zen should start on the oldest waiting agent, got %q", m.sel)
+	}
+	m.zenSkip()
+	if m.sel != "new" {
+		t.Fatalf("ctrl+n should skip to the next, got %q", m.sel)
+	}
+	// Once answered, it moves on by itself.
+	m.snap.Agents[0].State = "working"
+	m.zenPick()
+	if m.sel != "old" {
+		t.Fatalf("an answered agent should give way, got %q", m.sel)
+	}
 }

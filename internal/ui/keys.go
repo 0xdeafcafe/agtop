@@ -507,7 +507,7 @@ func (m *Model) command(text string) tea.Cmd {
 		}
 	case "/account":
 		if arg == "" {
-			m.setView(2)
+			m.setView(3) // Accounts
 			return nil
 		}
 		return m.useAccount(arg)

@@ -404,8 +404,12 @@ func (m *Model) agtopPane(w, h int) []string {
 		view = "search"
 		body = s.SearchView(string(c.query), o)
 	}
+	if m.zen {
+		view = "zen"
+		body = m.zenBody(a, c, w)
+	}
 	switch view {
-	case "search":
+	case "search", "zen":
 	case "screen":
 		for _, l := range m.liveLines(w) {
 			body = append(body, convo.Line{Text: l})
@@ -821,6 +825,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			c.input, c.back = c.input[:0], 0
 		case c.sel != "":
 			c.sel = "" // first esc drops the step selection
+		case m.zen:
+			// Zen keeps the keys on the agent; tab leaves zen.
 		default:
 			m.leavePane()
 		}
@@ -954,6 +960,10 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		m.flash("permission mode: "+next, false)
 		return hostCmd(func() error { return c.client.SetPermissionMode(next) })
 	case "ctrl+n":
+		if m.zen {
+			m.zenSkip()
+			return nil
+		}
 		m.paneFocus = false
 		return m.nextNeedingYou()
 	case "alt+left", "alt+right":

@@ -92,7 +92,8 @@ type Model struct {
 	// claudeView is a Claude Code agent's Session view: 0 its live screen,
 	// 1 the summary.
 	claudeView int
-	paneTop    int // screen row of the pane's first line, for clicks
+	zen        bool // the Zen view: only the agent that needs you
+	paneTop    int  // screen row of the pane's first line, for clicks
 	// host is the connection to the agtop-mode session the pane shows.
 	host        *hostConn
 	hostOpening string
@@ -420,6 +421,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.tick++
 		m.refresh()
+		m.zenPick()
 		m.followTail()
 		m.refreshSubs()
 		cmds := []tea.Cmd{tick()}
@@ -584,18 +586,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-var viewNames = []string{"Agents", "Processes", "Accounts", "Coding agents", "Settings", "Claude"}
+var viewNames = []string{"Agents", "Zen", "Processes", "Accounts", "Coding agents", "Settings", "Claude"}
 
 // setView switches the whole screen; tab and shift+tab cycle through them.
 func (m *Model) setView(v int) {
 	m.view = (v + len(viewNames)) % len(viewNames)
 	m.dialog, m.mode, m.picker = nil, modeList, nil
 	m.input, m.inKind = m.input[:0], inPrompt
+	m.zen = false
 	switch m.view {
 	case 1:
+		m.zen = true
+		m.zenPick()
+	case 2:
 		m.mode, m.procCursor = modeProcs, 0
-	case 2, 3, 4, 5:
-		m.openDialog(m.view - 2)
+	case 3, 4, 5, 6:
+		m.openDialog(m.view - 3)
 	}
 }
 
