@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/claude"
@@ -432,7 +433,14 @@ func (m *Model) procRows() []procRow {
 	}
 	var out []procRow
 	if m.procMachine {
+		byKey := map[string]*fleet.Agent{}
+		for _, a := range m.snap.Agents {
+			byKey[a.Key] = a
+		}
 		for _, r := range m.snap.Machine.Rows {
+			if a := byKey[r.Key]; a != nil {
+				r.Cmd = m.context(a)
+			}
 			out = append(out, procRow{pid: r.PID, label: r.Label, cmd: r.Cmd, mem: r.Mem, cpu: r.CPU, n: r.Procs, start: r.Start, role: r.Role, key: r.Key})
 		}
 		return out
@@ -519,7 +527,7 @@ func (m *Model) killTreeCmd(pid int) func() tea.Cmd {
 func trimCmd(s string, n int) string {
 	home, _ := os.UserHomeDir()
 	s = strings.ReplaceAll(s, home, "~")
-	return fit(s, n)
+	return ansi.Truncate(s, n, "…")
 }
 
 func (m *Model) acctKey(k tea.KeyPressMsg, s string) tea.Cmd {

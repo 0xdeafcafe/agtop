@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -69,6 +70,8 @@ type Model struct {
 	preview  bool
 	previews map[string]previewEntry
 	expanded map[string]bool
+	earlier  bool
+	hidden   int
 
 	input  []rune
 	inKind inputKind
@@ -95,10 +98,21 @@ type previewEntry struct {
 	size int64
 }
 
+type lineKind int
+
+const (
+	lineBlank lineKind = iota
+	lineSection
+	lineAgent
+	lineSub
+	lineEarlier
+)
+
 type listLine struct {
-	header string
-	agent  *fleet.Agent
-	extra  string
+	kind  lineKind
+	title string
+	meta  string
+	agent *fleet.Agent
 }
 
 func New(store *state.Store, version string) *Model {
@@ -318,6 +332,10 @@ func (m *Model) move(d int) {
 	if i < 0 {
 		i = 0
 	}
+	if i >= len(m.order) && !m.earlier && m.hidden > 0 {
+		m.earlier = true
+		m.rebuild()
+	}
 	if i >= len(m.order) {
 		i = len(m.order) - 1
 	}
@@ -325,9 +343,11 @@ func (m *Model) move(d int) {
 	m.armed = ""
 }
 
-// rebuild groups the agents for the current group-by mode.
+// rebuild groups the agents for the current group-by mode. What needs the
+// user comes first; anything finished more than a day ago folds into Earlier.
 func (m *Model) rebuild() {
 	by := m.store.Config.GroupBy
+	now := m.snap.At
 	type group struct {
 		name   string
 		agents []*fleet.Agent
@@ -346,26 +366,24 @@ func (m *Model) rebuild() {
 			g.recent = a.UpdatedAt
 		}
 	}
-	statusGroup := func(a *fleet.Agent) {
+	var earlier []*fleet.Agent
+	for _, a := range m.snap.Agents {
+		fresh := a.Live() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
 		case a.State == "blocked":
-			add("Awaiting input", 1, a)
-		case a.Live():
-			add("Working", 2, a)
-		default:
-			add("Completed", 8, a)
-		}
-	}
-	for _, a := range m.snap.Agents {
-		switch {
+			add("Needs you", 0, a)
 		case a.Pinned:
-			add("Pinned", 0, a)
+			add("Pinned", 1, a)
+		case a.Live() && by == "status":
+			add("Working", 2, a)
+		case !fresh:
+			earlier = append(earlier, a)
 		case a.Done:
-			add("Done", 9, a)
+			add("Done", 8, a)
 		case by == "repo":
 			name := "No repository"
 			if a.Repo != "" {
-				name = tildify(a.Repo)
+				name = filepath.Base(a.Repo)
 				if a.Branch != "" {
 					name += " · " + a.Branch
 				}
@@ -375,8 +393,10 @@ func (m *Model) rebuild() {
 			add(a.Acct.Name, 3, a)
 		case by == "group" && a.Group != "":
 			add(a.Group, 3, a)
+		case a.Live():
+			add("Working", 2, a)
 		default:
-			statusGroup(a)
+			add("Today", 7, a)
 		}
 	}
 	list := make([]*group, 0, len(groups))
@@ -391,45 +411,51 @@ func (m *Model) rebuild() {
 	})
 	m.order = m.order[:0]
 	m.lines = m.lines[:0]
+	push := func(a *fleet.Agent) {
+		m.order = append(m.order, a)
+		m.lines = append(m.lines, listLine{kind: lineAgent, agent: a})
+		if a.Live() || m.expanded[a.Key] {
+			m.lines = append(m.lines, listLine{kind: lineSub, agent: a})
+		}
+	}
 	for _, g := range list {
-		header := g.name
-		if by != "status" && g.rank == 3 {
-			var cost float64
-			for _, a := range g.agents {
-				cost += a.Spend.Cost
-			}
-			header = fmt.Sprintf("%s\x00%d agents · %s", g.name, len(g.agents), money(cost))
-		}
-		m.lines = append(m.lines, listLine{header: header})
+		var cost float64
 		for _, a := range g.agents {
-			m.order = append(m.order, a)
-			m.lines = append(m.lines, listLine{agent: a})
-			if m.expanded[a.Key] {
-				for _, l := range m.expandLines(a) {
-					m.lines = append(m.lines, listLine{extra: l})
-				}
-			}
+			cost += a.Spend.Cost
 		}
-		m.lines = append(m.lines, listLine{})
+		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: sectionMeta(len(g.agents), cost)})
+		for _, a := range g.agents {
+			push(a)
+		}
+		m.lines = append(m.lines, listLine{kind: lineBlank})
+	}
+	m.hidden = 0
+	if len(earlier) > 0 {
+		var cost float64
+		for _, a := range earlier {
+			cost += a.Spend.Cost
+		}
+		if m.earlier {
+			m.lines = append(m.lines, listLine{kind: lineSection, title: "Earlier", meta: sectionMeta(len(earlier), cost)})
+			for _, a := range earlier {
+				push(a)
+			}
+		} else {
+			m.hidden = len(earlier)
+			m.lines = append(m.lines, listLine{kind: lineEarlier, meta: sectionMeta(len(earlier), cost)})
+		}
 	}
 	if m.selected() == nil && len(m.order) > 0 {
 		m.sel = m.order[0].Key
 	}
 }
 
-func (m *Model) expandLines(a *fleet.Agent) []string {
-	var out []string
-	text := a.Detail
-	if a.State == "blocked" && a.Needs != "" {
-		text = "needs: " + a.Needs
+func sectionMeta(n int, cost float64) string {
+	s := fmt.Sprintf("%d", n)
+	if cost > 0 {
+		s += " · " + money(cost)
 	}
-	for _, l := range wrap(text, max(20, m.w-10)) {
-		out = append(out, l)
-	}
-	if a.Cwd != "" {
-		out = append(out, tildify(a.Cwd))
-	}
-	return out
+	return s
 }
 
 func tildify(p string) string {

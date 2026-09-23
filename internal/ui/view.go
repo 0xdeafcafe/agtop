@@ -20,279 +20,126 @@ func (m *Model) View() tea.View {
 	return v
 }
 
-// clanker's face follows the fleet's mood.
-func (m *Model) face() (string, string) {
-	var working, blocked int
-	var today float64
+type tally struct {
+	blocked, working, done int
+	today                  float64
+}
+
+func (m *Model) tally() tally {
+	var t tally
 	for _, a := range m.snap.Agents {
 		switch {
 		case a.State == "blocked":
-			blocked++
+			t.blocked++
 		case a.Live():
-			working++
+			t.working++
+		default:
+			t.done++
 		}
 	}
 	for _, av := range m.snap.Accounts {
-		today += av.Today
+		t.today += av.Today
 	}
-	switch {
-	case blocked > 0:
-		return "°□°", "!"
-	case today >= 500 && m.tick%6 < 2:
-		return "$_$", " "
-	case working > 0:
-		if m.tick%7 == 0 {
-			return "-_-", " "
-		}
-		if m.tick%2 == 0 {
-			return "◉_◉", " "
-		}
-		return "◉‿◉", " "
-	default:
-		if m.tick%2 == 0 {
-			return "-_-", "z"
-		}
-		return "-_-", "Z"
-	}
+	return t
 }
 
-func (m *Model) clanker() [4]string {
-	eyes, side := m.face()
-	o := func(s string) string { return paint(cOrange, s) }
-	return [4]string{
-		o("   ╻    ") + " ",
-		o(" ┌─┴─┐  ") + " ",
-		o(" │") + paint(cWhite+bold, eyes) + o("│") + " " + paint(cYellow, side) + " ",
-		o(" └┬─┬┘  ") + " ",
+// face is clanker's mood: the fleet at a glance.
+func (m *Model) face(t tally) (string, string) {
+	switch {
+	case t.blocked > 0:
+		return "°□°", cYellow
+	case t.today >= 500 && m.tick%6 < 2:
+		return "$_$", cOrange
+	case t.working > 0:
+		if m.tick%9 == 0 {
+			return "-_-", cOrange
+		}
+		return "◉_◉", cOrange
+	default:
+		return "-_-", cDim
 	}
 }
 
 func (m *Model) header() []string {
-	robot := m.clanker()
-	var working, blocked, done int
-	for _, a := range m.snap.Agents {
-		switch {
-		case a.State == "blocked":
-			blocked++
-		case a.Live():
-			working++
-		default:
-			done++
-		}
+	t := m.tally()
+	eyes, col := m.face(t)
+	robot := [3]string{
+		paint(col, "┌─┴─┐"),
+		paint(col, "│") + paint(cText, eyes) + paint(col, "│"),
+		paint(col, "└┬─┬┘"),
 	}
-	cli := ""
-	for _, a := range m.snap.Agents {
-		if a.CLIVersion != "" {
-			cli = a.CLIVersion
-			break
-		}
+
+	var counts []string
+	if t.blocked > 0 {
+		counts = append(counts, paint(cYellow+bold, fmt.Sprintf("● %d needs you", t.blocked)))
 	}
+	if t.working > 0 {
+		counts = append(counts, paint(cOrange, fmt.Sprintf("✻ %d working", t.working)))
+	}
+	counts = append(counts, dim(fmt.Sprintf("%d finished", t.done)))
+	left1 := paint(cText+bold, "agtop") + "   " + strings.Join(counts, "   ")
+
 	acct := m.store.Config.ActiveAccount()
-	title := paint(cWhite+bold, "agtop "+m.version) + dim(" · clanker wrangler")
-	if cli != "" {
-		title += dim(" · Claude Code v" + cli)
-	}
-	where := acct.Name + " · " + tildify(m.launchDir)
-	counts := fmt.Sprintf("%d awaiting input · %d working · %d completed", blocked, working, done)
-	var today float64
-	for _, av := range m.snap.Accounts {
-		today += av.Today
+	left2 := dim(acct.Name + " · " + tildify(m.launchDir))
+
+	right1 := paint(cText, money(t.today)) + dim(" today")
+	if u := m.activeUsage(); u != "" {
+		right1 += dim("   ") + u
 	}
 	mc := m.snap.Machine
-	metrics := dim("cpu ") + fmt.Sprintf("%.0f%%", mc.TotalCPU) + dim("  ram ") + mem(mc.TotalMem) +
-		dim("  today ") + money(today)
-	if mc.Spares > 0 {
-		metrics += dim(fmt.Sprintf("  spares %d idle · %s", mc.Spares, mem(mc.SpareMem)))
-	}
+	right2 := dim(fmt.Sprintf("%s ram · %.0f%% cpu", mem(mc.TotalMem), mc.TotalCPU))
 	if !m.loaded {
-		metrics += dim("  costing transcripts…")
+		right2 = dim("costing transcripts…   ") + right2
 	}
-	lines := []string{
-		robot[0] + title,
-		robot[1] + where,
-		robot[2] + counts + "   " + metrics,
-		robot[3] + m.usageLine(),
+
+	line := func(r, l, rt string) string {
+		body := "  " + r + "  " + l
+		gap := m.w - ansi.StringWidth(body) - ansi.StringWidth(rt) - 2
+		if gap < 2 {
+			return fit(body, m.w)
+		}
+		return body + strings.Repeat(" ", gap) + rt
 	}
-	return lines
+	return []string{
+		line(robot[0], left1, right1),
+		line(robot[1], left2, right2),
+		"  " + robot[2],
+	}
 }
 
-func (m *Model) usageLine() string {
-	var parts []string
+// activeUsage is the current account's plan usage, quiet unless it is high.
+func (m *Model) activeUsage() string {
 	for _, av := range m.snap.Accounts {
-		mark := dim("○ ")
-		name := dim(av.Name)
-		if av.Current {
-			mark, name = paint(cOrange, "● "), paint(cOrange, av.Name)
+		if !av.Current {
+			continue
 		}
 		u := av.Usage
-		s := mark + name
-		if u.FiveHour.Present {
-			s += dim(" 5h ") + bar(u.FiveHour.Percent) + fmt.Sprintf(" %.0f%%", u.FiveHour.Percent)
-			if !u.FiveHour.ResetsAt.IsZero() {
-				s += dim(" resets " + u.FiveHour.ResetsAt.Local().Format("15:04"))
-			}
+		if !u.FiveHour.Present {
+			return ""
 		}
+		pct := func(label string, p float64) string {
+			c := cSub
+			switch {
+			case p >= 80:
+				c = cRed
+			case p >= 50:
+				c = cYellow
+			}
+			return dim(label+" ") + paint(c, fmt.Sprintf("%.0f%%", p))
+		}
+		s := pct("5h", u.FiveHour.Percent)
 		if u.SevenDay.Present {
-			s += dim(" · 7d ") + fmt.Sprintf("%.0f%%", u.SevenDay.Percent)
+			s += dim(" · ") + pct("7d", u.SevenDay.Percent)
 		}
 		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > time.Hour {
-			s = ansi.Strip(s)
-			s = dim(s + " (as of " + u.FetchedAt.Local().Format("Mon 15:04") + ")")
+			s += faint(" as of " + u.FetchedAt.Local().Format("15:04"))
 		}
-		parts = append(parts, s)
-	}
-	out := strings.Join(parts, "   ")
-	if len(m.snap.Accounts) > 1 {
-		out += dim("   ctrl+a switch")
-	}
-	return out
-}
-
-// cols decides which extra columns fit, widest terminal first.
-type cols struct {
-	name, detail, badge  int
-	cpu, ram, cost, time bool
-}
-
-func (m *Model) layout(w int, compact bool) cols {
-	c := cols{name: 38, badge: 7, cpu: !compact, ram: !compact, cost: true, time: !compact}
-	if compact {
-		c.name = 30
-	}
-	fixed := func() int {
-		n := 2 + c.name + 2 + c.badge + 5
-		if c.cpu {
-			n += 7
+		if len(m.snap.Accounts) > 1 {
+			s = dim(av.Name+" ") + s
 		}
-		if c.ram {
-			n += 7
-		}
-		if c.cost {
-			n += 8
-		}
-		if c.time {
-			n += 7
-		}
-		return n
+		return s
 	}
-	for _, drop := range []*bool{&c.time, &c.cpu, &c.ram, &c.cost} {
-		if w-fixed() >= 24 {
-			break
-		}
-		*drop = false
-	}
-	if w-fixed() < 16 {
-		c.name = max(16, w-fixed()-16+c.name)
-	}
-	c.detail = max(8, w-fixed())
-	return c
-}
-
-func (m *Model) colHeader(c cols) string {
-	s := strings.Repeat(" ", 2+c.name+2+c.detail+c.badge)
-	if c.cpu {
-		s += right("CPU", 7)
-	}
-	if c.ram {
-		s += right("RAM", 7)
-	}
-	if c.cost {
-		s += right("COST", 8)
-	}
-	if c.time {
-		s += right("TIME", 7)
-	}
-	return faint(s + right("", 5))
-}
-
-func (m *Model) row(a *fleet.Agent, c cols, selected bool) string {
-	now := m.snap.At
-	glyph := dim("∙")
-	switch {
-	case a.State == "blocked":
-		glyph = paint(cYellow, "●")
-	case a.Live():
-		glyph = paint(cOrange, spinner[m.tick%len(spinner)])
-	case a.Done:
-		glyph = paint(cGreen, "✓")
-	}
-	name := fit(oneLine(a.DisplayName), c.name)
-	if selected {
-		glyph = paint(cOrange, "›")
-		name = paint(cWhite+bold, name)
-	}
-	detail := oneLine(a.Detail)
-	if detail == "" {
-		detail = oneLine(a.Intent)
-	}
-	detailColor := ""
-	switch {
-	case a.State == "blocked" && a.Needs != "":
-		detail, detailColor = oneLine(a.Needs), cYellow
-	case a.State == "stopped" || detail == "stopped":
-		detailColor = cDim
-	}
-	d := fit(detail, c.detail)
-	if detailColor != "" {
-		d = paint(detailColor, d)
-	}
-	s := glyph + " " + name + "  " + d + m.badge(a, c.badge)
-	if c.cpu {
-		v := "–"
-		if a.Worker != nil {
-			v = fmt.Sprintf("%.1f%%", a.CPU)
-		}
-		s += cpuColor(a.CPU, right(v, 7))
-	}
-	if c.ram {
-		s += memColor(a.Mem, right(mem(a.Mem), 7))
-	}
-	if c.cost {
-		v := money(a.Spend.Cost)
-		if !a.Spend.Ready {
-			v = "…"
-		}
-		s += right(v, 8)
-	}
-	if c.time {
-		s += dim(right(dur(a.Elapsed(now)), 7))
-	}
-	return s + right(age(a.Age(now)), 5)
-}
-
-func (m *Model) badge(a *fleet.Agent, w int) string {
-	var b string
-	switch len(a.PRs) {
-	case 0:
-	case 1:
-		pr := a.PRs[0]
-		col := cGreen
-		switch pr.State {
-		case "MERGED":
-			col = cBlue
-		case "CLOSED":
-			col = cRed
-		case "DRAFT":
-			col = cDim
-		}
-		if pr.Checks.Failed > 0 && pr.State != "MERGED" && pr.State != "CLOSED" {
-			col = cYellow
-		}
-		b = paint(col, fmt.Sprintf("#%d", pr.Number))
-	default:
-		b = fmt.Sprintf("%d PRs", len(a.PRs))
-	}
-	if a.Children > 0 {
-		if b != "" {
-			b += " "
-		}
-		if a.Children > 1 {
-			b += fmt.Sprintf("%d ⧉", a.Children)
-		} else {
-			b += "⧉"
-		}
-	}
-	return right(b, w)
+	return ""
 }
 
 func (m *Model) render() string {
@@ -303,11 +150,11 @@ func (m *Model) render() string {
 	case modeHelp:
 		return m.frame(m.helpBody(), "any key to go back")
 	case modeProcs:
-		return m.frame(m.procBody(), "")
+		return m.frame(m.procBody(), keys("tab", "agent / machine", "enter", "jump to agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "esc", "back"))
 	case modeAccounts:
-		return m.frame(m.acctBody(), "")
+		return m.frame(m.acctBody(), keys("enter", "use for new sessions", "m", "move selected agent here", "l", "sign in", "n", "add", "esc", "back"))
 	case modeCwd:
-		return m.frame(m.cwdBody(), "")
+		return m.frame(m.cwdBody(), keys("enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
 	}
 	return m.listView()
 }
@@ -323,7 +170,7 @@ func (m *Model) frame(body []string, hint string) string {
 	avail := m.h - len(head) - 3
 	for i := 0; i < avail; i++ {
 		if i < len(body) {
-			b.WriteString(fit(body[i], m.w))
+			b.WriteString(fit("  "+body[i], m.w))
 		}
 		b.WriteByte('\n')
 	}
@@ -336,20 +183,29 @@ func (m *Model) frame(body []string, hint string) string {
 func (m *Model) statusOr(hint string) string {
 	if m.confirm != nil {
 		c := m.confirm
-		s := paint(cWhite+bold, c.question) + "  " + dim(c.detail) + "   " + paint(cOrange, "[y]") + " yes"
+		s := paint(cText+bold, c.question) + "  " + dim(c.detail) + "   " + paint(cOrange, "y") + dim(" yes")
 		if c.onBang != nil && c.bangText != "" {
-			s += "  " + paint(cOrange, "[!]") + " " + c.bangText
+			s += "   " + paint(cOrange, "!") + dim(" "+c.bangText)
 		}
-		return fit(" "+s+"  "+paint(cOrange, "[n]")+" cancel", m.w)
+		return fit("  "+s+"   "+paint(cOrange, "n")+dim(" cancel"), m.w)
 	}
 	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
-		c := cDim
+		c := cSub
 		if m.statusErr {
 			c = cRed
 		}
 		return fit("  "+paint(c, m.status), m.w)
 	}
-	return fit("  "+dim(hint), m.w)
+	return fit("  "+hint, m.w)
+}
+
+// keys renders "key label" pairs with the key brighter than its label.
+func keys(pairs ...string) string {
+	var parts []string
+	for i := 0; i+1 < len(pairs); i += 2 {
+		parts = append(parts, paint(cSub, pairs[i])+" "+dim(pairs[i+1]))
+	}
+	return strings.Join(parts, faint("  ·  "))
 }
 
 func (m *Model) listView() string {
@@ -373,7 +229,7 @@ func (m *Model) listView() string {
 	}
 	var pane []string
 	if paneW > 0 {
-		pane = m.previewLines(paneW-2, bodyH)
+		pane = m.previewLines(paneW-3, bodyH)
 	}
 	var b strings.Builder
 	for _, l := range head {
@@ -382,24 +238,20 @@ func (m *Model) listView() string {
 	}
 	b.WriteByte('\n')
 	for i := 0; i < bodyH; i++ {
+		l, p := "", ""
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(pane) {
+			p = pane[i]
+		}
 		switch {
 		case listW > 0 && paneW > 0:
-			l, p := "", ""
-			if i < len(left) {
-				l = left[i]
-			}
-			if i < len(pane) {
-				p = pane[i]
-			}
-			b.WriteString(fit(l, listW) + faint("│") + " " + fit(p, paneW-2))
+			b.WriteString(fit(l, listW) + faint("│") + "  " + fit(p, paneW-3))
 		case listW > 0:
-			if i < len(left) {
-				b.WriteString(fit(left[i], m.w))
-			}
+			b.WriteString(fit(l, m.w))
 		default:
-			if i < len(pane) {
-				b.WriteString(" " + fit(pane[i], m.w-1))
-			}
+			b.WriteString("  " + fit(p, m.w-2))
 		}
 		b.WriteByte('\n')
 	}
@@ -407,82 +259,273 @@ func (m *Model) listView() string {
 	return b.String()
 }
 
+// Column widths on the right of a row.
+const (
+	wCPU  = 6
+	wRAM  = 7
+	wCost = 8
+	wAge  = 5
+)
+
 func (m *Model) listLines(w, h int) []string {
-	c := m.layout(w, m.preview)
+	nameCol := m.nameColumn(w)
 	var all []string
-	selLine := 0
-	all = append(all, m.colHeader(c))
+	selTop, selBottom := -1, -1
 	for _, l := range m.lines {
-		switch {
-		case l.agent != nil:
-			sel := l.agent.Key == m.sel
-			if sel {
-				selLine = len(all)
+		switch l.kind {
+		case lineSection:
+			meta := l.meta
+			if (l.title == "Working" || l.title == "Needs you") && m.sharedContext() != "" {
+				meta += "  ·  " + m.sharedContext()
 			}
-			r := m.row(l.agent, c, sel)
-			if m.armed == l.agent.Key {
-				r = paint(cRed, "×") + r[strings.IndexByte(r, ' '):]
-			}
-			all = append(all, r)
-		case l.extra != "":
-			all = append(all, "    "+dim(l.extra))
-		case l.header != "":
-			name, meta, _ := strings.Cut(l.header, "\x00")
-			hl := dim(name)
-			if meta != "" {
-				hl = fit(hl, w-ansi.StringWidth(meta)-1) + " " + faint(meta)
-			}
-			all = append(all, hl)
-		default:
+			all = append(all, "  "+rule(l.title, meta, w-4))
+		case lineEarlier:
+			all = append(all, "  "+rule("Earlier", l.meta+" · ↓ to show", w-4))
+		case lineBlank:
 			all = append(all, "")
+		case lineAgent, lineSub:
+			sel := l.agent.Key == m.sel
+			var s string
+			if l.kind == lineAgent {
+				s = m.agentLine(l.agent, w, sel, nameCol)
+			} else {
+				s = m.subLine(l.agent, w)
+			}
+			if sel {
+				if selTop < 0 {
+					selTop = len(all)
+				}
+				selBottom = len(all)
+				s = paint(cOrange, "▍") + s[1:]
+				s = highlight(s, w)
+			}
+			all = append(all, s)
 		}
 	}
 	if len(m.order) == 0 {
-		all = append(all, dim("  No background agents yet. Describe a task below to start one."))
+		all = append(all, "", dim("  No background agents yet. Describe a task below to start one."))
 	}
-	if selLine < m.scroll+1 {
-		m.scroll = max(0, selLine-1)
-	}
-	if selLine >= m.scroll+h-1 {
-		m.scroll = selLine - h + 2
+	if selTop >= 0 {
+		if selTop-1 < m.scroll {
+			m.scroll = max(0, selTop-1)
+		}
+		if selBottom+1 >= m.scroll+h {
+			m.scroll = selBottom + 2 - h
+		}
 	}
 	if m.scroll > len(all)-h {
 		m.scroll = max(0, len(all)-h)
 	}
 	end := min(len(all), m.scroll+h)
-	out := all[m.scroll:end]
-	if end < len(all) {
-		out[len(out)-1] = dim(fmt.Sprintf("… %d more", len(all)-end))
+	out := append([]string(nil), all[m.scroll:end]...)
+	if end < len(all) && len(out) > 0 {
+		out[len(out)-1] = faint(fmt.Sprintf("  ↓ %d more lines", len(all)-end))
 	}
 	return out
 }
 
+// nameColumn is where summaries start: wide enough for most names, never
+// more than two fifths of the row.
+func (m *Model) nameColumn(w int) int {
+	widest := 0
+	for _, l := range m.lines {
+		if l.kind != lineAgent || l.agent.Live() {
+			continue
+		}
+		n := ansi.StringWidth(oneLine(l.agent.DisplayName))
+		if b := ansi.StringWidth(ansi.Strip(m.badges(l.agent))); b > 0 {
+			n += b + 1
+		}
+		widest = max(widest, n)
+	}
+	return max(20, min(widest, (w-30)*2/5))
+}
+
+// agentLine is the first line of a row: marker, name, badges, figures.
+func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
+	now := m.snap.At
+	live := a.Live()
+	marker := " "
+	switch {
+	case a.State == "blocked":
+		marker = paint(cYellow, "●")
+	case live:
+		marker = paint(cOrange, spinner[(m.tick+len(a.ID))%len(spinner)])
+	case a.Done:
+		marker = paint(cGreen, "✓")
+	}
+
+	var right string
+	if live {
+		cpu, ram := "", ""
+		if a.Worker != nil {
+			cpu = cpuColor(a.CPU, right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU))
+			ram = memColor(a.Mem, right1(mem(a.Mem), wRAM))
+		} else {
+			cpu, ram = strings.Repeat(" ", wCPU), strings.Repeat(" ", wRAM)
+		}
+		right = dim(cpu) + ram + paint(cText, right1(money(a.Spend.Cost), wCost))
+	} else {
+		resident := ""
+		if a.Worker != nil && a.Mem > 0 {
+			resident = paint(cYellow, right1("● "+mem(a.Mem), wCPU+wRAM))
+		} else {
+			resident = strings.Repeat(" ", wCPU+wRAM)
+		}
+		cost := money(a.Spend.Cost)
+		if cost == "–" {
+			cost = ""
+		}
+		right = resident + dim(right1(cost, wCost))
+	}
+	if live {
+		right += strings.Repeat(" ", wAge) + " "
+	} else {
+		right += faint(right1(age(a.Age(now)), wAge)) + " "
+	}
+
+	nameColor := cSub
+	switch {
+	case live || sel:
+		nameColor = cText + bold
+	case a.Pinned:
+		nameColor = cText
+	case a.Done:
+		nameColor = cDim
+	}
+	name := oneLine(a.DisplayName)
+	badges := m.badges(a)
+	summary := ""
+	if !live && !m.expanded[a.Key] {
+		summary = oneLine(a.Detail)
+		if summary == "stopped" || summary == "" {
+			summary = ""
+		}
+	}
+	room := w - 3 - ansi.StringWidth(right)
+	left := paint(nameColor, name)
+	if badges != "" {
+		left += " " + badges
+	}
+	switch {
+	case live:
+		if ctx := m.context(a); ctx != "" && ctx != m.sharedContext() {
+			left += "   " + faint(ctx)
+		}
+	case summary != "":
+		left = fit(left, nameCol)
+		if sw := room - nameCol - 2; sw > 8 {
+			left += "  " + dim(fit(summary, sw))
+		}
+	}
+	return " " + marker + " " + fit(left, room) + right
+}
+
+// sharedContext is the repository and branch every live agent shares, shown
+// once in the section header instead of on each row.
+func (m *Model) sharedContext() string {
+	shared := ""
+	for _, a := range m.order {
+		if !a.Live() {
+			continue
+		}
+		c := m.context(a)
+		if shared == "" {
+			shared = c
+		} else if c != shared {
+			return ""
+		}
+	}
+	return shared
+}
+
+// context is where a live agent works: repository and branch.
+func (m *Model) context(a *fleet.Agent) string {
+	if a.Repo == "" {
+		return tildify(a.Cwd)
+	}
+	s := filepath.Base(a.Repo)
+	if a.Branch != "" {
+		s += " · " + a.Branch
+	}
+	return s
+}
+
+// subLine is the second line of a live row: what the agent is doing.
+func (m *Model) subLine(a *fleet.Agent, w int) string {
+	text, col := oneLine(a.Detail), cSub
+	if text == "" {
+		text = oneLine(a.Intent)
+	}
+	if a.State == "blocked" && a.Needs != "" {
+		text, col = oneLine(a.Needs), cYellow
+	}
+	if !a.Live() && m.expanded[a.Key] {
+		text = oneLine(a.Detail) + dim("  ·  "+tildify(a.Cwd))
+	}
+	tail := ""
+	if a.Live() {
+		tail = faint(dur(a.Elapsed(m.snap.At)) + " running")
+	}
+	room := w - 5 - ansi.StringWidth(tail) - 3
+	return "    " + paint(col, fit(text, room)) + "  " + tail
+}
+
+func right1(s string, w int) string { return right(s, w) }
+
+func (m *Model) badges(a *fleet.Agent) string {
+	var parts []string
+	for i, pr := range a.PRs {
+		if i == 2 {
+			parts = append(parts, dim(fmt.Sprintf("+%d", len(a.PRs)-2)))
+			break
+		}
+		col := cGreen
+		switch pr.State {
+		case "MERGED":
+			col = cBlue
+		case "CLOSED":
+			col = cDim
+		case "DRAFT":
+			col = cSub
+		}
+		if pr.Checks.Failed > 0 && pr.State != "MERGED" && pr.State != "CLOSED" {
+			col = cRed
+		}
+		parts = append(parts, paint(col, fmt.Sprintf("#%d", pr.Number)))
+	}
+	if a.Children > 0 {
+		parts = append(parts, faint(fmt.Sprintf("⧉%d", a.Children)))
+	}
+	return strings.Join(parts, " ")
+}
+
 func (m *Model) promptBlock() string {
-	rule := faint(strings.Repeat("─", m.w))
-	label := "❯ "
+	ruleLine := faint(strings.Repeat("─", m.w))
+	label := paint(cOrange, "❯ ")
 	placeholder := "describe a task for a new session"
 	a := m.selected()
 	switch {
 	case m.inKind == inRename:
-		label, placeholder = paint(cOrange, "rename ❯ "), "new name — enter to save, empty to reset"
+		label, placeholder = paint(cOrange, "rename ❯ "), "new name · enter to save · empty resets it"
 	case m.inKind == inGroup:
-		label, placeholder = paint(cOrange, "group ❯ "), "group name — empty to clear"
+		label, placeholder = paint(cOrange, "group ❯ "), "group name · empty clears it"
 	case m.preview && a != nil:
-		label = paint(cOrange, "reply to "+fit(a.DisplayName, 24)+" ❯ ")
-		placeholder = "type a message for this agent"
+		label = dim("reply to ") + paint(cOrange, ansi.Truncate(oneLine(a.DisplayName), 32, "…")+" ❯ ")
+		placeholder = "a message for this agent"
 	}
 	text := string(m.input)
 	var line string
 	if text == "" {
-		line = label + dim(placeholder)
+		line = "  " + label + faint(placeholder)
 	} else {
-		line = label + text + paint(cOrange, "▏")
+		line = "  " + label + paint(cText, text) + paint(cOrange, "▏")
 	}
-	hint := "enter to open · ctrl+r rename · ctrl+x stop · ctrl+t pin · ctrl+s group by · tab preview · ctrl+f done · ctrl+p processes · ctrl+a accounts · ctrl+l move · / commands · ? for shortcuts"
+	hint := keys("enter", "open", "tab", "preview", "ctrl+f", "done", "ctrl+x", "stop", "ctrl+p", "processes", "ctrl+s", "group", "?", "all keys")
 	if m.preview {
-		hint = "type + enter send to this agent · enter open it · ← close preview · ctrl+p processes · ctrl+l move · ctrl+f done"
+		hint = keys("enter", "send · empty opens", "←", "close preview", "ctrl+p", "processes", "ctrl+l", "move", "?", "all keys")
 	}
-	return rule + "\n" + fit(line, m.w) + "\n" + rule + "\n" + m.statusOr(hint)
+	return ruleLine + "\n" + fit(line, m.w) + "\n" + ruleLine + "\n" + m.statusOr(hint)
 }
 
 func (m *Model) previewLines(w, h int) []string {
@@ -500,7 +543,7 @@ func (m *Model) previewLines(w, h int) []string {
 	if model == "" {
 		model = a.Spend.Model
 	}
-	add(paint(cWhite+bold, oneLine(a.DisplayName)))
+	add(paint(cText+bold, oneLine(a.DisplayName)))
 	add(dim(a.ID + " · " + a.Acct.Name + " · " + strings.TrimPrefix(model, "claude-")))
 	loc := tildify(a.Cwd)
 	if a.Branch != "" {
@@ -546,7 +589,7 @@ func (m *Model) previewLines(w, h int) []string {
 	}
 	add("")
 	u := a.Spend.Usage
-	add(label("SPEND") + paint(cWhite+bold, money(a.Spend.Cost)) + dim(fmt.Sprintf("  in %s · cache read %s · written %s · out %s",
+	add(label("SPEND") + paint(cText+bold, money(a.Spend.Cost)) + dim(fmt.Sprintf("  in %s · cache read %s · written %s · out %s",
 		tokens(u.Input), tokens(u.CacheRead), tokens(u.CacheWrite5m+u.CacheWrite1h), tokens(u.Output))))
 	add(label("TIME") + dur(a.Elapsed(now)) + dim(" since "+a.CreatedAt.Local().Format("Mon 15:04")))
 	for _, pr := range a.PRs {
@@ -577,41 +620,53 @@ func (m *Model) previewLines(w, h int) []string {
 
 func (m *Model) procBody() []string {
 	rows := m.procRows()
-	var out []string
-	title := "Processes · "
-	if m.procMachine {
-		title += "whole machine"
-	} else if a := m.selected(); a != nil {
-		title += a.DisplayName
+	w := m.w - 4
+	title := "Processes"
+	sub := "whole machine"
+	if !m.procMachine {
+		if a := m.selected(); a != nil {
+			sub = a.DisplayName
+		}
 	}
-	out = append(out, paint(cWhite+bold, title)+dim("   tab agent/machine · enter jump to agent · ctrl+x SIGTERM · ! SIGKILL tree · esc back"), "")
-	out = append(out, faint(fit("   PID    WHAT", 52)+right("CPU", 8)+right("RAM", 8)+right("PROCS", 7)+"   COMMAND"))
+	out := []string{paint(cText+bold, title) + dim("  ·  "+sub), ""}
+	num := func(r procRow) string {
+		return cpuColor(r.cpu, right(fmt.Sprintf("%.1f%%", r.cpu), 8)) + memColor(r.mem, right(mem(r.mem), 8))
+	}
 	lastRole := fleet.Role(-1)
 	for i, r := range rows {
-		if m.procMachine && r.role != lastRole {
-			lastRole = r.role
-			out = append(out, dim(roleName(r.role)))
+		var line string
+		if m.procMachine {
+			if r.role != lastRole {
+				if lastRole != -1 {
+					out = append(out, "")
+				}
+				lastRole = r.role
+				out = append(out, rule(roleName(r.role), "", w))
+			}
+			lbl := paint(cText, fit(r.label, 34))
+			if r.role == fleet.RoleOrphan {
+				lbl = paint(cYellow, fit(r.label, 34))
+			}
+			procs := ""
+			if r.n > 1 {
+				procs = fmt.Sprintf("%d procs", r.n)
+			}
+			line = "   " + faint(fit(fmt.Sprintf("%d", r.pid), 7)) + lbl + num(r) + dim(right(procs, 10)) + "   " + dim(trimCmd(r.cmd, max(10, w-72)))
+		} else {
+			cmd := strings.Repeat("  ", min(r.depth, 8)) + r.cmd
+			line = "   " + faint(fit(fmt.Sprintf("%d", r.pid), 7)) + paint(cSub, fit(trimCmd(cmd, w-30), w-30)) + num(r)
 		}
-		cur := "  "
 		if i == m.procCursor {
-			cur = paint(cOrange, "› ")
+			line = highlight(paint(cOrange, "▍")+line[1:], w)
 		}
-		what := strings.Repeat("  ", min(r.depth, 6)) + r.label
-		lbl := fit(what, 44)
-		if r.role == fleet.RoleOrphan {
-			lbl = paint(cYellow, lbl)
-		}
-		line := cur + fit(fmt.Sprintf("%-6d", r.pid), 7) + lbl +
-			cpuColor(r.cpu, right(fmt.Sprintf("%.1f%%", r.cpu), 8)) + memColor(r.mem, right(mem(r.mem), 8)) + right(fmt.Sprintf("%d", r.n), 7) +
-			"   " + dim(trimCmd(r.cmd, max(10, m.w-80)))
 		out = append(out, line)
 	}
 	if len(rows) == 0 {
-		out = append(out, dim("  This agent has no running process. tab shows the whole machine."))
+		out = append(out, dim("This agent has no running process.  tab shows the whole machine."))
 	}
 	if m.procMachine {
 		mc := m.snap.Machine
-		out = append(out, "", dim(fmt.Sprintf("total %s · %.1f%% cpu across %d rows", mem(mc.TotalMem), mc.TotalCPU, len(rows))))
+		out = append(out, "", dim(fmt.Sprintf("%s · %.0f%% cpu in total", mem(mc.TotalMem), mc.TotalCPU)))
 	}
 	return out
 }
@@ -634,7 +689,7 @@ func roleName(r fleet.Role) string {
 }
 
 func (m *Model) acctBody() []string {
-	out := []string{paint(cWhite+bold, "Accounts") + dim("   enter use for new sessions · m move selected agent here · l sign in · n add · esc back"), ""}
+	out := []string{paint(cText+bold, "Accounts") + dim("   enter use for new sessions · m move selected agent here · l sign in · n add · esc back"), ""}
 	out = append(out, faint(fit("    ACCOUNT", 18)+fit("PLAN", 22)+fit("5-HOUR", 34)+fit("7-DAY", 22)+right("AGENTS", 8)+right("TODAY", 10)+right("ALL", 10)))
 	for i, av := range m.snap.Accounts {
 		cur := "  "
@@ -685,7 +740,7 @@ func (m *Model) cwdBody() []string {
 			name, from = a.DisplayName, tildify(a.Cwd)
 		}
 	}
-	out := []string{paint(cWhite+bold, "Change repo") + dim(" · "+name+" · now in "+from), ""}
+	out := []string{paint(cText+bold, "Change repo") + dim(" · "+name+" · now in "+from), ""}
 	out = append(out, "  "+dim("Folder ❯ ")+string(m.input)+paint(cOrange, "▏"), "")
 	for i, c := range m.cwdChoices() {
 		if i >= max(4, m.h-20) {
@@ -732,7 +787,7 @@ func (m *Model) helpBody() []string {
 		{"/hibernate <minutes>", "stop finished agents still in memory after that long; 0 turns it off"},
 		{"/native", "open the native agents view once"},
 	}
-	out := []string{paint(cWhite+bold, "Shortcuts"), ""}
+	out := []string{paint(cText+bold, "Shortcuts"), ""}
 	for _, r := range rows {
 		out = append(out, "  "+paint(cOrange, fit(r[0], 30))+r[1])
 	}
@@ -746,5 +801,6 @@ func (m *Model) shortCmd(pid int, comm string) string {
 		return comm
 	}
 	args[0] = filepath.Base(args[0])
-	return trimCmd(strings.Join(args, " "), 200)
+	cmd := oneLine(strings.Join(args, " "))
+	return strings.TrimRight(ansi.Strip(trimCmd(cmd, 200)), " ")
 }
