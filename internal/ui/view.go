@@ -318,7 +318,8 @@ func (m *Model) sideWidth() int {
 	floor := max((m.w+3)/4, 30)
 	side := max(floor, min(m.w*28/100, 64))
 	if f := m.store.Config.SideWidth; f > 0 {
-		side = max(floor, min(int(float64(m.w)*f+0.5), m.w/2))
+		// A width you dragged to wins.
+		return max(floor, min(int(float64(m.w)*f+0.5), m.w*3/4))
 	}
 	// The Session never takes more than its content can use. On a wide
 	// screen the spare room becomes the recent-changes rail when there's
@@ -341,11 +342,11 @@ func (m *Model) setSideWidth(cols int) {
 	if m.w <= 0 {
 		return
 	}
+	cols = min(cols, m.w-1-minPane) // never so wide the split goes away
 	f := float64(cols) / float64(m.w)
 	f = max(0.25, min(f, 0.75))
 	m.store.Config.SideWidth = f
-	_ = m.store.SaveConfig()
-	m.flash(fmt.Sprintf("list width %.0f%%", f*100), false)
+	m.flash(fmt.Sprintf("list width %.0f%% · release to keep", f*100), false)
 }
 
 // minPane is the narrowest pane worth splitting the screen for: a step row
@@ -513,11 +514,14 @@ func (m *Model) side(line string, pane bool) string {
 }
 
 // divider leans orange toward the side with focus.
+// divider is the edge between Agents and the Session. It is neutral (the
+// focused side shows focus itself) and lights up when the mouse is on it,
+// since it can be dragged.
 func (m *Model) divider() string {
-	if !m.twoSided() || m.sessionFocused() {
-		return faint("│")
+	if m.dragging || m.divHover {
+		return paint(cOrange, "┃")
 	}
-	return paint(cOrange, "│")
+	return faint("│")
 }
 
 // claudeStrip heads a Claude Code agent's Session with its two views, the
@@ -1129,7 +1133,7 @@ func (m *Model) badges(a *fleet.Agent) string {
 	return strings.Join(parts, " ")
 }
 
-// promptLines are the input box and two rows of key hints. The box's top
+// promptLines are the input box and a row of key hints. The box's top
 // edge says where the text goes and what enter will do; the agent pane's
 // own input is the same box, so the two always read alike.
 func (m *Model) promptLines(w int) []string {
@@ -1161,13 +1165,6 @@ func (m *Model) promptLines(w int) []string {
 			b.topR = paint(cSub, "ctrl+l") + dim(" folder")
 		}
 	}
-	if a != nil && b.topR == "" {
-		sel := dim(tildify(a.Cwd))
-		if a.Branch != "" {
-			sel += faint(" · " + a.Branch)
-		}
-		b.footL = sel
-	}
 	if m.sessionFocused() {
 		// The Session has the keys; this box waits, and says how back.
 		b.holder = "esc or ← to come back here"
@@ -1182,20 +1179,26 @@ func (m *Model) promptLines(w int) []string {
 	}
 	m.promptBox, m.promptBoxIdx = b, len(out)
 	out = append(out, b.lines()...)
-	row1 := keysFit(w-4, "enter", "open", "ctrl+o", "reply", "F2", "rename", "ctrl+l", "move", "ctrl+t", "pin", "ctrl+x", "stop")
-	if a != nil && a.Agtop && !m.paneFocus {
-		row1 = keysFit(w-4, "enter · →", "talk to "+ansi.Truncate(oneLine(a.DisplayName), 20, "…"), "F2", "rename", "ctrl+x", "stop")
-	}
-	row2 := keysFit(w-4, "tab", "views", "→", "session", "ctrl+n", "next needing you", "ctrl+s", "group", "shift+↑↓", "preview size", "?", "all keys")
-	if m.inKind == inReply {
-		row1 = keysFit(w-4, "enter", "send", "↑↓", "pick another agent", "esc", "leave reply mode")
+	// One row of keys for what you can do right now; ? has the rest.
+	var hint string
+	switch {
+	case m.inKind == inReply:
+		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", "?", "all keys")
+	case m.inKind != inPrompt:
+		hint = keysFit(w-4, "enter", "save", "esc", "cancel")
+	case len(m.input) > 0:
+		hint = keysFit(w-4, "enter", "start it", "ctrl+l", "folder", "esc", "clear", "?", "all keys")
+	case a != nil && a.Agtop:
+		hint = keysFit(w-4, "enter", "talk to it", "ctrl+n", "next needing you", "tab", "views", "?", "all keys")
+	default:
+		hint = keysFit(w-4, "enter", "open", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "views", "?", "all keys")
 	}
 	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil {
-		row1 = m.statusOr("")
+		hint = m.statusOr("")
 	} else {
-		row1 = "  " + row1
+		hint = "  " + hint
 	}
-	return append(out, fit(row1, w), fit("  "+row2, w))
+	return append(out, fit(hint, w))
 }
 
 // previewLines is the rich preview: everything about one agent, in ruled
@@ -1485,45 +1488,55 @@ func (m *Model) cwdBody() []string {
 	return out
 }
 
+// helpBody lists the keys for where you are first, then the few that work
+// everywhere; the rest of the commands fit on a line.
 func (m *Model) helpBody() []string {
 	type group struct {
 		title string
 		rows  [][2]string
 	}
-	left := []group{
-		{"Move & open", [][2]string{
-			{"↑ ↓", "move"}, {"enter", "open the agent · fold a section"},
-			{"enter · →", "into the session · type to its agent"}, {"esc · ←", "back to Agents"}, {"ctrl+n", "next agent needing you"},
-			{"ctrl+]", "stop typing into a Claude Code screen"}, {"[ ]", "switch the Session view"}, {"ctrl+f", "a Claude Code agent full screen"},
-			{"tab", "next view"}, {"shift+↑ ↓", "taller or shorter preview"},
-		}},
-		{"Manage", [][2]string{
-			{"ctrl+o", "reply without opening"}, {"F2", "rename"}, {"ctrl+l", "move to another folder"},
-			{"ctrl+t", "pin"}, {"ctrl+x", "stop · twice to delete"}, {"ctrl+y", "open its pull request"},
-		}},
-		{"Typing", [][2]string{
-			{"ctrl · alt + ← →", "move a word"}, {"ctrl · alt + ⌫", "delete a word"},
-			{"cmd+⌫ · ctrl+u · ctrl+k", "clear to line start or end"}, {"home · end", "line start and end"},
-			{"shift+enter · ctrl+j", "new line"},
-		}},
+	here := group{"In Agents", [][2]string{
+		{"↑ ↓", "pick an agent"},
+		{"enter", "open it"},
+		{"→", "go into its Session"},
+		{"ctrl+o", "reply without opening"},
+		{"F2", "rename"},
+		{"ctrl+l", "move to another folder"},
+		{"ctrl+t", "pin"},
+		{"ctrl+x", "stop · twice deletes"},
+		{"ctrl+y", "open its pull request"},
+		{"ctrl+s", "group rows"},
+	}}
+	if m.sessionFocused() {
+		here = group{"In the Session", [][2]string{
+			{"[ ]", "switch view"},
+			{"↑", "pick a step · ↓ past the last returns to the box"},
+			{"enter", "open or fold what's picked"},
+			{"ctrl+f", "search"},
+			{"ctrl+o", "show everything, unfolded"},
+			{"ctrl+x", "stop the turn"},
+			{"/", "commands for this agent"},
+			{"esc · ←", "back to Agents"},
+		}}
 	}
-	right := []group{
-		{"Views & sorting", [][2]string{
-			{"tab", "agents · processes · accounts · coding agents · settings"},
-			{"ctrl+s", "group by status, repo, account…"}, {"click a header", "sort by that column"},
-		}},
-		{"New sessions", [][2]string{
-			{"type + enter", "start one"}, {"ctrl+l", "while typing: choose its folder"},
-		}},
-		{"Commands", [][2]string{
-			{"/done /stop /rm /kill", "done, stop, delete, kill"}, {"/cd /add-dir", "move or grant a folder"},
-			{"/sort /by", "sort rows · group sections"}, {"/rename /group", "name or group the agent"},
-			{"/account /hibernate", "switch account · stop idle agents"}, {"/agtop", "move an agent to agtop mode"},
-			{"/native /quit", "native view · quit"},
-		}},
-		{"Quit", [][2]string{{"esc esc · ctrl+q", "quit"}, {"ctrl+c", "clear the text, twice to quit"}}},
-	}
-	col := func(gs []group) []string {
+	typing := group{"Typing", [][2]string{
+		{"alt+← →", "a word at a time"},
+		{"alt+⌫", "delete a word"},
+		{"cmd+⌫", "clear the line"},
+		{"shift+enter", "new line"},
+	}}
+	everywhere := group{"Everywhere", [][2]string{
+		{"tab", "next tab"},
+		{"ctrl+n", "next agent needing you"},
+		{"esc esc", "quit"},
+	}}
+	col := func(gs ...group) []string {
+		keyW := 0
+		for _, g := range gs {
+			for _, r := range g.rows {
+				keyW = max(keyW, ansi.StringWidth(r[0]))
+			}
+		}
 		var out []string
 		for i, g := range gs {
 			if i > 0 {
@@ -1531,25 +1544,35 @@ func (m *Model) helpBody() []string {
 			}
 			out = append(out, paint(cSub+bold, g.title))
 			for _, r := range g.rows {
-				out = append(out, paint(cOrange, fit(r[0], 22))+dim(r[1]))
+				out = append(out, paint(cOrange, fit(r[0], keyW+3))+dim(r[1]))
 			}
 		}
 		return out
 	}
-	l, r := col(left), col(right)
+	l, r := col(here), col(typing, everywhere)
 	out := []string{paint(cText+bold, "Keys") + faint("   any key closes"), ""}
-	if m.w < 110 {
-		return append(append(append(out, l...), ""), r...)
+	lw := 0
+	for _, x := range l {
+		lw = max(lw, ansi.StringWidth(x))
 	}
-	for i := 0; i < max(len(l), len(r)); i++ {
-		a, b := "", ""
-		if i < len(l) {
-			a = l[i]
+	if m.w < lw+50 {
+		out = append(append(append(out, l...), ""), r...)
+	} else {
+		for i := 0; i < max(len(l), len(r)); i++ {
+			a, b := "", ""
+			if i < len(l) {
+				a = l[i]
+			}
+			if i < len(r) {
+				b = r[i]
+			}
+			out = append(out, fit(a, lw+6)+b)
 		}
-		if i < len(r) {
-			b = r[i]
-		}
-		out = append(out, fit(a, 58)+"  "+b)
+	}
+	cmds := "/done /stop /rm /kill /cd /add-dir /sort /by /rename /group /account /hibernate /agtop /native /quit"
+	out = append(out, "", paint(cSub+bold, "Commands")+dim("  type them in the box"))
+	for _, line := range wrap(cmds, max(30, min(m.w-12, 90))) {
+		out = append(out, paint(cOrange, line))
 	}
 	return out
 }

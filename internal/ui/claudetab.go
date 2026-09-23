@@ -199,8 +199,10 @@ func (m *Model) claudeBody(w int) []string {
 			out = append(out, "", dim(title))
 		}
 		shown := shownValue(r)
+		// One value column for every row, so the › ends line up.
+		valueW := max(18, min(40, w-30-20))
 		if r.envVar != "" || r.add {
-			line := fit(r.label, 30) + faint("‹ ") + paint(cText, fit(shown, 40)) + faint(" ›")
+			line := fit(r.label, 30) + faint("‹ ") + paint(cText, fit(shown, valueW)) + faint(" ›")
 			if i == d.cursor {
 				out = append(out, highlight(paint(cOrange, "▍")+" "+line, w))
 			} else {
@@ -208,7 +210,7 @@ func (m *Model) claudeBody(w int) []string {
 			}
 			continue
 		}
-		out = append(out, m.settingRow(i, r.setting, shown, 30, w)...)
+		out = append(out, m.settingRow(i, r.setting, shown, 30, valueW, w)...)
 	}
 	out = append(out, m.about(w)...)
 	return append(out, "", keysFit(w, "←→", "change", "enter", "edit a value", "a", "add a variable", "x", "remove it", "e", "open settings.json", "esc", "back"))

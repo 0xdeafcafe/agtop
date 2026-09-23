@@ -159,3 +159,11 @@ func TestBoxClickMapsToText(t *testing.T) {
 		t.Errorf("past the end: %d", p)
 	}
 }
+
+func TestCleanPaste(t *testing.T) {
+	in := "goroutine 1:\r\n\tmain.go:78 +0x5ec\n\x1b[1mab\tc"
+	want := "goroutine 1:\n    main.go:78 +0x5ec\n[1mab   c"
+	if got := cleanPaste(in); got != want {
+		t.Fatalf("cleanPaste = %q, want %q", got, want)
+	}
+}

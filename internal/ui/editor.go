@@ -72,6 +72,31 @@ func cut(buf []rune, from, to int) []rune {
 	return append(out, buf[to:]...)
 }
 
+// cleanPaste makes pasted text safe to draw: tabs become spaces (a tab has
+// no fixed width, so it broke wrapping), CRLF becomes LF, and other control
+// characters are dropped.
+func cleanPaste(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	var b strings.Builder
+	col := 0
+	for _, r := range s {
+		switch {
+		case r == '\t':
+			n := 4 - col%4
+			b.WriteString(strings.Repeat(" ", n))
+			col += n
+		case r == '\n':
+			b.WriteRune(r)
+			col = 0
+		case r == '\r' || unicode.IsControl(r):
+		default:
+			b.WriteRune(r)
+			col++
+		}
+	}
+	return b.String()
+}
+
 func insert(buf []rune, pos int, r []rune) []rune {
 	out := make([]rune, 0, len(buf)+len(r))
 	out = append(out, buf[:pos]...)

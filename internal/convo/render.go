@@ -443,7 +443,7 @@ func styledAsk(s, base string) string {
 	return paint(base, inline(s, base))
 }
 
-var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[Pasted text #\d+[^\]]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*|@[\w./-]+`)
+var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[Pasted text #\d+[^\]]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*(?:$|[\s.,;:!?)])|@[\w./-]+`)
 
 // link underlines a URL and makes it clickable in terminals that support
 // OSC 8 hyperlinks.

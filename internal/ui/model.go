@@ -120,6 +120,7 @@ type Model struct {
 	embedded   bool
 	promptFor  string
 	listW      int
+	divHover   bool // the mouse is on the edge between Agents and the Session
 	hibernated map[string]bool
 	usageWait  map[string]time.Time
 	armedAt    time.Time
@@ -511,6 +512,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.PasteMsg:
+		if !m.embedded {
+			msg.Content = cleanPaste(msg.Content)
+		}
 		if m.embedded {
 			m.embedPaste(msg.Content)
 			return m, nil
@@ -550,10 +554,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.dragging = false
+			_ = m.store.SaveConfig()
 		}
+		on := m.listW > 0 && m.mode == modeList && (msg.X == m.listW || msg.X == m.listW+1)
+		if on && !m.divHover {
+			m.flash("drag to resize Agents", false)
+		}
+		m.divHover = on
 		return m, m.mouseMove(msg.X, msg.Y)
 	case tea.MouseReleaseMsg:
-		m.dragging = false
+		if m.dragging {
+			m.dragging = false
+			_ = m.store.SaveConfig()
+		}
 		return m, nil
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft && m.clickBox(msg.X, msg.Y) {

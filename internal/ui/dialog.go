@@ -723,7 +723,7 @@ func (m *Model) dialogBody(w int) []string {
 			if v == "" {
 				v = "Claude Code default"
 			}
-			out = append(out, m.settingRow(i, st, v, 14, w)...)
+			out = append(out, m.settingRow(i, st, v, 14, 18, w)...)
 		}
 		out = append(out, "", dim("Coding agents"))
 		cur := m.store.Config.Dispatch.Agent
@@ -743,7 +743,7 @@ func (m *Model) dialogBody(w int) []string {
 		out = append(out, "", keysFit(w, "enter", "use for new sessions", "←→", "change", "e", "edit", "n", "new", "d", "delete"))
 	default:
 		for i, st := range m.generalSettings() {
-			out = append(out, m.settingRow(i, st, st.value, 32, w)...)
+			out = append(out, m.settingRow(i, st, st.value, 32, 18, w)...)
 		}
 		out = append(out, m.about(w)...)
 		out = append(out, "", keysFit(w, "←→", "change", "tab", "next view", "esc", "back to agents"))
@@ -871,13 +871,13 @@ func (m *Model) accountDetail(a acctRow, av fleet.AccountView, w int) []string {
 
 // settingRow is always one line, the highlighted one too, so moving the
 // highlight never shifts the page; the About section explains it.
-func (m *Model) settingRow(i int, st setting, shown string, labelW, w int) []string {
+func (m *Model) settingRow(i int, st setting, shown string, labelW, valueW, w int) []string {
 	_, now := settingHelp(st.label, st.value)
 	short := now
 	if _, rest, ok := strings.Cut(now, ": "); ok {
 		short = rest
 	}
-	line := fit(st.label, labelW) + faint("‹ ") + paint(cText, fit(shown, 18)) + faint(" › ")
+	line := fit(st.label, labelW) + faint("‹ ") + paint(cText, fit(shown, valueW)) + faint(" › ")
 	if room := w - ansi.StringWidth(line) - 6; room > 12 {
 		line += faint(ansi.Truncate(short, room, "…"))
 	}
