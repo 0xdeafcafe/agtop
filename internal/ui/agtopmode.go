@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -187,7 +188,7 @@ func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 		}
 		second := "      " + dim(strings.Join(facts, " · "))
 		if lw := r.t.LastWords(); lw != "" {
-			second += dim("  ·  ") + faint(ansi.Truncate(lw, max(10, w-ansi.StringWidth(second)-8), "…"))
+			second += dim("  ·  ") + faint(ansi.Truncate(lw, max(10, w-cellw.String(second)-8), "…"))
 		}
 		if ref == o.Selected {
 			bar := faint("▍")
@@ -459,7 +460,7 @@ func onBg(bg, s string, w int) string {
 }
 
 func spread(left, right string, w int) string {
-	gap := w - ansi.StringWidth(left) - ansi.StringWidth(right)
+	gap := w - cellw.String(left) - cellw.String(right)
 	if gap < 2 {
 		return fit(left, w)
 	}
@@ -1160,8 +1161,8 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	}
 	images := c.images
 	// Paths typed or dropped without a paste become attachments too.
-	if imgs := imagePaths(text); imgs != nil {
-		images, text = append(images, imgs...), ""
+	if rest, imgs := extractImages(text); imgs != nil {
+		images, text = append(images, imgs...), rest
 	}
 	c.input, c.back, c.images = c.input[:0], 0, nil
 	c.scroll = 0
@@ -1318,8 +1319,8 @@ func (m *Model) resume(a *fleet.Agent) tea.Cmd {
 func (m *Model) startHosted(text, dir string) tea.Cmd {
 	d := m.store.Config.Dispatch
 	images := m.images
-	if imgs := imagePaths(text); imgs != nil {
-		images, text = append(images, imgs...), ""
+	if rest, imgs := extractImages(text); imgs != nil {
+		images, text = append(images, imgs...), rest
 	}
 	m.images = nil
 	name := sessionName(text)

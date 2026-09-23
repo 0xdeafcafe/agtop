@@ -184,3 +184,20 @@ func TestImagePathsOddNames(t *testing.T) {
 		t.Fatalf("file URL: %v", got)
 	}
 }
+
+func TestExtractImages(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "Screenshot 2026-09-24 at 00.03.09.png")
+	_ = os.WriteFile(a, []byte("x"), 0o644)
+	in := strings.ReplaceAll(a, " ", `\ `) + " still no image detection?\nand /var/nope.png stays"
+	rest, imgs := extractImages(in)
+	if len(imgs) != 1 || imgs[0] != a {
+		t.Fatalf("imgs = %v", imgs)
+	}
+	if rest != "still no image detection?\nand /var/nope.png stays" {
+		t.Fatalf("rest = %q", rest)
+	}
+	if r, imgs := extractImages("no images here"); imgs != nil || r != "no images here" {
+		t.Fatal("plain text changed")
+	}
+}

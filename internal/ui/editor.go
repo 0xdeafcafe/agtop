@@ -211,25 +211,113 @@ func (m *Model) copyText(t string) {
 // separated by spaces or newlines, quoted or with escaped spaces. It returns
 // nil unless every piece is an image file that exists, so ordinary text is
 // never swallowed.
+// extractImages takes the image files named anywhere in text (a dropped or
+// typed path, escaped or quoted, or a file:// URL) out of it, returning the
+// rest of the text and the images.
+func extractImages(text string) (string, []string) {
+	var imgs []string
+	var b strings.Builder
+	last := 0
+	for _, sp := range pathSpans(text) {
+		p := imagePath(sp.tok)
+		if p == "" {
+			continue
+		}
+		imgs = append(imgs, p)
+		b.WriteString(text[last:sp.from])
+		last = sp.to
+		if last < len(text) && text[last] == ' ' {
+			last++ // and the space after it
+		}
+	}
+	if imgs == nil {
+		return text, nil
+	}
+	b.WriteString(text[last:])
+	return strings.TrimSpace(b.String()), imgs
+}
+
+// imagePath is tok as an image file that exists, or "".
+func imagePath(tok string) string {
+	if rest, ok := strings.CutPrefix(tok, "file://"); ok {
+		// Some apps drop a file URL rather than a path.
+		if p, err := url.PathUnescape(strings.TrimPrefix(rest, "localhost")); err == nil {
+			tok = p
+		}
+	}
+	switch strings.ToLower(filepath.Ext(tok)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+	default:
+		return ""
+	}
+	if strings.HasPrefix(tok, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			tok = filepath.Join(home, tok[2:])
+		}
+	}
+	if st, err := os.Stat(tok); err != nil || st.IsDir() {
+		return ""
+	}
+	return tok
+}
+
+type span struct {
+	from, to int
+	tok      string
+}
+
+// pathSpans splits text like splitPaths but keeps where each word was.
+func pathSpans(text string) []span {
+	var out []span
+	var cur strings.Builder
+	quote, esc, start := rune(0), false, -1
+	flush := func(end int) {
+		if start >= 0 {
+			out = append(out, span{start, end, cur.String()})
+		}
+		cur.Reset()
+		start = -1
+	}
+	for i, r := range text {
+		plain := r == ' ' || r == '\t' || r == '\n' || r == '\r'
+		if start < 0 && plain && quote == 0 && !esc {
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+		switch {
+		case esc:
+			cur.WriteRune(r)
+			esc = false
+		case r == '\\' && quote != '\'':
+			esc = true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case plain:
+			flush(i)
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush(len(text))
+	return out
+}
+
 func imagePaths(paste string) []string {
 	var out []string
 	for _, tok := range splitPaths(paste) {
-		if rest, ok := strings.CutPrefix(tok, "file://"); ok {
-			// Some apps drop a file URL rather than a path.
-			if p, err := url.PathUnescape(strings.TrimPrefix(rest, "localhost")); err == nil {
-				tok = p
-			}
-		}
-		ext := strings.ToLower(filepath.Ext(tok))
-		switch ext {
-		case ".png", ".jpg", ".jpeg", ".gif", ".webp":
-		default:
+		p := imagePath(tok)
+		if p == "" {
 			return nil
 		}
-		if st, err := os.Stat(tok); err != nil || st.IsDir() {
-			return nil
-		}
-		out = append(out, tok)
+		out = append(out, p)
 	}
 	return out
 }

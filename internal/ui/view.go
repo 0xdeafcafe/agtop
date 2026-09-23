@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -96,7 +97,7 @@ func (m *Model) header() []string {
 
 	line := func(r, l, rt string) string {
 		body := "  " + r + "   " + l
-		gap := m.w - ansi.StringWidth(body) - ansi.StringWidth(rt) - 2
+		gap := m.w - cellw.String(body) - cellw.String(rt) - 2
 		if gap < 2 {
 			return fit(body, m.w)
 		}
@@ -265,7 +266,7 @@ func (m *Model) statusOr(hint string) string {
 // line fits w, so a hint never runs off the screen.
 func keysFit(w int, pairs ...string) string {
 	for len(pairs) > 2 {
-		if s := keys(pairs...); ansi.StringWidth(s) <= w {
+		if s := keys(pairs...); cellw.String(s) <= w {
 			return s
 		}
 		pairs = append(pairs[:len(pairs)-4], pairs[len(pairs)-2:]...)
@@ -516,12 +517,12 @@ func (m *Model) side(line string, pane bool) string {
 }
 
 // divider leans orange toward the side with focus.
-// divider is the edge between Agents and the Session. It is neutral (the
-// focused side shows focus itself) and lights up when the mouse is on it,
-// since it can be dragged.
+// divider is the edge between Agents and the Session. It stays a quiet
+// line (the focused side shows focus itself), a shade brighter when the
+// mouse is on it; the pointer turns into a resize arrow there too.
 func (m *Model) divider() string {
 	if m.dragging || m.divHover {
-		return paint(cOrange, "┃")
+		return paint(cSub, "│")
 	}
 	return faint("│")
 }
@@ -642,7 +643,7 @@ func (m *Model) sectionLine(l listLine, w int) string {
 	}
 	if l.folded {
 		head := arrow + paint(cSub+bold, l.title) + "  " + dim(meta)
-		room := w - ansi.StringWidth(head) - 6
+		room := w - cellw.String(head) - 6
 		if room > 10 && l.peek != "" {
 			head += "   " + faint(fit(l.peek, room))
 		}
@@ -676,7 +677,7 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 	default:
 		title = dim("finished " + age(a.Age(m.snap.At)) + " ago")
 	}
-	tw := ansi.StringWidth(title)
+	tw := cellw.String(title)
 	top := edge("╭─ ") + title + edge(" "+strings.Repeat("─", max(0, w-tw-5))+"╮")
 
 	var body []string
@@ -807,7 +808,7 @@ func (m *Model) columnHeader(w int) string {
 	}
 	rightW := wAct + wCPU + wRAM + wCost + wAge + 3
 	cols := faint(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("COST", "cost", wCost) + col("TIME", "time", wAge+2) + " "
-	gap := w - ansi.StringWidth(left) - rightW
+	gap := w - cellw.String(left) - rightW
 	if gap < 1 {
 		return fit(left, w)
 	}
@@ -847,8 +848,8 @@ func (m *Model) nameColumn(w int) int {
 		if l.kind != lineAgent {
 			continue
 		}
-		n := ansi.StringWidth(oneLine(l.agent.DisplayName))
-		if b := ansi.StringWidth(ansi.Strip(m.badges(l.agent))); b > 0 {
+		n := cellw.String(oneLine(l.agent.DisplayName))
+		if b := cellw.String(ansi.Strip(m.badges(l.agent))); b > 0 {
 			n += b + 1
 		}
 		widest = max(widest, n)
@@ -992,7 +993,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	if summary == "stopped" {
 		summary = ""
 	}
-	room := w - 3 - ansi.StringWidth(right)
+	room := w - 3 - cellw.String(right)
 	left := paint(nameColor, name)
 	if badges != "" {
 		left += " " + badges
@@ -1196,7 +1197,7 @@ func (m *Model) promptLines(w int) []string {
 		hint = keysFit(w-4, "enter", "open", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "views", "?", "all keys")
 	}
 	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil {
-		hint = m.statusOr("")
+		hint = strings.TrimRight(m.statusOr(""), " ") // it pads to the screen, not this box
 	} else {
 		hint = "  " + hint
 	}
@@ -1536,7 +1537,7 @@ func (m *Model) helpBody() []string {
 		keyW := 0
 		for _, g := range gs {
 			for _, r := range g.rows {
-				keyW = max(keyW, ansi.StringWidth(r[0]))
+				keyW = max(keyW, cellw.String(r[0]))
 			}
 		}
 		var out []string
@@ -1555,7 +1556,7 @@ func (m *Model) helpBody() []string {
 	out := []string{paint(cText+bold, "Keys") + faint("   any key closes"), ""}
 	lw := 0
 	for _, x := range l {
-		lw = max(lw, ansi.StringWidth(x))
+		lw = max(lw, cellw.String(x))
 	}
 	if m.w < lw+50 {
 		out = append(append(append(out, l...), ""), r...)

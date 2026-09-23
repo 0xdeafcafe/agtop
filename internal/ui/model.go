@@ -521,14 +521,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Image files dropped onto the terminal arrive as a paste of their
 		// paths; they become attachments on whichever box has focus.
-		if imgs := imagePaths(msg.Content); imgs != nil && m.dialog == nil {
+		if rest, imgs := extractImages(msg.Content); imgs != nil && m.dialog == nil {
 			if c := m.host; c != nil && m.paneFocus {
 				c.images = append(c.images, imgs...)
 			} else {
 				m.images = append(m.images, imgs...)
 			}
 			m.flash(fmt.Sprintf("attached %d image(s)", len(imgs)), false)
-			return m, nil
+			if rest == "" {
+				return m, nil
+			}
+			msg.Content = rest // the words around them go in as text
 		}
 		// A paste goes into whichever box has focus, at its cursor, newlines
 		// kept so a pasted log or snippet arrives whole.
@@ -557,11 +560,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_ = m.store.SaveConfig()
 		}
 		on := m.listW > 0 && m.mode == modeList && (msg.X == m.listW || msg.X == m.listW+1)
-		if on && !m.divHover {
-			m.flash("drag to resize Agents", false)
+		var shape tea.Cmd
+		if on != m.divHover {
+			// OSC 22 sets the pointer's shape in terminals that support it
+			// (kitty, ghostty, wezterm, foot); others ignore it.
+			shape = tea.Raw("\x1b]22;default\x1b\\")
+			if on {
+				shape = tea.Raw("\x1b]22;ew-resize\x1b\\")
+			}
 		}
 		m.divHover = on
-		return m, m.mouseMove(msg.X, msg.Y)
+		return m, tea.Batch(shape, m.mouseMove(msg.X, msg.Y))
 	case tea.MouseReleaseMsg:
 		if m.dragging {
 			m.dragging = false
