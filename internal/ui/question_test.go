@@ -245,3 +245,20 @@ func TestArgPicker(t *testing.T) {
 		t.Fatal("no argument picker before the space")
 	}
 }
+
+func TestArtifacts(t *testing.T) {
+	s := convo.New()
+	now := time.Now()
+	pub := func(id, ver string) {
+		in, _ := json.Marshal(map[string]string{"file_path": "/tmp/agtop-mode.html", "description": "design review"})
+		s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: id, Name: "Artifact", Input: in}}}, now)
+		s.Apply(headless.Message{Role: "user", Blocks: []headless.Block{{Type: "tool_result", ToolUseID: id,
+			Text: "Published /tmp/agtop-mode.html at https://claude.ai/artifact/2pdtkfBi4he8cVWra7qYq6 (Version " + ver + ")"}}}, now)
+	}
+	pub("a1", "1")
+	pub("a2", "2")
+	arts := artifacts(s)
+	if len(arts) != 1 || arts[0].Version != 2 || arts[0].Versions != 2 || arts[0].About != "design review" {
+		t.Fatalf("artifacts = %+v", arts)
+	}
+}

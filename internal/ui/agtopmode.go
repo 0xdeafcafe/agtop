@@ -36,6 +36,9 @@ func (m *Model) views(c *hostConn) []string {
 	if len(c.subs) > 0 {
 		v = append(v, "subagents")
 	}
+	if len(c.artifactsOf()) > 0 {
+		v = append(v, "artifacts")
+	}
 	if c.client == nil {
 		if a := m.focused(); a != nil && liveCapable(a) {
 			v = append(v, "screen")
@@ -375,10 +378,12 @@ type hostConn struct {
 	box      box      // the message box as last drawn, and where
 	boxIdx   int
 	boxY     int
-	editQ    int                // queued message being edited in the box, +1; 0 when none
-	editWas  string             // its text before editing
-	slashSel int                // the slash-command picker's selection
-	pastes   pastes             // long pastes shown as chips
+	editQ    int    // queued message being edited in the box, +1; 0 when none
+	editWas  string // its text before editing
+	slashSel int    // the slash-command picker's selection
+	pastes   pastes // long pastes shown as chips
+	arts     []*artifact
+	artsKey  string
 	local    []headless.Command // custom commands and skills on disk
 	skills   map[string]bool
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
@@ -685,6 +690,8 @@ func (m *Model) agtopPane(w, h int) []string {
 		body = m.queueLines(c, o)
 	case "tasks":
 		body = m.taskLines(c, o)
+	case "artifacts":
+		body = m.artifactLines(c, o)
 	case "subagents":
 		if c.subOpen != "" {
 			o.Selected = c.subSel
@@ -1131,6 +1138,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.quitKey()
 		}
 	case "enter", "right":
+		if url, ok := strings.CutPrefix(c.sel, "art:"); ok && empty && m.viewName(c) == "artifacts" {
+			return browse(url)
+		}
 		if empty && m.viewName(c) == "subagents" && strings.HasPrefix(c.sel, "sub:") && c.subOpen == "" {
 			m.openSub(c, strings.TrimPrefix(c.sel, "sub:"))
 			return nil
