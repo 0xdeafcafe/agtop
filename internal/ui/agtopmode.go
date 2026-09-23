@@ -262,6 +262,58 @@ func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 		so.Selected = c.sel
 		return append(lines, c.subTail.Sess.Render(so)...)
 	}
+	// Wide enough: the runs on the left, the picked one's conversation
+	// beside them, following as it works.
+	if w >= 150 && len(c.subs) > 0 {
+		lw := min(72, w*2/5)
+		lo := o
+		lo.Width = lw
+		list := m.subagentList(c, lo)
+		id := strings.TrimPrefix(c.sel, "sub:")
+		if !strings.HasPrefix(c.sel, "sub:") {
+			id = c.subs[len(c.subs)-1].ID
+			if run := c.runningSubs(); len(run) > 0 {
+				id = run[0].ID
+			}
+		}
+		var detail []convo.Line
+		if t := c.subTails[id]; t != nil {
+			do := o
+			do.Width, do.Selected, do.Focused = w-lw-3, "", false
+			detail = t.Sess.Render(do)
+		}
+		// Exactly a screen's worth: the list scrolls to keep the picked run
+		// in view, and the conversation shows its latest.
+		h := max(8, m.paneH()-6)
+		at := 0
+		for i, l := range list {
+			if l.Ref == c.sel {
+				at = i
+				break
+			}
+		}
+		from := max(0, min(at-h/2, len(list)-h))
+		list = list[from:min(len(list), from+h)]
+		detail = detail[max(0, len(detail)-h):]
+		out := make([]convo.Line, 0, h)
+		for i := range h {
+			var l, r convo.Line
+			if i < len(list) {
+				l = list[i]
+			}
+			if i < len(detail) {
+				r = detail[i]
+			}
+			out = append(out, convo.Line{Text: fit(l.Text, lw) + " " + faint("│") + " " + r.Text, Ref: l.Ref})
+		}
+		return out
+	}
+	return m.subagentList(c, o)
+}
+
+// subagentList is the runs, one two-line row each, newest first.
+func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
+	w := o.Width
 	running := 0
 	type row struct {
 		sa     convo.Subagent
