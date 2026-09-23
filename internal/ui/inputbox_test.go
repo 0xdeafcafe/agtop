@@ -1,0 +1,145 @@
+package ui
+
+import (
+	"math/rand"
+	"strings"
+	"testing"
+
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/mattn/go-runewidth"
+)
+
+// oldWrapSegs is the first wrapSegs, which measured every row's remainder
+// again: the oracle for the one that measures once.
+func oldWrapSegs(text []rune, w int) []seg {
+	w = max(4, w)
+	width := func(r []rune) int {
+		n := 0
+		for _, c := range r {
+			n += runewidth.RuneWidth(c)
+		}
+		return n
+	}
+	var out []seg
+	start := 0
+	for start <= len(text) {
+		end := start
+		for end < len(text) && text[end] != '\n' {
+			end++
+		}
+		line := text[start:end]
+		from := 0
+		for {
+			if width(line[from:]) <= w {
+				out = append(out, seg{start + from, start + len(line)})
+				break
+			}
+			cut, wd := from, 0
+			for cut < len(line) && wd+runewidth.RuneWidth(line[cut]) <= w {
+				wd += runewidth.RuneWidth(line[cut])
+				cut++
+			}
+			brk := cut
+			for i := cut; i > from; i-- {
+				if line[i-1] == ' ' {
+					brk = i
+					break
+				}
+			}
+			out = append(out, seg{start + from, start + brk})
+			from = brk
+		}
+		if end >= len(text) {
+			break
+		}
+		start = end + 1
+	}
+	return out
+}
+
+// oldContent drew the box's rows with the colour before every character.
+func oldContent(b box, w int) []string {
+	lw := b.leadW()
+	segs := wrapSegs(b.text, w-lw)
+	start, end := b.window(segs)
+	from, to := -1, -1
+	if b.anchor >= 0 && b.anchor != b.cursor {
+		from, to = min(b.anchor, b.cursor), max(b.anchor, b.cursor)
+	}
+	var rows []string
+	for i := start; i < end; i++ {
+		sg := segs[i]
+		var sb strings.Builder
+		for p := sg.from; p < sg.to; p++ {
+			ch := string(b.text[p])
+			switch {
+			case b.focused && p == b.cursor:
+				sb.WriteString(reverse(ch))
+			case p >= from && p < to:
+				sb.WriteString(bgMark + cText + ch + reset + bgInput)
+			default:
+				sb.WriteString(cText + ch)
+			}
+		}
+		last := i == len(segs)-1 || segs[i+1].from > sg.to
+		if b.focused && b.cursor == sg.to && last {
+			sb.WriteString(reverse(" "))
+		}
+		lead := strings.Repeat(" ", lw)
+		if i == 0 {
+			lead = b.lead
+		}
+		rows = append(rows, lead+sb.String()+reset)
+	}
+	return rows
+}
+
+// cellsOf draws styled text into a screen, for comparing what shows.
+func cellsOf(s string, w int) string {
+	buf := uv.NewScreenBuffer(w, 1)
+	uv.NewStyledString(s).Draw(buf, uv.Rect(0, 0, w, 1))
+	var b strings.Builder
+	for x := 0; x < w; x++ {
+		if c := buf.CellAt(x, 0); c != nil {
+			b.WriteString(c.Content + "|" + c.Style.String() + "\n")
+		}
+	}
+	return b.String()
+}
+
+func TestBoxDrawsTheSame(t *testing.T) {
+	pieces := []string{"a", "word ", " ", "  ", "\n", "中文", "é", "👍", "\t", "longwordwithoutspaces", "-", "x"}
+	r := rand.New(rand.NewSource(3))
+	for n := 0; n < 20000; n++ {
+		var sb strings.Builder
+		for k := r.Intn(40); k >= 0; k-- {
+			sb.WriteString(pieces[r.Intn(len(pieces))])
+		}
+		text := []rune(sb.String())
+		w := 4 + r.Intn(60)
+		got, want := wrapSegs(text, w), oldWrapSegs(text, w)
+		if len(got) != len(want) {
+			t.Fatalf("%q at %d: %v, want %v", string(text), w, got, want)
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Fatalf("%q at %d: %v, want %v", string(text), w, got, want)
+			}
+		}
+		if len(text) == 0 {
+			continue
+		}
+		b := box{w: w + 8, focused: r.Intn(2) == 0, text: text, cursor: r.Intn(len(text) + 1), anchor: r.Intn(len(text)+2) - 1,
+			lead: paint(cOrange, "❯ "), maxRows: 1 + r.Intn(6)}
+		inner := max(20, b.w) - 4
+		g, o := b.content(inner), oldContent(b, inner)
+		if len(g) != len(o) {
+			t.Fatalf("rows %d, want %d", len(g), len(o))
+		}
+		for i := range g {
+			if cellsOf(g[i], inner+2) != cellsOf(o[i], inner+2) {
+				t.Fatalf("row %d of %q differs:\n%q\n%q", i, string(text), g[i], o[i])
+			}
+		}
+	}
+}

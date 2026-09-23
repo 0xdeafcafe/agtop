@@ -85,6 +85,11 @@ type seg struct{ from, to int }
 // each row's offsets so a click or the cursor maps to an exact character.
 func wrapSegs(text []rune, w int) []seg {
 	w = max(4, w)
+	// at[i] is the width of text[:i], so any stretch's width is a subtraction.
+	at := make([]int, len(text)+1)
+	for i, r := range text {
+		at[i+1] = at[i] + runeW(r)
+	}
 	var out []seg
 	start := 0
 	for start <= len(text) {
@@ -92,26 +97,24 @@ func wrapSegs(text []rune, w int) []seg {
 		for end < len(text) && text[end] != '\n' {
 			end++
 		}
-		line := text[start:end]
-		from := 0
+		from := start
 		for {
-			if cells(line[from:]) <= w {
-				out = append(out, seg{start + from, start + len(line)})
+			if at[end]-at[from] <= w {
+				out = append(out, seg{from, end})
 				break
 			}
-			cut, width := from, 0
-			for cut < len(line) && width+runewidth.RuneWidth(line[cut]) <= w {
-				width += runewidth.RuneWidth(line[cut])
+			cut := from
+			for cut < end && at[cut+1]-at[from] <= w {
 				cut++
 			}
 			brk := cut
 			for i := cut; i > from; i-- {
-				if line[i-1] == ' ' {
+				if text[i-1] == ' ' {
 					brk = i
 					break
 				}
 			}
-			out = append(out, seg{start + from, start + brk})
+			out = append(out, seg{from, brk})
 			from = brk
 		}
 		if end >= len(text) {
@@ -122,12 +125,12 @@ func wrapSegs(text []rune, w int) []seg {
 	return out
 }
 
-func cells(r []rune) int {
-	n := 0
-	for _, c := range r {
-		n += runewidth.RuneWidth(c)
+// runeW is runewidth.RuneWidth, with printable ASCII answered directly.
+func runeW(r rune) int {
+	if r >= 0x20 && r < 0x7f {
+		return 1
 	}
-	return n
+	return runewidth.RuneWidth(r)
 }
 
 // window is which wrapped rows are on screen: the cursor's row always is.
@@ -168,15 +171,31 @@ func (b box) content(w int) []string {
 	for i := start; i < end; i++ {
 		sg := segs[i]
 		var sb strings.Builder
+		sb.Grow(len(b.lead) + (sg.to-sg.from)*2 + 64)
+		lead := strings.Repeat(" ", lw)
+		if i == 0 {
+			lead = b.lead
+		}
+		sb.WriteString(lead)
+		// The text colour is set once per run rather than per character.
+		inText := false
 		for p := sg.from; p < sg.to; p++ {
-			ch := string(b.text[p])
 			switch {
 			case b.focused && p == b.cursor:
-				sb.WriteString(reverse(ch))
+				sb.WriteString("\x1b[7m")
+				sb.WriteRune(b.text[p])
+				sb.WriteString("\x1b[27m")
 			case p >= from && p < to:
-				sb.WriteString(bgMark + cText + ch + reset + bgInput)
+				sb.WriteString(bgMark + cText)
+				sb.WriteRune(b.text[p])
+				sb.WriteString(reset + bgInput)
+				inText = false
 			default:
-				sb.WriteString(cText + ch)
+				if !inText {
+					sb.WriteString(cText)
+					inText = true
+				}
+				sb.WriteRune(b.text[p])
 			}
 		}
 		// The cursor at the end of a row shows as a block after it.
@@ -184,11 +203,8 @@ func (b box) content(w int) []string {
 		if b.focused && b.cursor == sg.to && last {
 			sb.WriteString(reverse(" "))
 		}
-		lead := strings.Repeat(" ", lw)
-		if i == 0 {
-			lead = b.lead
-		}
-		rows = append(rows, lead+sb.String()+reset)
+		sb.WriteString(reset)
+		rows = append(rows, sb.String())
 	}
 	return rows
 }
@@ -208,8 +224,8 @@ func (b box) at(row, col int) int {
 	sg := segs[i]
 	x := col - 2 - lw // "│ " then the lead
 	p, width := sg.from, 0
-	for p < sg.to && width+runewidth.RuneWidth(b.text[p]) <= x {
-		width += runewidth.RuneWidth(b.text[p])
+	for p < sg.to && width+runeW(b.text[p]) <= x {
+		width += runeW(b.text[p])
 		p++
 	}
 	return p
