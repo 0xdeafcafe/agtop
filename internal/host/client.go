@@ -1,0 +1,247 @@
+package host
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/headless"
+)
+
+// Spawn writes cfg and starts its host as a detached process, returning once
+// the host is accepting connections. cfg.ID and cfg.SessionID are filled in
+// for a new conversation when empty.
+func Spawn(cfg Config) (Config, error) {
+	if cfg.SessionID == "" {
+		cfg.SessionID, cfg.ID = NewSessionID()
+	}
+	if cfg.ID == "" {
+		cfg.ID = shortOf(cfg.SessionID)
+	}
+	d := dir(cfg.ID)
+	if err := os.MkdirAll(d, 0o700); err != nil {
+		return cfg, err
+	}
+	if info, err := ReadInfo(cfg.ID); err == nil && alive(info.HostPID) {
+		return cfg, fmt.Errorf("%s is already running", cfg.ID)
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return cfg, err
+	}
+	if err := os.WriteFile(filepath.Join(d, "config.json"), b, 0o600); err != nil {
+		return cfg, err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return cfg, err
+	}
+	log, err := os.OpenFile(filepath.Join(d, "host.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return cfg, err
+	}
+	defer log.Close()
+	_ = os.Remove(SockPath(cfg.ID))
+	cmd := exec.Command(exe, "host", "run", cfg.ID)
+	cmd.Dir = cfg.Cwd
+	cmd.Stdout, cmd.Stderr = log, log
+	// Its own session, so closing agtop or its terminal leaves it running.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return cfg, err
+	}
+	pid := cmd.Process.Pid
+	// Reap it when it ends, or a stopped host lingers as a zombie that still
+	// looks alive for as long as this process runs.
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if c, err := net.Dial("unix", SockPath(cfg.ID)); err == nil {
+			_ = c.Close()
+			return cfg, nil
+		}
+		select {
+		case <-exited:
+			tail, _ := os.ReadFile(filepath.Join(d, "host.log"))
+			return cfg, fmt.Errorf("host for %s exited: %s", cfg.ID, lastLine(string(tail)))
+		default:
+		}
+	}
+	return cfg, fmt.Errorf("host for %s (pid %d) did not start listening", cfg.ID, pid)
+}
+
+func shortOf(sessionID string) string {
+	var out []rune
+	for _, r := range sessionID {
+		if r == '-' {
+			continue
+		}
+		out = append(out, r)
+		if len(out) == 8 {
+			break
+		}
+	}
+	return string(out)
+}
+
+func lastLine(s string) string {
+	for len(s) > 0 && (s[len(s)-1] == '\n' || s[len(s)-1] == ' ') {
+		s = s[:len(s)-1]
+	}
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == '\n' {
+			return s[i+1:]
+		}
+	}
+	return s
+}
+
+// ReadInfo reads a session's last published info. A session whose host has
+// gone is reported stopped.
+func ReadInfo(id string) (Info, error) {
+	var info Info
+	b, err := os.ReadFile(filepath.Join(dir(id), "info.json"))
+	if err != nil {
+		return info, err
+	}
+	if err := json.Unmarshal(b, &info); err != nil {
+		return info, err
+	}
+	if !alive(info.HostPID) {
+		info.State, info.ClaudePID = "stopped", 0
+	}
+	return info, nil
+}
+
+// List returns every agtop-mode session, newest first.
+func List() []Info {
+	ents, _ := os.ReadDir(Root())
+	var out []Info
+	for _, e := range ents {
+		if info, err := ReadInfo(e.Name()); err == nil {
+			out = append(out, info)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out
+}
+
+// ReadConfig reads the config a session was started with, to restart it.
+func ReadConfig(id string) (Config, error) {
+	var cfg Config
+	b, err := os.ReadFile(filepath.Join(dir(id), "config.json"))
+	if err != nil {
+		return cfg, err
+	}
+	return cfg, json.Unmarshal(b, &cfg)
+}
+
+// InfoEvent is a session's info, sent on connect and whenever it changes.
+type InfoEvent struct{ Info Info }
+
+// Answered says a permission request was settled, here or by another client.
+type Answered struct{ ID string }
+
+// ErrorEvent reports a command the host could not carry out.
+type ErrorEvent struct{ Error string }
+
+// Sent is a message a client sent, echoed so every client shows it.
+type Sent struct{ Text string }
+
+// Decode reads one line from a host: its own events, or Claude Code's.
+func Decode(line []byte) (any, error) {
+	var head struct {
+		Type      string          `json:"type"`
+		Info      Info            `json:"info"`
+		RequestID string          `json:"request_id"`
+		Error     string          `json:"error"`
+		Sent      bool            `json:"agtop_sent"`
+		Message   json.RawMessage `json:"message"`
+	}
+	if err := json.Unmarshal(line, &head); err != nil {
+		return nil, err
+	}
+	switch head.Type {
+	case typeInfo:
+		return InfoEvent{Info: head.Info}, nil
+	case typeAnswered:
+		return Answered{ID: head.RequestID}, nil
+	case "agtop_error":
+		return ErrorEvent{Error: head.Error}, nil
+	}
+	if head.Sent {
+		var m struct {
+			Content string `json:"content"`
+		}
+		_ = json.Unmarshal(head.Message, &m)
+		return Sent{Text: m.Content}, nil
+	}
+	return headless.Decode(line)
+}
+
+// Client is a connection to one session's host.
+type Client struct {
+	// Lines carries every line from the host, replay first; it closes when
+	// the connection does.
+	Lines <-chan []byte
+
+	c   net.Conn
+	wmu sync.Mutex
+}
+
+// Dial connects to a running session.
+func Dial(id string) (*Client, error) {
+	c, err := net.Dial("unix", SockPath(id))
+	if err != nil {
+		return nil, err
+	}
+	lines := make(chan []byte, 1024)
+	go func() {
+		defer close(lines)
+		sc := bufio.NewScanner(c)
+		sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
+		for sc.Scan() {
+			lines <- append([]byte(nil), sc.Bytes()...)
+		}
+	}()
+	return &Client{Lines: lines, c: c}, nil
+}
+
+func (c *Client) do(o op) error {
+	b, err := json.Marshal(o)
+	if err != nil {
+		return err
+	}
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	_, err = c.c.Write(append(b, '\n'))
+	return err
+}
+
+func (c *Client) Send(text string) error { return c.do(op{Op: "send", Text: text}) }
+
+// Allow lets a pending tool call run; input nil keeps the requested input.
+func (c *Client) Allow(id string, input json.RawMessage, always bool) error {
+	return c.do(op{Op: "allow", ID: id, Input: input, Always: always})
+}
+
+func (c *Client) Deny(id, message string, interrupt bool) error {
+	return c.do(op{Op: "deny", ID: id, Message: message, Interrupt: interrupt})
+}
+
+func (c *Client) Interrupt() error                 { return c.do(op{Op: "interrupt"}) }
+func (c *Client) SetPermissionMode(m string) error { return c.do(op{Op: "mode", Mode: m}) }
+func (c *Client) SetModel(m string) error          { return c.do(op{Op: "model", Model: m}) }
+
+// Stop ends the session and its host; the conversation is kept.
+func (c *Client) Stop() error { return c.do(op{Op: "stop"}) }
+
+func (c *Client) Close() error { return c.c.Close() }

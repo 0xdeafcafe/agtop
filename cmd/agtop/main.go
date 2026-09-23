@@ -11,6 +11,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/ui"
 )
@@ -48,6 +49,14 @@ func main() {
 			}
 			s := &daemon.Session{Client: daemon.Client{Account: state.Load().Config.ActiveAccount()}, Short: args[1]}
 			exitIf(s.Run())
+			return
+		case "host":
+			// agtop host run <id>: the detached process an agtop-mode session
+			// lives in. agtop starts it; it is not meant to be run by hand.
+			if len(args) < 3 || args[1] != "run" {
+				exitIf(fmt.Errorf("usage: agtop host run <id>"))
+			}
+			exitIf(host.Run(args[2]))
 			return
 		case "on":
 			exitIf(turnOn())

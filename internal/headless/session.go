@@ -29,6 +29,8 @@ type Options struct {
 	Flags          []string
 	// Binary is the claude executable; empty means "claude" on PATH.
 	Binary string
+	// Tap, when set, sees every output line before it is decoded.
+	Tap func(line []byte)
 }
 
 func (o Options) args() []string {
@@ -92,17 +94,20 @@ func Start(o Options) (*Session, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	go s.read(stdout, events)
+	go s.read(stdout, events, o.Tap)
 	return s, nil
 }
 
-func (s *Session) read(r io.Reader, events chan<- Event) {
+func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte)) {
 	defer close(s.done)
 	defer close(events)
 	sc := bufio.NewScanner(r)
 	// Tool results and file reads can make single lines very long.
 	sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
 	for sc.Scan() {
+		if tap != nil {
+			tap(sc.Bytes())
+		}
 		ev, err := Decode(sc.Bytes())
 		if err != nil {
 			continue
