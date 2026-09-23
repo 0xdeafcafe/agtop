@@ -275,7 +275,11 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	if cost > 0 {
 		right += "   " + paint(cText+bold, money(cost))
 	}
-	row1 := spread(mark+paint(cBright+bold, oneLine(a.DisplayName))+"   "+state, right+" ", w)
+	title := faint("SESSION  ")
+	if m.paneFocus {
+		title = paint(cOrange+bold, "SESSION  ")
+	}
+	row1 := spread(mark+title+paint(cBright+bold, oneLine(a.DisplayName))+"   "+state, right+" ", w)
 
 	meta := dim(tildify(a.Cwd))
 	if a.Branch != "" {

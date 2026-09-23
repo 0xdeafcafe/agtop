@@ -383,7 +383,7 @@ func (m *Model) listView() string {
 		}
 		switch {
 		case listW > 0 && paneW > 0:
-			b.WriteString(fit(l, listW) + faint("│") + "  " + fit(p, paneW-3))
+			b.WriteString(m.side(fit(l, listW), false) + m.divider() + "  " + m.side(fit(p, paneW-3), true))
 		case listW > 0:
 			b.WriteString(fit(l, m.w))
 		default:
@@ -401,7 +401,7 @@ func (m *Model) listView() string {
 			if j := bodyH + i; j < len(pane) {
 				p = pane[j]
 			}
-			b.WriteString(fit(l, listW) + faint("│") + "  " + fit(p, paneW-3))
+			b.WriteString(m.side(fit(l, listW), false) + m.divider() + "  " + m.side(fit(p, paneW-3), true))
 		} else {
 			b.WriteString(fit(l, m.w))
 		}
@@ -410,6 +410,31 @@ func (m *Model) listView() string {
 		}
 	}
 	return b.String()
+}
+
+// Focus: when a session can take the keys, the side without them fades
+// back so where you're typing is obvious at a glance; the side with them
+// keeps full brightness, an orange marker and an orange box edge.
+const fade = "\x1b[2m"
+
+func (m *Model) twoSided() bool { return m.host != nil && m.listW > 0 }
+
+func (m *Model) side(line string, pane bool) string {
+	if !m.twoSided() || pane == m.paneFocus {
+		return line
+	}
+	return fade + strings.ReplaceAll(line, reset, reset+fade) + reset
+}
+
+// divider leans orange toward the side with focus.
+func (m *Model) divider() string {
+	if !m.twoSided() {
+		return faint("│")
+	}
+	if m.paneFocus {
+		return faint("│")
+	}
+	return paint(cOrange, "│")
 }
 
 // Column widths on the right of a row.
@@ -647,8 +672,11 @@ func (m *Model) columnHeader(w int) string {
 		}
 		return faint(s)
 	}
-	name := label("AGENT", "name")
+	name := label("AGENTS", "name")
 	left := "   " + fit(name, nameCol+2)
+	if m.twoSided() && !m.paneFocus {
+		left = paint(cOrange, "▍") + "  " + fit(name, nameCol+2)
+	}
 	if sortBy == "name" {
 		left = "   " + paint(cSub+bold, fit(name, nameCol+2))
 	} else {
@@ -1032,7 +1060,7 @@ func (m *Model) promptLines(w int) []string {
 	if a != nil && a.Agtop && !m.paneFocus {
 		row1 = keysFit(w-4, "enter · →", "talk to "+ansi.Truncate(oneLine(a.DisplayName), 20, "…"), "F2", "rename", "ctrl+x", "stop")
 	}
-	row2 := keysFit(w-4, "tab", "views", "→", "pane", "ctrl+n", "next needing you", "ctrl+s", "group", "shift+↑↓", "preview size", "?", "all keys")
+	row2 := keysFit(w-4, "tab", "views", "→", "session", "ctrl+n", "next needing you", "ctrl+s", "group", "shift+↑↓", "preview size", "?", "all keys")
 	if m.inKind == inReply {
 		row1 = keysFit(w-4, "enter", "send", "↑↓", "pick another agent", "esc", "leave reply mode")
 	}
@@ -1339,7 +1367,7 @@ func (m *Model) helpBody() []string {
 	left := []group{
 		{"Move & open", [][2]string{
 			{"↑ ↓", "move"}, {"enter", "open the agent · fold a section"},
-			{"→ ←", "into the pane and back · fold"}, {"ctrl+n", "next agent needing you"},
+			{"enter · →", "into the session · type to its agent"}, {"esc · ←", "back to Agents"}, {"ctrl+n", "next agent needing you"},
 			{"ctrl+]", "stop typing into a Claude Code screen"},
 			{"tab", "next view"}, {"shift+↑ ↓", "taller or shorter preview"},
 		}},
