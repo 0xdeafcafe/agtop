@@ -1249,6 +1249,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		c.images = c.images[:len(c.images)-1]
 		return nil
 	}
+	if s == "ctrl+v" {
+		return pasteClipImage()
+	}
 	switch s {
 	case "esc":
 		switch {

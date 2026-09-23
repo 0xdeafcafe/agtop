@@ -134,6 +134,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		m.images = m.images[:len(m.images)-1]
 		return nil
 	}
+	if s == "ctrl+v" && m.acceptsText() && m.dialog == nil {
+		return pasteClipImage()
+	}
 	if s == "enter" && empty && len(m.images) > 0 && m.inKind == inPrompt {
 		return m.startHosted("", m.startDir())
 	}

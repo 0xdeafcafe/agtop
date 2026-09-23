@@ -586,6 +586,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 		return m, nil
+	case clipImageMsg:
+		switch {
+		case msg.err != nil:
+			m.flash("couldn't read the clipboard: "+msg.err.Error(), true)
+		case msg.path == "":
+			m.flash("no image on the clipboard", false)
+		default:
+			m.attachImages([]string{msg.path})
+		}
+		return m, nil
 	case tea.PasteMsg:
 		if !m.embedded {
 			msg.Content = cleanPaste(msg.Content)
@@ -594,15 +604,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.embedPaste(msg.Content)
 			return m, nil
 		}
+		// A paste with no text is what some terminals send when the
+		// clipboard holds only an image: read the image itself.
+		if strings.TrimSpace(msg.Content) == "" {
+			return m, pasteClipImage()
+		}
 		// Image files dropped onto the terminal arrive as a paste of their
 		// paths; they become attachments on whichever box has focus.
 		if rest, imgs := extractImages(msg.Content); imgs != nil && m.dialog == nil {
-			if c := m.host; c != nil && m.paneFocus {
-				c.images = append(c.images, imgs...)
-			} else {
-				m.images = append(m.images, imgs...)
-			}
-			m.flash(fmt.Sprintf("attached %d image(s)", len(imgs)), false)
+			m.attachImages(imgs)
 			if rest == "" {
 				return m, nil
 			}
