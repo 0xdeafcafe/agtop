@@ -45,32 +45,25 @@ func (m *Model) tally() tally {
 	return t
 }
 
-// face is clanker's mood: the fleet at a glance.
-func (m *Model) face(t tally) (string, string) {
+// mood is clanker's reading of the fleet.
+func (m *Model) mood(t tally) mood {
 	switch {
 	case t.blocked > 0:
-		return "°□°", cYellow
-	case t.today >= 500 && m.tick%6 < 2:
-		return "$_$", cOrange
+		return moodNeedsYou
+	case t.today >= 500 && m.tick%8 < 2:
+		return moodSpendy
 	case t.working > 0:
-		if m.tick%9 == 0 {
-			return "-_-", cOrange
-		}
-		return "◉_◉", cOrange
-	default:
-		return "-_-", cDim
+		return moodWorking
 	}
+	if h := m.snap.At.Hour(); h >= 23 || h < 7 {
+		return moodSleepy
+	}
+	return moodIdle
 }
 
 func (m *Model) header() []string {
 	t := m.tally()
-	eyes, col := m.face(t)
-	robot := [3]string{
-		paint(col, "┌─┴─┐"),
-		paint(col, "│") + paint(cText, eyes) + paint(col, "│"),
-		paint(col, "└┬─┬┘"),
-	}
-
+	robot := clanker(m.mood(t), m.tick)
 	var counts []string
 	if t.blocked > 0 {
 		counts = append(counts, paint(cYellow+bold, fmt.Sprintf("● %d needs you", t.blocked)))
@@ -94,19 +87,24 @@ func (m *Model) header() []string {
 		right2 = dim("costing transcripts…   ") + right2
 	}
 
+	pad := strings.Repeat(" ", ansi.StringWidth(robot[0]))
 	line := func(r, l, rt string) string {
-		body := "  " + r + "  " + l
+		body := "  " + r + "   " + l
 		gap := m.w - ansi.StringWidth(body) - ansi.StringWidth(rt) - 2
 		if gap < 2 {
 			return fit(body, m.w)
 		}
 		return body + strings.Repeat(" ", gap) + rt
 	}
-	return []string{
-		line(robot[0], left1, right1),
-		line(robot[1], left2, right2),
-		"  " + robot[2],
+	out := make([]string, len(robot))
+	for i, r := range robot {
+		out[i] = "  " + r
 	}
+	// Text sits level with the head and face.
+	out[1] = line(robot[1], left1, right1)
+	out[2] = line(robot[2], left2, right2)
+	_ = pad
+	return out
 }
 
 // activeUsage is the current account's plan usage, quiet unless it is high.
