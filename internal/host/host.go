@@ -48,22 +48,25 @@ type Config struct {
 // Info is what the list shows about a session; the host keeps it in
 // info.json and sends it to clients whenever it changes.
 type Info struct {
-	ID             string    `json:"id"`
-	SessionID      string    `json:"sessionId"`
-	Account        string    `json:"account"`
-	Cwd            string    `json:"cwd"`
-	Name           string    `json:"name,omitempty"`
-	HostPID        int       `json:"hostPid"`
-	ClaudePID      int       `json:"claudePid,omitempty"`
-	State          string    `json:"state"` // starting, working, blocked, idle, stopped
-	Detail         string    `json:"detail,omitempty"`
-	Needs          string    `json:"needs,omitempty"`
-	Model          string    `json:"model,omitempty"`
-	PermissionMode string    `json:"permissionMode,omitempty"`
-	CostUSD        float64   `json:"costUsd,omitempty"`
-	Error          string    `json:"error,omitempty"`
-	StartedAt      time.Time `json:"startedAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID             string  `json:"id"`
+	SessionID      string  `json:"sessionId"`
+	Account        string  `json:"account"`
+	Cwd            string  `json:"cwd"`
+	Name           string  `json:"name,omitempty"`
+	HostPID        int     `json:"hostPid"`
+	ClaudePID      int     `json:"claudePid,omitempty"`
+	State          string  `json:"state"` // starting, working, blocked, idle, stopped
+	Detail         string  `json:"detail,omitempty"`
+	Needs          string  `json:"needs,omitempty"`
+	Model          string  `json:"model,omitempty"`
+	PermissionMode string  `json:"permissionMode,omitempty"`
+	CostUSD        float64 `json:"costUsd,omitempty"`
+	// Queue holds messages sent while the agent was busy; the host sends
+	// the first when the turn ends.
+	Queue     []string  `json:"queue,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	StartedAt time.Time `json:"startedAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // Duration reads and writes as a Go duration string.
@@ -105,6 +108,7 @@ func NewSessionID() (session, short string) {
 const (
 	typeInfo     = "agtop_info"
 	typeAnswered = "agtop_answered"
+	typeCommands = "agtop_commands"
 )
 
 type server struct {
@@ -119,8 +123,12 @@ type server struct {
 	clients map[*conn]struct{}
 	pending map[string]headless.PermissionRequest
 	info    Info
-	idle    *time.Timer
-	quit    chan struct{}
+	// commands is the slash command list from Claude Code's initialize
+	// reply, kept apart from the ring so every client gets it.
+	commands []byte
+	initID   string
+	idle     *time.Timer
+	quit     chan struct{}
 }
 
 // ringMax bounds what a reconnecting client is replayed.
@@ -157,7 +165,7 @@ func Run(id string) error {
 	}
 	s.publish()
 	if cfg.Prompt != "" {
-		if err := s.send(cfg.Prompt); err != nil {
+		if err := s.send(cfg.Prompt, false); err != nil {
 			return err
 		}
 	}
@@ -200,6 +208,9 @@ func (s *server) start() error {
 	s.sess = sess
 	s.info.ClaudePID = sess.PID()
 	s.info.Error = ""
+	if s.commands == nil {
+		s.initID, _ = sess.Initialize()
+	}
 	go s.watch(sess)
 	return nil
 }
@@ -296,6 +307,14 @@ func (s *server) onEvent(ev headless.Event) {
 		s.info.Needs = ev.Tool + " " + toolSummary(ev.Input)
 	case headless.PermissionCancelled:
 		s.answered(ev.ID)
+	case headless.ControlReply:
+		if ev.ID == s.initID && ev.Error == "" {
+			s.commands, _ = json.Marshal(map[string]any{"type": typeCommands, "commands": headless.Commands(ev)})
+			for c := range s.clients {
+				c.push(s.commands)
+			}
+		}
+		return
 	case headless.Result:
 		s.began = true
 		s.info.CostUSD += ev.CostUSD
@@ -304,6 +323,12 @@ func (s *server) onEvent(ev headless.Event) {
 			s.info.Needs = ""
 			if t := strings.TrimSpace(ev.Text); t != "" {
 				s.info.Detail = firstLine(t)
+			}
+			if len(s.info.Queue) > 0 {
+				next := s.info.Queue[0]
+				s.info.Queue = s.info.Queue[1:]
+				_ = s.sendLocked(next)
+				return
 			}
 			s.armIdle()
 		}
@@ -357,9 +382,21 @@ func (s *server) publish() {
 	}
 }
 
-func (s *server) send(text string) error {
+// send delivers a message, or queues it while the agent is busy.
+func (s *server) send(text string, now bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !now && (s.info.State == "working" || s.info.State == "blocked") {
+		s.info.Queue = append(s.info.Queue, text)
+		s.publish()
+		return nil
+	}
+	return s.sendLocked(text)
+}
+
+// sendLocked gives Claude Code a message now; mid-turn it is picked up at
+// the next step. Called with mu held.
+func (s *server) sendLocked(text string) error {
 	if s.idle != nil {
 		s.idle.Stop()
 	}
@@ -377,6 +414,39 @@ func (s *server) send(text string) error {
 	return s.sess.Send(text)
 }
 
+// editQueue applies a queue op. Called with mu held.
+func (s *server) editQueue(o op) error {
+	q := s.info.Queue
+	if o.Index < 0 || o.Index >= len(q) {
+		return fmt.Errorf("no queued message %d", o.Index)
+	}
+	switch o.Op {
+	case "queue_edit":
+		q[o.Index] = o.Text
+	case "queue_remove":
+		q = append(q[:o.Index], q[o.Index+1:]...)
+	case "queue_move":
+		to := max(0, min(o.To, len(q)-1))
+		item := q[o.Index]
+		q = append(q[:o.Index], q[o.Index+1:]...)
+		q = append(q[:to], append([]string{item}, q[to:]...)...)
+	case "queue_merge":
+		// Into the one after it, so a burst of thoughts goes as one message.
+		if o.Index+1 >= len(q) {
+			return fmt.Errorf("nothing after queued message %d to merge with", o.Index)
+		}
+		q[o.Index] = q[o.Index] + "\n\n" + q[o.Index+1]
+		q = append(q[:o.Index+1], q[o.Index+2:]...)
+	case "queue_send":
+		text := q[o.Index]
+		s.info.Queue = append(q[:o.Index], q[o.Index+1:]...)
+		return s.sendLocked(text)
+	}
+	s.info.Queue = q
+	s.publish()
+	return nil
+}
+
 // op is one command from a client.
 type op struct {
 	Op        string          `json:"op"`
@@ -388,15 +458,22 @@ type op struct {
 	Interrupt bool            `json:"interrupt,omitempty"`
 	Mode      string          `json:"mode,omitempty"`
 	Model     string          `json:"model,omitempty"`
+	Now       bool            `json:"now,omitempty"`
+	Index     int             `json:"index,omitempty"`
+	To        int             `json:"to,omitempty"`
 }
 
 func (s *server) do(o op) error {
 	if o.Op == "send" {
-		return s.send(o.Text)
+		return s.send(o.Text, o.Now)
 	}
 	s.mu.Lock()
 	sess := s.sess
 	switch o.Op {
+	case "queue_edit", "queue_remove", "queue_move", "queue_merge", "queue_send":
+		err := s.editQueue(o)
+		s.mu.Unlock()
+		return err
 	case "allow", "deny":
 		req, ok := s.pending[o.ID]
 		if !ok || sess == nil {
@@ -469,6 +546,9 @@ func (s *server) serve(nc net.Conn) {
 	c := &conn{c: nc, out: make(chan []byte, 4096), gone: make(chan struct{})}
 	s.mu.Lock()
 	replay := append([][]byte(nil), s.ring...)
+	if s.commands != nil {
+		replay = append(replay, s.commands)
+	}
 	info, _ := json.Marshal(map[string]any{"type": typeInfo, "info": s.info})
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()

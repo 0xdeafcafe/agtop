@@ -46,6 +46,10 @@ type Message struct {
 	ParentToolUseID string
 	Blocks          []Block
 	Usage           *Usage
+	// ToolResult is Claude Code's structured account of a tool run, sent with
+	// the tool_result message: an Edit's structuredPatch, a Read's file, a
+	// Bash run's stdout and stderr.
+	ToolResult json.RawMessage
 }
 
 // Block is one content block of a message.
@@ -148,6 +152,7 @@ type envelope struct {
 	Response        json.RawMessage `json:"response"`
 	Message         json.RawMessage `json:"message"`
 	Event           json.RawMessage `json:"event"`
+	ToolUseResult   json.RawMessage `json:"tool_use_result"`
 }
 
 // Decode turns one output line into an Event.
@@ -284,7 +289,7 @@ func decodeMessage(e envelope) (Event, error) {
 	if err := json.Unmarshal(e.Message, &m); err != nil {
 		return nil, err
 	}
-	out := Message{Role: m.Role, ID: m.ID, UUID: e.UUID, ParentToolUseID: e.ParentToolUseID, Usage: m.Usage}
+	out := Message{Role: m.Role, ID: m.ID, UUID: e.UUID, ParentToolUseID: e.ParentToolUseID, Usage: m.Usage, ToolResult: e.ToolUseResult}
 	if out.Role == "" {
 		out.Role = e.Type
 	}
@@ -366,4 +371,40 @@ func decodeControl(e envelope, other Other) (Event, error) {
 	return PermissionRequest{ID: e.RequestID, Tool: r.Tool, Input: r.Input, Description: r.Description,
 		Reason: r.Reason, ReasonType: r.ReasonType, ToolUseID: r.ToolUseID, BlockedPath: r.BlockedPath,
 		Suggestions: r.Suggestions}, nil
+}
+
+// Command is a slash command the session accepts.
+type Command struct {
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	ArgumentHint string   `json:"argumentHint"`
+	Aliases      []string `json:"aliases"`
+}
+
+// Commands reads the slash commands out of the reply to Initialize.
+func Commands(reply ControlReply) []Command {
+	var r struct {
+		Commands []Command `json:"commands"`
+	}
+	_ = json.Unmarshal(reply.Body, &r)
+	return r.Commands
+}
+
+// Patch is one hunk of an edit, as Claude Code reports it in an Edit or
+// Write result's structuredPatch.
+type Patch struct {
+	OldStart int      `json:"oldStart"`
+	OldLines int      `json:"oldLines"`
+	NewStart int      `json:"newStart"`
+	NewLines int      `json:"newLines"`
+	Lines    []string `json:"lines"` // each prefixed ' ', '-' or '+'
+}
+
+// Patches reads the hunks from a tool result, if it has any.
+func Patches(toolResult json.RawMessage) []Patch {
+	var r struct {
+		StructuredPatch []Patch `json:"structuredPatch"`
+	}
+	_ = json.Unmarshal(toolResult, &r)
+	return r.StructuredPatch
 }

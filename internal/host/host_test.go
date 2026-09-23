@@ -230,3 +230,33 @@ func TestRealHost(t *testing.T) {
 		t.Errorf("resume changed the session id: %s -> %s", cfg.SessionID, info.SessionID)
 	}
 }
+
+func TestQueueEdits(t *testing.T) {
+	setup(t)
+	s := &server{cfg: Config{ID: "q"}, clients: map[*conn]struct{}{}}
+	s.info.Queue = []string{"a", "b", "c", "d"}
+	steps := []struct {
+		o    op
+		want string
+	}{
+		{op{Op: "queue_edit", Index: 1, Text: "B"}, "a|B|c|d"},
+		{op{Op: "queue_move", Index: 3, To: 0}, "d|a|B|c"},
+		{op{Op: "queue_merge", Index: 1}, "d|a\n\nB|c"},
+		{op{Op: "queue_remove", Index: 0}, "a\n\nB|c"},
+		{op{Op: "queue_move", Index: 0, To: 9}, "c|a\n\nB"},
+	}
+	for _, st := range steps {
+		if err := s.editQueue(st.o); err != nil {
+			t.Fatalf("%s: %v", st.o.Op, err)
+		}
+		if got := strings.Join(s.info.Queue, "|"); got != st.want {
+			t.Fatalf("%s: got %q want %q", st.o.Op, got, st.want)
+		}
+	}
+	if err := s.editQueue(op{Op: "queue_merge", Index: 1}); err == nil {
+		t.Error("merging the last item should fail")
+	}
+	if err := s.editQueue(op{Op: "queue_remove", Index: 5}); err == nil {
+		t.Error("removing past the end should fail")
+	}
+}

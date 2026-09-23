@@ -156,15 +156,19 @@ type ErrorEvent struct{ Error string }
 // Sent is a message a client sent, echoed so every client shows it.
 type Sent struct{ Text string }
 
+// Commands lists the session's slash commands.
+type Commands struct{ Commands []headless.Command }
+
 // Decode reads one line from a host: its own events, or Claude Code's.
 func Decode(line []byte) (any, error) {
 	var head struct {
-		Type      string          `json:"type"`
-		Info      Info            `json:"info"`
-		RequestID string          `json:"request_id"`
-		Error     string          `json:"error"`
-		Sent      bool            `json:"agtop_sent"`
-		Message   json.RawMessage `json:"message"`
+		Type      string             `json:"type"`
+		Info      Info               `json:"info"`
+		RequestID string             `json:"request_id"`
+		Error     string             `json:"error"`
+		Sent      bool               `json:"agtop_sent"`
+		Message   json.RawMessage    `json:"message"`
+		Commands  []headless.Command `json:"commands"`
 	}
 	if err := json.Unmarshal(line, &head); err != nil {
 		return nil, err
@@ -176,6 +180,8 @@ func Decode(line []byte) (any, error) {
 		return Answered{ID: head.RequestID}, nil
 	case "agtop_error":
 		return ErrorEvent{Error: head.Error}, nil
+	case typeCommands:
+		return Commands{Commands: head.Commands}, nil
 	}
 	if head.Sent {
 		var m struct {
@@ -226,7 +232,20 @@ func (c *Client) do(o op) error {
 	return err
 }
 
+// Send delivers a message, or queues it if the agent is busy.
 func (c *Client) Send(text string) error { return c.do(op{Op: "send", Text: text}) }
+
+// SendNow delivers a message mid-turn; Claude reads it at its next step.
+func (c *Client) SendNow(text string) error { return c.do(op{Op: "send", Text: text, Now: true}) }
+
+// Queue edits, by index into Info.Queue.
+func (c *Client) EditQueued(i int, text string) error {
+	return c.do(op{Op: "queue_edit", Index: i, Text: text})
+}
+func (c *Client) RemoveQueued(i int) error   { return c.do(op{Op: "queue_remove", Index: i}) }
+func (c *Client) MoveQueued(i, to int) error { return c.do(op{Op: "queue_move", Index: i, To: to}) }
+func (c *Client) MergeQueued(i int) error    { return c.do(op{Op: "queue_merge", Index: i}) }
+func (c *Client) SendQueued(i int) error     { return c.do(op{Op: "queue_send", Index: i}) }
 
 // Allow lets a pending tool call run; input nil keeps the requested input.
 func (c *Client) Allow(id string, input json.RawMessage, always bool) error {

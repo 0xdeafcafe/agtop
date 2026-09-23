@@ -210,6 +210,12 @@ func (s *Session) control(req map[string]any) (string, error) {
 	return id, s.write(map[string]any{"type": "control_request", "request_id": id, "request": req})
 }
 
+// Initialize asks for the session's slash commands, models and account; the
+// answer is a ControlReply for the returned id (read it with Commands).
+func (s *Session) Initialize() (string, error) {
+	return s.control(map[string]any{"subtype": "initialize"})
+}
+
 // Interrupt stops the current turn, as esc does.
 func (s *Session) Interrupt() error {
 	_, err := s.control(map[string]any{"subtype": "interrupt", "reason": "interrupt"})
