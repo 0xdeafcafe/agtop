@@ -178,7 +178,7 @@ func (t *Tail) apply(b []byte) bool {
 		}
 		fallthrough
 	case "assistant":
-		ev, err := headless.Decode(envelope(l))
+		ev, err := headless.DecodeMessage(l.Type, l.Message, l.ToolUseResult)
 		if err != nil {
 			return false
 		}
@@ -194,25 +194,6 @@ func (t *Tail) apply(b []byte) bool {
 	return false
 }
 
-// envelope rewraps a transcript line as the stream line Claude Code would
-// have sent for it.
-func envelope(l tline) []byte {
-	raw := func(r json.RawMessage) json.RawMessage {
-		if len(r) == 0 {
-			return json.RawMessage("null")
-		}
-		return r
-	}
-	msg, res := raw(l.Message), raw(l.ToolUseResult)
-	b := make([]byte, 0, len(msg)+len(res)+64)
-	b = append(b, `{"message":`...)
-	b = append(b, msg...)
-	b = append(b, `,"tool_use_result":`...)
-	b = append(b, res...)
-	b = append(b, `,"type":"`...)
-	b = append(b, l.Type...)
-	return append(b, `"}`...)
-}
 
 // prompt reads a user line as something you typed: plain text or text and
 // image blocks, not a tool result. Command wrappers are unwrapped.

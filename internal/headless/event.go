@@ -317,6 +317,12 @@ func decodeStream(raw json.RawMessage, other Other) (Event, error) {
 	return other, nil
 }
 
+// DecodeMessage decodes an assistant or user message from its parts, for a
+// reader (like a transcript's) that has already split the line up.
+func DecodeMessage(typ string, message, toolUseResult json.RawMessage) (Event, error) {
+	return decodeMessage(envelope{Type: typ, Message: message, ToolUseResult: toolUseResult})
+}
+
 func decodeMessage(e envelope) (Event, error) {
 	var m struct {
 		ID      string          `json:"id"`
