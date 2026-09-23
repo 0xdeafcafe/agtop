@@ -56,6 +56,7 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 | `internal/ui/agtopmode.go` | Session pane: connections (host or transcript tail), header, views, dock, cards, keys, search keys, subagents view, `/agtop` | this work |
 | `internal/ui/editor.go` | line editor (`edit`, `editSel` with selection), image path parsing, chips | this work |
 | `internal/ui/inputbox.go` | the bordered box; own word wrap with offsets (`wrapSegs`), block cursor, selection highlight, click mapping (`at`) | this work |
+| `internal/agtools` | agtop's own MCP tools (`mcp__agtop__*`), served in-process by the host: Claude Code names the server in `initialize.sdkMcpServers` and sends each JSON-RPC message as a `mcp_message` control request (`headless.MCPRequest` → `agtools.Handle` → `Session.ReplyMCP`). Tools carry `_meta["anthropic/alwaysLoad"]` so they aren't behind tool search, and are passed to `--allowedTools`; the host keeps their control traffic out of the ring. `show` draws a figure (`convo` `figure`/`Drawing`). A tool that must wait on the user would answer `tools/call` later, from the UI, via a new host op | this work |
 | `internal/ui/claudetab.go` | Settings › Claude tab (settings.json + env) | this work |
 | `internal/ui/zen.go` | Zen view | this work |
 | `internal/claude/settings.go` | settings.json reader/writer | this work |
