@@ -450,8 +450,11 @@ type hostConn struct {
 	qAnswer   map[string]string
 	stopArmed time.Time
 	lastSend  time.Time
-	flushed   time.Time // when the last batch of host lines was taken in
-	watching  []watched // the transcripts being watched for growth
+	flushed   time.Time     // when the last batch of host lines was taken in
+	watching  []watched     // the transcripts being watched for growth
+	drawn     convo.Options // how the conversation was last drawn
+	drewConvo bool
+	seenRef   map[string]bool
 	stopWatch chan struct{}
 	// selMoved asks the next draw to scroll the selection into view;
 	// rowRefs is what each drawn row of the pane belongs to, for clicks.
@@ -751,6 +754,7 @@ func (m *Model) agtopPane(w, h int) []string {
 		body = m.subagentLines(c, o)
 	default:
 		body = s.Render(o)
+		c.drawn, c.drewConvo = o, true
 		if len(body) == 0 {
 			body = []convo.Line{{Text: ""}, {Text: dim("  nothing yet · type below to start")}}
 		}
@@ -758,12 +762,18 @@ func (m *Model) agtopPane(w, h int) []string {
 	// Bottom-anchored: the latest output sits just above the dock unless
 	// you've scrolled up. A selection that just moved is scrolled into view.
 	c.bodyRefs = c.bodyRefs[:0]
-	seenRef := map[string]bool{}
+	if c.seenRef == nil {
+		c.seenRef = map[string]bool{}
+	}
+	clear(c.seenRef)
+	prev := ""
 	for _, l := range body {
-		if l.Ref != "" && !seenRef[l.Ref] {
-			seenRef[l.Ref] = true
+		// A ref's rows sit together, so most repeats are the row before's.
+		if l.Ref != "" && l.Ref != prev && !c.seenRef[l.Ref] {
+			c.seenRef[l.Ref] = true
 			c.bodyRefs = append(c.bodyRefs, l.Ref)
 		}
+		prev = l.Ref
 	}
 	if c.selMoved && c.sel != "" {
 		c.selMoved = false
@@ -1492,8 +1502,14 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 	if v, ok := c.open[ref]; ok {
 		return v
 	}
-	// What the renderer opens by default: recent turns and failures.
-	for _, l := range c.sess.Render(convo.Options{Width: max(40, m.w/2), Now: time.Now(), Open: c.open}) {
+	// What the renderer opens by default: recent turns and failures. The
+	// options the pane last drew with find it in the renderer's cache;
+	// any others would redraw every turn, twice.
+	o := convo.Options{Width: max(40, m.w/2), Now: time.Now(), Open: c.open}
+	if c.drewConvo {
+		o = c.drawn
+	}
+	for _, l := range c.sess.Render(o) {
 		if l.Ref == ref {
 			return !strings.Contains(ansi.Strip(l.Text), "▸")
 		}
