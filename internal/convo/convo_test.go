@@ -526,3 +526,26 @@ func TestLiveLine(t *testing.T) {
 		t.Fatal("a finished turn has no live line")
 	}
 }
+
+func TestFailureInBrief(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "compare"}, at(0))
+	s.Apply(toolUse("b1", "Bash", map[string]any{"command": "python3 - <<'EOF'\nimport yaml\nprint(1)\nEOF", "description": "Compare lockfile"}), at(1))
+	s.Apply(toolResult("b1", "Exit code 1\nTraceback (most recent call last):\n  File \"<stdin>\", line 1\nModuleNotFoundError: No module named 'yaml'", true,
+		map[string]any{"stdout": "", "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 1\nModuleNotFoundError: No module named 'yaml'"}), at(2))
+	out := plain(s.Render(Options{Width: 110, Now: at(3)}))
+	if !strings.Contains(out, "▎ModuleNotFoundError: No module named 'yaml'") || strings.Contains(out, "import yaml") {
+		t.Fatalf("brief failure:\n%s", out)
+	}
+	ref := ""
+	for _, l := range s.Render(Options{Width: 110, Now: at(3)}) {
+		if strings.Contains(l.Ref, ":s:b1") {
+			ref = l.Ref
+			break
+		}
+	}
+	out = plain(s.Render(Options{Width: 110, Now: at(3), Open: map[string]bool{ref: true}}))
+	if !strings.Contains(out, "$ python3 - <<'EOF'") || !strings.Contains(out, "  import yaml") || strings.Contains(out, "$ import yaml") {
+		t.Fatalf("opened failure:\n%s", out)
+	}
+}

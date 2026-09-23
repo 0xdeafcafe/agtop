@@ -765,14 +765,22 @@ func (d *drawer) step(st *Step, depth int) {
 	ref := d.ref + ":s:" + st.ID
 	indent := 4 + depth*4
 	left := d.spine() + strings.Repeat(" ", indent-1) + d.statusMark(st) + " " + d.label(st)
-	d.add(ref, "", left, d.cells(st))
-
-	open := st.Status == Failed || d.o.Verbose
+	open := d.o.Verbose
 	if v, ok := d.o.Open[ref]; ok {
 		open = v
 	}
-	if open {
+	// A failure shows just its error until you open it for everything.
+	brief := st.Status == Failed && !open
+	cells := d.cells(st)
+	if brief {
+		cells += "  " + faint("▸")
+	}
+	d.add(ref, "", left, cells)
+	switch {
+	case open:
 		d.body(st, indent+4)
+	case brief:
+		d.errorLine(st, indent+4, ref)
 	}
 	// A subagent shows its own steps while it works, or when opened.
 	if len(st.Children) > 0 && (st.Status == Running || open) {
@@ -1185,8 +1193,12 @@ func (d *drawer) body(st *Step, indent int) {
 	case "Bash":
 		if cmd := readInput(st.Input).str("command"); cmd != "" && readInput(st.Input).str("description") != "" {
 			pad := d.spine() + strings.Repeat(" ", indent-1)
-			for _, l := range strings.Split(strings.TrimSpace(cmd), "\n") {
-				d.add("", bgWell, pad+faint("$ ")+tint(truncateCells(expandTabs(l), d.cw-indent-4)), "")
+			for i, l := range strings.Split(strings.TrimSpace(cmd), "\n") {
+				lead := faint("$ ") // the command, not each line of a heredoc
+				if i > 0 {
+					lead = "  "
+				}
+				d.add("", bgWell, pad+lead+tint(truncateCells(expandTabs(l), d.cw-indent-4)), "")
 			}
 		}
 		var r struct {
@@ -1203,6 +1215,52 @@ func (d *drawer) body(st *Step, indent int) {
 		}
 	}
 	d.output(strings.TrimLeft(exitRe.ReplaceAllString(st.Output, ""), "\n"), indent, st.Status == Failed)
+}
+
+// errRe finds the line of a failure's output that says what went wrong.
+var errRe = regexp.MustCompile(`(?i)(error|fatal|panic|exception|traceback|failed|\bfail\b|not found|no such|denied|cannot|can't|undefined|unexpected|invalid|refused|timed out)`)
+
+// errorLine is a failure in brief: the line of its output that says what
+// went wrong (the last one that reads like an error, else the last line),
+// in red, with the way to see the rest.
+func (d *drawer) errorLine(st *Step, indent int, ref string) {
+	text := st.Output
+	var r struct {
+		Stdout string `json:"stdout"`
+		Stderr string `json:"stderr"`
+	}
+	if st.Tool == "Bash" && json.Unmarshal(st.Result, &r) == nil && r.Stdout+r.Stderr != "" {
+		text = r.Stdout + "\n" + r.Stderr
+	}
+	var last, hit string
+	for _, l := range strings.Split(stripANSI(collapseCR(text)), "\n") {
+		l = strings.TrimSpace(expandTabs(l))
+		if l == "" || exitRe.MatchString(l) && errRe.FindString(l) == "" {
+			continue
+		}
+		last = l
+		if errRe.MatchString(l) {
+			hit = l
+		}
+	}
+	if hit == "" {
+		hit = last
+	}
+	if hit == "" {
+		return
+	}
+	pad := d.spine() + strings.Repeat(" ", indent-1)
+	w := d.cw - indent - 24
+	for i, l := range wrap(hit, max(20, w)) {
+		right := ""
+		if i == 0 {
+			right = dim("enter shows all")
+		}
+		if i == 2 {
+			break
+		}
+		d.add(ref, bgErr, pad+paint(cRed, "▎")+paint(cRed, l), right)
+	}
 }
 
 // output draws text in a well: head and tail when it's long, all of it in
