@@ -9,21 +9,21 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agents/internal/daemon"
-	"github.com/0xdeafcafe/agents/internal/fleet"
-	"github.com/0xdeafcafe/agents/internal/state"
-	"github.com/0xdeafcafe/agents/internal/ui"
+	"github.com/0xdeafcafe/agtop/internal/daemon"
+	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/agtop/internal/ui"
 )
 
 var version = "0.1.0"
 
-const usage = `agents — a lighter agents view for Claude Code
+const usage = `agtop — a lighter agents view for Claude Code
 
-  agents            open the view
-  agents on         make "claude agents" open this view (adds one line to your shell rc)
-  agents off        give "claude agents" back to Claude Code (instant, no shell reload)
-  agents status     show whether it is on
-  agents --dump     print what the view sees, for debugging
+  agtop             open the view
+  agtop on          make "claude agents" open this view (adds one line to your shell rc)
+  agtop off         give "claude agents" back to Claude Code (instant, no shell reload)
+  agtop status      show whether it is on
+  agtop --dump      print what the view sees, for debugging
 `
 
 func main() {
@@ -31,7 +31,7 @@ func main() {
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "version":
-			fmt.Println("agents", version)
+			fmt.Println("agtop", version)
 			return
 		case "--help", "-h", "help":
 			fmt.Print(usage)
@@ -44,7 +44,7 @@ func main() {
 			return
 		case "attach":
 			if len(args) < 2 {
-				exitIf(fmt.Errorf("usage: agents attach <id>"))
+				exitIf(fmt.Errorf("usage: agtop attach <id>"))
 			}
 			s := &daemon.Session{Client: daemon.Client{Account: state.Load().Config.ActiveAccount()}, Short: args[1]}
 			exitIf(s.Run())
@@ -54,11 +54,11 @@ func main() {
 			return
 		case "off":
 			exitIf(os.WriteFile(offFlag(), nil, 0o600))
-			fmt.Println(`off — "claude agents" opens the native view. "agents on" turns it back on.`)
+			fmt.Println(`off — "claude agents" opens the native view. "agtop on" turns it back on.`)
 			return
 		case "status":
 			if isOn() {
-				fmt.Println(`on — "claude agents" opens agents`)
+				fmt.Println(`on — "claude agents" opens agtop`)
 			} else {
 				fmt.Println(`off — "claude agents" opens the native view`)
 			}
@@ -67,14 +67,14 @@ func main() {
 	}
 	p := tea.NewProgram(ui.New(state.Load(), version))
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "agents:", err)
+		fmt.Fprintln(os.Stderr, "agtop:", err)
 		os.Exit(1)
 	}
 }
 
 func exitIf(err error) {
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "agents:", err)
+		fmt.Fprintln(os.Stderr, "agtop:", err)
 		os.Exit(1)
 	}
 }
@@ -103,11 +103,11 @@ func rcFile() string {
 
 // The hook only intercepts "claude agents"; every other claude call passes
 // through untouched, and the off flag is read per call so toggling is instant.
-const hook = `# added by "agents on" — remove with "agents off" or delete this file
+const hook = `# added by "agtop on" — remove with "agtop off" or delete this file
 claude() {
-  if [ "$1" = "agents" ] && [ ! -f "%s" ] && command -v agents >/dev/null 2>&1; then
+  if [ "$1" = "agents" ] && [ ! -f "%s" ] && command -v agtop >/dev/null 2>&1; then
     shift
-    command agents "$@"
+    command agtop "$@"
   else
     command claude "$@"
   fi
@@ -136,7 +136,7 @@ func turnOn() error {
 		fmt.Printf("on — added one line to %s. Open a new terminal (or: . %s)\n", rc, hookPath())
 		return nil
 	}
-	fmt.Println(`on — "claude agents" opens agents`)
+	fmt.Println(`on — "claude agents" opens agtop`)
 	return nil
 }
 
@@ -173,7 +173,7 @@ func dump() {
 	fmt.Printf("machine mem=%.0fM cpu=%.1f%% spares=%d scan=%s\n", float64(snap.Machine.TotalMem)/(1<<20), snap.Machine.TotalCPU, snap.Machine.Spares, scan)
 }
 
-// render prints one frame, e.g. agents --render 160x45 tab
+// render prints one frame, e.g. agtop --render 160x45 tab
 func render(args []string) {
 	w, h := 160, 45
 	if len(args) > 0 {

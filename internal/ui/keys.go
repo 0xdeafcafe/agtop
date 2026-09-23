@@ -11,10 +11,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agents/internal/actions"
-	"github.com/0xdeafcafe/agents/internal/claude"
-	"github.com/0xdeafcafe/agents/internal/fleet"
-	"github.com/0xdeafcafe/agents/internal/state"
+	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {

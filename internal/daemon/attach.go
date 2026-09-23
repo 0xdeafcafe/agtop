@@ -41,7 +41,7 @@ func (s *Session) Run() error {
 	if err != nil || cols <= 0 {
 		cols, rows = 120, 40
 	}
-	attachID := fmt.Sprintf("agents-%d", os.Getpid())
+	attachID := fmt.Sprintf("agtop-%d", os.Getpid())
 	conn, r, info, err := s.Client.Attach(s.Short, attachID, cols, rows)
 	if err != nil {
 		return err

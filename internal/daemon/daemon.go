@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agents/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 )
 
 const proto = 1

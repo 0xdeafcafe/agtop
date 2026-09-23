@@ -1,4 +1,4 @@
-module github.com/0xdeafcafe/agents
+module github.com/0xdeafcafe/agtop
 
 go 1.27.1
 

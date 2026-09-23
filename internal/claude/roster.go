@@ -70,7 +70,7 @@ type PR struct {
 	} `json:"checks"`
 }
 
-// ReadPRCache reuses Claude Code's own GitHub status cache; agents makes no GitHub calls.
+// ReadPRCache reuses Claude Code's own GitHub status cache; agtop makes no GitHub calls.
 func ReadPRCache(a Account) map[string]PR {
 	m := map[string]PR{}
 	b, err := os.ReadFile(a.PRCachePath())

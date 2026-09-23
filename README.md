@@ -1,10 +1,10 @@
-# agents
+# agtop
 
 A small, fast replacement for Claude Code's agents view (`claude agents`), written in Go.
 It keeps the native layout and keys, and adds what the native view doesn't show.
 
 ```
-   ╻     agents 0.1.0 · clanker wrangler · Claude Code v2.1.280
+   ╻     agtop 0.1.0 · clanker wrangler · Claude Code v2.1.280
  ┌─┴─┐   default · ~/Source/github.com/langwatch/langwatch
  │◉_◉│   0 awaiting input · 3 working · 78 completed   cpu 402%  ram 10.1G  today $970
  └┬─┬┘   ● default 5h ▰▱▱▱▱▱▱▱▱▱ 12% resets 13:50 · 7d 22%
@@ -26,10 +26,10 @@ It uses about 15 MB of memory; the native view uses about 330 MB. When idle it d
 ## Install
 
 ```sh
-go install github.com/0xdeafcafe/agents/cmd/agents@latest
-agents            # open it
-agents on         # make `claude agents` open it (adds one line to ~/.zshrc)
-agents off        # give `claude agents` back to Claude Code, instantly
+go install github.com/0xdeafcafe/agtop/cmd/agtop@latest
+agtop            # open it
+agtop on         # make `claude agents` open it (adds one line to ~/.zshrc)
+agtop off        # give `claude agents` back to Claude Code, instantly
 ```
 
 ## Keys
@@ -51,7 +51,7 @@ agents off        # give `claude agents` back to Claude Code, instantly
 
 ## How it works
 
-agents only reads Claude Code's files: `jobs/*/state.json`, `daemon/roster.json`, `jobs/pins.json`, the transcripts, and the cached plan usage. It makes changes only through Claude Code: the daemon's control socket, with the `claude` CLI as a fallback. Its own state (Done, names, groups, accounts) lives in `~/.config/agents`, and a cost cache lives in `~/Library/Caches/agents`.
+agtop only reads Claude Code's files: `jobs/*/state.json`, `daemon/roster.json`, `jobs/pins.json`, the transcripts, and the cached plan usage. It makes changes only through Claude Code: the daemon's control socket, with the `claude` CLI as a fallback. Its own state (Done, names, groups, accounts) lives in `~/.config/agtop`, and a cost cache lives in `~/Library/Caches/agtop`.
 
 The control socket and the files are undocumented Claude Code internals, verified against v2.1.280. If a Claude Code update changes them, the affected column shows `–`, and opening an agent falls back to `claude attach`.
 

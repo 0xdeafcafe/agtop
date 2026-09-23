@@ -4,8 +4,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/0xdeafcafe/agents/internal/claude"
-	"github.com/0xdeafcafe/agents/internal/state"
+	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // Target is one agent's transcript as the scanner needs it.

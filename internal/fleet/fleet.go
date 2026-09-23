@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agents/internal/claude"
-	"github.com/0xdeafcafe/agents/internal/daemon"
-	"github.com/0xdeafcafe/agents/internal/proc"
-	"github.com/0xdeafcafe/agents/internal/state"
+	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/daemon"
+	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 type Agent struct {

@@ -1,4 +1,4 @@
-// Package ui is the agents view: the native layout plus cost, time, CPU/RAM,
+// Package ui is the agtop view: the native layout plus cost, time, CPU/RAM,
 // preview, processes, accounts, groups and folder moves.
 package ui
 
@@ -12,11 +12,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agents/internal/actions"
-	"github.com/0xdeafcafe/agents/internal/claude"
-	"github.com/0xdeafcafe/agents/internal/daemon"
-	"github.com/0xdeafcafe/agents/internal/fleet"
-	"github.com/0xdeafcafe/agents/internal/state"
+	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/daemon"
+	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 type mode int

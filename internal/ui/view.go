@@ -9,14 +9,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agents/internal/fleet"
-	"github.com/0xdeafcafe/agents/internal/proc"
+	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/proc"
 )
 
 func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
-	v.WindowTitle = "agents"
+	v.WindowTitle = "agtop"
 	return v
 }
 
@@ -88,7 +88,7 @@ func (m *Model) header() []string {
 		}
 	}
 	acct := m.store.Config.ActiveAccount()
-	title := paint(cWhite+bold, "agents "+m.version) + dim(" · clanker wrangler")
+	title := paint(cWhite+bold, "agtop "+m.version) + dim(" · clanker wrangler")
 	if cli != "" {
 		title += dim(" · Claude Code v" + cli)
 	}

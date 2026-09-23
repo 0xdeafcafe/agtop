@@ -10,15 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agents/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 )
 
 func Dir() string {
-	if d := os.Getenv("AGENTS_HOME"); d != "" {
+	if d := os.Getenv("AGTOP_HOME"); d != "" {
 		return d
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "agents")
+	return filepath.Join(home, ".config", "agtop")
 }
 
 // Key identifies a job across accounts.
@@ -134,14 +134,14 @@ type CostCache struct {
 }
 
 func cacheDir() string {
-	if d := os.Getenv("AGENTS_CACHE"); d != "" {
+	if d := os.Getenv("AGTOP_CACHE"); d != "" {
 		return d
 	}
 	d, err := os.UserCacheDir()
 	if err != nil {
 		return Dir()
 	}
-	return filepath.Join(d, "agents")
+	return filepath.Join(d, "agtop")
 }
 
 func LoadCostCache() *CostCache {

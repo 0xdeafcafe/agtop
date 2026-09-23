@@ -183,7 +183,7 @@ func WritePins(a Account, ids []string) error {
 }
 
 func writeAtomic(path string, b []byte) error {
-	tmp := path + ".agents.tmp"
+	tmp := path + ".agtop.tmp"
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
 	}

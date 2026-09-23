@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agents/internal/claude"
-	"github.com/0xdeafcafe/agents/internal/daemon"
-	"github.com/0xdeafcafe/agents/internal/proc"
+	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/daemon"
+	"github.com/0xdeafcafe/agtop/internal/proc"
 )
 
 var (
@@ -199,7 +199,7 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	tmp := dst + ".agents.tmp"
+	tmp := dst + ".agtop.tmp"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
