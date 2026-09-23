@@ -179,9 +179,9 @@ Done this round, beyond the ticks above: `/` lists skills and custom commands an
 Later the same night: thinking and live token line (04effe8); failed steps show just the error, heredocs fixed (e64243c); performance pass (15 commits, 2–4× cheaper frames, streaming within a frame); zen/changes/search review fixes (f54f443, b9bbce0, d5b2dae); conversation review fixes (9096425); markdown tables (afd5dd6); compaction divider (b33fd2a); overview dashboard (23e5146); diff viewer with hunk attribution, review marks and git diffs (8f4cc65); subagent master–detail and alt+↑↓ switcher (8ac2753, c106f4f); rail "now" section (e03f1e9); paste chips and ctrl+g (aecd341); /model and /effort pickers (74cb852); artifacts view (dac1a98); layout polish (4009597).
 
 Still open:
-- [ ] From the performance pass: `Render` could reuse the caller's buffer. (Streaming, mouse redraws and the triple JSON parse are fixed: c716c96, 76a1b3b, 6545a46.)
-- [ ] The live screen reader (`internal/ui/screeninfo.go`) is tested on a sample screen only; check it against a real Claude Code screen.
-- [ ] After `/agtop` on a terminal session, the original row stays beside the new agtop one and reads as a second agent: link or hide it.
+- [x] `RenderInto` reuses the pane's buffer (36bd36a). (Streaming, mouse redraws and the triple JSON parse are fixed: c716c96, 76a1b3b, 6545a46.)
+- [x] The live screen reader, checked against a real Claude Code screen (prompt between rules, status lines) and seen working live.
+- [x] After `/agtop` on a terminal session the original goes to Done and the copy keeps its name (3d1b064). Also: agtop's own Claude processes no longer list as extra agents (823550d).
 
 Decided 2026-09-24: keep the screen tab (the user debugs with it); external context compaction is dropped. Also done: queue for Claude Code agents sends within 15s while working (6c70e64), pinned turn heading and denser turns (b68410e), history shown after /agtop (d6b2674), Claude Code notices shown (31b4a71), quieter dock and image chips (f3c0d33).
 
