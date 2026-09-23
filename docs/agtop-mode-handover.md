@@ -179,10 +179,11 @@ Done this round, beyond the ticks above: `/` lists skills and custom commands an
 Later the same night: thinking and live token line (04effe8); failed steps show just the error, heredocs fixed (e64243c); performance pass (15 commits, 2–4× cheaper frames, streaming within a frame); zen/changes/search review fixes (f54f443, b9bbce0, d5b2dae); conversation review fixes (9096425); markdown tables (afd5dd6); compaction divider (b33fd2a); overview dashboard (23e5146); diff viewer with hunk attribution, review marks and git diffs (8f4cc65); subagent master–detail and alt+↑↓ switcher (8ac2753, c106f4f); rail "now" section (e03f1e9); paste chips and ctrl+g (aecd341); /model and /effort pickers (74cb852); artifacts view (dac1a98); layout polish (4009597).
 
 Still open:
-- [ ] **Context compaction via "jev" or classifier.dev**, for this project only, to test it. Waiting on the user for what these are and where the key lives.
-- [ ] **Drop the "screen" view?** The handover said so, but the user now uses it (asked for ← to go into it and for its subagent switcher in the conversation). Ask before removing.
-- [ ] From the performance pass, not done: streamed text is appended with `+=` (quadratic for very long answers); every mouse move draws a frame; `Render` could reuse the caller's buffer; transcript lines are JSON-parsed three times (`headless.Decode`).
+- [ ] From the performance pass: `Render` could reuse the caller's buffer. (Streaming, mouse redraws and the triple JSON parse are fixed: c716c96, 76a1b3b, 6545a46.)
 - [ ] The live screen reader (`internal/ui/screeninfo.go`) is tested on a sample screen only; check it against a real Claude Code screen.
+- [ ] After `/agtop` on a terminal session, the original row stays beside the new agtop one and reads as a second agent: link or hide it.
+
+Decided 2026-09-24: keep the screen tab (the user debugs with it); external context compaction is dropped. Also done: queue for Claude Code agents sends within 15s while working (6c70e64), pinned turn heading and denser turns (b68410e), history shown after /agtop (d6b2674), Claude Code notices shown (31b4a71), quieter dock and image chips (f3c0d33).
 
 ## How to test and look at it safely
 
