@@ -482,12 +482,34 @@ func (m *Model) listView() string {
 		}
 	}
 	var b strings.Builder
+	b.Grow(m.frameLen + m.frameLen/8)
 	m.paneTop = len(head) + 1
 	for _, l := range head {
-		b.WriteString(fit(l, m.w))
+		fitTo(&b, l, m.w, "")
 		b.WriteByte('\n')
 	}
 	b.WriteByte('\n')
+	// Rows beside each other: the side without the keys fades back.
+	listFade, paneFade := "", ""
+	if m.twoSided() {
+		if m.sessionFocused() {
+			listFade = fade
+		} else {
+			paneFade = fade
+		}
+	}
+	div := m.divider()
+	m.loadRail()
+	split2 := func(l, p string, i int) {
+		b.WriteString(listFade)
+		fitTo(&b, l, listW, listFade)
+		if listFade != "" {
+			b.WriteString(reset)
+		}
+		b.WriteString(div)
+		b.WriteString("  ")
+		m.paneRow(&b, p, i, paneW-3, paneFade)
+	}
 	for i := 0; i < bodyH; i++ {
 		l, p := "", ""
 		if i < len(left) {
@@ -498,16 +520,17 @@ func (m *Model) listView() string {
 		}
 		switch {
 		case listW > 0 && paneW > 0:
-			b.WriteString(m.side(fit(l, listW), false) + m.divider() + "  " + m.side(m.withRail(p, i, paneW-3), true))
+			split2(l, p, i)
 		case listW > 0:
-			b.WriteString(fit(l, m.w))
+			fitTo(&b, l, m.w, "")
 		default:
-			b.WriteString("  " + fit(p, m.w-2))
+			b.WriteString("  ")
+			fitTo(&b, p, m.w-2, "")
 		}
 		b.WriteByte('\n')
 	}
 	for _, l := range dock {
-		b.WriteString(fit(l, m.w))
+		fitTo(&b, l, m.w, "")
 		b.WriteByte('\n')
 	}
 	m.promptBoxY = len(head) + 1 + bodyH + len(dock) + m.promptBoxIdx
@@ -517,14 +540,16 @@ func (m *Model) listView() string {
 			if j := bodyH + i; j < len(pane) {
 				p = pane[j]
 			}
-			b.WriteString(m.side(fit(l, listW), false) + m.divider() + "  " + m.side(m.withRail(p, i, paneW-3), true))
+			// The rail carries on beside the Prompt rather than starting over.
+			split2(l, p, bodyH+i)
 		} else {
-			b.WriteString(fit(l, m.w))
+			fitTo(&b, l, m.w, "")
 		}
 		if i < len(prompt)-1 {
 			b.WriteByte('\n')
 		}
 	}
+	m.frameLen = b.Len()
 	return b.String()
 }
 
@@ -537,35 +562,44 @@ func (m *Model) twoSided() bool {
 	return m.listW > 0 && (m.host != nil || (m.live != nil && m.focused() != nil && m.live.key == m.focused().Key))
 }
 
-// withRail puts the recent-changes rail beside a Session row when there's
-// room for one.
-func (m *Model) withRail(p string, i, w int) string {
+// loadRail draws the recent-changes rail for this frame, when there's room
+// for one beside the Session.
+func (m *Model) loadRail() {
+	m.rail = m.rail[:0]
 	if m.railW <= 0 || m.host == nil {
-		return fit(p, w)
+		return
 	}
-	if i == 0 {
-		m.rail = nil
-		for _, l := range m.host.sess.RecentEdits(convo.Options{Width: m.railW, Now: m.snap.At}, m.h) {
-			m.rail = append(m.rail, l.Text)
+	m.rail = append(m.rail, m.railNow(m.host, m.railW)...)
+	for _, l := range m.host.sess.RecentEdits(convo.Options{Width: m.railW, Now: m.snap.At}, m.h-len(m.rail)) {
+		m.rail = append(m.rail, l.Text)
+	}
+}
+
+// paneRow writes a Session row w wide, with the rail's row i beside it
+// when there's a rail, faded when bg is set.
+func (m *Model) paneRow(b *strings.Builder, p string, i, w int, bg string) {
+	if bg != "" {
+		b.WriteString(bg)
+	}
+	if m.railW <= 0 || m.host == nil {
+		fitTo(b, p, w, bg)
+	} else {
+		r := ""
+		if i < len(m.rail) {
+			r = m.rail[i]
 		}
+		fitTo(b, p, w-m.railW-1, bg)
+		writeIn(b, faint("│"), bg)
+		fitTo(b, r, m.railW, bg)
 	}
-	r := ""
-	if i < len(m.rail) {
-		r = m.rail[i]
+	if bg != "" {
+		b.WriteString(reset)
 	}
-	return fit(p, w-m.railW-1) + faint("│") + fit(r, m.railW)
 }
 
 // sessionFocused is whether the keys go to the Session: an agtop
 // conversation, or typing into a Claude Code screen.
 func (m *Model) sessionFocused() bool { return m.paneFocus || m.embedded }
-
-func (m *Model) side(line string, pane bool) string {
-	if !m.twoSided() || pane == m.sessionFocused() {
-		return line
-	}
-	return fade + strings.ReplaceAll(line, reset, reset+fade) + reset
-}
 
 // divider leans orange toward the side with focus.
 // divider is the edge between Agents and the Session. It stays a quiet

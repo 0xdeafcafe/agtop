@@ -102,6 +102,7 @@ type Model struct {
 	zen        bool     // the Zen view: only the agent that needs you
 	railW      int      // the recent-changes rail's width, 0 when there isn't room
 	rail       []string // its lines for the frame being drawn
+	frameLen   int      // bytes in the last frame, to size the next
 	lastKeyAt  time.Time
 	paneTop    int // screen row of the pane's first line, for clicks
 	// host is the connection to the agtop-mode session the pane shows.

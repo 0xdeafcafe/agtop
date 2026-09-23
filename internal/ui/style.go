@@ -50,6 +50,52 @@ func fit(s string, w int) string {
 	return s + strings.Repeat(" ", w-sw)
 }
 
+// fitTo writes fit(s, w) with every reset in it followed by bg, when set,
+// so a faded or tinted row stays so after each styled piece.
+func fitTo(b *strings.Builder, s string, w int, bg string) {
+	if w <= 0 {
+		return
+	}
+	sw := cellw.String(s)
+	if sw > w {
+		writeIn(b, ansi.Truncate(s, w, "…"), bg)
+		return
+	}
+	writeIn(b, s, bg)
+	b.WriteString(blanks(w - sw))
+}
+
+// writeIn writes s with every reset followed by bg, when set.
+func writeIn(b *strings.Builder, s, bg string) {
+	if bg == "" {
+		b.WriteString(s)
+		return
+	}
+	for {
+		i := strings.Index(s, reset)
+		if i < 0 {
+			b.WriteString(s)
+			return
+		}
+		b.WriteString(s[:i+len(reset)])
+		b.WriteString(bg)
+		s = s[i+len(reset):]
+	}
+}
+
+const spaces = "                                                                                                                                                                                                                                                                "
+
+// blanks is n spaces.
+func blanks(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if n <= len(spaces) {
+		return spaces[:n]
+	}
+	return strings.Repeat(" ", n)
+}
+
 // right aligns to exactly w cells.
 func right(s string, w int) string {
 	sw := cellw.String(s)
