@@ -19,6 +19,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -431,6 +432,28 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case movedToAgtopMsg:
 		// The old row is finished; the conversation carries on in agtop mode.
 		m.store.Overlay.Done[msg.from] = time.Now()
+		// Messages still waiting for the old row go to the new session.
+		var carry tea.Cmd
+		if q := m.localQ[msg.from]; q != nil && len(q.items) > 0 {
+			text, id := strings.Join(q.items, "\n\n"), msg.started.id
+			delete(m.localQ, msg.from)
+			carry = cmdErr("queued messages moved over", func() error {
+				// The new host may still be coming up.
+				var c *host.Client
+				var err error
+				for range 30 {
+					if c, err = host.Dial(id); err == nil {
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+				if err != nil {
+					return err
+				}
+				defer c.Close()
+				return c.Send(text)
+			})
+		}
 		if n := m.store.Overlay.Names[msg.from]; n != "" {
 			m.store.Overlay.Names[state.Key(msg.started.acct, "a:"+msg.started.id)] = n
 		}
@@ -438,7 +461,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a := m.agentByKey(msg.from); a != nil && a.Interactive {
 			defer m.flash(a.DisplayName+" carries on in agtop mode · its terminal copy is still open there, now under Done", false)
 		}
-		return m.update(msg.started)
+		mm, cmd := m.update(msg.started)
+		return mm, tea.Batch(cmd, carry)
 	case hostStartedMsg:
 		// Select the new session and give it the keys.
 		m.refresh()
@@ -513,10 +537,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case localQueueFailed:
 		// Back on the front of the queue, to try again when you say.
+		// Back on the front of the queue; tried again in 30s, and held
+		// only once it has failed three times running.
 		if q := m.localQ[msg.key]; q != nil {
-			q.items, q.held = append(msg.items, q.items...), true
+			q.items = append(msg.items, q.items...)
+			q.fails++
+			q.retry = time.Now().Add(30 * time.Second)
+			if q.fails >= 3 {
+				q.held, q.fails = true, 0
+				m.flash("couldn't send the queue three times: "+msg.err.Error()+" · held; alt+h releases it", true)
+				return m, nil
+			}
 		}
-		m.flash("couldn't send the queue: "+msg.err.Error()+" · held; alt+h releases it", true)
+		m.flash("couldn't send the queue: "+msg.err.Error()+" · trying again in 30s", true)
 		return m, nil
 	case doneMsg:
 		if msg.err != nil {

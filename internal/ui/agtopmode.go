@@ -1060,12 +1060,20 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 			paint(cSub+bold, fmt.Sprintf("%d running", len(run))) + "  " + dim(ansi.Truncate(strings.Join(names, " · "), max(10, w-44), "…"))
 		line(spread(left, keys("alt+↓", "view them")+"  ", w))
 	}
-	if q := m.queueOf(c).items; len(q) > 0 {
-		when := " · sends when this turn ends"
+	if qs := m.queueOf(c); len(qs.items) > 0 {
+		q := qs.items
+		when := dim(" · sends when this turn ends")
 		if c.client == nil {
-			when = " · sends within 15s, or when it's idle"
+			when = dim(" · sends within 15s, or when it's idle")
 		}
-		line(spread("  "+paint(cSub+bold, fmt.Sprintf("queue %d", len(q)))+dim(when), "", w))
+		if lq := m.localQ[c.key]; c.client == nil && lq != nil && time.Now().Before(lq.retry) {
+			when = paint(cYellow, " · send failed, trying again in "+dur(time.Until(lq.retry).Round(time.Second)))
+		}
+		if qs.held {
+			// Never silently stuck: say it's held and how to let it go.
+			when = paint(cYellow, " · held") + dim(" · alt+h sends it")
+		}
+		line(spread("  "+paint(cSub+bold, fmt.Sprintf("queue %d", len(q)))+when, "", w))
 		for i, item := range q {
 			if i >= 3 {
 				line(dim(fmt.Sprintf("   … %d more", len(q)-i)))
@@ -1342,6 +1350,16 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			}
 			return nil
 		}
+	case "alt+h":
+		// Hold or release the queue from any view, as the dock says.
+		if c.client != nil {
+			cmd, _ := m.queueKey(c, s)
+			return cmd
+		}
+		if q := m.localQ[c.key]; q != nil {
+			q.held, q.fails, q.retry = !q.held, 0, time.Time{}
+		}
+		return nil
 	case "alt+r":
 		// Mark a file reviewed in the changes view, or unmark it.
 		if path, ok := strings.CutPrefix(c.sel, "chg:"); ok && m.viewName(c) == "changes" {

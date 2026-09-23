@@ -378,6 +378,12 @@ func (s *server) watch(sess *headless.Session) {
 		if err != nil {
 			s.info.Error = err.Error()
 		}
+		// Whatever was waiting for this turn to end goes now, rather than
+		// sitting in a queue nothing will ever drain.
+		if len(s.info.Queue) > 0 && !s.info.QueueHeld && s.info.Limit == nil {
+			s.sendQueue()
+			return
+		}
 	}
 	s.publish()
 }
@@ -894,12 +900,6 @@ func (s *server) do(o op) error {
 		}
 		s.stopOnce.Do(func() { close(s.quit) })
 		return nil
-	case "interrupt":
-		// Stopping a turn shouldn't start the next queued one by itself.
-		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
-			s.info.QueueHeld = true
-			s.publish()
-		}
 	}
 	s.mu.Unlock()
 	if sess == nil {

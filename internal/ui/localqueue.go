@@ -20,6 +20,8 @@ type localQueue struct {
 	held   bool
 	sentAt time.Time
 	since  time.Time // when the oldest waiting message was queued
+	retry  time.Time // after a failed send, when to try again
+	fails  int
 }
 
 // queued is a session's queue as the queue view shows it, whichever side
@@ -84,7 +86,7 @@ func withImages(text string, images []string) string {
 func (m *Model) flushLocalQueues() tea.Cmd {
 	var cmds []tea.Cmd
 	for key, q := range m.localQ {
-		if len(q.items) == 0 || q.held || time.Since(q.sentAt) < 10*time.Second {
+		if len(q.items) == 0 || q.held || time.Since(q.sentAt) < 10*time.Second || time.Now().Before(q.retry) {
 			continue
 		}
 		a := m.agentByKey(key)
