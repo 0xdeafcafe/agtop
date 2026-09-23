@@ -290,3 +290,15 @@ func BenchmarkHelpers(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkStreamLong streams a 200KB answer in 20-byte pieces.
+func BenchmarkStreamLong(b *testing.B) {
+	piece := strings.Repeat("x", 19) + " "
+	for b.Loop() {
+		s := New()
+		s.Apply(host.Sent{Text: "go"}, t0)
+		for range 10000 {
+			s.Apply(headless.Delta{Text: piece}, t0)
+		}
+	}
+}

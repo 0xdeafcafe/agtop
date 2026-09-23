@@ -60,11 +60,23 @@ const (
 	KCompact   // the conversation was compacted here; Text is the summary
 )
 
+// grow appends streamed text. A builder keeps it linear: adding to the
+// string itself would copy the whole answer on every piece.
+func (it *Item) grow(x string) {
+	if it.buf == nil {
+		it.buf = &strings.Builder{}
+		it.buf.WriteString(it.Text)
+	}
+	it.buf.WriteString(x)
+	it.Text = it.buf.String()
+}
+
 // Item is one thing in a turn, in order.
 type Item struct {
 	Kind    Kind
 	Text    string
 	Compact *headless.Compact
+	buf     *strings.Builder // while it streams
 	Step    *Step
 	Answer  bool // the turn's final words, promoted when the turn ends
 }
@@ -295,13 +307,13 @@ func (s *Session) Apply(ev any, now time.Time) {
 			if n := len(t.Items); n == 0 || t.Items[n-1].Kind != KThinking {
 				t.Items = append(t.Items, &Item{Kind: KThinking})
 			}
-			t.Items[len(t.Items)-1].Text += ev.Text
+			t.Items[len(t.Items)-1].grow(ev.Text)
 		} else {
 			if s.streaming == nil {
 				s.streaming = &Item{Kind: KText}
 				t.Items = append(t.Items, s.streaming)
 			}
-			s.streaming.Text += ev.Text
+			s.streaming.grow(ev.Text)
 		}
 		t.touch()
 	case headless.Message:
@@ -408,7 +420,7 @@ func (s *Session) message(m headless.Message, now time.Time) {
 					continue // a subagent's words stay inside it
 				}
 				if s.streaming != nil {
-					s.streaming.Text = b.Text
+					s.streaming.Text, s.streaming.buf = b.Text, nil
 					s.streaming = nil
 				} else {
 					t.Items = append(t.Items, &Item{Kind: KText, Text: b.Text})
