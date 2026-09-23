@@ -660,11 +660,13 @@ func (m *Model) dialogBody(w int) []string {
 			line := mark + " " + paint(cText, fit(a.name, 18)) + faint(fit(a.scope+model, 24)) + dim(fit(a.desc, max(10, w-50)))
 			out = append(out, row(len(settings)+j, line))
 		}
+		out = append(out, m.about(w)...)
 		out = append(out, "", keysFit(w, "enter", "use for new sessions", "←→", "change", "e", "edit", "n", "new", "d", "delete"))
 	default:
 		for i, st := range m.generalSettings() {
 			out = append(out, m.settingRow(i, st, st.value, 32, w)...)
 		}
+		out = append(out, m.about(w)...)
 		out = append(out, "", keysFit(w, "←→", "change", "tab", "next view", "esc", "back to agents"))
 	}
 	return out
@@ -786,32 +788,76 @@ func (m *Model) accountDetail(a acctRow, av fleet.AccountView, w int) []string {
 	return out
 }
 
-// settingRow is one line per setting with a short note on the current
-// choice; the highlighted one opens up to explain itself in full.
+// settingRow is always one line, the highlighted one too, so moving the
+// highlight never shifts the page; the About section explains it.
 func (m *Model) settingRow(i int, st setting, shown string, labelW, w int) []string {
-	d := m.dialog
-	what, now := settingHelp(st.label, st.value)
+	_, now := settingHelp(st.label, st.value)
 	short := now
 	if _, rest, ok := strings.Cut(now, ": "); ok {
 		short = rest
 	}
-	head := fit(st.label, labelW) + faint("‹ ") + paint(cText, fit(shown, 18)) + faint(" › ")
-	room := w - ansi.StringWidth(head) - 6
-	line := head
-	if room > 12 && i != d.cursor {
+	line := fit(st.label, labelW) + faint("‹ ") + paint(cText, fit(shown, 18)) + faint(" › ")
+	if room := w - ansi.StringWidth(line) - 6; room > 12 {
 		line += faint(ansi.Truncate(short, room, "…"))
 	}
-	if i != d.cursor {
-		return []string{"  " + line}
+	if i == m.dialog.cursor {
+		return []string{highlight(paint(cOrange, "▍")+" "+line, w)}
 	}
-	out := []string{highlight(paint(cOrange, "▍")+" "+line, w)}
-	for _, l := range wrap(what, w-8) {
-		out = append(out, "      "+dim(l))
-	}
-	if now != "" {
-		for _, l := range wrap(now, w-8) {
-			out = append(out, "      "+paint(cSub, l))
+	return []string{"  " + line}
+}
+
+const aboutLines = 6
+
+// about explains the highlighted row in a fixed-height section, so the page
+// keeps its shape whatever is selected.
+func (m *Model) about(w int) []string {
+	d := m.dialog
+	var title string
+	var body []string
+	add := func(col, text string) {
+		for _, l := range wrap(text, w-4) {
+			body = append(body, "  "+paint(col, l))
 		}
 	}
-	return append(out, "")
+	switch d.tab {
+	case tabGeneral:
+		if rows := m.generalSettings(); d.cursor < len(rows) {
+			st := rows[d.cursor]
+			what, now := settingHelp(st.label, st.value)
+			title = st.label
+			add(cSub, what)
+			add(cText, now)
+		}
+	case tabAgents:
+		settings := m.agentSettings()
+		switch {
+		case d.cursor < len(settings):
+			st := settings[d.cursor]
+			what, now := settingHelp(st.label, st.value)
+			title = st.label + " for new sessions"
+			add(cSub, what)
+			add(cText, now)
+		case d.cursor-len(settings) < len(d.agents):
+			a := d.agents[d.cursor-len(settings)]
+			title = a.name
+			meta := a.scope
+			if a.model != "" {
+				meta += " · model " + a.model
+			}
+			if a.path != "" {
+				meta += " · " + tildify(a.path)
+			}
+			add(cSub, meta)
+			add(cText, a.desc)
+		}
+	}
+	out := []string{"", rule("About "+title, "", w)}
+	for i := 0; i < aboutLines; i++ {
+		if i < len(body) {
+			out = append(out, body[i])
+		} else {
+			out = append(out, "")
+		}
+	}
+	return out
 }
