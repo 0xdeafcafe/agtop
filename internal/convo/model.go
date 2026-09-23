@@ -84,6 +84,11 @@ type Turn struct {
 	// From is set when the turn wasn't started by you: a background task
 	// reporting back, another session's message, a subagent's report.
 	From string
+	// Streamed counts what Claude has written this turn as it streams
+	// (text, thinking and tool input), for a live token estimate; Thinking
+	// is when the thinking now under way began.
+	Streamed int
+	Thinking time.Time
 
 	steps map[string]*Step
 	ver   int
@@ -244,8 +249,26 @@ func (s *Session) Apply(ev any, now time.Time) {
 		s.Model, s.Cwd = ev.Model, ev.Cwd
 	case headless.RateLimit:
 		s.Limit = ev.Status
+	case headless.BlockStart:
+		t := s.turnFor(now)
+		t.Thinking = time.Time{}
+		if ev.Type == "thinking" || ev.Type == "redacted_thinking" {
+			t.Thinking = now
+			if n := len(t.Items); n == 0 || t.Items[n-1].Kind != KThinking {
+				t.Items = append(t.Items, &Item{Kind: KThinking})
+			}
+		}
+		if ev.Type != "text" {
+			s.streaming = nil
+		}
+		t.touch()
 	case headless.Delta:
 		t := s.turnFor(now)
+		t.Streamed += len(ev.Text)
+		if ev.Input {
+			t.touch()
+			return
+		}
 		if ev.Thinking {
 			if n := len(t.Items); n == 0 || t.Items[n-1].Kind != KThinking {
 				t.Items = append(t.Items, &Item{Kind: KThinking})

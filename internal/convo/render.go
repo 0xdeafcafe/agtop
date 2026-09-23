@@ -351,9 +351,8 @@ func (d *drawer) open() {
 			}
 		case KThinking:
 			// Thinking shows while it happens; afterwards only in verbose.
+			// While it happens, the live line at the end says so.
 			switch {
-			case t.Live && i == len(items)-1:
-				d.add("", "", d.spine()+strings.Repeat(" ", gutter-1)+dim("✻ thinking"), "")
 			case d.o.Verbose:
 				d.add("", "", d.spine()+strings.Repeat(" ", gutter-1)+dim("✻ thought"), "")
 				if strings.TrimSpace(it.Text) != "" {
@@ -372,6 +371,9 @@ func (d *drawer) open() {
 			d.step(it.Step, 0)
 		}
 	}
+	if t.Live {
+		d.liveLine()
+	}
 	switch {
 	case t.Stopped:
 		d.add("", "", d.spine()+"   "+dim("⏹ stopped"), "")
@@ -382,6 +384,39 @@ func (d *drawer) open() {
 	for n := len(d.lines); n > 1 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) == strings.TrimSpace(stripANSI(d.spine())) && d.lines[n-1].Ref == ""; n-- {
 		d.lines = d.lines[:n-1]
 	}
+}
+
+// liveLine ends a running turn with what Claude is doing right now, how
+// long the turn has run and roughly how much it has written, so a quiet
+// stretch (thinking, a long answer being composed) never looks stalled.
+func (d *drawer) liveLine() {
+	t := d.t
+	verb, since := "working", time.Time{}
+	if n := len(t.Items); n > 0 {
+		switch last := t.Items[n-1]; {
+		case last.Kind == KThinking && !t.Thinking.IsZero():
+			verb, since = "thinking", t.Thinking
+		case last.Kind == KText && d.s.streaming == last:
+			verb = "writing"
+		case last.Kind == KStep && last.Step.Status == Running:
+			return // the step's own row is spinning
+		}
+	}
+	line := paint(cOrange, spinner[d.o.Tick%len(spinner)]+" "+verb+"…")
+	var facts []string
+	if !since.IsZero() {
+		facts = append(facts, dur(d.o.Now.Sub(since)))
+	}
+	if !t.Start.IsZero() {
+		facts = append(facts, "turn "+dur(d.o.Now.Sub(t.Start)))
+	}
+	if t.Streamed > 0 {
+		facts = append(facts, "↓ "+tokens(t.Streamed/4)+" tokens")
+	}
+	if len(facts) > 0 {
+		line += dim("  " + strings.Join(facts, " · "))
+	}
+	d.add("", "", d.spine()+"   "+line, "")
 }
 
 func (d *drawer) run(ref string, items []*Item) {

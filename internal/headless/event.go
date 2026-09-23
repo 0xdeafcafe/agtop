@@ -34,7 +34,16 @@ type MessageStart struct {
 type Delta struct {
 	Index    int
 	Thinking bool
+	Input    bool // a tool call's input, streamed as JSON
 	Text     string
+}
+
+// BlockStart opens a content block: "thinking", "text" or "tool_use".
+// Thinking often streams no text at all (only a signature), so this is
+// how to know it's happening.
+type BlockStart struct {
+	Index int
+	Type  string
 }
 
 // Message is a whole assistant or user turn. Tool results arrive as user
@@ -133,6 +142,7 @@ type Other struct {
 func (Init) event()                {}
 func (MessageStart) event()        {}
 func (Delta) event()               {}
+func (BlockStart) event()          {}
 func (Message) event()             {}
 func (PermissionRequest) event()   {}
 func (PermissionCancelled) event() {}
@@ -258,10 +268,14 @@ func decodeStream(raw json.RawMessage, other Other) (Event, error) {
 			Model string `json:"model"`
 		} `json:"message"`
 		Delta struct {
-			Type     string `json:"type"`
-			Text     string `json:"text"`
-			Thinking string `json:"thinking"`
+			Type        string `json:"type"`
+			Text        string `json:"text"`
+			Thinking    string `json:"thinking"`
+			PartialJSON string `json:"partial_json"`
 		} `json:"delta"`
+		ContentBlock struct {
+			Type string `json:"type"`
+		} `json:"content_block"`
 	}
 	if err := json.Unmarshal(raw, &ev); err != nil {
 		return nil, err
@@ -269,12 +283,17 @@ func decodeStream(raw json.RawMessage, other Other) (Event, error) {
 	switch ev.Type {
 	case "message_start":
 		return MessageStart{MessageID: ev.Message.ID, Model: ev.Message.Model}, nil
+	case "content_block_start":
+		return BlockStart{Index: ev.Index, Type: ev.ContentBlock.Type}, nil
 	case "content_block_delta":
 		switch ev.Delta.Type {
 		case "text_delta":
 			return Delta{Index: ev.Index, Text: ev.Delta.Text}, nil
 		case "thinking_delta":
 			return Delta{Index: ev.Index, Thinking: true, Text: ev.Delta.Thinking}, nil
+		case "input_json_delta":
+			// A tool call being written: counted, not shown.
+			return Delta{Index: ev.Index, Input: true, Text: ev.Delta.PartialJSON}, nil
 		}
 	}
 	return other, nil

@@ -500,10 +500,29 @@ func TestRailEnds(t *testing.T) {
 			}
 		}
 		lines = s.Render(Options{Width: 90, Now: at(5), Open: map[string]bool{ref: open}})
-		for i, l := range lines {
-			if strings.TrimSpace(stripANSI(l.Text)) == "▏" {
-				t.Fatalf("open=%v: row %d is a bare rail\n%s", open, i, plain(lines))
-			}
+		// The row before the gap between turns must not be a bare rail.
+		if n := len(lines); n >= 2 && strings.TrimSpace(stripANSI(lines[n-2].Text)) == "▏" {
+			t.Fatalf("open=%v: the rail ends on an empty row\n%s", open, plain(lines))
 		}
+	}
+}
+
+func TestLiveLine(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "think hard"}, at(0))
+	s.Apply(headless.BlockStart{Index: 0, Type: "thinking"}, at(1))
+	out := plain(s.Render(Options{Width: 100, Now: at(9)}))
+	if !strings.Contains(out, "thinking…  8.0s · turn 9.0s") {
+		t.Fatalf("no thinking line:\n%s", out)
+	}
+	s.Apply(headless.BlockStart{Index: 1, Type: "text"}, at(10))
+	s.Apply(headless.Delta{Index: 1, Text: strings.Repeat("word ", 800)}, at(10))
+	out = plain(s.Render(Options{Width: 100, Now: at(12)}))
+	if !strings.Contains(out, "writing…  turn 12") {
+		t.Fatalf("no writing line:\n%s", out)
+	}
+	s.Apply(headless.Result{Subtype: "success"}, at(13))
+	if out = plain(s.Render(Options{Width: 100, Now: at(14)})); strings.Contains(out, "writing…") {
+		t.Fatal("a finished turn has no live line")
 	}
 }
