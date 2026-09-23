@@ -14,14 +14,17 @@ It keeps the native layout and keys, and adds what the native view doesn't show.
 - **CPU and RAM for everything an agent started**, not just the agent itself, plus a whole-machine view: the daemon, pre-warmed spares, and leftover processes from sessions that have ended.
 - **Preview** (`tab`): the agent's own screen, live, for background sessions the daemon hosts; otherwise what it is doing now, its last message, spend, and its process tree. Type into the prompt to reply without opening it.
 - **Instant open** (`enter`): connects to the running session through the daemon the way the native view does. `←` inside the session, or `ctrl+]`, comes back.
-- **Done** (`ctrl+f`) moves an agent out of the way. Nothing is merged, stopped or deleted.
+- **Done** (`alt+d`) moves an agent out of the way, and stops its process if it's idle so finished work doesn't hold memory (a message resumes it). Nothing is merged or deleted.
+- **Temp work**: what each agent left in its scratch folders (Claude Code's job `tmp`, its per-session scratch, an agtop session's own `tmp`) shows on its row once it has finished, totalled in its section and the header. `clean` deletes a stopped agent's; `clean all` does every finished one. Conversations, files and worktrees are never touched.
 - **Kill** (`ctrl+x`, or `ctrl+p` then `!`): stop gracefully, or SIGKILL the whole process tree.
 - **Accounts** (`ctrl+a`): each account is its own Claude config folder (`CLAUDE_CONFIG_DIR`). You get usage per account, you choose which one new sessions start on, and you can move a conversation to another account.
 - **Change repo** (`ctrl+l`): move a conversation to another folder or worktree, or grant it access to another folder.
 - **Groups** (`ctrl+s`): group by status, repository, account, or your own groups (`ctrl+e`). Pins (`ctrl+t`) are shared with the native view.
 - Notifications when an agent starts waiting on you, and optional hibernation (`/hibernate 30`) to stop finished agents still held in memory.
 
-It uses about 15 MB of memory; the native view uses about 330 MB. When idle it does almost no work.
+It uses about 40 MB of memory with a session open (a 38-hour session with 342 subagent runs: 56 MB); the native view uses about 330 MB. When idle it does almost no work: it follows transcripts by the kernel saying they changed, and re-reads only files that did. Each agtop session's host stays small too, and hands memory back when Claude goes idle.
+
+`agtop --soak 30s 200x50` runs the view headless against your agents and prints what it cost (CPU, memory, allocations, GC); `AGTOP_CPUPROFILE` and `AGTOP_MEMPROFILE` write pprof profiles from the view or a host.
 
 ## Install
 
@@ -42,11 +45,12 @@ agtop off        # give `claude agents` back to Claude Code, instantly
 | `ctrl+x` | stop; on a stopped agent, press twice to delete |
 | `ctrl+s` | group by status → repository → account → your groups |
 | `tab` | preview |
-| `ctrl+f` | Done / back |
+| `alt+d` | Done: to Done, its idle process stops |
 | `ctrl+p` | processes (`tab` switches between the agent and the whole machine) |
 | `ctrl+a` | accounts |
 | `ctrl+l` | change repo |
-| `/` | commands: `/done /stop /rm /kill /cd /add-dir /account /by /hibernate /native` |
+| `#` | agtop's commands, on the selected agent (or, in a Session's box, that agent): `#done #stop #rm #kill #clean #cd #add-dir #pin #pr #sort #by #account #hibernate #native` |
+| `/` | Claude's commands and skills: in the list's box it starts a session with one |
 | `?` | all shortcuts |
 
 ## How it works
