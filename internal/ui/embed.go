@@ -15,7 +15,7 @@ func (m *Model) canEmbed() bool {
 }
 
 func (m *Model) embedKey(k tea.KeyPressMsg) tea.Cmd {
-	if k.String() == "ctrl+]" || !m.canEmbed() {
+	if k.String() == "ctrl+]" || !m.canEmbed() || m.zen {
 		m.embedded = false
 		return nil
 	}

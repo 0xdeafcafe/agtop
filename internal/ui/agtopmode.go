@@ -639,6 +639,10 @@ func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 	m.hostOpening = ""
 	if msg.err != nil {
 		m.flash("couldn't open the session: "+msg.err.Error(), true)
+		if m.openFailed == nil {
+			m.openFailed = map[string]time.Time{}
+		}
+		m.openFailed[msg.key] = time.Now() // zen moves past it for a while
 		return nil
 	}
 	m.host = msg.c
@@ -1178,7 +1182,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if c.searching {
 		return m.searchKey(c, k, s)
 	}
-	if s == "ctrl+f" {
+	if s == "ctrl+f" && !m.zen { // zen draws only the agent's card, not results
 		c.searching, c.query, c.sel = true, nil, ""
 		return nil
 	}
@@ -1299,6 +1303,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				c.subOpen, c.subTail, c.sel = "", nil, ""
 			case c.sel != "":
 				c.sel = ""
+			case m.zen:
+				// Zen keeps the keys on the agent; tab leaves zen.
 			default:
 				m.leavePane()
 			}

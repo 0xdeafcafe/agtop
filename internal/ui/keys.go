@@ -34,10 +34,18 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if m.picker != nil {
 		return m.pickerKey(s)
 	}
-	// In zen, while the next agent connects, keys wait rather than land in
-	// some other box.
-	if m.zen && m.host == nil && s != "tab" && s != "shift+tab" && s != "ctrl+q" && s != "ctrl+c" {
-		return nil
+	// In zen, while the next agent connects (or when nothing needs you),
+	// keys wait rather than land in some box you can't see; ctrl+n still
+	// moves on.
+	if m.zen && (m.host == nil || len(m.zenQueue()) == 0) {
+		switch s {
+		case "tab", "shift+tab", "ctrl+q", "ctrl+c", "?":
+		case "ctrl+n":
+			m.zenSkip()
+			return nil
+		default:
+			return nil
+		}
 	}
 	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s == "ctrl+c" {
 		return m.paneKey(k, s)
@@ -55,7 +63,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	}
 	// On a Claude Code agent's screen, typing goes into it: ← moves its
 	// cursor rather than leaving. tab, [ ] and ctrl+] stay agtop's.
-	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && m.viewName(m.host) == "screen" && m.canEmbed() {
+	if !m.zen && m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && m.viewName(m.host) == "screen" && m.canEmbed() {
 		switch s {
 		case "tab", "shift+tab", "[", "]", "ctrl+]":
 		default:

@@ -20,6 +20,9 @@ import (
 func (m *Model) zenQueue() []*fleet.Agent {
 	var out []*fleet.Agent
 	for _, a := range m.snap.Agents {
+		if t, ok := m.openFailed[a.Key]; ok && time.Since(t) < 30*time.Second {
+			continue // couldn't be shown; try it again in a bit
+		}
 		if a.NeedsYou() || a.Waiting() {
 			out = append(out, a)
 		}
@@ -91,7 +94,7 @@ func stripAnsi(s string) string { return ansi.Strip(s) }
 // is, then the last thing it said.
 func (m *Model) zenBody(a *fleet.Agent, c *hostConn, w int) []convo.Line {
 	q := m.zenQueue()
-	pos := 1
+	pos := 0
 	for i, x := range q {
 		if x.Key == a.Key {
 			pos = i + 1
@@ -100,6 +103,10 @@ func (m *Model) zenBody(a *fleet.Agent, c *hostConn, w int) []convo.Line {
 	waited := dur(time.Since(a.UpdatedAt).Round(time.Second))
 	head := paint(cYellow+bold, "● needs you") + "  " + paint(cSub, fmt.Sprintf("%d of %d", pos, len(q))) +
 		"   " + dim(tildify(a.Cwd))
+	if pos == 0 {
+		// Answered, or never waiting: say so rather than "needs you".
+		head = paint(cGreen, "✓ answered") + "  " + dim(fmt.Sprintf("%d waiting", len(q))) + "   " + dim(tildify(a.Cwd))
+	}
 	if a.Branch != "" {
 		head += dim(" · " + a.Branch)
 	}

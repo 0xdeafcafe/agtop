@@ -110,19 +110,22 @@ type Model struct {
 	hostOpening string
 	dirIdx      int
 
-	status       string
-	statusErr    bool
-	statusAt     time.Time
-	armed        string
-	quitArmed    time.Time
-	confirm      *confirmation
-	dialog       *dialog
-	picker       *picker
-	embedded     bool
-	promptFor    string
-	listW        int
-	pastes       pastes                 // long pastes in the main box, shown as chips
-	blurred      bool                   // the terminal says agtop isn\'t the focused window
+	status    string
+	statusErr bool
+	statusAt  time.Time
+	armed     string
+	quitArmed time.Time
+	confirm   *confirmation
+	dialog    *dialog
+	picker    *picker
+	embedded  bool
+	promptFor string
+	listW     int
+	pastes    pastes // long pastes in the main box, shown as chips
+	blurred   bool   // the terminal says agtop isn't the focused window
+	// openFailed is when a Session last failed to open, by agent key; zen
+	// skips those for a while rather than sticking on one it can't show.
+	openFailed   map[string]time.Time
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
 	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
@@ -678,7 +681,10 @@ func (m *Model) setView(v int) {
 	switch m.view {
 	case 1:
 		m.zen = true
-		m.zenPick()
+		// Straight to the oldest agent waiting, whatever was selected.
+		if q := m.zenQueue(); len(q) > 0 {
+			m.sel, m.paneFocus = q[0].Key, true
+		}
 	case 2:
 		m.mode, m.procCursor = modeProcs, 0
 	case 3, 4, 5, 6:
