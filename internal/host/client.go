@@ -255,13 +255,24 @@ func (c *Client) SendImages(text string, paths []string) error {
 }
 
 // Queue edits, by index into Info.Queue.
-func (c *Client) EditQueued(i int, text string) error {
-	return c.do(op{Op: "queue_edit", Index: i, Text: text})
+// The queue ops name a message by its place and its text as you saw it, so
+// they still find it if the queue moved in between.
+
+func (c *Client) EditQueued(i int, was, text string) error {
+	return c.do(op{Op: "queue_edit", Index: i, Was: was, Text: text})
 }
-func (c *Client) RemoveQueued(i int) error   { return c.do(op{Op: "queue_remove", Index: i}) }
-func (c *Client) MoveQueued(i, to int) error { return c.do(op{Op: "queue_move", Index: i, To: to}) }
-func (c *Client) MergeQueued(i int) error    { return c.do(op{Op: "queue_merge", Index: i}) }
-func (c *Client) SendQueued(i int) error     { return c.do(op{Op: "queue_send", Index: i}) }
+func (c *Client) RemoveQueued(i int, was string) error {
+	return c.do(op{Op: "queue_remove", Index: i, Was: was})
+}
+func (c *Client) MoveQueued(i int, was string, to int) error {
+	return c.do(op{Op: "queue_move", Index: i, Was: was, To: to})
+}
+func (c *Client) MergeQueued(i int, was string) error {
+	return c.do(op{Op: "queue_merge", Index: i, Was: was})
+}
+func (c *Client) SendQueued(i int, was string) error {
+	return c.do(op{Op: "queue_send", Index: i, Was: was})
+}
 
 // HoldQueue pauses or resumes sending the queue.
 func (c *Client) HoldQueue(on bool) error { return c.do(op{Op: "queue_hold", Now: on}) }

@@ -233,8 +233,9 @@ type hostConn struct {
 	box      box      // the message box as last drawn, and where
 	boxIdx   int
 	boxY     int
-	editQ    int // queued message being edited in the box, +1; 0 when none
-	slashSel int // the slash-command picker's selection
+	editQ    int    // queued message being edited in the box, +1; 0 when none
+	editWas  string // its text before editing
+	slashSel int    // the slash-command picker's selection
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
 	// waiting for an answer; only then do plain letters and digits answer.
 	cardFocus bool
@@ -1145,9 +1146,9 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	}
 	text = strings.TrimSpace(text)
 	if c.editQ > 0 && c.client != nil {
-		i := c.editQ - 1
+		i, was := c.editQ-1, c.editWas
 		c.editQ, c.input, c.back = 0, c.input[:0], 0
-		return hostCmd(func() error { return c.client.EditQueued(i, text) })
+		return hostCmd(func() error { return c.client.EditQueued(i, was, text) })
 	}
 	if strings.HasPrefix(text, "/") {
 		if cmd, ok := m.runAgtopCommand(c, text); ok {

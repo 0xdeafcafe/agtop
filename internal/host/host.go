@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -179,8 +180,10 @@ type server struct {
 	stamped  time.Time // when the last time mark went into the ring
 	limitRaw headless.RateLimit
 	wake     *time.Timer // a scheduled continue or retry
+	gen      int         // bumped by every send; a stale timer does nothing
 	idle     *time.Timer
 	quit     chan struct{}
+	stopOnce sync.Once
 }
 
 // ringMax bounds what a reconnecting client is replayed.
@@ -265,6 +268,16 @@ func (s *server) start() error {
 	}
 	go s.watch(sess)
 	return nil
+}
+
+// detach forgets the running process so nothing more is sent to it, and
+// returns it for stopping outside the lock. Called with mu held.
+func (s *server) detach() *headless.Session {
+	sess := s.sess
+	s.sess = nil
+	s.info.ClaudePID = 0
+	s.pending = map[string]headless.PermissionRequest{}
+	return sess
 }
 
 // tap records Claude Code's output for replay and passes it to clients.
@@ -358,6 +371,13 @@ func (s *server) onEvent(ev headless.Event) {
 		if ev.Role == "assistant" && ev.Usage != nil {
 			s.info.CacheWarm = time.Now().Add(cacheLife)
 		}
+		if ev.Role == "assistant" && s.info.State == "idle" {
+			// It picked up on its own (a background task finished).
+			s.info.State = "working"
+			if s.idle != nil {
+				s.idle.Stop()
+			}
+		}
 		if ev.Role == "assistant" && ev.ParentToolUseID == "" {
 			for _, b := range ev.Blocks {
 				switch b.Type {
@@ -392,6 +412,8 @@ func (s *server) onEvent(ev headless.Event) {
 			return
 		}
 		s.info.Retry = nil
+		s.info.Limit = nil
+		s.limitRaw = headless.RateLimit{}
 		if len(s.pending) == 0 {
 			s.info.State = "idle"
 			s.info.Needs = ""
@@ -401,13 +423,7 @@ func (s *server) onEvent(ev headless.Event) {
 			if len(s.info.Queue) > 0 && !s.info.QueueHeld {
 				// The whole queue goes as one message, unless you asked
 				// for them one per turn.
-				next := strings.Join(s.info.Queue, "\n\n")
-				if s.info.QueueSeparate {
-					next, s.info.Queue = s.info.Queue[0], s.info.Queue[1:]
-				} else {
-					s.info.Queue = nil
-				}
-				_ = s.sendLocked(next)
+				s.sendQueue()
 				return
 			}
 			s.armIdle()
@@ -424,7 +440,7 @@ func (s *server) onEvent(ev headless.Event) {
 func (s *server) stalled(r headless.Result) bool {
 	text := strings.ToLower(r.Text)
 	switch {
-	case s.limitRaw.Status == "rejected" || strings.Contains(text, "usage limit") || strings.Contains(text, "limit reached"):
+	case r.IsError && (s.limitRaw.Status == "rejected" || strings.Contains(text, "usage limit") || strings.Contains(text, "limit reached")):
 		l := &Limit{Window: limitWindow(s.limitRaw.Raw)}
 		l.ResetsAt = limitReset(s.limitRaw.Raw)
 		switch s.cfg.LimitMode {
@@ -530,18 +546,23 @@ func (s *server) retry(reason string) {
 // seconds apart per session so they don't all hit the fresh limit at once.
 func (s *server) scheduleContinue() {
 	l := s.info.Limit
-	if l == nil || !l.Continue || l.ResetsAt.IsZero() {
+	if l == nil || !l.Continue {
+		return
+	}
+	if l.ResetsAt.IsZero() {
+		// Nothing says when it resets, so nothing to wait for: your next
+		// message tries again.
+		l.Continue, l.Ask = false, false
 		return
 	}
 	jitter := time.Duration(len(s.cfg.ID)*7+int(s.cfg.ID[0])) % 20 * time.Second
 	s.after(time.Until(l.ResetsAt)+jitter, func() {
 		s.info.Limit = nil
-		msg := "continue"
-		if len(s.info.Queue) > 0 {
-			msg = strings.Join(s.info.Queue, "\n\n")
-			s.info.Queue = nil
+		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+			s.sendQueue()
+			return
 		}
-		_ = s.sendLocked(msg)
+		_ = s.sendLocked("continue")
 	})
 }
 
@@ -551,10 +572,14 @@ func (s *server) after(d time.Duration, f func()) {
 	if s.wake != nil {
 		s.wake.Stop()
 	}
+	s.gen++
+	g := s.gen
 	s.wake = time.AfterFunc(max(0, d), func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		f()
+		if s.gen == g { // nothing was sent since it was set
+			f()
+		}
 	})
 }
 
@@ -579,9 +604,13 @@ func (s *server) armIdle() {
 	sess := s.sess
 	s.idle = time.AfterFunc(time.Duration(s.cfg.IdleStop), func() {
 		s.mu.Lock()
-		stop := s.sess == sess && s.info.State == "idle"
+		stop := sess != nil && s.sess == sess && s.info.State == "idle"
+		if stop {
+			s.detach()
+			s.publish()
+		}
 		s.mu.Unlock()
-		if stop && sess != nil {
+		if stop {
 			_ = sess.Stop(10 * time.Second)
 		}
 	})
@@ -605,15 +634,41 @@ func (s *server) publish() {
 // send delivers a message, or queues it while the agent is busy. Images
 // always go now: a queued message is text only.
 func (s *server) send(text string, images []string, now bool) error {
+	// Images are read before taking the lock: they can be megabytes.
+	var pics []headless.Image
+	for _, p := range images {
+		im, err := readImage(p)
+		if err != nil {
+			return err
+		}
+		pics = append(pics, im)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	busy := s.info.State == "working" || s.info.State == "blocked" || (s.info.Limit != nil && s.info.Limit.Continue)
+	waiting := s.info.Limit != nil && s.info.Limit.Continue && !s.info.Limit.ResetsAt.IsZero()
+	busy := s.info.State == "working" || s.info.State == "blocked" || waiting
 	if !now && busy && len(images) == 0 {
 		s.info.Queue = append(s.info.Queue, text)
 		s.publish()
 		return nil
 	}
-	return s.sendLocked(text, images...)
+	return s.deliver(text, images, pics)
+}
+
+// sendQueue sends what's queued: all of it as one message, or the first
+// one if you asked for one per turn. If the send fails it goes back on the
+// queue. Called with mu held.
+func (s *server) sendQueue() {
+	q := s.info.Queue
+	next, rest := strings.Join(q, "\n\n"), []string(nil)
+	if s.info.QueueSeparate {
+		next, rest = q[0], q[1:]
+	}
+	s.info.Queue = rest
+	if err := s.sendLocked(next); err != nil {
+		s.info.Queue = q
+		s.publish()
+	}
 }
 
 // readImage loads a picture to attach, refusing what the API won't take.
@@ -635,15 +690,12 @@ func readImage(path string) (headless.Image, error) {
 
 // sendLocked gives Claude Code a message now; mid-turn it is picked up at
 // the next step. Called with mu held.
-func (s *server) sendLocked(text string, images ...string) error {
-	var pics []headless.Image
-	for _, p := range images {
-		im, err := readImage(p)
-		if err != nil {
-			return err
-		}
-		pics = append(pics, im)
-	}
+func (s *server) sendLocked(text string) error { return s.deliver(text, nil, nil) }
+
+// deliver is sendLocked with images already read. Called with mu held.
+func (s *server) deliver(text string, images []string, pics []headless.Image) error {
+	s.gen++ // any continue or retry waiting is now moot
+	s.info.Limit = nil
 	if s.idle != nil {
 		s.idle.Stop()
 	}
@@ -679,6 +731,14 @@ func (s *server) sendLocked(text string, images ...string) error {
 // editQueue applies a queue op. Called with mu held.
 func (s *server) editQueue(o op) error {
 	q := s.info.Queue
+	if o.Was != "" && (o.Index >= len(q) || o.Index < 0 || q[o.Index] != o.Was) {
+		// The queue moved under you (it sent, or another client edited
+		// it): find the message you meant, by its text.
+		o.Index = slices.Index(q, o.Was)
+		if o.Index < 0 {
+			return errors.New("that message has already been sent")
+		}
+	}
 	if o.Index < 0 || o.Index >= len(q) {
 		return fmt.Errorf("no queued message %d", o.Index)
 	}
@@ -701,8 +761,13 @@ func (s *server) editQueue(o op) error {
 		q = append(q[:o.Index+1], q[o.Index+2:]...)
 	case "queue_send":
 		text := q[o.Index]
-		s.info.Queue = append(q[:o.Index], q[o.Index+1:]...)
-		return s.sendLocked(text)
+		s.info.Queue = slices.Delete(slices.Clone(q), o.Index, o.Index+1)
+		if err := s.sendLocked(text); err != nil {
+			s.info.Queue = q
+			s.publish()
+			return err
+		}
+		return nil
 	}
 	s.info.Queue = q
 	s.publish()
@@ -724,6 +789,7 @@ type op struct {
 	Now       bool            `json:"now,omitempty"`
 	Images    []string        `json:"images,omitempty"`
 	Index     int             `json:"index,omitempty"`
+	Was       string          `json:"was,omitempty"` // the queued text the client saw at Index
 	To        int             `json:"to,omitempty"`
 }
 
@@ -785,18 +851,27 @@ func (s *server) do(o op) error {
 		s.info.Effort = o.Effort
 		s.publish()
 		if sess != nil && s.info.State == "idle" {
+			s.detach()
+			s.publish()
 			s.mu.Unlock()
 			return sess.Stop(10 * time.Second)
 		}
 	case "stop":
 		s.info.State = "stopped"
+		s.detach()
 		s.publish()
 		s.mu.Unlock()
 		if sess != nil {
 			_ = sess.Stop(10 * time.Second)
 		}
-		close(s.quit)
+		s.stopOnce.Do(func() { close(s.quit) })
 		return nil
+	case "interrupt":
+		// Stopping a turn shouldn't start the next queued one by itself.
+		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+			s.info.QueueHeld = true
+			s.publish()
+		}
 	}
 	s.mu.Unlock()
 	if sess == nil {

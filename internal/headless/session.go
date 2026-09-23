@@ -67,7 +67,14 @@ type Session struct {
 
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
-	wmu    sync.Mutex
+	// Writes queue here and a goroutine feeds them to stdin, so a caller
+	// holding a lock never blocks on Claude Code (which may itself be
+	// blocked writing its output).
+	wmu     sync.Mutex
+	wbuf    [][]byte
+	wsig    chan struct{}
+	wclosed bool
+	werr    error
 	seq    atomic.Int64
 	done   chan struct{}
 	err    error
@@ -94,13 +101,48 @@ func Start(o Options) (*Session, error) {
 		return nil, err
 	}
 	events := make(chan Event, 256)
-	s := &Session{Events: events, cmd: cmd, stdin: stdin, done: make(chan struct{})}
+	s := &Session{Events: events, cmd: cmd, stdin: stdin, done: make(chan struct{}), wsig: make(chan struct{}, 1)}
 	cmd.Stderr = &s.stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	go s.read(stdout, events, o.Tap)
+	go s.writer()
 	return s, nil
+}
+
+// writer feeds queued writes to stdin until the session stops.
+func (s *Session) writer() {
+	for {
+		select {
+		case <-s.wsig:
+		case <-s.done:
+			return
+		}
+		s.wmu.Lock()
+		batch, closed := s.wbuf, s.wclosed
+		s.wbuf = nil
+		s.wmu.Unlock()
+		for _, b := range batch {
+			if _, err := s.stdin.Write(b); err != nil {
+				s.wmu.Lock()
+				s.werr = err
+				s.wmu.Unlock()
+				break
+			}
+		}
+		if closed {
+			_ = s.stdin.Close()
+			return
+		}
+	}
+}
+
+func (s *Session) signal() {
+	select {
+	case s.wsig <- struct{}{}:
+	default:
+	}
 }
 
 func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte)) {
@@ -127,7 +169,15 @@ func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte)) {
 		}
 		events <- ev
 	}
+	if sc.Err() != nil {
+		// Nobody reads its output any more, so it would block forever:
+		// end it, and say why.
+		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+	}
 	err := s.cmd.Wait()
+	if sc.Err() != nil {
+		err = fmt.Errorf("reading Claude Code's output: %w", sc.Err())
+	}
 	if err == nil {
 		err = sc.Err()
 	}
@@ -157,9 +207,16 @@ func (s *Session) write(v any) error {
 		return err
 	}
 	s.wmu.Lock()
+	defer s.signal()
 	defer s.wmu.Unlock()
-	_, err = s.stdin.Write(append(b, '\n'))
-	return err
+	switch {
+	case s.wclosed:
+		return errors.New("session stopped")
+	case s.werr != nil:
+		return s.werr
+	}
+	s.wbuf = append(s.wbuf, append(b, '\n'))
+	return nil
 }
 
 // Send queues a user message. Sent mid-turn, Claude Code picks it up at its
@@ -268,8 +325,9 @@ func (s *Session) SetModel(model string) error {
 // transcript; it is killed if it has not gone after grace.
 func (s *Session) Stop(grace time.Duration) error {
 	s.wmu.Lock()
-	_ = s.stdin.Close()
+	s.wclosed = true
 	s.wmu.Unlock()
+	s.signal()
 	select {
 	case <-s.done:
 	case <-time.After(grace):

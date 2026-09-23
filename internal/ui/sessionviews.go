@@ -82,10 +82,11 @@ func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
 	if _, err := fmt.Sscanf(c.sel, "q:%d", &i); err != nil || i >= len(info.Queue) {
 		return nil, false
 	}
+	was := info.Queue[i]
 	switch s {
 	case "enter":
 		// Edit it in the box; enter there saves it back in place.
-		c.input, c.back, c.editQ = []rune(info.Queue[i]), 0, i+1
+		c.input, c.back, c.editQ, c.editWas = []rune(info.Queue[i]), 0, i+1, info.Queue[i]
 		c.sel = ""
 		return nil, true
 	case "shift+up", "shift+down":
@@ -97,15 +98,15 @@ func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
 			return nil, true
 		}
 		c.sel = fmt.Sprintf("q:%d", to)
-		return hostCmd(func() error { return c.client.MoveQueued(i, to) }), true
+		return hostCmd(func() error { return c.client.MoveQueued(i, was, to) }), true
 	case "alt+m":
-		return hostCmd(func() error { return c.client.MergeQueued(i) }), true
+		return hostCmd(func() error { return c.client.MergeQueued(i, was) }), true
 	case "ctrl+s":
 		c.sel = ""
-		return hostCmd(func() error { return c.client.SendQueued(i) }), true
+		return hostCmd(func() error { return c.client.SendQueued(i, was) }), true
 	case "ctrl+x", "delete":
 		c.sel = ""
-		return hostCmd(func() error { return c.client.RemoveQueued(i) }), true
+		return hostCmd(func() error { return c.client.RemoveQueued(i, was) }), true
 	}
 	return nil, false
 }
