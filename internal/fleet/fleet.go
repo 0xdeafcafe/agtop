@@ -245,6 +245,16 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 
 	seen := map[string]bool{}
 	hosted := host.List()
+	// Claude Code processes agtop's own hosts run: they register as
+	// sessions too, but they're the agtop agents, not agents of their own.
+	ours := map[string]bool{}
+	oursPID := map[int]bool{}
+	for _, info := range hosted {
+		ours[info.SessionID] = true
+		if info.ClaudePID != 0 {
+			oursPID[info.ClaudePID] = true
+		}
+	}
 	for _, acct := range cfg.AllAccounts() {
 		roster := claude.ReadRoster(acct)
 		prs := claude.ReadPRCache(acct)
@@ -338,7 +348,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			snap.Agents = append(snap.Agents, a)
 		}
 		for _, ss := range sessions {
-			if ss.Kind != "interactive" || len(ss.SessionID) < 8 || tab != nil && !isClaudePID(tab, ss.PID) {
+			if ss.Kind != "interactive" || len(ss.SessionID) < 8 || tab != nil && !isClaudePID(tab, ss.PID) || ours[ss.SessionID] || oursPID[ss.PID] {
 				continue
 			}
 			key := state.Key(acct.Name, "i:"+ss.SessionID[:8])
