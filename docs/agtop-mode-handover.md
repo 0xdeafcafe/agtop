@@ -105,7 +105,7 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 - [x] **Phantom live turn** (fixed after the handover: `turnFor(now)` sets `Start`, tool results go to their step's own turn, and a turn with no prompt reads "picked up on its own"). Was: `turnFor()` created a Live turn with zero `Start`, so the header shows "✻ working 2562047h" (seen on real sessions). Set `Start: now`, and route messages with a parent and tool_results to their step's own turn rather than opening a new one.
 - [ ] Subagent output leaks into the main turn when its parent step is unknown (checks `parent != nil`, should check `ParentToolUseID != ""`). It also overwrites `Context` and the turn's model.
 - [ ] **Totals are wrong:**
-  - `request()` only merges a repeat of the *last* message id, so parallel subagents double count. Use a map by id.
+  - [x] `request()` only merged a repeat of the *last* message id (fixed in `0a2a077`: map by id, max output tokens, `<synthetic>` skipped).
   - Output tokens come from partial stream snapshots (5k vs 224k). Keep the max per id.
   - Skip `<synthetic>` model messages.
   - Together these cause the false "cache dropped early · 0.5s" cold starts.
@@ -143,7 +143,7 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 
 - [x] **Queue view** (built: the queue view lists queued messages; enter edits one in the box and saves it back in place, shift+↑↓ moves, alt+m merges, ctrl+s sends now, ctrl+x drops, alt+h holds, alt+o switches one-message/separately; the host now sends the whole queue as one message by default). Was: edit in place, reorder (shift+↑↓), merge, drop, send now, **hold**. Needs a `hold` op in the host, plus queue item ids. The client already has `EditQueued/MoveQueued/MergeQueued/SendQueued/RemoveQueued`; nothing calls them yet.
 - [x] **Tasks view** (built: Now / Next / Done). Was: the full list (now / next / done), including subagents' tasks. Data is in `convo.Session.Tasks` (TodoWrite, TaskCreate, TaskUpdate).
-- [ ] **Subagents view redesign** (the user: "sucks"): master–detail, the runs list with the selected run's conversation beside it on wide panes. Richer rows: status, type, task, model, steps, tokens, duration, first line of its result.
+- [ ] **Subagents view redesign** (rows done in `0a2a077`: running/done/stopped/failed from each run's own transcript plus task notifications, real duration, steps, tokens, cost, model, latest words; note: Claude Code sometimes logs a response's usage mid-stream, so output tokens can read low). Still to do: master–detail, the runs list with the selected run's conversation beside it on wide panes. Richer rows: status, type, task, model, steps, tokens, duration, first line of its result.
 - [ ] **Overview redesign** (the user: "most of it sucks"): a dashboard.
   - Stat tiles across the top: cost, time, turns, tool calls, context %.
   - A per-turn cost/time chart, and the model/effort timeline as a strip.
