@@ -171,11 +171,12 @@ func ListJobIDs(a Account) []string {
 	return ids
 }
 
-// ProjectSlug is how Claude Code names a folder's project directory.
+// ProjectSlug is how Claude Code names a folder's project directory: every
+// character but a letter or digit becomes a dash.
 func ProjectSlug(dir string) string {
 	b := []byte(dir)
 	for i, c := range b {
-		if c == '/' || c == '.' {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
 			b[i] = '-'
 		}
 	}

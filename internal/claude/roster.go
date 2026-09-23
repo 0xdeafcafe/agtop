@@ -60,6 +60,8 @@ func ReadRoster(a Account) Roster {
 }
 
 type PR struct {
+	URL    string `json:"-"`
+	Title  string `json:"title"`
 	Number int    `json:"number"`
 	State  string `json:"state"`
 	Review string `json:"review"`

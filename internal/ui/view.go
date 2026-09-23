@@ -172,6 +172,9 @@ func (m *Model) render() string {
 	if m.dialog != nil {
 		return m.frame(m.dialogBody(m.w-6), "")
 	}
+	if m.picker != nil {
+		return m.overlayBox(m.listView(), m.pickerBody(min(m.w-10, 96)), min(m.w-6, 100))
+	}
 	return m.listView()
 }
 
@@ -277,6 +280,7 @@ func (m *Model) listView() string {
 	m.listTop = len(head) + 1
 	m.rowKeys = nil
 	var left []string
+	m.listW = listW
 	if listW > 0 {
 		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1)...)
 		m.listTop++
@@ -447,6 +451,8 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 		title = paint(cYellow+bold, "waiting on you")
 	case a.Busy():
 		title = paint(cOrange, "◌ ") + paint(cText, "background work still running")
+	case a.Live():
+		title = paint(cOrange, "● ") + paint(cText, "working…")
 	case a.PID != 0:
 		title = dim("idle · still in memory")
 	default:
@@ -532,14 +538,65 @@ func ctxBar(pct float64) string {
 // columnHeader names the list's columns; it stays put while the list scrolls.
 func (m *Model) columnHeader(w int) string {
 	nameCol := m.nameColumn(w)
+	sortBy := m.store.Config.SortBy
+	if sortBy == "" {
+		sortBy = "name"
+	}
+	label := func(text, mode string) string {
+		if mode == sortBy {
+			return text + "▾"
+		}
+		return text
+	}
+	col := func(text, mode string, width int) string {
+		s := right1(label(text, mode), width)
+		if mode == sortBy {
+			return paint(cSub+bold, s)
+		}
+		return faint(s)
+	}
+	name := label("AGENT", "name")
+	left := "   " + fit(name, nameCol+2)
+	if sortBy == "name" {
+		left = "   " + paint(cSub+bold, fit(name, nameCol+2))
+	} else {
+		left = faint(left)
+	}
+	left += faint("LATEST")
+	if sortBy == "recent" {
+		left += paint(cSub+bold, " · by recent activity")
+	}
 	rightW := wAct + wCPU + wRAM + wCost + wAge + 3
-	left := "   " + fit("AGENT", nameCol+2) + "LATEST"
-	cols := right1("RUNNING", wAct) + right1("CPU", wCPU) + right1("RAM", wRAM) + right1("COST", wCost) + right1("TIME", wAge+2) + " "
+	cols := faint(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("COST", "cost", wCost) + col("TIME", "time", wAge+2) + " "
 	gap := w - ansi.StringWidth(left) - rightW
 	if gap < 1 {
-		return faint(fit(left, w))
+		return fit(left, w)
 	}
-	return faint(left + strings.Repeat(" ", gap) + cols)
+	return left + strings.Repeat(" ", gap) + cols
+}
+
+// headerColumn maps a click on the column header to the sort it selects.
+func (m *Model) headerColumn(x int) string {
+	w := m.listW
+	edges := []struct {
+		from int
+		mode string
+	}{
+		{w - 1 - (wAge + 2), "time"},
+		{w - 1 - (wAge + 2) - wCost, "cost"},
+		{w - 1 - (wAge + 2) - wCost - wRAM, "ram"},
+		{w - 1 - (wAge + 2) - wCost - wRAM - wCPU, "cpu"},
+		{w - 1 - (wAge + 2) - wCost - wRAM - wCPU - wAct, ""},
+	}
+	for _, e := range edges {
+		if x >= e.from {
+			return e.mode
+		}
+	}
+	if x < 3+m.nameColumn(w)+2 {
+		return "name"
+	}
+	return "recent"
 }
 
 // nameColumn is where summaries start: wide enough for most names, never

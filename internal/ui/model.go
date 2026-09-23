@@ -93,6 +93,9 @@ type Model struct {
 	quitArmed  time.Time
 	confirm    *confirmation
 	dialog     *dialog
+	picker     *picker
+	promptFor  string
+	listW      int
 	hibernated map[string]bool
 	armedAt    time.Time
 	attached   string
@@ -232,6 +235,9 @@ func (m *Model) dockLines() int {
 
 func (m *Model) startDir() string {
 	dirs := m.startDirs()
+	if len(dirs) == 0 {
+		return ""
+	}
 	return dirs[((m.dirIdx%len(dirs))+len(dirs))%len(dirs)]
 }
 
@@ -245,16 +251,16 @@ func (m *Model) targets() []fleet.Target {
 	return targets
 }
 
-func (m *Model) rowAt(y int) string {
+func (m *Model) rowAt(x, y int) string {
 	i := y - m.listTop
-	if m.mode != modeList || m.dialog != nil || i < 0 || i >= len(m.rowKeys) {
+	if m.mode != modeList || m.dialog != nil || m.picker != nil || x >= m.listW || i < 0 || i >= len(m.rowKeys) {
 		return ""
 	}
 	return m.rowKeys[i]
 }
 
-func (m *Model) mouseMove(y int) tea.Cmd {
-	k := m.rowAt(y)
+func (m *Model) mouseMove(x, y int) tea.Cmd {
+	k := m.rowAt(x, y)
 	if k != m.hover {
 		m.hover, m.hoverAt = k, time.Now()
 		if k != "" && !strings.HasPrefix(k, "§") {
@@ -264,8 +270,14 @@ func (m *Model) mouseMove(y int) tea.Cmd {
 	return nil
 }
 
-func (m *Model) mouseClick(y int) tea.Cmd {
-	k := m.rowAt(y)
+func (m *Model) mouseClick(x, y int) tea.Cmd {
+	if y == m.listTop-1 && x < m.listW && m.mode == modeList && m.dialog == nil {
+		if col := m.headerColumn(x); col != "" {
+			m.setSort(col)
+		}
+		return nil
+	}
+	k := m.rowAt(x, y)
 	if k == "" {
 		return nil
 	}
@@ -416,16 +428,20 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.PasteMsg:
 		if m.acceptsText() {
-			m.input = append(m.input, []rune(oneLine(msg.Content))...)
+			if m.dialog != nil {
+				m.dialog.input = append(m.dialog.input, []rune(oneLine(msg.Content))...)
+			} else {
+				m.input = append(m.input, []rune(oneLine(msg.Content))...)
+			}
 		}
 		return m, nil
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
 	case tea.MouseMotionMsg:
-		return m, m.mouseMove(msg.Y)
+		return m, m.mouseMove(msg.X, msg.Y)
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft {
-			return m, m.mouseClick(msg.Y)
+			return m, m.mouseClick(msg.X, msg.Y)
 		}
 	case tea.MouseWheelMsg:
 		if m.mode == modeList && m.dialog == nil {
@@ -446,7 +462,8 @@ var viewNames = []string{"Agents", "Processes", "Accounts", "Coding agents", "Se
 // setView switches the whole screen; tab and shift+tab cycle through them.
 func (m *Model) setView(v int) {
 	m.view = (v + len(viewNames)) % len(viewNames)
-	m.dialog, m.mode = nil, modeList
+	m.dialog, m.mode, m.picker = nil, modeList, nil
+	m.input, m.inKind = m.input[:0], inPrompt
 	switch m.view {
 	case 1:
 		a := m.selected()
@@ -460,7 +477,7 @@ func (m *Model) setView(v int) {
 func (m *Model) wide() bool { return m.w >= 170 }
 
 func (m *Model) acceptsText() bool {
-	return m.confirm == nil && m.dialog == nil && (m.mode == modeList || m.mode == modeCwd || m.inKind == inNewAccount)
+	return m.confirm == nil && (m.dialog == nil || m.dialog.asking != "") && (m.mode == modeList || m.mode == modeCwd)
 }
 
 func (m *Model) refresh() {
@@ -501,6 +518,15 @@ func (m *Model) hibernate() {
 			go actions.Stop(a.Acct, a.ID)
 		}
 	}
+}
+
+func (m *Model) agentByKey(key string) *fleet.Agent {
+	for _, a := range m.snap.Agents {
+		if a.Key == key {
+			return a
+		}
+	}
+	return nil
 }
 
 func (m *Model) selected() *fleet.Agent {
@@ -619,7 +645,7 @@ func (m *Model) rebuild() {
 		case a.Live() || a.Busy():
 			add("Working", 2, a)
 		case a.PID != 0:
-			add("Idle", 3, a)
+			add("Idle", 5, a)
 		case !fresh:
 			add("Earlier", 9, a)
 		case a.Done:
@@ -654,17 +680,7 @@ func (m *Model) rebuild() {
 		return list[i].recent.After(list[j].recent)
 	})
 	for _, g := range list {
-		rank := func(a *fleet.Agent) int {
-			switch {
-			case a.Live() && !a.Checking:
-				return 0
-			case a.Checking || a.JustFinished(now):
-				return 1
-			default:
-				return 2
-			}
-		}
-		sort.SliceStable(g.agents, func(i, j int) bool { return rank(g.agents[i]) < rank(g.agents[j]) })
+		sort.SliceStable(g.agents, func(i, j int) bool { return m.sortLess(g.agents[i], g.agents[j]) })
 	}
 	m.order = m.order[:0]
 	m.lines = m.lines[:0]
@@ -703,10 +719,62 @@ func (m *Model) rebuild() {
 		valid = valid || k == m.sel
 	}
 	if !valid {
-		if items := m.items(); len(items) > 0 {
-			m.sel = items[min(1, len(items)-1)]
+		if m.inKind == inReply && m.sel != "" {
+			m.inKind = inPrompt
+			m.flash("the agent you were replying to has gone", true)
+		}
+		m.sel = ""
+		for _, k := range m.items() {
+			if !strings.HasPrefix(k, "§") {
+				m.sel = k
+				break
+			}
+		}
+		if items := m.items(); m.sel == "" && len(items) > 0 {
+			m.sel = items[0]
 		}
 	}
+}
+
+var sortModes = []string{"name", "recent", "cost", "cpu", "ram", "time"}
+
+// sortLess orders rows inside a section. By name a row keeps its place while
+// its agent works; the number columns sort biggest first.
+func (m *Model) sortLess(a, b *fleet.Agent) bool {
+	now := m.snap.At
+	byName := func() bool {
+		x, y := strings.ToLower(a.DisplayName), strings.ToLower(b.DisplayName)
+		if x != y {
+			return x < y
+		}
+		return a.Key < b.Key
+	}
+	var x, y float64
+	switch m.store.Config.SortBy {
+	case "recent":
+		x, y = float64(-a.Age(now)), float64(-b.Age(now))
+	case "cost":
+		x, y = a.Spend.Cost, b.Spend.Cost
+	case "cpu":
+		x, y = a.CPU, b.CPU
+	case "ram":
+		x, y = float64(a.Mem), float64(b.Mem)
+	case "time":
+		x, y = float64(a.Elapsed(now)), float64(b.Elapsed(now))
+	default:
+		return byName()
+	}
+	if x != y {
+		return x > y
+	}
+	return byName()
+}
+
+func (m *Model) setSort(mode string) {
+	m.store.Config.SortBy = mode
+	_ = m.store.SaveConfig()
+	m.rebuild()
+	m.flash("sorted by "+mode, false)
 }
 
 func sectionMeta(n int, cost float64) string {

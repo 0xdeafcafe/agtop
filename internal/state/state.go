@@ -32,6 +32,7 @@ type Config struct {
 	Dispatch  Dispatch         `json:"dispatch"`
 	Quiet     bool             `json:"quiet,omitempty"`
 	DockLines int              `json:"dockLines,omitempty"`
+	SortBy    string           `json:"sortBy,omitempty"`
 	Hibernate struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`

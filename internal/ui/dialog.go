@@ -200,8 +200,13 @@ func (m *Model) generalSettings() []setting {
 	if !m.folded("Earlier") {
 		earlier = "open"
 	}
+	sortBy := c.SortBy
+	if sortBy == "" {
+		sortBy = "name"
+	}
 	return []setting{
 		{"Group by", c.GroupBy, groupModes, func(v string) { c.GroupBy = v }},
+		{"Sort rows by", sortBy, sortModes, func(v string) { c.SortBy = v }},
 		{"Hibernate finished agents", hib, []string{"off", "15m", "30m", "60m"}, func(v string) {
 			c.Hibernate.AfterMinutes = 0
 			fmt.Sscanf(v, "%dm", &c.Hibernate.AfterMinutes)

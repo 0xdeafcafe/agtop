@@ -72,4 +72,7 @@ func TestProjectSlug(t *testing.T) {
 	if s := ProjectSlug("/Users/lw/Source/github.com/langwatch/langwatch"); s != "-Users-lw-Source-github-com-langwatch-langwatch" {
 		t.Fatal(s)
 	}
+	if s := ProjectSlug("/private/var/folders/zg/3jfp8q9100s_wlx/T/a b"); s != "-private-var-folders-zg-3jfp8q9100s-wlx-T-a-b" {
+		t.Fatal(s)
+	}
 }

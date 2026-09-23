@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"os"
+	"sync"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
@@ -16,6 +17,7 @@ type Target struct {
 
 // Scanner owns the cost cache; only its goroutine touches it.
 type Scanner struct {
+	mu    sync.Mutex // held for a whole scan; the cache is only touched under it
 	cache *state.CostCache
 	sizes map[string]int64
 	buf   []byte
@@ -29,6 +31,8 @@ func NewScanner() *Scanner {
 
 // Run scans every target whose files grew and returns the new totals.
 func (s *Scanner) Run(targets []Target) map[string]Spend {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := map[string]Spend{}
 	today := claude.Day(time.Now())
 	if today != s.day {
@@ -88,7 +92,14 @@ func (s *Scanner) Run(targets []Target) map[string]Spend {
 	return out
 }
 
-func (s *Scanner) Flush() { _ = s.cache.Save() }
+// Flush saves the cost cache unless a scan is mid-way; the cache also saves
+// itself every 30s, so skipping one save loses nothing.
+func (s *Scanner) Flush() {
+	if s.mu.TryLock() {
+		_ = s.cache.Save()
+		s.mu.Unlock()
+	}
+}
 
 func addUnique(list *[]string, v string) {
 	for _, x := range *list {

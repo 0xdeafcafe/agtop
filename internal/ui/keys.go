@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -20,10 +19,31 @@ import (
 
 func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	s := k.String()
+	m.hover = "" // the keyboard takes over from the mouse
+	if s == "ctrl+q" {
+		m.scanner.Flush()
+		return tea.Quit
+	}
 	if m.confirm != nil {
 		return m.confirmKey(s)
 	}
-	if (s == "tab" || s == "shift+tab") && (m.dialog == nil || m.dialog.asking == "") {
+	if m.picker != nil {
+		return m.pickerKey(s)
+	}
+	if s == "ctrl+c" {
+		switch {
+		case len(m.input) > 0:
+			m.input = m.input[:0]
+			return nil
+		case time.Since(m.quitArmed) < 2*time.Second:
+			m.scanner.Flush()
+			return tea.Quit
+		}
+		m.quitArmed = time.Now()
+		m.flash("ctrl+c again to quit", false)
+		return nil
+	}
+	if (s == "tab" || s == "shift+tab") && m.mode != modeCwd && (m.dialog == nil || m.dialog.asking == "") {
 		if s == "tab" {
 			m.setView(m.view + 1)
 		} else {
@@ -33,19 +53,6 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	}
 	if m.dialog != nil {
 		return m.dialogKey(k, s)
-	}
-	if s == "ctrl+q" {
-		m.scanner.Flush()
-		return tea.Quit
-	}
-	if s == "ctrl+c" && len(m.input) == 0 && m.mode == modeList {
-		if time.Since(m.quitArmed) < 2*time.Second {
-			m.scanner.Flush()
-			return tea.Quit
-		}
-		m.quitArmed = time.Now()
-		m.flash("ctrl+c again to exit", false)
-		return nil
 	}
 	switch m.mode {
 	case modeHelp:
@@ -118,7 +125,8 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				}
 				return nil
 			}
-			if m.preview || m.wide() {
+			// On a narrow screen the preview is already full width.
+			if (m.preview || m.wide()) && m.w >= 120 {
 				m.preview, m.full = true, true
 			} else {
 				m.preview = true
@@ -151,7 +159,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			if m.inKind != inReply {
 				m.inKind = inPrompt
 			}
-		case m.inKind == inReply:
+		case m.inKind != inPrompt:
 			m.inKind = inPrompt
 		case m.preview:
 			m.preview, m.full = false, false
@@ -171,16 +179,22 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 		return m.submit()
-	case "ctrl+r":
-		if a != nil {
-			m.inKind, m.input = inRename, []rune(a.DisplayName)
+	case "ctrl+r", "ctrl+e", "ctrl+l":
+		switch {
+		case a == nil:
+			m.flash("select an agent first", true)
+		case !empty && m.inKind == inPrompt:
+			m.flash("finish or clear the draft first (esc)", true)
+		case s == "ctrl+r":
+			m.inKind, m.input, m.promptFor = inRename, []rune(a.DisplayName), a.Key
+		case s == "ctrl+e":
+			m.inKind, m.input, m.promptFor = inGroup, []rune(a.Group), a.Key
+		default:
+			m.openCwd(a)
 		}
 		return nil
-	case "ctrl+e":
-		if a != nil {
-			m.inKind, m.input = inGroup, []rune(a.Group)
-		}
-		return nil
+	case "ctrl+y":
+		return m.openPR(a)
 	case "ctrl+t":
 		if a != nil {
 			return m.togglePin(a)
@@ -229,11 +243,6 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	case "ctrl+b":
 		m.dirIdx--
-		return nil
-	case "ctrl+l":
-		if a != nil {
-			m.openCwd(a)
-		}
 		return nil
 	case "?":
 		if empty {
@@ -304,8 +313,15 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 func (m *Model) submit() tea.Cmd {
 	text := strings.TrimSpace(string(m.input))
 	kind := m.inKind
-	m.input, m.inKind = m.input[:0], inPrompt
 	a := m.selected()
+	if kind == inRename || kind == inGroup {
+		a = m.agentByKey(m.promptFor) // the agent the prompt was opened for
+	}
+	if kind == inReply && (a == nil || a.Interactive) {
+		m.flash("pick the agent to reply to first (↑↓)", true)
+		return nil
+	}
+	m.input, m.inKind = m.input[:0], inPrompt
 	switch kind {
 	case inRename:
 		if a == nil {
@@ -428,13 +444,13 @@ func (m *Model) command(text string) tea.Cmd {
 		}
 	case "/account":
 		if arg == "" {
-			m.openDialog(tabAccounts)
+			m.setView(2)
 			return nil
 		}
 		return m.useAccount(arg)
 	case "/group":
 		if need() {
-			m.inKind, m.input = inGroup, []rune(arg)
+			m.inKind, m.input, m.promptFor = inGroup, []rune(arg), a.Key
 			return m.submit()
 		}
 	case "/by":
@@ -449,9 +465,17 @@ func (m *Model) command(text string) tea.Cmd {
 		m.flash("group by one of: "+strings.Join(groupModes, ", "), true)
 	case "/rename":
 		if need() {
-			m.inKind, m.input = inRename, []rune(arg)
+			m.inKind, m.input, m.promptFor = inRename, []rune(arg), a.Key
 			return m.submit()
 		}
+	case "/sort":
+		for _, mode := range sortModes {
+			if mode == arg {
+				m.setSort(mode)
+				return nil
+			}
+		}
+		m.flash("sort by one of: "+strings.Join(sortModes, ", "), true)
 	case "/native":
 		return m.nativeView()
 	case "/hibernate":
@@ -536,7 +560,7 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 		m.flash(a.DisplayName+" has no running process", true)
 		return
 	}
-	mem, _, n := m.snap.Table.Sum(a.Worker.PID, nil)
+	memBytes, _, n := m.snap.Table.Sum(a.Worker.PID, nil)
 	root := a.Worker.PID
 	var start time.Time
 	if p := m.snap.Table.Procs[root]; p != nil {
@@ -544,7 +568,7 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 	}
 	m.confirm = &confirmation{
 		question: "Stop " + a.DisplayName + "?",
-		detail:   fmt.Sprintf("%d processes · %s · the conversation is kept", n, memStr(mem)),
+		detail:   fmt.Sprintf("%d processes · %s · the conversation is kept", n, mem(memBytes)),
 		onYes: func() tea.Cmd {
 			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID) })
 		},
@@ -552,8 +576,6 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 		onBang:   killTree(root, start),
 	}
 }
-
-func memStr(b uint64) string { return mem(b) }
 
 // procRows are the rows the process screen shows, in order.
 func (m *Model) procRows() []procRow {
@@ -761,5 +783,3 @@ func (m *Model) cwdKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	return nil
 }
-
-var _ = syscall.SIGTERM

@@ -52,6 +52,8 @@ func (a *Agent) Waiting() bool {
 // whose state Claude Code only re-summarises every 15-40s.
 func (a *Agent) applyStatus(ss claude.Session) {
 	switch {
+	case ss.Status == "busy" && a.State == "running":
+		a.State = "working"
 	case ss.Status == "busy" && a.State == "blocked":
 		a.State, a.Needs, a.Detail = "working", "", ""
 	case ss.Status == "busy" && a.State == "done" && len(a.Background) == 0:
@@ -250,6 +252,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			if ss, ok := byJob[id]; ok {
 				a.applyStatus(ss)
 			}
+			if a.State == "running" { // only a busy session makes it work
+				a.State = "done"
+			}
 			if t, ok := l.nudged[key]; ok {
 				switch {
 				case now.Sub(t) > 20*time.Second || j.UpdatedAt.After(t) && j.State == "working":
@@ -285,12 +290,23 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				a.Subs = e.st
 			}
 			for _, u := range a.Spend.PRs {
+				// Only PRs Claude Code linked to a session; a URL merely
+				// mentioned in a transcript is not this agent's PR.
 				if pr, ok := prs[u]; ok {
+					pr.URL = u
 					a.PRs = append(a.PRs, pr)
 				}
 			}
 			if a.Worker != nil {
 				a.PID = a.Worker.PID
+				// A roster left behind by a crashed daemon names pids that are
+				// gone or reused; only a live claude process counts.
+				if tab != nil && !isClaudePID(tab, a.PID) {
+					a.PID, a.Worker = 0, nil
+				}
+			}
+			if tab != nil && a.Live() && a.PID == 0 {
+				a.State, a.Detail = "stopped", "lost its process"
 			}
 			l.sample(tab, a)
 			if a.Live() {
@@ -302,7 +318,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			snap.Agents = append(snap.Agents, a)
 		}
 		for _, ss := range sessions {
-			if ss.Kind != "interactive" || ss.SessionID == "" {
+			if ss.Kind != "interactive" || len(ss.SessionID) < 8 || tab != nil && !isClaudePID(tab, ss.PID) {
 				continue
 			}
 			key := state.Key(acct.Name, "i:"+ss.SessionID[:8])
@@ -328,6 +344,12 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			a.Repo, a.Branch = l.gitFor(ss.Cwd, now)
 			a.Spend = l.spend[key]
 			l.sample(tab, a)
+			if a.Live() {
+				av.Live++
+			}
+			av.Agents++
+			av.Spend += a.Spend.Cost
+			av.Today += a.Spend.Today
 			snap.Agents = append(snap.Agents, a)
 		}
 		snap.Accounts = append(snap.Accounts, av)
@@ -512,6 +534,11 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 		return m.Rows[i].Mem > m.Rows[j].Mem
 	})
 	return m
+}
+
+func isClaudePID(tab *proc.Table, pid int) bool {
+	p := tab.Procs[pid]
+	return p != nil && p.Comm == "claude"
 }
 
 func hasClaudeAncestor(tab *proc.Table, p *proc.Proc) bool {
