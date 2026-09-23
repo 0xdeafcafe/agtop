@@ -486,3 +486,24 @@ func TestSubagentNumbers(t *testing.T) {
 		t.Fatalf("status = %q", s.TaskStatus["abc"])
 	}
 }
+
+// A running turn's rail ends at the last thing drawn, folded or open.
+func TestRailEnds(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "merge origin"}, at(0))
+	for _, open := range []bool{true, false} {
+		ref := ""
+		lines := s.Render(Options{Width: 90, Now: at(5)})
+		for _, l := range lines {
+			if l.Ref != "" {
+				ref = l.Ref
+			}
+		}
+		lines = s.Render(Options{Width: 90, Now: at(5), Open: map[string]bool{ref: open}})
+		for i, l := range lines {
+			if strings.TrimSpace(stripANSI(l.Text)) == "▏" {
+				t.Fatalf("open=%v: row %d is a bare rail\n%s", open, i, plain(lines))
+			}
+		}
+	}
+}

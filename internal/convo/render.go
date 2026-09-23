@@ -71,7 +71,8 @@ func (s *Session) turn(t *Turn, o Options, recent bool) []Line {
 	} else {
 		d.folded()
 	}
-	d.blank()
+	// The gap between turns is plain: the running turn's rail ends with it.
+	d.lines = append(d.lines, Line{Text: row("", "", "", d.o.Width, d.cw)})
 	s.cache[t] = cached{key: key, lines: d.lines}
 	return d.lines
 }
@@ -331,6 +332,10 @@ func (d *drawer) open() {
 		d.add("", "", d.spine()+"   "+dim("⏹ stopped"), "")
 	case t.Err != "" && !t.Live:
 		d.add("", bgErr, d.spine()+"   "+paint(cRed, "✗ "+t.Err), dim("your next message picks it up"))
+	}
+	// The rail stops at the last thing drawn, never on an empty row.
+	for n := len(d.lines); n > 1 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) == strings.TrimSpace(stripANSI(d.spine())) && d.lines[n-1].Ref == ""; n-- {
+		d.lines = d.lines[:n-1]
 	}
 }
 
