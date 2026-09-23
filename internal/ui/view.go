@@ -121,7 +121,29 @@ func (m *Model) header() []string {
 	return out
 }
 
-// activeUsage is the current account's plan usage, quiet unless it is high.
+// resetIn says when a usage window resets: the clock time and how long
+// until then for the 5-hour window, the day and time for the 7-day one.
+func resetIn(at, now time.Time, week bool) string {
+	if at.IsZero() {
+		return ""
+	}
+	if !at.After(now) {
+		// Usage read before a reset that has since passed.
+		return faint(" reset " + at.Local().Format("15:04"))
+	}
+	left := at.Sub(now)
+	if week {
+		when := at.Local().Format("Mon 15:04")
+		if left < 24*time.Hour {
+			when = at.Local().Format("15:04")
+		}
+		return faint(" resets " + when)
+	}
+	return faint(" resets " + at.Local().Format("15:04") + " (" + dur(left.Round(time.Minute)) + ")")
+}
+
+// activeUsage is the current account's plan usage, with when each window
+// resets, quiet unless it is high.
 func (m *Model) activeUsage() string {
 	for _, av := range m.snap.Accounts {
 		if !av.Current {
@@ -141,9 +163,9 @@ func (m *Model) activeUsage() string {
 			}
 			return dim(label+" ") + paint(c, fmt.Sprintf("%.0f%%", p))
 		}
-		s := pct("5h", u.FiveHour.Percent)
+		s := pct("5h", u.FiveHour.Percent) + resetIn(u.FiveHour.ResetsAt, m.snap.At, false)
 		if u.SevenDay.Present {
-			s += dim(" · ") + pct("7d", u.SevenDay.Percent)
+			s += dim(" · ") + pct("7d", u.SevenDay.Percent) + resetIn(u.SevenDay.ResetsAt, m.snap.At, true)
 		}
 		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > time.Hour {
 			s += faint(" as of " + u.FetchedAt.Local().Format("15:04"))
