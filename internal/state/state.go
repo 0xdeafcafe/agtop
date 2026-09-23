@@ -199,6 +199,14 @@ func LoadCostCache() *CostCache {
 	if c.Files == nil {
 		c.Files = map[string]*claude.Totals{}
 	}
+	// Transcripts Claude Code has since deleted (it keeps them 30 days by
+	// default) needn't be remembered.
+	for p := range c.Files {
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			delete(c.Files, p)
+			c.dirty = true
+		}
+	}
 	return c
 }
 
@@ -226,5 +234,17 @@ func (c *CostCache) Save() error {
 		return nil
 	}
 	c.dirty = false
-	return writeJSON(filepath.Join(cacheDir(), "costs.json"), c)
+	// Compact: it's a cache nobody reads, and indenting made it a third bigger.
+	path := filepath.Join(cacheDir(), "costs.json")
+	b, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path+".tmp", b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(path+".tmp", path)
 }

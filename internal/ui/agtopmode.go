@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -666,7 +668,26 @@ func (m *Model) dropHost() {
 	if m.host != nil && m.host.client != nil {
 		_ = m.host.client.Close()
 	}
+	if c := m.host; c != nil && (len(c.sess.Turns) > 40 || len(c.subTails) > 20) {
+		// A big conversation was just let go: hand its memory back now
+		// rather than whenever the collector gets round to it.
+		freeSoon()
+	}
 	m.host, m.hostOpening = nil, ""
+}
+
+var freeing atomic.Bool
+
+// freeSoon returns unused memory to the system in the background, at most
+// one at a time.
+func freeSoon() {
+	if freeing.CompareAndSwap(false, true) {
+		go func() {
+			defer freeing.Store(false)
+			time.Sleep(100 * time.Millisecond) // let the frame that dropped it finish
+			debug.FreeOSMemory()
+		}()
+	}
 }
 
 // openTail reads a Claude Code session's transcript in the background the

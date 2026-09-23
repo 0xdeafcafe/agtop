@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -81,6 +82,12 @@ func main() {
 	}
 	// 120 frames a second: a streamed delta reaches the terminal within
 	// about 8ms of being drawn, and nothing is drawn when nothing changed.
+	// Most of the time the view holds 10-20 MB. A soft ceiling makes the
+	// collector give memory back after a big session is let go, without
+	// working harder the rest of the time.
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(128 << 20)
+	}
 	p := tea.NewProgram(ui.New(state.Load(), version), tea.WithFPS(120))
 	var err error
 	profiled(func() { _, err = p.Run() })
