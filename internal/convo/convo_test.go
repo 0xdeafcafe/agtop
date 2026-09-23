@@ -374,6 +374,39 @@ func TestSubagents(t *testing.T) {
 	}
 }
 
+// A run's row numbers read the same whether the run was read in full or
+// only for its numbers.
+func TestSubagentStatsMatchFull(t *testing.T) {
+	path := t.TempDir() + "/agent-a1.jsonl"
+	_ = os.WriteFile(path, []byte(strings.Join([]string{
+		`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"find where the pane is drawn\nand say why"}}`,
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-09-23T20:00:01Z","message":{"id":"m1","model":"claude-haiku-4-5","role":"assistant","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":900},"content":[{"type":"tool_use","id":"g1","name":"Grep","input":{"pattern":"previewLines"}}]}}`,
+		`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"g1","content":"internal/ui/view.go"}]}}`,
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-09-23T20:00:03Z","message":{"id":"m2","model":"claude-haiku-4-5","role":"assistant","usage":{"input_tokens":12,"output_tokens":40},"content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":"false"}}]}}`,
+		`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:05Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","is_error":true,"content":"Exit code 1"}]}}`,
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-09-23T20:00:06Z","message":{"id":"m3","model":"claude-haiku-4-5","role":"assistant","usage":{"input_tokens":1,"output_tokens":9},"content":[{"type":"text","text":"**It's in** view.go.\nMore detail."}]}}`,
+	}, "\n")+"\n"), 0o644)
+	full, light := SubagentTail(path), SubagentStats(path)
+	_, _ = full.Read()
+	_, _ = light.Read()
+	now := at(100)
+	if f, l := full.Sess.Totals(now), light.Sess.Totals(now); f != l {
+		t.Errorf("totals: full %+v, light %+v", f, l)
+	}
+	if f, l := full.Sess.Cost(), light.Sess.Cost(); f != l || f == 0 {
+		t.Errorf("cost: full %v, light %v", f, l)
+	}
+	if f, l := full.Sess.LastWords(), light.Sess.LastWords(); f != l || l != "It's in view.go." {
+		t.Errorf("last words: full %q, light %q", f, l)
+	}
+	if !full.Sess.First.Equal(light.Sess.First) || !full.Sess.Last.Equal(light.Sess.Last) {
+		t.Errorf("span differs")
+	}
+	if n := len(light.Sess.byID); n != 0 {
+		t.Errorf("light kept %d steps", n)
+	}
+}
+
 func TestChanges(t *testing.T) {
 	s := session()
 	s.Apply(headless.Result{Subtype: "success"}, at(50))

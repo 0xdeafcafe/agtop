@@ -43,6 +43,9 @@ func main() {
 		case "--render":
 			render(args[1:])
 			return
+		case "--soak":
+			profiled(func() { soak(args[1:]) })
+			return
 		case "attach":
 			if len(args) < 2 {
 				exitIf(fmt.Errorf("usage: agtop attach <id>"))
@@ -56,7 +59,9 @@ func main() {
 			if len(args) < 3 || args[1] != "run" {
 				exitIf(fmt.Errorf("usage: agtop host run <id>"))
 			}
-			exitIf(host.Run(args[2]))
+			var err error
+			profiled(func() { err = host.Run(args[2]) })
+			exitIf(err)
 			return
 		case "on":
 			exitIf(turnOn())
@@ -77,7 +82,9 @@ func main() {
 	// 120 frames a second: a streamed delta reaches the terminal within
 	// about 8ms of being drawn, and nothing is drawn when nothing changed.
 	p := tea.NewProgram(ui.New(state.Load(), version), tea.WithFPS(120))
-	if _, err := p.Run(); err != nil {
+	var err error
+	profiled(func() { _, err = p.Run() })
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "agtop:", err)
 		os.Exit(1)
 	}

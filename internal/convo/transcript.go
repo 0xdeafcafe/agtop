@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -23,10 +24,11 @@ type Tail struct {
 
 	off       int64
 	partial   []byte
-	buf       []byte
 	sidechain bool      // a subagent's own transcript: its lines are the story
 	before    time.Time // History: only lines from before this
 }
+
+var readBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
 
 func NewTail(path string) *Tail { return &Tail{Path: path, Sess: New()} }
 
@@ -91,14 +93,16 @@ func (t *Tail) Read() (bool, error) {
 	if _, err := f.Seek(t.off, io.SeekStart); err != nil {
 		return false, err
 	}
-	if t.buf == nil {
-		t.buf = make([]byte, 64<<10)
-	}
+	// One read buffer shared by every tail: a session can follow hundreds
+	// of subagent runs, and each holding its own would cost megabytes.
+	bp := readBufs.Get().(*[]byte)
+	defer readBufs.Put(bp)
+	buf := *bp
 	changed := false
 	for {
-		n, err := f.Read(t.buf)
+		n, err := f.Read(buf)
 		t.off += int64(n)
-		chunk := t.buf[:n]
+		chunk := buf[:n]
 		for len(chunk) > 0 {
 			i := bytes.IndexByte(chunk, '\n')
 			if i < 0 {
@@ -110,7 +114,9 @@ func (t *Tail) Read() (bool, error) {
 			chunk = chunk[i+1:]
 			if len(t.partial) > 0 {
 				line = append(t.partial, line...)
-				t.partial = t.partial[:0]
+				// Not kept for the next line: a tail mostly sits idle, and
+				// hundreds of them each holding a buffer add up.
+				t.partial = nil
 			}
 			if t.apply(bytes.TrimSpace(line)) {
 				changed = true
@@ -126,6 +132,9 @@ func (t *Tail) Read() (bool, error) {
 func (t *Tail) apply(b []byte) bool {
 	if len(b) == 0 {
 		return false
+	}
+	if t.Sess.light {
+		return t.applyLight(b)
 	}
 	var l tline
 	if json.Unmarshal(b, &l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
@@ -411,4 +420,103 @@ func (s *Session) compactSummary(text string) bool {
 		}
 	}
 	return false
+}
+
+// lightLine is the little of a transcript line a subagent's row needs. Tool
+// inputs and results aren't declared, so decoding skips them unread.
+type lightLine struct {
+	Type        string    `json:"type"`
+	Subtype     string    `json:"subtype"`
+	IsSidechain bool      `json:"isSidechain"`
+	IsMeta      bool      `json:"isMeta"`
+	Timestamp   time.Time `json:"timestamp"`
+	Message     struct {
+		ID      string          `json:"id"`
+		Role    string          `json:"role"`
+		Model   string          `json:"model"`
+		Usage   *headless.Usage `json:"usage"`
+		Content lightContent    `json:"content"`
+	} `json:"message"`
+}
+
+// lightContent is a message's content: a prompt as plain text, or blocks.
+type lightContent struct {
+	text   string
+	blocks []lightBlock
+}
+
+type lightBlock struct {
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ToolUseID string `json:"tool_use_id"`
+	IsError   bool   `json:"is_error"`
+}
+
+func (c *lightContent) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		return json.Unmarshal(b, &c.text)
+	}
+	return json.Unmarshal(b, &c.blocks)
+}
+
+// applyLight takes in a line for a light session (SubagentStats).
+func (t *Tail) applyLight(b []byte) bool {
+	var l lightLine
+	if json.Unmarshal(b, &l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
+		return false
+	}
+	s, at := t.Sess, l.Timestamp
+	switch l.Type {
+	case "system":
+		if l.Subtype == "turn_duration" {
+			s.Apply(headless.Result{Subtype: "success"}, at)
+			return true
+		}
+		return false
+	case "user", "assistant":
+	default:
+		return false
+	}
+	c := l.Message.Content
+	if l.Type == "user" {
+		text, prompt := c.text, c.text != ""
+		if !prompt && len(c.blocks) > 0 {
+			prompt = true
+			for _, bl := range c.blocks {
+				if bl.Type != "text" && bl.Type != "image" {
+					prompt = false
+				}
+				if bl.Type == "text" && text == "" {
+					text = bl.Text
+				}
+			}
+		}
+		if prompt {
+			if live := s.Live(); live != nil && live.Prompt != "" {
+				s.Apply(headless.Result{Subtype: "success"}, at)
+			}
+			s.Apply(host.Sent{Text: strings.Clone(firstLine(cleanPrompt(text)))}, at)
+			return true
+		}
+	}
+	m := headless.Message{Role: l.Type, ID: l.Message.ID, Model: l.Message.Model, Usage: l.Message.Usage}
+	for _, bl := range c.blocks {
+		switch bl.Type {
+		case "text":
+			if l.Type == "assistant" && strings.TrimSpace(bl.Text) != "" {
+				m.Blocks = append(m.Blocks, headless.Block{Type: "text", Text: strings.Clone(firstPlain(bl.Text))})
+			}
+		case "tool_use":
+			m.Blocks = append(m.Blocks, headless.Block{Type: "tool_use", ID: bl.ID, Name: bl.Name})
+		case "tool_result":
+			m.Blocks = append(m.Blocks, headless.Block{Type: "tool_result", ToolUseID: bl.ToolUseID, IsError: bl.IsError})
+		}
+	}
+	if len(m.Blocks) == 0 && m.Usage == nil {
+		return false
+	}
+	s.Apply(m, at)
+	return true
 }

@@ -47,25 +47,87 @@ func (m *Model) views(c *hostConn) []string {
 	return v
 }
 
-// refreshSubs looks for new subagent runs and follows the one opened.
-func (m *Model) refreshSubs() {
+// refreshSubs looks for new subagent runs and follows the one opened. The
+// runs' rows need each one's numbers, read only while the subagents view is
+// on screen: what has grown is read here, and runs never read yet are read
+// in the background by the command it returns.
+func (m *Model) refreshSubs() tea.Cmd {
 	c := m.host
 	if c == nil || c.path == "" {
-		return
+		return nil
 	}
 	c.subs = c.subList.List(c.path)
+	if c.subPeek != nil {
+		_, _ = c.subPeek.Read()
+	}
+	m.readSub()
+	if len(c.subs) == 0 || m.viewName(c) != "subagents" {
+		return nil
+	}
 	if c.subTails == nil {
 		c.subTails = map[string]*convo.Tail{}
 	}
+	var unread []convo.Subagent
 	for _, sa := range c.subs {
-		t := c.subTails[sa.ID]
-		if t == nil {
-			t = convo.SubagentTail(sa.Path)
-			c.subTails[sa.ID] = t
+		switch t := c.subTails[sa.ID]; {
+		case t == nil:
+			unread = append(unread, sa)
+		case t.Size() != sa.Size:
+			_, _ = t.Read()
 		}
-		_, _ = t.Read()
 	}
-	m.readSub()
+	if len(unread) == 0 || c.subReading {
+		return nil
+	}
+	c.subReading = true
+	key := c.key
+	return func() tea.Msg {
+		read := make(map[string]*convo.Tail, len(unread))
+		for i := len(unread) - 1; i >= 0; i-- { // newest first
+			t := convo.SubagentStats(unread[i].Path)
+			_, _ = t.Read()
+			read[unread[i].ID] = t
+		}
+		return subStatsMsg{key: key, tails: read}
+	}
+}
+
+// subStatsMsg brings subagent runs' numbers read in the background.
+type subStatsMsg struct {
+	key   string
+	tails map[string]*convo.Tail
+}
+
+func (m *Model) onSubStats(msg subStatsMsg) {
+	c := m.host
+	if c == nil || c.key != msg.key {
+		return
+	}
+	c.subReading = false
+	for id, t := range msg.tails {
+		if c.subTails[id] == nil {
+			c.subTails[id] = t
+		}
+	}
+}
+
+// subDetail is the whole conversation of a run, for showing it beside the
+// list: the opened run's, or one read now and kept while it's the one picked.
+func (c *hostConn) subDetail(id string) *convo.Tail {
+	if c.subTail != nil && c.subOpen == id {
+		return c.subTail
+	}
+	if c.subPeek != nil && c.subPeekID == id {
+		return c.subPeek
+	}
+	for _, sa := range c.subs {
+		if sa.ID == id {
+			c.subPeek, c.subPeekID = convo.SubagentTail(sa.Path), id
+			_, _ = c.subPeek.Read()
+			return c.subPeek
+		}
+	}
+	return nil
 }
 
 // readSub takes in what the opened subagent has written, and closes its
@@ -155,9 +217,10 @@ func (m *Model) onGrow(msg growMsg) {
 // subState is how a subagent run stands: the status its task-finished
 // notice gave (or failed), and whether it is still working.
 func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
-	t := convo.New()
-	if tl := c.subTails[sa.ID]; tl != nil {
-		t = tl.Sess
+	// When its transcript last grew: known without reading it.
+	var last time.Time
+	if sa.Mod > 0 {
+		last = time.Unix(0, sa.Mod)
 	}
 	status = c.sess.TaskStatus[sa.ID]
 	st := c.sess.Step(sa.ToolUseID)
@@ -165,7 +228,7 @@ func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
 		status = "failed"
 	}
 	// No word that it finished, and it wrote recently: still working.
-	live = status == "" && !t.Last.IsZero() && time.Since(t.Last) < 90*time.Second
+	live = status == "" && !last.IsZero() && time.Since(last) < 90*time.Second
 	if st != nil && st.Status == convo.Running {
 		live = true
 	}
@@ -239,7 +302,7 @@ func (m *Model) openSub(c *hostConn, id string) {
 			_, _ = t.Read()
 			c.subTail, c.subOpen, c.subSel = t, id, ""
 			c.sel, c.scroll = "", 0
-			m.refreshSubs()
+			m.refreshSubs() // numbers for the list come on the next tick
 			return
 		}
 	}
@@ -277,7 +340,7 @@ func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 			}
 		}
 		var detail []convo.Line
-		if t := c.subTails[id]; t != nil {
+		if t := c.subDetail(id); t != nil {
 			do := o
 			do.Width, do.Selected, do.Focused = w-lw-3, "", false
 			detail = t.Sess.Render(do)
@@ -311,6 +374,9 @@ func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 	return m.subagentList(c, o)
 }
 
+// noSession stands in for a run not read yet; it's only ever read.
+var noSession = convo.New()
+
 // subagentList is the runs, one two-line row each, newest first.
 func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 	w := o.Width
@@ -324,7 +390,7 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 	var rows []row
 	for i := len(c.subs) - 1; i >= 0; i-- { // newest first
 		sa := c.subs[i]
-		r := row{sa: sa, t: convo.New()}
+		r := row{sa: sa, t: noSession}
 		if t := c.subTails[sa.ID]; t != nil {
 			r.t = t.Sess
 		}
@@ -465,13 +531,16 @@ type hostConn struct {
 	bodyRefs []string // every selectable row of the current view, in order
 
 	// Subagents: every run found beside the transcript, and the one opened.
-	path     string
-	subs     []convo.Subagent
-	subTail  *convo.Tail
-	subTails map[string]*convo.Tail // every run, followed for its numbers
-	subOpen  string
-	subList  convo.Subagents // finds the runs, reading each one's meta once
-	subSel   string          // selection inside the opened subagent
+	path       string
+	subs       []convo.Subagent
+	subTail    *convo.Tail
+	subTails   map[string]*convo.Tail // every run, followed for its row's numbers only
+	subPeek    *convo.Tail            // the run picked in the list, in full, shown beside it
+	subPeekID  string
+	subReading bool // runs' numbers are being read in the background
+	subOpen    string
+	subList    convo.Subagents // finds the runs, reading each one's meta once
+	subSel     string          // selection inside the opened subagent
 
 	// Search: ctrl+f turns the message box into a search box.
 	searching bool

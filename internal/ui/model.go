@@ -430,6 +430,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case growMsg:
 		m.onGrow(msg)
 		return m, nil
+	case subStatsMsg:
+		m.onSubStats(msg)
+		return m, nil
 	case movedToAgtopMsg:
 		// The old row is finished; the conversation carries on in agtop mode.
 		m.store.Overlay.Done[msg.from] = time.Now()
@@ -480,8 +483,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.followTail()
-		m.refreshSubs()
-		cmds := []tea.Cmd{tick(), m.flushLocalQueues(), m.movePending()}
+		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues(), m.movePending()}
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}

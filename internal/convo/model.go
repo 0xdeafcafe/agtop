@@ -49,6 +49,12 @@ type Step struct {
 	turn   *Turn // the turn whose steps hold it
 }
 
+// flight is a light session's tool call waiting for its result.
+type flight struct {
+	tool  string
+	start time.Time
+}
+
 // Kind of an item in a turn.
 type Kind int
 
@@ -185,6 +191,10 @@ type Session struct {
 	baseList   []string
 	baseFor    string
 	reqIdx     map[string]int
+	// light keeps only what a subagent's row shows (SubagentStats): no
+	// tool inputs or outputs, no thinking, and only each turn's latest words.
+	light    bool
+	inFlight map[string]flight // a light session's tool calls still out
 
 	// TaskStatus is what Claude Code last said about each background task
 	// (completed, killed, …), keyed by task id: a subagent's agent id.
@@ -243,6 +253,9 @@ func (s *Session) Apply(ev any, now time.Time) {
 	}
 	switch ev := ev.(type) {
 	case host.Sent:
+		if s.light {
+			ev.Text = strings.Clone(firstLine(ev.Text))
+		}
 		if t := s.Live(); t != nil {
 			txt := ev.Text
 			for _, im := range ev.Images {
@@ -422,23 +435,40 @@ func (s *Session) message(m headless.Message, now time.Time) {
 				if sub || strings.TrimSpace(b.Text) == "" {
 					continue // a subagent's words stay inside it
 				}
-				if s.streaming != nil {
+				switch {
+				case s.light:
+					// Only the latest words are ever shown.
+					w := strings.Clone(firstPlain(b.Text))
+					if n := len(t.Items); n > 0 && t.Items[n-1].Kind == KText {
+						t.Items[n-1].Text = w
+					} else {
+						t.Items = append(t.Items, &Item{Kind: KText, Text: w})
+					}
+				case s.streaming != nil:
 					s.streaming.Text, s.streaming.buf = b.Text, nil
 					s.streaming = nil
-				} else {
+				default:
 					t.Items = append(t.Items, &Item{Kind: KText, Text: b.Text})
 				}
 			case "thinking":
-				if !sub && (len(t.Items) == 0 || t.Items[len(t.Items)-1].Kind != KThinking) {
+				if !sub && !s.light && (len(t.Items) == 0 || t.Items[len(t.Items)-1].Kind != KThinking) {
 					t.Items = append(t.Items, &Item{Kind: KThinking, Text: b.Text})
 				}
 			case "tool_use":
 				s.streaming = nil
+				s.tool(b.Name).Calls++
+				if s.light {
+					// Counted and timed, never drawn: only calls still out are kept.
+					if s.inFlight == nil {
+						s.inFlight = map[string]flight{}
+					}
+					s.inFlight[b.ID] = flight{b.Name, now}
+					continue
+				}
 				st := &Step{ID: b.ID, Tool: b.Name, Input: b.Input, Start: now, Exit: -1, parent: parent, turn: t}
 				s.byID[b.ID] = st
 				t.steps[b.ID] = st
 				s.stepVer++
-				s.tool(b.Name).Calls++
 				switch {
 				case parent != nil:
 					parent.Children = append(parent.Children, st)
@@ -501,6 +531,15 @@ func (s *Session) results(m headless.Message, now time.Time) {
 	}
 	for _, b := range m.Blocks {
 		if b.Type != "tool_result" {
+			continue
+		}
+		if f, ok := s.inFlight[b.ToolUseID]; ok {
+			delete(s.inFlight, b.ToolUseID)
+			ts := s.tool(f.tool)
+			if b.IsError && !isRejection(b.Text) {
+				ts.Failed++
+			}
+			ts.Time += now.Sub(f.start)
 			continue
 		}
 		st := s.byID[b.ToolUseID]
