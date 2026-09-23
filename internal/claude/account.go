@@ -64,6 +64,7 @@ type Usage struct {
 	FiveHour  Window
 	SevenDay  Window
 	FetchedAt time.Time
+	Problem   string // why no fresh reading: not signed in, expired, rate-limited
 }
 
 type usageFile struct {

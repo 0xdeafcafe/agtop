@@ -175,6 +175,17 @@ type Loader struct {
 	spend   map[string]Spend
 	nudged  map[string]time.Time
 	subs    map[string]subsEntry
+	fetched map[string]claude.Usage
+}
+
+// SetFetched stores a usage reading fetched from Anthropic for an account.
+func (l *Loader) SetFetched(configDir string, u claude.Usage) {
+	if old, ok := l.fetched[configDir]; ok && u.FetchedAt.IsZero() {
+		old.Problem = u.Problem // keep the last good numbers, note why they're not refreshing
+		l.fetched[configDir] = old
+		return
+	}
+	l.fetched[configDir] = u
 }
 
 type subsEntry struct {
@@ -201,7 +212,7 @@ func NewLoader(s *state.Store) *Loader {
 	return &Loader{
 		store: s, jobs: map[string]claude.Job{}, mtimes: map[string]time.Time{},
 		args: map[int]argsEntry{}, git: map[string]gitInfo{}, usage: map[string]usageEntry{},
-		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{},
+		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
 	}
 }
 
@@ -401,14 +412,28 @@ func (l *Loader) job(acct claude.Account, id, key string) (claude.Job, bool) {
 func (l *Loader) readUsage(acct claude.Account) claude.Usage {
 	st, err := os.Stat(acct.StatePath())
 	if err != nil {
-		return claude.Usage{}
+		return l.freshest(acct, claude.Usage{})
 	}
 	if e, ok := l.usage[acct.ConfigDir]; ok && e.mod.Equal(st.ModTime()) {
-		return e.u
+		return l.freshest(acct, e.u)
 	}
 	u, _ := claude.ReadUsage(acct)
 	l.usage[acct.ConfigDir] = usageEntry{u: u, mod: st.ModTime()}
-	return u
+	return l.freshest(acct, u)
+}
+
+// freshest prefers agtop's own fetch when it is newer than Claude Code's cache.
+func (l *Loader) freshest(acct claude.Account, cached claude.Usage) claude.Usage {
+	f, ok := l.fetched[acct.ConfigDir]
+	if !ok {
+		return cached
+	}
+	if f.FetchedAt.After(cached.FetchedAt) {
+		f.Email, f.Org, f.Plan = cached.Email, cached.Org, cached.Plan
+		return f
+	}
+	cached.Problem = f.Problem
+	return cached
 }
 
 // gitFor finds the repository and branch for a folder by reading .git

@@ -163,7 +163,7 @@ func (m *Model) render() string {
 	case modeHelp:
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 124))
 	case modeProcs:
-		return m.frame(m.procBody(), keysFit(m.w-4, "tab", "next view", "a", "agent / whole machine", "enter", "jump to agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "esc", "back"))
+		return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "enter", "go to the agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "tab", "next view", "esc", "back"))
 	case modeCwd:
 		return m.frame(m.cwdBody(), keysFit(m.w-4, "enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
 	}
@@ -1145,40 +1145,41 @@ func nonEmpty(xs ...string) []string {
 func (m *Model) procBody() []string {
 	rows := m.procRows()
 	w := m.w - 4
-	title := "Processes"
-	sub := "whole machine"
-	if !m.procMachine {
-		if a := m.selected(); a != nil {
-			sub = a.DisplayName
-		}
-	}
-	out := []string{paint(cText+bold, title) + dim("  ·  "+sub), ""}
+	mc := m.snap.Machine
+	out := []string{paint(cText+bold, "Processes") + dim(fmt.Sprintf("  ·  every agent's processes, then the rest of Claude  ·  %s · %.0f%% cpu in total", mem(mc.TotalMem), mc.TotalCPU)), ""}
 	num := func(r procRow) string {
 		return cpuColor(r.cpu, right(fmt.Sprintf("%.1f%%", r.cpu), 8)) + memColor(r.mem, right(mem(r.mem), 8))
 	}
-	lastRole := fleet.Role(-1)
+	cmdW := max(10, w-30)
+	lastRole, other := fleet.Role(-1), false
 	for i, r := range rows {
 		var line string
-		if m.procMachine {
-			if r.role != lastRole {
-				if lastRole != -1 {
-					out = append(out, "")
-				}
-				lastRole = r.role
-				out = append(out, rule(roleName(r.role), "", w))
+		switch {
+		case r.heading:
+			out = append(out, "")
+			procs := fmt.Sprintf("%d procs", r.n)
+			line = "  " + paint(cText+bold, fit(r.label, cmdW-26)) + " " + faint(fit(r.cmd, 24)) + num(r) + dim(right(procs, 10))
+		case r.other:
+			if !other {
+				other = true
+				out = append(out, "", rule("Other Claude processes", "", w-2))
 			}
-			lbl := paint(cText, fit(r.label, 34))
+			if r.role != lastRole {
+				lastRole = r.role
+				out = append(out, dim("  "+roleName(r.role)))
+			}
+			lbl := paint(cSub, fit(r.label, 30))
 			if r.role == fleet.RoleOrphan {
-				lbl = paint(cYellow, fit(r.label, 34))
+				lbl = paint(cYellow, fit(r.label, 30))
 			}
 			procs := ""
 			if r.n > 1 {
 				procs = fmt.Sprintf("%d procs", r.n)
 			}
-			line = "   " + faint(fit(fmt.Sprintf("%d", r.pid), 7)) + lbl + num(r) + dim(right(procs, 10)) + "   " + dim(trimCmd(r.cmd, max(10, w-72)))
-		} else {
-			cmd := strings.Repeat("  ", min(r.depth, 8)) + r.cmd
-			line = "   " + faint(fit(fmt.Sprintf("%d", r.pid), 7)) + paint(cSub, fit(trimCmd(cmd, w-30), w-30)) + num(r)
+			line = "    " + lbl + faint(fit(trimCmd(r.cmd, cmdW-34), cmdW-34)) + num(r) + dim(right(procs, 10))
+		default:
+			tree := strings.Repeat("  ", min(r.depth, 8))
+			line = "  " + faint(fit(fmt.Sprintf("%d", r.pid), 7)) + dim(fit(tree+trimCmd(r.cmd, cmdW), cmdW-5)) + num(r)
 		}
 		if i == m.procCursor {
 			line = highlight(paint(cOrange, "▍")+line[1:], w)
@@ -1186,11 +1187,7 @@ func (m *Model) procBody() []string {
 		out = append(out, line)
 	}
 	if len(rows) == 0 {
-		out = append(out, dim("This agent has no running process.  a shows the whole machine."))
-	}
-	if m.procMachine {
-		mc := m.snap.Machine
-		out = append(out, "", dim(fmt.Sprintf("%s · %.0f%% cpu in total", mem(mc.TotalMem), mc.TotalCPU)))
+		out = append(out, dim("No Claude processes are running."))
 	}
 	return out
 }

@@ -3,6 +3,8 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -95,15 +97,15 @@ type Model struct {
 	promptFor  string
 	listW      int
 	hibernated map[string]bool
+	usageWait  map[string]time.Time
 	armedAt    time.Time
 	attached   string
 	view       int
 
-	procCursor  int
-	procMachine bool
-	cwdMove     bool
-	cwdCursor   int
-	cwdFor      string
+	procCursor int
+	cwdMove    bool
+	cwdCursor  int
+	cwdFor     string
 
 	lastState map[string]string
 }
@@ -138,7 +140,7 @@ func New(store *state.Store, version string) *Model {
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
 		lastState: map[string]string{}, cwdMove: true,
-		hibernated: map[string]bool{},
+		hibernated: map[string]bool{}, usageWait: map[string]time.Time{},
 	}
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
@@ -150,6 +152,10 @@ func New(store *state.Store, version string) *Model {
 
 type tickMsg time.Time
 type hoverMsg struct{}
+type usageMsg struct {
+	dir string
+	u   claude.Usage
+}
 type scanMsg map[string]fleet.Spend
 type previewMsg struct {
 	key string
@@ -172,7 +178,33 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m *Model) Init() tea.Cmd { return tea.Batch(tick(), m.scan()) }
+func (m *Model) Init() tea.Cmd { return tea.Batch(tick(), m.scan(), m.fetchUsage()) }
+
+// fetchUsage refreshes every account's plan usage from Anthropic, skipping
+// accounts that were rate-limited until they may ask again.
+func (m *Model) fetchUsage() tea.Cmd {
+	var cmds []tea.Cmd
+	for _, acct := range m.store.Config.AllAccounts() {
+		if time.Now().Before(m.usageWait[acct.ConfigDir]) {
+			continue
+		}
+		acct := acct
+		cmds = append(cmds, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			u, err := claude.FetchUsage(ctx, acct)
+			if err != nil {
+				u = claude.Usage{Problem: err.Error()}
+				var rl *claude.ErrRateLimited
+				if errors.As(err, &rl) {
+					u.Problem = "rate-limited until " + rl.Until.Local().Format("15:04")
+				}
+			}
+			return usageMsg{dir: acct.ConfigDir, u: u}
+		})
+	}
+	return tea.Batch(cmds...)
+}
 
 func (m *Model) scan() tea.Cmd {
 	if m.scanning {
@@ -359,6 +391,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}
+		if m.tick%300 == 0 {
+			cmds = append(cmds, m.fetchUsage())
+		}
 		cmds = append(cmds, m.loadPreview())
 		if m.tick%2 == 0 {
 			cmds = append(cmds, m.loadLivePreviews())
@@ -377,6 +412,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.flash(msg.err.Error(), true)
 		}
+		return m, nil
+	case usageMsg:
+		if strings.HasPrefix(msg.u.Problem, "rate-limited") {
+			m.usageWait[msg.dir] = time.Now().Add(15 * time.Minute)
+		}
+		m.loader.SetFetched(msg.dir, msg.u)
+		m.refresh()
 		return m, nil
 	case hoverMsg:
 		return m, m.loadPreview()
@@ -461,8 +503,7 @@ func (m *Model) setView(v int) {
 	m.input, m.inKind = m.input[:0], inPrompt
 	switch m.view {
 	case 1:
-		a := m.selected()
-		m.mode, m.procCursor, m.procMachine = modeProcs, 0, a == nil || a.PID == 0
+		m.mode, m.procCursor = modeProcs, 0
 	case 2, 3, 4:
 		m.openDialog(m.view - 2)
 	}

@@ -585,36 +585,33 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 }
 
 // procRows are the rows the process screen shows, in order.
+// procRows lists every agent's process tree, alphabetically, each under a
+// heading row, then the Claude processes that belong to no agent.
 func (m *Model) procRows() []procRow {
 	tab := m.snap.Table
 	if tab == nil {
 		return nil
 	}
 	var out []procRow
-	if m.procMachine {
-		byKey := map[string]*fleet.Agent{}
-		for _, a := range m.snap.Agents {
-			byKey[a.Key] = a
+	agents := append([]*fleet.Agent(nil), m.snap.Agents...)
+	sort.SliceStable(agents, func(i, j int) bool {
+		return strings.ToLower(agents[i].DisplayName) < strings.ToLower(agents[j].DisplayName)
+	})
+	for _, a := range agents {
+		if a.PID == 0 || tab.Procs[a.PID] == nil {
+			continue
 		}
-		for _, r := range m.snap.Machine.Rows {
-			if a := byKey[r.Key]; a != nil {
-				r.Cmd = m.context(a)
-			}
-			out = append(out, procRow{pid: r.PID, label: r.Label, cmd: r.Cmd, mem: r.Mem, cpu: r.CPU, n: r.Procs, start: r.Start, role: r.Role, key: r.Key})
+		out = append(out, procRow{pid: a.PID, label: oneLine(a.DisplayName), cmd: m.context(a), mem: a.Mem, cpu: a.CPU,
+			n: a.Procs, start: tab.Procs[a.PID].Start, key: a.Key, heading: true})
+		for _, n := range tab.Tree(a.PID) {
+			out = append(out, procRow{pid: n.PID, depth: n.Depth + 1, cmd: m.shortCmd(n.PID, n.Comm), mem: n.Footprint, cpu: n.CPU, n: 1, start: n.Start, key: a.Key})
 		}
-		return out
 	}
-	a := m.selected()
-	if a == nil || a.PID == 0 {
-		return nil
-	}
-	for _, n := range tab.Tree(a.PID) {
-		cmd := m.shortCmd(n.PID, n.Comm)
-		label := cmd
-		if i := strings.IndexByte(cmd, ' '); i > 0 && len(cmd) > 40 {
-			label = cmd[:i]
+	for _, r := range m.snap.Machine.Rows {
+		if r.Role == fleet.RoleWorker {
+			continue
 		}
-		out = append(out, procRow{pid: n.PID, depth: n.Depth, label: label, cmd: cmd, mem: n.Footprint, cpu: n.CPU, n: 1, start: n.Start})
+		out = append(out, procRow{pid: r.PID, label: r.Label, cmd: r.Cmd, mem: r.Mem, cpu: r.CPU, n: r.Procs, start: r.Start, role: r.Role, other: true})
 	}
 	return out
 }
@@ -627,6 +624,8 @@ type procRow struct {
 	start         time.Time
 	role          fleet.Role
 	key           string
+	heading       bool // an agent's own row above its tree
+	other         bool // a Claude process that belongs to no agent
 }
 
 func (m *Model) procKey(s string) tea.Cmd {
@@ -634,8 +633,6 @@ func (m *Model) procKey(s string) tea.Cmd {
 	switch s {
 	case "esc", "q", "ctrl+p", "left":
 		m.setView(0)
-	case "a", "m":
-		m.procMachine, m.procCursor = !m.procMachine, 0
 	case "up", "k":
 		if m.procCursor > 0 {
 			m.procCursor--

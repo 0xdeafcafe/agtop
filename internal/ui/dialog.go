@@ -521,9 +521,12 @@ func (m *Model) dialogBody(w int) []string {
 			}
 			return fit(v, cols[i])
 		}
-		meter := func(win claude.Window) string {
+		meter := func(win claude.Window, problem string) string {
 			if !win.Present {
-				return faint("no reading yet")
+				if problem != "" {
+					return paint(cYellow, problem)
+				}
+				return faint("fetching…")
 			}
 			return bar(win.Percent) + " " + paint(cText, fmt.Sprintf("%3.0f%%", win.Percent))
 		}
@@ -551,16 +554,14 @@ func (m *Model) dialogBody(w int) []string {
 					email = "not signed in"
 				}
 				line = name + folder + dim(cell(2, email, false)) +
-					fit(meter(u.FiveHour), cols[3]) + fit(meter(u.SevenDay), cols[4]) +
+					fit(meter(u.FiveHour, u.Problem), cols[3]) + fit(meter(u.SevenDay, ""), cols[4]) +
 					paint(cSub, cell(5, fmt.Sprintf("%d/%d", av.Live, av.Agents), true)) +
 					paint(cText, cell(6, money(av.Today), true)) + dim(cell(7, money(av.Spend), true))
 			}
 			out = append(out, row(i, mark+" "+line))
 		}
 		if len(d.accounts) > 0 {
-			if av, ok := views[active.ConfigDir]; ok && !av.Usage.FetchedAt.IsZero() {
-				out = append(out, "", faint("usage as Claude Code last saw it · "+tildify(active.ConfigDir)+" · "+av.Usage.FetchedAt.Local().Format("Mon 15:04")))
-			}
+			out = append(out, "", faint("usage is fetched from Anthropic for every signed-in account every 5 minutes"))
 		}
 		out = append(out, "", keysFit(w, "enter", "use for new sessions", "a", "add", "r", "rename", "l", "sign in", "d", "remove"))
 	case tabAgents:
