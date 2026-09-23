@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,9 +23,10 @@ const (
 	tabAccounts = iota
 	tabAgents
 	tabGeneral
+	tabClaude
 )
 
-var tabNames = []string{"Accounts", "Coding agents", "Settings"}
+var tabNames = []string{"Accounts", "Coding agents", "Settings", "Claude"}
 
 type dialog struct {
 	tab      int
@@ -36,6 +38,9 @@ type dialog struct {
 	onYes    func() tea.Cmd
 	accounts []acctRow
 	agents   []agentDef
+
+	claudeAcct int              // which account the Claude tab edits
+	claude     *claude.Settings // that account's settings.json
 }
 
 type acctRow struct {
@@ -242,8 +247,74 @@ func settingHelp(label, value string) (what, now string) {
 			"auto":              "auto: a classifier approves safe actions and asks about risky ones.",
 			"bypassPermissions": "bypassPermissions: never asks. Only for sandboxed or throwaway work.",
 		}[value]
+	case "Account":
+		what = "Whose Claude settings this tab edits. Each account has its own settings.json."
+		now = value + ": changes here save to that account's settings.json."
+	case "New sessions run in":
+		what = "Where new Claude sessions run. agtop mode runs Claude Code headless in agtop's own host and draws the conversation here; the daemon is Claude Code's own background service and its terminal screen."
+		now = map[string]string{
+			"":       "agtop mode: agtop's conversation view, queue, approvals and overview. /agtop moves a daemon session over.",
+			"daemon": "daemon: Claude Code's background service, shown through its own terminal screen.",
+		}[value]
+	case "When a usage limit hits":
+		what = "What an agtop-mode session does when a 5-hour or weekly usage limit stops it."
+		now = map[string]string{
+			"":     "ask each session: it asks once whether to continue by itself when the limit resets.",
+			"auto": "auto: every session continues by itself at the reset, a few seconds apart.",
+			"off":  "off: sessions wait for you after a limit.",
+		}[value]
+	case "Default model", "Default effort", "Permission mode", "Always think", "Co-authored-by in commits", "Keep transcripts for", "Hooks",
+		"Subagent model", "Max output tokens", "Bash timeout", "Telemetry", "Non-essential traffic":
+		what, now = claudeHelp(label, value)
 	}
 	return what, now
+}
+
+// claudeHelp explains the Claude tab's settings.json and env rows.
+func claudeHelp(label, value string) (what, now string) {
+	unset := "not set: Claude Code's own default."
+	switch label {
+	case "Default model":
+		what = "The model every session on this account starts with (settings.json model), unless a session or agtop picks one."
+	case "Default effort":
+		what = "How hard sessions think by default (settings.json effortLevel)."
+	case "Permission mode":
+		what = "What sessions may do without asking (settings.json permissions.defaultMode). Your allow and deny rules are kept."
+	case "Always think":
+		what = "Extended thinking on every request (settings.json alwaysThinkingEnabled)."
+	case "Co-authored-by in commits":
+		what = "Whether Claude adds a Co-authored-by line to commits it makes (settings.json includeCoAuthoredBy)."
+	case "Keep transcripts for":
+		what = "How many days Claude Code keeps old transcripts before cleaning them up (settings.json cleanupPeriodDays)."
+		if value != "" {
+			return what, value + " days: older transcripts are removed."
+		}
+	case "Hooks":
+		what = "Whether the hooks in your settings run (settings.json disableAllHooks). Turning them off stops every hook without deleting them."
+	case "Subagent model":
+		what = "The model subagents use, whatever the main session runs (env CLAUDE_CODE_SUBAGENT_MODEL)."
+	case "Max output tokens":
+		what = "The longest single reply Claude may write (env CLAUDE_CODE_MAX_OUTPUT_TOKENS)."
+	case "Bash timeout":
+		what = "How long a shell command may run before it's stopped (env BASH_DEFAULT_TIMEOUT_MS)."
+		if ms, err := strconv.Atoi(value); err == nil {
+			return what, fmt.Sprintf("%d minutes.", ms/60000)
+		}
+	case "Telemetry":
+		what = "Whether Claude Code sends usage telemetry (env DISABLE_TELEMETRY)."
+		if value == "1" {
+			return what, "off: no telemetry is sent."
+		}
+	case "Non-essential traffic":
+		what = "Whether Claude Code makes non-essential network calls such as update checks (env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC)."
+		if value == "1" {
+			return what, "off: only the calls a session needs."
+		}
+	}
+	if value == "" {
+		return what, unset
+	}
+	return what, value + "."
 }
 
 func (m *Model) agentSettings() []setting {
@@ -307,6 +378,8 @@ func (m *Model) dialogLen() int {
 		return len(d.accounts)
 	case tabAgents:
 		return len(m.agentSettings()) + len(d.agents)
+	case tabClaude:
+		return len(m.claudeRows())
 	default:
 		return len(m.generalSettings())
 	}
@@ -358,6 +431,8 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return m.accountsKey(s)
 	case tabAgents:
 		return m.agentsKey(s)
+	case tabClaude:
+		return m.claudeKey(s)
 	default:
 		rows := m.generalSettings()
 		if d.cursor < len(rows) {
@@ -508,6 +583,10 @@ func (m *Model) answer(what, v string) tea.Cmd {
 		return nil
 	}
 	d := m.dialog
+	if d.tab == tabClaude {
+		m.claudeAnswer(what, v)
+		return nil
+	}
 	switch {
 	case what == "account name":
 		d.draft = v
@@ -668,6 +747,8 @@ func (m *Model) dialogBody(w int) []string {
 		}
 		out = append(out, m.about(w)...)
 		out = append(out, "", keysFit(w, "←→", "change", "tab", "next view", "esc", "back to agents"))
+	case tabClaude:
+		out = append(out, m.claudeBody(w)...)
 	}
 	return out
 }
@@ -820,6 +901,11 @@ func (m *Model) about(w int) []string {
 		}
 	}
 	switch d.tab {
+	case tabClaude:
+		var what, now string
+		title, what, now = m.claudeAbout()
+		add(cSub, what)
+		add(cText, now)
 	case tabGeneral:
 		if rows := m.generalSettings(); d.cursor < len(rows) {
 			st := rows[d.cursor]

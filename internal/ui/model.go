@@ -574,7 +574,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-var viewNames = []string{"Agents", "Processes", "Accounts", "Coding agents", "Settings"}
+var viewNames = []string{"Agents", "Processes", "Accounts", "Coding agents", "Settings", "Claude"}
 
 // setView switches the whole screen; tab and shift+tab cycle through them.
 func (m *Model) setView(v int) {
@@ -584,7 +584,7 @@ func (m *Model) setView(v int) {
 	switch m.view {
 	case 1:
 		m.mode, m.procCursor = modeProcs, 0
-	case 2, 3, 4:
+	case 2, 3, 4, 5:
 		m.openDialog(m.view - 2)
 	}
 }
