@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,8 +39,20 @@ const (
 )
 
 type cached struct {
-	key   string
+	key   cacheKey
 	lines []Line
+}
+
+// cacheKey is everything that affects a turn's drawing: its content, the
+// width, its folds, the selection inside it, and for a live turn the clock.
+type cacheKey struct {
+	width, ver int
+	open, verb bool
+	folds, sel string
+	focused    bool
+	tick       int
+	now        int64
+	clock      bool
 }
 
 // Render draws every turn, oldest first.
@@ -47,21 +60,51 @@ func (s *Session) Render(o Options) []Line {
 	if o.Width < 20 {
 		o.Width = 20
 	}
-	var out []Line
+	s.memoTurn()
+	folds := foldsByTurn(o.Open)
+	parts := make([][]Line, len(s.Turns))
+	n := 0
 	for i, t := range s.Turns {
 		recent := i >= len(s.Turns)-2
-		out = append(out, s.turn(t, o, recent)...)
+		parts[i] = s.turn(t, o, recent, folds)
+		n += len(parts[i])
+	}
+	out := make([]Line, 0, n)
+	for _, p := range parts {
+		out = append(out, p...)
 	}
 	return out
 }
 
-func (s *Session) turn(t *Turn, o Options, recent bool) []Line {
-	ref := fmt.Sprintf("t%d", t.N)
+// foldsByTurn groups the fold overrides by the turn they're in, each
+// turn's sorted, so a turn's cache key names only its own.
+func foldsByTurn(open map[string]bool) map[string]string {
+	if len(open) == 0 {
+		return nil
+	}
+	by := map[string][]string{}
+	for k, v := range open {
+		t, _, _ := strings.Cut(k, ":")
+		by[t] = append(by[t], k+"="+strconv.FormatBool(v))
+	}
+	out := make(map[string]string, len(by))
+	for t, fs := range by {
+		sort.Strings(fs)
+		out[t] = strings.Join(fs, ",")
+	}
+	return out
+}
+
+func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string) []Line {
+	if t.ref == "" {
+		t.ref = "t" + strconv.Itoa(t.N)
+	}
+	ref := t.ref
 	open := recent || t.Live || t.Err != ""
 	if v, ok := o.Open[ref]; ok {
 		open = v
 	}
-	key := s.cacheKey(t, o, ref, open)
+	key := s.cacheKey(t, o, ref, open, folds)
 	if c, ok := s.cache[t]; ok && c.key == key {
 		return c.lines
 	}
@@ -77,35 +120,32 @@ func (s *Session) turn(t *Turn, o Options, recent bool) []Line {
 	return d.lines
 }
 
-// cacheKey changes whenever anything that affects this turn's drawing does:
-// its content, the width, its folds, the selection inside it, and for a live
-// turn the clock.
-func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool) string {
-	var folds []string
-	for k, v := range o.Open {
-		if k == ref || strings.HasPrefix(k, ref+":") {
-			folds = append(folds, fmt.Sprintf("%s=%v", k, v))
-		}
+func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[string]string) cacheKey {
+	k := cacheKey{width: o.Width, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref]}
+	if o.Selected == ref || strings.HasPrefix(o.Selected, ref) && strings.HasPrefix(o.Selected[len(ref):], ":") {
+		k.sel, k.focused = o.Selected, o.Focused
 	}
-	sort.Strings(folds)
-	sel := ""
-	if o.Selected == ref || strings.HasPrefix(o.Selected, ref+":") {
-		sel = fmt.Sprintf("%s/%v", o.Selected, o.Focused)
-	}
-	clock := ""
 	if t.Live || waiting(t) {
-		clock = fmt.Sprintf("%d/%d", o.Tick, o.Now.Unix())
+		k.clock, k.tick, k.now = true, o.Tick, o.Now.Unix()
 	}
-	return fmt.Sprintf("%d|%d|%v|%v|%s|%s|%s", o.Width, t.ver, open, o.Verbose, strings.Join(folds, ","), sel, clock)
+	return k
 }
 
+// waiting is whether a step in the turn waits on you. Every change to a
+// step touches its turn, so the answer holds until the turn changes.
 func waiting(t *Turn) bool {
+	if t.waitVer == t.ver+1 {
+		return t.waits
+	}
+	t.waits = false
 	for _, st := range t.steps {
 		if st.Status == Waiting {
-			return true
+			t.waits = true
+			break
 		}
 	}
-	return false
+	t.waitVer = t.ver + 1
+	return t.waits
 }
 
 type drawer struct {
@@ -117,12 +157,17 @@ type drawer struct {
 	lines []Line
 }
 
+var (
+	spineLive = paint(cOrange, "▏")
+	spineErr  = paint(cRed, "▏")
+)
+
 func (d *drawer) spine() string {
 	switch {
 	case d.t.Live:
-		return paint(cOrange, "▏")
+		return spineLive
 	case d.t.Err != "":
-		return paint(cRed, "▏")
+		return spineErr
 	}
 	return " "
 }
@@ -373,9 +418,18 @@ func (d *drawer) prose(s string, indent int, c string) {
 		if strings.TrimSpace(para) == "" {
 			continue
 		}
-		for _, r := range wrap(paint(c, inline(para, c)), min(d.cw-indent-1, capProse)) {
-			d.add("", "", d.spine()+strings.Repeat(" ", indent-1)+r, "")
+		// A paragraph already drawn this way comes from the memo, so text
+		// streaming in only wraps its last paragraph again.
+		k := memoKey{text: para, style: c, spine: d.spine(), n: indent, width: d.o.Width, cw: d.cw}
+		if ls, ok := d.s.memoGet(k); ok {
+			d.lines = append(d.lines, ls...)
+			continue
 		}
+		from := len(d.lines)
+		for _, r := range wrap(paint(c, inline(para, c)), min(d.cw-indent-1, capProse)) {
+			d.add("", "", d.spine()+blanks(indent-1)+r, "")
+		}
+		d.s.memoPut(k, d.lines[from:])
 	}
 }
 
@@ -405,21 +459,71 @@ func (d *drawer) answer(s string) {
 			d.add("", "", pad+paint(cWhite+bold, strings.TrimSpace(strings.TrimLeft(trim, "#"))), "")
 			continue
 		}
+		k := memoKey{text: trim, style: "answer", spine: d.spine(), width: d.o.Width, cw: d.cw}
+		if ls, ok := d.s.memoGet(k); ok {
+			d.lines = append(d.lines, ls...)
+			continue
+		}
+		from := len(d.lines)
 		lead, body := "", trim
 		if strings.HasPrefix(trim, "- ") || strings.HasPrefix(trim, "* ") {
 			lead, body = dim("•")+" ", trim[2:]
 		} else if m := numbered.FindStringSubmatch(trim); m != nil {
 			lead, body = dim(m[1])+" ", m[2]
 		}
-		for k, r := range wrap(text(inline(body, cText)), w-len([]rune(stripANSI(lead)))) {
+		leadW := len([]rune(stripANSI(lead)))
+		for k, r := range wrap(text(inline(body, cText)), w-leadW) {
 			if k > 0 && lead != "" {
-				r = strings.Repeat(" ", len([]rune(stripANSI(lead)))) + r
+				r = blanks(leadW) + r
 			} else {
 				r = lead + r
 			}
 			d.add("", "", pad+r, "")
 		}
+		d.s.memoPut(k, d.lines[from:])
 	}
+}
+
+// memoKey names a paragraph as drawn: its text, how, and at what width.
+type memoKey struct {
+	text, style, spine string
+	n, width, cw       int
+}
+
+// memoTurn ages the paragraph memo: what the last two renders drew stays,
+// the rest goes.
+func (s *Session) memoTurn() {
+	s.memoOld, s.memo = s.memo, make(map[memoKey][]Line, len(s.memo))
+}
+
+func (s *Session) memoGet(k memoKey) ([]Line, bool) {
+	if ls, ok := s.memo[k]; ok {
+		return ls, true
+	}
+	if ls, ok := s.memoOld[k]; ok && s.memo != nil {
+		s.memo[k] = ls
+		return ls, true
+	}
+	return nil, false
+}
+
+func (s *Session) memoPut(k memoKey, ls []Line) {
+	if s.memo != nil {
+		s.memo[k] = append([]Line(nil), ls...)
+	}
+}
+
+const spaces = "                                                                                                                                "
+
+// blanks is n spaces.
+func blanks(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if n <= len(spaces) {
+		return spaces[:n]
+	}
+	return strings.Repeat(" ", n)
 }
 
 // styledAsk draws your words with the things that act singled out: a
@@ -451,24 +555,134 @@ func link(url string) string {
 	return "\x1b]8;;" + url + "\x1b\\" + paint(cBlue+"\x1b[4m", url) + "\x1b]8;;\x1b\\"
 }
 
-var (
-	numbered = regexp.MustCompile(`^(\d+\.)\s+(.*)$`)
-	boldRe   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	codeRe   = regexp.MustCompile("`([^`]+)`")
-	ansiRe   = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-)
+var numbered = regexp.MustCompile(`^(\d+\.)\s+(.*)$`)
 
-// inline styles **bold** and `code`, returning to base colour after each.
+// inline styles **bold** and `code`, returning to base colour after each,
+// and links URLs. Byte scans, the same as replacing \*\*([^*]+)\*\*,
+// `([^`]+)` and https?://[^\s)>\]"'`]+ in turn.
 func inline(s, base string) string {
-	s = boldRe.ReplaceAllString(s, bold+"$1"+reset+base)
-	s = codeRe.ReplaceAllString(s, cWhite+"$1"+reset+base)
-	s = urlRe.ReplaceAllStringFunc(s, func(u string) string { return reset + link(u) + base })
-	return s
+	if !strings.ContainsAny(s, "*`h") {
+		return s
+	}
+	s = pairs(s, "**", bold, reset+base)
+	s = pairs(s, "`", cWhite, reset+base)
+	return links(s, base)
 }
 
-var urlRe = regexp.MustCompile(`https?://[^\s)>\]"'` + "`" + `]+`)
+// pairs wraps text between two delimiters in open and close, dropping the
+// delimiters, where the text is at least one character and holds no
+// delimiter character.
+func pairs(s, delim, open, close string) string {
+	d := delim[0]
+	var b strings.Builder
+	last := 0
+	for p := 0; ; {
+		i := strings.Index(s[p:], delim)
+		if i < 0 {
+			break
+		}
+		i += p
+		from := i + len(delim)
+		j := strings.IndexByte(s[from:], d)
+		if j <= 0 || !strings.HasPrefix(s[from+j:], delim) {
+			p = i + 1
+			continue
+		}
+		if b.Len() == 0 {
+			b.Grow(len(s) + 32)
+		}
+		b.WriteString(s[last:i])
+		b.WriteString(open)
+		b.WriteString(s[from : from+j])
+		b.WriteString(close)
+		last = from + j + len(delim)
+		p = last
+	}
+	if last == 0 {
+		return s
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
 
-func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
+// links makes each URL a link, returning to base colour after it.
+func links(s, base string) string {
+	var b strings.Builder
+	last := 0
+	for p := 0; ; {
+		i := strings.Index(s[p:], "http")
+		if i < 0 {
+			break
+		}
+		i += p
+		j := i + 4
+		if j < len(s) && s[j] == 's' && strings.HasPrefix(s[j+1:], "://") {
+			j += 4
+		} else if strings.HasPrefix(s[j:], "://") {
+			j += 3
+		} else {
+			p = i + 1
+			continue
+		}
+		end := j
+		for end < len(s) && !urlStop(s[end]) {
+			end++
+		}
+		if end == j {
+			p = i + 1
+			continue
+		}
+		b.WriteString(s[last:i])
+		b.WriteString(reset)
+		b.WriteString(link(s[i:end]))
+		b.WriteString(base)
+		last, p = end, end
+	}
+	if last == 0 {
+		return s
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+func urlStop(c byte) bool {
+	switch c {
+	case '\t', '\n', '\f', '\r', ' ', ')', '>', ']', '"', '\'', '`':
+		return true
+	}
+	return false
+}
+
+// stripANSI drops colour codes (ESC [ digits and semicolons m), as ansiRe
+// would, with a byte scan.
+func stripANSI(s string) string {
+	i := strings.IndexByte(s, 0x1b)
+	if i < 0 {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i >= 0 {
+		b.WriteString(s[:i])
+		j := i + 1
+		if j < len(s) && s[j] == '[' {
+			j++
+			for j < len(s) && (s[j] >= '0' && s[j] <= '9' || s[j] == ';') {
+				j++
+			}
+			if j < len(s) && s[j] == 'm' {
+				s = s[j+1:]
+				i = strings.IndexByte(s, 0x1b)
+				continue
+			}
+		}
+		b.WriteByte(0x1b)
+		s = s[i+1:]
+		i = strings.IndexByte(s, 0x1b)
+	}
+	b.WriteString(s)
+	return b.String()
+}
 
 // foldable steps are the clean, routine ones a finished turn can fold into
 // a single row. Edits never fold: they're what you'd review.

@@ -86,6 +86,10 @@ type Turn struct {
 
 	steps map[string]*Step
 	ver   int
+
+	ref     string // "t13", made once
+	waits   bool   // a step waits on you, as of waitVer-1
+	waitVer int
 }
 
 // Outcome is the first line of the turn's answer.
@@ -145,6 +149,8 @@ type Session struct {
 	streaming *Item
 	byID      map[string]*Step
 	cache     map[*Turn]cached
+	memo      map[memoKey][]Line
+	memoOld   map[memoKey][]Line
 	baseList  []string
 	baseFor   string
 	reqIdx    map[string]int
