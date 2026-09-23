@@ -145,6 +145,46 @@ func roughly(d time.Duration) string {
 	return fmt.Sprintf("%dd", int(d.Round(24*time.Hour).Hours()/24))
 }
 
+// usageMeter is one plan window: a bar of what's used, coloured by how it
+// is going, with a tick for how far through the window we are, so being
+// ahead of pace shows at a glance; then the percentage and when it resets.
+func usageMeter(label string, pct float64, resets time.Time, window time.Duration, now time.Time) string {
+	const w = 10
+	pace := -1.0 // share of the window gone, when we know when it ends
+	if !resets.IsZero() && resets.After(now) {
+		pace = 1 - float64(resets.Sub(now))/float64(window)
+	}
+	c := cGreen
+	switch {
+	case pct >= 80:
+		c = cRed
+	case pct >= 50 || (pace >= 0 && pct/100 > pace+0.1):
+		c = cYellow // high, or burning faster than the window allows
+	}
+	fill := min(w, max(0, int(pct/100*w+0.5)))
+	if pct > 0 && fill == 0 {
+		fill = 1
+	}
+	tick := -1
+	if pace >= 0 {
+		tick = min(w-1, int(pace*w))
+	}
+	var b strings.Builder
+	for i := range w {
+		switch {
+		case i == tick && i < fill:
+			b.WriteString(paint(cText, "╋"))
+		case i == tick:
+			b.WriteString(paint(cSub, "┼"))
+		case i < fill:
+			b.WriteString(paint(c, "━"))
+		default:
+			b.WriteString(faint("─"))
+		}
+	}
+	return dim(label+" ") + b.String() + " " + paint(c, fmt.Sprintf("%.0f%%", pct)) + resetIn(resets, now, window > 24*time.Hour)
+}
+
 // activeUsage is the current account's plan usage, with when each window
 // resets, quiet unless it is high.
 func (m *Model) activeUsage() string {
@@ -156,19 +196,9 @@ func (m *Model) activeUsage() string {
 		if !u.FiveHour.Present {
 			return ""
 		}
-		pct := func(label string, p float64) string {
-			c := cSub
-			switch {
-			case p >= 80:
-				c = cRed
-			case p >= 50:
-				c = cYellow
-			}
-			return dim(label+" ") + paint(c, fmt.Sprintf("%.0f%%", p))
-		}
-		s := pct("5h", u.FiveHour.Percent) + resetIn(u.FiveHour.ResetsAt, m.snap.At, false)
+		s := usageMeter("5h", u.FiveHour.Percent, u.FiveHour.ResetsAt, 5*time.Hour, m.snap.At)
 		if u.SevenDay.Present {
-			s += dim(" · ") + pct("7d", u.SevenDay.Percent) + resetIn(u.SevenDay.ResetsAt, m.snap.At, true)
+			s += "   " + usageMeter("7d", u.SevenDay.Percent, u.SevenDay.ResetsAt, 7*24*time.Hour, m.snap.At)
 		}
 		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > time.Hour {
 			s += faint(" as of " + u.FetchedAt.Local().Format("15:04"))
