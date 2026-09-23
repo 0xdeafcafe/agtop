@@ -23,12 +23,110 @@ import (
 var paneViews = []string{"conversation", "overview"}
 
 func (m *Model) views(c *hostConn) []string {
+	v := append([]string{}, paneViews...)
+	if len(c.subs) > 0 {
+		v = append(v, "subagents")
+	}
 	if c.client == nil {
 		if a := m.focused(); a != nil && liveCapable(a) {
-			return []string{"conversation", "overview", "screen"}
+			v = append(v, "screen")
 		}
 	}
-	return paneViews
+	return v
+}
+
+// refreshSubs looks for new subagent runs and follows the one opened.
+func (m *Model) refreshSubs() {
+	c := m.host
+	if c == nil || c.path == "" {
+		return
+	}
+	c.subs = convo.ListSubagents(c.path)
+	if c.subTail != nil {
+		_, _ = c.subTail.Read()
+		if st := c.sess.Step(c.subToolUse()); st != nil && st.Status != convo.Running {
+			if live := c.subTail.Sess.Live(); live != nil {
+				c.subTail.Sess.Apply(headless.Result{Subtype: "success"}, time.Now())
+			}
+		}
+	}
+}
+
+func (c *hostConn) subToolUse() string {
+	for _, sa := range c.subs {
+		if sa.ID == c.subOpen {
+			return sa.ToolUseID
+		}
+	}
+	return ""
+}
+
+// openSub drills into one subagent's own conversation.
+func (m *Model) openSub(c *hostConn, id string) {
+	for _, sa := range c.subs {
+		if sa.ID == id {
+			t := convo.SubagentTail(sa.Path)
+			_, _ = t.Read()
+			c.subTail, c.subOpen, c.subSel = t, id, ""
+			c.sel, c.scroll = "", 0
+			m.refreshSubs()
+			return
+		}
+	}
+}
+
+// subagentLines is the subagents view: one row per run, or the opened
+// run's own conversation under a breadcrumb.
+func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
+	w := o.Width
+	if c.subOpen != "" && c.subTail != nil {
+		var sa convo.Subagent
+		for _, x := range c.subs {
+			if x.ID == c.subOpen {
+				sa = x
+			}
+		}
+		crumb := "  " + paint(cSub, "‹ subagents") + dim("  ·  ") + paint(cText+bold, sa.Type) + "  " + dim(oneLine(sa.Description)) + dim("   ← back")
+		lines := []convo.Line{{Text: fit(crumb, w)}, {Text: ""}}
+		so := o
+		so.Selected = c.sel
+		return append(lines, c.subTail.Sess.Render(so)...)
+	}
+	lines := []convo.Line{{Text: fit("  "+dim(fmt.Sprintf("%d subagent runs · enter opens one", len(c.subs))), w)}, {Text: ""}}
+	for i := len(c.subs) - 1; i >= 0; i-- { // newest first
+		sa := c.subs[i]
+		mark, right := dim("◌"), ""
+		if st := c.sess.Step(sa.ToolUseID); st != nil {
+			switch st.Status {
+			case convo.Running:
+				mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
+				right = paint(cOrange, dur(time.Since(st.Start)))
+			case convo.OK:
+				mark = paint(cGreen, "✓")
+				if !st.End.IsZero() {
+					right = dim(dur(st.End.Sub(st.Start)))
+				}
+			case convo.Failed:
+				mark = paint(cRed, "✗")
+			}
+		}
+		model := ""
+		if sa.Model != "" {
+			model = dim("  " + sa.Model)
+		}
+		ref := "sub:" + sa.ID
+		left := "   " + mark + " " + paint(cBlue, "⇉") + " " + paint(cText+bold, sa.Type) + "  " + paint(cSub, oneLine(sa.Description)) + model
+		text := spread(left, right+"  ", w)
+		if ref == o.Selected {
+			bar := faint("▍")
+			if o.Focused {
+				bar = paint(cOrange, "▍")
+			}
+			text = selBG + strings.ReplaceAll(bar+text[1:], reset, reset+selBG) + reset
+		}
+		lines = append(lines, convo.Line{Text: text, Ref: ref})
+	}
+	return lines
 }
 
 func (m *Model) viewName(c *hostConn) string {
@@ -68,6 +166,14 @@ type hostConn struct {
 	// rowRefs is what each drawn row of the pane belongs to, for clicks.
 	selMoved bool
 	rowRefs  []string
+	bodyRefs []string // every selectable row of the current view, in order
+
+	// Subagents: every run found beside the transcript, and the one opened.
+	path    string
+	subs    []convo.Subagent
+	subTail *convo.Tail
+	subOpen string
+	subSel  string // selection inside the opened subagent
 }
 
 type hostOpenMsg struct {
@@ -88,13 +194,13 @@ var cBright = rgb(240, 236, 228)
 const frame = 33 * time.Millisecond
 
 func openHost(a *fleet.Agent) tea.Cmd {
-	key, id := a.Key, a.ID
+	key, id, path := a.Key, a.ID, a.TranscriptPath
 	return func() tea.Msg {
 		cl, err := host.Dial(id)
 		if err != nil {
 			return hostOpenMsg{key: key, err: err}
 		}
-		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, client: cl, sess: convo.New(), open: map[string]bool{}}}
+		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, client: cl, sess: convo.New(), open: map[string]bool{}, path: path}}
 	}
 }
 
@@ -172,7 +278,7 @@ func openTail(a *fleet.Agent) tea.Cmd {
 		if _, err := t.Read(); err != nil {
 			return hostOpenMsg{key: key, err: err}
 		}
-		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true}}
+		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true, path: path}}
 	}
 }
 
@@ -299,6 +405,11 @@ func (m *Model) agtopPane(w, h int) []string {
 		}
 	case "overview":
 		body = s.Overview(o)
+	case "subagents":
+		if c.subOpen != "" {
+			o.Selected = c.subSel
+		}
+		body = m.subagentLines(c, o)
 	default:
 		body = s.Render(o)
 		if len(body) == 0 {
@@ -307,6 +418,14 @@ func (m *Model) agtopPane(w, h int) []string {
 	}
 	// Bottom-anchored: the latest output sits just above the dock unless
 	// you've scrolled up. A selection that just moved is scrolled into view.
+	c.bodyRefs = c.bodyRefs[:0]
+	seenRef := map[string]bool{}
+	for _, l := range body {
+		if l.Ref != "" && !seenRef[l.Ref] {
+			seenRef[l.Ref] = true
+			c.bodyRefs = append(c.bodyRefs, l.Ref)
+		}
+	}
 	if c.selMoved && c.sel != "" {
 		c.selMoved = false
 		for i, l := range body {
@@ -688,7 +807,33 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			c.input, c.back = c.input[:0], 0
 			return nil
 		}
-	case "enter":
+	case "enter", "right":
+		if empty && m.viewName(c) == "subagents" && strings.HasPrefix(c.sel, "sub:") && c.subOpen == "" {
+			m.openSub(c, strings.TrimPrefix(c.sel, "sub:"))
+			return nil
+		}
+		// Enter on a subagent's step opens its own conversation.
+		if empty && s == "enter" && m.viewName(c) == "conversation" {
+			if _, id, ok := strings.Cut(c.sel, ":s:"); ok {
+				for _, sa := range c.subs {
+					if sa.ToolUseID == id {
+						for i, v := range m.views(c) {
+							if v == "subagents" {
+								c.view = i
+							}
+						}
+						m.openSub(c, sa.ID)
+						return nil
+					}
+				}
+			}
+		}
+		if s == "right" {
+			if empty && c.sel != "" {
+				c.open[c.sel] = true
+			}
+			return nil
+		}
 		if empty && m.viewName(c) == "screen" && m.canEmbed() {
 			m.embedded = true // keys go to Claude Code's own screen
 			return nil
@@ -718,7 +863,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	case "left":
-		// ← walks up: from a step to its turn, then back to Agents.
+		// ← walks up: out of an opened subagent, from a step to its turn,
+		// then back to Agents.
+		if empty && c.subOpen != "" && m.viewName(c) == "subagents" {
+			c.subOpen, c.subTail, c.sel = "", nil, ""
+			return nil
+		}
 		if empty {
 			if turn, _, ok := strings.Cut(c.sel, ":"); ok {
 				c.sel, c.selMoved = turn, true
@@ -863,25 +1013,24 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 
 // moveSel moves the selection over rows you can act on: turns and steps.
 func (m *Model) moveSel(c *hostConn, d int) {
-	o := convo.Options{Width: max(40, m.w/2), Now: time.Now(), Open: c.open, Verbose: c.verbose}
-	var refs []string
-	seen := map[string]bool{}
-	for _, l := range c.sess.Render(o) {
-		if l.Ref != "" && !seen[l.Ref] {
-			seen[l.Ref] = true
-			refs = append(refs, l.Ref)
-		}
-	}
+	refs := c.bodyRefs
 	if len(refs) == 0 {
 		return
 	}
+	cur := c.sel
+	if c.subOpen != "" && m.viewName(c) == "subagents" {
+		cur = c.subSel
+	}
 	i := len(refs)
 	for j, r := range refs {
-		if r == c.sel {
+		if r == cur {
 			i = j
 		}
 	}
 	i = max(0, min(len(refs)-1, i+d))
+	if c.subOpen != "" && m.viewName(c) == "subagents" {
+		c.subSel = refs[i]
+	}
 	c.sel = refs[i]
 	c.selMoved = true
 }
@@ -895,6 +1044,10 @@ func (m *Model) clickRow(c *hostConn, y int) {
 	}
 	ref := c.rowRefs[i]
 	if ref == c.sel {
+		if id, ok := strings.CutPrefix(ref, "sub:"); ok {
+			m.openSub(c, id)
+			return
+		}
 		c.open[ref] = !m.isOpen(c, ref)
 		return
 	}

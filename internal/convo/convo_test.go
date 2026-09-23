@@ -269,7 +269,10 @@ func TestOverview(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success", CostUSD: 1.25}, at(3710))
 
 	cold := s.ColdStarts()
-	if len(cold) != 1 || cold[0].Agent != "" || cold[0].Gap != 3700*time.Second {
+	// The session's first request and the subagent's first are expected;
+	// the one after an hour idle is the cache's hour running out.
+	if len(cold) != 3 || !cold[0].Expected || !strings.HasPrefix(cold[1].Reason, "new subagent") ||
+		cold[2].Gap != 3700*time.Second || !strings.HasPrefix(cold[2].Reason, "idle") {
 		t.Fatalf("cold starts: %+v", cold)
 	}
 	out := plain(s.Overview(Options{Width: 110, Now: at(3720)}))
@@ -285,7 +288,9 @@ func TestOverview(t *testing.T) {
 		"#1           opus 5.5 · 1M   effort high",
 		"most used: Bash",
 		"Bash",
-		"cold after 1h 01m idle · main · rewrote 21k",
+		"3 cold starts, all expected",
+		"1 × new subagent · 1 × session start",
+		"idle past the cache's hour · 1h 01m idle · main · rewrote 21k",
 		"Explore      ×1   haiku 4.5",
 	} {
 		if !strings.Contains(out, w) {
@@ -332,5 +337,35 @@ func TestTailTranscript(t *testing.T) {
 	}
 	if ch, _ := tl.Read(); ch {
 		t.Error("nothing new should mean no change")
+	}
+}
+
+func TestSubagents(t *testing.T) {
+	dir := t.TempDir()
+	main := dir + "/sess.jsonl"
+	sub := dir + "/sess/subagents"
+	_ = os.MkdirAll(sub, 0o755)
+	_ = os.WriteFile(main, []byte(""), 0o644)
+	_ = os.WriteFile(sub+"/agent-a1.meta.json", []byte(`{"agentType":"Explore","description":"find the pane","toolUseId":"toolu_1","model":"haiku"}`), 0o644)
+	_ = os.WriteFile(sub+"/agent-a1.jsonl", []byte(strings.Join([]string{
+		`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"find where the pane is drawn"}}`,
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-09-23T20:00:01Z","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"g1","name":"Grep","input":{"pattern":"previewLines"}}]}}`,
+		`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"g1","content":"internal/ui/view.go"}]}}`,
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-09-23T20:00:03Z","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"It's in view.go."}]}}`,
+	}, "\n")+"\n"), 0o644)
+	subs := ListSubagents(main)
+	if len(subs) != 1 || subs[0].Type != "Explore" || subs[0].ToolUseID != "toolu_1" || subs[0].Model != "haiku" {
+		t.Fatalf("subagents: %+v", subs)
+	}
+	tl := SubagentTail(subs[0].Path)
+	if _, err := tl.Read(); err != nil {
+		t.Fatal(err)
+	}
+	tl.Sess.Apply(headless.Result{Subtype: "success"}, at(10))
+	out := plain(tl.Sess.Render(Options{Width: 100, Now: at(10)}))
+	for _, w := range []string{"find where the pane is drawn", "⌕ previewLines", "It's in view.go."} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in\n%s", w, out)
+		}
 	}
 }

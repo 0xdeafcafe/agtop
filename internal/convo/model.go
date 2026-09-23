@@ -114,6 +114,7 @@ type Request struct {
 	At    time.Time
 	Model string
 	Agent string // "" for the main agent, else the subagent's type
+	Run   string // the tool call that started a subagent; "" for the main agent
 	Usage headless.Usage
 }
 
@@ -410,7 +411,7 @@ func (s *Session) request(m headless.Message, parent *Step, now time.Time) {
 			agent = "subagent"
 		}
 	}
-	r := Request{ID: m.ID, At: now, Model: m.Model, Agent: agent, Usage: *m.Usage}
+	r := Request{ID: m.ID, At: now, Model: m.Model, Agent: agent, Run: m.ParentToolUseID, Usage: *m.Usage}
 	if n := len(s.Requests); n > 0 && m.ID != "" && s.Requests[n-1].ID == m.ID {
 		r.At = s.Requests[n-1].At
 		s.Requests[n-1] = r

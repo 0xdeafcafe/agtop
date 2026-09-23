@@ -20,8 +20,9 @@ type Tail struct {
 	Path string
 	Sess *Session
 
-	off     int64
-	partial []byte
+	off       int64
+	partial   []byte
+	sidechain bool // a subagent's own transcript: its lines are the story
 }
 
 func NewTail(path string) *Tail { return &Tail{Path: path, Sess: New()} }
@@ -86,7 +87,7 @@ func (t *Tail) apply(b []byte) bool {
 		return false
 	}
 	var l tline
-	if json.Unmarshal(b, &l) != nil || l.IsSidechain || l.IsMeta {
+	if json.Unmarshal(b, &l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
 		return false
 	}
 	s := t.Sess

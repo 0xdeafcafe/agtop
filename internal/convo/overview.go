@@ -10,27 +10,56 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 )
 
-// ColdStart is a request that had to write the prompt cache again instead
-// of reading it, usually because the session sat idle past the cache's life.
+// ColdStart is a request that wrote the prompt cache instead of reading it.
+// Most are expected: a session's first request, each subagent's first, a
+// model switch. The ones worth a look are the others.
 type ColdStart struct {
-	At      time.Time
-	Agent   string
-	Gap     time.Duration // since that agent's previous request
-	Written int           // tokens written to the cache
+	At       time.Time
+	Agent    string
+	Gap      time.Duration // since that agent's previous request
+	Written  int           // tokens written to the cache
+	Reason   string
+	Expected bool // part of how sessions and subagents work
 }
 
-// ColdStarts finds them. The first request of each agent is expected to be
-// cold and doesn't count.
+// cacheHour is how long the prompt cache lives (Claude Code writes the
+// one-hour cache).
+const cacheHour = time.Hour
+
 func (s *Session) ColdStarts() []ColdStart {
-	prev := map[string]time.Time{}
+	type last struct {
+		at    time.Time
+		model string
+	}
+	prev := map[string]last{}
 	var out []ColdStart
 	for _, r := range s.Requests {
 		u := r.Usage
 		total := u.CacheReadInputTokens + u.CacheCreationInputTokens
-		if last, ok := prev[r.Agent]; ok && u.CacheCreationInputTokens > 4096 && u.CacheReadInputTokens*5 < total {
-			out = append(out, ColdStart{At: r.At, Agent: r.Agent, Gap: r.At.Sub(last), Written: u.CacheCreationInputTokens})
+		cold := u.CacheCreationInputTokens > 4096 && u.CacheReadInputTokens*5 < total
+		p, seen := prev[r.Run]
+		prev[r.Run] = last{r.At, r.Model}
+		if !cold {
+			continue
 		}
-		prev[r.Agent] = r.At
+		c := ColdStart{At: r.At, Agent: r.Agent, Written: u.CacheCreationInputTokens}
+		switch {
+		case !seen && r.Run != "":
+			c.Reason, c.Expected = "new subagent: every subagent starts its own cache", true
+		case !seen:
+			c.Reason, c.Expected = "session start", true
+		case p.model != "" && r.Model != "" && p.model != r.Model:
+			c.Gap = r.At.Sub(p.at)
+			c.Reason, c.Expected = "model changed, and each model has its own cache", true
+		default:
+			c.Gap = r.At.Sub(p.at)
+			if c.Gap >= cacheHour-5*time.Minute {
+				c.Reason, c.Expected = "idle past the cache's hour", true
+			} else {
+				c.Reason = "the cache was dropped early"
+			}
+		}
+		out = append(out, c)
 	}
 	return out
 }
@@ -260,21 +289,60 @@ func (s *Session) Overview(o Options) []Line {
 		if all := t.CacheRead + t.CacheOut + t.In; all > 0 {
 			hit = float64(t.CacheRead) / float64(all)
 		}
-		section("Cache", fmt.Sprintf("%.0f%% of input read from cache", hit*100))
-		add(label("read")+text(tokens(t.CacheRead))+dim("   written ")+text(tokens(t.CacheOut)), "")
-		if len(cold) == 0 {
-			add(label("went cold")+dim("never"), "")
+		expected, idle, odd := 0, 0, 0
+		kinds := map[string]int{}
+		for _, c := range cold {
+			switch {
+			case !c.Expected:
+				odd++
+			case strings.HasPrefix(c.Reason, "idle"):
+				idle++
+			default:
+				expected++
+				kinds[strings.SplitN(c.Reason, ":", 2)[0]]++
+			}
 		}
-		for i, c := range cold {
-			if i >= 8 && !o.Verbose {
-				add("    "+dim(fmt.Sprintf("… %d more", len(cold)-i)), "")
+		meta := fmt.Sprintf("%.0f%% of input read from cache", hit*100)
+		if n := len(cold); n > 0 {
+			meta += fmt.Sprintf(" · %d cold starts", n)
+			if odd == 0 {
+				meta += ", all expected"
+			}
+		}
+		section("Cache", meta)
+		add(label("read")+text(tokens(t.CacheRead))+dim("   written ")+text(tokens(t.CacheOut)), "")
+		if expected > 0 {
+			var parts []string
+			for _, k := range []string{"new subagent", "session start", "model changed, and each model has its own cache"} {
+				if n := kinds[k]; n > 0 {
+					name := strings.SplitN(k, ",", 2)[0]
+					parts = append(parts, fmt.Sprintf("%d × %s", n, name))
+				}
+			}
+			add(label("expected")+dim(strings.Join(parts, " · ")+" — a new cache is how these begin"), "")
+		}
+		shown := 0
+		for _, c := range cold {
+			if c.Expected && !strings.HasPrefix(c.Reason, "idle") {
+				continue
+			}
+			if shown >= 6 && !o.Verbose {
+				add("    "+dim(fmt.Sprintf("… %d more", idle+odd-shown)), "")
 				break
 			}
+			shown++
 			who := "main"
 			if c.Agent != "" {
 				who = c.Agent
 			}
-			add(label(c.At.Local().Format("15:04"))+paint(cYellow, "cold")+dim(fmt.Sprintf(" after %s idle · %s · rewrote ", dur(c.Gap), who))+text(tokens(c.Written)), "")
+			col := cDim
+			if !c.Expected {
+				col = cYellow
+			}
+			add(label(c.At.Local().Format("15:04"))+paint(col, c.Reason)+dim(fmt.Sprintf(" · %s idle · %s · rewrote ", dur(c.Gap), who))+text(tokens(c.Written)), "")
+		}
+		if len(cold) == 0 {
+			add(label("went cold")+dim("never"), "")
 		}
 	}
 

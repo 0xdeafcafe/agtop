@@ -421,6 +421,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tick++
 		m.refresh()
 		m.followTail()
+		m.refreshSubs()
 		cmds := []tea.Cmd{tick()}
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
@@ -545,7 +546,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.Button == tea.MouseLeft && m.host != nil && (m.listW == 0 || msg.X > m.listW+1) && m.mode == modeList && m.dialog == nil {
-			m.paneFocus = true // clicking the conversation gives it the keys
+			m.paneFocus = true // clicking the Session gives it the keys
+			if m.viewName(m.host) == "screen" && m.canEmbed() {
+				m.embedded = true
+			}
 			m.clickRow(m.host, msg.Y)
 			return m, nil
 		}
