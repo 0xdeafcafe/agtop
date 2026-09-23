@@ -247,3 +247,52 @@ func TestTint(t *testing.T) {
 		t.Errorf("tint colours: %q", got)
 	}
 }
+
+func TestOverview(t *testing.T) {
+	s := New()
+	s.Info = host.Info{Cwd: "/work", Effort: "high", PermissionMode: "auto", Model: "claude-opus-5-5[1m]"}
+	s.Apply(host.Sent{Text: "go"}, at(0))
+	use := func(id, model, parent string, read, write int, sec int) {
+		s.Apply(headless.Message{Role: "assistant", ID: id, Model: model, ParentToolUseID: parent,
+			Usage:  &headless.Usage{InputTokens: 10, OutputTokens: 50, CacheReadInputTokens: read, CacheCreationInputTokens: write},
+			Blocks: []headless.Block{{Type: "text", Text: "…"}}}, at(sec))
+	}
+	use("m1", "claude-opus-5-5[1m]", "", 0, 20000, 1) // first request: cold is expected
+	s.Apply(toolUse("b1", "Bash", map[string]any{"command": "ls"}), at(2))
+	s.Apply(toolResult("b1", "x", false, nil), at(3))
+	s.Apply(toolUse("b2", "Bash", map[string]any{"command": "false"}), at(4))
+	s.Apply(toolResult("b2", "Exit code 1", true, nil), at(5))
+	s.Apply(toolUse("a1", "Task", map[string]any{"subagent_type": "Explore", "description": "look"}), at(6))
+	use("s1", "claude-haiku-4-5-20251001", "a1", 0, 9000, 7)
+	use("m2", "claude-opus-5-5[1m]", "", 20000, 500, 8)
+	use("m3", "claude-opus-5-5[1m]", "", 100, 21000, 8+3700) // an hour idle: the cache went cold
+	s.Apply(headless.Result{Subtype: "success", CostUSD: 1.25}, at(3710))
+
+	cold := s.ColdStarts()
+	if len(cold) != 1 || cold[0].Agent != "" || cold[0].Gap != 3700*time.Second {
+		t.Fatalf("cold starts: %+v", cold)
+	}
+	out := plain(s.Overview(Options{Width: 110, Now: at(3720)}))
+	if os.Getenv("CONVO_SHOW") != "" {
+		t.Log("\n" + out)
+	}
+	for _, w := range []string{
+		"main agent   opus 5.5 · 1M · effort high",
+		"of 1M",
+		"permissions  auto",
+		"$1.25   1 turn · 1h 01m working",
+		"tool calls   3   1 failed",
+		"#1           opus 5.5 · 1M   effort high",
+		"most used: Bash",
+		"Bash",
+		"cold after 1h 01m idle · main · rewrote 21k",
+		"Explore      ×1   haiku 4.5",
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in\n%s", w, out)
+		}
+	}
+	if PrettyModel("claude-sonnet-5") != "sonnet 5" {
+		t.Errorf("pretty: %s", PrettyModel("claude-sonnet-5"))
+	}
+}

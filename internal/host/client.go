@@ -260,6 +260,9 @@ func (c *Client) Interrupt() error                 { return c.do(op{Op: "interru
 func (c *Client) SetPermissionMode(m string) error { return c.do(op{Op: "mode", Mode: m}) }
 func (c *Client) SetModel(m string) error          { return c.do(op{Op: "model", Model: m}) }
 
+// SetEffort changes effort; it applies from the next Claude Code start.
+func (c *Client) SetEffort(e string) error { return c.do(op{Op: "effort", Effort: e}) }
+
 // Stop ends the session and its host; the conversation is kept.
 func (c *Client) Stop() error { return c.do(op{Op: "stop"}) }
 

@@ -38,6 +38,7 @@ type Config struct {
 	Cwd            string         `json:"cwd"`
 	Name           string         `json:"name,omitempty"`
 	Model          string         `json:"model,omitempty"`
+	Effort         string         `json:"effort,omitempty"`
 	PermissionMode string         `json:"permissionMode,omitempty"`
 	Flags          []string       `json:"flags,omitempty"`
 	Prompt         string         `json:"prompt,omitempty"` // first message
@@ -59,6 +60,7 @@ type Info struct {
 	Detail         string  `json:"detail,omitempty"`
 	Needs          string  `json:"needs,omitempty"`
 	Model          string  `json:"model,omitempty"`
+	Effort         string  `json:"effort,omitempty"`
 	PermissionMode string  `json:"permissionMode,omitempty"`
 	CostUSD        float64 `json:"costUsd,omitempty"`
 	// Queue holds messages sent while the agent was busy; the host sends
@@ -160,7 +162,7 @@ func Run(id string) error {
 		clients: map[*conn]struct{}{}, pending: map[string]headless.PermissionRequest{},
 		quit: make(chan struct{}),
 		info: Info{ID: cfg.ID, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
-			HostPID: os.Getpid(), State: "idle", Model: cfg.Model, PermissionMode: cfg.PermissionMode,
+			HostPID: os.Getpid(), State: "idle", Model: cfg.Model, Effort: cfg.Effort, PermissionMode: cfg.PermissionMode,
 			StartedAt: now, UpdatedAt: now},
 	}
 	s.publish()
@@ -192,7 +194,7 @@ func (s *server) start() error {
 		return nil
 	}
 	o := headless.Options{
-		Account: s.cfg.Account, Dir: s.cfg.Cwd, Model: s.cfg.Model,
+		Account: s.cfg.Account, Dir: s.cfg.Cwd, Model: s.cfg.Model, Effort: s.cfg.Effort,
 		PermissionMode: s.cfg.PermissionMode, Flags: s.cfg.Flags, Binary: s.cfg.Binary,
 		Tap: s.tap,
 	}
@@ -458,6 +460,7 @@ type op struct {
 	Interrupt bool            `json:"interrupt,omitempty"`
 	Mode      string          `json:"mode,omitempty"`
 	Model     string          `json:"model,omitempty"`
+	Effort    string          `json:"effort,omitempty"`
 	Now       bool            `json:"now,omitempty"`
 	Index     int             `json:"index,omitempty"`
 	To        int             `json:"to,omitempty"`
@@ -493,6 +496,16 @@ func (s *server) do(o op) error {
 		s.publish()
 	case "model":
 		s.cfg.Model = o.Model
+	case "effort":
+		// Effort is fixed for a Claude Code process, so it takes hold the
+		// next time one starts: right away when idle, else after this turn.
+		s.cfg.Effort = o.Effort
+		s.info.Effort = o.Effort
+		s.publish()
+		if sess != nil && s.info.State == "idle" {
+			s.mu.Unlock()
+			return sess.Stop(10 * time.Second)
+		}
 	case "stop":
 		s.info.State = "stopped"
 		s.publish()

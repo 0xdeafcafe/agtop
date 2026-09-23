@@ -42,6 +42,7 @@ type Delta struct {
 type Message struct {
 	Role            string
 	ID              string
+	Model           string // assistant messages: the model that wrote it
 	UUID            string
 	ParentToolUseID string
 	Blocks          []Block
@@ -283,13 +284,14 @@ func decodeMessage(e envelope) (Event, error) {
 	var m struct {
 		ID      string          `json:"id"`
 		Role    string          `json:"role"`
+		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 		Usage   *Usage          `json:"usage"`
 	}
 	if err := json.Unmarshal(e.Message, &m); err != nil {
 		return nil, err
 	}
-	out := Message{Role: m.Role, ID: m.ID, UUID: e.UUID, ParentToolUseID: e.ParentToolUseID, Usage: m.Usage, ToolResult: e.ToolUseResult}
+	out := Message{Role: m.Role, ID: m.ID, Model: m.Model, UUID: e.UUID, ParentToolUseID: e.ParentToolUseID, Usage: m.Usage, ToolResult: e.ToolUseResult}
 	if out.Role == "" {
 		out.Role = e.Type
 	}

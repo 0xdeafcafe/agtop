@@ -25,6 +25,7 @@ type Options struct {
 	Resume         string
 	SessionID      string
 	Model          string
+	Effort         string // low, medium, high, xhigh, max; fixed for the process's life
 	PermissionMode string // default, acceptEdits, plan, auto, ...
 	Flags          []string
 	// Binary is the claude executable; empty means "claude" on PATH.
@@ -48,6 +49,9 @@ func (o Options) args() []string {
 	}
 	if o.Model != "" {
 		args = append(args, "--model", o.Model)
+	}
+	if o.Effort != "" {
+		args = append(args, "--effort", o.Effort)
 	}
 	if o.PermissionMode != "" {
 		args = append(args, "--permission-mode", o.PermissionMode)

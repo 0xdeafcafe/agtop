@@ -77,6 +77,8 @@ type Turn struct {
 	Cost    float64
 	Err     string // why it ended badly, if it did
 	Stopped bool   // you stopped it
+	Model   string // the main agent's model for this turn
+	Effort  string
 
 	steps map[string]*Step
 	ver   int
@@ -105,6 +107,23 @@ type Task struct {
 	Status  string // pending, in_progress, completed
 }
 
+// Request is one call to the model, as its usage reports it.
+type Request struct {
+	ID    string
+	At    time.Time
+	Model string
+	Agent string // "" for the main agent, else the subagent's type
+	Usage headless.Usage
+}
+
+// ToolStat totals one tool's calls.
+type ToolStat struct {
+	Name   string
+	Calls  int
+	Failed int
+	Time   time.Duration
+}
+
 // Session is everything known about one agtop-mode session.
 type Session struct {
 	Turns    []*Turn
@@ -115,6 +134,8 @@ type Session struct {
 	Cwd      string // where Claude Code says it's running
 	Context  int    // tokens in the context window after the last request
 	Limit    string
+	Requests []Request
+	Tools    map[string]*ToolStat
 
 	streaming *Item
 	byID      map[string]*Step
@@ -124,7 +145,7 @@ type Session struct {
 }
 
 func New() *Session {
-	return &Session{byID: map[string]*Step{}, cache: map[*Turn]cached{}}
+	return &Session{byID: map[string]*Step{}, cache: map[*Turn]cached{}, Tools: map[string]*ToolStat{}}
 }
 
 // Live is the turn in progress, if any.
@@ -169,7 +190,7 @@ func (s *Session) Apply(ev any, now time.Time) {
 			return
 		}
 		s.streaming = nil
-		s.Turns = append(s.Turns, &Turn{N: len(s.Turns) + 1, Prompt: ev.Text, Start: now, Live: true, steps: map[string]*Step{}})
+		s.Turns = append(s.Turns, &Turn{N: len(s.Turns) + 1, Prompt: ev.Text, Start: now, Live: true, steps: map[string]*Step{}, Effort: s.Info.Effort})
 	case host.InfoEvent:
 		s.Info = ev.Info
 		// The host went idle with a turn still open: Claude died mid-turn.
@@ -278,11 +299,17 @@ func (s *Session) message(m headless.Message, now time.Time) {
 	t := s.turnFor()
 	defer t.touch()
 	if m.Role == "assistant" {
-		if m.ParentToolUseID == "" && m.Usage != nil {
-			u := m.Usage
-			s.Context = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens
-		}
 		parent := s.byID[m.ParentToolUseID]
+		if m.Usage != nil {
+			s.request(m, parent, now)
+			if parent == nil {
+				u := m.Usage
+				s.Context = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens
+				if m.Model != "" {
+					t.Model = m.Model
+				}
+			}
+		}
 		for _, b := range m.Blocks {
 			switch b.Type {
 			case "text":
@@ -304,6 +331,7 @@ func (s *Session) message(m headless.Message, now time.Time) {
 				st := &Step{ID: b.ID, Tool: b.Name, Input: b.Input, Start: now, Exit: -1, parent: parent}
 				s.byID[b.ID] = st
 				t.steps[b.ID] = st
+				s.tool(b.Name).Calls++
 				if parent != nil {
 					parent.Children = append(parent.Children, st)
 				} else {
@@ -337,6 +365,13 @@ func (s *Session) message(m headless.Message, now time.Time) {
 		if st.Tool == "Bash" {
 			st.Exit = exitCode(st)
 		}
+		ts := s.tool(st.Tool)
+		if st.Status == Failed {
+			ts.Failed++
+		}
+		if !st.Start.IsZero() {
+			ts.Time += st.End.Sub(st.Start)
+		}
 		s.tasksFromResult(st)
 	}
 }
@@ -358,6 +393,34 @@ func isRejection(text string) bool {
 	t := strings.ToLower(text)
 	return strings.Contains(t, "user declined") || strings.Contains(t, "user rejected") ||
 		strings.Contains(t, "requires approval") || strings.Contains(t, "permission")
+}
+
+// request records a model call. Claude Code sends one message per content
+// block, all with the same id and usage, so a repeat replaces the last.
+func (s *Session) request(m headless.Message, parent *Step, now time.Time) {
+	agent := ""
+	if parent != nil {
+		agent = readInput(parent.Input).str("subagent_type")
+		if agent == "" {
+			agent = "subagent"
+		}
+	}
+	r := Request{ID: m.ID, At: now, Model: m.Model, Agent: agent, Usage: *m.Usage}
+	if n := len(s.Requests); n > 0 && m.ID != "" && s.Requests[n-1].ID == m.ID {
+		r.At = s.Requests[n-1].At
+		s.Requests[n-1] = r
+		return
+	}
+	s.Requests = append(s.Requests, r)
+}
+
+func (s *Session) tool(name string) *ToolStat {
+	ts := s.Tools[name]
+	if ts == nil {
+		ts = &ToolStat{Name: name}
+		s.Tools[name] = ts
+	}
+	return ts
 }
 
 // Tasks come from TodoWrite (the whole list each time) and from TaskCreate
