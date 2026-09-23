@@ -3,6 +3,7 @@ package convo
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -613,5 +614,31 @@ func TestAnswerTable(t *testing.T) {
 	}
 	if strings.Contains(out, "|---") {
 		t.Fatal("separator row drawn raw")
+	}
+}
+
+func TestCompactDivider(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := []string{
+		`{"type":"user","timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"do the thing"}}`,
+		`{"type":"assistant","timestamp":"2026-09-23T20:00:05Z","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Done."}]}}`,
+		`{"type":"system","subtype":"turn_duration","timestamp":"2026-09-23T20:00:06Z"}`,
+		`{"type":"system","subtype":"compact_boundary","timestamp":"2026-09-23T20:01:00Z","compactMetadata":{"trigger":"auto","preTokens":592789,"postTokens":11658}}`,
+		`{"type":"user","timestamp":"2026-09-23T20:01:01Z","message":{"role":"user","content":"This session is being continued from a previous conversation that ran out of context. Summary: stuff"}}`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tl := NewTail(path)
+	if _, err := tl.Read(); err != nil {
+		t.Fatal(err)
+	}
+	s := tl.Sess
+	if len(s.Turns) != 1 {
+		t.Fatalf("the summary opened a turn: %d turns", len(s.Turns))
+	}
+	out := plain(s.Render(Options{Width: 120, Now: at(0), Open: map[string]bool{"t1": true}}))
+	if !strings.Contains(out, "◇ context compacted  auto · 593k → 12k tokens · ctrl+o shows the summary") {
+		t.Fatalf("no divider:\n%s", out)
 	}
 }

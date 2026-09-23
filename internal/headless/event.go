@@ -107,6 +107,14 @@ type PermissionDenied struct {
 // Status is the session's own busy marker, e.g. "requesting".
 type Status struct{ Status string }
 
+// Compact marks where Claude Code compacted the conversation: what set it
+// off (manual or auto) and the context before and after.
+type Compact struct {
+	Trigger    string
+	PreTokens  int
+	PostTokens int
+}
+
 // Result ends a turn.
 type Result struct {
 	Subtype    string // success, error_max_turns, error_during_execution, ...
@@ -149,6 +157,7 @@ func (PermissionCancelled) event() {}
 func (PermissionDenied) event()    {}
 func (Status) event()              {}
 func (Result) event()              {}
+func (Compact) event()             {}
 func (RateLimit) event()           {}
 func (ControlReply) event()        {}
 func (Other) event()               {}
@@ -247,6 +256,15 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 		}
 		_ = json.Unmarshal(line, &r)
 		return Status(r), nil
+	case "compact_boundary":
+		var r struct {
+			Meta struct {
+				Trigger   string `json:"trigger"`
+				PreTokens int    `json:"pre_tokens"`
+			} `json:"compact_metadata"`
+		}
+		_ = json.Unmarshal(line, &r)
+		return Compact{Trigger: r.Meta.Trigger, PreTokens: r.Meta.PreTokens}, nil
 	case "permission_denied":
 		var r struct {
 			Tool      string `json:"tool_name"`

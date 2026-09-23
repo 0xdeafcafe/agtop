@@ -42,6 +42,11 @@ type tline struct {
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
 	Cwd           string          `json:"cwd"`
 	Effort        string          `json:"effort"`
+	Compact       struct {
+		Trigger    string `json:"trigger"`
+		PreTokens  int    `json:"preTokens"`
+		PostTokens int    `json:"postTokens"`
+	} `json:"compactMetadata"`
 }
 
 // Read applies whatever has been appended since the last call and reports
@@ -119,6 +124,11 @@ func (t *Tail) apply(b []byte) bool {
 			s.Apply(headless.Result{Subtype: "success"}, at)
 			return true
 		}
+		if l.Subtype == "compact_boundary" {
+			c := l.Compact
+			s.Apply(headless.Compact{Trigger: c.Trigger, PreTokens: c.PreTokens, PostTokens: c.PostTokens}, at)
+			return true
+		}
 		return false
 	case "user":
 		var m struct {
@@ -133,6 +143,12 @@ func (t *Tail) apply(b []byte) bool {
 					s.shellResult(live, out, at)
 				}
 				return true
+			}
+			// The summary a compaction leaves goes with its divider.
+			if strings.HasPrefix(strings.TrimSpace(text), "This session is being continued from a previous conversation") {
+				if s.compactSummary(text) {
+					return true
+				}
 			}
 			// You stopped it: that ends the turn, it isn't a new one.
 			if strings.HasPrefix(strings.TrimSpace(text), "[Request interrupted by user") {
@@ -368,4 +384,20 @@ func (s *Session) noteTask(raw json.RawMessage) {
 	if id := between(t, "<task-id>", "</task-id>"); id != "" {
 		s.TaskStatus[id] = firstNonEmpty(between(t, "<status>", "</status>"), "completed")
 	}
+}
+
+// compactSummary puts the summary a compaction leaves on its divider. It
+// reports whether there was a divider to put it on.
+func (s *Session) compactSummary(text string) bool {
+	for i := len(s.Turns) - 1; i >= 0 && i >= len(s.Turns)-2; i-- {
+		items := s.Turns[i].Items
+		for j := len(items) - 1; j >= 0; j-- {
+			if items[j].Kind == KCompact && items[j].Text == "" {
+				items[j].Text = text
+				s.Turns[i].touch()
+				return true
+			}
+		}
+	}
+	return false
 }

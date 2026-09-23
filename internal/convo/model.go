@@ -57,12 +57,14 @@ const (
 	KThinking
 	KStep
 	KInterject // you, sending mid-turn
+	KCompact   // the conversation was compacted here; Text is the summary
 )
 
 // Item is one thing in a turn, in order.
 type Item struct {
-	Kind   Kind
-	Text   string
+	Kind    Kind
+	Text    string
+	Compact *headless.Compact
 	Step   *Step
 	Answer bool // the turn's final words, promoted when the turn ends
 }
@@ -264,6 +266,22 @@ func (s *Session) Apply(ev any, now time.Time) {
 		}
 		if ev.Type != "text" {
 			s.streaming = nil
+		}
+		t.touch()
+	case headless.Compact:
+		// A divider in the turn it happened in (or the last one), and the
+		// context starts again from what the summary left.
+		t := s.Live()
+		if t == nil && len(s.Turns) > 0 {
+			t = s.Turns[len(s.Turns)-1]
+		}
+		if t == nil {
+			t = s.turnFor(now)
+		}
+		c := ev
+		t.Items = append(t.Items, &Item{Kind: KCompact, Compact: &c})
+		if ev.PostTokens > 0 {
+			s.Context = ev.PostTokens
 		}
 		t.touch()
 	case headless.Delta:

@@ -369,6 +369,8 @@ func (d *drawer) open() {
 					d.prose(it.Text, gutter+2, cDim)
 				}
 			}
+		case KCompact:
+			d.compacted(it)
 		case KInterject:
 			for k, r := range wrap(text(oneLine(it.Text)), min(d.cw-10, capProse)) {
 				lead := dim("you") + "  "
@@ -393,6 +395,35 @@ func (d *drawer) open() {
 	// The rail stops at the last thing drawn, never on an empty row.
 	for n := len(d.lines); n > 1 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) == strings.TrimSpace(stripANSI(d.spine())) && d.lines[n-1].Ref == ""; n-- {
 		d.lines = d.lines[:n-1]
+	}
+}
+
+// compacted is the line where the conversation was compacted: what set it
+// off and how much context went; ctrl+o shows the summary it left.
+func (d *drawer) compacted(it *Item) {
+	c := it.Compact
+	label := paint(cBlue, "◇ context compacted")
+	var facts []string
+	if c.Trigger != "" {
+		facts = append(facts, c.Trigger)
+	}
+	switch {
+	case c.PreTokens > 0 && c.PostTokens > 0:
+		facts = append(facts, tokens(c.PreTokens)+" → "+tokens(c.PostTokens)+" tokens")
+	case c.PreTokens > 0:
+		facts = append(facts, "from "+tokens(c.PreTokens)+" tokens")
+	}
+	if it.Text != "" && !d.o.Verbose {
+		facts = append(facts, "ctrl+o shows the summary")
+	}
+	left := d.spine() + "   " + faint("── ") + label
+	if len(facts) > 0 {
+		left += dim("  " + strings.Join(facts, " · "))
+	}
+	left += " " + faint(strings.Repeat("─", max(0, min(d.cw, capRow)-cellw.String(stripANSI(left))-2)))
+	d.add("", "", left, "")
+	if d.o.Verbose && it.Text != "" {
+		d.prose(it.Text, 6, cDim)
 	}
 }
 
