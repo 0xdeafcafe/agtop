@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
@@ -911,7 +912,7 @@ func foldable(st *Step) bool {
 		return false
 	}
 	switch glyphFor(st.Tool) {
-	case "✎", "⇉", "◆":
+	case "✎", "⇉", "◆", "◇":
 		return false
 	}
 	return true
@@ -949,6 +950,9 @@ func (d *drawer) step(st *Step, depth int) {
 	}
 	ref := d.ref + ":s:" + st.ID
 	indent := 4 + depth*4
+	if st.Tool == agtools.Show && st.Status != Failed && d.figure(st, ref, indent) {
+		return
+	}
 	left := d.spine() + strings.Repeat(" ", indent-1) + d.statusMark(st) + " " + d.label(st)
 	open := d.o.Verbose
 	if v, ok := d.o.Open[ref]; ok {
@@ -1035,6 +1039,8 @@ func glyphFor(tool string) string {
 		return "◆"
 	case "Skill", "SlashCommand":
 		return "✦"
+	case agtools.Show:
+		return "◇"
 	}
 	return "•"
 }
@@ -1043,7 +1049,7 @@ func glyphColor(g string) string {
 	switch g {
 	case "$":
 		return paint(cWhite, g)
-	case "✎", "⇉", "◆", "↗":
+	case "✎", "⇉", "◆", "↗", "◇":
 		return paint(cBlue, g)
 	}
 	return sub(g)
@@ -1108,6 +1114,8 @@ func (d *drawer) label(st *Step) string {
 			}
 		}
 		return paint(cYellow, "?") + " " + text(oneLine(q))
+	case agtools.Show:
+		return g + " " + text(firstNonEmpty(oneLine(in.str("title")), "drawing"))
 	case "Artifact":
 		t := in.str("title")
 		if t == "" {
@@ -1678,4 +1686,95 @@ func plural(n int, noun string) string {
 		return "1 " + noun
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// figure draws what Claude showed with agtop's show tool: the drawing as it
+// was sent, in a frame of its own as wide as the pane allows, never wrapped
+// or folded. The top edge carries its title and is the row you pick to copy
+// it. It reports false while there is no drawing yet to show.
+func (d *drawer) figure(st *Step, ref string, indent int) bool {
+	rows := Drawing(st)
+	if rows == nil {
+		return false
+	}
+	var in agtools.ShowInput
+	_ = json.Unmarshal(st.Input, &in)
+	title := firstNonEmpty(oneLine(in.Title), "drawing")
+	pad := d.spine() + blanks(indent-1)
+	wide := 0
+	for _, r := range rows {
+		wide = max(wide, cellw.String(r))
+	}
+	room := max(8, d.o.Width-cellw.String(pad)-4) // "│ " … " │"
+	if n := len(d.lines); n > 0 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) != strings.TrimSpace(stripANSI(d.spine())) {
+		d.blank()
+	}
+	inner := min(max(wide, cellw.String(title)+6), room)
+	edge := func(l, r, label string) string {
+		head := faint(l + "─")
+		if label != "" {
+			head += " " + label + " "
+		}
+		fill := inner + 2 - cellw.String(head) + 1
+		if fill < 1 {
+			head = ansi.Truncate(head, inner+1, "…")
+			fill = inner + 3 - cellw.String(head)
+		}
+		return pad + head + faint(strings.Repeat("─", max(0, fill))+r)
+	}
+	d.addWide(ref, edge("╭", "╮", glyphColor("◇")+" "+text(title)))
+	for _, r := range rows {
+		if cellw.String(r) > inner {
+			r = ansi.Truncate(r, inner-1, "") + faint("›")
+		}
+		d.addWide("", pad+faint("│")+" "+paint(cWhite, r)+blanks(inner-cellw.String(r))+" "+faint("│"))
+	}
+	foot := ""
+	if wide > inner {
+		foot = dim(fmt.Sprintf("%d more columns · pick it, alt+c copies it whole", wide-inner))
+	}
+	d.addWide("", edge("╰", "╯", foot))
+	d.blank()
+	return true
+}
+
+// Drawing is the drawing a show step carries, one string a row, tabs as
+// spaces and blank rows at either end dropped; nil if it has none yet.
+func Drawing(st *Step) []string {
+	if st == nil || st.Tool != agtools.Show {
+		return nil
+	}
+	var in agtools.ShowInput
+	if json.Unmarshal(st.Input, &in) != nil {
+		return nil
+	}
+	rows := strings.Split(expandTabs(collapseCR(in.Drawing)), "\n")
+	for len(rows) > 0 && strings.TrimSpace(rows[0]) == "" {
+		rows = rows[1:]
+	}
+	for len(rows) > 0 && strings.TrimSpace(rows[len(rows)-1]) == "" {
+		rows = rows[:len(rows)-1]
+	}
+	for i, r := range rows {
+		rows[i] = strings.TrimRight(r, " ")
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return rows
+}
+
+// addWide is add for a row that may use the pane's whole width rather than
+// stopping where numbers line up.
+func (d *drawer) addWide(ref, left string) {
+	b := ""
+	if ref != "" && ref == d.o.Selected {
+		b = bgSelU
+		mark := faint("▍")
+		if d.o.Focused {
+			b, mark = bgSel, paint(cOrange, "▍")
+		}
+		left = mark + strings.TrimPrefix(left, d.spine())
+	}
+	d.lines = append(d.lines, Line{Text: row(b, left, "", d.o.Width, d.o.Width), Ref: ref})
 }

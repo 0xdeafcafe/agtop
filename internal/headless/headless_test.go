@@ -222,3 +222,14 @@ func TestRealClaude(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeMCPMessage(t *testing.T) {
+	ev, err := Decode([]byte(`{"type":"control_request","request_id":"r9","request":{"subtype":"mcp_message","server_name":"agtop","message":{"jsonrpc":"2.0","id":1,"method":"tools/list"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := ev.(MCPRequest)
+	if !ok || m.ID != "r9" || m.Server != "agtop" || !strings.Contains(string(m.Message), "tools/list") {
+		t.Fatalf("got %#v", ev)
+	}
+}

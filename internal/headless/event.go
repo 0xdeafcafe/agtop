@@ -141,6 +141,14 @@ type ControlReply struct {
 	Body  json.RawMessage
 }
 
+// MCPRequest carries one MCP message from Claude Code to a server the host
+// runs in-process (one named in Initialize). Answer it with ReplyMCP.
+type MCPRequest struct {
+	ID      string
+	Server  string
+	Message json.RawMessage
+}
+
 // Other is anything not decoded above, kept whole so nothing is lost.
 type Other struct {
 	Type, Subtype string
@@ -160,6 +168,7 @@ func (Result) event()              {}
 func (Compact) event()             {}
 func (RateLimit) event()           {}
 func (ControlReply) event()        {}
+func (MCPRequest) event()          {}
 func (Other) event()               {}
 
 type envelope struct {
@@ -409,6 +418,16 @@ func decodeControl(e envelope, other Other) (Event, error) {
 	}
 	if err := json.Unmarshal(e.Request, &r); err != nil {
 		return nil, err
+	}
+	if r.Subtype == "mcp_message" {
+		var m struct {
+			Server  string          `json:"server_name"`
+			Message json.RawMessage `json:"message"`
+		}
+		if err := json.Unmarshal(e.Request, &m); err != nil {
+			return nil, err
+		}
+		return MCPRequest{ID: e.RequestID, Server: m.Server, Message: m.Message}, nil
 	}
 	if r.Subtype != "can_use_tool" {
 		return other, nil

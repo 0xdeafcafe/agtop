@@ -1217,6 +1217,15 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	}
 	empty := len(c.input) == 0
+	if s == "alt+c" && empty {
+		// With nothing typed, alt+c copies the drawing you've picked.
+		if i := strings.LastIndex(c.sel, ":s:"); i >= 0 {
+			if rows := convo.Drawing(c.sess.Step(c.sel[i+3:])); rows != nil {
+				m.copyText(strings.Join(rows, "\n"))
+				return nil
+			}
+		}
+	}
 	if cmd, used := m.slashKey(c, s); used {
 		return cmd
 	}

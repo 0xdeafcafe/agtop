@@ -294,9 +294,20 @@ func (s *Session) control(req map[string]any) (string, error) {
 }
 
 // Initialize asks for the session's slash commands, models and account; the
-// answer is a ControlReply for the returned id (read it with Commands).
-func (s *Session) Initialize() (string, error) {
-	return s.control(map[string]any{"subtype": "initialize"})
+// answer is a ControlReply for the returned id (read it with Commands). It
+// also registers the MCP servers the host runs in-process, whose messages
+// then arrive as MCPRequests; send it before the first message.
+func (s *Session) Initialize(servers ...string) (string, error) {
+	req := map[string]any{"subtype": "initialize"}
+	if len(servers) > 0 {
+		req["sdkMcpServers"] = servers
+	}
+	return s.control(req)
+}
+
+// ReplyMCP answers an MCPRequest with its server's JSON-RPC reply.
+func (s *Session) ReplyMCP(id string, reply json.RawMessage) error {
+	return s.reply(id, map[string]any{"mcp_response": reply}, "")
 }
 
 // Interrupt stops the current turn, as esc does.

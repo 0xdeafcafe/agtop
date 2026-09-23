@@ -2,6 +2,7 @@ package convo
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/0xdeafcafe/agtop/internal/agtools"
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
@@ -691,5 +694,63 @@ func TestHistory(t *testing.T) {
 	s := History(path, time.Date(2026, 9, 23, 20, 30, 0, 0, time.UTC))
 	if len(s.Turns) != 1 || s.Turns[0].Prompt != "first ask" || s.Turns[0].Live {
 		t.Fatalf("history = %d turns, %+v", len(s.Turns), s.Turns)
+	}
+}
+
+func TestShowDrawsAFigure(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "draw the flow"}, at(0))
+	drawing := "\n┌──────┐    ┌──────┐\n│ host │ ─▶ │ ui   │\n└──────┘    └──────┘\n\n"
+	for i := 0; i < 3; i++ { // three clean steps before it, so a run folds
+		id := fmt.Sprint("r", i)
+		s.Apply(toolUse(id, "Read", map[string]any{"file_path": "/x"}), at(1))
+		s.Apply(toolResult(id, "…", false, nil), at(1))
+	}
+	s.Apply(toolUse("d1", agtools.Show, map[string]any{"title": "Message flow", "drawing": drawing}), at(2))
+	s.Apply(toolResult("d1", "Shown to the user.", false, nil), at(2))
+	s.Apply(say("That's the flow."), at(3))
+	s.Apply(headless.Result{Subtype: "success"}, at(3))
+	lines := s.Render(Options{Width: 90, Now: at(4), Open: map[string]bool{"t1": true}})
+	out := plain(lines)
+	for _, want := range []string{"╭─ ◇ Message flow ", "│ ┌──────┐    ┌──────┐", "│ │ host │ ─▶ │ ui   │", "╰─"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q:\n%s", want, out)
+		}
+	}
+	// The frame is square: every row of it the same width.
+	var ws []int
+	for _, l := range strings.Split(out, "\n") {
+		if strings.ContainsAny(l, "╭│╰") && strings.ContainsAny(l, "╮│╯") && strings.Contains(l, "─") || strings.HasPrefix(strings.TrimSpace(l), "│") {
+			ws = append(ws, cellw.String(l))
+		}
+	}
+	for _, w := range ws {
+		if w != ws[0] {
+			t.Fatalf("ragged frame %v:\n%s", ws, out)
+		}
+	}
+	// Its top edge is the row you pick.
+	picked := false
+	for _, l := range lines {
+		if strings.HasSuffix(l.Ref, ":s:d1") && strings.Contains(stripANSI(l.Text), "Message flow") {
+			picked = true
+		}
+	}
+	if !picked {
+		t.Fatalf("no pickable edge:\n%s", out)
+	}
+	// Wider than the pane: cut with a marker, and the bottom edge says so.
+	wide := strings.Repeat("=", 200)
+	s.Apply(host.Sent{Text: "wider"}, at(5))
+	s.Apply(toolUse("d2", agtools.Show, map[string]any{"drawing": wide}), at(6))
+	s.Apply(toolResult("d2", "ok", false, nil), at(6))
+	out = plain(s.Render(Options{Width: 90, Now: at(7)}))
+	if !strings.Contains(out, "=›") || !strings.Contains(out, "more columns") || strings.Contains(out, wide) {
+		t.Fatalf("wide drawing:\n%s", out)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if cellw.String(l) > 90 {
+			t.Fatalf("row wider than the pane: %q", l)
+		}
 	}
 }

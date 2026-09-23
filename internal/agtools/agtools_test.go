@@ -1,0 +1,50 @@
+package agtools
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func rpc(t *testing.T, msg string) map[string]any {
+	t.Helper()
+	var out map[string]any
+	if err := json.Unmarshal(Handle(json.RawMessage(msg)), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestHandshake(t *testing.T) {
+	init := rpc(t, `{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}`)
+	res := init["result"].(map[string]any)
+	if res["protocolVersion"] != "2025-11-25" || res["capabilities"].(map[string]any)["tools"] == nil {
+		t.Fatalf("initialize: %v", init)
+	}
+	if n := rpc(t, `{"jsonrpc":"2.0","method":"notifications/initialized"}`); n["result"] == nil || n["id"] != nil {
+		t.Fatalf("a notification gets an empty result: %v", n)
+	}
+	list := rpc(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	ts := list["result"].(map[string]any)["tools"].([]any)
+	show := ts[0].(map[string]any)
+	if show["name"] != "show" || show["_meta"].(map[string]any)["anthropic/alwaysLoad"] != true {
+		t.Fatalf("tools/list: %v", show)
+	}
+	if got := Allowed(); len(got) != 1 || got[0] != Show {
+		t.Fatalf("allowed: %v", got)
+	}
+}
+
+func TestShow(t *testing.T) {
+	ok := rpc(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"show","arguments":{"drawing":"+-+\n|a|\n+-+"}}}`)
+	if r := ok["result"].(map[string]any); r["isError"] != false || !strings.Contains(r["content"].([]any)[0].(map[string]any)["text"].(string), "Shown") {
+		t.Fatalf("show: %v", ok)
+	}
+	empty := rpc(t, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"show","arguments":{"drawing":"  "}}}`)
+	if empty["result"].(map[string]any)["isError"] != true {
+		t.Fatalf("an empty drawing is an error: %v", empty)
+	}
+	if u := rpc(t, `{"jsonrpc":"2.0","id":4,"method":"resources/list"}`); u["error"] == nil {
+		t.Fatalf("unknown method: %v", u)
+	}
+}

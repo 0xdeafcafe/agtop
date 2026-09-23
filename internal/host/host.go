@@ -10,6 +10,7 @@ package host
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -255,8 +257,9 @@ func (s *server) start() error {
 	}
 	o := headless.Options{
 		Account: s.cfg.Account, Dir: s.cfg.Cwd, Model: s.cfg.Model, Effort: s.cfg.Effort,
-		PermissionMode: s.cfg.PermissionMode, Flags: s.cfg.Flags, Binary: s.cfg.Binary,
-		Tap: s.tap,
+		PermissionMode: s.cfg.PermissionMode, Binary: s.cfg.Binary, Tap: s.tap,
+		// agtop's own tools only draw, so they never ask.
+		Flags: append([]string{"--allowedTools", strings.Join(agtools.Allowed(), ",")}, s.cfg.Flags...),
 	}
 	if s.began {
 		o.Resume = s.cfg.SessionID
@@ -273,9 +276,8 @@ func (s *server) start() error {
 	s.sess = sess
 	s.info.ClaudePID = sess.PID()
 	s.info.Error = ""
-	if s.commands == nil {
-		s.initID, _ = sess.Initialize()
-	}
+	// Every process needs agtop's tools registered before its first message.
+	s.initID, _ = sess.Initialize(agtools.Server)
 	go s.watch(sess)
 	return nil
 }
@@ -304,7 +306,11 @@ func (s *server) saveConfig() {
 }
 
 // tap records Claude Code's output for replay and passes it to clients.
+// Traffic with agtop's own tools is between Claude Code and the host alone.
 func (s *server) tap(line []byte) {
+	if ownTraffic(line) {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.record(append([]byte(nil), line...))
@@ -345,6 +351,27 @@ func (s *server) record(line []byte) {
 	for c := range s.clients {
 		c.push(line)
 	}
+}
+
+// ownTraffic is a control request for agtop's own tools: an MCP message, or
+// a permission check for one of them.
+func ownTraffic(l []byte) bool {
+	if !bytes.HasPrefix(l, []byte(`{"type":"control_request"`)) {
+		return false
+	}
+	var e struct {
+		Request struct {
+			Subtype string `json:"subtype"`
+			Server  string `json:"server_name"`
+			Tool    string `json:"tool_name"`
+		} `json:"request"`
+	}
+	if json.Unmarshal(l, &e) != nil {
+		return false
+	}
+	r := e.Request
+	return r.Subtype == "mcp_message" && r.Server == agtools.Server ||
+		r.Subtype == "can_use_tool" && strings.HasPrefix(r.Tool, agtools.Prefix)
 }
 
 func isStreamEvent(l []byte) bool {
@@ -424,7 +451,18 @@ func (s *server) onEvent(ev headless.Event) {
 				}
 			}
 		}
+	case headless.MCPRequest:
+		if s.sess != nil && ev.Server == agtools.Server {
+			_ = s.sess.ReplyMCP(ev.ID, agtools.Handle(ev.Message))
+		}
+		return
 	case headless.PermissionRequest:
+		if strings.HasPrefix(ev.Tool, agtools.Prefix) && s.sess != nil {
+			// Asked despite --allowedTools (a mode that asks for
+			// everything): they only draw, so yes.
+			_ = s.sess.Allow(ev, nil, false)
+			return
+		}
 		s.pending[ev.ID] = ev
 		s.info.State = "blocked"
 		s.info.Needs = needs(ev)

@@ -1651,7 +1651,7 @@ func (m *Model) helpBody() []string {
 		{"cmd+⌫", "clear the line"},
 		{"shift+enter", "new line"},
 		{"drag", "select and copy · shift+← → too"},
-		{"alt+c", "copy everything in the box"},
+		{"alt+c", "copy everything in the box · empty, the picked drawing"},
 		{"cmd+a", "select all"},
 		{"ctrl+g", "edit the last paste, or the draft, in $EDITOR"},
 	}}

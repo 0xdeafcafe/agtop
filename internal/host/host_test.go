@@ -344,3 +344,17 @@ func TestRetryGivesUpPastTheCache(t *testing.T) {
 		t.Fatalf("should give up past the cache: %+v", s.info.Retry)
 	}
 }
+
+func TestOwnTrafficStaysInHost(t *testing.T) {
+	for line, want := range map[string]bool{
+		`{"type":"control_request","request_id":"1","request":{"subtype":"mcp_message","server_name":"agtop","message":{}}}`:         true,
+		`{"type":"control_request","request_id":"2","request":{"subtype":"can_use_tool","tool_name":"mcp__agtop__show","input":{}}}`: true,
+		`{"type":"control_request","request_id":"3","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}`:             false,
+		`{"type":"control_request","request_id":"4","request":{"subtype":"mcp_message","server_name":"other","message":{}}}`:         false,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__agtop__show"}]}}`:                                 false,
+	} {
+		if got := ownTraffic([]byte(line)); got != want {
+			t.Errorf("ownTraffic(%s) = %v", line, got)
+		}
+	}
+}
