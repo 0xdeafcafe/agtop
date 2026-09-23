@@ -549,7 +549,7 @@ func (m *Model) claudeStrip(w int) string {
 	case screenOn:
 		right = dim("enter types into it · ctrl+f full screen")
 	case !live && a != nil && a.Interactive:
-		right = dim("open in a terminal")
+		right = dim(a.Where())
 	case !live:
 		right = dim("not running · enter resumes it")
 	}

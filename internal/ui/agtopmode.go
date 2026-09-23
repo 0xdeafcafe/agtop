@@ -652,7 +652,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 		case a.Agtop:
 			conn = dim("stopped · a message resumes it")
 		case a.Interactive:
-			conn = dim("Claude Code in a terminal")
+			conn = dim("Claude Code · " + a.Where())
 		default:
 			conn = dim("Claude Code · from its transcript")
 		}
@@ -763,7 +763,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
 	switch {
 	case c.client == nil && a.Interactive:
-		top += dim(" · open in a terminal, so reply there")
+		top += dim(" · " + a.Where() + ", so it can't take messages here")
 	case c.client == nil && a.Agtop:
 		top += dim(" · stopped; ") + paint(cOrange, "enter resumes it") + dim(" with your message")
 	case c.client == nil:
@@ -1260,7 +1260,7 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string) tea.Cmd {
 	case a == nil:
 		return nil
 	case a.Interactive:
-		m.flash(a.DisplayName+" is open in a terminal; reply there", true)
+		m.flash(a.DisplayName+" is "+a.Where()+"; agtop can't send to it", true)
 		return nil
 	case a.Agtop:
 		cfg, err := host.ReadConfig(a.ID)
@@ -1385,7 +1385,7 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 		m.flash(a.DisplayName+" already runs in agtop mode", false)
 		return nil
 	case a.Interactive:
-		m.flash(a.DisplayName+" is open in a terminal; close it there first", true)
+		m.flash(a.DisplayName+" is "+a.Where()+"; stop it there first", true)
 		return nil
 	case a.SessionID == "":
 		m.flash("can't find "+a.DisplayName+"'s conversation to resume", true)

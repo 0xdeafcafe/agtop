@@ -34,6 +34,9 @@ type Agent struct {
 	Spend       Spend
 	PRs         []claude.PR
 	Interactive bool
+	// Headless is an interactive-kind session that is really `claude -p`
+	// driven by some other program: it can't be replied to at all.
+	Headless bool
 	PID         int  // root of the process tree
 	Checking    bool // turn just ended; Claude Code has not classified it yet
 	Subs        claude.SubagentStats
@@ -349,10 +352,14 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				SessionID: ss.SessionID, CreatedAt: ss.StartedAt(), UpdatedAt: ss.UpdatedAt(),
 				TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(ss.Cwd), ss.SessionID+".jsonl"),
 			}
+			headless := isPrint(proc.Args(ss.PID))
 			if st == "idle" {
 				j.Detail = "open in a terminal"
+				if headless {
+					j.Detail = "run by another program"
+				}
 			}
-			a := &Agent{Job: j, Key: key, Acct: acct, DisplayName: ss.Name, Interactive: true, PID: ss.PID}
+			a := &Agent{Job: j, Key: key, Acct: acct, DisplayName: ss.Name, Interactive: true, Headless: headless, PID: ss.PID}
 			if n := ov.Names[key]; n != "" {
 				a.DisplayName = n
 			}
@@ -664,4 +671,22 @@ func orphanLabel(cmd string) string {
 		return "left by job " + cmd[i+14:i+22]
 	}
 	return "left by a finished session"
+}
+
+// isPrint reports whether a claude command line runs it non-interactively.
+func isPrint(args []string) bool {
+	for _, a := range args {
+		if a == "-p" || a == "--print" || strings.HasPrefix(a, "--output-format") {
+			return true
+		}
+	}
+	return false
+}
+
+// Where says where an interactive-kind agent is being driven from.
+func (a *Agent) Where() string {
+	if a.Headless {
+		return "run by another program (claude -p)"
+	}
+	return "open in a terminal"
 }
