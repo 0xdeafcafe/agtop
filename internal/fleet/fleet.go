@@ -34,6 +34,7 @@ type Agent struct {
 	Interactive bool
 	PID         int  // root of the process tree
 	Checking    bool // turn just ended; Claude Code has not classified it yet
+	Subs        claude.SubagentStats
 }
 
 // applyStatus trusts the session's live busy/idle flag over the job file,
@@ -160,6 +161,12 @@ type Loader struct {
 	prevTab *proc.Table
 	spend   map[string]Spend
 	nudged  map[string]time.Time
+	subs    map[string]subsEntry
+}
+
+type subsEntry struct {
+	st claude.SubagentStats
+	at time.Time
 }
 
 type argsEntry struct {
@@ -181,7 +188,7 @@ func NewLoader(s *state.Store) *Loader {
 	return &Loader{
 		store: s, jobs: map[string]claude.Job{}, mtimes: map[string]time.Time{},
 		args: map[int]argsEntry{}, git: map[string]gitInfo{}, usage: map[string]usageEntry{},
-		spend: map[string]Spend{}, nudged: map[string]time.Time{},
+		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{},
 	}
 }
 
@@ -255,6 +262,14 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				a.Branch = j.WorktreeBranch
 			}
 			a.Spend = l.spend[key]
+			if j.TranscriptPath != "" && (a.Live() || a.PID != 0 || now.Sub(j.UpdatedAt) < 24*time.Hour) {
+				e, ok := l.subs[key]
+				if !ok || now.Sub(e.at) > 3*time.Second {
+					e = subsEntry{st: claude.ReadSubagentStats(j.TranscriptPath, now), at: now}
+					l.subs[key] = e
+				}
+				a.Subs = e.st
+			}
 			for _, u := range a.Spend.PRs {
 				if pr, ok := prs[u]; ok {
 					a.PRs = append(a.PRs, pr)

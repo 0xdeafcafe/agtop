@@ -267,16 +267,9 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	}
 	switch s {
-	case "esc", "q", "ctrl+g":
-		m.dialog = nil
+	case "esc", "q", "ctrl+g", "ctrl+a":
+		m.setView(0)
 		m.refresh()
-		return nil
-	case "tab", "shift+tab":
-		dir := 1
-		if s == "shift+tab" {
-			dir = -1
-		}
-		d.tab, d.cursor = (d.tab+dir+len(tabNames))%len(tabNames), 0
 		return nil
 	case "up", "k":
 		d.cursor = max(0, d.cursor-1)
@@ -502,15 +495,7 @@ func (m *Model) addAccount(name, dir string, login bool) tea.Cmd {
 // dialogBody renders the dialog's inner lines at width w.
 func (m *Model) dialogBody(w int) []string {
 	d := m.dialog
-	var tabs []string
-	for i, t := range tabNames {
-		if i == d.tab {
-			tabs = append(tabs, paint(cOrange+bold, t))
-		} else {
-			tabs = append(tabs, dim(t))
-		}
-	}
-	out := []string{strings.Join(tabs, faint("   │   ")), faint(strings.Repeat("─", w)), ""}
+	out := []string{paint(cText+bold, tabNames[d.tab]), ""}
 	row := func(i int, s string) string {
 		if i == d.cursor {
 			return highlight(paint(cOrange, "▍")+" "+s, w)
@@ -575,7 +560,7 @@ func (m *Model) dialogBody(w int) []string {
 		for i, st := range m.generalSettings() {
 			out = append(out, row(i, fit(st.label, 32)+faint("‹ ")+paint(cText, st.value)+faint(" ›")))
 		}
-		out = append(out, "", keysFit(w, "←→", "change", "tab", "next tab", "esc", "close"))
+		out = append(out, "", keysFit(w, "←→", "change", "tab", "next view", "esc", "back to agents"))
 	}
 	switch {
 	case d.confirm != "":

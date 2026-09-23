@@ -93,6 +93,7 @@ type Model struct {
 	confirm   *confirmation
 	dialog    *dialog
 	attached  string
+	view      int
 
 	procCursor  int
 	procMachine bool
@@ -401,6 +402,24 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+var viewNames = []string{"Agents", "Processes", "Accounts", "Coding agents", "Settings"}
+
+// setView switches the whole screen; tab and shift+tab cycle through them.
+func (m *Model) setView(v int) {
+	m.view = (v + len(viewNames)) % len(viewNames)
+	m.dialog, m.mode = nil, modeList
+	switch m.view {
+	case 1:
+		a := m.selected()
+		m.mode, m.procCursor, m.procMachine = modeProcs, 0, a == nil || a.PID == 0
+	case 2, 3, 4:
+		m.openDialog(m.view - 2)
+	}
+}
+
+// wide is when the preview gets its own half of the screen.
+func (m *Model) wide() bool { return m.w >= 170 }
+
 func (m *Model) acceptsText() bool {
 	return m.confirm == nil && m.dialog == nil && (m.mode == modeList || m.mode == modeCwd || m.inKind == inNewAccount)
 }
@@ -633,23 +652,7 @@ func (m *Model) rebuild() {
 				continue
 			}
 			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a})
-			if a.Live() || a.Busy() || a.State == "blocked" {
-				tasks := a.Running
-				if a.PID == 0 {
-					tasks = nil
-				}
-				show := tasks
-				if len(show) > 4 {
-					show = show[:3]
-				}
-				for i, t := range show {
-					l := listLine{kind: lineTask, agent: a, task: t, last: i == len(show)-1}
-					if l.last && len(tasks) > len(show) {
-						l.more = len(tasks) - len(show)
-					}
-					m.lines = append(m.lines, l)
-				}
-			}
+
 		}
 		m.lines = append(m.lines, listLine{kind: lineBlank})
 	}

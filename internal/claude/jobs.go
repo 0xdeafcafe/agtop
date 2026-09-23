@@ -33,12 +33,18 @@ type Job struct {
 	Running        []Task   // subagents, shells and monitors not yet finished
 	TodosDone      int
 	Todos          int
+	TodoItems      []Todo
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	ModTime        time.Time
 }
 
 func (j Job) Live() bool { return j.State == "working" || j.State == "blocked" }
+
+type Todo struct {
+	Label         string
+	Done, Started bool
+}
 
 // Task is something an agent started that runs beside it.
 type Task struct {
@@ -127,6 +133,7 @@ func LoadJob(a Account, id string) (Job, error) {
 			if x.DoneAt > 0 {
 				j.TodosDone++
 			}
+			j.TodoItems = append(j.TodoItems, Todo{Label: x.Label, Done: x.DoneAt > 0, Started: x.StartedAt > 0})
 			continue
 		}
 		if x.DoneAt == 0 && x.Label != "" {

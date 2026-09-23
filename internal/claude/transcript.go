@@ -85,6 +85,14 @@ type Preview struct {
 	Model    string
 	LastUser string
 	Context  int64 // tokens the last request sent: how full the context window is
+	Recent   []Event
+}
+
+// Event is one step of the conversation tail: a prompt, a reply or a tool call.
+type Event struct {
+	Role string // user, assistant, tool
+	Text string
+	At   time.Time
 }
 
 // ContextWindow is the model's window; everything current but Haiku has 1M.
@@ -242,6 +250,7 @@ func ReadPreview(path string, window int64) Preview {
 		return p
 	}
 	lines := bytes.Split(b, []byte{'\n'})
+	p.Recent = recentEvents(lines, 14)
 	for i := len(lines) - 1; i >= 0 && (p.Text == "" || p.Tool == "" || p.LastUser == "" || p.Context == 0); i-- {
 		var l line
 		if json.Unmarshal(lines[i], &l) != nil {
@@ -296,4 +305,78 @@ func toolArg(in json.RawMessage) string {
 		}
 	}
 	return ""
+}
+
+func recentEvents(lines [][]byte, n int) []Event {
+	var out []Event
+	for _, raw := range lines {
+		var l line
+		if json.Unmarshal(raw, &l) != nil || (l.Type != "user" && l.Type != "assistant") {
+			continue
+		}
+		var str string
+		if l.Type == "user" && json.Unmarshal(l.Message.Content, &str) == nil {
+			if str != "" && !strings.HasPrefix(str, "<") {
+				out = append(out, Event{Role: "user", Text: str, At: l.Timestamp})
+			}
+			continue
+		}
+		var blocks []struct {
+			Type  string          `json:"type"`
+			Text  string          `json:"text"`
+			Name  string          `json:"name"`
+			Input json.RawMessage `json:"input"`
+		}
+		if json.Unmarshal(l.Message.Content, &blocks) != nil {
+			continue
+		}
+		for _, bl := range blocks {
+			switch {
+			case bl.Type == "text" && strings.TrimSpace(bl.Text) != "":
+				if l.Type == "user" {
+					continue // text blocks from the user side are harness notes, not prompts
+				} else {
+					out = append(out, Event{Role: "assistant", Text: strings.TrimSpace(bl.Text), At: l.Timestamp})
+				}
+			case bl.Type == "tool_use":
+				out = append(out, Event{Role: "tool", Text: bl.Name + "\x00" + toolArg(bl.Input), At: l.Timestamp})
+			}
+		}
+	}
+	if len(out) > n {
+		out = out[len(out)-n:]
+	}
+	return out
+}
+
+// SubagentStats counts a session's subagents from their metadata files:
+// how many it ever spawned, and how many are running (written in the last
+// 90s) directly and at any depth.
+type SubagentStats struct {
+	Spawned, Direct, Nested int
+}
+
+func ReadSubagentStats(mainPath string, now time.Time) SubagentStats {
+	var st SubagentStats
+	dir := filepath.Join(strings.TrimSuffix(mainPath, ".jsonl"), "subagents")
+	metas, _ := filepath.Glob(filepath.Join(dir, "*.meta.json"))
+	for _, meta := range metas {
+		st.Spawned++
+		fi, err := os.Stat(strings.TrimSuffix(meta, ".meta.json") + ".jsonl")
+		if err != nil || now.Sub(fi.ModTime()) > 90*time.Second {
+			continue
+		}
+		var m struct {
+			Depth int `json:"spawnDepth"`
+		}
+		if b, err := os.ReadFile(meta); err == nil {
+			_ = json.Unmarshal(b, &m)
+		}
+		if m.Depth <= 1 {
+			st.Direct++
+		} else {
+			st.Nested++
+		}
+	}
+	return st
 }

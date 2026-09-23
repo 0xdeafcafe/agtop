@@ -23,6 +23,14 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if m.confirm != nil {
 		return m.confirmKey(s)
 	}
+	if (s == "tab" || s == "shift+tab") && (m.dialog == nil || m.dialog.asking == "") {
+		if s == "tab" {
+			m.setView(m.view + 1)
+		} else {
+			m.setView(m.view - 1)
+		}
+		return m.loadPreview()
+	}
 	if m.dialog != nil {
 		return m.dialogKey(k, s)
 	}
@@ -102,16 +110,6 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.move(len(m.order))
 			return m.loadPreview()
 		}
-	case "tab":
-		switch {
-		case !m.preview:
-			m.preview = true
-		case !m.full:
-			m.full = true
-		default:
-			m.preview, m.full = false, false
-		}
-		return m.loadPreview()
 	case "right":
 		if empty {
 			if t, ok := strings.CutPrefix(m.sel, "§"); ok {
@@ -120,7 +118,11 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				}
 				return nil
 			}
-			m.preview = true
+			if m.preview || m.wide() {
+				m.preview, m.full = true, true
+			} else {
+				m.preview = true
+			}
 			return m.loadPreview()
 		}
 	case "left":
@@ -128,6 +130,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			switch {
 			case m.full:
 				m.full = false
+				if m.wide() {
+					m.preview = false
+				}
 			case m.preview:
 				m.preview = false
 			case strings.HasPrefix(m.sel, "§"):
@@ -201,13 +206,13 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "ctrl+x":
 		return m.stopOrRemove(a)
 	case "ctrl+p":
-		m.mode, m.procCursor, m.procMachine = modeProcs, 0, a == nil || a.PID == 0
+		m.setView(1)
 		return nil
 	case "ctrl+a":
-		m.openDialog(tabAccounts)
+		m.setView(2)
 		return nil
 	case "ctrl+g":
-		m.openDialog(tabAgents)
+		m.setView(3)
 		return nil
 	case "shift+up", "shift+down":
 		n := m.dockLines()
@@ -582,8 +587,8 @@ func (m *Model) procKey(s string) tea.Cmd {
 	rows := m.procRows()
 	switch s {
 	case "esc", "q", "ctrl+p", "left":
-		m.mode = modeList
-	case "tab":
+		m.setView(0)
+	case "a", "m":
 		m.procMachine, m.procCursor = !m.procMachine, 0
 	case "up", "k":
 		if m.procCursor > 0 {
@@ -595,7 +600,8 @@ func (m *Model) procKey(s string) tea.Cmd {
 		}
 	case "enter":
 		if m.procCursor < len(rows) && rows[m.procCursor].key != "" {
-			m.sel, m.procMachine, m.procCursor = rows[m.procCursor].key, false, 0
+			m.sel = rows[m.procCursor].key
+			m.setView(0)
 		}
 	case "ctrl+x", "x":
 		if m.procCursor < len(rows) {

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -105,9 +106,18 @@ func (m *Model) header() []string {
 	for i, r := range robot {
 		out[i] = "  " + r
 	}
-	// Text sits level with the head and face.
+	// Text sits level with the head and face; the view strip on the legs.
 	out[1] = line(robot[1], left1, right1)
 	out[2] = line(robot[2], left2, right2)
+	var tabs []string
+	for i, v := range viewNames {
+		if i == m.view {
+			tabs = append(tabs, paint(cOrange+bold, v))
+		} else {
+			tabs = append(tabs, dim(v))
+		}
+	}
+	out[3] = "  " + robot[3] + "   " + strings.Join(tabs, faint("  ·  ")) + faint("     tab ⇥")
 	_ = pad
 	return out
 }
@@ -155,9 +165,12 @@ func (m *Model) render() string {
 	case modeHelp:
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-6, 116))
 	case modeProcs:
-		return m.frame(m.procBody(), keysFit(m.w-4, "tab", "agent / machine", "enter", "jump to agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "esc", "back"))
+		return m.frame(m.procBody(), keysFit(m.w-4, "tab", "next view", "a", "agent / whole machine", "enter", "jump to agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "esc", "back"))
 	case modeCwd:
 		return m.frame(m.cwdBody(), keysFit(m.w-4, "enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
+	}
+	if m.dialog != nil {
+		return m.frame(m.dialogBody(m.w-6), "")
 	}
 	return m.listView()
 }
@@ -227,13 +240,17 @@ func keys(pairs ...string) string {
 // how many rows the body gets under the header and above the prompt.
 func (m *Model) layout() (listW, paneW, bodyH int) {
 	listW = m.w
-	if m.preview {
-		if m.w >= 120 && !m.full {
-			paneW = m.w * 55 / 100
-			listW = m.w - paneW - 1
-		} else {
-			paneW, listW = m.w, 0
-		}
+	switch {
+	case m.full:
+		paneW, listW = m.w, 0
+	case m.wide():
+		paneW = m.w * 46 / 100
+		listW = m.w - paneW - 1
+	case m.preview && m.w >= 120:
+		paneW = m.w * 55 / 100
+		listW = m.w - paneW - 1
+	case m.preview:
+		paneW, listW = m.w, 0
 	}
 	bodyH = max(3, m.h-len(m.header())-1-len(m.promptLines()))
 	return listW, paneW, bodyH
@@ -241,9 +258,9 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 
 func (m *Model) listView() string {
 	head := m.header()
-	prompt := m.promptLines()
+	listW, paneW, bodyH := m.layout()
 	var dock []string
-	if !m.preview && m.h >= 20+m.dockLines() {
+	if paneW == 0 && m.h >= 20+m.dockLines() {
 		if f := m.focused(); f != nil {
 			for _, l := range m.cardLines(f, m.w-4) {
 				dock = append(dock, "  "+l)
@@ -255,7 +272,7 @@ func (m *Model) listView() string {
 			dock = append(dock, "")
 		}
 	}
-	listW, paneW, bodyH := m.layout()
+	prompt := m.promptLines()
 	bodyH = max(3, bodyH-len(dock))
 	m.listTop = len(head) + 1
 	m.rowKeys = nil
@@ -778,12 +795,23 @@ func (m *Model) badges(a *fleet.Agent) string {
 		}
 		parts = append(parts, paint(col, fmt.Sprintf("#%d", pr.Number)))
 	}
-	if a.Subagents > 0 {
-		label := "subagent"
-		if a.Subagents > 1 {
-			label += "s"
+	if sub := a.Subs; sub.Direct+sub.Nested > 0 {
+		b := paint(cOrange, fmt.Sprintf("↳%d", sub.Direct))
+		if sub.Nested > 0 {
+			b += paint(cOrange, fmt.Sprintf("+%d", sub.Nested))
 		}
-		parts = append(parts, paint(cOrange, fmt.Sprintf("↳%d", a.Subagents))+faint(" "+label))
+		parts = append(parts, b+faint(fmt.Sprintf("/%d", sub.Spawned)))
+	} else if sub.Spawned > 0 && (a.Live() || a.Busy()) {
+		parts = append(parts, faint(fmt.Sprintf("↳0/%d", sub.Spawned)))
+	}
+	shells := 0
+	for _, t := range a.Running {
+		if t.Kind == "shell" {
+			shells++
+		}
+	}
+	if shells > 0 && a.PID != 0 {
+		parts = append(parts, paint(cSub, fmt.Sprintf("▸%d", shells)))
 	}
 	if a.Todos > 0 && (a.Live() || a.Busy()) {
 		parts = append(parts, faint(fmt.Sprintf("☐ %d/%d", a.TodosDone, a.Todos)))
@@ -858,110 +886,185 @@ func (m *Model) promptLines() []string {
 		}
 	}
 	out = append(out, faint(strings.Repeat("─", m.w)))
-	hint := keysFit(m.w-4, "enter", "open", "ctrl+o", "reply", "tab", "preview", "ctrl+f", "done", "ctrl+x", "stop", "ctrl+p", "processes", "?", "all keys")
+	row1 := keysFit(m.w-4, "enter", "open", "ctrl+o", "reply", "ctrl+r", "rename", "ctrl+l", "move", "ctrl+t", "pin", "ctrl+f", "done", "ctrl+x", "stop")
+	row2 := keysFit(m.w-4, "tab", "views", "→", "preview", "ctrl+s", "group", "ctrl+n", "folder", "shift+↑↓", "preview size", "esc esc", "quit", "?", "all keys")
 	if m.inKind == inReply {
-		hint = keysFit(m.w-4, "enter", "send", "↑↓", "pick another agent", "esc", "leave reply mode", "?", "all keys")
+		row1 = keysFit(m.w-4, "enter", "send", "↑↓", "pick another agent", "esc", "leave reply mode")
 	}
-	if m.preview {
-		hint = keysFit(m.w-4, "enter", "send · empty opens", "←", "close preview", "ctrl+p", "processes", "ctrl+l", "move", "?", "all keys")
+	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
+		row1 = m.statusOr("")
+	} else {
+		row1 = "  " + row1
 	}
-	return append(out, m.statusOr(hint))
+	if m.confirm != nil {
+		row1 = m.statusOr("")
+	}
+	return append(out, fit(row1, m.w), fit("  "+row2, m.w))
 }
 
+// previewLines is the rich preview: everything about one agent, in ruled
+// sections, with the conversation taking whatever height is left.
 func (m *Model) previewLines(w, h int) []string {
 	a := m.focused()
 	if a == nil {
-		return []string{dim("select an agent to preview it")}
+		return []string{"", dim("select an agent to preview it")}
 	}
 	now := m.snap.At
-	e := m.previews[a.Key]
-	p := e.p
-	var out []string
-	add := func(s ...string) { out = append(out, s...) }
-	label := func(k string) string { return dim(fit(k, 9)) }
-	model := p.Model
-	if model == "" {
-		model = a.Spend.Model
-	}
-	add(paint(cText+bold, oneLine(a.DisplayName)))
-	add(dim(a.ID + " · " + a.Acct.Name + " · " + strings.TrimPrefix(model, "claude-")))
-	loc := tildify(a.Cwd)
-	if a.Branch != "" {
-		loc += dim(" · " + a.Branch)
-	}
-	add(loc, "")
-	st := a.State
+	p := m.previews[a.Key].p
+	section := func(t string) string { return rule(t, "", w) }
+	var top, tail []string
+
+	chip := paint(cDim, "finished")
 	switch {
-	case a.State == "blocked":
-		st = paint(cYellow, "awaiting input")
+	case a.State == "blocked" && !a.Checking:
+		chip = paint(cYellow+bold, "needs you")
 	case a.Live():
-		st = paint(cOrange, "working")
+		chip = paint(cOrange+bold, "working")
+	case a.Busy():
+		chip = paint(cOrange, "background work")
+	case a.JustFinished(now):
+		chip = paint(cGreen, "just finished")
+	case a.PID != 0:
+		chip = paint(cSub, "idle")
 	}
-	add(label("STATE") + st + dim(" · updated "+age(a.Age(now))+" ago"))
-	if a.State == "blocked" && a.Needs != "" {
-		for i, l := range wrap(a.Needs, w-9) {
-			if i == 0 {
-				add(label("NEEDS") + paint(cYellow, l))
-			} else {
-				add("         " + paint(cYellow, l))
-			}
+	top = append(top, paint(cText+bold, oneLine(a.DisplayName))+"   "+chip)
+	model := strings.TrimPrefix(p.Model, "claude-")
+	if model == "" {
+		model = strings.TrimPrefix(a.Spend.Model, "claude-")
+	}
+	top = append(top, dim(strings.Join(nonEmpty(a.ID, a.Acct.Name, model, "updated "+age(a.Age(now))+" ago"), " · ")))
+	loc := paint(cSub, tildify(a.Cwd))
+	if a.Branch != "" {
+		loc += faint(" · ") + dim(a.Branch)
+	}
+	top = append(top, loc)
+	for _, pr := range a.PRs {
+		col := cGreen
+		if pr.Checks.Failed > 0 {
+			col = cRed
 		}
+		top = append(top, paint(col, fmt.Sprintf("#%d", pr.Number))+dim(fmt.Sprintf(" %s · checks %d passed, %d failed, %d running", strings.ToLower(pr.State), pr.Checks.Passed, pr.Checks.Failed, pr.Checks.Pending)))
 	}
-	now2 := oneLine(a.Detail)
-	if p.Tool != "" && a.Live() {
-		now2 = paint(cOrange, "● ") + p.Tool + "  " + oneLine(p.ToolArg)
-	}
-	add(label("NOW") + fit(now2, w-9))
-	if p.Text != "" {
-		lines := wrap(p.Text, w-9)
-		limit := max(3, h/3)
-		if m.full {
-			limit = max(6, h-18)
+
+	switch {
+	case a.State == "blocked" && a.Needs != "":
+		top = append(top, "", section("Needs you"))
+		for _, l := range wrap(oneLine(a.Needs), w) {
+			top = append(top, paint(cYellow, l))
 		}
-		for i, l := range lines {
-			if i >= limit {
-				add("         " + dim("…"))
+	case a.Live() && p.Tool != "":
+		top = append(top, "", section("Now"))
+		top = append(top, paint(cOrange, "● ")+paint(cText+bold, p.Tool)+"  "+dim(ansi.Truncate(oneLine(tildify(p.ToolArg)), w-len(p.Tool)-4, "…")))
+	}
+
+	if len(a.TodoItems) > 0 {
+		tail = append(tail, "", section(fmt.Sprintf("Todos  %d/%d", a.TodosDone, a.Todos)))
+		for i, t := range a.TodoItems {
+			if i == 7 {
+				tail = append(tail, faint(fmt.Sprintf("+%d more", len(a.TodoItems)-7)))
 				break
 			}
-			if i == 0 {
-				add(label("LAST") + l)
-			} else {
-				add("         " + l)
+			switch {
+			case t.Done:
+				tail = append(tail, paint(cGreen, "☑ ")+faint(fit(t.Label, w-2)))
+			case t.Started:
+				tail = append(tail, paint(cOrange, "◐ ")+paint(cText, fit(t.Label, w-2)))
+			default:
+				tail = append(tail, faint("☐ ")+dim(fit(t.Label, w-2)))
 			}
 		}
 	}
-	add("")
+	if len(a.Running) > 0 && a.PID != 0 || a.Subs.Spawned > 0 {
+		head := "Running"
+		if s := a.Subs; s.Spawned > 0 {
+			head += fmt.Sprintf("  %d subagents now · %d spawned", s.Direct+s.Nested, s.Spawned)
+		}
+		tail = append(tail, "", section(head))
+		for i, t := range a.Running {
+			if i == 5 || a.PID == 0 {
+				break
+			}
+			icon, col := "▸ shell   ", cSub
+			if t.Kind == "agent" {
+				icon, col = "↳ subagent", cOrange
+			} else if t.Kind == "monitor" {
+				icon, col = "◎ monitor ", cDim
+			}
+			since := ""
+			if t.StartedAt.Unix() > 0 {
+				since = dur(now.Sub(t.StartedAt))
+			}
+			tail = append(tail, paint(col, icon)+" "+dim(fit(oneLine(tildify(t.Label)), w-20))+faint(right1(since, 7)))
+		}
+	}
 	u := a.Spend.Usage
-	add(label("SPEND") + paint(cText+bold, money(a.Spend.Cost)) + dim(fmt.Sprintf("  in %s · cache read %s · written %s · out %s",
-		tokens(u.Input), tokens(u.CacheRead), tokens(u.CacheWrite5m+u.CacheWrite1h), tokens(u.Output))))
+	tail = append(tail, "", section("Numbers"))
 	if p.Context > 0 {
 		win := claude.ContextWindow(p.Model)
 		pct := float64(p.Context) / float64(win) * 100
-		add(label("CONTEXT") + ctxBar(pct) + fmt.Sprintf(" %.0f%%", pct) + dim(fmt.Sprintf("  %s of %s tokens", tokens(p.Context), tokens(win))))
+		tail = append(tail, dim(fit("context", 10))+ctxBar(pct)+" "+paint(cText, fmt.Sprintf("%.0f%%", pct))+dim(fmt.Sprintf("  %s of %s tokens", tokens(p.Context), tokens(win))))
 	}
-	add(label("TIME") + dur(a.Elapsed(now)) + dim(" since "+a.CreatedAt.Local().Format("Mon 15:04")))
-	for _, pr := range a.PRs {
-		add(label("PR") + fmt.Sprintf("#%d %s", pr.Number, strings.ToLower(pr.State)) +
-			dim(fmt.Sprintf(" · checks %d✓ %d✗ %d…", pr.Checks.Passed, pr.Checks.Failed, pr.Checks.Pending)))
-	}
+	tail = append(tail, dim(fit("spent", 10))+paint(cText+bold, money(a.Spend.Cost))+dim(fmt.Sprintf("  in %s · cache read %s · written %s · out %s", tokens(u.Input), tokens(u.CacheRead), tokens(u.CacheWrite5m+u.CacheWrite1h), tokens(u.Output))))
+	tail = append(tail, dim(fit("time", 10))+paint(cText, dur(a.Elapsed(now)))+dim(" since "+a.CreatedAt.Local().Format("Mon 15:04")))
 	if a.PID != 0 && m.snap.Table != nil {
-		add("", label("TREE")+dim(fmt.Sprintf("%d processes · %s · %.1f%% cpu", a.Procs, mem(a.Mem), a.CPU)))
+		tail = append(tail, "", section(fmt.Sprintf("Processes  %d · %s · %.0f%% cpu", a.Procs, mem(a.Mem), a.CPU)))
 		nodes := m.snap.Table.Tree(a.PID)
-		shown := 0
-		for _, n := range nodes {
-			if shown >= 6 {
-				add(dim(fmt.Sprintf("       └ %d more", len(nodes)-shown)))
+		sort.SliceStable(nodes, func(i, j int) bool { return nodes[i].Footprint > nodes[j].Footprint })
+		for i, n := range nodes {
+			if i == 4 {
 				break
 			}
-			ind := strings.Repeat(" ", min(n.Depth, 4))
-			add("       " + fit(ind+m.shortCmd(n.PID, n.Comm), w-24) + cpuColor(n.CPU, right(fmt.Sprintf("%.1f%%", n.CPU), 8)) + memColor(n.Footprint, right(mem(n.Footprint), 8)))
-			shown++
+			tail = append(tail, dim(fit(m.shortCmd(n.PID, n.Comm), w-18))+cpuColor(n.CPU, right1(fmt.Sprintf("%.0f%%", n.CPU), 7))+memColor(n.Footprint, right1(mem(n.Footprint), 8)))
 		}
-	} else if a.Live() {
-		add("", label("TREE")+dim("no process found"))
 	}
+
+	room := h - len(top) - len(tail) - 2
+	var conv []string
+	if room >= 3 && len(p.Recent) > 0 {
+		conv = append(conv, "", section("Conversation"))
+		var body []string
+		for _, e := range p.Recent {
+			switch e.Role {
+			case "user":
+				for i, l := range wrap(oneLine(e.Text), w-2) {
+					pre := "  "
+					if i == 0 {
+						pre = paint(cOrange, "› ")
+					}
+					body = append(body, pre+paint(cText+bold, l))
+				}
+			case "tool":
+				name, arg, _ := strings.Cut(e.Text, "\x00")
+				body = append(body, faint("● ")+dim(name)+"  "+faint(ansi.Truncate(oneLine(tildify(arg)), w-len(name)-4, "…")))
+			default:
+				text := strings.NewReplacer("**", "", "`", "").Replace(oneLine(e.Text))
+				lines := wrap(text, w-2)
+				if len(lines) > 4 {
+					lines = append(lines[:3], ansi.Truncate(lines[3], w-5, "…"))
+				}
+				for _, l := range lines {
+					body = append(body, "  "+paint(cSub, l))
+				}
+			}
+		}
+		if len(body) > room-2 {
+			body = body[len(body)-(room-2):]
+		}
+		conv = append(conv, body...)
+	}
+	out := append(append(top, conv...), tail...)
 	if len(out) > h {
 		out = out[:h]
+	}
+	return out
+}
+
+func nonEmpty(xs ...string) []string {
+	var out []string
+	for _, x := range xs {
+		if strings.TrimSpace(x) != "" {
+			out = append(out, x)
+		}
 	}
 	return out
 }
