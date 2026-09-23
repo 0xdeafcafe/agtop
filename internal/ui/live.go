@@ -63,6 +63,7 @@ func openLive(a *fleet.Agent, w, h int) tea.Cmd {
 		wake: make(chan struct{}, 1),
 		emu:  vt.NewEmulator(w, h),
 	}
+	l.emu.SetScrollbackSize(0) // only the visible screen is ever drawn
 	l.emu.SetCallbacks(vt.Callbacks{CursorVisibility: func(v bool) { l.cursor = v }})
 	return func() tea.Msg {
 		conn, r, info, err := cl.Attach(l.short, l.id, w, h)
@@ -167,14 +168,15 @@ func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 // syncLive keeps one background attach open for the agent in the preview,
 // sized to the pane, and drops it when the preview closes or moves on.
 func (m *Model) syncLive() tea.Cmd {
-	a := m.focused()
+	a := m.selected()
 	w, h := m.liveSize()
-	if !m.preview || m.mode != modeList || m.dialog != nil || !liveCapable(a) || w < 20 || h < 4 {
+	showing := (m.preview || m.wide()) && m.mode == modeList && m.dialog == nil
+	// While the user is inside a session (enter), its attach is the only one.
+	if m.attached != "" || !showing || !liveCapable(a) || w < 20 || h < 4 {
 		m.closeLive()
-		m.liveFailed = ""
 		return nil
 	}
-	if m.liveFailed == a.Key {
+	if m.liveFailed == a.Key && time.Since(m.liveFailedAt) < 10*time.Second {
 		return nil
 	}
 	if m.live != nil && m.live.key == a.Key {
@@ -208,7 +210,7 @@ func (m *Model) onLiveOpen(msg liveOpenMsg) tea.Cmd {
 	if msg.err != nil {
 		// The transcript preview stays up; say why the live one is missing.
 		m.flash("live view unavailable: "+msg.err.Error(), true)
-		m.liveFailed = msg.l.key
+		m.liveFailed, m.liveFailedAt = msg.l.key, time.Now()
 		return nil
 	}
 	m.live = msg.l
@@ -220,6 +222,10 @@ func (m *Model) onLive(msg liveMsg) tea.Cmd {
 		return nil
 	}
 	if m.live.dead.Load() {
+		// The stream ended: release it and wait before trying again, so a
+		// session opened elsewhere is not fought over.
+		m.liveFailed, m.liveFailedAt = m.live.key, time.Now()
+		m.live.close()
 		m.live = nil
 		return nil
 	}
@@ -236,7 +242,7 @@ func (m *Model) liveSize() (int, int) {
 // liveLines is the pane when the focused agent's terminal is showing, or nil
 // to fall back to the transcript preview.
 func (m *Model) liveLines(w int) []string {
-	a := m.focused()
+	a := m.selected()
 	l := m.live
 	if a == nil || l == nil || l.key != a.Key || !l.ready.Load() {
 		return nil

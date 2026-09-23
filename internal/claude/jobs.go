@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -222,13 +223,25 @@ func pinsPath(a Account) string { return filepath.Join(a.JobsDir(), "pins.json")
 
 // ReadPins shares the native view's pin list so a pin shows in both views.
 func ReadPins(a Account) []string {
+	ids, _ := LoadPins(a)
+	return ids
+}
+
+// LoadPins reports a pin list it could not read, so a write never replaces a
+// list that is mid-write or in an unknown format.
+func LoadPins(a Account) ([]string, error) {
 	b, err := os.ReadFile(pinsPath(a))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var ids []string
-	_ = json.Unmarshal(b, &ids)
-	return ids
+	if err := json.Unmarshal(b, &ids); err != nil {
+		return nil, fmt.Errorf("couldn't read the pin list: %w", err)
+	}
+	return ids, nil
 }
 
 func WritePins(a Account, ids []string) error {

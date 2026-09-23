@@ -64,36 +64,39 @@ type Model struct {
 	scanning bool
 	loaded   bool
 
-	sel         string
-	order       []*fleet.Agent
-	lines       []listLine
-	scroll      int
-	preview     bool
-	full        bool
-	previews    map[string]previewEntry
-	live        *live
-	liveOpening string
-	liveFailed  string
-	expanded    map[string]bool
-	hover       string
-	hoverAt     time.Time
-	rowKeys     []string
-	listTop     int
-	lastClick   time.Time
+	sel          string
+	order        []*fleet.Agent
+	lines        []listLine
+	scroll       int
+	preview      bool
+	full         bool
+	previews     map[string]previewEntry
+	live         *live
+	liveOpening  string
+	liveFailed   string
+	liveFailedAt time.Time
+	expanded     map[string]bool
+	hover        string
+	hoverAt      time.Time
+	rowKeys      []string
+	listTop      int
+	lastClick    time.Time
 
 	input  []rune
 	inKind inputKind
 	dirIdx int
 
-	status    string
-	statusErr bool
-	statusAt  time.Time
-	armed     string
-	quitArmed time.Time
-	confirm   *confirmation
-	dialog    *dialog
-	attached  string
-	view      int
+	status     string
+	statusErr  bool
+	statusAt   time.Time
+	armed      string
+	quitArmed  time.Time
+	confirm    *confirmation
+	dialog     *dialog
+	hibernated map[string]bool
+	armedAt    time.Time
+	attached   string
+	view       int
 
 	procCursor  int
 	procMachine bool
@@ -141,6 +144,7 @@ func New(store *state.Store, version string) *Model {
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
 		expanded: map[string]bool{}, lastState: map[string]string{}, cwdMove: true,
+		hibernated: map[string]bool{},
 	}
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
@@ -492,7 +496,8 @@ func (m *Model) hibernate() {
 		return
 	}
 	for _, a := range m.snap.Agents {
-		if a.Worker != nil && a.State == "done" && a.Age(m.snap.At) > time.Duration(after)*time.Minute {
+		if a.Worker != nil && a.State == "done" && a.Age(m.snap.At) > time.Duration(after)*time.Minute && !m.hibernated[a.Key] {
+			m.hibernated[a.Key] = true // one try each; a failed stop is not retried every second
 			go actions.Stop(a.Acct, a.ID)
 		}
 	}
@@ -529,7 +534,7 @@ func (m *Model) move(d int) {
 	}
 	i = min(max(i+d, 0), len(items)-1)
 	m.sel = items[i]
-	m.armed = ""
+	m.armed, m.hover = "", ""
 }
 
 // items are the selectable rows in display order: sections and agents.
@@ -756,7 +761,11 @@ func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 }
 
 func (m *Model) togglePin(a *fleet.Agent) tea.Cmd {
-	pins := claude.ReadPins(a.Acct)
+	pins, err := claude.LoadPins(a.Acct)
+	if err != nil {
+		m.flash(err.Error(), true)
+		return nil
+	}
 	out := pins[:0:0]
 	found := false
 	for _, id := range pins {

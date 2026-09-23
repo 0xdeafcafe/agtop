@@ -64,7 +64,7 @@ func lastLine(s string) string {
 // Dispatch starts a new background session and returns its short id.
 func Dispatch(acct claude.Account, dir, prompt string, flags ...string) (string, error) {
 	args := append([]string{"--bg"}, flags...)
-	args = append(args, prompt)
+	args = append(args, "--", prompt) // a prompt starting with - is still a prompt
 	out, err := run(claudeCmd(acct, dir, args...))
 	if err != nil {
 		return "", err
@@ -88,18 +88,42 @@ func Remove(acct claude.Account, short string) error {
 }
 
 func Reply(acct claude.Account, short, text string) error {
-	return daemon.Client{Account: acct}.Reply(short, text)
+	c := daemon.Client{Account: acct}
+	if !c.Running() {
+		return fmt.Errorf("the background agents daemon isn't running, so replies can't be sent; open the agent with enter instead")
+	}
+	return c.Reply(short, text)
 }
 
-// KillTree SIGKILLs a process and everything under it, deepest first.
-func KillTree(tab *proc.Table, root int) int {
+// KillTree SIGKILLs a process and everything under it, deepest first. It
+// samples the process table afresh, refuses if root is no longer the process
+// the user chose (same start time), and never touches agtop or its parents.
+func KillTree(root int, rootStart time.Time) (int, error) {
+	tab := proc.Snapshot(nil)
+	p := tab.Procs[root]
+	if p == nil || !p.Start.Equal(rootStart) {
+		return 0, fmt.Errorf("process %d has already exited", root)
+	}
+	protected := map[int]bool{1: true}
+	for pid := os.Getpid(); pid > 1; {
+		protected[pid] = true
+		q := tab.Procs[pid]
+		if q == nil {
+			break
+		}
+		pid = q.PPID
+	}
+	if protected[root] {
+		return 0, fmt.Errorf("that would kill agtop itself")
+	}
+	_ = proc.Kill(root, syscall.SIGSTOP) // freeze it so it can't spawn more while we walk
 	n := 0
 	for _, pid := range tab.Descendants(root) {
-		if proc.Kill(pid, syscall.SIGKILL) == nil {
+		if !protected[pid] && proc.Kill(pid, syscall.SIGKILL) == nil {
 			n++
 		}
 	}
-	return n
+	return n, nil
 }
 
 func Terminate(pid int) error { return proc.Kill(pid, syscall.SIGTERM) }
@@ -136,11 +160,13 @@ func (r Relaunch) Run() (string, error) {
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return "", fmt.Errorf("folder not found: %s", dir)
 	}
-	if _, running := claude.ReadRoster(r.From).Workers[j.ID]; running || j.Live() {
+	if _, running := claude.ReadRoster(r.From).Workers[j.ID]; running {
 		if err := Stop(r.From, j.ID); err != nil {
 			return "", fmt.Errorf("could not stop the agent first: %w", err)
 		}
-		waitStopped(r.From, j.ID, 10*time.Second)
+		if !waitStopped(r.From, j.ID, 10*time.Second) {
+			return "", fmt.Errorf("the agent is still stopping; try again in a moment")
+		}
 	}
 	dst := filepath.Join(r.To.ProjectsDir(), claude.ProjectSlug(dir), j.SessionID+".jsonl")
 	if dst != j.TranscriptPath {
@@ -154,25 +180,31 @@ func (r Relaunch) Run() (string, error) {
 		args = append(args, "--add-dir", d)
 	}
 	if r.Note != "" {
-		args = append(args, r.Note)
+		args = append(args, "--", r.Note) // --add-dir takes many values; end them first
 	}
 	out, err := run(claudeCmd(r.To, dir, args...))
 	if err != nil {
 		return "", err
 	}
 	// Resuming in the background forks the conversation into a new session.
-	return newID(out), nil
+	m := attachID.FindStringSubmatch(out)
+	if m == nil {
+		return "", fmt.Errorf("resumed, but Claude Code didn't say the new session's id; it will appear in the list")
+	}
+	return m[1], nil
 }
 
 // respawnFlags keeps the flags that describe the agent, not the old session.
 func respawnFlags(flags []string) []string {
 	var out []string
 	for i := 0; i < len(flags); i++ {
-		switch flags[i] {
-		case "--resume", "--session-id", "-r", "--fork-session":
-			if flags[i] != "--fork-session" {
-				i++
-			}
+		f := flags[i]
+		switch {
+		case f == "--resume" || f == "--session-id" || f == "-r":
+			i++
+			continue
+		case f == "--fork-session" || f == "-c" || f == "--continue",
+			strings.HasPrefix(f, "--resume=") || strings.HasPrefix(f, "--session-id="):
 			continue
 		}
 		out = append(out, flags[i])
@@ -180,14 +212,15 @@ func respawnFlags(flags []string) []string {
 	return out
 }
 
-func waitStopped(acct claude.Account, short string, max time.Duration) {
+func waitStopped(acct claude.Account, short string, max time.Duration) bool {
 	deadline := time.Now().Add(max)
 	for time.Now().Before(deadline) {
 		if _, ok := claude.ReadRoster(acct).Workers[short]; !ok {
-			return
+			return true
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+	return false
 }
 
 func copyFile(src, dst string) error {
@@ -217,5 +250,8 @@ func copyFile(src, dst string) error {
 // Notify posts a macOS notification; it spawns only on state transitions.
 func Notify(title, body string) {
 	script := fmt.Sprintf("display notification %q with title %q", body, title)
-	_ = exec.Command("osascript", "-e", script).Start()
+	c := exec.Command("osascript", "-e", script)
+	if c.Start() == nil {
+		go func() { _ = c.Wait() }()
+	}
 }

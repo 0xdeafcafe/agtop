@@ -291,13 +291,13 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 		m.flash("stopping "+a.DisplayName+"…", false)
 		return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID) })
 	}
-	if m.armed == a.Key {
+	if m.armed == a.Key && time.Since(m.armedAt) < 5*time.Second {
 		m.armed = ""
 		m.flash("deleting "+a.DisplayName+"…", false)
 		return cmdErr("deleted "+a.DisplayName, func() error { return actions.Remove(a.Acct, a.ID) })
 	}
-	m.armed = a.Key
-	m.flash("ctrl+x again to delete", false)
+	m.armed, m.armedAt = a.Key, time.Now()
+	m.flash("ctrl+x again within 5s to delete "+a.DisplayName+" (and its worktree, when that's safe)", false)
 	return nil
 }
 
@@ -398,7 +398,13 @@ func (m *Model) command(text string) tea.Cmd {
 		}
 	case "/rm", "/delete":
 		if need() {
-			return cmdErr("deleted "+a.DisplayName, func() error { return actions.Remove(a.Acct, a.ID) })
+			m.confirm = &confirmation{
+				question: "Delete " + a.DisplayName + "?",
+				detail:   "removes the session, and its worktree when that's safe",
+				onYes: func() tea.Cmd {
+					return cmdErr("deleted "+a.DisplayName, func() error { return actions.Remove(a.Acct, a.ID) })
+				},
+			}
 		}
 	case "/kill":
 		if need() {
@@ -406,10 +412,18 @@ func (m *Model) command(text string) tea.Cmd {
 		}
 	case "/cd", "/move":
 		if need() {
+			if expand(arg) == "" {
+				m.flash("which folder? /cd <path>", true)
+				return nil
+			}
 			return m.relaunch(a, expand(arg), nil, a.Acct)
 		}
 	case "/add-dir":
 		if need() {
+			if expand(arg) == "" {
+				m.flash("which folder? /add-dir <path>", true)
+				return nil
+			}
 			return m.relaunch(a, "", []string{expand(arg)}, a.Acct)
 		}
 	case "/account":
@@ -463,6 +477,9 @@ func (m *Model) command(text string) tea.Cmd {
 
 func expand(p string) string {
 	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
 	if strings.HasPrefix(p, "~") {
 		home, _ := os.UserHomeDir()
 		p = home + p[1:]
@@ -520,8 +537,11 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 		return
 	}
 	mem, _, n := m.snap.Table.Sum(a.Worker.PID, nil)
-	tab := m.snap.Table
 	root := a.Worker.PID
+	var start time.Time
+	if p := m.snap.Table.Procs[root]; p != nil {
+		start = p.Start
+	}
 	m.confirm = &confirmation{
 		question: "Stop " + a.DisplayName + "?",
 		detail:   fmt.Sprintf("%d processes · %s · the conversation is kept", n, memStr(mem)),
@@ -529,11 +549,7 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID) })
 		},
 		bangText: "SIGKILL the whole tree",
-		onBang: func() tea.Cmd {
-			return func() tea.Msg {
-				return doneMsg{text: fmt.Sprintf("killed %d processes", actions.KillTree(tab, root))}
-			}
-		},
+		onBang:   killTree(root, start),
 	}
 }
 
@@ -614,7 +630,7 @@ func (m *Model) procKey(s string) tea.Cmd {
 					return cmdErr(fmt.Sprintf("sent SIGTERM to %d", r.pid), func() error { return actions.Terminate(r.pid) })
 				},
 				bangText: "SIGKILL it and everything under it",
-				onBang:   m.killTreeCmd(r.pid),
+				onBang:   killTree(r.pid, r.start),
 			}
 		}
 	case "!":
@@ -623,18 +639,21 @@ func (m *Model) procKey(s string) tea.Cmd {
 			m.confirm = &confirmation{
 				question: fmt.Sprintf("SIGKILL %d and everything under it?", r.pid),
 				detail:   trimCmd(r.cmd, 80),
-				onYes:    m.killTreeCmd(r.pid),
+				onYes:    killTree(r.pid, r.start),
 			}
 		}
 	}
 	return nil
 }
 
-func (m *Model) killTreeCmd(pid int) func() tea.Cmd {
-	tab := m.snap.Table
+func killTree(pid int, start time.Time) func() tea.Cmd {
 	return func() tea.Cmd {
 		return func() tea.Msg {
-			return doneMsg{text: fmt.Sprintf("killed %d processes", actions.KillTree(tab, pid))}
+			n, err := actions.KillTree(pid, start)
+			if err != nil {
+				return doneMsg{err: err}
+			}
+			return doneMsg{text: fmt.Sprintf("killed %d processes", n)}
 		}
 	}
 }

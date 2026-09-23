@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -38,7 +39,12 @@ func (a Account) StatePath() string {
 
 // Env is what a child claude process needs to act as this account.
 func (a Account) Env() []string {
-	env := os.Environ()
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "CLAUDE_CONFIG_DIR=") {
+			env = append(env, e) // an inherited one would point at another account
+		}
+	}
 	if a.IsDefault() {
 		return env
 	}

@@ -62,10 +62,11 @@ func (s *Session) Run() error {
 		fmt.Fprintf(out, "\x1b[?%dh", m)
 	}
 	defer func() {
-		for _, m := range info.DecModes {
+		// Modes the session turned on while attached are reset too.
+		for _, m := range append(info.DecModes, 1000, 1002, 1003, 1004, 1006, 2004) {
 			fmt.Fprintf(out, "\x1b[?%dl", m)
 		}
-		fmt.Fprint(out, "\x1b[0m\x1b[?25h\x1b[?1049l")
+		fmt.Fprint(out, "\x1b[<u\x1b[0m\x1b[?25h\x1b[?1049l")
 	}()
 
 	winch := make(chan os.Signal, 1)
@@ -73,9 +74,12 @@ func (s *Session) Run() error {
 	defer signal.Stop(winch)
 
 	done := make(chan struct{})
+	inDone := make(chan struct{})
 	outErr := make(chan error, 1)
 	go func() { outErr <- pumpOut(r, out) }()
-	go pumpIn(in, conn, done)
+	go func() { pumpIn(in, conn, done); close(inDone) }()
+	// The list reads stdin again only once the relay has stopped reading it.
+	defer func() { <-inDone }()
 
 	for {
 		select {
@@ -105,6 +109,8 @@ func Relay(r io.Reader, w io.Writer) error {
 	return err
 }
 
+var kicked = []byte("EKICKED: Session opened in another window")
+
 func pumpOut(r io.Reader, w io.Writer) error {
 	buf := make([]byte, 32<<10)
 	var carry []byte
@@ -117,22 +123,37 @@ func pumpOut(r io.Reader, w io.Writer) error {
 				_, _ = w.Write(stripHints(chunk[:i]))
 				return errDetach
 			}
-			// Keep a possible partial marker for the next read.
-			if j := bytes.LastIndexByte(chunk, 0x1b); j >= 0 && len(chunk)-j < len(detachMarker) {
-				carry = append([]byte(nil), chunk[j:]...)
-				chunk = chunk[:j]
+			if bytes.Contains(chunk, kicked) {
+				return io.EOF
+			}
+			// Hold back only a tail that could still grow into a marker.
+			if k := partialMarker(chunk); k > 0 {
+				carry = append([]byte(nil), chunk[len(chunk)-k:]...)
+				chunk = chunk[:len(chunk)-k]
 			}
 			if _, werr := w.Write(stripHints(chunk)); werr != nil {
 				return werr
-			}
-			if bytes.Contains(chunk, []byte("EKICKED")) {
-				return io.EOF
 			}
 		}
 		if err != nil {
 			return err
 		}
 	}
+}
+
+// partialMarker is the length of the longest suffix of b that is a proper
+// prefix of a marker the daemon sends in-band.
+func partialMarker(b []byte) int {
+	best := 0
+	for _, m := range [][]byte{detachMarker, hintMarker, kicked} {
+		for k := min(len(m)-1, len(b)); k > best; k-- {
+			if bytes.HasSuffix(b, m[:k]) {
+				best = k
+				break
+			}
+		}
+	}
+	return best
 }
 
 func stripHints(b []byte) []byte {
