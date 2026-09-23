@@ -296,3 +296,41 @@ func TestOverview(t *testing.T) {
 		t.Errorf("pretty: %s", PrettyModel("claude-sonnet-5"))
 	}
 }
+
+func TestTailTranscript(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/s.jsonl"
+	lines := []string{
+		`{"type":"user","timestamp":"2026-09-23T20:00:00Z","cwd":"/work","message":{"role":"user","content":"fix the test"},"origin":{"kind":"human"}}`,
+		`{"type":"assistant","timestamp":"2026-09-23T20:00:02Z","effort":"high","message":{"id":"m1","model":"claude-opus-5-5","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test ./..."}}],"usage":{"input_tokens":5,"output_tokens":3}}}`,
+		`{"type":"user","timestamp":"2026-09-23T20:00:09Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Exit code 1\nFAIL x","is_error":true}]},"toolUseResult":{"stdout":"FAIL x","stderr":""}}`,
+		`{"type":"assistant","timestamp":"2026-09-23T20:00:12Z","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Fixed it."}]}}`,
+		`{"type":"system","subtype":"turn_duration","timestamp":"2026-09-23T20:00:13Z"}`,
+		`{"type":"user","isMeta":true,"message":{"role":"user","content":"caveat"}}`,
+		`{"type":"user","timestamp":"2026-09-23T20:05:00Z","message":{"role":"user","content":"<command-name>/compact</command-name><command-args></command-args>"}}`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines[:3], "\n")+"\n"+lines[3][:20]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tl := NewTail(path)
+	if ch, err := tl.Read(); err != nil || !ch {
+		t.Fatalf("first read: %v %v", ch, err)
+	}
+	if len(tl.Sess.Turns) != 1 || tl.Sess.byID["t1"].Status != Failed || tl.Sess.Turns[0].Effort != "high" {
+		t.Fatalf("after part: %+v", tl.Sess.Turns)
+	}
+	// The rest of the half-written line and the lines after it arrive later.
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	f.WriteString(lines[3][20:] + "\n" + strings.Join(lines[4:], "\n") + "\n")
+	f.Close()
+	if ch, _ := tl.Read(); !ch {
+		t.Fatal("second read saw nothing")
+	}
+	s := tl.Sess
+	if len(s.Turns) != 2 || s.Turns[0].Live || s.Turns[0].Outcome() != "Fixed it." || s.Turns[1].Prompt != "/compact" {
+		t.Fatalf("turns: %d, first live=%v outcome=%q second=%q", len(s.Turns), s.Turns[0].Live, s.Turns[0].Outcome(), s.Turns[1].Prompt)
+	}
+	if ch, _ := tl.Read(); ch {
+		t.Error("nothing new should mean no change")
+	}
+}

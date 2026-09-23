@@ -89,6 +89,10 @@ type Model struct {
 	paneFocus bool
 	dragging  bool     // resizing the list by its edge
 	images    []string // image files attached to the prompt's next message
+	// claudeView is a Claude Code agent's Session view: 0 its live screen,
+	// 1 the summary.
+	claudeView int
+	paneTop    int // screen row of the pane's first line, for clicks
 	// host is the connection to the agtop-mode session the pane shows.
 	host        *hostConn
 	hostOpening string
@@ -539,12 +543,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dragging = true
 			return m, nil
 		}
-		if msg.Button == tea.MouseLeft && m.host != nil && m.listW > 0 && msg.X > m.listW+1 && m.mode == modeList && m.dialog == nil {
+		if msg.Button == tea.MouseLeft && m.host != nil && (m.listW == 0 || msg.X > m.listW+1) && m.mode == modeList && m.dialog == nil {
 			m.paneFocus = true // clicking the conversation gives it the keys
+			m.clickRow(m.host, msg.Y)
 			return m, nil
 		}
 		if msg.Button == tea.MouseLeft {
-			m.paneFocus = false
+			m.paneFocus, m.embedded = false, false // clicking Agents takes the keys back
 			return m, m.mouseClick(msg.X, msg.Y)
 		}
 	case tea.MouseWheelMsg:

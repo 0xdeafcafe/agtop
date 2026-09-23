@@ -167,9 +167,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				if t := strings.TrimPrefix(m.sel, "§"); !m.folded(t) {
 					m.toggleFold(t)
 				}
-			default:
-				m.sel = m.sectionOf(m.sel)
 			}
+			// Otherwise ← has nothing to close; it never walks the
+			// selection up onto a group title.
 			return nil
 		}
 	case "esc":
@@ -200,6 +200,12 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		if empty && a != nil && a.Agtop {
 			return m.focusPane(a)
+		}
+		// A Claude Code agent with its screen beside the list: type into it
+		// there rather than leaving agtop.
+		if empty && a != nil && m.listW > 0 && m.canEmbed() {
+			m.claudeView, m.embedded = 0, true
+			return nil
 		}
 		return m.submit()
 	case "f2":
@@ -252,6 +258,22 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		m.store.Config.DockLines = min(max(n, 1), 15)
 		_ = m.store.SaveConfig()
+		return nil
+	case "[", "]":
+		if empty && a != nil {
+			if a.Agtop && m.host != nil {
+				m.host.view = (m.host.view + 1) % len(paneViews)
+			} else {
+				m.claudeView = 1 - m.claudeView
+			}
+			m.preview = true
+			return nil
+		}
+	case "ctrl+f":
+		// Open a Claude Code agent full screen (Claude Code's own view).
+		if a != nil && !a.Agtop && !a.Interactive {
+			return m.attach(a)
+		}
 		return nil
 	case "ctrl+n":
 		return m.nextNeedingYou()

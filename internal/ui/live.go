@@ -247,9 +247,9 @@ func (m *Model) liveLines(w int) []string {
 	if a == nil || l == nil || l.key != a.Key || !l.ready.Load() {
 		return nil
 	}
-	title := paint(cText+bold, oneLine(a.DisplayName)) + "  " + paint(cOrange, "●") + dim(" live · → to type into it · enter opens it full screen")
+	title := faint("▍") + paint(cText+bold, oneLine(a.DisplayName)) + "  " + paint(cOrange, "●") + dim(" live")
 	if m.embedded {
-		title = paint(cOrange+bold, "▍typing into "+oneLine(a.DisplayName)) + dim("  ·  ctrl+] to stop")
+		title = paint(cOrange, "▍") + paint(cOrange+bold, "SESSION  ") + paint(cBright+bold, oneLine(a.DisplayName)) + dim("  ·  keys go to Claude Code · ctrl+] or click Agents to come back")
 	}
 	out := []string{fit(title, w)}
 	for _, s := range l.lines() {

@@ -246,13 +246,31 @@ func (d *drawer) open() {
 	d.blank()
 
 	items := t.Items
+	// A running turn keeps its last few steps in view; everything clean
+	// before them folds, so a busy agent doesn't flood the screen.
+	keep := len(items)
+	if t.Live {
+		seen := 0
+		for i := len(items) - 1; i >= 0; i-- {
+			if items[i].Kind == KStep {
+				seen++
+				if seen == 3 {
+					keep = i
+					break
+				}
+			}
+		}
+		if seen < 3 {
+			keep = 0
+		}
+	}
 	for i := 0; i < len(items); i++ {
 		it := items[i]
-		// A run of three or more clean steps folds to one row once the turn
-		// is over; a failure never folds.
-		if !t.Live && !d.o.Verbose && it.Kind == KStep {
+		// A run of three or more clean steps folds to one row; a failure
+		// never folds.
+		if !d.o.Verbose && it.Kind == KStep && i < keep {
 			j := i
-			for j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) {
+			for j < keep && j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) {
 				j++
 			}
 			if j-i >= 3 {
@@ -556,6 +574,11 @@ func (d *drawer) label(st *Step) string {
 	g := glyphColor(glyphFor(st.Tool))
 	switch st.Tool {
 	case "Bash":
+		// What the command is for reads faster than the command; the command
+		// itself follows, quieter, and shows whole when the row is opened.
+		if desc := oneLine(in.str("description")); desc != "" {
+			return g + " " + text(desc) + "  " + faint(program(in.str("command")))
+		}
 		return g + " " + d.command(in.str("command"))
 	case "Edit", "MultiEdit", "Write", "NotebookEdit":
 		p := in.str("file_path")
@@ -642,6 +665,27 @@ func (d *drawer) command(cmd string) string {
 		out += "  " + bgSel + dim(fmt.Sprintf(" +%d lines ", n)) + reset
 	}
 	return out
+}
+
+// program is a command's first word, or first two for git, go, npm and the
+// like, so a row can say "git status" without the whole pipeline.
+func program(cmd string) string {
+	cmd = strings.TrimSpace(cdRe.ReplaceAllString(strings.TrimSpace(cmd), ""))
+	f := strings.Fields(strings.SplitN(cmd, "\n", 2)[0])
+	if len(f) == 0 {
+		return ""
+	}
+	p := f[0]
+	switch p {
+	case "git", "go", "npm", "pnpm", "yarn", "cargo", "docker", "kubectl", "gh", "make", "uv", "bun":
+		if len(f) > 1 && !strings.HasPrefix(f[1], "-") {
+			p += " " + f[1]
+		}
+	}
+	if strings.ContainsAny(cmd, "|;&") {
+		p += " …"
+	}
+	return p
 }
 
 var shOps = map[string]bool{"&&": true, "||": true, "|": true, ";": true, ">": true, ">>": true, "<": true, "2>&1": true, "&": true}
@@ -830,6 +874,12 @@ func (d *drawer) body(st *Step, indent int) {
 			return
 		}
 	case "Bash":
+		if cmd := readInput(st.Input).str("command"); cmd != "" && readInput(st.Input).str("description") != "" {
+			pad := d.spine() + strings.Repeat(" ", indent-1)
+			for _, l := range strings.Split(strings.TrimSpace(cmd), "\n") {
+				d.add("", bgWell, pad+faint("$ ")+tint(truncateCells(expandTabs(l), d.cw-indent-4)), "")
+			}
+		}
 		var r struct {
 			Stdout string `json:"stdout"`
 			Stderr string `json:"stderr"`

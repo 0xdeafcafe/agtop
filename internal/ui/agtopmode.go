@@ -48,6 +48,10 @@ type hostConn struct {
 	qAnswer   map[string]string
 	stopArmed time.Time
 	lastSend  time.Time
+	// selMoved asks the next draw to scroll the selection into view;
+	// rowRefs is what each drawn row of the pane belongs to, for clicks.
+	selMoved bool
+	rowRefs  []string
 }
 
 type hostOpenMsg struct {
@@ -234,13 +238,31 @@ func (m *Model) agtopPane(w, h int) []string {
 		}
 	}
 	// Bottom-anchored: the latest output sits just above the dock unless
-	// you've scrolled up.
+	// you've scrolled up. A selection that just moved is scrolled into view.
+	if c.selMoved && c.sel != "" {
+		c.selMoved = false
+		for i, l := range body {
+			if l.Ref != c.sel {
+				continue
+			}
+			end := len(body) - c.scroll
+			switch {
+			case i < end-bodyH:
+				c.scroll = len(body) - (i + bodyH)
+			case i >= end:
+				c.scroll = len(body) - (i + 1)
+			}
+			break // the first row of a selection is the one to show
+		}
+	}
 	c.scroll = max(0, min(c.scroll, len(body)-bodyH))
 	end := len(body) - c.scroll
 	start := max(0, end-bodyH)
 	out := append([]string{}, head...)
+	c.rowRefs = make([]string, len(head), h)
 	for _, l := range body[start:end] {
 		out = append(out, l.Text)
+		c.rowRefs = append(c.rowRefs, l.Ref)
 	}
 	if c.scroll > 0 && len(out) > len(head) {
 		pill := selBG + " " + paint(cText, fmt.Sprintf("↓ %d more · end follows", c.scroll)) + " " + reset
@@ -605,8 +627,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	case "left":
-		// ← on an empty box always goes back to the list, like esc.
+		// ← walks up: from a step to its turn, then back to Agents.
 		if empty {
+			if turn, _, ok := strings.Cut(c.sel, ":"); ok {
+				c.sel, c.selMoved = turn, true
+				return nil
+			}
 			m.leavePane()
 			return nil
 		}
@@ -757,7 +783,22 @@ func (m *Model) moveSel(c *hostConn, d int) {
 	}
 	i = max(0, min(len(refs)-1, i+d))
 	c.sel = refs[i]
-	c.scroll = 0
+	c.selMoved = true
+}
+
+// clickRow selects the row under a click in the pane; clicking the selected
+// row again opens or closes it.
+func (m *Model) clickRow(c *hostConn, y int) {
+	i := y - m.paneTop
+	if i < 0 || i >= len(c.rowRefs) || c.rowRefs[i] == "" {
+		return
+	}
+	ref := c.rowRefs[i]
+	if ref == c.sel {
+		c.open[ref] = !m.isOpen(c, ref)
+		return
+	}
+	c.sel = ref
 }
 
 // leavePane gives the keys back to the list. On a narrow screen, where the

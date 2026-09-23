@@ -362,12 +362,20 @@ func (m *Model) listView() string {
 	var pane []string
 	if paneW > 0 {
 		if pane = m.agtopPane(paneW-3, paneH); pane == nil {
-			if pane = m.liveLines(paneW - 3); pane == nil {
-				pane = m.previewLines(paneW-3, paneH)
+			// A Claude Code agent's Session: its live screen or a summary,
+			// switched with [ ], under the same strip an agtop session has.
+			var body []string
+			if m.claudeView == 0 {
+				body = m.liveLines(paneW - 3)
 			}
+			if body == nil {
+				body = m.previewLines(paneW-3, paneH-1)
+			}
+			pane = append([]string{m.claudeStrip(paneW - 3)}, body...)
 		}
 	}
 	var b strings.Builder
+	m.paneTop = len(head) + 1
 	for _, l := range head {
 		b.WriteString(fit(l, m.w))
 		b.WriteByte('\n')
@@ -417,10 +425,16 @@ func (m *Model) listView() string {
 // keeps full brightness, an orange marker and an orange box edge.
 const fade = "\x1b[2m"
 
-func (m *Model) twoSided() bool { return m.host != nil && m.listW > 0 }
+func (m *Model) twoSided() bool {
+	return m.listW > 0 && (m.host != nil || (m.live != nil && m.focused() != nil && m.live.key == m.focused().Key))
+}
+
+// sessionFocused is whether the keys go to the Session: an agtop
+// conversation, or typing into a Claude Code screen.
+func (m *Model) sessionFocused() bool { return m.paneFocus || m.embedded }
 
 func (m *Model) side(line string, pane bool) string {
-	if !m.twoSided() || pane == m.paneFocus {
+	if !m.twoSided() || pane == m.sessionFocused() {
 		return line
 	}
 	return fade + strings.ReplaceAll(line, reset, reset+fade) + reset
@@ -428,13 +442,40 @@ func (m *Model) side(line string, pane bool) string {
 
 // divider leans orange toward the side with focus.
 func (m *Model) divider() string {
-	if !m.twoSided() {
-		return faint("│")
-	}
-	if m.paneFocus {
+	if !m.twoSided() || m.sessionFocused() {
 		return faint("│")
 	}
 	return paint(cOrange, "│")
+}
+
+// claudeStrip heads a Claude Code agent's Session with its two views, the
+// way an agtop session's header carries conversation and overview.
+func (m *Model) claudeStrip(w int) string {
+	a := m.focused()
+	live := a != nil && m.live != nil && m.live.key == a.Key && m.live.ready.Load()
+	tab := func(name string, on, avail bool) string {
+		switch {
+		case on:
+			return bgTabOn + paint(cText+bold, " "+name+" ") + reset + bgChrome
+		case !avail:
+			return faint(" " + name + " ")
+		}
+		return paint(cSub, " "+name+" ")
+	}
+	screenOn := m.claudeView == 0 && live
+	left := "  " + tab("screen", screenOn, live) + " " + tab("summary", !screenOn, true) + dim("   [ ]")
+	right := ""
+	switch {
+	case m.embedded:
+		right = paint(cOrange+bold, "typing into it") + dim(" · ctrl+] comes back")
+	case screenOn:
+		right = dim("enter types into it · ctrl+f full screen")
+	case !live && a != nil && a.Interactive:
+		right = dim("open in a terminal")
+	case !live:
+		right = dim("not running · enter resumes it")
+	}
+	return onBg(bgChrome, spread(left, right+" ", w), w)
 }
 
 // Column widths on the right of a row.
@@ -674,7 +715,7 @@ func (m *Model) columnHeader(w int) string {
 	}
 	name := label("AGENTS", "name")
 	left := "   " + fit(name, nameCol+2)
-	if m.twoSided() && !m.paneFocus {
+	if m.twoSided() && !m.sessionFocused() {
 		left = paint(cOrange, "▍") + "  " + fit(name, nameCol+2)
 	}
 	if sortBy == "name" {
@@ -1022,7 +1063,7 @@ func (m *Model) badges(a *fleet.Agent) string {
 func (m *Model) promptLines(w int) []string {
 	a := m.selected()
 	text := string(m.input)
-	b := box{w: w, focused: !m.paneFocus, text: m.input, cursor: m.cursorPos(),
+	b := box{w: w, focused: !m.sessionFocused(), text: m.input, cursor: m.cursorPos(),
 		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-len(m.header())-1-4-5))}
 	switch {
 	case m.inKind == inRename && a != nil:
@@ -1050,9 +1091,12 @@ func (m *Model) promptLines(w int) []string {
 		}
 		b.footL = sel
 	}
-	if m.paneFocus {
-		// The conversation has the keys; this box waits, and says how back.
+	if m.sessionFocused() {
+		// The Session has the keys; this box waits, and says how back.
 		b.holder = "esc or ← to come back here"
+		if m.embedded {
+			b.holder = "ctrl+] or click here to come back"
+		}
 		b.text = nil
 	}
 	var out []string
@@ -1372,7 +1416,7 @@ func (m *Model) helpBody() []string {
 		{"Move & open", [][2]string{
 			{"↑ ↓", "move"}, {"enter", "open the agent · fold a section"},
 			{"enter · →", "into the session · type to its agent"}, {"esc · ←", "back to Agents"}, {"ctrl+n", "next agent needing you"},
-			{"ctrl+]", "stop typing into a Claude Code screen"},
+			{"ctrl+]", "stop typing into a Claude Code screen"}, {"[ ]", "switch the Session view"}, {"ctrl+f", "a Claude Code agent full screen"},
 			{"tab", "next view"}, {"shift+↑ ↓", "taller or shorter preview"},
 		}},
 		{"Manage", [][2]string{
