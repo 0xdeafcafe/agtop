@@ -222,3 +222,26 @@ func TestLocalQueue(t *testing.T) {
 		t.Fatalf("withImages = %q", got)
 	}
 }
+
+func TestArgPicker(t *testing.T) {
+	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
+	c.sess.Info.Model = "claude-sonnet-5"
+	c.input = []rune("/model ")
+	got := argMatches(c)
+	if len(got) != 6 {
+		t.Fatalf("all models offered: %v", got)
+	}
+	for _, g := range got {
+		if g.Name == "model sonnet" && !strings.Contains(g.Description, "now") {
+			t.Fatal("current model not marked")
+		}
+	}
+	c.input = []rune("/effort x")
+	if got := argMatches(c); len(got) != 1 || got[0].Name != "effort xhigh" {
+		t.Fatalf("effort x: %v", got)
+	}
+	c.input = []rune("/model")
+	if argMatches(c) != nil {
+		t.Fatal("no argument picker before the space")
+	}
+}

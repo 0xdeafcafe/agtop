@@ -254,13 +254,61 @@ func (m *Model) loadLocal(c *hostConn) {
 	}
 }
 
-// slashLines draws the picker above the message box.
-func (m *Model) slashLines(c *hostConn, w int) []string {
-	if _, _, _, ok := slashWord(c); !ok {
+// argChoices are what /model and /effort offer once you've typed a space.
+var argChoices = map[string][]headless.Command{
+	"model": {
+		{Name: "opus", Description: "most capable"},
+		{Name: "opus[1m]", Description: "Opus with a 1M-token context"},
+		{Name: "sonnet", Description: "fast and capable"},
+		{Name: "haiku", Description: "fastest and cheapest"},
+		{Name: "fable", Description: "Fable"},
+		{Name: "default", Description: "the account's default"},
+	},
+	"effort": {
+		{Name: "low"}, {Name: "medium"}, {Name: "high"}, {Name: "xhigh"}, {Name: "max"},
+	},
+}
+
+// argMatches is the picker for a command's argument: "/model so" offers
+// the models starting with so, the current one marked.
+func argMatches(c *hostConn) []headless.Command {
+	text := string(c.input)
+	if c.back != 0 || !strings.HasPrefix(text, "/") || strings.ContainsAny(text, "\n") {
 		return nil
 	}
-	m.loadLocal(c)
-	cmds := slashMatches(c)
+	name, q, ok := strings.Cut(text[1:], " ")
+	opts := argChoices[name]
+	if !ok || opts == nil || strings.Contains(q, " ") {
+		return nil
+	}
+	now := c.sess.Info.Model
+	if name == "effort" {
+		now = c.sess.Info.Effort
+	}
+	var out []headless.Command
+	for _, o := range opts {
+		if !strings.HasPrefix(o.Name, strings.ToLower(q)) {
+			continue
+		}
+		d := o.Description
+		if now != "" && (now == o.Name || name == "model" && strings.Contains(now, strings.TrimSuffix(o.Name, "[1m]"))) {
+			d = strings.TrimPrefix(d+" · now", " · ")
+		}
+		out = append(out, headless.Command{Name: name + " " + o.Name, Description: d})
+	}
+	return out
+}
+
+// slashLines draws the picker above the message box.
+func (m *Model) slashLines(c *hostConn, w int) []string {
+	cmds := argMatches(c)
+	if cmds == nil {
+		if _, _, _, ok := slashWord(c); !ok {
+			return nil
+		}
+		m.loadLocal(c)
+		cmds = slashMatches(c)
+	}
 	if len(cmds) == 0 {
 		return nil
 	}
@@ -305,6 +353,23 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 
 // slashKey drives the picker while a command is being typed.
 func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
+	if args := argMatches(c); len(args) > 0 {
+		c.slashSel = max(0, min(c.slashSel, len(args)-1))
+		switch s {
+		case "up":
+			c.slashSel = max(0, c.slashSel-1)
+		case "down":
+			c.slashSel = min(len(args)-1, c.slashSel+1)
+		case "tab":
+			c.input, c.back = []rune("/"+args[c.slashSel].Name), 0
+		case "enter":
+			c.input, c.back = []rune("/"+args[c.slashSel].Name), 0
+			return m.sendPane(c, false), true
+		default:
+			return nil, false
+		}
+		return nil, true
+	}
 	cmds := slashMatches(c)
 	if len(cmds) == 0 {
 		return nil, false
