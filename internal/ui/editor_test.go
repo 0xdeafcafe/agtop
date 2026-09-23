@@ -2,6 +2,7 @@ package ui
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -165,5 +166,21 @@ func TestCleanPaste(t *testing.T) {
 	want := "goroutine 1:\n    main.go:78 +0x5ec\n[1mab   c"
 	if got := cleanPaste(in); got != want {
 		t.Fatalf("cleanPaste = %q, want %q", got, want)
+	}
+}
+
+func TestImagePathsOddNames(t *testing.T) {
+	dir := t.TempDir()
+	name := filepath.Join(dir, "Screenshot 2026-09-23 at 23.38.19 PM.png")
+	if err := os.WriteFile(name, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	esc := strings.ReplaceAll(name, " ", `\ `)
+	if got := imagePaths(esc); len(got) != 1 || got[0] != name {
+		t.Fatalf("escaped path with U+202F: %v", got)
+	}
+	u := "file://" + strings.ReplaceAll(strings.ReplaceAll(name, " ", "%20"), " ", "%E2%80%AF")
+	if got := imagePaths(u); len(got) != 1 || got[0] != name {
+		t.Fatalf("file URL: %v", got)
 	}
 }

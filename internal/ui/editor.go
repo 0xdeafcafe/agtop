@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -213,6 +214,12 @@ func (m *Model) copyText(t string) {
 func imagePaths(paste string) []string {
 	var out []string
 	for _, tok := range splitPaths(paste) {
+		if rest, ok := strings.CutPrefix(tok, "file://"); ok {
+			// Some apps drop a file URL rather than a path.
+			if p, err := url.PathUnescape(strings.TrimPrefix(rest, "localhost")); err == nil {
+				tok = p
+			}
+		}
 		ext := strings.ToLower(filepath.Ext(tok))
 		switch ext {
 		case ".png", ".jpg", ".jpeg", ".gif", ".webp":
@@ -255,7 +262,9 @@ func splitPaths(s string) []string {
 			}
 		case r == '\'' || r == '"':
 			quote = r
-		case unicode.IsSpace(r):
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			// Only plain whitespace: macOS puts a narrow no-break space
+			// (U+202F) inside screenshot names.
 			flush()
 		default:
 			cur.WriteRune(r)
