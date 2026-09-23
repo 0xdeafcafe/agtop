@@ -505,7 +505,20 @@ func openHost(a *fleet.Agent) tea.Cmd {
 		if err != nil {
 			return hostOpenMsg{key: key, err: err}
 		}
-		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, client: cl, sess: convo.New(), open: map[string]bool{}, path: path}}
+		// A session that took over an existing conversation shows it: the
+		// transcript up to when the host started, then the host's replay.
+		sess := convo.New()
+		if cfg, err := host.ReadConfig(id); err == nil && cfg.Resume {
+			started := time.Now()
+			if info, err := host.ReadInfo(id); err == nil && !info.StartedAt.IsZero() {
+				started = info.StartedAt
+			}
+			sess = convo.History(path, started)
+			if len(sess.Turns) == 0 && cfg.From != "" {
+				sess = convo.History(filepath.Join(filepath.Dir(path), cfg.From+".jsonl"), started)
+			}
+		}
+		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, client: cl, sess: sess, open: map[string]bool{}, path: path}}
 	}
 }
 
@@ -1764,7 +1777,7 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 	old := a.Key
 	if a.Interactive {
 		// Its terminal keeps the original; agtop carries on with a copy.
-		cfg.Fork = true
+		cfg.Fork, cfg.From = true, a.SessionID
 		m.flash("copying "+a.DisplayName+" into agtop mode · the terminal one is left as it is", false)
 		return func() tea.Msg {
 			c, err := host.Spawn(cfg)

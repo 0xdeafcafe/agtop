@@ -679,3 +679,17 @@ func TestNotice(t *testing.T) {
 		t.Fatalf("notice missing:\n%s", out)
 	}
 }
+
+func TestHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := []string{
+		`{"type":"user","timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"first ask"}}`,
+		`{"type":"assistant","timestamp":"2026-09-23T20:00:05Z","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Done."}]}}`,
+		`{"type":"user","timestamp":"2026-09-23T21:00:00Z","message":{"role":"user","content":"after the host started"}}`,
+	}
+	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	s := History(path, time.Date(2026, 9, 23, 20, 30, 0, 0, time.UTC))
+	if len(s.Turns) != 1 || s.Turns[0].Prompt != "first ask" || s.Turns[0].Live {
+		t.Fatalf("history = %d turns, %+v", len(s.Turns), s.Turns)
+	}
+}

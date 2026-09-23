@@ -38,7 +38,10 @@ type Config struct {
 	// Fork continues a copy of the conversation (Claude Code's
 	// --fork-session), leaving the original to whoever has it open. Once
 	// Claude Code names the copy, SessionID becomes that and Fork is cleared.
-	Fork           bool           `json:"fork,omitempty"`
+	Fork bool `json:"fork,omitempty"`
+	// From is the conversation this one continues, for showing its history
+	// (a fork's own transcript may start empty).
+	From           string         `json:"from,omitempty"`
 	Account        claude.Account `json:"account"`
 	Cwd            string         `json:"cwd"`
 	Name           string         `json:"name,omitempty"`

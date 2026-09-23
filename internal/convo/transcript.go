@@ -24,13 +24,29 @@ type Tail struct {
 	off       int64
 	partial   []byte
 	buf       []byte
-	sidechain bool // a subagent's own transcript: its lines are the story
+	sidechain bool      // a subagent's own transcript: its lines are the story
+	before    time.Time // History: only lines from before this
 }
 
 func NewTail(path string) *Tail { return &Tail{Path: path, Sess: New()} }
 
 // Size is how far into the file Read has got.
 func (t *Tail) Size() int64 { return t.off }
+
+// History is the conversation a transcript holds from before a moment: what
+// an agtop session that resumed one had already said before its host
+// started (the host replays the rest). Its last turn is closed.
+func History(path string, before time.Time) *Session {
+	t := NewTail(path)
+	t.before = before
+	if _, err := t.Read(); err != nil {
+		return New()
+	}
+	if live := t.Sess.Live(); live != nil {
+		t.Sess.Apply(headless.Result{Subtype: "success"}, live.Start)
+	}
+	return t.Sess
+}
 
 type tline struct {
 	Type          string          `json:"type"`
@@ -113,6 +129,9 @@ func (t *Tail) apply(b []byte) bool {
 	}
 	var l tline
 	if json.Unmarshal(b, &l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
+		return false
+	}
+	if !t.before.IsZero() && !l.Timestamp.IsZero() && !l.Timestamp.Before(t.before) {
 		return false
 	}
 	s := t.Sess
