@@ -38,12 +38,25 @@ func (a Account) StatePath() string {
 }
 
 // Env is what a child claude process needs to act as this account.
+// inherited are the markers a Claude Code session sets for what it runs.
+// agtop started from inside one would pass them on, and the sessions agtop
+// starts would think they're that session's children: Claude Code then
+// saves no transcript for them, among other things.
+var inherited = map[string]bool{
+	"CLAUDECODE": true, "CLAUDE_CODE_CHILD_SESSION": true, "CLAUDE_CODE_SESSION_ID": true,
+	"CLAUDE_CODE_ENTRYPOINT": true, "CLAUDE_CODE_SESSION_ATTENDED": true, "CLAUDE_CODE_EXECPATH": true,
+	"CLAUDE_CODE_MESSAGING_SOCKET": true, "CLAUDE_CODE_MESSAGING_TOKEN": true,
+	"CLAUDE_PID": true, "CLAUDE_JOB_DIR": true, "CLAUDE_CODE_VERSION": true,
+}
+
 func (a Account) Env() []string {
 	var env []string
 	for _, e := range os.Environ() {
-		if !strings.HasPrefix(e, "CLAUDE_CONFIG_DIR=") {
-			env = append(env, e) // an inherited one would point at another account
+		name, _, _ := strings.Cut(e, "=")
+		if name == "CLAUDE_CONFIG_DIR" || inherited[name] {
+			continue // another account's, or the session agtop was started from
 		}
+		env = append(env, e)
 	}
 	if a.IsDefault() {
 		return env

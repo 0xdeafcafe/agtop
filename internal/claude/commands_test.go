@@ -68,3 +68,16 @@ func TestSettingsSave(t *testing.T) {
 		t.Fatalf("saved:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestEnvDropsInheritedMarkers(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+	env := strings.Join(DefaultAccount().Env(), "\n")
+	if strings.Contains(env, "CLAUDE_CODE_CHILD_SESSION=") || strings.Contains(env, "CLAUDECODE=") {
+		t.Fatal("a parent session's markers passed on")
+	}
+	if !strings.Contains(env, "CLAUDE_CODE_ENABLE_TELEMETRY=1") {
+		t.Fatal("your own settings must pass on")
+	}
+}
