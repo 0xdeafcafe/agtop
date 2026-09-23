@@ -32,7 +32,24 @@ type Agent struct {
 	Spend       Spend
 	PRs         []claude.PR
 	Interactive bool
-	PID         int // root of the process tree
+	PID         int  // root of the process tree
+	Checking    bool // turn just ended; Claude Code has not classified it yet
+}
+
+// applyStatus trusts the session's own busy/idle flag when it is newer than
+// the job file: Claude Code rewrites the job's state only every 15-40s.
+func (a *Agent) applyStatus(ss claude.Session) {
+	if ss.StatusMs == 0 || !ss.StatusAt().After(a.UpdatedAt) {
+		return
+	}
+	switch {
+	case ss.Status == "idle" && a.State == "working":
+		a.State, a.Checking = "blocked", true
+		a.Needs = ""
+	case (ss.Status == "busy" || ss.Status == "shell") && (a.State == "blocked" || a.State == "done"):
+		a.State, a.Needs = "working", ""
+		a.Detail = "working on your reply"
+	}
 }
 
 // Busy is a finished turn whose background work is still running in a live
@@ -189,6 +206,13 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		}
 		av := AccountView{Account: acct, Daemon: daemon.Client{Account: acct}.Running(), Current: acct.Name == active.Name}
 		av.Usage = l.readUsage(acct)
+		sessions := claude.ReadSessions(acct)
+		byJob := map[string]claude.Session{}
+		for _, ss := range sessions {
+			if ss.JobID != "" {
+				byJob[ss.JobID] = ss
+			}
+		}
 		for _, id := range claude.ListJobIDs(acct) {
 			key := state.Key(acct.Name, id)
 			seen[key] = true
@@ -197,6 +221,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				continue
 			}
 			a := &Agent{Job: j, Key: key, Acct: acct, DisplayName: j.Name}
+			if ss, ok := byJob[id]; ok {
+				a.applyStatus(ss)
+			}
 			if n := ov.Names[key]; n != "" {
 				a.DisplayName = n
 			}
@@ -229,7 +256,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			av.Today += a.Spend.Today
 			snap.Agents = append(snap.Agents, a)
 		}
-		for _, ss := range claude.ReadSessions(acct) {
+		for _, ss := range sessions {
 			if ss.Kind != "interactive" || ss.SessionID == "" {
 				continue
 			}

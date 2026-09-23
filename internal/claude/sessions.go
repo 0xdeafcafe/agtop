@@ -21,7 +21,10 @@ type Session struct {
 	JobID     string `json:"jobId"`
 	StartedMs int64  `json:"startedAt"`
 	UpdatedMs int64  `json:"updatedAt"`
+	StatusMs  int64  `json:"statusUpdatedAt"`
 }
+
+func (s Session) StatusAt() time.Time { return time.UnixMilli(s.StatusMs) }
 
 func (s Session) StartedAt() time.Time { return time.UnixMilli(s.StartedMs) }
 func (s Session) UpdatedAt() time.Time {

@@ -519,6 +519,8 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	marker := " "
 
 	switch {
+	case a.Checking:
+		marker = paint(cYellow, "◔")
 	case a.State == "blocked":
 		marker = paint(cYellow, "●")
 	case live:
@@ -575,6 +577,8 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	badges := m.badges(a)
 	summary, sumColor := "", cDim
 	switch {
+	case a.Checking:
+		summary, sumColor = "turn ended · checking…", cDim
 	case a.State == "blocked":
 		summary, sumColor = oneLine(a.Needs), cYellow
 		if summary == "" {

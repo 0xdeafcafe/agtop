@@ -397,6 +397,9 @@ func (m *Model) refresh() {
 func (m *Model) notify() {
 	first := len(m.lastState) == 0
 	for _, a := range m.snap.Agents {
+		if a.Checking {
+			continue
+		}
 		prev := m.lastState[a.Key]
 		m.lastState[a.Key] = a.State
 		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.State == "blocked" {
