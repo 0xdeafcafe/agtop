@@ -572,3 +572,30 @@ func TestSearchEdges(t *testing.T) {
 	}
 	_ = s.SearchView("İ", Options{Width: 100}) // mustn't panic
 }
+
+func TestConvoReviewFixes(t *testing.T) {
+	if isRejection("open /etc/x: permission denied") {
+		t.Error("EACCES isn't a rejection")
+	}
+	if !isRejection("The user doesn't want to proceed with this tool use.") {
+		t.Error("a refusal is a rejection")
+	}
+	if got := cleanOutput("a\x1b]0;title\x07b\x1b[2Jc\x1b[31md\te"); got != "abcd\te" {
+		t.Errorf("cleanOutput = %q", got)
+	}
+	st := &Step{Status: OK, Output: "Exit code 3 is what the docs say"}
+	if exitCode(st) != 0 {
+		t.Error("exit code parsed from a success's output")
+	}
+	// A subagent message whose parent we never saw stays out of the turn.
+	s := New()
+	s.Apply(host.Sent{Text: "go"}, at(0))
+	s.Apply(headless.Message{Role: "assistant", ParentToolUseID: "unknown", Blocks: []headless.Block{{Type: "text", Text: "sub words"}}}, at(1))
+	if strings.Contains(plain(s.Render(Options{Width: 90, Now: at(2)})), "sub words") {
+		t.Error("an unknown subagent's words leaked into the turn")
+	}
+	s.Apply(headless.Message{Role: "user", Blocks: []headless.Block{{Type: "text", Text: "[Request interrupted by user]"}}}, at(3))
+	if len(s.Turns) != 1 || !s.Turns[0].Stopped {
+		t.Errorf("interrupt: %d turns, stopped=%v", len(s.Turns), s.Turns[0].Stopped)
+	}
+}

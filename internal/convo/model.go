@@ -370,9 +370,12 @@ func (s *Session) message(m headless.Message, now time.Time) {
 	defer t.touch()
 	{
 		parent := s.byID[m.ParentToolUseID]
+		// A subagent's message whose run we never saw start still isn't
+		// the main agent's: it mustn't land in the turn or its numbers.
+		sub := m.ParentToolUseID != ""
 		if m.Usage != nil {
 			s.request(m, parent, now)
-			if parent == nil {
+			if !sub {
 				u := m.Usage
 				s.Context = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens
 				if m.Model != "" {
@@ -383,7 +386,7 @@ func (s *Session) message(m headless.Message, now time.Time) {
 		for _, b := range m.Blocks {
 			switch b.Type {
 			case "text":
-				if parent != nil || strings.TrimSpace(b.Text) == "" {
+				if sub || strings.TrimSpace(b.Text) == "" {
 					continue // a subagent's words stay inside it
 				}
 				if s.streaming != nil {
@@ -393,7 +396,7 @@ func (s *Session) message(m headless.Message, now time.Time) {
 					t.Items = append(t.Items, &Item{Kind: KText, Text: b.Text})
 				}
 			case "thinking":
-				if parent == nil && (len(t.Items) == 0 || t.Items[len(t.Items)-1].Kind != KThinking) {
+				if !sub && (len(t.Items) == 0 || t.Items[len(t.Items)-1].Kind != KThinking) {
 					t.Items = append(t.Items, &Item{Kind: KThinking, Text: b.Text})
 				}
 			case "tool_use":
@@ -403,9 +406,10 @@ func (s *Session) message(m headless.Message, now time.Time) {
 				t.steps[b.ID] = st
 				s.stepVer++
 				s.tool(b.Name).Calls++
-				if parent != nil {
+				switch {
+				case parent != nil:
 					parent.Children = append(parent.Children, st)
-				} else {
+				case !sub:
 					t.Items = append(t.Items, &Item{Kind: KStep, Step: st})
 				}
 				s.tasksFromInput(st)
@@ -414,7 +418,28 @@ func (s *Session) message(m headless.Message, now time.Time) {
 	}
 }
 
+// interrupted ends the running turn (or marks the last one) as stopped by
+// you.
+func (s *Session) interrupted(now time.Time) {
+	t := s.Live()
+	if t != nil {
+		s.endTurn(t, now)
+	} else if n := len(s.Turns); n > 0 {
+		t = s.Turns[n-1]
+	}
+	if t != nil {
+		t.Stopped, t.Err = true, ""
+		t.touch()
+	}
+}
+
 func (s *Session) results(m headless.Message, now time.Time) {
+	for _, b := range m.Blocks {
+		if b.Type == "text" && strings.HasPrefix(strings.TrimSpace(b.Text), "[Request interrupted by user") {
+			s.interrupted(now)
+			return
+		}
+	}
 	// Text Claude Code injects as a user message (a background task
 	// finishing, another session's message) starts a turn of its own.
 	for _, b := range m.Blocks {
@@ -465,6 +490,9 @@ func (s *Session) results(m headless.Message, now time.Time) {
 var exitRe = regexp.MustCompile(`(?m)^(?:Error: )?Exit code (\d+)`)
 
 func exitCode(st *Step) int {
+	if st.Status == OK {
+		return 0 // "Exit code N" in a success's output is just output
+	}
 	if m := exitRe.FindStringSubmatch(st.Output); m != nil {
 		n, _ := strconv.Atoi(m[1])
 		return n
@@ -475,10 +503,17 @@ func exitCode(st *Step) int {
 	return -1
 }
 
+// isRejection is a tool call you (or a rule) refused, as against one that
+// failed on its own, like a file it had no permission to read.
 func isRejection(text string) bool {
 	t := strings.ToLower(text)
-	return strings.Contains(t, "user declined") || strings.Contains(t, "user rejected") ||
-		strings.Contains(t, "requires approval") || strings.Contains(t, "permission")
+	for _, k := range []string{"user declined", "user rejected", "doesn't want to proceed", "tool use was rejected",
+		"requires approval", "permission to use", "haven't granted", "has been denied"} {
+		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // request records a model call. Claude Code sends one message per content

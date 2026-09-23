@@ -53,7 +53,9 @@ func (t *Tail) Read() (bool, error) {
 		return false, err
 	}
 	if st.Size() < t.off { // rewritten from scratch: start over
-		t.off, t.partial, t.Sess = 0, nil, New()
+		// Reset in place: whoever holds the Session keeps following it.
+		t.off, t.partial = 0, nil
+		*t.Sess = *New()
 	}
 	if st.Size() == t.off {
 		return false, nil
@@ -130,6 +132,11 @@ func (t *Tail) apply(b []byte) bool {
 				if live := s.Live(); live != nil && strings.HasPrefix(live.Prompt, "! ") {
 					s.shellResult(live, out, at)
 				}
+				return true
+			}
+			// You stopped it: that ends the turn, it isn't a new one.
+			if strings.HasPrefix(strings.TrimSpace(text), "[Request interrupted by user") {
+				s.interrupted(at)
 				return true
 			}
 			// A new prompt closes a turn the transcript never marked done.

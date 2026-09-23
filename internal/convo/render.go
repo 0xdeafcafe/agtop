@@ -3,6 +3,7 @@ package convo
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -340,6 +341,14 @@ func (d *drawer) open() {
 					i = j - 1
 					continue
 				}
+				// Opened: every step of the run, under a row that folds it
+				// back, and nothing after it refolds.
+				d.add(runRef, "", d.spine()+"   "+faint("▾")+" "+dim(plural(j-i, "step")), "")
+				for _, x := range items[i:j] {
+					d.step(x.Step, 0)
+				}
+				i = j - 1
+				continue
 			}
 		}
 		switch it.Kind {
@@ -690,6 +699,21 @@ func urlStop(c byte) bool {
 
 // stripANSI drops colour codes (ESC [ digits and semicolons m), as ansiRe
 // would, with a byte scan.
+// cleanOutput takes every escape sequence and control character out of a
+// line of a tool's output, keeping tabs for expandTabs.
+func cleanOutput(s string) string {
+	if !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 && r != '\t' || r == 0x7f }) {
+		return s
+	}
+	s = ansi.Strip(s)
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\t' || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 func stripANSI(s string) string {
 	i := strings.IndexByte(s, 0x1b)
 	if i < 0 {
@@ -1278,7 +1302,9 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	pad := d.spine() + strings.Repeat(" ", indent-1)
 	w := d.cw - indent - 2
 	emit := func(l string) {
-		d.add("", b, pad+edge+sub(truncateCells(expandTabs(l), w)), "")
+		// A tool's own escape codes (colours, cursor moves, titles) would
+		// reach the terminal or throw widths off; agtop does the colour.
+		d.add("", b, pad+edge+sub(truncateCells(expandTabs(cleanOutput(l)), w)), "")
 	}
 	if !d.o.Verbose && len(lines) > 15 {
 		for _, l := range lines[:3] {
