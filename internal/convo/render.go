@@ -59,23 +59,35 @@ type cacheKey struct {
 }
 
 // Render draws every turn, oldest first.
-func (s *Session) Render(o Options) []Line {
+func (s *Session) Render(o Options) []Line { return s.RenderInto(o, nil) }
+
+// RenderInto is Render writing into buf's storage, so a caller that draws
+// every frame reuses one slice instead of allocating the whole session's
+// lines each time. The result is only good until the next call.
+func (s *Session) RenderInto(o Options, buf []Line) []Line {
 	if o.Width < 20 {
 		o.Width = 20
 	}
 	s.memoTurn()
 	folds := foldsByTurn(o.Open)
-	parts := make([][]Line, len(s.Turns))
+	if cap(s.parts) < len(s.Turns) {
+		s.parts = make([][]Line, len(s.Turns))
+	}
+	parts := s.parts[:len(s.Turns)]
 	n := 0
 	for i, t := range s.Turns {
 		recent := i >= len(s.Turns)-2
 		parts[i] = s.turn(t, o, recent, folds)
 		n += len(parts[i])
 	}
-	out := make([]Line, 0, n)
+	out := buf[:0]
+	if cap(out) < n {
+		out = make([]Line, 0, n+n/4)
+	}
 	for _, p := range parts {
 		out = append(out, p...)
 	}
+	clear(parts) // don't keep turns' lines alive through this slice
 	return out
 }
 

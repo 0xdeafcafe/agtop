@@ -175,6 +175,7 @@ type Session struct {
 	memoOld    map[memoKey][]Line
 	stepVer    int           // bumped whenever a step is added or changes
 	changes    []*FileChange // Changes, as of changesVer
+	parts      [][]Line      // RenderInto's scratch, one entry per turn
 	searchHits []Hit         // the last search, for searchKey
 	searchKey  string
 	changesVer int

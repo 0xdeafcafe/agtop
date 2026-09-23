@@ -436,6 +436,7 @@ type hostConn struct {
 	pastes   pastes // long pastes shown as chips
 	arts     []*artifact
 	marks    map[string]bool // files marked reviewed in the changes view
+	bodyBuf  []convo.Line    // the conversation\'s lines, reused frame to frame
 	artsKey  string
 	local    []headless.Command // custom commands and skills on disk
 	skills   map[string]bool
@@ -773,7 +774,8 @@ func (m *Model) agtopPane(w, h int) []string {
 		}
 		body = m.subagentLines(c, o)
 	default:
-		body = s.Render(o)
+		body = s.RenderInto(o, c.bodyBuf)
+		c.bodyBuf = body
 		c.drawn, c.drewConvo = o, true
 		if len(body) == 0 {
 			body = []convo.Line{{Text: ""}, {Text: dim("  nothing yet · type below to start")}}
