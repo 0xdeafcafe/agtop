@@ -1216,6 +1216,107 @@ func tint(cmd string) string {
 	return b.String()
 }
 
+// shLine is one line of a command as shellLines lays it out: depth 1 is a
+// pipe's later stage; verbatim is a heredoc's body, shown as written.
+type shLine struct {
+	text     string
+	depth    int
+	verbatim bool
+}
+
+// shellLines lays a command out the way a person would write it rather than
+// as the one long line an agent sends: each command on its own line, && and
+// || leading the line they join, a pipe's stages indented under it. Quotes,
+// $(…) and heredoc bodies are never split.
+func shellLines(cmd string) []shLine {
+	var out []shLine
+	var cur strings.Builder
+	depth := 0 // of the line being built
+	emit := func(next int) {
+		if s := strings.TrimSpace(cur.String()); s != "" {
+			out = append(out, shLine{text: s, depth: depth})
+		}
+		cur.Reset()
+		depth = next
+	}
+	quote, parens := byte(0), 0
+	heredoc := ""
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		switch {
+		case quote != 0:
+			cur.WriteByte(c)
+			if c == '\\' && quote == '"' && i+1 < len(cmd) {
+				i++
+				cur.WriteByte(cmd[i])
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '\\' && i+1 < len(cmd):
+			cur.WriteByte(c)
+			i++
+			cur.WriteByte(cmd[i])
+		case c == '\'' || c == '"':
+			quote = c
+			cur.WriteByte(c)
+		case c == '(':
+			parens++
+			cur.WriteByte(c)
+		case c == ')':
+			parens = max(0, parens-1)
+			cur.WriteByte(c)
+		case parens > 0:
+			cur.WriteByte(c)
+		case c == '<' && strings.HasPrefix(cmd[i:], "<<") && !strings.HasPrefix(cmd[i:], "<<<"):
+			// Remember the word that ends the heredoc; its body starts at
+			// the next newline.
+			rest := strings.TrimLeft(strings.TrimPrefix(cmd[i+2:], "-"), " ")
+			end := strings.IndexAny(rest, " \n;|&<>")
+			if end < 0 {
+				end = len(rest)
+			}
+			heredoc = strings.Trim(rest[:end], `'"`)
+			cur.WriteString("<<")
+			i++
+		case c == '\n':
+			emit(0)
+			if heredoc != "" {
+				body := cmd[i+1:]
+				for n, l := range strings.Split(body, "\n") {
+					out = append(out, shLine{text: l, verbatim: true})
+					i += len(l) + 1
+					if strings.TrimSpace(l) == heredoc || n > 10000 {
+						break
+					}
+				}
+				heredoc = ""
+			}
+		case c == ';':
+			emit(0)
+		case c == '&' && strings.HasPrefix(cmd[i:], "&&"), c == '|' && strings.HasPrefix(cmd[i:], "||"):
+			emit(0)
+			cur.WriteString(cmd[i:i+2] + " ")
+			i = skipSpaces(cmd, i+1)
+		case c == '|' && !(i > 0 && cmd[i-1] == '>'):
+			emit(1)
+			cur.WriteString("| ")
+			i = skipSpaces(cmd, i)
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	emit(0)
+	return out
+}
+
+// skipSpaces is i moved past the spaces that follow it.
+func skipSpaces(s string, i int) int {
+	for i+1 < len(s) && s[i+1] == ' ' {
+		i++
+	}
+	return i
+}
+
 // shellTokens splits on spaces, keeping quoted strings and spaces whole.
 func shellTokens(s string) []string {
 	var out []string
@@ -1374,12 +1475,22 @@ func (d *drawer) body(st *Step, indent int) {
 	case "Bash":
 		if cmd := readInput(st.Input).str("command"); cmd != "" && readInput(st.Input).str("description") != "" {
 			pad := d.spine() + strings.Repeat(" ", indent-1)
-			for i, l := range strings.Split(strings.TrimSpace(cmd), "\n") {
+			for i, l := range shellLines(strings.TrimSpace(cmd)) {
 				lead := faint("$ ") // the command, not each line of a heredoc
 				if i > 0 {
 					lead = "  "
 				}
-				d.add("", bgWell, pad+lead+tint(truncateCells(expandTabs(l), d.cw-indent-4)), "")
+				hang := strings.Repeat(" ", l.depth*2)
+				colored := tint(expandTabs(l.text))
+				if l.verbatim {
+					colored = text(expandTabs(l.text))
+				}
+				for j, r := range wrap(colored, d.cw-indent-4-len(hang)) {
+					if j > 0 {
+						lead, r = "  ", "  "+r // a wrapped line hangs under its own start
+					}
+					d.add("", bgWell, pad+lead+hang+r, "")
+				}
 			}
 		}
 		var r struct {
