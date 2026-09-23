@@ -177,6 +177,74 @@ type setting struct {
 	set     func(string)
 }
 
+// settingHelp says what a setting does, and what its current choice means.
+func settingHelp(label, value string) (what, now string) {
+	switch label {
+	case "Group by":
+		what = "How finished agents are sorted into sections. Needs you, Working, Waiting on you and Idle always come first."
+		now = map[string]string{
+			"status":  "status: finished agents from the last day under Today, older ones under Earlier.",
+			"repo":    "repo: one section per repository and branch, so work on the same code sits together.",
+			"account": "account: one section per Claude account, handy when you run several subscriptions.",
+			"group":   "group: your own sections; put an agent in one with ctrl+e. Ungrouped agents fall back to status.",
+		}[value]
+	case "Sort rows by":
+		what = "The order of rows inside each section. You can also click a column header on the Agents view."
+		now = map[string]string{
+			"name":   "name: alphabetical, so a row stays put while its agent works.",
+			"recent": "recent: most recently active first; rows move as agents update.",
+			"cost":   "cost: most expensive first.",
+			"cpu":    "cpu: busiest first, by CPU across everything the agent started.",
+			"ram":    "ram: heaviest first, by memory across everything the agent started.",
+			"time":   "time: longest-running first.",
+		}[value]
+	case "Hibernate finished agents":
+		what = "A finished agent's process stays in memory (often 300–800 MB) until it is stopped. Hibernating stops it; the conversation is kept and enter resumes it."
+		if value == "off" {
+			now = "off: finished agents stay in memory until you stop them (ctrl+x)."
+		} else {
+			now = "after " + value + ": an agent that finished and has been idle that long is stopped automatically."
+		}
+	case "Notify when an agent needs you":
+		what = "A macOS notification when an agent starts waiting on you (a question or a permission), not when you have already seen it."
+		now = map[string]string{"on": "on: you are notified once per new question.", "off": "off: the Needs you section is the only signal."}[value]
+	case "Earlier section":
+		what = "Agents that finished more than a day ago. Folded, it is one line with a count and a peek at the names."
+		now = map[string]string{"folded": "folded: open it with enter or → when you need it.", "open": "open: every older agent is listed."}[value]
+	case "Model":
+		what = "The model new sessions start with (the --model flag). Running agents keep their own."
+		now = map[string]string{
+			"":         "Claude Code default: whatever your Claude Code settings choose.",
+			"opus":     "opus: the most capable Opus for hard, long-running work.",
+			"opus[1m]": "opus[1m]: Opus with the 1M-token context window, for very large tasks.",
+			"sonnet":   "sonnet: faster and cheaper, good for routine work.",
+			"haiku":    "haiku: fastest and cheapest, for small tasks.",
+			"fable":    "fable: Anthropic's most capable model, at a higher price.",
+		}[value]
+	case "Effort":
+		what = "How hard new sessions think before acting (the --effort flag): more effort is slower and costs more tokens."
+		now = map[string]string{
+			"":       "Claude Code default: the model's own default level.",
+			"low":    "low: quick and cheap; fine for simple, well-specified tasks.",
+			"medium": "medium: a balance of speed and care.",
+			"high":   "high: careful; the usual choice for real engineering work.",
+			"xhigh":  "xhigh: very careful; for tricky, long-horizon tasks.",
+			"max":    "max: as thorough as possible, whatever it costs.",
+		}[value]
+	case "Permissions":
+		what = "What new sessions may do without asking you (the --permission-mode flag)."
+		now = map[string]string{
+			"":                  "Claude Code default: your settings decide.",
+			"default":           "default: asks before edits and commands it isn't sure about.",
+			"acceptEdits":       "acceptEdits: edits files without asking; still asks before other commands.",
+			"plan":              "plan: plans first and changes nothing until you approve.",
+			"auto":              "auto: a classifier approves safe actions and asks about risky ones.",
+			"bypassPermissions": "bypassPermissions: never asks. Only for sandboxed or throwaway work.",
+		}[value]
+	}
+	return what, now
+}
+
 func (m *Model) agentSettings() []setting {
 	d := &m.store.Config.Dispatch
 	return []setting{
@@ -573,6 +641,14 @@ func (m *Model) dialogBody(w int) []string {
 				v = "Claude Code default"
 			}
 			out = append(out, row(i, fit(st.label, 14)+faint("‹ ")+paint(cText, v)+faint(" ›")))
+			what, now := settingHelp(st.label, st.value)
+			for _, l := range wrap(what, w-6) {
+				out = append(out, "    "+dim(l))
+			}
+			if now != "" {
+				out = append(out, "    "+paint(cSub, now))
+			}
+			out = append(out, "")
 		}
 		out = append(out, "", dim("Coding agents"))
 		cur := m.store.Config.Dispatch.Agent
@@ -592,6 +668,16 @@ func (m *Model) dialogBody(w int) []string {
 	default:
 		for i, st := range m.generalSettings() {
 			out = append(out, row(i, fit(st.label, 32)+faint("‹ ")+paint(cText, st.value)+faint(" ›")))
+			what, now := settingHelp(st.label, st.value)
+			for _, l := range wrap(what, w-6) {
+				out = append(out, "    "+dim(l))
+			}
+			if now != "" {
+				for _, l := range wrap(now, w-6) {
+					out = append(out, "    "+paint(cSub, l))
+				}
+			}
+			out = append(out, "")
 		}
 		out = append(out, "", keysFit(w, "←→", "change", "tab", "next view", "esc", "back to agents"))
 	}
