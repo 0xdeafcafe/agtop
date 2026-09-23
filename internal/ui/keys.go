@@ -303,9 +303,9 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 		}
 		return nil
 	}
-	if a.Live() && a.Worker != nil {
+	if a.PID != 0 || (a.Live() && a.Worker != nil) {
 		m.flash("stopping "+a.DisplayName+"…", false)
-		return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID) })
+		return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID, a.PID) })
 	}
 	if m.armed == a.Key && time.Since(m.armedAt) < 5*time.Second {
 		m.armed = ""
@@ -417,7 +417,7 @@ func (m *Model) command(text string) tea.Cmd {
 		}
 	case "/stop":
 		if need() {
-			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID) })
+			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID, a.PID) })
 		}
 	case "/rm", "/delete":
 		if need() {
@@ -577,7 +577,7 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 		question: "Stop " + a.DisplayName + "?",
 		detail:   fmt.Sprintf("%d processes · %s · the conversation is kept", n, mem(memBytes)),
 		onYes: func() tea.Cmd {
-			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID) })
+			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID, a.PID) })
 		},
 		bangText: "SIGKILL the whole tree",
 		onBang:   killTree(root, start),

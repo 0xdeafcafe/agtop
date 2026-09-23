@@ -73,12 +73,28 @@ func Dispatch(acct claude.Account, dir, prompt string, flags ...string) (string,
 }
 
 // Stop ends a session's process; its conversation is kept.
-func Stop(acct claude.Account, short string) error {
-	if err := (daemon.Client{Account: acct}).Kill(short); err == nil {
-		return nil
+// Stop ends a session's process and keeps its conversation. When the daemon
+// and the CLI both fail, or the process outlives them, pid gets a SIGTERM.
+func Stop(acct claude.Account, short string, pid int) error {
+	err := (daemon.Client{Account: acct}).Kill(short)
+	if err != nil {
+		_, err = run(claudeCmd(acct, "", "stop", short))
 	}
-	_, err := run(claudeCmd(acct, "", "stop", short))
-	return err
+	if pid == 0 || waitExit(pid, 5*time.Second) {
+		return err
+	}
+	return Terminate(pid)
+}
+
+func waitExit(pid int, max time.Duration) bool {
+	deadline := time.Now().Add(max)
+	for time.Now().Before(deadline) {
+		if syscall.Kill(pid, 0) != nil {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
 }
 
 // Remove deletes a session, and its worktree when Claude Code deems it safe.
@@ -161,7 +177,7 @@ func (r Relaunch) Run() (string, error) {
 		return "", fmt.Errorf("folder not found: %s", dir)
 	}
 	if _, running := claude.ReadRoster(r.From).Workers[j.ID]; running {
-		if err := Stop(r.From, j.ID); err != nil {
+		if err := Stop(r.From, j.ID, 0); err != nil {
 			return "", fmt.Errorf("could not stop the agent first: %w", err)
 		}
 		if !waitStopped(r.From, j.ID, 10*time.Second) {

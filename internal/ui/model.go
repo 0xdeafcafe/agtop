@@ -551,7 +551,7 @@ func (m *Model) hibernate() {
 	for _, a := range m.snap.Agents {
 		if a.Worker != nil && a.State == "done" && a.Age(m.snap.At) > time.Duration(after)*time.Minute && !m.hibernated[a.Key] {
 			m.hibernated[a.Key] = true // one try each; a failed stop is not retried every second
-			go actions.Stop(a.Acct, a.ID)
+			go actions.Stop(a.Acct, a.ID, a.PID)
 		}
 	}
 }
