@@ -88,18 +88,18 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 ### 1. Correctness bugs from the review (not fixed yet)
 
 **Host state machine** (`internal/host/host.go`):
-- [ ] An auto-continue limit can freeze the queue for good. `busy` stays true while `Limit.Continue` is set, but `sendLocked` stops the timer, a limit with no `ResetsAt` never schedules one, and the `limit` op can leave `Continue` set with no timer. Clear `Limit` on send and on a successful Result.
-- [ ] The limit text match (`"usage limit"`, `"limit reached"`) runs before the `IsError` check, so a successful answer mentioning it counts as a limit. Only match when `IsError`. Reset `limitRaw` after a successful turn.
-- [ ] Sends during an idle stop or effort stop are lost: `mu` is released while `s.sess` still points at the dying process. Set `s.sess = nil` under `mu` before calling `Stop`.
-- [ ] A retry/continue timer can fire after the user has already sent (`AfterFunc` waiting on `mu`). Add a generation counter checked inside `after`.
-- [ ] A double `stop` panics on `close(s.quit)`. Use `sync.Once`.
-- [ ] Up to ~7 MB of image base64 is written to stdin while holding `mu` (risk of deadlock). Write outside the lock.
-- [ ] State never returns to "working" when Claude starts another turn after a Result (e.g. background-task wakeups). Set working on `Status`/`MessageStart` events.
-- [ ] Queue ops are addressed by index, which races with the automatic pop. Give queue items ids.
-- [ ] A popped queue item is lost if its send fails. Re-queue it.
-- [ ] The queue still drains after an interrupt. Hold on interrupt.
-- [ ] An over-long line: the scanner's 64 MB buffer can make `Wait` hang. Surface the error and restart.
-- [ ] **The whole queue should send as one message by default** (the user agreed). The host currently pops one item per turn.
+- [x] An auto-continue limit can freeze the queue for good. `busy` stays true while `Limit.Continue` is set, but `sendLocked` stops the timer, a limit with no `ResetsAt` never schedules one, and the `limit` op can leave `Continue` set with no timer. Clear `Limit` on send and on a successful Result. **Done (d834b1e).**
+- [x] The limit text match (`"usage limit"`, `"limit reached"`) runs before the `IsError` check, so a successful answer mentioning it counts as a limit. Only match when `IsError`. Reset `limitRaw` after a successful turn. **Done (d834b1e).**
+- [x] Sends during an idle stop or effort stop are lost: `mu` is released while `s.sess` still points at the dying process. Set `s.sess = nil` under `mu` before calling `Stop`. **Done (d834b1e).**
+- [x] A retry/continue timer can fire after the user has already sent (`AfterFunc` waiting on `mu`). Add a generation counter checked inside `after`. **Done (d834b1e).**
+- [x] A double `stop` panics on `close(s.quit)`. Use `sync.Once`. **Done (d834b1e).**
+- [x] Up to ~7 MB of image base64 is written to stdin while holding `mu` (risk of deadlock). Write outside the lock. **Done (d834b1e: stdin writes go through a writer goroutine and never block the lock).**
+- [x] State never returns to "working" when Claude starts another turn after a Result (e.g. background-task wakeups). Set working on `Status`/`MessageStart` events. **Done (d834b1e).**
+- [x] Queue ops are addressed by index, which races with the automatic pop. Give queue items ids. **Done (d834b1e: ops carry the text they saw and find it if the queue moved).**
+- [x] A popped queue item is lost if its send fails. Re-queue it. **Done (d834b1e).**
+- [x] The queue still drains after an interrupt. Hold on interrupt. **Done (d834b1e).**
+- [x] An over-long line: the scanner's 64 MB buffer can make `Wait` hang. Surface the error and restart. **Done (d834b1e: the process is killed and the error surfaced).**
+- [x] **The whole queue should send as one message by default** (the user agreed). The host currently pops one item per turn. **Done (6ffc261).**
 
 **Convo** (`internal/convo`):
 - [x] **Phantom live turn** (fixed after the handover: `turnFor(now)` sets `Start`, tool results go to their step's own turn, and a turn with no prompt reads "picked up on its own"). Was: `turnFor()` created a Live turn with zero `Start`, so the header shows "✻ working 2562047h" (seen on real sessions). Set `Start: now`, and route messages with a parent and tool_results to their step's own turn rather than opening a new one.
@@ -117,19 +117,19 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 - [ ] The `Exit code N` regex matches any line of a successful command's output. Only parse it when `IsError`.
 
 **settings.json writer** (`internal/claude/settings.go`, `ui/claudetab.go`); **real bug, fix before anyone uses the Claude tab on real settings**:
-- [ ] Values are HTML-escaped on save: `json.Marshal` of a `RawMessage` escapes `<>&`, so hook commands like `a && b > x` get mangled. Write with `SetEscapeHTML(false)`, or `json.Indent` the raw bytes.
-- [ ] Keys get re-sorted. Keep the original order (decode with `json.Decoder` tokens).
-- [ ] A symlinked settings.json (dotfiles) is replaced by a plain file. Save to `filepath.EvalSymlinks(path)`.
-- [ ] Changes made in the meantime by Claude Code's `/model` or `/config` are overwritten. Re-read and apply only the changed keys just before saving.
-- [ ] Deleting an env var needs no confirmation (x/backspace). Require a second press.
+- [x] Values are HTML-escaped on save: `json.Marshal` of a `RawMessage` escapes `<>&`, so hook commands like `a && b > x` get mangled. Write with `SetEscapeHTML(false)`, or `json.Indent` the raw bytes. **Done (6cdbf9e).**
+- [x] Keys get re-sorted. Keep the original order (decode with `json.Decoder` tokens). **Done (6cdbf9e).**
+- [x] A symlinked settings.json (dotfiles) is replaced by a plain file. Save to `filepath.EvalSymlinks(path)`. **Done (6cdbf9e).**
+- [x] Changes made in the meantime by Claude Code's `/model` or `/config` are overwritten. Re-read and apply only the changed keys just before saving. **Done (6cdbf9e).**
+- [x] Deleting an env var needs no confirmation (x/backspace). Require a second press. **Done (6cdbf9e).**
 
 **Other UI:**
-- [ ] `langwatch-36` (a `claude -p` stream-json process) is classified Interactive and told "reply there" (`fleet.go` interactive-session branch).
-- [ ] Images: handle `file://` URLs, and U+202F in macOS screenshot names (`unicode.IsSpace` treats it as a separator in `splitPaths`).
-- [ ] The "↓ N more" pill covers the last visible row (can be the selected one).
+- [x] `langwatch-36` (a `claude -p` stream-json process) is classified Interactive and told "reply there" (`fleet.go` interactive-session branch). **Done (1f8b726).**
+- [x] Images: handle `file://` URLs, and U+202F in macOS screenshot names (`unicode.IsSpace` treats it as a separator in `splitPaths`). **Done (bb7b34e, 4808806 (image paths anywhere in a paste or message)).**
+- [x] The "↓ N more" pill covers the last visible row (can be the selected one). **Done (51cfb49).**
 - [ ] `isOpen` re-renders the whole session on every toggle.
-- [ ] `onHostLines` applies the last replay stamp to later live events in the same batch.
-- [ ] The narrow "waiting on you" row shows the raw tool name "AskUserQuestion".
+- [x] `onHostLines` applies the last replay stamp to later live events in the same batch. **Done (not a bug: the host stamps every 500ms of output, live included).**
+- [x] The narrow "waiting on you" row shows the raw tool name "AskUserQuestion". **Done (3be49fe).**
 - [x] Question card option descriptions truncate instead of wrapping. Fixed after the handover: descriptions wrap under each option, "recommended" is a chip, ↑↓/enter/space choose while the card has focus, and a last row offers "answer in your own words". esc no longer skips.
 
 ### 2. Features the user asked for, not built yet
@@ -143,15 +143,15 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 
 - [x] **Queue view** (built: the queue view lists queued messages; enter edits one in the box and saves it back in place, shift+↑↓ moves, alt+m merges, ctrl+s sends now, ctrl+x drops, alt+h holds, alt+o switches one-message/separately; the host now sends the whole queue as one message by default). Was: edit in place, reorder (shift+↑↓), merge, drop, send now, **hold**. Needs a `hold` op in the host, plus queue item ids. The client already has `EditQueued/MoveQueued/MergeQueued/SendQueued/RemoveQueued`; nothing calls them yet.
 - [x] **Tasks view** (built: Now / Next / Done). Was: the full list (now / next / done), including subagents' tasks. Data is in `convo.Session.Tasks` (TodoWrite, TaskCreate, TaskUpdate).
-- [ ] **Subagents view redesign** (rows done in `0a2a077`: running/done/stopped/failed from each run's own transcript plus task notifications, real duration, steps, tokens, cost, model, latest words; note: Claude Code sometimes logs a response's usage mid-stream, so output tokens can read low). Still to do: master–detail, the runs list with the selected run's conversation beside it on wide panes. Richer rows: status, type, task, model, steps, tokens, duration, first line of its result.
+- [x] **Subagents view redesign** (rows done in `0a2a077`: running/done/stopped/failed from each run's own transcript plus task notifications, real duration, steps, tokens, cost, model, latest words; note: Claude Code sometimes logs a response's usage mid-stream, so output tokens can read low). Still to do: master–detail, the runs list with the selected run's conversation beside it on wide panes. Richer rows: status, type, task, model, steps, tokens, duration, first line of its result. **Done (0a2a077 rows, 8ac2753 master–detail, c106f4f alt+↑↓ switcher).**
 - [ ] **Overview redesign** (the user: "most of it sucks"): a dashboard.
   - Stat tiles across the top: cost, time, turns, tool calls, context %.
   - A per-turn cost/time chart, and the model/effort timeline as a strip.
   - Tool bars scaled properly (currently all but the top one look empty) and full tool names (currently cut, e.g. "AskUserQuest›").
   - Cache as a meter, with only the unexpected cold starts listed.
 - [ ] **Drop the "screen" view** from the strip. It just shows that the agent runs Claude Code's whole app. Replace it with a header chip, "Claude Code app · /agtop for agtop mode"; ctrl+f still opens it full screen.
-- [ ] **Long pastes as chips:** ≥4 lines becomes `▤ pasted N lines`, sent in full; backspace on an empty box removes it. **ctrl+g opens `$EDITOR`** on the last paste, or on the whole draft, via `tea.ExecProcess` on a temp file.
-- [ ] Change model and effort from the UI (the client's `SetModel`/`SetEffort` exist; nothing calls them). Maybe `/model` and `/effort` in the message box.
+- [x] **Long pastes as chips:** ≥4 lines becomes `▤ pasted N lines`, sent in full; backspace on an empty box removes it. **ctrl+g opens `$EDITOR`** on the last paste, or on the whole draft, via `tea.ExecProcess` on a temp file. **Done (aecd341).**
+- [x] Change model and effort from the UI (the client's `SetModel`/`SetEffort` exist; nothing calls them). Maybe `/model` and `/effort` in the message box. **Done (74cb852: /model and /effort pickers).**
 - [ ] Render markdown tables in answers (currently raw pipes).
 - [ ] Wide screens: the conversation caps around column 124/190 while the header runs full width. Align the right edges.
 - [ ] The ▀▄ half-block bands look heavy at 250 columns and odd without colour. Consider a one-row background change.
@@ -167,10 +167,21 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 
 ### 3. Nice to have / later
 
-- [ ] A right-hand side panel at ≥164-column panes (tasks, queue, shells), from the design.
+- [x] A right-hand side panel at ≥164-column panes (tasks, queue, shells), from the design. **Done (e03f1e9: 'now' section at the top of the rail).**
 - [ ] A Changes view built from git with per-turn attribution for the working tree (currently only marks this session vs not).
-- [ ] Desktop notifications (OSC 9) and a title counter while agtop is unfocused.
+- [x] Desktop notifications (OSC 9) and a title counter while agtop is unfocused. **Done (adbcece: title counter, no notification for the agent you're watching).**
 - [ ] A compaction divider and a context meter in the conversation.
+
+### 4. Added 2026-09-24 (live task list in the session mirrors this)
+
+Done this round, beyond the ticks above: `/` lists skills and custom commands and works mid-message (83787ca); short `↻` reset times and coloured usage meters with a pace tick (99246ba, 703308d); Claude Code sessions get agtop's queue and images (d8bae26); `/agtop` from the Session box, waits for the turn, forks terminal sessions (505b36c); keys go into a Claude Code screen directly (6fa3b02); artifacts view (dac1a98); the conversation shows a Claude Code agent's live screen line, todos and status (3e29b2a); quiet divider with resize pointer (4808806); one-row contextual hints and a shorter keys sheet (1af5422).
+
+Still open:
+- [ ] **Thinking indicator and live token count** while a turn streams (render.go).
+- [ ] **Failed steps show just the error** (last error-looking line, red), command shrunk to its first line, enter/click opens everything; fix every heredoc line getting its own `$`.
+- [ ] **Context compaction via "jev" or classifier.dev**, for this project only, to test it. Waiting on the user for what these are and where the key lives.
+- [ ] Performance pass (a subagent is on it; benchmarks in `internal/convo/bench_test.go`, `internal/ui/bench_test.go`).
+- [ ] Review findings for zen, changes and search (a review ran; fix what it found).
 
 ## How to test and look at it safely
 
