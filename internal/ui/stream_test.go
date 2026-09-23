@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,5 +83,30 @@ func TestTranscriptWatch(t *testing.T) {
 	m.dropHost()
 	if next() != nil {
 		t.Fatal("a dropped session's watch should end quietly")
+	}
+}
+
+// Layout counts the header and the Prompt without drawing them; the counts
+// must match what's drawn.
+func TestLayoutHeights(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	if len(m.header()) != headH {
+		t.Fatalf("header is %d lines, headH says %d", len(m.header()), headH)
+	}
+	for _, w := range []int{0, 10, 40, 120} {
+		for _, in := range []string{"", "short", strings.Repeat("a long message that wraps ", 40)} {
+			for _, focus := range []bool{false, true} {
+				for _, imgs := range [][]string{nil, {"/tmp/a.png"}} {
+					m.input, m.paneFocus, m.images = []rune(in), focus, imgs
+					if got, want := m.promptH(w), len(m.promptLines(w)); got != want {
+						t.Fatalf("w=%d input=%d focus=%v images=%d: promptH %d, drawn %d", w, len(in), focus, len(imgs), got, want)
+					}
+				}
+			}
+		}
+	}
+	m.zen = true
+	if m.promptH(100) != 0 || len(m.promptLines(100)) != 0 {
+		t.Fatal("zen has no Prompt")
 	}
 }
