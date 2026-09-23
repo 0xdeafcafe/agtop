@@ -1,0 +1,486 @@
+// Package convo turns an agtop-mode session's event stream into turns and
+// steps, and draws them in agtop's own style: folding turns headed by your
+// words, one row per tool call with its outcome on the right, and output
+// that opens by itself when something failed.
+//
+// It has no terminal or Bubble Tea dependency, so it can be tested as plain
+// data in, lines out.
+package convo
+
+import (
+	"encoding/json"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/host"
+)
+
+// Status is where a step is.
+type Status int
+
+const (
+	Running Status = iota
+	OK
+	Failed
+	Waiting // an approval is pending
+	Denied  // refused, by you or by a rule
+	Lost    // its turn ended or Claude died before it reported back
+)
+
+// Step is one tool call.
+type Step struct {
+	ID       string
+	Tool     string
+	Input    json.RawMessage
+	Status   Status
+	Output   string          // the tool result as text
+	Result   json.RawMessage // Claude Code's structured result (patches, stdout/stderr)
+	Exit     int             // Bash exit code, -1 when unknown
+	Start    time.Time
+	End      time.Time
+	Children []*Step // a subagent's own steps
+	Approval *headless.PermissionRequest
+
+	parent *Step
+}
+
+// Kind of an item in a turn.
+type Kind int
+
+const (
+	KText Kind = iota
+	KThinking
+	KStep
+	KInterject // you, sending mid-turn
+)
+
+// Item is one thing in a turn, in order.
+type Item struct {
+	Kind   Kind
+	Text   string
+	Step   *Step
+	Answer bool // the turn's final words, promoted when the turn ends
+}
+
+// Turn runs from your message to Claude's last word.
+type Turn struct {
+	N       int
+	Prompt  string
+	Items   []*Item
+	Start   time.Time
+	End     time.Time
+	Live    bool
+	Cost    float64
+	Err     string // why it ended badly, if it did
+	Stopped bool   // you stopped it
+
+	steps map[string]*Step
+	ver   int
+}
+
+// Outcome is the first line of the turn's answer.
+func (t *Turn) Outcome() string {
+	for i := len(t.Items) - 1; i >= 0; i-- {
+		if it := t.Items[i]; it.Kind == KText && it.Answer {
+			return firstLine(stripMarkdown(it.Text))
+		}
+	}
+	return ""
+}
+
+// Steps counts every tool call in the turn, subagents' included.
+func (t *Turn) Steps() int { return len(t.steps) }
+
+func (t *Turn) touch() { t.ver++ }
+
+// Task is one entry in the agent's task list.
+type Task struct {
+	ID      string
+	Subject string
+	Active  string // present-tense form, shown while in progress
+	Status  string // pending, in_progress, completed
+}
+
+// Session is everything known about one agtop-mode session.
+type Session struct {
+	Turns    []*Turn
+	Info     host.Info
+	Commands []headless.Command
+	Tasks    []Task
+	Model    string
+	Cwd      string // where Claude Code says it's running
+	Context  int    // tokens in the context window after the last request
+	Limit    string
+
+	streaming *Item
+	byID      map[string]*Step
+	cache     map[*Turn]cached
+	baseList  []string
+	baseFor   string
+}
+
+func New() *Session {
+	return &Session{byID: map[string]*Step{}, cache: map[*Turn]cached{}}
+}
+
+// Live is the turn in progress, if any.
+func (s *Session) Live() *Turn {
+	if n := len(s.Turns); n > 0 && s.Turns[n-1].Live {
+		return s.Turns[n-1]
+	}
+	return nil
+}
+
+// Pending lists the approvals waiting, oldest first.
+func (s *Session) Pending() []*Step {
+	var out []*Step
+	for _, t := range s.Turns {
+		for _, st := range t.steps {
+			if st.Approval != nil {
+				out = append(out, st)
+			}
+		}
+	}
+	sortSteps(out)
+	return out
+}
+
+func (s *Session) turnFor() *Turn {
+	if t := s.Live(); t != nil {
+		return t
+	}
+	// Output with no turn to hold it, e.g. a replay that starts mid-turn.
+	t := &Turn{N: len(s.Turns) + 1, Live: true, steps: map[string]*Step{}}
+	s.Turns = append(s.Turns, t)
+	return t
+}
+
+// Apply folds one decoded host line (host.Decode's result) into the session.
+func (s *Session) Apply(ev any, now time.Time) {
+	switch ev := ev.(type) {
+	case host.Sent:
+		if t := s.Live(); t != nil {
+			t.Items = append(t.Items, &Item{Kind: KInterject, Text: ev.Text})
+			t.touch()
+			return
+		}
+		s.streaming = nil
+		s.Turns = append(s.Turns, &Turn{N: len(s.Turns) + 1, Prompt: ev.Text, Start: now, Live: true, steps: map[string]*Step{}})
+	case host.InfoEvent:
+		s.Info = ev.Info
+		// The host went idle with a turn still open: Claude died mid-turn.
+		if t := s.Live(); t != nil && ev.Info.State == "idle" && ev.Info.ClaudePID == 0 {
+			s.endTurn(t, now)
+			t.Err = "claude exited mid-turn"
+			if ev.Info.Error != "" {
+				t.Err += ": " + firstLine(ev.Info.Error)
+			}
+		}
+	case host.Commands:
+		s.Commands = ev.Commands
+	case headless.Init:
+		s.Model, s.Cwd = ev.Model, ev.Cwd
+	case headless.RateLimit:
+		s.Limit = ev.Status
+	case headless.Delta:
+		t := s.turnFor()
+		if ev.Thinking {
+			if n := len(t.Items); n == 0 || t.Items[n-1].Kind != KThinking {
+				t.Items = append(t.Items, &Item{Kind: KThinking})
+			}
+			t.Items[len(t.Items)-1].Text += ev.Text
+		} else {
+			if s.streaming == nil {
+				s.streaming = &Item{Kind: KText}
+				t.Items = append(t.Items, s.streaming)
+			}
+			s.streaming.Text += ev.Text
+		}
+		t.touch()
+	case headless.Message:
+		s.message(ev, now)
+	case headless.PermissionRequest:
+		if st := s.byID[ev.ToolUseID]; st != nil {
+			req := ev
+			st.Approval, st.Status = &req, Waiting
+			s.touchStep(st)
+		}
+	case host.Answered:
+		s.settle(ev.ID)
+	case headless.PermissionCancelled:
+		s.settle(ev.ID)
+	case headless.PermissionDenied:
+		if st := s.byID[ev.ToolUseID]; st != nil {
+			st.Status, st.Output, st.End = Denied, ev.Reason, now
+			s.touchStep(st)
+		}
+	case headless.Result:
+		if t := s.Live(); t != nil {
+			s.endTurn(t, now)
+			t.Cost = ev.CostUSD
+			if ev.IsError || (ev.Subtype != "" && ev.Subtype != "success") {
+				t.Err = strings.ReplaceAll(strings.TrimPrefix(ev.Subtype, "error_"), "_", " ")
+				if t.Err == "" {
+					t.Err = firstLine(ev.Text)
+				}
+			}
+		}
+	}
+}
+
+func (s *Session) endTurn(t *Turn, now time.Time) {
+	t.Live, t.End = false, now
+	s.streaming = nil
+	for _, st := range t.steps {
+		if st.Status == Running || st.Status == Waiting {
+			st.Status, st.Approval = Lost, nil
+		}
+	}
+	// The last words become the answer.
+	for i := len(t.Items) - 1; i >= 0; i-- {
+		it := t.Items[i]
+		if it.Kind == KText && strings.TrimSpace(it.Text) != "" {
+			it.Answer = true
+			break
+		}
+		if it.Kind == KStep {
+			break
+		}
+	}
+	t.touch()
+}
+
+func (s *Session) settle(requestID string) {
+	for _, st := range s.byID {
+		if st.Approval != nil && st.Approval.ID == requestID {
+			st.Approval = nil
+			if st.Status == Waiting {
+				st.Status = Running
+			}
+			s.touchStep(st)
+		}
+	}
+}
+
+func (s *Session) touchStep(st *Step) {
+	for _, t := range s.Turns {
+		if t.steps[st.ID] == st {
+			t.touch()
+		}
+	}
+}
+
+func (s *Session) message(m headless.Message, now time.Time) {
+	t := s.turnFor()
+	defer t.touch()
+	if m.Role == "assistant" {
+		if m.ParentToolUseID == "" && m.Usage != nil {
+			u := m.Usage
+			s.Context = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens
+		}
+		parent := s.byID[m.ParentToolUseID]
+		for _, b := range m.Blocks {
+			switch b.Type {
+			case "text":
+				if parent != nil || strings.TrimSpace(b.Text) == "" {
+					continue // a subagent's words stay inside it
+				}
+				if s.streaming != nil {
+					s.streaming.Text = b.Text
+					s.streaming = nil
+				} else {
+					t.Items = append(t.Items, &Item{Kind: KText, Text: b.Text})
+				}
+			case "thinking":
+				if parent == nil && (len(t.Items) == 0 || t.Items[len(t.Items)-1].Kind != KThinking) {
+					t.Items = append(t.Items, &Item{Kind: KThinking, Text: b.Text})
+				}
+			case "tool_use":
+				s.streaming = nil
+				st := &Step{ID: b.ID, Tool: b.Name, Input: b.Input, Start: now, Exit: -1, parent: parent}
+				s.byID[b.ID] = st
+				t.steps[b.ID] = st
+				if parent != nil {
+					parent.Children = append(parent.Children, st)
+				} else {
+					t.Items = append(t.Items, &Item{Kind: KStep, Step: st})
+				}
+				s.tasksFromInput(st)
+			}
+		}
+		return
+	}
+	for _, b := range m.Blocks {
+		if b.Type != "tool_result" {
+			continue
+		}
+		st := s.byID[b.ToolUseID]
+		if st == nil {
+			continue
+		}
+		st.Output, st.Result, st.End = b.Text, m.ToolResult, now
+		st.Approval = nil
+		switch {
+		case st.Status == Denied:
+		case b.IsError:
+			st.Status = Failed
+			if isRejection(b.Text) {
+				st.Status = Denied
+			}
+		default:
+			st.Status = OK
+		}
+		if st.Tool == "Bash" {
+			st.Exit = exitCode(st)
+		}
+		s.tasksFromResult(st)
+	}
+}
+
+var exitRe = regexp.MustCompile(`(?m)^(?:Error: )?Exit code (\d+)`)
+
+func exitCode(st *Step) int {
+	if m := exitRe.FindStringSubmatch(st.Output); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	if st.Status == OK {
+		return 0
+	}
+	return -1
+}
+
+func isRejection(text string) bool {
+	t := strings.ToLower(text)
+	return strings.Contains(t, "user declined") || strings.Contains(t, "user rejected") ||
+		strings.Contains(t, "requires approval") || strings.Contains(t, "permission")
+}
+
+// Tasks come from TodoWrite (the whole list each time) and from TaskCreate
+// and TaskUpdate (one at a time; TaskCreate's id is only in its result).
+func (s *Session) tasksFromInput(st *Step) {
+	switch st.Tool {
+	case "TodoWrite":
+		var in struct {
+			Todos []struct {
+				Content    string `json:"content"`
+				ActiveForm string `json:"activeForm"`
+				Status     string `json:"status"`
+			} `json:"todos"`
+		}
+		if json.Unmarshal(st.Input, &in) != nil {
+			return
+		}
+		s.Tasks = s.Tasks[:0]
+		for i, td := range in.Todos {
+			s.Tasks = append(s.Tasks, Task{ID: strconv.Itoa(i + 1), Subject: td.Content, Active: td.ActiveForm, Status: td.Status})
+		}
+	case "TaskUpdate":
+		var in struct {
+			ID         string `json:"taskId"`
+			Status     string `json:"status"`
+			Subject    string `json:"subject"`
+			ActiveForm string `json:"activeForm"`
+		}
+		if json.Unmarshal(st.Input, &in) != nil {
+			return
+		}
+		for i := range s.Tasks {
+			if s.Tasks[i].ID != in.ID {
+				continue
+			}
+			if in.Status == "deleted" {
+				s.Tasks = append(s.Tasks[:i], s.Tasks[i+1:]...)
+				return
+			}
+			if in.Status != "" {
+				s.Tasks[i].Status = in.Status
+			}
+			if in.Subject != "" {
+				s.Tasks[i].Subject = in.Subject
+			}
+			if in.ActiveForm != "" {
+				s.Tasks[i].Active = in.ActiveForm
+			}
+			return
+		}
+	}
+}
+
+var taskIDRe = regexp.MustCompile(`Task #(\w+) created`)
+
+func (s *Session) tasksFromResult(st *Step) {
+	if st.Tool != "TaskCreate" || st.Status != OK {
+		return
+	}
+	var in struct {
+		Subject    string `json:"subject"`
+		ActiveForm string `json:"activeForm"`
+	}
+	_ = json.Unmarshal(st.Input, &in)
+	id := strconv.Itoa(len(s.Tasks) + 1)
+	if m := taskIDRe.FindStringSubmatch(st.Output); m != nil {
+		id = m[1]
+	}
+	s.Tasks = append(s.Tasks, Task{ID: id, Subject: in.Subject, Active: in.ActiveForm, Status: "pending"})
+}
+
+// Current is the task in progress and how far through the list the agent is.
+func (s *Session) Current() (now *Task, done, total int) {
+	for i := range s.Tasks {
+		t := &s.Tasks[i]
+		switch t.Status {
+		case "completed":
+			done++
+		case "in_progress":
+			if now == nil {
+				now = t
+			}
+		}
+	}
+	return now, done, len(s.Tasks)
+}
+
+// bases are the folders paths are shown relative to, symlinks resolved.
+func (s *Session) bases() []string {
+	if s.baseList != nil && s.baseFor == s.Info.Cwd+"|"+s.Cwd {
+		return s.baseList
+	}
+	var out []string
+	for _, b := range []string{s.Info.Cwd, s.Cwd} {
+		if b == "" {
+			continue
+		}
+		out = append(out, b)
+		if r, err := filepath.EvalSymlinks(b); err == nil && r != b {
+			out = append(out, r)
+		}
+	}
+	s.baseList, s.baseFor = out, s.Info.Cwd+"|"+s.Cwd
+	return out
+}
+
+func sortSteps(xs []*Step) {
+	for i := 1; i < len(xs); i++ {
+		for j := i; j > 0 && xs[j].Start.Before(xs[j-1].Start); j-- {
+			xs[j], xs[j-1] = xs[j-1], xs[j]
+		}
+	}
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
+func stripMarkdown(s string) string {
+	s = strings.NewReplacer("**", "", "__", "", "`", "").Replace(s)
+	return strings.TrimLeft(s, "#> -*")
+}
