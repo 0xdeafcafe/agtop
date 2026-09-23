@@ -201,3 +201,24 @@ func TestSlashMidMessage(t *testing.T) {
 	}
 	t.Fatal("agtop's own commands still show at the start")
 }
+
+func TestLocalQueue(t *testing.T) {
+	m := &Model{snap: &fleet.Snapshot{}}
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	m.queueLocal("k", "one")
+	m.queueLocal("k", "two")
+	if q := m.queueOf(c); !q.local || len(q.items) != 2 {
+		t.Fatalf("queue = %+v", q)
+	}
+	c.sel = "q:0"
+	if _, ok := m.localQueueKey(c, "alt+m"); !ok || m.localQ["k"].items[0] != "one\n\ntwo" {
+		t.Fatalf("merge: %q", m.localQ["k"].items)
+	}
+	m.editLocal(c, 0, "one\n\ntwo", "edited")
+	if m.localQ["k"].items[0] != "edited" {
+		t.Fatal("edit didn't save")
+	}
+	if got := withImages("look", []string{"/a.png"}); got != "look\n[image: /a.png]" {
+		t.Fatalf("withImages = %q", got)
+	}
+}

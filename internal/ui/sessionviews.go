@@ -22,27 +22,30 @@ import (
 // held, and sent as one message or one per turn.
 func (m *Model) queueLines(c *hostConn, o convo.Options) []convo.Line {
 	w := o.Width
-	info := c.sess.Info
+	q := m.queueOf(c)
 	var out []convo.Line
 	line := func(text, ref string) { out = append(out, convo.Line{Text: fit(text, w), Ref: ref}) }
 	how := "sends as one message when this turn ends"
-	if info.QueueSeparate {
+	switch {
+	case q.local:
+		how = "sends as one message when the agent is idle"
+	case q.separate:
 		how = "sends one message per turn"
 	}
-	if info.QueueHeld {
+	if q.held {
 		how = paint(cYellow, "held") + dim(" · alt+h releases it")
 	} else {
 		how = dim(how)
 	}
-	line("  "+paint(cSub+bold, fmt.Sprintf("Queue  %d", len(info.Queue)))+"   "+how, "")
+	line("  "+paint(cSub+bold, fmt.Sprintf("Queue  %d", len(q.items)))+"   "+how, "")
 	line("  "+faint(strings.Repeat("─", max(0, w-4))), "")
-	if len(info.Queue) == 0 {
+	if len(q.items) == 0 {
 		line("", "")
 		line("    "+dim("Nothing queued. Messages you send while the agent works wait here."), "")
 	}
-	for i, q := range info.Queue {
+	for i, item := range q.items {
 		ref := fmt.Sprintf("q:%d", i)
-		rows := wrap(oneLine(q), max(20, w-10))
+		rows := wrap(oneLine(item), max(20, w-10))
 		for j, r := range rows {
 			if j == 3 {
 				line("         "+dim("…"), ref)
@@ -66,7 +69,11 @@ func (m *Model) queueLines(c *hostConn, o convo.Options) []convo.Line {
 	line("", "")
 	hint := keysFit(w-4, "↑↓", "pick", "enter", "edit", "shift+↑↓", "move", "alt+m", "merge with next", "ctrl+s", "send now", "ctrl+x", "drop")
 	line("  "+hint, "")
-	line("  "+keysFit(w-4, "alt+h", "hold or release", "alt+o", "one message or separately"), "")
+	if q.local {
+		line("  "+keysFit(w-4, "alt+h", "hold or release"), "")
+	} else {
+		line("  "+keysFit(w-4, "alt+h", "hold or release", "alt+o", "one message or separately"), "")
+	}
 	return out
 }
 

@@ -28,7 +28,7 @@ func (m *Model) views(c *hostConn) []string {
 	if len(c.sess.Tasks) > 0 {
 		v = append(v, "tasks")
 	}
-	if c.client != nil {
+	if c.client != nil || canQueue(m.agentByKey(c.key)) {
 		v = append(v, "queue")
 	}
 	if len(c.subs) > 0 {
@@ -751,8 +751,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 		}
 		cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
 	}
-	if q := s.Info.Queue; len(q) > 0 {
-		line(spread("  "+paint(cSub+bold, fmt.Sprintf("queue %d", len(q)))+dim(" · sends when this turn ends"), "", w))
+	if q := m.queueOf(c).items; len(q) > 0 {
+		when := " · sends when this turn ends"
+		if c.client == nil {
+			when = " · sends when it's idle"
+		}
+		line(spread("  "+paint(cSub+bold, fmt.Sprintf("queue %d", len(q)))+dim(when), "", w))
 		for i, item := range q {
 			if i >= 3 {
 				line(dim(fmt.Sprintf("   … %d more", len(q)-i)))
@@ -899,8 +903,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if cmd, used := m.slashKey(c, s); used {
 		return cmd
 	}
-	if m.viewName(c) == "queue" && c.client != nil {
-		if cmd, used := m.queueKey(c, s); used {
+	if m.viewName(c) == "queue" {
+		queueKey := m.queueKey
+		if c.client == nil {
+			queueKey = m.localQueueKey
+		}
+		if cmd, used := queueKey(c, s); used {
 			return cmd
 		}
 	}
@@ -1148,9 +1156,13 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	text = strings.TrimSpace(text)
-	if c.editQ > 0 && c.client != nil {
+	if c.editQ > 0 {
 		i, was := c.editQ-1, c.editWas
 		c.editQ, c.input, c.back = 0, c.input[:0], 0
+		if c.client == nil {
+			m.editLocal(c, i, was, text)
+			return nil
+		}
 		return hostCmd(func() error { return c.client.EditQueued(i, was, text) })
 	}
 	if strings.HasPrefix(text, "/") {
@@ -1276,8 +1288,13 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string) tea.Cmd {
 			}
 			return doneMsg{text: "resumed " + a.DisplayName}
 		}
-	case len(images) > 0:
-		m.flash("images go to agtop-mode sessions; /agtop moves this one over", true)
+	}
+	text = withImages(text, images)
+	if busy(a) || len(m.queueOf(c).items) > 0 {
+		// It's working: the message waits in the queue and goes when it
+		// is idle, together with anything else waiting.
+		m.queueLocal(a.Key, text)
+		m.flash(fmt.Sprintf("queued · %d waiting · sends when %s is idle", len(m.localQ[a.Key].items), a.DisplayName), false)
 		return nil
 	}
 	m.loader.Nudge(a.Key)

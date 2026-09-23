@@ -424,6 +424,13 @@ func (m *Model) submit() tea.Cmd {
 		if a.Agtop {
 			return sendHosted(a, text)
 		}
+		text = withImages(text, m.images)
+		m.images = nil
+		if q := m.localQ[a.Key]; busy(a) || q != nil && len(q.items) > 0 {
+			m.queueLocal(a.Key, text)
+			m.flash(fmt.Sprintf("queued for %s · sends when it's idle", a.DisplayName), false)
+			return nil
+		}
 		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
 	}
 	if text == "" {

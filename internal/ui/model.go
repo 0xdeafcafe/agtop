@@ -120,6 +120,7 @@ type Model struct {
 	embedded   bool
 	promptFor  string
 	listW      int
+	localQ     map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
 	divHover   bool // the mouse is on the edge between Agents and the Session
 	hibernated map[string]bool
 	usageWait  map[string]time.Time
@@ -439,7 +440,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.zenPick()
 		m.followTail()
 		m.refreshSubs()
-		cmds := []tea.Cmd{tick()}
+		cmds := []tea.Cmd{tick(), m.flushLocalQueues()}
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}
@@ -476,6 +477,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadPreview()
 	case previewMsg:
 		m.previews[msg.key] = msg.e
+		return m, nil
+	case localQueueFailed:
+		// Back on the front of the queue, to try again when you say.
+		if q := m.localQ[msg.key]; q != nil {
+			q.items, q.held = append(msg.items, q.items...), true
+		}
+		m.flash("couldn't send the queue: "+msg.err.Error()+" · held; alt+h releases it", true)
 		return m, nil
 	case doneMsg:
 		if msg.err != nil {
