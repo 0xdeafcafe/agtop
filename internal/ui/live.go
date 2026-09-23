@@ -14,6 +14,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
@@ -29,9 +30,13 @@ type live struct {
 	id    string
 	conn  net.Conn
 
-	mu     sync.Mutex // guards emu and cursor
+	mu     sync.Mutex // guards emu, cursor, drawn and dirty
 	emu    *vt.Emulator
 	cursor bool
+	drawn  []string // the screen as last rendered
+	dirty  bool     // written to since
+
+	shown time.Time // when output was last handed to the view
 
 	w, h  int
 	ready atomic.Bool
@@ -40,7 +45,7 @@ type live struct {
 }
 
 // frameEvery caps how often a busy session repaints the pane.
-const frameEvery = 33 * time.Millisecond
+const frameEvery = 16 * time.Millisecond
 
 type liveOpenMsg struct {
 	l   *live
@@ -52,7 +57,33 @@ type liveMsg struct{ l *live }
 // liveCapable is true for sessions the daemon hosts with a process running.
 // Attaching to anything else would respawn it just to show a preview.
 func liveCapable(a *fleet.Agent) bool {
-	return a != nil && !a.Interactive && a.Worker != nil && (daemon.Client{Account: a.Acct}).Running()
+	return a != nil && !a.Interactive && a.Worker != nil && daemonRunning(a.Acct)
+}
+
+// daemonRunning is whether an account's daemon is up, looked at once a
+// second at most: views ask several times a frame.
+func daemonRunning(acct claude.Account) bool {
+	daemons.Lock()
+	defer daemons.Unlock()
+	if d, ok := daemons.seen[acct.ConfigDir]; ok && time.Since(d.at) < time.Second {
+		return d.up
+	}
+	up := (daemon.Client{Account: acct}).Running()
+	if daemons.seen == nil {
+		daemons.seen = map[string]daemonSeen{}
+	}
+	daemons.seen[acct.ConfigDir] = daemonSeen{time.Now(), up}
+	return up
+}
+
+type daemonSeen struct {
+	at time.Time
+	up bool
+}
+
+var daemons struct {
+	sync.Mutex
+	seen map[string]daemonSeen
 }
 
 func openLive(a *fleet.Agent, w, h int) tea.Cmd {
@@ -95,6 +126,7 @@ func openLive(a *fleet.Agent, w, h int) tea.Cmd {
 func (l *live) write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.dirty = true
 	return l.emu.Write(p)
 }
 
@@ -105,13 +137,15 @@ func (l *live) poke() {
 	}
 }
 
-// next waits for new output, then lets a burst settle so a busy session
-// costs a frame every frameEvery rather than one per write.
+// next waits for new output and shows it at once after a quiet spell; in a
+// burst it waits until a frame has passed since the last, so a busy
+// session costs a frame every frameEvery rather than one per write.
 func (l *live) next() tea.Cmd {
+	last := l.shown
 	return func() tea.Msg {
 		<-l.wake
-		if !l.dead.Load() {
-			time.Sleep(frameEvery)
+		if wait := frameEvery - time.Since(last); wait > 0 && !l.dead.Load() {
+			time.Sleep(wait)
 		}
 		return liveMsg{l}
 	}
@@ -124,6 +158,7 @@ func (l *live) resize(w, h int) {
 	l.w, l.h = w, h
 	l.mu.Lock()
 	l.emu.Resize(w, h)
+	l.dirty = true
 	l.mu.Unlock()
 	go func() { _ = l.cl.Resize(l.short, l.id, w, h) }()
 }
@@ -137,10 +172,15 @@ func (l *live) close() {
 }
 
 // lines renders the emulator screen, with the session's cursor drawn in
-// reverse video when it shows one.
+// reverse video when it shows one. Nothing written since means the last
+// rendering still stands.
 func (l *live) lines() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if !l.dirty && l.drawn != nil {
+		return l.drawn
+	}
+	l.dirty = false
 	pos := l.emu.CursorPosition()
 	var restore *uv.Cell
 	if l.cursor {
@@ -158,6 +198,7 @@ func (l *live) lines() []string {
 	if restore != nil {
 		l.emu.SetCell(pos.X, pos.Y, restore)
 	}
+	l.drawn = out
 	return out
 }
 
@@ -229,6 +270,7 @@ func (m *Model) onLive(msg liveMsg) tea.Cmd {
 		m.live = nil
 		return nil
 	}
+	m.live.shown = time.Now()
 	return m.live.next()
 }
 

@@ -842,8 +842,9 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	row2 := spread("  "+meta, conn+" ", w)
 
 	var tabs []string
-	for i, v := range m.views(c) {
-		if i == c.view%len(m.views(c)) {
+	views := m.views(c)
+	for i, v := range views {
+		if i == c.view%len(views) {
 			tabs = append(tabs, bgTabOn+paint(cText+bold, " "+v+" ")+reset+bgChrome)
 		} else {
 			tabs = append(tabs, paint(cSub, " "+v+" "))
