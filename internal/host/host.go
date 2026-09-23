@@ -32,13 +32,13 @@ import (
 // Config is how a session is started. It is written next to the socket so
 // the host process reads it on launch.
 type Config struct {
-	ID             string         `json:"id"`
-	SessionID      string         `json:"sessionId"`
-	Resume         bool           `json:"resume"` // the conversation already exists
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	Resume    bool   `json:"resume"` // the conversation already exists
 	// Fork continues a copy of the conversation (Claude Code's
 	// --fork-session), leaving the original to whoever has it open. Once
 	// Claude Code names the copy, SessionID becomes that and Fork is cleared.
-	Fork bool `json:"fork,omitempty"`
+	Fork           bool           `json:"fork,omitempty"`
 	Account        claude.Account `json:"account"`
 	Cwd            string         `json:"cwd"`
 	Name           string         `json:"name,omitempty"`

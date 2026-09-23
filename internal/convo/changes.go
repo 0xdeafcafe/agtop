@@ -1,8 +1,7 @@
 package convo
 
 import (
-	"bufio"
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -10,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -29,6 +29,15 @@ type FileChange struct {
 // Changes collects the session's edits by file, in the order files were
 // first touched.
 func (s *Session) Changes() []*FileChange {
+	// Worked out again only when a step changed.
+	if s.changes != nil && s.changesVer == s.stepVer {
+		return s.changes
+	}
+	s.changes, s.changesVer = s.changesNow(), s.stepVer
+	return s.changes
+}
+
+func (s *Session) changesNow() []*FileChange {
 	byPath := map[string]*FileChange{}
 	var order []*FileChange
 	for _, t := range s.Turns {
@@ -85,50 +94,91 @@ func (s *Session) Changes() []*FileChange {
 type TreeFile struct {
 	Path      string
 	Add, Del  int
+	Binary    bool
 	Untracked bool
 	Ours      bool // this session edited it
 }
 
-// Tree is what git sees in dir: changed and untracked files against HEAD,
-// cached for a few seconds because the view redraws often.
+// Tree is what git sees in dir: changed and untracked files against HEAD.
 type Tree struct {
 	Dir   string
 	Head  string
+	Root  string
 	Files []TreeFile
 	Err   string
 	at    time.Time
 }
 
-var trees = map[string]*Tree{}
+var trees = struct {
+	sync.Mutex
+	m       map[string]*Tree
+	reading map[string]bool
+}{m: map[string]*Tree{}, reading: map[string]bool{}}
 
-// WorkingTree reads git for dir, at most every 5 seconds.
+// WorkingTree is the last reading of git for dir. It never runs git while
+// a frame is drawn: a reading older than 5 seconds is refreshed in the
+// background, and the next frame picks it up. The first call returns an
+// empty tree marked as reading.
 func WorkingTree(dir string) *Tree {
-	if t := trees[dir]; t != nil && time.Since(t.at) < 5*time.Second {
-		return t
+	trees.Lock()
+	defer trees.Unlock()
+	t := trees.m[dir]
+	if (t == nil || time.Since(t.at) > 5*time.Second) && !trees.reading[dir] {
+		trees.reading[dir] = true
+		go func() {
+			nt := readTree(dir)
+			trees.Lock()
+			trees.m[dir], trees.reading[dir] = nt, false
+			trees.Unlock()
+		}()
 	}
+	if t == nil {
+		return &Tree{Dir: dir, Err: "reading git…"}
+	}
+	return t
+}
+
+// git runs git in dir, giving up after 10 seconds.
+func git(dir string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...).Output()
+}
+
+func readTree(dir string) *Tree {
 	t := &Tree{Dir: dir, at: time.Now()}
-	trees[dir] = t
-	head, err := exec.Command("git", "-C", dir, "rev-parse", "--short", "HEAD").Output()
+	top, err := git(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		t.Err = "not a git repository"
 		return t
 	}
-	t.Head = strings.TrimSpace(string(head))
-	top, _ := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 	root := strings.TrimSpace(string(top))
-	out, _ := exec.Command("git", "-C", dir, "diff", "HEAD", "--numstat").Output()
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	for sc.Scan() {
-		f := strings.SplitN(sc.Text(), "\t", 3)
-		if len(f) != 3 {
+	t.Root = root
+	base := "HEAD"
+	if head, err := git(dir, "rev-parse", "--short", "HEAD"); err == nil {
+		t.Head = strings.TrimSpace(string(head))
+	} else {
+		t.Head, base = "no commits yet", "--cached" // staged files are all there is
+	}
+	// -z keeps odd paths unquoted; no renames, so each path is a real file.
+	out, _ := git(root, "diff", base, "--numstat", "-z", "--no-renames")
+	for _, rec := range strings.Split(string(out), "\x00") {
+		f := strings.SplitN(rec, "\t", 3)
+		if len(f) != 3 || f[2] == "" {
 			continue
 		}
-		a, _ := strconv.Atoi(f[0])
-		d, _ := strconv.Atoi(f[1])
-		t.Files = append(t.Files, TreeFile{Path: filepath.Join(root, f[2]), Add: a, Del: d})
+		tf := TreeFile{Path: filepath.Join(root, f[2])}
+		if f[0] == "-" {
+			tf.Binary = true
+		} else {
+			tf.Add, _ = strconv.Atoi(f[0])
+			tf.Del, _ = strconv.Atoi(f[1])
+		}
+		t.Files = append(t.Files, tf)
 	}
-	untracked, _ := exec.Command("git", "-C", dir, "ls-files", "--others", "--exclude-standard", "--full-name").Output()
-	for _, p := range strings.Split(strings.TrimSpace(string(untracked)), "\n") {
+	// From the top, so a session in a subfolder still sees the whole repo.
+	untracked, _ := git(root, "ls-files", "--others", "--exclude-standard", "-z")
+	for _, p := range strings.Split(string(untracked), "\x00") {
 		if p != "" {
 			t.Files = append(t.Files, TreeFile{Path: filepath.Join(root, p), Untracked: true})
 		}
@@ -136,6 +186,29 @@ func WorkingTree(dir string) *Tree {
 	sort.Slice(t.Files, func(i, j int) bool { return t.Files[i].Path < t.Files[j].Path })
 	return t
 }
+
+// realPath resolves symlinks (macOS's /tmp is /private/tmp), so the same
+// file matches however it was named.
+func realPath(p string) string {
+	realPaths.Lock()
+	defer realPaths.Unlock()
+	if r, ok := realPaths.m[p]; ok {
+		return r
+	}
+	r := p
+	if x, err := filepath.EvalSymlinks(p); err == nil {
+		r = x
+	} else if x, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+		r = filepath.Join(x, filepath.Base(p))
+	}
+	realPaths.m[p] = r
+	return r
+}
+
+var realPaths = struct {
+	sync.Mutex
+	m map[string]string
+}{m: map[string]string{}}
 
 // ChangesView draws the session's own edits, then the working tree as git
 // sees it, with the files this session didn't touch marked as such.
@@ -171,7 +244,7 @@ func (s *Session) ChangesView(o Options) []Line {
 	ours := map[string]bool{}
 	adds, dels := 0, 0
 	for _, fc := range changes {
-		ours[fc.Path] = true
+		ours[realPath(fc.Path)] = true
 		adds, dels = adds+fc.Add, dels+fc.Del
 	}
 	meta := "nothing edited yet"
@@ -208,16 +281,19 @@ func (s *Session) ChangesView(o Options) []Line {
 				}
 				add("", pad+paint(cGreen, "▏")+dim(fmt.Sprintf("%5d ", i+1))+sub(truncateCells(expandTabs(l), bw)), "")
 			}
-			continue
+			// Edits made after it was created follow.
 		}
 		for pi, p := range fc.Patches {
-			if pi > 0 {
+			if pi > 0 || fc.New {
 				add("", pad+dim("  ..."), "")
 			}
 			oldN, newN := p.OldStart, p.NewStart
 			for _, l := range p.Lines {
 				if l == "" {
 					l = " "
+				}
+				if l[0] == '\\' {
+					continue // "\ No newline at end of file"
 				}
 				body := truncateCells(expandTabs(l[1:]), bw)
 				switch l[0] {
@@ -247,7 +323,7 @@ func (s *Session) ChangesView(o Options) []Line {
 	}
 	others := 0
 	for i := range tree.Files {
-		if ours[tree.Files[i].Path] {
+		if ours[realPath(tree.Files[i].Path)] {
 			tree.Files[i].Ours = true
 		} else {
 			others++
@@ -267,8 +343,11 @@ func (s *Session) ChangesView(o Options) []Line {
 			break
 		}
 		counts := paint(cGreen, fmt.Sprintf("+%d", f.Add)) + " " + paint(cRed, fmt.Sprintf("−%d", f.Del))
-		if f.Untracked {
+		switch {
+		case f.Untracked:
 			counts = paint(cGreen, "new")
+		case f.Binary:
+			counts = dim("binary")
 		}
 		who := dim("not from this session")
 		mark := dim("·")
@@ -395,14 +474,15 @@ func (s *Session) railBlock(d *drawer, e edit, w int) railBlock {
 			shown++
 		}
 	}
+patches:
 	for _, p := range headless.Patches(st.Result) {
 		for _, l := range p.Lines {
-			if l == "" || l[0] == ' ' {
+			if l == "" || l[0] == ' ' || l[0] == '\\' {
 				continue // only what changed; the rail is narrow
 			}
 			if shown == 8 {
 				add("", "  "+dim("… the changes view has the rest"))
-				break
+				break patches
 			}
 			body := truncateCells(expandTabs(l[1:]), bw)
 			if l[0] == '+' {

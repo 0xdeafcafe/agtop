@@ -152,18 +152,20 @@ type Session struct {
 	Requests []Request
 	Tools    map[string]*ToolStat
 
-	streaming *Item
-	byID      map[string]*Step
-	cache     map[*Turn]cached
-	memo      map[memoKey][]Line
-	memoOld   map[memoKey][]Line
-	stepVer   int // bumped whenever a step is added or changes
-	editList  []edit
-	editsVer  int
-	rail      map[*Step]railBlock
-	baseList  []string
-	baseFor   string
-	reqIdx    map[string]int
+	streaming  *Item
+	byID       map[string]*Step
+	cache      map[*Turn]cached
+	memo       map[memoKey][]Line
+	memoOld    map[memoKey][]Line
+	stepVer    int           // bumped whenever a step is added or changes
+	changes    []*FileChange // Changes, as of changesVer
+	changesVer int
+	editList   []edit
+	editsVer   int
+	rail       map[*Step]railBlock
+	baseList   []string
+	baseFor    string
+	reqIdx     map[string]int
 
 	// TaskStatus is what Claude Code last said about each background task
 	// (completed, killed, …), keyed by task id: a subagent's agent id.

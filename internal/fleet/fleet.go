@@ -37,10 +37,10 @@ type Agent struct {
 	// Headless is an interactive-kind session that is really `claude -p`
 	// driven by some other program: it can't be replied to at all.
 	Headless bool
-	PID         int  // root of the process tree
-	Checking    bool // turn just ended; Claude Code has not classified it yet
-	Subs        claude.SubagentStats
-	Seen        bool // the user has opened or answered this question already
+	PID      int  // root of the process tree
+	Checking bool // turn just ended; Claude Code has not classified it yet
+	Subs     claude.SubagentStats
+	Seen     bool // the user has opened or answered this question already
 	// Agtop is a session agtop runs itself, headless, through a host
 	// process; its pane is the conversation rather than Claude Code's screen.
 	Agtop bool
