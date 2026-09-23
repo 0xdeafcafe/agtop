@@ -278,7 +278,8 @@ func (m *Model) listView() string {
 	m.rowKeys = nil
 	var left []string
 	if listW > 0 {
-		left = m.listLines(listW, bodyH)
+		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1)...)
+		m.listTop++
 	}
 	var pane []string
 	if paneW > 0 {
@@ -526,6 +527,19 @@ func ctxBar(pct float64) string {
 		c = cYellow
 	}
 	return paint(c, strings.Repeat("━", n)) + faint(strings.Repeat("━", 8-n))
+}
+
+// columnHeader names the list's columns; it stays put while the list scrolls.
+func (m *Model) columnHeader(w int) string {
+	nameCol := m.nameColumn(w)
+	rightW := wAct + wCPU + wRAM + wCost + wAge + 3
+	left := "   " + fit("AGENT", nameCol+2) + "LATEST"
+	cols := right1("RUNNING", wAct) + right1("CPU", wCPU) + right1("RAM", wRAM) + right1("COST", wCost) + right1("TIME", wAge+2) + " "
+	gap := w - ansi.StringWidth(left) - rightW
+	if gap < 1 {
+		return faint(fit(left, w))
+	}
+	return faint(left + strings.Repeat(" ", gap) + cols)
 }
 
 // nameColumn is where summaries start: wide enough for most names, never
