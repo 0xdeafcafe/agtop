@@ -172,3 +172,32 @@ func TestSlashQueueTasks(t *testing.T) {
 		}
 	}
 }
+
+func TestSlashMidMessage(t *testing.T) {
+	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
+	c.local = []headless.Command{{Name: "design:design-critique"}, {Name: "pdf"}}
+	c.input = []rune("please /crit this")
+	c.back = len(" this")
+	got := slashMatches(c)
+	if len(got) != 1 || got[0].Name != "design:design-critique" {
+		t.Fatalf("mid-message matches: %v", got)
+	}
+	m := &Model{snap: &fleet.Snapshot{}}
+	if _, ok := m.slashKey(c, "enter"); !ok {
+		t.Fatal("enter should complete")
+	}
+	if string(c.input) != "please /design:design-critique this" {
+		t.Fatalf("completed to %q", string(c.input))
+	}
+	c.input, c.back = []rune("see /var/folders/x"), 0
+	if slashMatches(c) != nil {
+		t.Fatal("a path is not a command")
+	}
+	c.input = []rune("/cl")
+	for _, x := range slashMatches(c) {
+		if x.Name == "clear" {
+			return
+		}
+	}
+	t.Fatal("agtop's own commands still show at the start")
+}

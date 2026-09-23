@@ -233,9 +233,11 @@ type hostConn struct {
 	box      box      // the message box as last drawn, and where
 	boxIdx   int
 	boxY     int
-	editQ    int    // queued message being edited in the box, +1; 0 when none
-	editWas  string // its text before editing
-	slashSel int    // the slash-command picker's selection
+	editQ    int                // queued message being edited in the box, +1; 0 when none
+	editWas  string             // its text before editing
+	slashSel int                // the slash-command picker's selection
+	local    []headless.Command // custom commands and skills on disk
+	skills   map[string]bool
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
 	// waiting for an answer; only then do plain letters and digits answer.
 	cardFocus bool

@@ -2,12 +2,15 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 )
@@ -170,16 +173,43 @@ var agtopCommands = []headless.Command{
 	{Name: "effort", Description: "change effort (applies from the next start): low, medium, high, xhigh, max", ArgumentHint: "<level>"},
 }
 
-// slashMatches is what the picker offers for the text typed so far.
+// slashWord finds the /word being typed at the cursor, at the start of the
+// message or after a space. A word with a second slash is a path.
+func slashWord(c *hostConn) (start, end int, q string, ok bool) {
+	in, pos := c.input, len(c.input)-c.back
+	start = pos
+	for start > 0 && !unicode.IsSpace(in[start-1]) {
+		start--
+	}
+	if start >= len(in) || in[start] != '/' || start == pos {
+		return 0, 0, "", false
+	}
+	end = pos
+	for end < len(in) && !unicode.IsSpace(in[end]) {
+		end++
+	}
+	q = string(in[start+1 : pos])
+	if strings.Contains(q, "/") {
+		return 0, 0, "", false
+	}
+	return start, end, strings.ToLower(q), true
+}
+
+// slashMatches is what the picker offers for the /word at the cursor:
+// agtop's own commands (at the start of a message only), the session's,
+// then the custom commands and skills found on disk.
 func slashMatches(c *hostConn) []headless.Command {
-	text := string(c.input)
-	if !strings.HasPrefix(text, "/") || strings.ContainsAny(text, " \n") {
+	start, _, q, ok := slashWord(c)
+	if !ok {
 		return nil
 	}
-	q := strings.ToLower(strings.TrimPrefix(text, "/"))
+	lists := [][]headless.Command{c.sess.Commands, c.local}
+	if start == 0 {
+		lists = append([][]headless.Command{agtopCommands}, lists...)
+	}
 	var out []headless.Command
 	seen := map[string]bool{}
-	for _, list := range [][]headless.Command{agtopCommands, c.sess.Commands} {
+	for _, list := range lists {
 		for _, cmd := range list {
 			if seen[cmd.Name] {
 				continue
@@ -198,8 +228,30 @@ func slashMatches(c *hostConn) []headless.Command {
 	return out
 }
 
+// loadLocal fills in the commands and skills on disk for the agent's
+// account and folder (read at most every 30 seconds).
+func (m *Model) loadLocal(c *hostConn) {
+	a := m.agentByKey(c.key)
+	if a == nil {
+		return
+	}
+	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
+	found := claude.Commands(firstNonEmpty(a.Acct.ConfigDir, claude.DefaultAccount().ConfigDir), cwd)
+	c.local, c.skills = c.local[:0], map[string]bool{}
+	for _, f := range found {
+		c.local = append(c.local, headless.Command{Name: f.Name, Description: f.Description, ArgumentHint: f.ArgumentHint})
+		if f.Skill {
+			c.skills[f.Name] = true
+		}
+	}
+}
+
 // slashLines draws the picker above the message box.
 func (m *Model) slashLines(c *hostConn, w int) []string {
+	if _, _, _, ok := slashWord(c); !ok {
+		return nil
+	}
+	m.loadLocal(c)
 	cmds := slashMatches(c)
 	if len(cmds) == 0 {
 		return nil
@@ -215,18 +267,15 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 	var out []string
 	for i := start; i < end; i++ {
 		cmd := cmds[i]
-		mine := false
-		for _, a := range agtopCommands {
-			if a.Name == cmd.Name {
-				mine = true
-			}
+		tag := ""
+		switch {
+		case slices.ContainsFunc(agtopCommands, func(a headless.Command) bool { return a.Name == cmd.Name }):
+			tag = paint(cOrange, " agtop")
+		case c.skills[cmd.Name]:
+			tag = paint(cBlue, " skill")
 		}
 		name := paint(cBright+bold, fit("/"+cmd.Name, nameW+1))
-		desc := dim(ansi.Truncate(oneLine(cmd.Description), max(10, w-nameW-14), "…"))
-		tag := ""
-		if mine {
-			tag = paint(cOrange, " agtop")
-		}
+		desc := dim(ansi.Truncate(oneLine(cmd.Description), max(10, w-nameW-16), "…"))
 		row := "   " + name + "  " + desc + tag
 		if i == c.slashSel {
 			out = append(out, onBg(selBG, paint(cOrange, " ▸ ")+strings.TrimPrefix(row, "   "), w))
@@ -238,7 +287,11 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 	if len(cmds) > end-start {
 		more = fmt.Sprintf("%d of %d · ", c.slashSel+1, len(cmds))
 	}
-	out = append(out, onBg(bgChrome, "   "+dim(more+"↑↓ choose · tab completes · enter runs"), w))
+	how := "↑↓ choose · tab completes · enter runs"
+	if st, _, _, _ := slashWord(c); st > 0 {
+		how = "↑↓ choose · tab or enter completes"
+	}
+	out = append(out, onBg(bgChrome, "   "+dim(more+how), w))
 	return out
 }
 
@@ -248,6 +301,16 @@ func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
 	if len(cmds) == 0 {
 		return nil, false
 	}
+	start, end, _, _ := slashWord(c)
+	complete := func(tail string) {
+		rest := c.input[end:]
+		if len(rest) > 0 && unicode.IsSpace(rest[0]) {
+			tail = ""
+		}
+		name := []rune("/" + cmds[c.slashSel].Name + tail)
+		c.input = append(append(append([]rune{}, c.input[:start]...), name...), rest...)
+		c.back = len(rest)
+	}
 	switch s {
 	case "up":
 		c.slashSel = max(0, c.slashSel-1)
@@ -256,11 +319,17 @@ func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
 		c.slashSel = min(len(cmds)-1, c.slashSel+1)
 		return nil, true
 	case "tab":
-		c.input, c.back = []rune("/"+cmds[c.slashSel].Name+" "), 0
+		complete(" ")
 		return nil, true
 	case "enter":
-		c.input, c.back = []rune("/"+cmds[c.slashSel].Name), 0
-		return m.sendPane(c, false), true
+		// A command that is the whole message runs; one mid-message is
+		// completed, and enter again sends the message.
+		if start == 0 && strings.TrimSpace(string(c.input[end:])) == "" {
+			c.input, c.back = []rune("/"+cmds[c.slashSel].Name), 0
+			return m.sendPane(c, false), true
+		}
+		complete(" ")
+		return nil, true
 	}
 	return nil, false
 }
