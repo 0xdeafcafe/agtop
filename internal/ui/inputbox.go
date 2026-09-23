@@ -221,7 +221,28 @@ func (b box) at(row, col int) int {
 	if i < start || i >= end {
 		return b.cursor
 	}
-	sg := segs[i]
+	return b.col(segs[i], col)
+}
+
+// near is at for a drag, which can leave the box: above its first row is
+// that row's start, below its last row is that row's end.
+func (b box) near(row, col int) int {
+	segs := wrapSegs(b.text, b.w-4-b.leadW())
+	start, end := b.window(segs)
+	switch {
+	case len(segs) == 0:
+		return 0
+	case row < 0:
+		return segs[start].from
+	case start+row >= end:
+		return segs[end-1].to
+	}
+	return b.col(segs[start+row], col)
+}
+
+// col is the text position under screen column col on the row sg.
+func (b box) col(sg seg, col int) int {
+	lw := b.leadW()
 	x := col - 2 - lw // "│ " then the lead
 	p, width := sg.from, 0
 	for p < sg.to && width+runeW(b.text[p]) <= x {

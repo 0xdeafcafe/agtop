@@ -96,6 +96,7 @@ type Model struct {
 	// list and its prompt.
 	paneFocus bool
 	dragging  bool     // resizing the list by its edge
+	boxDrag   int      // selecting by dragging in an input box: 1 the Session's, 2 the prompt's
 	images    []string // image files attached to the prompt's next message
 	// claudeView is a Claude Code agent's Session view: 0 its live screen,
 	// 1 the summary.
@@ -634,6 +635,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
 	case tea.MouseMotionMsg:
+		if m.boxDrag != 0 {
+			if msg.Button == tea.MouseLeft {
+				m.dragBox(msg.X, msg.Y)
+				return m, nil
+			}
+			m.endBoxDrag()
+		}
 		if m.dragging {
 			if msg.Button == tea.MouseLeft {
 				m.setSideWidth(msg.X)
@@ -661,6 +669,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(shape, cmd)
 	case tea.MouseReleaseMsg:
+		if m.boxDrag != 0 {
+			m.endBoxDrag()
+		}
 		if m.dragging {
 			m.dragging = false
 			_ = m.store.SaveConfig()

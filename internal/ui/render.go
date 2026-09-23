@@ -47,6 +47,18 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 	return m.render()
 }
 
+// Select picks the first agent whose name contains part and shows its
+// Session, for --soak.
+func (m *Model) Select(part string) {
+	m.refresh()
+	for _, a := range m.order {
+		if strings.Contains(strings.ToLower(a.DisplayName), strings.ToLower(part)) {
+			m.sel, m.preview = a.Key, true
+			return
+		}
+	}
+}
+
 // drain runs a command and feeds what it returns back in, for Frame.
 func (m *Model) drain(cmd tea.Cmd) {
 	if cmd == nil {

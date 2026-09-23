@@ -137,6 +137,30 @@ func TestSelection(t *testing.T) {
 	if got.anchor != -1 || got.pos != 1 {
 		t.Fatalf("moving clears the selection: %+v", got)
 	}
+	got, copied = run(st{"run the tests", 4, -1}, "super+a", "ctrl+c")
+	if copied != "run the tests" || got.buf != "run the tests" {
+		t.Fatalf("select all: %q %+v", copied, got)
+	}
+	got, copied = run(st{"run the tests", 4, -1}, "alt+c")
+	if copied != "run the tests" || got.pos != 4 || got.anchor != -1 {
+		t.Fatalf("copy all: %q %+v", copied, got)
+	}
+}
+
+func TestBoxDragStaysInside(t *testing.T) {
+	b := box{w: 24, text: []rune("one two three four five six"), lead: "❯ ", maxRows: 6}
+	if p := b.near(-3, 50); p != 0 {
+		t.Fatalf("above the box is its start, got %d", p)
+	}
+	if p := b.near(9, 0); p != len(b.text) {
+		t.Fatalf("below the box is its end, got %d", p)
+	}
+	if p := b.near(0, 200); p != len("one two three ") {
+		t.Fatalf("past the right edge is the row's end, got %d", p)
+	}
+	if p := b.near(1, -5); p != len("one two three ") {
+		t.Fatalf("past the left edge is the row's start, got %d", p)
+	}
 }
 
 func TestBoxClickMapsToText(t *testing.T) {

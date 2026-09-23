@@ -146,11 +146,17 @@ func lineEnd(buf []rune, pos int) int {
 // editSel is edit with a selection. anchor is where a selection started
 // (-1 for none). shift with the arrows, home and end extends it; typing
 // replaces it; backspace and delete remove it. copied is set when ctrl+c
-// copies it.
+// copies it, or alt+c copies everything in the box.
 func editSel(buf []rune, pos, anchor int, k tea.KeyPressMsg, s string) (nbuf []rune, npos, nanchor int, copied string, ok bool) {
 	pos = max(0, min(pos, len(buf)))
 	if anchor > len(buf) {
 		anchor = -1
+	}
+	switch s {
+	case "super+a":
+		return buf, len(buf), 0, "", true
+	case "alt+c":
+		return buf, pos, anchor, string(buf), true
 	}
 	if strings.HasPrefix(s, "shift+") || strings.HasPrefix(s, "ctrl+shift+") || strings.HasPrefix(s, "alt+shift+") {
 		move := strings.NewReplacer("shift+", "").Replace(s)

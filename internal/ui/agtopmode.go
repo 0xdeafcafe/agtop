@@ -1485,7 +1485,8 @@ func (m *Model) clickBox(x, y int) bool {
 		if y > c.boxY && y <= c.boxY+rows && x >= x0 && x < x0+c.box.w {
 			m.paneFocus = true
 			pos := c.box.at(y-c.boxY-1, x-x0)
-			c.back, c.anchor = len(c.input)-pos, 0
+			c.back, c.anchor = len(c.input)-pos, pos+1 // a drag from here selects
+			m.boxDrag = 1
 			return true
 		}
 	}
@@ -1496,11 +1497,56 @@ func (m *Model) clickBox(x, y int) bool {
 	rows := len(b.lines()) - 2
 	if y > m.promptBoxY && y <= m.promptBoxY+rows && x < b.w {
 		m.paneFocus, m.embedded = false, false
-		m.setCursor(b.at(y-m.promptBoxY-1, x))
-		m.anchor = 0
+		pos := b.at(y-m.promptBoxY-1, x)
+		m.setCursor(pos)
+		m.anchor = pos + 1 // a drag from here selects
+		m.boxDrag = 2
 		return true
 	}
 	return false
+}
+
+// dragBox moves the cursor of the box a drag started in to the text under
+// the pointer, so the text between it and where the drag began is selected.
+// Past the box's edges it stops at the box's first or last row, and never
+// takes in anything drawn outside it.
+func (m *Model) dragBox(x, y int) {
+	switch c := m.host; {
+	case m.boxDrag == 1 && c != nil:
+		x0 := 2
+		if m.listW > 0 {
+			x0 = m.listW + 3
+		}
+		pos := c.box.near(y-c.boxY-1, x-x0)
+		c.back = len(c.input) - min(pos, len(c.input))
+	case m.boxDrag == 2:
+		m.setCursor(min(m.promptBox.near(y-m.promptBoxY-1, x), len(m.input)))
+	}
+}
+
+// endBoxDrag finishes a drag in an input box: what it selected goes to the
+// clipboard, as a terminal's own selection would.
+func (m *Model) endBoxDrag() {
+	var buf []rune
+	var pos, anchor int
+	switch c := m.host; {
+	case m.boxDrag == 1 && c != nil:
+		buf, pos, anchor = c.input, len(c.input)-c.back, c.anchor-1
+	case m.boxDrag == 2:
+		buf, pos, anchor = m.input, m.cursorPos(), m.anchor-1
+	}
+	drag := m.boxDrag
+	m.boxDrag = 0
+	if anchor >= 0 && anchor != pos && anchor <= len(buf) {
+		m.copyText(string(buf[min(anchor, pos):max(anchor, pos)]))
+		return
+	}
+	// A plain click leaves no selection behind.
+	if drag == 1 && m.host != nil {
+		m.host.anchor = 0
+	} else if drag == 2 {
+		m.anchor = 0
+	}
 }
 
 func hostCmd(f func() error) tea.Cmd {
