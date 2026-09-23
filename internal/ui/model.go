@@ -120,6 +120,7 @@ type Model struct {
 	embedded     bool
 	promptFor    string
 	listW        int
+	pastes       pastes                 // long pastes in the main box, shown as chips
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
 	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
@@ -482,6 +483,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case previewMsg:
 		m.previews[msg.key] = msg.e
 		return m, nil
+	case editedMsg:
+		switch {
+		case msg.err != nil:
+			m.flash("editor: "+msg.err.Error(), true)
+		case msg.pane && m.host != nil:
+			c := m.host
+			c.input, c.back = applyEdit(&c.pastes, c.input, msg.id, msg.text), 0
+		case !msg.pane:
+			m.input, m.back = applyEdit(&m.pastes, m.input, msg.id, msg.text), 0
+		}
+		return m, nil
 	case localQueueFailed:
 		// Back on the front of the queue, to try again when you say.
 		if q := m.localQ[msg.key]; q != nil {
@@ -547,16 +559,25 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// A paste goes into whichever box has focus, at its cursor, newlines
 		// kept so a pasted log or snippet arrives whole.
+		// A long one shows as a chip and goes out whole.
 		if c := m.host; c != nil && m.paneFocus {
+			text := msg.Content
+			if isLongPaste(text) {
+				text = c.pastes.add(text)
+			}
 			pos := max(0, len(c.input)-c.back)
-			c.input = insert(c.input, pos, []rune(msg.Content))
+			c.input = insert(c.input, pos, []rune(text))
 			return m, nil
 		}
 		if m.acceptsText() {
 			if m.dialog != nil {
 				m.dialog.input = append(m.dialog.input, []rune(oneLine(msg.Content))...)
 			} else {
-				m.input = insert(m.input, m.cursorPos(), []rune(oneLine(msg.Content)))
+				text := oneLine(msg.Content)
+				if isLongPaste(msg.Content) {
+					text = m.pastes.add(msg.Content)
+				}
+				m.input = insert(m.input, m.cursorPos(), []rune(text))
 			}
 		}
 		return m, nil

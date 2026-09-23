@@ -201,3 +201,34 @@ func TestExtractImages(t *testing.T) {
 		t.Fatal("plain text changed")
 	}
 }
+
+func TestPasteChips(t *testing.T) {
+	var p pastes
+	long := "a\nb\nc\nd\ne"
+	chip := p.add(long)
+	if chip != "[Pasted text #1 +5 lines]" {
+		t.Fatalf("chip = %q", chip)
+	}
+	draft := []rune("look at " + chip + " please")
+	if got := p.expand(string(draft)); got != "look at "+long+" please" {
+		t.Fatalf("expand = %q", got)
+	}
+	end := len([]rune("look at " + chip))
+	buf, pos, ok := dropChip(draft, end)
+	if !ok || string(buf) != "look at  please" || pos != len("look at ") {
+		t.Fatalf("dropChip = %q %d %v", string(buf), pos, ok)
+	}
+	if _, _, ok := dropChip(draft, end-1); ok {
+		t.Fatal("only a chip's end deletes it whole")
+	}
+	if p.lastIn(draft) != 1 {
+		t.Fatal("lastIn")
+	}
+	got := applyEdit(&p, draft, 1, "x\ny")
+	if string(got) != "look at [Pasted text #1 +2 lines] please" || p.text[1] != "x\ny" {
+		t.Fatalf("applyEdit = %q", string(got))
+	}
+	if isLongPaste("one\ntwo") || !isLongPaste(long) {
+		t.Fatal("isLongPaste")
+	}
+}

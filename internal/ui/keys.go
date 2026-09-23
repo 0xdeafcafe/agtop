@@ -291,6 +291,16 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	}
+	if s == "ctrl+g" {
+		return editDraft(&m.pastes, m.input, false)
+	}
+	if (s == "backspace" || s == "ctrl+h") && m.anchor == 0 {
+		if buf, pos, ok := dropChip(m.input, m.cursorPos()); ok {
+			m.input = buf
+			m.setCursor(pos)
+			return nil
+		}
+	}
 	m.editInput(k, s)
 	return nil
 }
@@ -381,7 +391,8 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 }
 
 func (m *Model) submit() tea.Cmd {
-	text := strings.TrimSpace(string(m.input))
+	text := strings.TrimSpace(m.pastes.expand(string(m.input)))
+	m.pastes = pastes{}
 	kind := m.inKind
 	a := m.selected()
 	if kind == inRename || kind == inGroup {

@@ -378,6 +378,7 @@ type hostConn struct {
 	editQ    int                // queued message being edited in the box, +1; 0 when none
 	editWas  string             // its text before editing
 	slashSel int                // the slash-command picker's selection
+	pastes   pastes             // long pastes shown as chips
 	local    []headless.Command // custom commands and skills on disk
 	skills   map[string]bool
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
@@ -1282,6 +1283,15 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if k.Text != "" && c.sel != "" {
 		c.sel = "" // typing returns to the box: nothing stays highlighted
 	}
+	if s == "ctrl+g" {
+		return editDraft(&c.pastes, c.input, true)
+	}
+	if (s == "backspace" || s == "ctrl+h") && c.anchor == 0 {
+		if buf, pos, ok := dropChip(c.input, len(c.input)-c.back); ok {
+			c.input, c.back = buf, len(buf)-pos
+			return nil
+		}
+	}
 	buf, pos, anchor, copied, _ := editSel(c.input, max(0, len(c.input)-c.back), c.anchor-1, k, s)
 	c.input, c.back, c.anchor = buf, len(buf)-pos, anchor+1
 	if copied != "" {
@@ -1346,7 +1356,8 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		c.back = 0
 		return nil
 	}
-	text = strings.TrimSpace(text)
+	text = strings.TrimSpace(c.pastes.expand(text))
+	c.pastes = pastes{}
 	if c.editQ > 0 {
 		i, was := c.editQ-1, c.editWas
 		c.editQ, c.input, c.back = 0, c.input[:0], 0

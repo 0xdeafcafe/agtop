@@ -1557,6 +1557,7 @@ func (m *Model) helpBody() []string {
 		{"alt+⌫", "delete a word"},
 		{"cmd+⌫", "clear the line"},
 		{"shift+enter", "new line"},
+		{"ctrl+g", "edit the last paste, or the draft, in $EDITOR"},
 	}}
 	everywhere := group{"Everywhere", [][2]string{
 		{"tab", "next tab"},

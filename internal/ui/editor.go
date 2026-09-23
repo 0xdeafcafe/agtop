@@ -207,10 +207,6 @@ func (m *Model) copyText(t string) {
 	m.flash(fmt.Sprintf("copied %d characters", len([]rune(t))), false)
 }
 
-// imagePaths reads a paste as image files dropped onto the terminal: paths
-// separated by spaces or newlines, quoted or with escaped spaces. It returns
-// nil unless every piece is an image file that exists, so ordinary text is
-// never swallowed.
 // extractImages takes the image files named anywhere in text (a dropped or
 // typed path, escaped or quoted, or a file:// URL) out of it, returning the
 // rest of the text and the images.
@@ -310,6 +306,10 @@ func pathSpans(text string) []span {
 	return out
 }
 
+// imagePaths reads a paste as image files dropped onto the terminal: paths
+// separated by spaces or newlines, quoted or with escaped spaces. It returns
+// nil unless every piece is an image file that exists, so ordinary text is
+// never swallowed.
 func imagePaths(paste string) []string {
 	var out []string
 	for _, tok := range splitPaths(paste) {
