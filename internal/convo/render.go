@@ -3,6 +3,7 @@ package convo
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/charmbracelet/x/ansi"
 	"path/filepath"
 	"regexp"
@@ -485,8 +486,22 @@ func (d *drawer) answer(s string) {
 	}
 	w := min(d.cw-5, capProse)
 	inFence := false
-	for _, ln := range strings.Split(strings.TrimRight(s, " \t\n"), "\n") {
+	lines := strings.Split(strings.TrimRight(s, " \t\n"), "\n")
+	for li := 0; li < len(lines); li++ {
+		ln := lines[li]
 		trim := strings.TrimSpace(ln)
+		if !inFence && strings.HasPrefix(trim, "|") {
+			// A markdown table: every row up to the first that isn't one.
+			end := li
+			for end < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[end]), "|") {
+				end++
+			}
+			if end-li >= 2 {
+				d.table(lines[li:end], d.spine()+"   ", min(d.cw-5, capRow))
+				li = end - 1
+				continue
+			}
+		}
 		if strings.HasPrefix(trim, "```") {
 			inFence = !inFence
 			continue
@@ -526,6 +541,90 @@ func (d *drawer) answer(s string) {
 		}
 		d.s.memoPut(k, d.lines[from:])
 	}
+}
+
+var tableSep = regexp.MustCompile(`^:?-{2,}:?$`)
+
+// table draws markdown table rows as aligned columns: the header bold over
+// a rule, cells shortened when the table is wider than the room.
+func (d *drawer) table(rows []string, pad string, w int) {
+	var cells [][]string
+	head := -1
+	for _, r := range rows {
+		r = strings.TrimSpace(r)
+		r = strings.TrimSuffix(strings.TrimPrefix(r, "|"), "|")
+		parts := strings.Split(r, "|")
+		sep := true
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+			if !tableSep.MatchString(parts[i]) {
+				sep = false
+			}
+		}
+		if sep {
+			head = len(cells) - 1
+			continue
+		}
+		cells = append(cells, parts)
+	}
+	cols := 0
+	for _, r := range cells {
+		cols = max(cols, len(r))
+	}
+	if cols == 0 {
+		return
+	}
+	width := make([]int, cols)
+	for _, r := range cells {
+		for i, c := range r {
+			width[i] = max(width[i], cellw.String(stripMarkdown(c)))
+		}
+	}
+	// Too wide: take room from the widest column until it fits.
+	gap := 3
+	for total := sum(width) + gap*(cols-1); total > w; total = sum(width) + gap*(cols-1) {
+		i := 0
+		for j := range width {
+			if width[j] > width[i] {
+				i = j
+			}
+		}
+		if width[i] <= 6 {
+			break
+		}
+		width[i]--
+	}
+	for ri, r := range cells {
+		var b strings.Builder
+		for i := range cols {
+			c := ""
+			if i < len(r) {
+				c = stripMarkdown(r[i])
+			}
+			c = truncateCells(c, width[i])
+			switch {
+			case ri == head:
+				b.WriteString(paint(cWhite+bold, c))
+			default:
+				b.WriteString(text(c))
+			}
+			if i < cols-1 {
+				b.WriteString(blanks(width[i] - cellw.String(c) + gap))
+			}
+		}
+		d.add("", "", pad+b.String(), "")
+		if ri == head {
+			d.add("", "", pad+faint(strings.Repeat("─", min(w, sum(width)+gap*(cols-1)))), "")
+		}
+	}
+}
+
+func sum(xs []int) int {
+	n := 0
+	for _, x := range xs {
+		n += x
+	}
+	return n
 }
 
 // memoKey names a paragraph as drawn: its text, how, and at what width.

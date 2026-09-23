@@ -599,3 +599,19 @@ func TestConvoReviewFixes(t *testing.T) {
 		t.Errorf("interrupt: %d turns, stopped=%v", len(s.Turns), s.Turns[0].Stopped)
 	}
 }
+
+func TestAnswerTable(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "compare"}, at(0))
+	s.Apply(say("Here:\n\n| Benchmark | Before | After |\n|---|---|---|\n| Frame | **1.38ms** | 0.33ms |\n| Rail | 202µs | 14µs |"), at(1))
+	s.Apply(headless.Result{Subtype: "success"}, at(2))
+	out := plain(s.Render(Options{Width: 100, Now: at(3)}))
+	for _, want := range []string{"Benchmark   Before   After", "Frame       1.38ms   0.33ms", "Rail        202µs    14µs", "───"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "|---") {
+		t.Fatal("separator row drawn raw")
+	}
+}
