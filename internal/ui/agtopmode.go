@@ -933,6 +933,28 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 		}
 		cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
 	}
+	// A Claude Code agent's own screen says what the transcript can't yet:
+	// that it's working, for how long and on how many tokens, its todos,
+	// and its status line.
+	if l := m.live; c.client == nil && l != nil && l.key == c.key && l.ready.Load() && m.viewName(c) == "conversation" {
+		si := readScreen(l.lines())
+		if si.working != "" {
+			line(spread("  "+paint(cOrange, si.working), dim("from its screen")+"  ", w))
+		}
+		for i, t := range si.todos {
+			if i == 4 {
+				line("    " + dim(fmt.Sprintf("… %d more", len(si.todos)-i)))
+				break
+			}
+			line("    " + dim(t))
+		}
+		for i, t := range si.status {
+			if i == 2 {
+				break
+			}
+			line("  " + faint(t))
+		}
+	}
 	if run := c.runningSubs(); len(run) > 0 && m.viewName(c) == "conversation" {
 		var names []string
 		for _, sa := range run {
