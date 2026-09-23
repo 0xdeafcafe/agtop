@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -250,6 +251,12 @@ func (m *Model) claudeKey(s string) tea.Cmd {
 		m.ask("value for "+r.envVar, r.value)
 		return nil
 	case r.envVar != "" && (s == "x" || s == "delete" || s == "backspace"):
+		if key := "env:" + r.envVar; m.armed != key || time.Since(m.armedAt) > 5*time.Second {
+			m.armed, m.armedAt = key, time.Now()
+			m.flash("press "+s+" again to remove "+r.envVar, false)
+			return nil
+		}
+		m.armed = ""
 		s := m.claudeSettings()
 		_ = s.SetEnv(r.envVar, "")
 		if err := s.Save(); err != nil {

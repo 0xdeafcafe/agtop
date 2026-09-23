@@ -65,8 +65,8 @@ func (o Options) args() []string {
 type Session struct {
 	Events <-chan Event
 
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
 	// Writes queue here and a goroutine feeds them to stdin, so a caller
 	// holding a lock never blocks on Claude Code (which may itself be
 	// blocked writing its output).
@@ -75,10 +75,10 @@ type Session struct {
 	wsig    chan struct{}
 	wclosed bool
 	werr    error
-	seq    atomic.Int64
-	done   chan struct{}
-	err    error
-	stderr tail
+	seq     atomic.Int64
+	done    chan struct{}
+	err     error
+	stderr  tail
 }
 
 // Start launches Claude Code for o.
