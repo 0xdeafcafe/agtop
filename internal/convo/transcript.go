@@ -1,7 +1,6 @@
 package convo
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -24,6 +23,7 @@ type Tail struct {
 
 	off       int64
 	partial   []byte
+	buf       []byte
 	sidechain bool // a subagent's own transcript: its lines are the story
 }
 
@@ -44,12 +44,8 @@ type tline struct {
 // Read applies whatever has been appended since the last call and reports
 // whether anything changed.
 func (t *Tail) Read() (bool, error) {
-	f, err := os.Open(t.Path)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-	st, err := f.Stat()
+	// Nothing new costs one stat.
+	st, err := os.Stat(t.Path)
 	if err != nil {
 		return false, err
 	}
@@ -59,26 +55,41 @@ func (t *Tail) Read() (bool, error) {
 	if st.Size() == t.off {
 		return false, nil
 	}
+	f, err := os.Open(t.Path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
 	if _, err := f.Seek(t.off, io.SeekStart); err != nil {
 		return false, err
 	}
-	r := bufio.NewReaderSize(f, 1<<20)
+	if t.buf == nil {
+		t.buf = make([]byte, 64<<10)
+	}
 	changed := false
 	for {
-		chunk, err := r.ReadBytes('\n')
-		t.off += int64(len(chunk))
-		if err != nil {
-			// An unfinished last line waits for the rest of it.
-			t.partial = append(t.partial, chunk...)
+		n, err := f.Read(t.buf)
+		t.off += int64(n)
+		chunk := t.buf[:n]
+		for len(chunk) > 0 {
+			i := bytes.IndexByte(chunk, '\n')
+			if i < 0 {
+				// An unfinished last line waits for the rest of it.
+				t.partial = append(t.partial, chunk...)
+				break
+			}
+			line := chunk[:i+1]
+			chunk = chunk[i+1:]
+			if len(t.partial) > 0 {
+				line = append(t.partial, line...)
+				t.partial = t.partial[:0]
+			}
+			if t.apply(bytes.TrimSpace(line)) {
+				changed = true
+			}
+		}
+		if err != nil || n == 0 {
 			break
-		}
-		line := chunk
-		if len(t.partial) > 0 {
-			line = append(t.partial, chunk...)
-			t.partial = nil
-		}
-		if t.apply(bytes.TrimSpace(line)) {
-			changed = true
 		}
 	}
 	return changed, nil
@@ -141,8 +152,7 @@ func (t *Tail) apply(b []byte) bool {
 		}
 		fallthrough
 	case "assistant":
-		stream, _ := json.Marshal(map[string]any{"type": l.Type, "message": l.Message, "tool_use_result": l.ToolUseResult})
-		ev, err := headless.Decode(stream)
+		ev, err := headless.Decode(envelope(l))
 		if err != nil {
 			return false
 		}
@@ -156,6 +166,26 @@ func (t *Tail) apply(b []byte) bool {
 		return true
 	}
 	return false
+}
+
+// envelope rewraps a transcript line as the stream line Claude Code would
+// have sent for it.
+func envelope(l tline) []byte {
+	raw := func(r json.RawMessage) json.RawMessage {
+		if len(r) == 0 {
+			return json.RawMessage("null")
+		}
+		return r
+	}
+	msg, res := raw(l.Message), raw(l.ToolUseResult)
+	b := make([]byte, 0, len(msg)+len(res)+64)
+	b = append(b, `{"message":`...)
+	b = append(b, msg...)
+	b = append(b, `,"tool_use_result":`...)
+	b = append(b, res...)
+	b = append(b, `,"type":"`...)
+	b = append(b, l.Type...)
+	return append(b, `"}`...)
 }
 
 // prompt reads a user line as something you typed: plain text or text and

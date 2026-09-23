@@ -54,9 +54,11 @@ func TestDump(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	paths, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", "*.jsonl"))
 	sort.Strings(paths)
+	// Transcripts written before a fixed day, so two dumps read the same ones.
+	cutoff := time.Date(2026, 9, 23, 0, 0, 0, 0, time.UTC)
 	n := 0
 	for _, p := range paths {
-		if st, err := os.Stat(p); err != nil || st.Size() > 3<<20 || st.Size() < 200<<10 || st.ModTime().After(time.Now().Add(-time.Hour)) {
+		if st, err := os.Stat(p); err != nil || st.Size() > 3<<20 || st.Size() < 200<<10 || st.ModTime().After(cutoff) {
 			continue
 		}
 		tl := NewTail(p)
