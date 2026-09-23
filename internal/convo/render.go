@@ -181,7 +181,7 @@ func (d *drawer) folded() {
 	t := d.t
 	ask := oneLine(t.Prompt)
 	if ask == "" {
-		ask = "(resumed)"
+		ask = "picked up on its own"
 	}
 	outcome := t.Outcome()
 	if t.Err != "" {
@@ -222,7 +222,7 @@ func (d *drawer) open() {
 		ask = "(images)"
 	}
 	if ask == "" {
-		ask = "(resumed)"
+		ask = "picked up on its own"
 	}
 	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
 	rows := wrap(styledAsk(oneLine(ask), cText+bold), min(headW, capProse))
@@ -709,6 +709,10 @@ func (d *drawer) command(cmd string) string {
 func program(cmd string) string {
 	cmd = strings.TrimSpace(cdRe.ReplaceAllString(strings.TrimSpace(cmd), ""))
 	f := strings.Fields(strings.SplitN(cmd, "\n", 2)[0])
+	// Leading VAR=value assignments aren't the program.
+	for len(f) > 1 && strings.Contains(f[0], "=") && !strings.HasPrefix(f[0], "-") {
+		f = f[1:]
+	}
 	if len(f) == 0 {
 		return ""
 	}

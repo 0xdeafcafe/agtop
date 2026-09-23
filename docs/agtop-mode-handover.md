@@ -102,7 +102,7 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 - [ ] **The whole queue should send as one message by default** (the user agreed). The host currently pops one item per turn.
 
 **Convo** (`internal/convo`):
-- [ ] **Phantom live turn:** `turnFor()` creates a Live turn with zero `Start`, so the header shows "✻ working 2562047h" (seen on real sessions). Set `Start: now`, and route messages with a parent and tool_results to their step's own turn rather than opening a new one.
+- [x] **Phantom live turn** (fixed after the handover: `turnFor(now)` sets `Start`, tool results go to their step's own turn, and a turn with no prompt reads "picked up on its own"). Was: `turnFor()` created a Live turn with zero `Start`, so the header shows "✻ working 2562047h" (seen on real sessions). Set `Start: now`, and route messages with a parent and tool_results to their step's own turn rather than opening a new one.
 - [ ] Subagent output leaks into the main turn when its parent step is unknown (checks `parent != nil`, should check `ParentToolUseID != ""`). It also overwrites `Context` and the turn's model.
 - [ ] **Totals are wrong:**
   - `request()` only merges a repeat of the *last* message id, so parallel subagents double count. Use a map by id.
@@ -157,6 +157,13 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 - [ ] The ▀▄ half-block bands look heavy at 250 columns and odd without colour. Consider a one-row background change.
 - [ ] Focus at 80–100 columns (Session full width, no Agents side to dim) is signalled only by the placeholder. Add a stronger marker.
 - [ ] Zen, changes view and search were built after the review and **haven't been reviewed**.
+
+- [ ] **Full diff viewer.** The user wants the **changes** view grown into a full diff viewer tab:
+  - file list with review marks
+  - net diff per file
+  - per-turn attribution
+  - jump from a hunk into the conversation
+- [x] **Recent changes rail** (built after the handover). On wide screens, room past the Session's 128 columns becomes a rail of the latest edits as diff blocks. The Session never takes more than 128 columns; if the rail doesn't fit, the room goes to Agents. `layout()` sets `m.railW`; the rail comes from `convo.Session.RecentEdits`. The user's own list width wins, so a wide saved `/width` means no rail.
 
 ### 3. Nice to have / later
 

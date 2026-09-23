@@ -288,3 +288,87 @@ func firstNonEmpty(xs ...string) string {
 	}
 	return ""
 }
+
+// RecentEdits draws the session's latest edits as diff blocks, newest
+// first, for the rail beside the conversation. It stops at h lines.
+func (s *Session) RecentEdits(o Options, h int) []Line {
+	w := o.Width
+	d := drawer{s: s, t: &Turn{}, o: o, cw: w}
+	var out []Line
+	add := func(b, text string) {
+		if len(out) < h {
+			out = append(out, Line{Text: row(b, text, "", w, w)})
+		}
+	}
+	type edit struct {
+		st   *Step
+		turn int
+	}
+	var edits []edit
+	for _, t := range s.Turns {
+		for _, it := range t.Items {
+			if it.Kind == KStep && glyphFor(it.Step.Tool) == "✎" && it.Step.Status == OK {
+				edits = append(edits, edit{it.Step, t.N})
+			}
+		}
+	}
+	head := " " + paint(cSub+bold, "Recent changes")
+	if len(edits) > 0 {
+		head += "  " + dim(plural(len(edits), "edit"))
+	}
+	add("", head)
+	add("", " "+faint(strings.Repeat("─", max(0, w-2))))
+	if len(edits) == 0 {
+		add("", " "+dim("no edits yet"))
+		return out
+	}
+	for i := len(edits) - 1; i >= 0 && len(out) < h; i-- {
+		e := edits[i]
+		st := e.st
+		path := d.rel(readInput(st.Input).str("file_path"))
+		counts := d.summary(st)
+		ago := ""
+		if !st.End.IsZero() {
+			ago = dim(" · " + dur(o.Now.Sub(st.End)) + " ago")
+		}
+		add(bgWell, " "+paint(cBlue, "✎ ")+text(truncateCells(path, w-4)))
+		add(bgWell, "   "+counts+dim(fmt.Sprintf("  #%d", e.turn))+ago)
+		bw := w - 4
+		var r struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		}
+		_ = json.Unmarshal(st.Result, &r)
+		shown := 0
+		if r.Type == "create" {
+			for _, l := range strings.Split(strings.TrimRight(r.Content, "\n"), "\n") {
+				if shown == 8 {
+					add("", "  "+dim("…"))
+					break
+				}
+				add(bgAdd, " "+paint(cGreen, "+")+" "+text(truncateCells(expandTabs(l), bw)))
+				shown++
+			}
+		}
+		for _, p := range headless.Patches(st.Result) {
+			for _, l := range p.Lines {
+				if l == "" || l[0] == ' ' {
+					continue // only what changed; the rail is narrow
+				}
+				if shown == 8 {
+					add("", "  "+dim("… the changes view has the rest"))
+					break
+				}
+				body := truncateCells(expandTabs(l[1:]), bw)
+				if l[0] == '+' {
+					add(bgAdd, " "+paint(cGreen, "+")+" "+text(body))
+				} else {
+					add(bgDel, " "+paint(cRed, "−")+" "+text(body))
+				}
+				shown++
+			}
+		}
+		add("", "")
+	}
+	return out
+}

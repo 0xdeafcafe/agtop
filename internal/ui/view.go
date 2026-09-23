@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 )
@@ -279,6 +280,11 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 			paneW, listW = m.w, 0
 		}
 	}
+	// Room past the Session's widest becomes the recent-changes rail.
+	m.railW = 0
+	if listW > 0 && paneW > maxPane+minRail && m.host != nil && !m.zen {
+		m.railW = paneW - maxPane - 1
+	}
 	bodyH = max(3, m.h-len(m.header())-1-len(m.promptLines(m.promptW(listW, paneW))))
 	return listW, paneW, bodyH
 }
@@ -288,11 +294,25 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 // quarter of the screen or 30 columns.
 func (m *Model) sideWidth() int {
 	floor := max((m.w+3)/4, 30)
+	side := max(floor, min(m.w*28/100, 64))
 	if f := m.store.Config.SideWidth; f > 0 {
-		return max(floor, min(int(float64(m.w)*f+0.5), m.w/2))
+		side = max(floor, min(int(float64(m.w)*f+0.5), m.w/2))
 	}
-	return max(floor, min(m.w*28/100, 64))
+	// The Session never takes more than its content can use. On a wide
+	// screen the spare room becomes the recent-changes rail when there's
+	// enough for one, and otherwise goes to Agents.
+	if m.w-side-1-maxPane >= minRail && m.host != nil {
+		return side
+	}
+	return max(side, m.w-1-maxPane)
 }
+
+// minRail is the narrowest recent-changes rail worth showing.
+const minRail = 40
+
+// maxPane is the widest a Session gets: its rows cap at 124 columns, plus
+// the pane's margins.
+const maxPane = 128
 
 // setSideWidth stores the list's share, kept between a quarter and a half.
 func (m *Model) setSideWidth(cols int) {
@@ -300,7 +320,7 @@ func (m *Model) setSideWidth(cols int) {
 		return
 	}
 	f := float64(cols) / float64(m.w)
-	f = max(0.25, min(f, 0.5))
+	f = max(0.25, min(f, 0.75))
 	m.store.Config.SideWidth = f
 	_ = m.store.SaveConfig()
 	m.flash(fmt.Sprintf("list width %.0f%%", f*100), false)
@@ -365,9 +385,13 @@ func (m *Model) listView() string {
 	}
 	var pane []string
 	if paneW > 0 {
+		sw := paneW - 3
+		if m.railW > 0 {
+			sw = paneW - m.railW - 4
+		}
 		if m.zen && len(m.zenQueue()) == 0 {
 			pane = m.zenQuiet(paneW-3, paneH)
-		} else if pane = m.agtopPane(paneW-3, paneH); pane == nil {
+		} else if pane = m.agtopPane(sw, paneH); pane == nil {
 			// A Claude Code agent's Session: its live screen or a summary,
 			// switched with [ ], under the same strip an agtop session has.
 			var body []string
@@ -397,7 +421,7 @@ func (m *Model) listView() string {
 		}
 		switch {
 		case listW > 0 && paneW > 0:
-			b.WriteString(m.side(fit(l, listW), false) + m.divider() + "  " + m.side(fit(p, paneW-3), true))
+			b.WriteString(m.side(fit(l, listW), false) + m.divider() + "  " + m.side(m.withRail(p, i, paneW-3), true))
 		case listW > 0:
 			b.WriteString(fit(l, m.w))
 		default:
@@ -416,7 +440,7 @@ func (m *Model) listView() string {
 			if j := bodyH + i; j < len(pane) {
 				p = pane[j]
 			}
-			b.WriteString(m.side(fit(l, listW), false) + m.divider() + "  " + m.side(fit(p, paneW-3), true))
+			b.WriteString(m.side(fit(l, listW), false) + m.divider() + "  " + m.side(m.withRail(p, i, paneW-3), true))
 		} else {
 			b.WriteString(fit(l, m.w))
 		}
@@ -434,6 +458,25 @@ const fade = "\x1b[2m"
 
 func (m *Model) twoSided() bool {
 	return m.listW > 0 && (m.host != nil || (m.live != nil && m.focused() != nil && m.live.key == m.focused().Key))
+}
+
+// withRail puts the recent-changes rail beside a Session row when there's
+// room for one.
+func (m *Model) withRail(p string, i, w int) string {
+	if m.railW <= 0 || m.host == nil {
+		return fit(p, w)
+	}
+	if i == 0 {
+		m.rail = nil
+		for _, l := range m.host.sess.RecentEdits(convo.Options{Width: m.railW, Now: m.snap.At}, m.h) {
+			m.rail = append(m.rail, l.Text)
+		}
+	}
+	r := ""
+	if i < len(m.rail) {
+		r = m.rail[i]
+	}
+	return fit(p, w-m.railW-1) + faint("│") + fit(r, m.railW)
 }
 
 // sessionFocused is whether the keys go to the Session: an agtop

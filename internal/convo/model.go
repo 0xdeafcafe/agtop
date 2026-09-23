@@ -172,12 +172,13 @@ func (s *Session) Pending() []*Step {
 	return out
 }
 
-func (s *Session) turnFor() *Turn {
+func (s *Session) turnFor(now time.Time) *Turn {
 	if t := s.Live(); t != nil {
 		return t
 	}
-	// Output with no turn to hold it, e.g. a replay that starts mid-turn.
-	t := &Turn{N: len(s.Turns) + 1, Live: true, steps: map[string]*Step{}}
+	// Output with no prompt to hold it: an agent waking for background
+	// work, or a replay that starts mid-turn.
+	t := &Turn{N: len(s.Turns) + 1, Live: true, Start: now, steps: map[string]*Step{}}
 	s.Turns = append(s.Turns, t)
 	return t
 }
@@ -214,7 +215,7 @@ func (s *Session) Apply(ev any, now time.Time) {
 	case headless.RateLimit:
 		s.Limit = ev.Status
 	case headless.Delta:
-		t := s.turnFor()
+		t := s.turnFor(now)
 		if ev.Thinking {
 			if n := len(t.Items); n == 0 || t.Items[n-1].Kind != KThinking {
 				t.Items = append(t.Items, &Item{Kind: KThinking})
@@ -302,9 +303,15 @@ func (s *Session) touchStep(st *Step) {
 }
 
 func (s *Session) message(m headless.Message, now time.Time) {
-	t := s.turnFor()
+	if m.Role != "assistant" {
+		// Tool results belong to the turn their call is in, however late
+		// they arrive; they never open a turn of their own.
+		s.results(m, now)
+		return
+	}
+	t := s.turnFor(now)
 	defer t.touch()
-	if m.Role == "assistant" {
+	{
 		parent := s.byID[m.ParentToolUseID]
 		if m.Usage != nil {
 			s.request(m, parent, now)
@@ -346,8 +353,10 @@ func (s *Session) message(m headless.Message, now time.Time) {
 				s.tasksFromInput(st)
 			}
 		}
-		return
 	}
+}
+
+func (s *Session) results(m headless.Message, now time.Time) {
 	for _, b := range m.Blocks {
 		if b.Type != "tool_result" {
 			continue
@@ -371,6 +380,7 @@ func (s *Session) message(m headless.Message, now time.Time) {
 		if st.Tool == "Bash" {
 			st.Exit = exitCode(st)
 		}
+		s.touchStep(st)
 		ts := s.tool(st.Tool)
 		if st.Status == Failed {
 			ts.Failed++
