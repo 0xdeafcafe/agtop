@@ -230,7 +230,20 @@ func (m *Model) listView() string {
 		}
 	}
 	prompt := m.promptLines()
-	bodyH := m.h - len(head) - 1 - len(prompt)
+	var dock []string
+	if !m.preview && m.h >= 24 {
+		if f := m.focused(); f != nil {
+			for _, l := range m.cardLines(f, m.w-4) {
+				dock = append(dock, "  "+l)
+			}
+		} else {
+			dock = append(dock, "", faint("  select an agent to see what it is doing"))
+		}
+		for len(dock) < 7 {
+			dock = append(dock, "")
+		}
+	}
+	bodyH := m.h - len(head) - 1 - len(prompt) - len(dock)
 	if bodyH < 3 {
 		bodyH = 3
 	}
@@ -266,6 +279,10 @@ func (m *Model) listView() string {
 		default:
 			b.WriteString("  " + fit(p, m.w-2))
 		}
+		b.WriteByte('\n')
+	}
+	for _, l := range dock {
+		b.WriteString(fit(l, m.w))
 		b.WriteByte('\n')
 	}
 	for i, l := range prompt {
@@ -318,20 +335,7 @@ func (m *Model) listLines(w, h int) []string {
 		case lineSub:
 			emit(m.subLine(l.agent, w), l.agent.Key, l.agent.Key == m.sel)
 		case lineCard:
-			if focus == nil || focus.Key != l.agent.Key || m.preview {
-				continue
-			}
-			bar := " "
-			if l.agent.Key == m.sel {
-				bar = paint(cOrange, "▍")
-			}
-			for _, c := range m.cardLines(l.agent, w-4) {
-				all = append(all, bar+"   "+c)
-				keys = append(keys, l.agent.Key)
-				if l.agent.Key == m.sel {
-					selBottom = len(all) - 1
-				}
-			}
+			_ = focus
 		}
 	}
 	if len(m.order) == 0 {
@@ -389,6 +393,7 @@ func (m *Model) sectionLine(l listLine, w int) string {
 // cardLines draw the focused row's details as a box: what it is doing now
 // in the title, its latest words inside, and its numbers in a footer.
 func (m *Model) cardLines(a *fleet.Agent, w int) []string {
+	const bodyLines = 3
 	p := m.previews[a.Key].p
 	inner := w - 6
 	edge := func(s string) string { return paint(cDim, s) }
@@ -428,8 +433,8 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 		}
 	}
 	for i, l := range lines {
-		if i == 3 {
-			body = append(body, faint("…   tab opens the full preview"))
+		if i == bodyLines-1 && len(lines) > bodyLines {
+			body = append(body, paint(cText, ansi.Truncate(l, inner-24, "…"))+faint("   tab for the full preview"))
 			break
 		}
 		body = append(body, paint(cText, l))
@@ -458,16 +463,16 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 		cells = append(cells, faint(c))
 	}
 
-	out := []string{top, line("")}
-	for _, l := range body {
+	for len(body) < bodyLines {
+		body = append(body, "")
+	}
+	out := []string{top}
+	for _, l := range body[:bodyLines] {
 		out = append(out, line(l))
 	}
-	out = append(out, line(""))
-	if len(cells) > 0 {
-		out = append(out, edge("├"+strings.Repeat("─", w-2)+"┤"))
-		out = append(out, line(""), line(strings.Join(cells, edge("   │   "))), line(""))
-	}
-	out = append(out, edge("╰"+strings.Repeat("─", w-2)+"╯"), "")
+	out = append(out, edge("├"+strings.Repeat("─", w-2)+"┤"))
+	out = append(out, line(strings.Join(cells, edge("   │   "))))
+	out = append(out, edge("╰"+strings.Repeat("─", w-2)+"╯"))
 	return out
 }
 
