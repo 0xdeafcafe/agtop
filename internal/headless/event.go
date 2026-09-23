@@ -186,11 +186,22 @@ type envelope struct {
 
 // Decode turns one output line into an Event.
 func Decode(line []byte) (Event, error) {
+	ev, err := decodeLine(line)
+	if o, ok := ev.(Other); ok && o.Raw == nil {
+		// Only what isn't decoded keeps a copy of its line; copying every
+		// line, deltas and all, was most of what decoding allocated.
+		o.Raw = append(json.RawMessage(nil), line...)
+		return o, err
+	}
+	return ev, err
+}
+
+func decodeLine(line []byte) (Event, error) {
 	var e envelope
 	if err := json.Unmarshal(line, &e); err != nil {
 		return nil, err
 	}
-	other := Other{Type: e.Type, Subtype: e.Subtype, Raw: append(json.RawMessage(nil), line...)}
+	other := Other{Type: e.Type, Subtype: e.Subtype}
 	switch e.Type {
 	case "system":
 		return decodeSystem(e.Subtype, line, other)

@@ -59,7 +59,7 @@ func soak(args []string) {
 	defer cancel()
 	out := &countWriter{}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithInput(nil), tea.WithOutput(out),
-		tea.WithWindowSize(w, h), tea.WithFPS(120), tea.WithoutSignalHandler())
+		tea.WithWindowSize(w, h), tea.WithFPS(fps()), tea.WithoutSignalHandler())
 	var ru0 syscall.Rusage
 	_ = syscall.Getrusage(syscall.RUSAGE_SELF, &ru0)
 	var ms0 runtime.MemStats
@@ -111,3 +111,13 @@ type countWriter struct{ n, writes int }
 func (c *countWriter) Write(b []byte) (int, error) { c.n += len(b); c.writes++; return len(b), nil }
 
 var _ io.Writer = (*countWriter)(nil)
+
+// fps is the frame rate the view draws at; AGTOP_FPS overrides it, for
+// measuring what the rate costs.
+func fps() int {
+	var n int
+	if _, err := fmt.Sscanf(os.Getenv("AGTOP_FPS"), "%d", &n); err == nil && n > 0 {
+		return n
+	}
+	return 120
+}

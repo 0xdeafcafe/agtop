@@ -46,18 +46,24 @@ func ReadSessions(a Account) []Session {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
-		}
-		var s Session
-		if json.Unmarshal(b, &s) != nil || s.PID <= 0 {
-			continue
-		}
-		if syscall.Kill(s.PID, 0) != nil {
+		s, ok := ReadSession(filepath.Join(dir, e.Name()))
+		if !ok || !Alive(s.PID) {
 			continue
 		}
 		out = append(out, s)
 	}
 	return out
 }
+
+// ReadSession reads one session file, whether or not its process lives.
+func ReadSession(path string) (Session, bool) {
+	var s Session
+	b, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(b, &s) != nil || s.PID <= 0 {
+		return s, false
+	}
+	return s, true
+}
+
+// Alive reports whether a process exists.
+func Alive(pid int) bool { return pid > 0 && syscall.Kill(pid, 0) == nil }

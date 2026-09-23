@@ -222,6 +222,9 @@ func indexByte(b []byte, c byte) int {
 
 func pinsPath(a Account) string { return filepath.Join(a.JobsDir(), "pins.json") }
 
+// PinsPath is where Claude Code keeps an account's pins.
+func PinsPath(a Account) string { return pinsPath(a) }
+
 // ReadPins shares the native view's pin list so a pin shows in both views.
 func ReadPins(a Account) []string {
 	ids, _ := LoadPins(a)

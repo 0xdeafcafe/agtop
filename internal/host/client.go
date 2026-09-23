@@ -1,7 +1,7 @@
 package host
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -115,28 +115,66 @@ func lastLine(s string) string {
 // ReadInfo reads a session's last published info. A session whose host has
 // gone is reported stopped.
 func ReadInfo(id string) (Info, error) {
+	info, err := readInfoFile(id)
+	if err == nil && !alive(info.HostPID) {
+		info.State, info.ClaudePID = "stopped", 0
+	}
+	return info, err
+}
+
+func readInfoFile(id string) (Info, error) {
 	var info Info
 	b, err := os.ReadFile(filepath.Join(dir(id), "info.json"))
 	if err != nil {
 		return info, err
 	}
-	if err := json.Unmarshal(b, &info); err != nil {
-		return info, err
-	}
-	if !alive(info.HostPID) {
-		info.State, info.ClaudePID = "stopped", 0
-	}
-	return info, nil
+	return info, json.Unmarshal(b, &info)
 }
 
 // List returns every agtop-mode session, newest first.
-func List() []Info {
+func List() []Info { return new(Lister).List() }
+
+// Lister lists sessions again and again, parsing only the info files that
+// changed; every session ever started stays listed, so most are unchanged.
+type Lister struct {
+	infos map[string]listed
+}
+
+type listed struct {
+	mod  time.Time
+	size int64
+	info Info
+	err  error
+}
+
+// List is List.
+func (l *Lister) List() []Info {
+	if l.infos == nil {
+		l.infos = map[string]listed{}
+	}
 	ents, _ := os.ReadDir(Root())
 	var out []Info
 	for _, e := range ents {
-		if info, err := ReadInfo(e.Name()); err == nil {
-			out = append(out, info)
+		id := e.Name()
+		st, err := os.Stat(filepath.Join(dir(id), "info.json"))
+		if err != nil {
+			delete(l.infos, id)
+			continue
 		}
+		c, ok := l.infos[id]
+		if !ok || !c.mod.Equal(st.ModTime()) || c.size != st.Size() {
+			c = listed{mod: st.ModTime(), size: st.Size()}
+			c.info, c.err = readInfoFile(id)
+			l.infos[id] = c
+		}
+		if c.err != nil {
+			continue
+		}
+		info := c.info
+		if info.State != "stopped" && !alive(info.HostPID) {
+			info.State, info.ClaudePID = "stopped", 0
+		}
+		out = append(out, info)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out
@@ -175,6 +213,12 @@ type Commands struct{ Commands []headless.Command }
 
 // Decode reads one line from a host: its own events, or Claude Code's.
 func Decode(line []byte) (any, error) {
+	// Claude Code's lines start with their type; the host's own (and its
+	// echo of what you sent) are written with sorted keys and don't. So
+	// most lines, deltas above all, are only taken apart once.
+	if bytes.HasPrefix(line, []byte(`{"type":"`)) && !bytes.HasPrefix(line, []byte(`{"type":"agtop_`)) {
+		return headless.Decode(line)
+	}
 	var head struct {
 		Type      string             `json:"type"`
 		Info      Info               `json:"info"`
@@ -230,10 +274,13 @@ func Dial(id string) (*Client, error) {
 	lines := make(chan []byte, 1024)
 	go func() {
 		defer close(lines)
-		sc := bufio.NewScanner(c)
-		sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
-		for sc.Scan() {
-			lines <- append([]byte(nil), sc.Bytes()...)
+		r := headless.NewLineReader(c)
+		for {
+			l, ok := r.Next()
+			if !ok {
+				return
+			}
+			lines <- append([]byte(nil), l...)
 		}
 	}()
 	return &Client{Lines: lines, c: c}, nil

@@ -176,6 +176,7 @@ type Loader struct {
 	store   *state.Store
 	jobs    map[string]claude.Job // by key, reloaded on mtime change
 	mtimes  map[string]time.Time
+	checked map[string]time.Time // when each job's file was last looked at
 	args    map[int]argsEntry
 	git     map[string]gitInfo
 	usage   map[string]usageEntry
@@ -184,6 +185,15 @@ type Loader struct {
 	nudged  map[string]time.Time
 	subs    map[string]subsEntry
 	fetched map[string]claude.Usage
+	files   map[string]fileMemo
+	hosts   host.Lister
+	print   map[int]printEntry
+}
+
+// printEntry remembers whether a pid runs claude -p, by its start time.
+type printEntry struct {
+	start time.Time
+	print bool
 }
 
 // SetFetched stores a usage reading fetched from Anthropic for an account.
@@ -197,8 +207,76 @@ func (l *Loader) SetFetched(configDir string, u claude.Usage) {
 }
 
 type subsEntry struct {
-	st claude.SubagentStats
-	at time.Time
+	st  claude.SubagentStats
+	at  time.Time
+	dir time.Time // the subagents folder's time when counted
+}
+
+// subagents counts an agent's subagent runs, and those still working.
+// Counting reads the folder and every run's time, so it's done again only
+// when a run started (the folder changed), when some were working (they
+// may have stopped), or after 30s.
+func (l *Loader) subagents(key, transcript string, now time.Time) claude.SubagentStats {
+	var dir time.Time
+	if st, err := os.Stat(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")); err == nil {
+		dir = st.ModTime()
+	} else {
+		return claude.SubagentStats{}
+	}
+	e, ok := l.subs[key]
+	working := e.st.Direct+e.st.Nested > 0
+	if ok && e.dir.Equal(dir) && now.Sub(e.at) < 30*time.Second && (!working || now.Sub(e.at) < 3*time.Second) {
+		return e.st
+	}
+	e = subsEntry{st: claude.ReadSubagentStats(transcript, now), at: now, dir: dir}
+	l.subs[key] = e
+	return e.st
+}
+
+// sessions lists an account's live Claude Code sessions, parsing only the
+// session files that changed.
+func (l *Loader) sessions(acct claude.Account) []claude.Session {
+	dir := filepath.Join(acct.ConfigDir, "sessions")
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []claude.Session
+	for _, e := range ents {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		ss, ok := l.memo(p, func() any {
+			s, ok := claude.ReadSession(p)
+			if !ok {
+				return nil
+			}
+			return s
+		}).(claude.Session)
+		if ok && claude.Alive(ss.PID) {
+			out = append(out, ss)
+		}
+	}
+	return out
+}
+
+// isPrint reports whether pid is claude -p, reading its arguments once.
+func (l *Loader) isPrint(tab *proc.Table, pid int) bool {
+	var start time.Time
+	if tab != nil {
+		if p := tab.Procs[pid]; p != nil {
+			start = p.Start
+		}
+	}
+	if e, ok := l.print[pid]; ok && !start.IsZero() && e.start.Equal(start) {
+		return e.print
+	}
+	v := isPrint(proc.Args(pid))
+	if !start.IsZero() {
+		l.print[pid] = printEntry{start: start, print: v}
+	}
+	return v
 }
 
 type argsEntry struct {
@@ -221,6 +299,7 @@ func NewLoader(s *state.Store) *Loader {
 		store: s, jobs: map[string]claude.Job{}, mtimes: map[string]time.Time{},
 		args: map[int]argsEntry{}, git: map[string]gitInfo{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
+		files: map[string]fileMemo{}, print: map[int]printEntry{}, checked: map[string]time.Time{},
 	}
 }
 
@@ -244,7 +323,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 	}
 
 	seen := map[string]bool{}
-	hosted := host.List()
+	hosted := l.hosts.List()
 	// Claude Code processes agtop's own hosts run: they register as
 	// sessions too, but they're the agtop agents, not agents of their own.
 	ours := map[string]bool{}
@@ -256,15 +335,18 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		}
 	}
 	for _, acct := range cfg.AllAccounts() {
-		roster := claude.ReadRoster(acct)
-		prs := claude.ReadPRCache(acct)
-		pins := map[string]int{}
-		for i, id := range claude.ReadPins(acct) {
-			pins[id] = i + 1
-		}
+		roster := l.memo(acct.RosterPath(), func() any { return claude.ReadRoster(acct) }).(claude.Roster)
+		prs := l.memo(acct.PRCachePath(), func() any { return claude.ReadPRCache(acct) }).(map[string]claude.PR)
+		pins := l.memo(claude.PinsPath(acct), func() any {
+			pins := map[string]int{}
+			for i, id := range claude.ReadPins(acct) {
+				pins[id] = i + 1
+			}
+			return pins
+		}).(map[string]int)
 		av := AccountView{Account: acct, Daemon: daemon.Client{Account: acct}.Running(), Current: acct.Name == active.Name}
 		av.Usage = l.readUsage(acct)
-		sessions := claude.ReadSessions(acct)
+		sessions := l.sessions(acct)
 		byJob := map[string]claude.Session{}
 		for _, ss := range sessions {
 			if ss.JobID != "" {
@@ -312,12 +394,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			}
 			a.Spend = l.spend[key]
 			if j.TranscriptPath != "" && (a.Live() || a.PID != 0 || now.Sub(j.UpdatedAt) < 24*time.Hour) {
-				e, ok := l.subs[key]
-				if !ok || now.Sub(e.at) > 3*time.Second {
-					e = subsEntry{st: claude.ReadSubagentStats(j.TranscriptPath, now), at: now}
-					l.subs[key] = e
-				}
-				a.Subs = e.st
+				a.Subs = l.subagents(key, j.TranscriptPath, now)
 			}
 			for _, u := range a.Spend.PRs {
 				// Only PRs Claude Code linked to a session; a URL merely
@@ -362,7 +439,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				SessionID: ss.SessionID, CreatedAt: ss.StartedAt(), UpdatedAt: ss.UpdatedAt(),
 				TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(ss.Cwd), ss.SessionID+".jsonl"),
 			}
-			headless := isPrint(proc.Args(ss.PID))
+			headless := l.isPrint(tab, ss.PID)
 			if st == "idle" {
 				j.Detail = "open in a terminal"
 				if headless {
@@ -417,6 +494,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		if !seen[k] {
 			delete(l.jobs, k)
 			delete(l.mtimes, k)
+			delete(l.checked, k)
 		}
 	}
 	if tab != nil {
@@ -485,6 +563,12 @@ func (l *Loader) sample(tab *proc.Table, a *Agent) {
 }
 
 func (l *Loader) job(acct claude.Account, id, key string) (claude.Job, bool) {
+	// A finished job's file rarely changes: it's looked at every 10s, a
+	// live one's every time.
+	if j, ok := l.jobs[key]; ok && !j.Live() && j.InFlight == 0 && time.Since(l.checked[key]) < 10*time.Second {
+		return j, true
+	}
+	l.checked[key] = time.Now()
 	st, err := os.Stat(filepath.Join(acct.JobsDir(), id, "state.json"))
 	if err != nil {
 		return claude.Job{}, false
@@ -594,6 +678,11 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 	for pid := range l.args {
 		if _, ok := tab.Procs[pid]; !ok {
 			delete(l.args, pid)
+		}
+	}
+	for pid := range l.print {
+		if _, ok := tab.Procs[pid]; !ok {
+			delete(l.print, pid)
 		}
 	}
 	for pid, p := range tab.Procs {

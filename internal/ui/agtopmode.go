@@ -3,7 +3,6 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/fswait"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
@@ -148,18 +148,15 @@ func (m *Model) readSub() {
 // growMsg says a transcript the pane follows has grown.
 type growMsg struct{ key string }
 
-// tailPoll is how often the followed transcripts are checked for growth:
-// one stat each, so what Claude Code writes shows within a frame or two
-// rather than on the next second's tick.
-const tailPoll = 25 * time.Millisecond
-
 type watched struct {
 	path string
 	size int64
 }
 
 // syncWatch keeps a watch on the transcripts the pane follows: a Claude
-// Code session's own, and the subagent opened.
+// Code session's own, and the subagent opened. The kernel says when one is
+// written, so what Claude Code writes shows at once, and a quiet one costs
+// nothing.
 func (m *Model) syncWatch() tea.Cmd {
 	c := m.host
 	if c == nil {
@@ -181,21 +178,15 @@ func (m *Model) syncWatch() tea.Cmd {
 	}
 	stop, key := make(chan struct{}), c.key
 	c.watching, c.stopWatch = want, stop
+	files := make([]fswait.File, len(want))
+	for i, w := range want {
+		files[i] = fswait.File{Path: w.path, Size: w.size}
+	}
 	return func() tea.Msg {
-		t := time.NewTicker(tailPoll)
-		defer t.Stop()
-		for {
-			select {
-			case <-stop:
-				return nil
-			case <-t.C:
-			}
-			for _, w := range want {
-				if st, err := os.Stat(w.path); err == nil && st.Size() != w.size {
-					return growMsg{key}
-				}
-			}
+		if fswait.Grown(stop, files) {
+			return growMsg{key}
 		}
+		return nil
 	}
 }
 

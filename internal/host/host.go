@@ -19,6 +19,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -201,6 +202,12 @@ const ringMax = 8 << 20
 // Run serves the session described by dir(id)/config.json until it is
 // stopped. It is what `agtop host run <id>` calls.
 func Run(id string) error {
+	// A host lives as long as its session and mostly waits. Its heap is the
+	// replay ring and whatever line is passing through; a soft limit makes
+	// the collector hand memory back rather than keep a turn's high water.
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(48 << 20)
+	}
 	var cfg Config
 	b, err := os.ReadFile(filepath.Join(dir(id), "config.json"))
 	if err != nil {
@@ -257,7 +264,7 @@ func (s *server) start() error {
 	}
 	o := headless.Options{
 		Account: s.cfg.Account, Dir: s.cfg.Cwd, Model: s.cfg.Model, Effort: s.cfg.Effort,
-		PermissionMode: s.cfg.PermissionMode, Binary: s.cfg.Binary, Tap: s.tap,
+		PermissionMode: s.cfg.PermissionMode, Binary: s.cfg.Binary, Tap: s.tap, Skip: relayOnly,
 		// agtop's own tools only draw, so they never ask.
 		Flags: append([]string{"--allowedTools", strings.Join(agtools.Allowed(), ",")}, s.cfg.Flags...),
 	}
@@ -374,13 +381,17 @@ func ownTraffic(l []byte) bool {
 		r.Subtype == "can_use_tool" && strings.HasPrefix(r.Tool, agtools.Prefix)
 }
 
-func isStreamEvent(l []byte) bool {
-	return strings.HasPrefix(string(l[:min(len(l), 32)]), `{"type":"stream_event"`)
+// relayOnly is output the host passes on without reading: streamed deltas
+// and tool results (user messages). They are most of what Claude Code
+// writes, and the biggest lines.
+func relayOnly(l []byte) bool {
+	return isStreamEvent(l) || bytes.HasPrefix(l, []byte(`{"type":"user"`))
 }
 
+func isStreamEvent(l []byte) bool { return bytes.HasPrefix(l, []byte(`{"type":"stream_event"`)) }
+
 func isWholeMessage(l []byte) bool {
-	p := string(l[:min(len(l), 24)])
-	return strings.HasPrefix(p, `{"type":"assistant"`) || strings.HasPrefix(p, `{"type":"user"`)
+	return bytes.HasPrefix(l, []byte(`{"type":"assistant"`)) || bytes.HasPrefix(l, []byte(`{"type":"user"`))
 }
 
 // watch follows one Claude Code process until it exits.
@@ -684,6 +695,8 @@ func (s *server) armIdle() {
 		s.mu.Unlock()
 		if stop {
 			_ = sess.Stop(10 * time.Second)
+			// Idle until the next message: give back what the turn used.
+			debug.FreeOSMemory()
 		}
 	})
 }

@@ -2,6 +2,7 @@ package headless
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -33,6 +34,10 @@ type Options struct {
 	Binary string
 	// Tap, when set, sees every output line before it is decoded.
 	Tap func(line []byte)
+	// Skip, when set, says which lines not to decode at all: they reach Tap
+	// and nothing else. A host that only relays streamed deltas and tool
+	// results needn't pay to take them apart.
+	Skip func(line []byte) bool
 }
 
 func (o Options) args() []string {
@@ -108,7 +113,7 @@ func Start(o Options) (*Session, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	go s.read(stdout, events, o.Tap)
+	go s.read(stdout, events, o.Tap, o.Skip)
 	go s.writer()
 	return s, nil
 }
@@ -147,17 +152,26 @@ func (s *Session) signal() {
 	}
 }
 
-func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte)) {
+// maxLine is the longest output line taken; tool results and file reads
+// can make single lines very long.
+const maxLine = 64 << 20
+
+func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte), skip func([]byte) bool) {
 	defer close(s.done)
 	defer close(events)
-	sc := bufio.NewScanner(r)
-	// Tool results and file reads can make single lines very long.
-	sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
-	for sc.Scan() {
-		if tap != nil {
-			tap(sc.Bytes())
+	lines := NewLineReader(r)
+	for {
+		line, ok := lines.Next()
+		if !ok {
+			break
 		}
-		ev, err := Decode(sc.Bytes())
+		if tap != nil {
+			tap(line)
+		}
+		if skip != nil && skip(line) {
+			continue
+		}
+		ev, err := Decode(line)
 		if err != nil {
 			continue
 		}
@@ -171,17 +185,14 @@ func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte)) {
 		}
 		events <- ev
 	}
-	if sc.Err() != nil {
+	if lines.Err() != nil {
 		// Nobody reads its output any more, so it would block forever:
 		// end it, and say why.
 		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
 	}
 	err := s.cmd.Wait()
-	if sc.Err() != nil {
-		err = fmt.Errorf("reading Claude Code's output: %w", sc.Err())
-	}
-	if err == nil {
-		err = sc.Err()
+	if lines.Err() != nil {
+		err = fmt.Errorf("reading Claude Code's output: %w", lines.Err())
 	}
 	if err != nil {
 		if t := s.stderr.String(); t != "" {
@@ -189,6 +200,53 @@ func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte)) {
 		}
 	}
 	s.err = err
+}
+
+// LineReader splits output into lines like bufio.Scanner, but a long line's
+// buffer goes once it has been handled: one 30 MB tool result mustn't keep
+// 32 MB for the rest of the session.
+type LineReader struct {
+	r    *bufio.Reader
+	long []byte
+	err  error // why reading stopped, other than the end of the output
+}
+
+// Err is why reading stopped, if it wasn't the end of the output.
+func (l *LineReader) Err() error { return l.err }
+
+// NewLineReader reads r a line at a time.
+func NewLineReader(r io.Reader) *LineReader {
+	return &LineReader{r: bufio.NewReaderSize(r, 256<<10)}
+}
+
+// Next returns the next line without its newline. It is only good until
+// the next call.
+func (l *LineReader) Next() ([]byte, bool) {
+	if cap(l.long) > 1<<20 {
+		l.long = nil
+	}
+	line, err := l.r.ReadSlice('\n')
+	if err == bufio.ErrBufferFull {
+		l.long = append(l.long[:0], line...)
+		for err == bufio.ErrBufferFull {
+			line, err = l.r.ReadSlice('\n')
+			l.long = append(l.long, line...)
+			if len(l.long) > maxLine {
+				l.err = bufio.ErrTooLong
+				return nil, false
+			}
+		}
+		line = l.long
+	}
+	if err != nil && err != io.EOF {
+		l.err = err
+		return nil, false
+	}
+	if len(line) == 0 && err == io.EOF {
+		return nil, false
+	}
+	line = bytes.TrimSuffix(line, []byte("\n"))
+	return bytes.TrimSuffix(line, []byte("\r")), true
 }
 
 // PID is Claude Code's process id.

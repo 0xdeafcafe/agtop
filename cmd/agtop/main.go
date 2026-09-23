@@ -165,7 +165,7 @@ func dump() {
 	var targets []fleet.Target
 	for _, a := range snap.Agents {
 		if a.TranscriptPath != "" {
-			targets = append(targets, fleet.Target{Key: a.Key, Path: a.TranscriptPath})
+			targets = append(targets, fleet.Target{Key: a.Key, Path: a.TranscriptPath, Live: a.Live() || a.PID != 0})
 		}
 	}
 	sc := fleet.NewScanner()
