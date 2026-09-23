@@ -264,6 +264,9 @@ func settingHelp(label, value string) (what, now string) {
 			"auto": "auto: every session continues by itself at the reset, a few seconds apart.",
 			"off":  "off: sessions wait for you after a limit.",
 		}[value]
+	case "Rest Claude after":
+		what = "How long an idle agtop-mode session keeps Claude Code running. An idle Claude Code holds 150-580 MB; after this it stops, and your next message starts it again in about a second. The prompt cache lasts an hour either way."
+		now = "Claude stops after " + firstNonEmpty(value, "5 min") + " idle; the host, the conversation and its queue stay."
 	case "Quick start":
 		what = "Starts agtop-mode sessions without Claude Code's non-essential network traffic (CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC), for them alone. Claude Code is ready in about 0.3s instead of 0.65s, which you feel on every new session and every message after one has rested."
 		now = map[string]string{

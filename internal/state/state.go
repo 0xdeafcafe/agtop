@@ -60,6 +60,24 @@ type Dispatch struct {
 	// network traffic: ready in about half the time, but without DesignSync,
 	// Projects, plugin downloads or live preview.
 	Lean bool `json:"lean,omitempty"`
+	// RestMinutes is how long an idle agtop-mode session keeps Claude Code
+	// running before stopping it (a message starts it again); 0 is the
+	// default.
+	RestMinutes int `json:"restMinutes,omitempty"`
+}
+
+// DefaultRest is how long an idle agtop-mode session keeps Claude Code
+// running when RestMinutes isn't set. An idle Claude Code holds 150-580 MB;
+// starting it again takes about a second, and the prompt cache (an hour)
+// isn't lost.
+const DefaultRest = 5 * time.Minute
+
+// Rest is how long an idle agtop-mode session keeps Claude Code running.
+func (d Dispatch) Rest() time.Duration {
+	if d.RestMinutes > 0 {
+		return time.Duration(d.RestMinutes) * time.Minute
+	}
+	return DefaultRest
 }
 
 func (d Dispatch) Flags() []string {

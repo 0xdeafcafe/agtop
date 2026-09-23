@@ -1841,7 +1841,7 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string) tea.Cmd {
 			cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
 		}
 		cfg.Resume, cfg.Prompt, cfg.Images = true, text, images
-		cfg.Lean = m.store.Config.Dispatch.Lean
+		cfg.Lean, cfg.IdleStop = m.store.Config.Dispatch.Lean, host.Duration(m.store.Config.Dispatch.Rest())
 		m.flash("resuming "+a.DisplayName+"…", false)
 		return func() tea.Msg {
 			if _, err := host.Spawn(cfg); err != nil {
@@ -1882,7 +1882,7 @@ func (m *Model) resume(a *fleet.Agent) tea.Cmd {
 		cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
 	}
 	cfg.Resume, cfg.Prompt = true, ""
-	cfg.Lean = m.store.Config.Dispatch.Lean
+	cfg.Lean, cfg.IdleStop = m.store.Config.Dispatch.Lean, host.Duration(m.store.Config.Dispatch.Rest())
 	m.flash("resuming "+a.DisplayName+"…", false)
 	m.preview, m.paneFocus = true, true
 	return func() tea.Msg {
@@ -1911,7 +1911,7 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 	}
 	cfg := host.Config{
 		Account: m.store.Config.ActiveAccount(), Cwd: dir, Prompt: text, Images: images, Name: name,
-		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean,
+		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
 	}
 	m.flash("starting a new session…", false)
 	return func() tea.Msg {
@@ -1983,7 +1983,7 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 	d := m.store.Config.Dispatch
 	cfg := host.Config{
 		SessionID: a.SessionID, Resume: true, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
-		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean,
+		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
 	}
 	old := a.Key
 	if a.Interactive {

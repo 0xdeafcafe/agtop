@@ -132,6 +132,10 @@ func (m *Model) claudeRows() []claudeRow {
 			cfg.Dispatch.OnLimit = v
 			_ = m.store.SaveConfig()
 		}}, "", "auto", "off"),
+		row("agtop", "Rest Claude after", setting{value: restValue(cfg.Dispatch.RestMinutes), set: func(v string) {
+			fmt.Sscanf(v, "%d", &cfg.Dispatch.RestMinutes)
+			_ = m.store.SaveConfig()
+		}}, "2 min", "5 min", "10 min", "30 min"),
 		row("agtop", "Quick start", setting{value: onOff(cfg.Dispatch.Lean), set: func(v string) {
 			cfg.Dispatch.Lean = v == "on"
 			_ = m.store.SaveConfig()
@@ -185,6 +189,8 @@ func shownValue(r claudeRow) string {
 		return "ask each session"
 	case "Quick start":
 		return "off"
+	case "Rest Claude after":
+		return "5 min"
 	case "Account":
 		return r.value
 	}
@@ -312,4 +318,11 @@ func onOff(b bool) string {
 		return "on"
 	}
 	return ""
+}
+
+func restValue(min int) string {
+	if min <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d min", min)
 }

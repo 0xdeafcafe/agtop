@@ -147,7 +147,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 }
 
 // DefaultIdleStop is how long an idle session keeps Claude Code running.
-const DefaultIdleStop = 10 * time.Minute
+const DefaultIdleStop = 5 * time.Minute
 
 // Root holds one directory per session.
 func Root() string { return filepath.Join(state.Dir(), "sessions") }
