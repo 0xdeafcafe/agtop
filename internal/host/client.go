@@ -263,6 +263,12 @@ func (c *Client) MoveQueued(i, to int) error { return c.do(op{Op: "queue_move", 
 func (c *Client) MergeQueued(i int) error    { return c.do(op{Op: "queue_merge", Index: i}) }
 func (c *Client) SendQueued(i int) error     { return c.do(op{Op: "queue_send", Index: i}) }
 
+// HoldQueue pauses or resumes sending the queue.
+func (c *Client) HoldQueue(on bool) error { return c.do(op{Op: "queue_hold", Now: on}) }
+
+// QueueSeparately sends queued messages one per turn instead of together.
+func (c *Client) QueueSeparately(on bool) error { return c.do(op{Op: "queue_separate", Now: on}) }
+
 // Allow lets a pending tool call run; input nil keeps the requested input.
 func (c *Client) Allow(id string, input json.RawMessage, always bool) error {
 	return c.do(op{Op: "allow", ID: id, Input: input, Always: always})

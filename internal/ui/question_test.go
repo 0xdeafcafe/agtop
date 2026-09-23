@@ -2,10 +2,12 @@ package ui
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -116,5 +118,57 @@ func TestZenQueue(t *testing.T) {
 	m.zenPick()
 	if m.sel != "old" {
 		t.Fatalf("an answered agent should give way, got %q", m.sel)
+	}
+}
+
+func TestSlashQueueTasks(t *testing.T) {
+	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
+	c.sess.Commands = []headless.Command{{Name: "compact", Description: "summarise"}, {Name: "context"}, {Name: "code-review"}}
+	c.input = []rune("/co")
+	names := func() (out []string) {
+		for _, x := range slashMatches(c) {
+			out = append(out, x.Name)
+		}
+		return
+	}
+	if got := names(); len(got) != 3 || got[0] != "compact" {
+		t.Fatalf("matches for /co: %v", got)
+	}
+	c.input = []rune("/cle")
+	if got := names(); len(got) != 1 || got[0] != "clear" {
+		t.Fatalf("agtop's /clear should match: %v", got)
+	}
+	c.input = []rune("/compact now")
+	if len(slashMatches(c)) != 0 {
+		t.Fatal("the picker closes once arguments start")
+	}
+
+	// A transcript-backed session can't take /model; agtop says so rather
+	// than sending it to Claude.
+	m := &Model{snap: &fleet.Snapshot{}}
+	if _, ok := m.runAgtopCommand(c, "/model haiku"); !ok || m.status == "" {
+		t.Fatal("/model should be handled by agtop")
+	}
+	if _, ok := m.runAgtopCommand(c, "/compact"); ok {
+		t.Fatal("/compact belongs to Claude Code")
+	}
+
+	// Enter on a queued message pulls it into the box for editing.
+	c.sess.Info.Queue = []string{"first", "second"}
+	c.sel = "q:1"
+	if _, used := m.queueKey(c, "enter"); !used || string(c.input) != "second" || c.editQ != 2 || c.sel != "" {
+		t.Fatalf("edit queued: used=%v input=%q editQ=%d", used, string(c.input), c.editQ)
+	}
+
+	// Tasks group into now, next and done.
+	c.sess.Tasks = []convo.Task{{Subject: "a", Status: "completed"}, {Subject: "b", Active: "Doing b", Status: "in_progress"}, {Subject: "c", Status: "pending"}}
+	var out string
+	for _, l := range m.taskLines(c, convo.Options{Width: 80}) {
+		out += ansi.Strip(l.Text) + "\n"
+	}
+	for _, want := range []string{"1 of 3 done", "Now  1", "■ Doing b", "Next  1", "Done  1", "✓ a"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tasks view missing %q:\n%s", want, out)
+		}
 	}
 }

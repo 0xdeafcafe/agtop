@@ -75,6 +75,10 @@ type Info struct {
 	// Queue holds messages sent while the agent was busy; the host sends
 	// the first when the turn ends.
 	Queue []string `json:"queue,omitempty"`
+	// QueueHeld pauses sending the queue; QueueSeparate sends one queued
+	// message per turn instead of the whole queue as one.
+	QueueHeld     bool `json:"queueHeld,omitempty"`
+	QueueSeparate bool `json:"queueSeparate,omitempty"`
 	// Limit is set while a usage limit has stopped the session.
 	Limit *Limit `json:"limit,omitempty"`
 	// Retry is set while an API error is being retried, or has given up.
@@ -394,9 +398,15 @@ func (s *server) onEvent(ev headless.Event) {
 			if t := strings.TrimSpace(ev.Text); t != "" {
 				s.info.Detail = firstLine(t)
 			}
-			if len(s.info.Queue) > 0 {
-				next := s.info.Queue[0]
-				s.info.Queue = s.info.Queue[1:]
+			if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+				// The whole queue goes as one message, unless you asked
+				// for them one per turn.
+				next := strings.Join(s.info.Queue, "\n\n")
+				if s.info.QueueSeparate {
+					next, s.info.Queue = s.info.Queue[0], s.info.Queue[1:]
+				} else {
+					s.info.Queue = nil
+				}
 				_ = s.sendLocked(next)
 				return
 			}
@@ -734,6 +744,15 @@ func (s *server) do(o op) error {
 			}
 			s.publish()
 		}
+		s.mu.Unlock()
+		return nil
+	case "queue_hold", "queue_separate":
+		if o.Op == "queue_hold" {
+			s.info.QueueHeld = o.Now
+		} else {
+			s.info.QueueSeparate = o.Now
+		}
+		s.publish()
 		s.mu.Unlock()
 		return nil
 	case "queue_edit", "queue_remove", "queue_move", "queue_merge", "queue_send":

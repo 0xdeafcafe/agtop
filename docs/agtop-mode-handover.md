@@ -134,15 +134,15 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 
 ### 2. Features the user asked for, not built yet
 
-- [ ] **Slash commands in the Session's message box.** The user can't run `/clear`, `/compact` and so on from agtop mode today.
+- [x] **Slash commands in the Session's message box** (built: `/` opens a picker of the session's commands plus agtop's `/clear`, `/model`, `/effort`; ↑↓, tab completes, enter runs). The user can't run `/clear`, `/compact` and so on from agtop mode today.
   - Typing `/` should open a picker above the box. Use the same row style as the Settings rows, with the command in bold white and its description dim.
   - The data comes from `convo.Session.Commands`, filled by the host's `initialize` reply (72 commands on the user's setup); narrow it as they type, and tab completes.
   - Enter sends `/cmd args` as the message; headless Claude Code runs slash commands it supports in stream-json (check which ones: `/compact` should work).
   - `/clear` needs agtop to handle it: start a fresh conversation in the same folder. That means spawning a new host session and selecting it, while the old one stays in the list.
   - agtop's own commands (`/agtop`, `/width`, `/done`, `/rename`, …) should appear in the same picker, marked as agtop's.
 
-- [ ] **Queue view** in the strip: edit in place, reorder (shift+↑↓), merge, drop, send now, **hold**. Needs a `hold` op in the host, plus queue item ids. The client already has `EditQueued/MoveQueued/MergeQueued/SendQueued/RemoveQueued`; nothing calls them yet.
-- [ ] **Tasks view:** the full list (now / next / done), including subagents' tasks. Data is in `convo.Session.Tasks` (TodoWrite, TaskCreate, TaskUpdate).
+- [x] **Queue view** (built: the queue view lists queued messages; enter edits one in the box and saves it back in place, shift+↑↓ moves, alt+m merges, ctrl+s sends now, ctrl+x drops, alt+h holds, alt+o switches one-message/separately; the host now sends the whole queue as one message by default). Was: edit in place, reorder (shift+↑↓), merge, drop, send now, **hold**. Needs a `hold` op in the host, plus queue item ids. The client already has `EditQueued/MoveQueued/MergeQueued/SendQueued/RemoveQueued`; nothing calls them yet.
+- [x] **Tasks view** (built: Now / Next / Done). Was: the full list (now / next / done), including subagents' tasks. Data is in `convo.Session.Tasks` (TodoWrite, TaskCreate, TaskUpdate).
 - [ ] **Subagents view redesign** (the user: "sucks"): master–detail, the runs list with the selected run's conversation beside it on wide panes. Richer rows: status, type, task, model, steps, tokens, duration, first line of its result.
 - [ ] **Overview redesign** (the user: "most of it sucks"): a dashboard.
   - Stat tiles across the top: cost, time, turns, tool calls, context %.

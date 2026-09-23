@@ -24,6 +24,12 @@ var paneViews = []string{"conversation", "overview", "changes"}
 
 func (m *Model) views(c *hostConn) []string {
 	v := append([]string{}, paneViews...)
+	if len(c.sess.Tasks) > 0 {
+		v = append(v, "tasks")
+	}
+	if c.client != nil {
+		v = append(v, "queue")
+	}
 	if len(c.subs) > 0 {
 		v = append(v, "subagents")
 	}
@@ -151,13 +157,15 @@ type hostConn struct {
 	verbose bool
 	scroll  int // rows up from the bottom; 0 follows the latest output
 
-	input  []rune
-	back   int
-	anchor int      // selection start + 1; 0 when nothing is selected
-	images []string // image files attached to the next message
-	box    box      // the message box as last drawn, and where
-	boxIdx int
-	boxY   int
+	input    []rune
+	back     int
+	anchor   int      // selection start + 1; 0 when nothing is selected
+	images   []string // image files attached to the next message
+	box      box      // the message box as last drawn, and where
+	boxIdx   int
+	boxY     int
+	editQ    int // queued message being edited in the box, +1; 0 when none
+	slashSel int // the slash-command picker's selection
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
 	// waiting for an answer; only then do plain letters and digits answer.
 	cardFocus bool
@@ -429,6 +437,10 @@ func (m *Model) agtopPane(w, h int) []string {
 		body = s.Overview(o)
 	case "changes":
 		body = s.ChangesView(o)
+	case "queue":
+		body = m.queueLines(c, o)
+	case "tasks":
+		body = m.taskLines(c, o)
 	case "subagents":
 		if c.subOpen != "" {
 			o.Selected = c.subSel
@@ -708,6 +720,10 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	if l := chips(c.images, w); l != "" {
 		out = append(out, onBg(bgChrome, l, w))
 	}
+	out = append(out, m.slashLines(c, w)...)
+	if c.editQ > 0 {
+		b.topL = paint(cOrange, fmt.Sprintf("editing queued message %d", c.editQ)) + dim(" · enter saves it back · esc cancels")
+	}
 	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
 	hint := keysFit(w-4, "enter", "send", "esc · ←", "back to the list", "↑↓", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
@@ -806,6 +822,18 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	}
 	empty := len(c.input) == 0
+	if cmd, used := m.slashKey(c, s); used {
+		return cmd
+	}
+	if m.viewName(c) == "queue" && c.client != nil {
+		if cmd, used := m.queueKey(c, s); used {
+			return cmd
+		}
+	}
+	if s == "esc" && c.editQ > 0 {
+		c.editQ, c.input, c.back = 0, c.input[:0], 0
+		return nil
+	}
 	if cmd, used := m.cardKey(c, s, empty); used {
 		return cmd
 	}
@@ -1046,6 +1074,17 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	text = strings.TrimSpace(text)
+	if c.editQ > 0 && c.client != nil {
+		i := c.editQ - 1
+		c.editQ, c.input, c.back = 0, c.input[:0], 0
+		return hostCmd(func() error { return c.client.EditQueued(i, text) })
+	}
+	if strings.HasPrefix(text, "/") {
+		if cmd, ok := m.runAgtopCommand(c, text); ok {
+			c.input, c.back = c.input[:0], 0
+			return cmd
+		}
+	}
 	images := c.images
 	// Paths typed or dropped without a paste become attachments too.
 	if imgs := imagePaths(text); imgs != nil {
@@ -1213,6 +1252,9 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 	name := sessionName(text)
 	if name == "" && len(images) > 0 {
 		name = "about " + filepath.Base(images[0])
+	}
+	if name == "" {
+		name = "fresh session in " + filepath.Base(dir)
 	}
 	cfg := host.Config{
 		Account: m.store.Config.ActiveAccount(), Cwd: dir, Prompt: text, Images: images, Name: name,
