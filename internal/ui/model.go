@@ -145,6 +145,7 @@ type Model struct {
 	cwdFor     string
 
 	lastState map[string]string
+	measuring bool // temp work is being measured in the background
 }
 
 type previewEntry struct {
@@ -433,6 +434,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case subStatsMsg:
 		m.onSubStats(msg)
 		return m, nil
+	case tempMsg:
+		m.onTemp(msg)
+		return m, nil
+	case cleanedMsg:
+		m.onCleaned(msg)
+		return m, nil
 	case movedToAgtopMsg:
 		// The old row is finished; the conversation carries on in agtop mode.
 		m.store.Overlay.Done[msg.from] = time.Now()
@@ -483,7 +490,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.followTail()
-		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues(), m.movePending()}
+		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues(), m.movePending(), m.measureTemp()}
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}
@@ -972,6 +979,15 @@ func (m *Model) rebuild() {
 		}
 		fold := m.folded(g.name)
 		meta := sectionMeta(len(g.agents), cost)
+		var temp int64
+		for _, a := range g.agents {
+			if a.PID == 0 {
+				temp += a.Temp
+			}
+		}
+		if temp >= tempShown {
+			meta += " · " + disk(temp) + " tmp"
+		}
 		if g.name == "Idle" {
 			var held uint64
 			for _, a := range g.agents {

@@ -132,6 +132,10 @@ func (m *Model) claudeRows() []claudeRow {
 			cfg.Dispatch.OnLimit = v
 			_ = m.store.SaveConfig()
 		}}, "", "auto", "off"),
+		row("agtop", "Quick start", setting{value: onOff(cfg.Dispatch.Lean), set: func(v string) {
+			cfg.Dispatch.Lean = v == "on"
+			_ = m.store.SaveConfig()
+		}}, "off", "on"),
 		row("settings.json", "Default model", str("model"), "", "opus", "opus[1m]", "sonnet", "haiku", "fable"),
 		row("settings.json", "Default effort", str("effortLevel"), "", "low", "medium", "high", "xhigh", "max"),
 		row("settings.json", "Permission mode", str("permissions.defaultMode"), "", "default", "acceptEdits", "plan", "auto"),
@@ -179,6 +183,8 @@ func shownValue(r claudeRow) string {
 		return "agtop mode"
 	case "When a usage limit hits":
 		return "ask each session"
+	case "Quick start":
+		return "off"
 	case "Account":
 		return r.value
 	}
@@ -299,4 +305,11 @@ func (m *Model) claudeAnswer(what, v string) {
 		return
 	}
 	m.flash(fmt.Sprintf("saved to %s", tildify(s.Path)), false)
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return ""
 }

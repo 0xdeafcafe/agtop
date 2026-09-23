@@ -882,6 +882,15 @@ func (m *Model) agtopPane(w, h int) []string {
 	}
 	end := len(body) - c.scroll
 	start := max(0, end-rows)
+	// A turn's heading (your message) can take several rows. A window
+	// starting inside one shows it from its first row instead of cutting
+	// its top off.
+	if m.viewName(c) == "conversation" && start > 0 && !c.searching && isTurnRef(body[start].Ref) {
+		f := headingStart(body, start)
+		if f < start && start-f <= rows/2 {
+			start, end = f, min(len(body), f+rows)
+		}
+	}
 	out := append([]string{}, head...)
 	c.rowRefs = make([]string, len(head), h)
 	for _, l := range body[start:end] {
@@ -894,7 +903,9 @@ func (m *Model) agtopPane(w, h int) []string {
 		for i := start; i >= 0; i-- {
 			if r := body[i].Ref; isTurnRef(r) {
 				if i < start && !isTurnRef(body[start].Ref) {
-					out[len(head)] = body[i].Text
+					// Its first row: the start of what you said.
+					f := headingStart(body, i)
+					out[len(head)] = body[f].Text
 					c.rowRefs[len(head)] = r
 				}
 				break
@@ -911,6 +922,14 @@ func (m *Model) agtopPane(w, h int) []string {
 	}
 	c.boxY = m.paneTop + len(out) + c.boxIdx
 	return append(out, dock...)
+}
+
+// headingStart is the first row of the turn heading that row i is part of.
+func headingStart(body []convo.Line, i int) int {
+	for i > 0 && body[i-1].Ref == body[i].Ref {
+		i--
+	}
+	return i
 }
 
 func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
@@ -1009,6 +1028,16 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 		} else {
 			conn = paint(cYellow, "cache cold") + "   " + conn
 		}
+	}
+	if a.Temp >= tempShown {
+		t := dim(" · ") + paint(cSub, disk(a.Temp)+" tmp")
+		if a.Temp >= 1<<30 {
+			t = dim(" · ") + paint(cYellow, disk(a.Temp)+" tmp")
+		}
+		if a.PID == 0 {
+			t += dim(" /clean")
+		}
+		meta += t
 	}
 	row2 := spread("  "+meta, conn+" ", w)
 
@@ -1422,6 +1451,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			}
 			return nil
 		}
+	case "alt+d":
+		// Done with this agent: to Done, its idle process stopped.
+		return m.markDone(m.agentByKey(c.key))
 	case "alt+h":
 		// Hold or release the queue from any view, as the dock says.
 		if c.client != nil {
@@ -1788,6 +1820,7 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string) tea.Cmd {
 			cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
 		}
 		cfg.Resume, cfg.Prompt, cfg.Images = true, text, images
+		cfg.Lean = m.store.Config.Dispatch.Lean
 		m.flash("resuming "+a.DisplayName+"…", false)
 		return func() tea.Msg {
 			if _, err := host.Spawn(cfg); err != nil {
@@ -1828,6 +1861,7 @@ func (m *Model) resume(a *fleet.Agent) tea.Cmd {
 		cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
 	}
 	cfg.Resume, cfg.Prompt = true, ""
+	cfg.Lean = m.store.Config.Dispatch.Lean
 	m.flash("resuming "+a.DisplayName+"…", false)
 	m.preview, m.paneFocus = true, true
 	return func() tea.Msg {
@@ -1856,7 +1890,7 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 	}
 	cfg := host.Config{
 		Account: m.store.Config.ActiveAccount(), Cwd: dir, Prompt: text, Images: images, Name: name,
-		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit,
+		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean,
 	}
 	m.flash("starting a new session…", false)
 	return func() tea.Msg {
@@ -1928,7 +1962,7 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 	d := m.store.Config.Dispatch
 	cfg := host.Config{
 		SessionID: a.SessionID, Resume: true, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
-		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit,
+		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean,
 	}
 	old := a.Key
 	if a.Interactive {

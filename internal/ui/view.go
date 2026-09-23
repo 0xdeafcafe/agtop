@@ -123,6 +123,10 @@ func (m *Model) header() []string {
 	}
 	mc := m.snap.Machine
 	right2 := dim(fmt.Sprintf("%s ram · %.0f%% cpu", mem(mc.TotalMem), mc.TotalCPU))
+	if t := m.tempTotal(); t >= tempShown {
+		// Agents' leftover scratch on disk; /clean all frees what's finished.
+		right2 += dim(" · " + disk(t) + " tmp")
+	}
 	if !m.loaded {
 		right2 = dim("costing transcripts…   ") + right2
 	}
@@ -1029,7 +1033,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 		if cost == "–" {
 			cost = ""
 		}
-		right = act + strings.Repeat(" ", wCPU+wRAM) + dim(right1(cost, wCost))
+		right = act + tempCell(a, wCPU+wRAM) + dim(right1(cost, wCost))
 	}
 	if live {
 		right += faint(right1(dur(a.Elapsed(now)), wAge+2)) + " "
@@ -1628,6 +1632,7 @@ func (m *Model) helpBody() []string {
 		{"F2", "rename"},
 		{"ctrl+l", "move to another folder"},
 		{"ctrl+t", "pin"},
+		{"alt+d", "done: to Done, its idle process stops"},
 		{"ctrl+x", "stop · twice deletes"},
 		{"ctrl+y", "open its pull request"},
 		{"ctrl+s", "group rows"},
@@ -1640,6 +1645,7 @@ func (m *Model) helpBody() []string {
 			{"enter", "open or fold what's picked"},
 			{"ctrl+f", "search"},
 			{"ctrl+o", "show everything, unfolded"},
+			{"alt+d", "done with this agent"},
 			{"ctrl+x", "stop the turn"},
 			{"/", "commands for this agent"},
 			{"esc · ←", "back to Agents"},

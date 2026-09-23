@@ -264,6 +264,12 @@ func settingHelp(label, value string) (what, now string) {
 			"auto": "auto: every session continues by itself at the reset, a few seconds apart.",
 			"off":  "off: sessions wait for you after a limit.",
 		}[value]
+	case "Quick start":
+		what = "Starts agtop-mode sessions without Claude Code's non-essential network traffic (CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC), for them alone. Claude Code is ready in about 0.3s instead of 0.65s, which you feel on every new session and every message after one has rested."
+		now = map[string]string{
+			"":   "off: sessions start with everything Claude Code has.",
+			"on": "on: quicker starts, but no DesignSync, Projects, plugin downloads or live preview in them. Your telemetry settings are unaffected.",
+		}[value]
 	case "Default model", "Default effort", "Permission mode", "Always think", "Co-authored-by in commits", "Keep transcripts for", "Hooks",
 		"Subagent model", "Max output tokens", "Bash timeout", "Telemetry", "Non-essential traffic":
 		what, now = claudeHelp(label, value)

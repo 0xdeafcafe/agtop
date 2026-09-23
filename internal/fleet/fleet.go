@@ -44,6 +44,8 @@ type Agent struct {
 	// Agtop is a session agtop runs itself, headless, through a host
 	// process; its pane is the conversation rather than Claude Code's screen.
 	Agtop bool
+	// Temp is how much disk its temp work takes, as last measured.
+	Temp int64
 }
 
 // NeedsYou is a live agent asking something the user has not looked at yet.
@@ -188,6 +190,7 @@ type Loader struct {
 	files   map[string]fileMemo
 	hosts   host.Lister
 	print   map[int]printEntry
+	Temp    *TempSizes
 }
 
 // printEntry remembers whether a pid runs claude -p, by its start time.
@@ -300,6 +303,7 @@ func NewLoader(s *state.Store) *Loader {
 		args: map[int]argsEntry{}, git: map[string]gitInfo{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
 		files: map[string]fileMemo{}, print: map[int]printEntry{}, checked: map[string]time.Time{},
+		Temp: LoadTempSizes(),
 	}
 }
 
@@ -501,6 +505,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		snap.Machine = l.machine(tab, snap)
 		l.prevTab = tab
 		snap.Table = tab
+	}
+	for _, a := range snap.Agents {
+		a.Temp = l.Temp.Sizes[a.Key].Bytes
 	}
 	sort.SliceStable(snap.Agents, func(i, j int) bool {
 		return snap.Agents[i].Age(now) < snap.Agents[j].Age(now)

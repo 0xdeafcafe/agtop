@@ -56,6 +56,10 @@ type Dispatch struct {
 	// "" asks once per session (opt-in), "auto" continues at the reset,
 	// "off" waits for you.
 	OnLimit string `json:"onLimit,omitempty"`
+	// Lean starts agtop-mode sessions without Claude Code's non-essential
+	// network traffic: ready in about half the time, but without DesignSync,
+	// Projects, plugin downloads or live preview.
+	Lean bool `json:"lean,omitempty"`
 }
 
 func (d Dispatch) Flags() []string {
@@ -181,6 +185,10 @@ func cacheDir() string {
 	}
 	return filepath.Join(d, "agtop")
 }
+
+// CachePath is a file in agtop's cache folder: what can be worked out
+// again, but is kept so a restart needn't.
+func CachePath(name string) string { return filepath.Join(cacheDir(), name) }
 
 func LoadCostCache() *CostCache {
 	c := &CostCache{Files: map[string]*claude.Totals{}}

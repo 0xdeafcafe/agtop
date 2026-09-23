@@ -64,6 +64,10 @@ type Config struct {
 	RetryBase Duration `json:"retryBase,omitempty"`
 	RetryMax  int      `json:"retryMax,omitempty"`
 	Binary    string   `json:"binary,omitempty"`
+	// Lean starts Claude Code without its non-essential network traffic:
+	// it's ready in about half the time, but without the features that
+	// need it (DesignSync, Projects, plugin downloads, live preview).
+	Lean bool `json:"lean,omitempty"`
 }
 
 // Info is what the list shows about a session; the host keeps it in
@@ -148,7 +152,11 @@ const DefaultIdleStop = 10 * time.Minute
 // Root holds one directory per session.
 func Root() string { return filepath.Join(state.Dir(), "sessions") }
 
-func dir(id string) string      { return filepath.Join(Root(), id) }
+func dir(id string) string { return filepath.Join(Root(), id) }
+
+// TempDir is where a session's Claude Code and everything it runs keep
+// their scratch files.
+func TempDir(id string) string  { return filepath.Join(dir(id), "tmp") }
 func SockPath(id string) string { return filepath.Join(dir(id), "host.sock") }
 
 // NewSessionID returns a fresh conversation id and the short id derived
@@ -267,6 +275,14 @@ func (s *server) start() error {
 		PermissionMode: s.cfg.PermissionMode, Binary: s.cfg.Binary, Tap: s.tap, Skip: relayOnly,
 		// agtop's own tools only draw, so they never ask.
 		Flags: append([]string{"--allowedTools", strings.Join(agtools.Allowed(), ",")}, s.cfg.Flags...),
+	}
+	// Its scratch goes in a folder of its own, as Claude Code's daemon does
+	// for its jobs, so what it leaves behind can be seen and cleaned up.
+	if tmp := TempDir(s.cfg.ID); os.MkdirAll(tmp, 0o700) == nil {
+		o.Env = append(o.Env, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp, "CLAUDE_CODE_TMPDIR="+tmp)
+	}
+	if s.cfg.Lean {
+		o.Env = append(o.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	}
 	if s.began {
 		o.Resume = s.cfg.SessionID

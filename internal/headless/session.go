@@ -38,6 +38,8 @@ type Options struct {
 	// and nothing else. A host that only relays streamed deltas and tool
 	// results needn't pay to take them apart.
 	Skip func(line []byte) bool
+	// Env is added to the account's environment.
+	Env []string
 }
 
 func (o Options) args() []string {
@@ -96,7 +98,7 @@ func Start(o Options) (*Session, error) {
 	cmd.Dir = o.Dir
 	// agtop draws a question's option previews, which Claude Code only
 	// offers a headless session when told the format.
-	cmd.Env = append(o.Account.Env(), "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT=markdown")
+	cmd.Env = append(append(o.Account.Env(), "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT=markdown"), o.Env...)
 	// Its own process group, so stopping the session takes its shells too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
