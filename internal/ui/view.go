@@ -273,8 +273,27 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 	case m.preview:
 		paneW, listW = m.w, 0
 	}
-	bodyH = max(3, m.h-len(m.header())-1-len(m.promptLines()))
+	bodyH = max(3, m.h-len(m.header())-1-len(m.promptLines(m.promptW(listW, paneW))))
 	return listW, paneW, bodyH
+}
+
+// promptW keeps the input under the list when a pane sits beside it, so the
+// pane's own input is never stacked over ours.
+func (m *Model) promptW(listW, paneW int) int {
+	if listW > 0 && paneW > 0 {
+		return listW
+	}
+	return m.w
+}
+
+// paneH is the pane's height: beside the list it runs past the prompt to the
+// bottom of the screen.
+func (m *Model) paneH() int {
+	listW, paneW, bodyH := m.layout()
+	if listW > 0 && paneW > 0 {
+		return bodyH + len(m.promptLines(listW))
+	}
+	return bodyH
 }
 
 func (m *Model) listView() string {
@@ -293,7 +312,12 @@ func (m *Model) listView() string {
 			dock = append(dock, "")
 		}
 	}
-	prompt := m.promptLines()
+	prompt := m.promptLines(m.promptW(listW, paneW))
+	split := listW > 0 && paneW > 0
+	paneH := bodyH
+	if split {
+		paneH += len(prompt)
+	}
 	if bodyH-len(dock) < 5 {
 		dock = nil // the list needs a few rows more than the dock does
 	}
@@ -309,7 +333,7 @@ func (m *Model) listView() string {
 	var pane []string
 	if paneW > 0 {
 		if pane = m.liveLines(paneW - 3); pane == nil {
-			pane = m.previewLines(paneW-3, bodyH)
+			pane = m.previewLines(paneW-3, paneH)
 		}
 	}
 	var b strings.Builder
@@ -341,7 +365,15 @@ func (m *Model) listView() string {
 		b.WriteByte('\n')
 	}
 	for i, l := range prompt {
-		b.WriteString(fit(l, m.w))
+		if split {
+			p := ""
+			if j := bodyH + i; j < len(pane) {
+				p = pane[j]
+			}
+			b.WriteString(fit(l, listW) + faint("│") + "  " + fit(p, paneW-3))
+		} else {
+			b.WriteString(fit(l, m.w))
+		}
 		if i < len(prompt)-1 {
 			b.WriteByte('\n')
 		}
@@ -899,7 +931,7 @@ func (m *Model) badges(a *fleet.Agent) string {
 
 // promptLines are the input box: a rule carrying where a new session will
 // start, the input wrapped over up to six lines, a rule, and the key hints.
-func (m *Model) promptLines() []string {
+func (m *Model) promptLines(w int) []string {
 	label := paint(cOrange, "❯ ")
 	placeholder := "describe a task for a new session"
 	a := m.selected()
@@ -913,7 +945,7 @@ func (m *Model) promptLines() []string {
 		placeholder = "a message for this agent · enter sends · esc leaves reply mode"
 	}
 	text := string(m.input)
-	top := faint(strings.Repeat("─", m.w))
+	top := faint(strings.Repeat("─", w))
 	sel := ""
 	if a != nil {
 		sel = faint("── ") + dim(tildify(a.Cwd))
@@ -930,9 +962,9 @@ func (m *Model) promptLines() []string {
 		}
 		where = " " + where + " " + faint("───")
 	}
-	if gap := m.w - ansi.StringWidth(sel) - ansi.StringWidth(where); gap >= 3 {
+	if gap := w - ansi.StringWidth(sel) - ansi.StringWidth(where); gap >= 3 {
 		top = sel + faint(strings.Repeat("─", gap)) + where
-	} else if gap := m.w - ansi.StringWidth(where); where != "" && gap >= 3 {
+	} else if gap := w - ansi.StringWidth(where); where != "" && gap >= 3 {
 		top = faint(strings.Repeat("─", gap)) + where
 	}
 	out := []string{top}
@@ -940,7 +972,7 @@ func (m *Model) promptLines() []string {
 	if text == "" {
 		out = append(out, "  "+label+faint(placeholder))
 	} else {
-		lines := strings.Split(ansi.Wrap(text, max(10, m.w-lw-4), ""), "\n")
+		lines := strings.Split(ansi.Wrap(text, max(10, w-lw-4), ""), "\n")
 		limit := min(6, max(1, m.h-len(m.header())-1-4-5))
 		if len(lines) > limit {
 			lines = append([]string{faint("…")}, lines[len(lines)-(limit-1):]...)[:limit]
@@ -958,11 +990,11 @@ func (m *Model) promptLines() []string {
 			out = append(out, "  "+pre+l)
 		}
 	}
-	out = append(out, faint(strings.Repeat("─", m.w)))
-	row1 := keysFit(m.w-4, "enter", "open", "ctrl+o", "reply", "ctrl+r", "rename", "ctrl+l", "move", "ctrl+t", "pin", "ctrl+f", "done", "ctrl+x", "stop")
-	row2 := keysFit(m.w-4, "tab", "views", "→", "preview", "ctrl+s", "group", "ctrl+n", "folder", "shift+↑↓", "preview size", "esc esc", "quit", "?", "all keys")
+	out = append(out, faint(strings.Repeat("─", w)))
+	row1 := keysFit(w-4, "enter", "open", "ctrl+o", "reply", "ctrl+r", "rename", "ctrl+l", "move", "ctrl+t", "pin", "ctrl+f", "done", "ctrl+x", "stop")
+	row2 := keysFit(w-4, "tab", "views", "→", "preview", "ctrl+s", "group", "ctrl+n", "folder", "shift+↑↓", "preview size", "esc esc", "quit", "?", "all keys")
 	if m.inKind == inReply {
-		row1 = keysFit(m.w-4, "enter", "send", "↑↓", "pick another agent", "esc", "leave reply mode")
+		row1 = keysFit(w-4, "enter", "send", "↑↓", "pick another agent", "esc", "leave reply mode")
 	}
 	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
 		row1 = m.statusOr("")
@@ -972,7 +1004,7 @@ func (m *Model) promptLines() []string {
 	if m.confirm != nil {
 		row1 = m.statusOr("")
 	}
-	return append(out, fit(row1, m.w), fit("  "+row2, m.w))
+	return append(out, fit(row1, w), fit("  "+row2, w))
 }
 
 // previewLines is the rich preview: everything about one agent, in ruled

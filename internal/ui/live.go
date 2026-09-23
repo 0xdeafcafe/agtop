@@ -235,8 +235,8 @@ func (m *Model) onLive(msg liveMsg) tea.Cmd {
 // liveSize is the emulator size for the current pane: the pane less its
 // one-line title.
 func (m *Model) liveSize() (int, int) {
-	_, paneW, bodyH := m.layout()
-	return paneW - 3, bodyH - 1
+	_, paneW, _ := m.layout()
+	return paneW - 3, m.paneH() - 1
 }
 
 // liveLines is the pane when the focused agent's terminal is showing, or nil
