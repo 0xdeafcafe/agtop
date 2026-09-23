@@ -372,6 +372,21 @@ func (d *drawer) open() {
 			}
 		case KCompact:
 			d.compacted(it)
+		case KNotice:
+			col, mark := cDim, "·"
+			switch it.Level {
+			case "warning":
+				col, mark = cYellow, "●"
+			case "error":
+				col, mark = cRed, "●"
+			}
+			for k, r := range wrap(oneLine(it.Text), min(d.cw-10, capProse)) {
+				lead := paint(col, mark) + " "
+				if k > 0 {
+					lead = "  "
+				}
+				d.add("", "", d.spine()+"   "+lead+paint(col, r), "")
+			}
 		case KInterject:
 			for k, r := range wrap(text(oneLine(it.Text)), min(d.cw-10, capProse)) {
 				lead := dim("you") + "  "

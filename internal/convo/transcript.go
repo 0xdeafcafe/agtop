@@ -42,6 +42,8 @@ type tline struct {
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
 	Cwd           string          `json:"cwd"`
 	Effort        string          `json:"effort"`
+	Content       json.RawMessage `json:"content"`
+	Level         string          `json:"level"`
 	Compact       struct {
 		Trigger    string `json:"trigger"`
 		PreTokens  int    `json:"preTokens"`
@@ -123,6 +125,16 @@ func (t *Tail) apply(b []byte) bool {
 		if l.Subtype == "turn_duration" {
 			s.Apply(headless.Result{Subtype: "success"}, at)
 			return true
+		}
+		if l.Subtype == "informational" || l.Subtype == "local_command" {
+			// Claude Code telling you something (an unknown command, a
+			// warning): shown where it happened.
+			var text string
+			if json.Unmarshal(l.Content, &text) == nil && strings.TrimSpace(text) != "" {
+				s.notice(stripTags(text), l.Level, at)
+				return true
+			}
+			return false
 		}
 		if l.Subtype == "compact_boundary" {
 			c := l.Compact

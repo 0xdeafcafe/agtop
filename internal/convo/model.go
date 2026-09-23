@@ -58,6 +58,7 @@ const (
 	KStep
 	KInterject // you, sending mid-turn
 	KCompact   // the conversation was compacted here; Text is the summary
+	KNotice    // Claude Code telling you something; Level says how loudly
 )
 
 // grow appends streamed text. A builder keeps it linear: adding to the
@@ -77,6 +78,7 @@ type Item struct {
 	Text    string
 	Compact *headless.Compact
 	buf     *strings.Builder // while it streams
+	Level   string           // a notice's: info, warning, error
 	Step    *Step
 	Answer  bool // the turn's final words, promoted when the turn ends
 }
@@ -446,6 +448,20 @@ func (s *Session) message(m headless.Message, now time.Time) {
 			}
 		}
 	}
+}
+
+// notice adds something Claude Code said to you (not the model) to the
+// running turn, or the last one.
+func (s *Session) notice(text, level string, now time.Time) {
+	t := s.Live()
+	if t == nil && len(s.Turns) > 0 {
+		t = s.Turns[len(s.Turns)-1]
+	}
+	if t == nil {
+		t = s.turnFor(now)
+	}
+	t.Items = append(t.Items, &Item{Kind: KNotice, Text: text, Level: level})
+	t.touch()
 }
 
 // interrupted ends the running turn (or marks the last one) as stopped by

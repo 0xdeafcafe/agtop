@@ -665,3 +665,17 @@ func TestChangesHunks(t *testing.T) {
 		t.Fatalf("hunks and marks:\n%s", out)
 	}
 }
+
+func TestNotice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := []string{
+		`{"type":"user","timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"/agtop"}}`,
+		`{"type":"system","subtype":"informational","level":"warning","timestamp":"2026-09-23T20:00:01Z","content":"Unknown command: /agtop. Did you mean /stop?"}`,
+	}
+	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	tl := NewTail(path)
+	_, _ = tl.Read()
+	if out := plain(tl.Sess.Render(Options{Width: 100, Now: at(0)})); !strings.Contains(out, "● Unknown command: /agtop. Did you mean /stop?") {
+		t.Fatalf("notice missing:\n%s", out)
+	}
+}
