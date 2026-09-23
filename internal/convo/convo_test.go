@@ -133,7 +133,7 @@ func TestRender(t *testing.T) {
 		"▾ ✻ you  add modern key stuff to input too",
 		"✗ $  in internal/ui  go vet ./... 2>&1 | head -50", // cd becomes a chip
 		"exit 1",
-		"▎internal/ui/editor.go:41:2: unreachable code", // failure opened itself
+		"▸ internal/ui/editor.go:41:2: unreachable code", // failure opened itself
 		"✎ internal/ui/editor.go",
 		"new · 3 lines",
 		"⇉ Explore  find the preview pane",
