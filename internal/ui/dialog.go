@@ -187,7 +187,7 @@ func settingHelp(label, value string) (what, now string) {
 			"status":  "status: finished agents from the last day under Today, older ones under Earlier.",
 			"repo":    "repo: one section per repository and branch, so work on the same code sits together.",
 			"account": "account: one section per Claude account, handy when you run several subscriptions.",
-			"group":   "group: your own sections; put an agent in one with ctrl+e. Ungrouped agents fall back to status.",
+			"group":   "group: your own sections; put an agent in one with /group <name>. Ungrouped agents fall back to status.",
 		}[value]
 	case "Sort rows by":
 		what = "The order of rows inside each section. You can also click a column header on the Agents view."

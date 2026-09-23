@@ -82,8 +82,16 @@ type Model struct {
 	lastClick    time.Time
 
 	input  []rune
+	back   int // cursor distance from the input's end
 	inKind inputKind
-	dirIdx int
+	// paneFocus sends keys to an agtop-mode session's pane instead of the
+	// list and its prompt.
+	paneFocus bool
+	dragging  bool // resizing the list by its edge
+	// host is the connection to the agtop-mode session the pane shows.
+	host        *hostConn
+	hostOpening string
+	dirIdx      int
 
 	status     string
 	statusErr  bool
@@ -372,7 +380,7 @@ func (m *Model) flash(s string, err bool) {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := m.update(msg)
-	return m, tea.Batch(cmd, m.syncLive())
+	return m, tea.Batch(cmd, m.syncLive(), m.syncHost())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -381,6 +389,26 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onLiveOpen(msg)
 	case liveMsg:
 		return m, m.onLive(msg)
+	case hostOpenMsg:
+		return m, m.onHostOpen(msg)
+	case hostLinesMsg:
+		return m, m.onHostLines(msg)
+	case movedToAgtopMsg:
+		// The old row is finished; the conversation carries on in agtop mode.
+		m.store.Overlay.Done[msg.from] = time.Now()
+		if n := m.store.Overlay.Names[msg.from]; n != "" {
+			m.store.Overlay.Names[state.Key(msg.started.acct, "a:"+msg.started.id)] = n
+		}
+		_ = m.store.SaveOverlay()
+		return m.update(msg.started)
+	case hostStartedMsg:
+		// Select the new session and give it the keys.
+		m.refresh()
+		m.sel = state.Key(msg.acct, "a:"+msg.id)
+		m.rebuild()
+		m.preview, m.paneFocus = true, true
+		m.flash("started "+msg.name, false)
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 		return m, nil
@@ -464,23 +492,63 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.embedPaste(msg.Content)
 			return m, nil
 		}
+		// A paste goes into whichever box has focus, at its cursor, newlines
+		// kept so a pasted log or snippet arrives whole.
+		if c := m.host; c != nil && m.paneFocus {
+			pos := max(0, len(c.input)-c.back)
+			c.input = insert(c.input, pos, []rune(msg.Content))
+			return m, nil
+		}
 		if m.acceptsText() {
 			if m.dialog != nil {
 				m.dialog.input = append(m.dialog.input, []rune(oneLine(msg.Content))...)
 			} else {
-				m.input = append(m.input, []rune(oneLine(msg.Content))...)
+				m.input = insert(m.input, m.cursorPos(), []rune(oneLine(msg.Content)))
 			}
 		}
 		return m, nil
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
 	case tea.MouseMotionMsg:
+		if m.dragging {
+			if msg.Button == tea.MouseLeft {
+				m.setSideWidth(msg.X)
+				return m, nil
+			}
+			m.dragging = false
+		}
 		return m, m.mouseMove(msg.X, msg.Y)
+	case tea.MouseReleaseMsg:
+		m.dragging = false
+		return m, nil
 	case tea.MouseClickMsg:
+		// Grabbing the edge between list and pane resizes the list.
+		if msg.Button == tea.MouseLeft && m.listW > 0 && m.mode == modeList && (msg.X == m.listW || msg.X == m.listW+1) {
+			m.dragging = true
+			return m, nil
+		}
+		if msg.Button == tea.MouseLeft && m.host != nil && m.listW > 0 && msg.X > m.listW+1 && m.mode == modeList && m.dialog == nil {
+			m.paneFocus = true // clicking the conversation gives it the keys
+			return m, nil
+		}
 		if msg.Button == tea.MouseLeft {
+			m.paneFocus = false
 			return m, m.mouseClick(msg.X, msg.Y)
 		}
 	case tea.MouseWheelMsg:
+		// The wheel scrolls whatever is under the pointer: over the pane it
+		// scrolls the conversation, and never moves the list behind it.
+		if _, paneW, _ := m.layout(); m.mode == modeList && m.dialog == nil && paneW > 0 && (m.listW == 0 || msg.X > m.listW) {
+			if c := m.host; c != nil {
+				switch msg.Button {
+				case tea.MouseWheelUp:
+					c.scroll += 3
+				case tea.MouseWheelDown:
+					c.scroll = max(0, c.scroll-3)
+				}
+			}
+			return m, nil
+		}
 		if m.mode == modeList && m.dialog == nil {
 			switch msg.Button {
 			case tea.MouseWheelUp:

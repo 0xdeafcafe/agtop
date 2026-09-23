@@ -195,6 +195,8 @@ func render(args []string) {
 			keys = append(keys, tea.KeyPressMsg{Code: tea.KeyTab})
 		case "down":
 			keys = append(keys, tea.KeyPressMsg{Code: tea.KeyDown})
+		case "enter":
+			keys = append(keys, tea.KeyPressMsg{Code: tea.KeyEnter})
 		case "?":
 			keys = append(keys, tea.KeyPressMsg{Code: '?', Text: "?"})
 		default:

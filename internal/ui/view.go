@@ -261,21 +261,50 @@ func keys(pairs ...string) string {
 // how many rows the body gets under the header and above the prompt.
 func (m *Model) layout() (listW, paneW, bodyH int) {
 	listW = m.w
-	switch {
-	case m.full:
-		paneW, listW = m.w, 0
-	case m.wide():
-		paneW = m.w * 46 / 100
-		listW = m.w - paneW - 1
-	case m.preview && m.w >= 120:
-		paneW = m.w * 55 / 100
-		listW = m.w - paneW - 1
-	case m.preview:
-		paneW, listW = m.w, 0
+	showing := m.full || m.preview || m.wide()
+	if showing {
+		// The list keeps at least a quarter of the screen and 30 columns;
+		// if that leaves the pane too narrow to read, there's no split.
+		side := m.sideWidth()
+		switch {
+		case m.full:
+			paneW, listW = m.w, 0
+		case m.w-side-1 >= minPane:
+			listW, paneW = side, m.w-side-1
+		case m.preview:
+			paneW, listW = m.w, 0
+		}
 	}
 	bodyH = max(3, m.h-len(m.header())-1-len(m.promptLines(m.promptW(listW, paneW))))
 	return listW, paneW, bodyH
 }
+
+// sideWidth is the list's width in a split: your own share when you've set
+// one (alt+← →, dragging the edge, /width), else agtop's; never under a
+// quarter of the screen or 30 columns.
+func (m *Model) sideWidth() int {
+	floor := max((m.w+3)/4, 30)
+	if f := m.store.Config.SideWidth; f > 0 {
+		return max(floor, min(int(float64(m.w)*f+0.5), m.w/2))
+	}
+	return max(floor, min(m.w*28/100, 64))
+}
+
+// setSideWidth stores the list's share, kept between a quarter and a half.
+func (m *Model) setSideWidth(cols int) {
+	if m.w <= 0 {
+		return
+	}
+	f := float64(cols) / float64(m.w)
+	f = max(0.25, min(f, 0.5))
+	m.store.Config.SideWidth = f
+	_ = m.store.SaveConfig()
+	m.flash(fmt.Sprintf("list width %.0f%%", f*100), false)
+}
+
+// minPane is the narrowest pane worth splitting the screen for: a step row
+// with its numbers on the right.
+const minPane = 84
 
 // promptW keeps the input under the list when a pane sits beside it, so the
 // pane's own input is never stacked over ours.
@@ -332,8 +361,10 @@ func (m *Model) listView() string {
 	}
 	var pane []string
 	if paneW > 0 {
-		if pane = m.liveLines(paneW - 3); pane == nil {
-			pane = m.previewLines(paneW-3, paneH)
+		if pane = m.agtopPane(paneW-3, paneH); pane == nil {
+			if pane = m.liveLines(paneW - 3); pane == nil {
+				pane = m.previewLines(paneW-3, paneH)
+			}
 		}
 	}
 	var b strings.Builder
@@ -579,7 +610,25 @@ func ctxBar(pct float64) string {
 }
 
 // columnHeader names the list's columns; it stays put while the list scrolls.
+// colWidths are the list's right-hand columns at width w. A narrow list
+// drops the least useful first, so names keep their room: RUNNING and CPU
+// under 96 columns, RAM under 64, cost under 44 (the pane header has it).
+func colWidths(w int) (act, cpu, ram, cost int) {
+	act, cpu, ram, cost = wAct, wCPU, wRAM, wCost
+	if w < 96 {
+		act, cpu = 0, 0
+	}
+	if w < 64 {
+		ram = 0
+	}
+	if w < 44 {
+		cost = 0
+	}
+	return
+}
+
 func (m *Model) columnHeader(w int) string {
+	wAct, wCPU, wRAM, wCost := colWidths(w)
 	nameCol := m.nameColumn(w)
 	sortBy := m.store.Config.SortBy
 	if sortBy == "" {
@@ -621,6 +670,7 @@ func (m *Model) columnHeader(w int) string {
 // headerColumn maps a click on the column header to the sort it selects.
 func (m *Model) headerColumn(x int) string {
 	w := m.listW
+	wAct, wCPU, wRAM, wCost := colWidths(w)
 	edges := []struct {
 		from int
 		mode string
@@ -656,11 +706,17 @@ func (m *Model) nameColumn(w int) int {
 		}
 		widest = max(widest, n)
 	}
+	if w < 96 {
+		// A narrow list is mostly names: give them what the columns leave.
+		act, cpu, ram, cost := colWidths(w)
+		return max(12, min(widest, w-6-act-cpu-ram-cost-wAge-3))
+	}
 	return max(20, min(widest, (w-30)*2/5))
 }
 
 // agentLine is the first line of a row: marker, name, badges, figures.
 func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
+	wAct, wCPU, wRAM, wCost := colWidths(w)
 	now := m.snap.At
 	live := a.Live()
 	marker := " "
@@ -687,6 +743,9 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	busy := a.Busy()
 	resident := !live && a.PID != 0
 	act := m.activity(a)
+	if wAct == 0 {
+		act = ""
+	}
 	cpuCell := func() string {
 		if a.PID == 0 {
 			return strings.Repeat(" ", wCPU)
@@ -929,80 +988,58 @@ func (m *Model) badges(a *fleet.Agent) string {
 	return strings.Join(parts, " ")
 }
 
-// promptLines are the input box: a rule carrying where a new session will
-// start, the input wrapped over up to six lines, a rule, and the key hints.
+// promptLines are the input box and two rows of key hints. The box's top
+// edge says where the text goes and what enter will do; the agent pane's
+// own input is the same box, so the two always read alike.
 func (m *Model) promptLines(w int) []string {
-	label := paint(cOrange, "❯ ")
-	placeholder := "describe a task for a new session"
 	a := m.selected()
-	switch {
-	case m.inKind == inRename:
-		label, placeholder = paint(cOrange, "rename ❯ "), "new name · enter to save · empty resets it"
-	case m.inKind == inGroup:
-		label, placeholder = paint(cOrange, "group ❯ "), "group name · empty clears it"
-	case (m.inKind == inReply || m.preview) && a != nil:
-		label = paint(cOrange+bold, "reply ") + dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…")) + paint(cOrange, " ❯ ")
-		placeholder = "a message for this agent · enter sends · esc leaves reply mode"
-	}
 	text := string(m.input)
-	top := faint(strings.Repeat("─", w))
-	sel := ""
-	if a != nil {
-		sel = faint("── ") + dim(tildify(a.Cwd))
+	b := box{w: w, focused: !m.paneFocus, text: m.input, cursor: m.cursorPos(),
+		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-len(m.header())-1-4-5))}
+	switch {
+	case m.inKind == inRename && a != nil:
+		b.topL = dim("rename ") + paint(cText, oneLine(a.DisplayName)) + dim(" · enter saves")
+		b.holder = "a new name · empty resets it"
+	case m.inKind == inGroup && a != nil:
+		b.topL = dim("group for ") + paint(cText, oneLine(a.DisplayName)) + dim(" · enter saves")
+		b.holder = "a group name · empty clears it"
+	case (m.inKind == inReply || m.preview) && a != nil && !a.Agtop:
+		b.topL = dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…")) + dim(" · enter sends")
+		b.holder = "a message for this agent · esc leaves reply mode"
+	case strings.HasPrefix(text, "/"):
+		b.topL = dim("command · enter runs it")
+	default:
+		b.topL = dim("new session in ") + m.dirLabel(m.startDir()) + dim(" · enter starts it")
+		b.holder = "describe a task for a new session"
+		if len(m.startDirs()) > 1 {
+			b.topR = paint(cSub, "ctrl+l") + dim(" folder")
+		}
+	}
+	if a != nil && b.topR == "" {
+		sel := dim(tildify(a.Cwd))
 		if a.Branch != "" {
 			sel += faint(" · " + a.Branch)
 		}
-		sel += " "
+		b.footL = sel
 	}
-	where := ""
-	if m.inKind == inPrompt && !(m.preview && a != nil) && !strings.HasPrefix(text, "/") {
-		where = dim("start in ") + m.dirLabel(m.startDir())
-		if n := len(m.startDirs()); n > 1 {
-			where += faint(fmt.Sprintf("  %d/%d  ", ((m.dirIdx%n)+n)%n+1, n)) + paint(cSub, "ctrl+n") + faint(" next")
-		}
-		where = " " + where + " " + faint("───")
+	if m.paneFocus {
+		// The conversation has the keys; this box waits, and says how back.
+		b.holder = "esc or ← to come back here"
+		b.text = nil
 	}
-	if gap := w - ansi.StringWidth(sel) - ansi.StringWidth(where); gap >= 3 {
-		top = sel + faint(strings.Repeat("─", gap)) + where
-	} else if gap := w - ansi.StringWidth(where); where != "" && gap >= 3 {
-		top = faint(strings.Repeat("─", gap)) + where
+	out := b.lines()
+	row1 := keysFit(w-4, "enter", "open", "ctrl+o", "reply", "F2", "rename", "ctrl+l", "move", "ctrl+t", "pin", "ctrl+x", "stop")
+	if a != nil && a.Agtop && !m.paneFocus {
+		row1 = keysFit(w-4, "enter · →", "talk to "+ansi.Truncate(oneLine(a.DisplayName), 20, "…"), "F2", "rename", "ctrl+x", "stop")
 	}
-	out := []string{top}
-	lw := ansi.StringWidth(label)
-	if text == "" {
-		out = append(out, "  "+label+faint(placeholder))
-	} else {
-		lines := strings.Split(ansi.Wrap(text, max(10, w-lw-4), ""), "\n")
-		limit := min(6, max(1, m.h-len(m.header())-1-4-5))
-		if len(lines) > limit {
-			lines = append([]string{faint("…")}, lines[len(lines)-(limit-1):]...)[:limit]
-		}
-		for i, l := range lines {
-			pre := strings.Repeat(" ", lw)
-			if i == 0 {
-				pre = label
-			}
-			if i == len(lines)-1 {
-				l = paint(cText, l) + paint(cOrange, "▏")
-			} else {
-				l = paint(cText, l)
-			}
-			out = append(out, "  "+pre+l)
-		}
-	}
-	out = append(out, faint(strings.Repeat("─", w)))
-	row1 := keysFit(w-4, "enter", "open", "ctrl+o", "reply", "ctrl+r", "rename", "ctrl+l", "move", "ctrl+t", "pin", "ctrl+f", "done", "ctrl+x", "stop")
-	row2 := keysFit(w-4, "tab", "views", "→", "preview", "ctrl+s", "group", "ctrl+n", "folder", "shift+↑↓", "preview size", "esc esc", "quit", "?", "all keys")
+	row2 := keysFit(w-4, "tab", "views", "→", "pane", "ctrl+n", "next needing you", "ctrl+s", "group", "shift+↑↓", "preview size", "?", "all keys")
 	if m.inKind == inReply {
 		row1 = keysFit(w-4, "enter", "send", "↑↓", "pick another agent", "esc", "leave reply mode")
 	}
-	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
+	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil {
 		row1 = m.statusOr("")
 	} else {
 		row1 = "  " + row1
-	}
-	if m.confirm != nil {
-		row1 = m.statusOr("")
 	}
 	return append(out, fit(row1, w), fit("  "+row2, w))
 }
@@ -1301,28 +1338,34 @@ func (m *Model) helpBody() []string {
 	}
 	left := []group{
 		{"Move & open", [][2]string{
-			{"↑ ↓", "move"}, {"enter", "open the agent full screen · fold a section"},
-			{"→", "preview · type into the live pane"}, {"←", "back · fold"}, {"ctrl+]", "stop typing into an agent"},
+			{"↑ ↓", "move"}, {"enter", "open the agent · fold a section"},
+			{"→ ←", "into the pane and back · fold"}, {"ctrl+n", "next agent needing you"},
+			{"ctrl+]", "stop typing into a Claude Code screen"},
 			{"tab", "next view"}, {"shift+↑ ↓", "taller or shorter preview"},
 		}},
 		{"Manage", [][2]string{
-			{"ctrl+o", "reply without opening"}, {"ctrl+r", "rename"}, {"ctrl+l", "move to another folder"},
-			{"ctrl+t", "pin"}, {"ctrl+f", "done / back"}, {"ctrl+x", "stop · twice to delete"},
-			{"ctrl+e", "put in a group"}, {"ctrl+y", "open its pull request"},
+			{"ctrl+o", "reply without opening"}, {"F2", "rename"}, {"ctrl+l", "move to another folder"},
+			{"ctrl+t", "pin"}, {"ctrl+x", "stop · twice to delete"}, {"ctrl+y", "open its pull request"},
+		}},
+		{"Typing", [][2]string{
+			{"ctrl · alt + ← →", "move a word"}, {"ctrl · alt + ⌫", "delete a word"},
+			{"cmd+⌫ · ctrl+u · ctrl+k", "clear to line start or end"}, {"home · end", "line start and end"},
+			{"shift+enter · ctrl+j", "new line"},
 		}},
 	}
 	right := []group{
 		{"Views & sorting", [][2]string{
-			{"ctrl+p", "processes · CPU and RAM"}, {"ctrl+a", "accounts"}, {"ctrl+g", "coding agents"},
+			{"tab", "agents · processes · accounts · coding agents · settings"},
 			{"ctrl+s", "group by status, repo, account…"}, {"click a header", "sort by that column"},
 		}},
 		{"New sessions", [][2]string{
-			{"type + enter", "start one"}, {"ctrl+n ctrl+b", "choose its folder"},
+			{"type + enter", "start one"}, {"ctrl+l", "while typing: choose its folder"},
 		}},
 		{"Commands", [][2]string{
-			{"/done /stop /rm /kill", "the same as the keys"}, {"/cd /add-dir", "move or grant a folder"},
+			{"/done /stop /rm /kill", "done, stop, delete, kill"}, {"/cd /add-dir", "move or grant a folder"},
 			{"/sort /by", "sort rows · group sections"}, {"/rename /group", "name or group the agent"},
-			{"/account /hibernate", "switch account · stop idle agents"}, {"/native /quit", "native view · quit"},
+			{"/account /hibernate", "switch account · stop idle agents"}, {"/agtop", "move an agent to agtop mode"},
+			{"/native /quit", "native view · quit"},
 		}},
 		{"Quit", [][2]string{{"esc esc · ctrl+q", "quit"}, {"ctrl+c", "clear the text, twice to quit"}}},
 	}

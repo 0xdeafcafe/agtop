@@ -11,6 +11,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
+	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -36,6 +37,9 @@ type Agent struct {
 	Checking    bool // turn just ended; Claude Code has not classified it yet
 	Subs        claude.SubagentStats
 	Seen        bool // the user has opened or answered this question already
+	// Agtop is a session agtop runs itself, headless, through a host
+	// process; its pane is the conversation rather than Claude Code's screen.
+	Agtop bool
 }
 
 // NeedsYou is a live agent asking something the user has not looked at yet.
@@ -236,6 +240,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 	}
 
 	seen := map[string]bool{}
+	hosted := host.List()
 	for _, acct := range cfg.AllAccounts() {
 		roster := claude.ReadRoster(acct)
 		prs := claude.ReadPRCache(acct)
@@ -363,6 +368,31 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			av.Today += a.Spend.Today
 			snap.Agents = append(snap.Agents, a)
 		}
+		for _, info := range hosted {
+			if info.Account != acct.Name && !(info.Account == "" && acct.IsDefault()) {
+				continue
+			}
+			a := l.hosted(acct, info, tab, now)
+			if n := ov.Names[a.Key]; n != "" {
+				a.DisplayName = n
+			}
+			_, a.Done = ov.Done[a.Key]
+			a.Group = ov.Groups[a.Key]
+			if t, ok := ov.Seen[a.Key]; ok && !info.UpdatedAt.After(t) {
+				a.Seen = true
+			}
+			a.Spend = l.spend[a.Key]
+			if a.Spend.Cost < info.CostUSD {
+				a.Spend.Cost = info.CostUSD
+			}
+			if a.Live() {
+				av.Live++
+			}
+			av.Agents++
+			av.Spend += a.Spend.Cost
+			av.Today += a.Spend.Today
+			snap.Agents = append(snap.Agents, a)
+		}
 		snap.Accounts = append(snap.Accounts, av)
 	}
 	for k := range l.jobs {
@@ -380,6 +410,39 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		return snap.Agents[i].Age(now) < snap.Agents[j].Age(now)
 	})
 	return snap
+}
+
+// hosted turns an agtop-mode session's info into an agent row.
+func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, now time.Time) *Agent {
+	st := info.State
+	switch st {
+	case "idle", "starting":
+		st = "done"
+	case "":
+		st = "stopped"
+	}
+	name := info.Name
+	if name == "" {
+		name = info.Detail
+	}
+	if name == "" {
+		name = "agtop session " + info.ID
+	}
+	j := claude.Job{
+		ID: info.ID, Account: acct.Name, Name: name, State: st, Detail: info.Detail, Needs: info.Needs,
+		Cwd: info.Cwd, SessionID: info.SessionID, CreatedAt: info.StartedAt, UpdatedAt: info.UpdatedAt,
+		TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(info.Cwd), info.SessionID+".jsonl"),
+	}
+	if info.Error != "" && st == "done" {
+		j.Detail = "stopped mid-turn · your next message resumes it"
+	}
+	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: acct, DisplayName: name, Agtop: true}
+	if info.State != "stopped" && info.HostPID > 0 && (tab == nil || tab.Procs[info.HostPID] != nil) {
+		a.PID = info.HostPID
+	}
+	a.Repo, a.Branch = l.gitFor(info.Cwd, now)
+	l.sample(tab, a)
+	return a
 }
 
 func (l *Loader) sample(tab *proc.Table, a *Agent) {

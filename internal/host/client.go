@@ -156,6 +156,9 @@ type ErrorEvent struct{ Error string }
 // Sent is a message a client sent, echoed so every client shows it.
 type Sent struct{ Text string }
 
+// Stamp is when the output that follows it happened.
+type Stamp struct{ At time.Time }
+
 // Commands lists the session's slash commands.
 type Commands struct{ Commands []headless.Command }
 
@@ -169,6 +172,7 @@ func Decode(line []byte) (any, error) {
 		Sent      bool               `json:"agtop_sent"`
 		Message   json.RawMessage    `json:"message"`
 		Commands  []headless.Command `json:"commands"`
+		T         int64              `json:"t"`
 	}
 	if err := json.Unmarshal(line, &head); err != nil {
 		return nil, err
@@ -182,6 +186,8 @@ func Decode(line []byte) (any, error) {
 		return ErrorEvent{Error: head.Error}, nil
 	case typeCommands:
 		return Commands{Commands: head.Commands}, nil
+	case typeTime:
+		return Stamp{At: time.UnixMilli(head.T)}, nil
 	}
 	if head.Sent {
 		var m struct {

@@ -11,11 +11,31 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
-// picker is a small dropdown for choosing one of an agent's pull requests.
+// picker is a small dropdown: one of an agent's pull requests, or the
+// folder a new session starts in.
 type picker struct {
 	title  string
 	prs    []claude.PR
+	dirs   []string
 	cursor int
+}
+
+// openDirPicker lists the folders a new session can start in.
+func (m *Model) openDirPicker() {
+	dirs := m.startDirs()
+	if len(dirs) == 0 {
+		m.flash("no folders to choose from yet", true)
+		return
+	}
+	n := len(dirs)
+	m.picker = &picker{title: "Start new sessions in", dirs: dirs, cursor: ((m.dirIdx % n) + n) % n}
+}
+
+func (p *picker) size() int {
+	if p.dirs != nil {
+		return len(p.dirs)
+	}
+	return len(p.prs)
 }
 
 // openPR opens the selected agent's pull request in the browser, asking
@@ -44,13 +64,19 @@ func browse(url string) tea.Cmd {
 func (m *Model) pickerKey(s string) tea.Cmd {
 	p := m.picker
 	switch s {
-	case "esc", "q", "ctrl+y":
+	case "esc", "q", "ctrl+y", "ctrl+l":
 		m.picker = nil
 	case "up", "k", "shift+tab":
 		p.cursor = max(0, p.cursor-1)
 	case "down", "j", "tab":
-		p.cursor = min(len(p.prs)-1, p.cursor+1)
+		p.cursor = min(p.size()-1, p.cursor+1)
 	case "enter":
+		if p.dirs != nil {
+			m.dirIdx = p.cursor
+			m.picker = nil
+			m.flash("new sessions start in "+tildify(p.dirs[p.cursor]), false)
+			return nil
+		}
 		url := p.prs[p.cursor].URL
 		m.picker = nil
 		return browse(url)
@@ -61,6 +87,18 @@ func (m *Model) pickerKey(s string) tea.Cmd {
 func (m *Model) pickerBody(w int) []string {
 	p := m.picker
 	out := []string{paint(cText+bold, p.title), ""}
+	if p.dirs != nil {
+		for i, d := range p.dirs {
+			line := paint(cText, tildify(d))
+			if i == p.cursor {
+				line = highlight(paint(cOrange, "▍")+line, w)
+			} else {
+				line = " " + line
+			}
+			out = append(out, line)
+		}
+		return append(out, "", keys("↑↓", "choose", "enter", "start new sessions here", "esc", "close"))
+	}
 	for i, pr := range p.prs {
 		col := cGreen
 		switch {

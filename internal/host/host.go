@@ -111,6 +111,7 @@ const (
 	typeInfo     = "agtop_info"
 	typeAnswered = "agtop_answered"
 	typeCommands = "agtop_commands"
+	typeTime     = "agtop_time"
 )
 
 type server struct {
@@ -129,6 +130,7 @@ type server struct {
 	// reply, kept apart from the ring so every client gets it.
 	commands []byte
 	initID   string
+	stamped  time.Time // when the last time mark went into the ring
 	idle     *time.Timer
 	quit     chan struct{}
 }
@@ -228,6 +230,17 @@ func (s *server) tap(line []byte) {
 // with mu held. Streaming deltas are dropped from the ring once the message
 // they build arrives whole, so a replay carries each message once.
 func (s *server) record(line []byte) {
+	// A time mark before output that follows a pause, so a client replaying
+	// the ring knows when things happened, not just in what order.
+	if now := time.Now(); now.Sub(s.stamped) >= 500*time.Millisecond {
+		s.stamped = now
+		b, _ := json.Marshal(map[string]any{"type": typeTime, "t": now.UnixMilli()})
+		s.ring = append(s.ring, b)
+		s.ringN += len(b)
+		for c := range s.clients {
+			c.push(b)
+		}
+	}
 	if isWholeMessage(line) {
 		kept := s.ring[:0]
 		n := 0

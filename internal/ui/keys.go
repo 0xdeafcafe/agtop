@@ -46,6 +46,9 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.flash("ctrl+c again to quit", false)
 		return nil
 	}
+	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s != "tab" {
+		return m.paneKey(k, s)
+	}
 	if (s == "tab" || s == "shift+tab") && m.mode != modeCwd && (m.dialog == nil || m.dialog.asking == "") {
 		if s == "tab" {
 			m.setView(m.view + 1)
@@ -98,10 +101,10 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	a := m.selected()
 	empty := len(m.input) == 0
 	switch s {
-	case "up", "ctrl+k":
+	case "up":
 		m.move(-1)
 		return m.loadPreview()
-	case "down", "ctrl+j":
+	case "down":
 		m.move(1)
 		return m.loadPreview()
 	case "pgup":
@@ -121,6 +124,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.loadPreview()
 		}
 	case "right":
+		if empty && a != nil && a.Agtop {
+			return m.focusPane(a)
+		}
 		if empty {
 			if t, ok := strings.CutPrefix(m.sel, "§"); ok {
 				if m.folded(t) {
@@ -185,20 +191,29 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.toggleFold(t)
 			return nil
 		}
+		if empty && a != nil && a.Agtop {
+			return m.focusPane(a)
+		}
 		return m.submit()
-	case "ctrl+r", "ctrl+e", "ctrl+l":
+	case "f2":
 		switch {
 		case a == nil:
 			m.flash("select an agent first", true)
 		case !empty && m.inKind == inPrompt:
 			m.flash("finish or clear the draft first (esc)", true)
-		case s == "ctrl+r":
-			m.inKind, m.input, m.promptFor = inRename, []rune(a.DisplayName), a.Key
-		case s == "ctrl+e":
-			m.inKind, m.input, m.promptFor = inGroup, []rune(a.Group), a.Key
 		default:
-			m.openCwd(a)
+			m.inKind, m.input, m.back, m.promptFor = inRename, []rune(a.DisplayName), 0, a.Key
 		}
+		return nil
+	case "ctrl+l":
+		// Drafting a new session, or nothing selected: choose where it
+		// starts. Otherwise: move the selected agent.
+		drafting := !empty && m.inKind == inPrompt && !strings.HasPrefix(string(m.input), "/")
+		if drafting || a == nil {
+			m.openDirPicker()
+			return nil
+		}
+		m.openCwd(a)
 		return nil
 	case "ctrl+y":
 		return m.openPR(a)
@@ -206,11 +221,6 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		if a != nil {
 			return m.togglePin(a)
 		}
-	case "ctrl+f":
-		if a != nil {
-			m.toggleDone(a)
-		}
-		return nil
 	case "ctrl+s":
 		m.cycleGroupBy()
 		return nil
@@ -226,15 +236,6 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	case "ctrl+x":
 		return m.stopOrRemove(a)
-	case "ctrl+p":
-		m.setView(1)
-		return nil
-	case "ctrl+a":
-		m.setView(2)
-		return nil
-	case "ctrl+g":
-		m.setView(3)
-		return nil
 	case "shift+up", "shift+down":
 		n := m.dockLines()
 		if s == "shift+up" {
@@ -246,19 +247,42 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		_ = m.store.SaveConfig()
 		return nil
 	case "ctrl+n":
-		m.dirIdx++
-		return nil
-	case "ctrl+b":
-		m.dirIdx--
-		return nil
+		return m.nextNeedingYou()
+	case "alt+left", "alt+right":
+		if empty && m.listW > 0 {
+			d := 2
+			if s == "alt+left" {
+				d = -2
+			}
+			m.setSideWidth(m.sideWidth() + d)
+			return nil
+		}
 	case "?":
 		if empty {
 			m.mode = modeHelp
 			return nil
 		}
 	}
-	m.editKey(k, s)
+	m.editInput(k, s)
 	return nil
+}
+
+// nextNeedingYou selects the agent that has waited longest for you, so a
+// stack of questions can be cleared with ctrl+n and an answer each.
+func (m *Model) nextNeedingYou() tea.Cmd {
+	var best *fleet.Agent
+	for _, a := range m.order {
+		if a.NeedsYou() && (best == nil || a.UpdatedAt.Before(best.UpdatedAt)) {
+			best = a
+		}
+	}
+	if best == nil {
+		m.flash("nothing needs you", false)
+		return nil
+	}
+	m.sel = best.Key
+	m.rebuild()
+	return m.loadPreview()
 }
 
 func (m *Model) sectionOf(key string) string {
@@ -368,6 +392,9 @@ func (m *Model) submit() tea.Cmd {
 		m.flash("sending to "+a.DisplayName+"…", false)
 		m.loader.Nudge(a.Key)
 		m.refresh()
+		if a.Agtop {
+			return sendHosted(a, text)
+		}
 		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
 	}
 	if text == "" {
@@ -385,6 +412,9 @@ func (m *Model) submit() tea.Cmd {
 		m.loader.Nudge(a.Key)
 		m.refresh()
 		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
+	}
+	if d := m.store.Config.Dispatch; d.RunIn != "daemon" && (d.Agent == "" || d.Agent == "claude") {
+		return m.startHosted(text, m.startDir())
 	}
 	acct := m.store.Config.ActiveAccount()
 	dir := m.startDir()
@@ -485,6 +515,19 @@ func (m *Model) command(text string) tea.Cmd {
 		m.flash("sort by one of: "+strings.Join(sortModes, ", "), true)
 	case "/native":
 		return m.nativeView()
+	case "/width":
+		var pct float64
+		if _, err := fmt.Sscanf(strings.TrimSuffix(arg, "%"), "%g", &pct); err != nil || pct <= 0 {
+			m.store.Config.SideWidth = 0
+			_ = m.store.SaveConfig()
+			m.flash("list width back to agtop's choice · /width 30% sets your own", false)
+			return nil
+		}
+		m.setSideWidth(int(pct / 100 * float64(m.w)))
+	case "/agtop":
+		if need() {
+			return m.moveToAgtop(a)
+		}
 	case "/hibernate":
 		var n int
 		fmt.Sscanf(arg, "%d", &n)

@@ -32,7 +32,10 @@ type Config struct {
 	Dispatch  Dispatch         `json:"dispatch"`
 	Quiet     bool             `json:"quiet,omitempty"`
 	DockLines int              `json:"dockLines,omitempty"`
-	SortBy    string           `json:"sortBy,omitempty"`
+	// SideWidth is the agent list's share of a split screen, 0.25 to 0.5;
+	// zero means agtop's own choice.
+	SideWidth float64 `json:"sideWidth,omitempty"`
+	SortBy    string  `json:"sortBy,omitempty"`
 	Hibernate struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`
@@ -46,6 +49,9 @@ type Dispatch struct {
 	Model      string `json:"model,omitempty"`
 	Effort     string `json:"effort,omitempty"`
 	Permission string `json:"permission,omitempty"`
+	// RunIn is where new Claude sessions run: "" for agtop mode (agtop's own
+	// host, headless) or "daemon" for Claude Code's background service.
+	RunIn string `json:"runIn,omitempty"`
 }
 
 func (d Dispatch) Flags() []string {

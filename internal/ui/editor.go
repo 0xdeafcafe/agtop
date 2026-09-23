@@ -1,0 +1,129 @@
+package ui
+
+import (
+	"unicode"
+
+	tea "charm.land/bubbletea/v2"
+)
+
+// edit applies one text-editing key to buf with the cursor at pos, and says
+// whether the key was an editing key. It gives every input the same keys:
+// words with ctrl or alt and the arrows or backspace, the line with
+// cmd+backspace or ctrl+u and ctrl+k, and new lines with shift+enter,
+// alt+enter or ctrl+j.
+func edit(buf []rune, pos int, k tea.KeyPressMsg, s string) ([]rune, int, bool) {
+	pos = max(0, min(pos, len(buf)))
+	switch s {
+	case "left":
+		return buf, max(0, pos-1), true
+	case "right":
+		return buf, min(len(buf), pos+1), true
+	case "ctrl+left", "alt+left", "alt+b":
+		return buf, wordLeft(buf, pos), true
+	case "ctrl+right", "alt+right", "alt+f":
+		return buf, wordRight(buf, pos), true
+	case "home", "ctrl+a", "super+left":
+		return buf, lineStart(buf, pos), true
+	case "end", "ctrl+e", "super+right":
+		return buf, lineEnd(buf, pos), true
+	case "backspace", "ctrl+h", "shift+backspace":
+		if pos == 0 {
+			return buf, pos, true
+		}
+		return cut(buf, pos-1, pos), pos - 1, true
+	case "delete":
+		if pos >= len(buf) {
+			return buf, pos, true
+		}
+		return cut(buf, pos, pos+1), pos, true
+	case "ctrl+w", "alt+backspace", "ctrl+backspace":
+		from := wordLeft(buf, pos)
+		return cut(buf, from, pos), from, true
+	case "alt+delete", "ctrl+delete", "alt+d":
+		return cut(buf, pos, wordRight(buf, pos)), pos, true
+	case "ctrl+u", "super+backspace":
+		from := lineStart(buf, pos)
+		if from == pos && pos > 0 {
+			from = lineStart(buf, pos-1) // at a line's start, join and clear the one above
+		}
+		return cut(buf, from, pos), from, true
+	case "ctrl+k", "super+delete":
+		return cut(buf, pos, lineEnd(buf, pos)), pos, true
+	case "shift+enter", "alt+enter", "ctrl+j":
+		return insert(buf, pos, []rune{'\n'}), pos + 1, true
+	}
+	if k.Text != "" && k.Mod&^tea.ModShift == 0 {
+		r := []rune(k.Text)
+		return insert(buf, pos, r), pos + len(r), true
+	}
+	return buf, pos, false
+}
+
+func cut(buf []rune, from, to int) []rune {
+	if from >= to {
+		return buf
+	}
+	out := make([]rune, 0, len(buf)-(to-from))
+	out = append(out, buf[:from]...)
+	return append(out, buf[to:]...)
+}
+
+func insert(buf []rune, pos int, r []rune) []rune {
+	out := make([]rune, 0, len(buf)+len(r))
+	out = append(out, buf[:pos]...)
+	out = append(out, r...)
+	return append(out, buf[pos:]...)
+}
+
+func isWord(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
+
+// wordLeft skips back over any gap, then over the word before it.
+func wordLeft(buf []rune, pos int) int {
+	for pos > 0 && !isWord(buf[pos-1]) {
+		pos--
+	}
+	for pos > 0 && isWord(buf[pos-1]) {
+		pos--
+	}
+	return pos
+}
+
+func wordRight(buf []rune, pos int) int {
+	for pos < len(buf) && !isWord(buf[pos]) {
+		pos++
+	}
+	for pos < len(buf) && isWord(buf[pos]) {
+		pos++
+	}
+	return pos
+}
+
+func lineStart(buf []rune, pos int) int {
+	for pos > 0 && buf[pos-1] != '\n' {
+		pos--
+	}
+	return pos
+}
+
+func lineEnd(buf []rune, pos int) int {
+	for pos < len(buf) && buf[pos] != '\n' {
+		pos++
+	}
+	return pos
+}
+
+// cursorPos is where the prompt's cursor sits. It's kept as a distance from
+// the end, so anything that replaces the input leaves the cursor at its end.
+func (m *Model) cursorPos() int { return max(0, len(m.input)-m.back) }
+
+func (m *Model) setCursor(pos int) { m.back = max(0, len(m.input)-pos) }
+
+// editInput runs an editing key against the main prompt.
+func (m *Model) editInput(k tea.KeyPressMsg, s string) bool {
+	buf, pos, ok := edit(m.input, m.cursorPos(), k, s)
+	if ok {
+		m.input = buf
+		m.setCursor(pos)
+	}
+	return ok
+}
