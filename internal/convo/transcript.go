@@ -275,9 +275,10 @@ func (s *Session) shellStart(cmd string, at time.Time) {
 	}
 	id := fmt.Sprintf("you-%d", t.N)
 	in, _ := json.Marshal(map[string]string{"command": cmd, "description": "you ran"})
-	st := &Step{ID: id, Tool: "Bash", Input: in, Start: at, Exit: -1}
+	st := &Step{ID: id, Tool: "Bash", Input: in, Start: at, Exit: -1, turn: t}
 	s.byID[id] = st
 	t.steps[id] = st
+	s.stepVer++
 	t.Items = append(t.Items, &Item{Kind: KStep, Step: st})
 	t.touch()
 }

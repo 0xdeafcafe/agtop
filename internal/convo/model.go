@@ -46,6 +46,7 @@ type Step struct {
 	Approval *headless.PermissionRequest
 
 	parent *Step
+	turn   *Turn // the turn whose steps hold it
 }
 
 // Kind of an item in a turn.
@@ -151,6 +152,10 @@ type Session struct {
 	cache     map[*Turn]cached
 	memo      map[memoKey][]Line
 	memoOld   map[memoKey][]Line
+	stepVer   int // bumped whenever a step is added or changes
+	editList  []edit
+	editsVer  int
+	rail      map[*Step]railBlock
 	baseList  []string
 	baseFor   string
 	reqIdx    map[string]int
@@ -286,6 +291,7 @@ func (s *Session) Apply(ev any, now time.Time) {
 }
 
 func (s *Session) endTurn(t *Turn, now time.Time) {
+	s.stepVer++
 	t.Live, t.End = false, now
 	s.streaming = nil
 	for _, st := range t.steps {
@@ -320,10 +326,9 @@ func (s *Session) settle(requestID string) {
 }
 
 func (s *Session) touchStep(st *Step) {
-	for _, t := range s.Turns {
-		if t.steps[st.ID] == st {
-			t.touch()
-		}
+	s.stepVer++
+	if st.turn != nil && st.turn.steps[st.ID] == st {
+		st.turn.touch()
 	}
 }
 
@@ -366,9 +371,10 @@ func (s *Session) message(m headless.Message, now time.Time) {
 				}
 			case "tool_use":
 				s.streaming = nil
-				st := &Step{ID: b.ID, Tool: b.Name, Input: b.Input, Start: now, Exit: -1, parent: parent}
+				st := &Step{ID: b.ID, Tool: b.Name, Input: b.Input, Start: now, Exit: -1, parent: parent, turn: t}
 				s.byID[b.ID] = st
 				t.steps[b.ID] = st
+				s.stepVer++
 				s.tool(b.Name).Calls++
 				if parent != nil {
 					parent.Children = append(parent.Children, st)

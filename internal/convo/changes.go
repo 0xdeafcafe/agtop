@@ -290,7 +290,8 @@ func firstNonEmpty(xs ...string) string {
 }
 
 // RecentEdits draws the session's latest edits as diff blocks, newest
-// first, for the rail beside the conversation. It stops at h lines.
+// first, for the rail beside the conversation. It stops at h lines. Each
+// edit's block is drawn once; only how long ago it was changes per frame.
 func (s *Session) RecentEdits(o Options, h int) []Line {
 	w := o.Width
 	d := drawer{s: s, t: &Turn{}, o: o, cw: w}
@@ -300,18 +301,7 @@ func (s *Session) RecentEdits(o Options, h int) []Line {
 			out = append(out, Line{Text: row(b, text, "", w, w)})
 		}
 	}
-	type edit struct {
-		st   *Step
-		turn int
-	}
-	var edits []edit
-	for _, t := range s.Turns {
-		for _, it := range t.Items {
-			if it.Kind == KStep && glyphFor(it.Step.Tool) == "✎" && it.Step.Status == OK {
-				edits = append(edits, edit{it.Step, t.N})
-			}
-		}
-	}
+	edits := s.edits()
 	head := " " + paint(cSub+bold, "Recent changes")
 	if len(edits) > 0 {
 		head += "  " + dim(plural(len(edits), "edit"))
@@ -323,52 +313,111 @@ func (s *Session) RecentEdits(o Options, h int) []Line {
 		return out
 	}
 	for i := len(edits) - 1; i >= 0 && len(out) < h; i-- {
-		e := edits[i]
-		st := e.st
-		path := d.rel(readInput(st.Input).str("file_path"))
-		counts := d.summary(st)
+		b := s.railBlock(&d, edits[i], w)
 		ago := ""
-		if !st.End.IsZero() {
+		if st := edits[i].st; !st.End.IsZero() {
 			ago = dim(" · " + dur(o.Now.Sub(st.End)) + " ago")
 		}
-		add(bgWell, " "+paint(cBlue, "✎ ")+text(truncateCells(path, w-4)))
-		add(bgWell, "   "+counts+dim(fmt.Sprintf("  #%d", e.turn))+ago)
-		bw := w - 4
-		var r struct {
-			Type    string `json:"type"`
-			Content string `json:"content"`
-		}
-		_ = json.Unmarshal(st.Result, &r)
-		shown := 0
-		if r.Type == "create" {
-			for _, l := range strings.Split(strings.TrimRight(r.Content, "\n"), "\n") {
-				if shown == 8 {
-					add("", "  "+dim("…"))
-					break
-				}
-				add(bgAdd, " "+paint(cGreen, "+")+" "+text(truncateCells(expandTabs(l), bw)))
-				shown++
+		out = append(out, b.head)
+		add(bgWell, b.counts+ago)
+		for _, l := range b.body {
+			if len(out) >= h {
+				break
 			}
+			out = append(out, l)
 		}
-		for _, p := range headless.Patches(st.Result) {
-			for _, l := range p.Lines {
-				if l == "" || l[0] == ' ' {
-					continue // only what changed; the rail is narrow
-				}
-				if shown == 8 {
-					add("", "  "+dim("… the changes view has the rest"))
-					break
-				}
-				body := truncateCells(expandTabs(l[1:]), bw)
-				if l[0] == '+' {
-					add(bgAdd, " "+paint(cGreen, "+")+" "+text(body))
-				} else {
-					add(bgDel, " "+paint(cRed, "−")+" "+text(body))
-				}
-				shown++
-			}
-		}
-		add("", "")
 	}
-	return out
+	return out[:min(len(out), h)]
+}
+
+type edit struct {
+	st   *Step
+	turn int
+}
+
+// edits are the session's successful edits, oldest first, found again
+// only when a step has changed.
+func (s *Session) edits() []edit {
+	if s.editsVer == s.stepVer+1 {
+		return s.editList
+	}
+	s.editList = s.editList[:0]
+	for _, t := range s.Turns {
+		for _, it := range t.Items {
+			if it.Kind == KStep && glyphFor(it.Step.Tool) == "✎" && it.Step.Status == OK {
+				s.editList = append(s.editList, edit{it.Step, t.N})
+			}
+		}
+	}
+	s.editsVer = s.stepVer + 1
+	return s.editList
+}
+
+// railBlock is one edit as the rail draws it, all but how long ago.
+type railBlock struct {
+	key    railKey
+	head   Line
+	counts string
+	body   []Line
+}
+
+type railKey struct {
+	w, turn, res int
+	end          time.Time
+	bases        string
+}
+
+func (s *Session) railBlock(d *drawer, e edit, w int) railBlock {
+	st := e.st
+	k := railKey{w: w, turn: e.turn, res: len(st.Result), end: st.End, bases: s.Info.Cwd + "|" + s.Cwd}
+	if b, ok := s.rail[st]; ok && b.key == k {
+		return b
+	}
+	var body []Line
+	add := func(bg, text string) { body = append(body, Line{Text: row(bg, text, "", w, w)}) }
+	path := d.rel(readInput(st.Input).str("file_path"))
+	b := railBlock{key: k, counts: "   " + d.summary(st) + dim(fmt.Sprintf("  #%d", e.turn)),
+		head: Line{Text: row(bgWell, " "+paint(cBlue, "✎ ")+text(truncateCells(path, w-4)), "", w, w)}}
+	bw := w - 4
+	var r struct {
+		Type    string `json:"type"`
+		Content string `json:"content"`
+	}
+	_ = json.Unmarshal(st.Result, &r)
+	shown := 0
+	if r.Type == "create" {
+		for _, l := range strings.Split(strings.TrimRight(r.Content, "\n"), "\n") {
+			if shown == 8 {
+				add("", "  "+dim("…"))
+				break
+			}
+			add(bgAdd, " "+paint(cGreen, "+")+" "+text(truncateCells(expandTabs(l), bw)))
+			shown++
+		}
+	}
+	for _, p := range headless.Patches(st.Result) {
+		for _, l := range p.Lines {
+			if l == "" || l[0] == ' ' {
+				continue // only what changed; the rail is narrow
+			}
+			if shown == 8 {
+				add("", "  "+dim("… the changes view has the rest"))
+				break
+			}
+			body := truncateCells(expandTabs(l[1:]), bw)
+			if l[0] == '+' {
+				add(bgAdd, " "+paint(cGreen, "+")+" "+text(body))
+			} else {
+				add(bgDel, " "+paint(cRed, "−")+" "+text(body))
+			}
+			shown++
+		}
+	}
+	add("", "")
+	b.body = body
+	if s.rail == nil {
+		s.rail = map[*Step]railBlock{}
+	}
+	s.rail[st] = b
+	return b
 }
