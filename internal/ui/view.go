@@ -18,7 +18,13 @@ import (
 )
 
 func (m *Model) View() tea.View {
-	v := tea.NewView(m.render())
+	frame := m.lastFrame
+	if !m.sameFrame || frame == "" {
+		frame = m.render()
+		m.lastFrame = frame
+	}
+	m.sameFrame = false
+	v := tea.NewView(frame)
 	v.AltScreen = true
 	v.WindowTitle = m.title()
 	v.MouseMode = tea.MouseModeAllMotion

@@ -123,6 +123,8 @@ type Model struct {
 	listW     int
 	pastes    pastes // long pastes in the main box, shown as chips
 	blurred   bool   // the terminal says agtop isn't the focused window
+	sameFrame bool   // the last message changed nothing on screen
+	lastFrame string // what View drew last
 	// openFailed is when a Session last failed to open, by agent key; zen
 	// skips those for a while rather than sticking on one it can't show.
 	openFailed   map[string]time.Time
@@ -614,8 +616,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				shape = tea.Raw("\x1b]22;ew-resize\x1b\\")
 			}
 		}
+		hover := m.hover
+		changed := on != m.divHover
 		m.divHover = on
-		return m, tea.Batch(shape, m.mouseMove(msg.X, msg.Y))
+		cmd := m.mouseMove(msg.X, msg.Y)
+		if !changed && m.hover == hover {
+			m.sameFrame = true // nothing moved that shows: keep the last frame
+		}
+		return m, tea.Batch(shape, cmd)
 	case tea.MouseReleaseMsg:
 		if m.dragging {
 			m.dragging = false
