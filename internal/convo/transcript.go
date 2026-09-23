@@ -125,6 +125,7 @@ func (t *Tail) apply(b []byte) bool {
 			from, text2, injected := Injected(text)
 			if injected {
 				text = text2
+				s.noteTask(m.Content)
 			}
 			s.Apply(host.Sent{Text: text, Images: images}, at)
 			if injected {
@@ -309,3 +310,21 @@ func attr(s, name string) string {
 var tagRe = regexp.MustCompile(`<[^>]{1,80}>`)
 
 func stripTags(s string) string { return strings.TrimSpace(tagRe.ReplaceAllString(s, " ")) }
+
+// noteTask records a background task's reported status, from the
+// notification Claude Code injects when one finishes.
+func (s *Session) noteTask(raw json.RawMessage) {
+	var t string
+	if json.Unmarshal(raw, &t) != nil {
+		var blocks []struct {
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(raw, &blocks)
+		for _, b := range blocks {
+			t += b.Text
+		}
+	}
+	if id := between(t, "<task-id>", "</task-id>"); id != "" {
+		s.TaskStatus[id] = firstNonEmpty(between(t, "<status>", "</status>"), "completed")
+	}
+}

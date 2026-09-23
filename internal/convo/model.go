@@ -147,10 +147,18 @@ type Session struct {
 	cache     map[*Turn]cached
 	baseList  []string
 	baseFor   string
+	reqIdx    map[string]int
+
+	// TaskStatus is what Claude Code last said about each background task
+	// (completed, killed, …), keyed by task id: a subagent's agent id.
+	TaskStatus map[string]string
+	// First and Last are the times of the first and latest activity.
+	First, Last time.Time
 }
 
 func New() *Session {
-	return &Session{byID: map[string]*Step{}, cache: map[*Turn]cached{}, Tools: map[string]*ToolStat{}}
+	return &Session{byID: map[string]*Step{}, cache: map[*Turn]cached{}, Tools: map[string]*ToolStat{},
+		reqIdx: map[string]int{}, TaskStatus: map[string]string{}}
 }
 
 // Live is the turn in progress, if any.
@@ -188,6 +196,14 @@ func (s *Session) turnFor(now time.Time) *Turn {
 
 // Apply folds one decoded host line (host.Decode's result) into the session.
 func (s *Session) Apply(ev any, now time.Time) {
+	if !now.IsZero() {
+		if s.First.IsZero() || now.Before(s.First) {
+			s.First = now
+		}
+		if now.After(s.Last) {
+			s.Last = now
+		}
+	}
 	switch ev := ev.(type) {
 	case host.Sent:
 		if t := s.Live(); t != nil {
@@ -365,6 +381,8 @@ func (s *Session) results(m headless.Message, now time.Time) {
 	for _, b := range m.Blocks {
 		if b.Type == "text" && strings.HasPrefix(strings.TrimSpace(b.Text), "<") {
 			if from, text, ok := Injected(b.Text); ok && s.Live() == nil {
+				raw, _ := json.Marshal(b.Text)
+				s.noteTask(raw)
 				s.Apply(host.Sent{Text: text}, now)
 				s.Turns[len(s.Turns)-1].From = from
 			}
@@ -434,11 +452,21 @@ func (s *Session) request(m headless.Message, parent *Step, now time.Time) {
 			agent = "subagent"
 		}
 	}
+	if m.Model == "<synthetic>" {
+		return // Claude Code's own placeholder, not a model call
+	}
 	r := Request{ID: m.ID, At: now, Model: m.Model, Agent: agent, Run: m.ParentToolUseID, Usage: *m.Usage}
-	if n := len(s.Requests); n > 0 && m.ID != "" && s.Requests[n-1].ID == m.ID {
-		r.At = s.Requests[n-1].At
-		s.Requests[n-1] = r
+	// One call arrives as several messages with the same id and usage; the
+	// output count can grow between them, so keep the largest.
+	if i, ok := s.reqIdx[m.ID]; ok && m.ID != "" {
+		prev := s.Requests[i]
+		r.At = prev.At
+		r.Usage.OutputTokens = max(r.Usage.OutputTokens, prev.Usage.OutputTokens)
+		s.Requests[i] = r
 		return
+	}
+	if m.ID != "" {
+		s.reqIdx[m.ID] = len(s.Requests)
 	}
 	s.Requests = append(s.Requests, r)
 }

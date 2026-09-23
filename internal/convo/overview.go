@@ -385,3 +385,32 @@ func (s *Session) Overview(o Options) []Line {
 	}
 	return out
 }
+
+// Cost prices every model call in the session.
+func (s *Session) Cost() float64 {
+	var total float64
+	for _, r := range s.Requests {
+		u := r.Usage
+		total += claude.Cost(r.Model, claude.TokenUsage{
+			Input: int64(u.InputTokens), Output: int64(u.OutputTokens),
+			CacheRead: int64(u.CacheReadInputTokens), CacheWrite1h: int64(u.CacheCreationInputTokens),
+		}, false)
+	}
+	return total
+}
+
+// LastWords is the first line of the latest thing the session said.
+func (s *Session) LastWords() string {
+	for i := len(s.Turns) - 1; i >= 0; i-- {
+		items := s.Turns[i].Items
+		for j := len(items) - 1; j >= 0; j-- {
+			if items[j].Kind == KText && strings.TrimSpace(items[j].Text) != "" {
+				return firstLine(stripMarkdown(items[j].Text))
+			}
+		}
+	}
+	return ""
+}
+
+// Tokens formats a token count the way the overview does.
+func Tokens(n int) string { return tokens(n) }

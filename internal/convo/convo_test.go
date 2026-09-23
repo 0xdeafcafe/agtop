@@ -463,3 +463,26 @@ func TestInjectedPrompts(t *testing.T) {
 		t.Error("ordinary text starting with a word isn't injected")
 	}
 }
+
+func TestSubagentNumbers(t *testing.T) {
+	s := New()
+	t0 := time.Unix(1000, 0)
+	// Claude Code writes one line per content block of the same response;
+	// each carries the usage so far and must count once.
+	for i, out := range []int{5, 40, 12} {
+		s.Apply(headless.Message{Role: "assistant", ID: "msg_1", Model: "claude-opus-4-1",
+			Usage:  &headless.Usage{InputTokens: 100, OutputTokens: out},
+			Blocks: []headless.Block{{Type: "text", Text: "hi"}}}, t0.Add(time.Duration(i)*time.Minute))
+	}
+	s.Apply(headless.Message{Role: "assistant", ID: "x", Model: "<synthetic>", Usage: &headless.Usage{InputTokens: 9}}, t0)
+	if len(s.Requests) != 1 || s.Requests[0].Usage.OutputTokens != 40 || s.Requests[0].Usage.InputTokens != 100 {
+		t.Fatalf("requests = %+v", s.Requests)
+	}
+	if s.Last.Sub(s.First) != 2*time.Minute {
+		t.Fatalf("span = %v", s.Last.Sub(s.First))
+	}
+	s.noteTask(raw("<task-notification><task-id>abc</task-id><status>killed</status></task-notification>"))
+	if s.TaskStatus["abc"] != "killed" {
+		t.Fatalf("status = %q", s.TaskStatus["abc"])
+	}
+}

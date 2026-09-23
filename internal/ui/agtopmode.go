@@ -48,6 +48,17 @@ func (m *Model) refreshSubs() {
 		return
 	}
 	c.subs = convo.ListSubagents(c.path)
+	if c.subTails == nil {
+		c.subTails = map[string]*convo.Tail{}
+	}
+	for _, sa := range c.subs {
+		t := c.subTails[sa.ID]
+		if t == nil {
+			t = convo.SubagentTail(sa.Path)
+			c.subTails[sa.ID] = t
+		}
+		_, _ = t.Read()
+	}
 	if c.subTail != nil {
 		_, _ = c.subTail.Read()
 		if st := c.sess.Step(c.subToolUse()); st != nil && st.Status != convo.Running {
@@ -98,39 +109,97 @@ func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 		so.Selected = c.sel
 		return append(lines, c.subTail.Sess.Render(so)...)
 	}
-	lines := []convo.Line{{Text: fit("  "+dim(fmt.Sprintf("%d subagent runs · enter opens one", len(c.subs))), w)}, {Text: ""}}
+	running := 0
+	type row struct {
+		sa     convo.Subagent
+		t      *convo.Session
+		status string
+		live   bool
+	}
+	var rows []row
 	for i := len(c.subs) - 1; i >= 0; i-- { // newest first
 		sa := c.subs[i]
-		mark, right := dim("◌"), ""
-		if st := c.sess.Step(sa.ToolUseID); st != nil {
-			switch st.Status {
-			case convo.Running:
-				mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
-				right = paint(cOrange, dur(time.Since(st.Start)))
-			case convo.OK:
-				mark = paint(cGreen, "✓")
-				if !st.End.IsZero() {
-					right = dim(dur(st.End.Sub(st.Start)))
-				}
-			case convo.Failed:
-				mark = paint(cRed, "✗")
-			}
+		r := row{sa: sa, t: convo.New()}
+		if t := c.subTails[sa.ID]; t != nil {
+			r.t = t.Sess
 		}
-		model := ""
-		if sa.Model != "" {
-			model = dim("  " + sa.Model)
+		r.status = c.sess.TaskStatus[sa.ID]
+		if st := c.sess.Step(sa.ToolUseID); st != nil && st.Status == convo.Failed && r.status == "" {
+			r.status = "failed"
+		}
+		// No word that it finished, and it wrote recently: still working.
+		r.live = r.status == "" && !r.t.Last.IsZero() && time.Since(r.t.Last) < 90*time.Second
+		if st := c.sess.Step(sa.ToolUseID); st != nil && st.Status == convo.Running {
+			r.live = true
+		}
+		if r.live {
+			running++
+		}
+		rows = append(rows, r)
+	}
+	head := fmt.Sprintf("%d subagent runs", len(c.subs))
+	if running > 0 {
+		head = paint(cOrange, fmt.Sprintf("%d running", running)) + dim(" · "+head)
+	} else {
+		head = dim(head)
+	}
+	lines := []convo.Line{{Text: fit("  "+head+dim(" · enter opens one"), w)}, {Text: ""}}
+	for i, r := range rows {
+		sa := r.sa
+		now := time.Now()
+		end := r.t.Last
+		if r.live {
+			end = now
+		}
+		took := ""
+		if !r.t.First.IsZero() && !end.IsZero() {
+			took = dur(end.Sub(r.t.First).Round(time.Second))
+		}
+		mark, state := paint(cGreen, "✓"), dim("done")
+		switch {
+		case r.live:
+			mark, state = paint(cOrange, spinner[(m.tick+i)%len(spinner)]), paint(cOrange, "running")
+		case r.status == "killed" || r.status == "stopped":
+			mark, state = dim("⏹"), dim(r.status)
+		case r.status == "failed":
+			mark, state = paint(cRed, "✗"), paint(cRed, "failed")
+		case r.status != "":
+			state = dim(r.status)
+		}
+		model := sa.Model
+		if n := len(r.t.Requests); n > 0 && r.t.Requests[n-1].Model != "" {
+			model = convo.PrettyModel(r.t.Requests[n-1].Model)
 		}
 		ref := "sub:" + sa.ID
-		left := "   " + mark + " " + paint(cBlue, "⇉") + " " + paint(cText+bold, sa.Type) + "  " + paint(cSub, oneLine(sa.Description)) + model
-		text := spread(left, right+"  ", w)
+		left := "  " + mark + " " + paint(cBlue, "⇉") + " " + paint(cText+bold, sa.Type) + "  " + paint(cSub, oneLine(sa.Description))
+		right := state + "   " + dim(took) + "  "
+		top := spread(left, right, w)
+		tot := r.t.Totals(now)
+		facts := []string{fmt.Sprintf("%d steps", tot.ToolCalls)}
+		if tot.Requests > 0 {
+			facts = append(facts, "in "+convo.Tokens(tot.In+tot.CacheRead+tot.CacheOut), "out "+convo.Tokens(tot.Out))
+			if c := r.t.Cost(); c > 0 {
+				facts = append(facts, money(c))
+			}
+		}
+		if model != "" {
+			facts = append(facts, model)
+		}
+		second := "      " + dim(strings.Join(facts, " · "))
+		if lw := r.t.LastWords(); lw != "" {
+			second += dim("  ·  ") + faint(ansi.Truncate(lw, max(10, w-ansi.StringWidth(second)-8), "…"))
+		}
 		if ref == o.Selected {
 			bar := faint("▍")
 			if o.Focused {
 				bar = paint(cOrange, "▍")
 			}
-			text = selBG + strings.ReplaceAll(bar+text[1:], reset, reset+selBG) + reset
+			lines = append(lines,
+				convo.Line{Text: selBG + strings.ReplaceAll(bar+fit(top, w)[1:], reset, reset+selBG) + reset, Ref: ref},
+				convo.Line{Text: selBG + strings.ReplaceAll(fit(second, w), reset, reset+selBG) + reset, Ref: ref})
+		} else {
+			lines = append(lines, convo.Line{Text: fit(top, w), Ref: ref}, convo.Line{Text: fit(second, w), Ref: ref})
 		}
-		lines = append(lines, convo.Line{Text: text, Ref: ref})
 	}
 	return lines
 }
@@ -185,11 +254,12 @@ type hostConn struct {
 	bodyRefs []string // every selectable row of the current view, in order
 
 	// Subagents: every run found beside the transcript, and the one opened.
-	path    string
-	subs    []convo.Subagent
-	subTail *convo.Tail
-	subOpen string
-	subSel  string // selection inside the opened subagent
+	path     string
+	subs     []convo.Subagent
+	subTail  *convo.Tail
+	subTails map[string]*convo.Tail // every run, followed for its numbers
+	subOpen  string
+	subSel   string // selection inside the opened subagent
 
 	// Search: ctrl+f turns the message box into a search box.
 	searching bool
