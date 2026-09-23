@@ -981,7 +981,21 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	out := []string{onBg(bgChrome, "", w)} // a row of the dock's own ground
 	line := func(txt string) { out = append(out, onBg(bgChrome, txt, w)) }
 
-	if now, done, total := s.Current(); total > 0 {
+	// A Claude Code agent's own screen says what the transcript can't yet:
+	// that it's working, for how long and on how many tokens. That one
+	// line stands in for the task line (it names the same task).
+	working := ""
+	if l := m.live; c.client == nil && l != nil && l.key == c.key && l.ready.Load() {
+		working = readScreen(l.lines()).working
+	}
+	now, done, total := s.Current()
+	if working != "" {
+		count := ""
+		if total > 0 {
+			count = paint(cSub, fmt.Sprintf("%d/%d", done, total)) + "  "
+		}
+		line(spread("  "+paint(cOrange, ansi.Truncate(working, w-12, "…")), count, w))
+	} else if total > 0 {
 		t := ""
 		if now != nil {
 			t = paint(cOrange, "■ ") + paint(cText, oneLine(firstNonEmpty(now.Active, now.Subject)))
@@ -1022,28 +1036,6 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 		}
 		cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
 	}
-	// A Claude Code agent's own screen says what the transcript can't yet:
-	// that it's working, for how long and on how many tokens, its todos,
-	// and its status line.
-	if l := m.live; c.client == nil && l != nil && l.key == c.key && l.ready.Load() && m.viewName(c) == "conversation" {
-		si := readScreen(l.lines())
-		if si.working != "" {
-			line(spread("  "+paint(cOrange, si.working), dim("from its screen")+"  ", w))
-		}
-		for i, t := range si.todos {
-			if i == 4 {
-				line("    " + dim(fmt.Sprintf("… %d more", len(si.todos)-i)))
-				break
-			}
-			line("    " + dim(t))
-		}
-		for i, t := range si.status {
-			if i == 2 {
-				break
-			}
-			line("  " + faint(t))
-		}
-	}
 	if run := c.runningSubs(); len(run) > 0 && m.viewName(c) == "conversation" {
 		var names []string
 		for _, sa := range run {
@@ -1064,7 +1056,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 				line(dim(fmt.Sprintf("   … %d more", len(q)-i)))
 				break
 			}
-			line("   " + dim(fmt.Sprint(i+1)) + "  " + paint(cSub, ansi.Truncate(oneLine(item), w-8, "…")))
+			line("   " + dim(fmt.Sprint(i+1)) + "  " + paint(cSub, ansi.Truncate(shortImages(oneLine(item)), w-8, "…")))
 		}
 	}
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
@@ -1437,6 +1429,11 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	buf, pos, anchor, copied, _ := editSel(c.input, max(0, len(c.input)-c.back), c.anchor-1, k, s)
 	c.input, c.back, c.anchor = buf, len(buf)-pos, anchor+1
+	if s == "space" || s == "enter" {
+		// A path you typed to an image becomes an attachment once it's done.
+		c.input, c.images = pullImages(c.input, c.images)
+		c.back = min(c.back, len(c.input))
+	}
 	if copied != "" {
 		m.copyText(copied)
 	}

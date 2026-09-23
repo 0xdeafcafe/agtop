@@ -34,7 +34,7 @@ func (m *Model) railNow(c *hostConn, w int) []string {
 				add(" " + dim(fmt.Sprintf("… %d more", len(q)-i)))
 				break
 			}
-			add(" " + dim("· "+ansi.Truncate(oneLine(item), w-4, "…")))
+			add(" " + dim("· "+ansi.Truncate(shortImages(oneLine(item)), w-4, "…")))
 		}
 		add("")
 	}

@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -305,6 +306,33 @@ func pathSpans(text string) []span {
 	flush(len(text))
 	return out
 }
+
+var imageTag = regexp.MustCompile(`\[image: ([^\]]+)\]`)
+
+// shortImages shows the image paths a message carries as their names.
+func shortImages(s string) string {
+	return imageTag.ReplaceAllStringFunc(s, func(m string) string {
+		return "▣ " + filepath.Base(imageTag.FindStringSubmatch(m)[1])
+	})
+}
+
+// pullImages moves image paths typed into a box out into its attachments.
+func pullImages(in []rune, images []string) ([]rune, []string) {
+	text := string(in)
+	if !strings.ContainsAny(text, ".") || !imageExt.MatchString(text) {
+		return in, images
+	}
+	rest, imgs := extractImages(text)
+	if imgs == nil {
+		return in, images
+	}
+	if rest != "" {
+		rest += " "
+	}
+	return []rune(rest), append(images, imgs...)
+}
+
+var imageExt = regexp.MustCompile(`(?i)\.(png|jpe?g|gif|webp)\b`)
 
 // imagePaths reads a paste as image files dropped onto the terminal: paths
 // separated by spaces or newlines, quoted or with escaped spaces. It returns

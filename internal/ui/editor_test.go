@@ -232,3 +232,16 @@ func TestPasteChips(t *testing.T) {
 		t.Fatal("isLongPaste")
 	}
 }
+
+func TestTypedImages(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "shot one.png")
+	_ = os.WriteFile(p, []byte("x"), 0o644)
+	in, imgs := pullImages([]rune("look "+strings.ReplaceAll(p, " ", `\ `)+" "), nil)
+	if len(imgs) != 1 || string(in) != "look " {
+		t.Fatalf("pullImages = %q %v", string(in), imgs)
+	}
+	if got := shortImages("see [image: " + p + "] ok"); got != "see ▣ shot one.png ok" {
+		t.Fatalf("shortImages = %q", got)
+	}
+}

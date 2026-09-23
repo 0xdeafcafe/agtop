@@ -45,7 +45,7 @@ func (m *Model) queueLines(c *hostConn, o convo.Options) []convo.Line {
 	}
 	for i, item := range q.items {
 		ref := fmt.Sprintf("q:%d", i)
-		rows := wrap(oneLine(item), max(20, w-10))
+		rows := wrap(shortImages(oneLine(item)), max(20, w-10))
 		for j, r := range rows {
 			if j == 3 {
 				line("         "+dim("…"), ref)
