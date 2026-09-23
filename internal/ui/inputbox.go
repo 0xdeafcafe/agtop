@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 )
@@ -49,18 +50,18 @@ func (b box) lines() []string {
 		if right != "" {
 			tail = " " + right + " " + tail
 		}
-		if ansi.StringWidth(head)+ansi.StringWidth(tail) > w {
+		if cellw.String(head)+cellw.String(tail) > w {
 			tail = paint(edge, "─"+r)
 		}
-		if over := ansi.StringWidth(head) + ansi.StringWidth(tail) - w; over > 0 {
-			head = ansi.Truncate(head, ansi.StringWidth(head)-over-1, "…")
+		if over := cellw.String(head) + cellw.String(tail) - w; over > 0 {
+			head = ansi.Truncate(head, cellw.String(head)-over-1, "…")
 		}
-		fill := w - ansi.StringWidth(head) - ansi.StringWidth(tail)
+		fill := w - cellw.String(head) - cellw.String(tail)
 		return head + paint(edge, strings.Repeat("─", max(0, fill))) + tail
 	}
 	out := []string{border("╭", "╮", b.topL, b.topR)}
 	for _, row := range b.content(inner) {
-		pad := inner - ansi.StringWidth(row)
+		pad := inner - cellw.String(row)
 		body := row + strings.Repeat(" ", max(0, pad))
 		body = bgInput + strings.ReplaceAll(body, reset, reset+bgInput) + reset
 		out = append(out, paint(edge, "│")+bgInput+" "+reset+body+bgInput+" "+reset+paint(edge, "│"))
@@ -137,7 +138,7 @@ func (b box) window(segs []seg) (start, end int) {
 	return start, start + limit
 }
 
-func (b box) leadW() int { return ansi.StringWidth(b.lead) }
+func (b box) leadW() int { return cellw.String(b.lead) }
 
 func (b box) content(w int) []string {
 	lw := b.leadW()

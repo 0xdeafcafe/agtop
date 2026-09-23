@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -42,7 +43,7 @@ func fit(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	sw := ansi.StringWidth(s)
+	sw := cellw.String(s)
 	if sw > w {
 		return ansi.Truncate(s, w, "…")
 	}
@@ -51,7 +52,7 @@ func fit(s string, w int) string {
 
 // right aligns to exactly w cells.
 func right(s string, w int) string {
-	sw := ansi.StringWidth(s)
+	sw := cellw.String(s)
 	if sw >= w {
 		return ansi.Truncate(s, w, "…")
 	}
@@ -204,7 +205,7 @@ func rule(title, meta string, w int) string {
 	if meta != "" {
 		head += "  " + dim(meta)
 	}
-	n := w - ansi.StringWidth(head) - 2
+	n := w - cellw.String(head) - 2
 	if n < 0 {
 		n = 0
 	}

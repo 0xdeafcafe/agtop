@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -64,7 +65,7 @@ func row(b, left, right string, width, capw int) string {
 	if capw > width || capw <= 0 {
 		capw = width
 	}
-	rw := ansi.StringWidth(right)
+	rw := cellw.String(right)
 	if rw > capw-4 {
 		right, rw = "", 0
 	}
@@ -72,10 +73,10 @@ func row(b, left, right string, width, capw int) string {
 	if rw > 0 {
 		room -= 2
 	}
-	if ansi.StringWidth(left) > room {
+	if cellw.String(left) > room {
 		left = ansi.Truncate(left, max(0, room), "…")
 	}
-	gap := capw - ansi.StringWidth(left) - rw
+	gap := capw - cellw.String(left) - rw
 	s := left + strings.Repeat(" ", max(0, gap)) + right + strings.Repeat(" ", max(0, width-capw))
 	if b == "" {
 		return s

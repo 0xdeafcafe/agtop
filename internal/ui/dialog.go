@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
@@ -878,7 +879,7 @@ func (m *Model) settingRow(i int, st setting, shown string, labelW, valueW, w in
 		short = rest
 	}
 	line := fit(st.label, labelW) + faint("‹ ") + paint(cText, fit(shown, valueW)) + faint(" › ")
-	if room := w - ansi.StringWidth(line) - 6; room > 12 {
+	if room := w - cellw.String(line) - 6; room > 12 {
 		line += faint(ansi.Truncate(short, room, "…"))
 	}
 	if i == m.dialog.cursor {

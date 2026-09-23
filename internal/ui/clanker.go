@@ -3,7 +3,7 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/x/ansi"
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 )
 
 type mood int
@@ -62,10 +62,10 @@ func clanker(md mood, tick int) []string {
 func clkPad(lines []string) []string {
 	w := 0
 	for _, l := range lines {
-		w = max(w, ansi.StringWidth(l))
+		w = max(w, cellw.String(l))
 	}
 	for i, l := range lines {
-		lines[i] = l + strings.Repeat(" ", w-ansi.StringWidth(l))
+		lines[i] = l + strings.Repeat(" ", w-cellw.String(l))
 	}
 	return lines
 }
