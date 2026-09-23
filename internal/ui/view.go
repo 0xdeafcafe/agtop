@@ -112,12 +112,12 @@ func (m *Model) header() []string {
 	var tabs []string
 	for i, v := range viewNames {
 		if i == m.view {
-			tabs = append(tabs, paint(cOrange+bold, v))
+			tabs = append(tabs, tabOn+" "+v+" "+reset)
 		} else {
-			tabs = append(tabs, dim(v))
+			tabs = append(tabs, tabOff+" "+v+" "+reset)
 		}
 	}
-	out[3] = "  " + robot[3] + "   " + strings.Join(tabs, faint("  ·  ")) + faint("     tab ⇥")
+	out[3] = "  " + robot[3] + "   " + strings.Join(tabs, " ") + faint("   tab ⇥")
 	_ = pad
 	return out
 }
@@ -394,6 +394,12 @@ func (m *Model) listLines(w, h int) []string {
 	}
 	return out
 }
+
+// View tabs are pills: the current one filled orange, the rest a quiet grey.
+const (
+	tabOn  = "\x1b[1;38;2;24;22;20;48;2;217;119;87m"
+	tabOff = "\x1b[38;2;168;162;152;48;2;40;37;34m"
+)
 
 const hoverBG = "\x1b[48;2;33;31;29m"
 

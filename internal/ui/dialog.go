@@ -14,6 +14,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
 const (
@@ -504,31 +505,57 @@ func (m *Model) dialogBody(w int) []string {
 	}
 	switch d.tab {
 	case tabAccounts:
-		usage := map[string]string{}
+		views := map[string]fleet.AccountView{}
 		for _, av := range m.snap.Accounts {
-			u := av.Usage
-			s := fmt.Sprintf("%d/%d agents · %s today", av.Live, av.Agents, money(av.Today))
-			if u.FiveHour.Present {
-				s = fmt.Sprintf("5h %.0f%% · 7d %.0f%% · ", u.FiveHour.Percent, u.SevenDay.Percent) + s
-			}
-			if u.Email != "" {
-				s = u.Email + " · " + s
-			}
-			usage[av.ConfigDir] = s
+			views[av.ConfigDir] = av
 		}
+		cols := []int{16, 20, 26, 18, 18, 9, 10, 10}
+		cell := func(i int, v string, alignRight bool) string {
+			if alignRight {
+				return right(v, cols[i])
+			}
+			return fit(v, cols[i])
+		}
+		meter := func(win claude.Window) string {
+			if !win.Present {
+				return faint("no reading yet")
+			}
+			return bar(win.Percent) + " " + paint(cText, fmt.Sprintf("%3.0f%%", win.Percent))
+		}
+		head := "   " + faint(cell(0, "NAME", false)+cell(1, "FOLDER", false)+cell(2, "EMAIL", false)+cell(3, "5-HOUR", false)+cell(4, "7-DAY", false)+cell(5, "AGENTS", true)+cell(6, "TODAY", true)+cell(7, "ALL", true))
+		out = append(out, head)
 		active := m.store.Config.ActiveAccount()
 		for i, a := range d.accounts {
 			mark := faint("○")
 			if a.ConfigDir == active.ConfigDir {
 				mark = paint(cOrange, "●")
 			}
-			name := paint(cText, fit(a.Name, 16))
-			extra := dim(usage[a.ConfigDir])
-			if a.found {
-				name = paint(cSub, fit(a.Name, 16))
-				extra = paint(cYellow, "found on disk") + dim(" · enter to add")
+			av, ok := views[a.ConfigDir]
+			name := paint(cText, cell(0, a.Name, false))
+			folder := faint(cell(1, tildify(a.ConfigDir), false))
+			var line string
+			switch {
+			case a.found:
+				line = paint(cSub, cell(0, a.Name, false)) + folder + paint(cYellow, "found on disk") + dim(" · enter to add")
+			case !ok:
+				line = name + folder + dim("not loaded yet")
+			default:
+				u := av.Usage
+				email := u.Email
+				if email == "" {
+					email = "not signed in"
+				}
+				line = name + folder + dim(cell(2, email, false)) +
+					fit(meter(u.FiveHour), cols[3]) + fit(meter(u.SevenDay), cols[4]) +
+					paint(cSub, cell(5, fmt.Sprintf("%d/%d", av.Live, av.Agents), true)) +
+					paint(cText, cell(6, money(av.Today), true)) + dim(cell(7, money(av.Spend), true))
 			}
-			out = append(out, row(i, mark+" "+name+"  "+faint(fit(tildify(a.ConfigDir), 20))+"  "+extra))
+			out = append(out, row(i, mark+" "+line))
+		}
+		if len(d.accounts) > 0 {
+			if av, ok := views[active.ConfigDir]; ok && !av.Usage.FetchedAt.IsZero() {
+				out = append(out, "", faint("usage as Claude Code last saw it · "+tildify(active.ConfigDir)+" · "+av.Usage.FetchedAt.Local().Format("Mon 15:04")))
+			}
 		}
 		out = append(out, "", keysFit(w, "enter", "use for new sessions", "a", "add", "r", "rename", "l", "sign in", "d", "remove"))
 	case tabAgents:
