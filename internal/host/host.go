@@ -43,7 +43,15 @@ type Config struct {
 	Flags          []string       `json:"flags,omitempty"`
 	Prompt         string         `json:"prompt,omitempty"` // first message
 	IdleStop       Duration       `json:"idleStop,omitempty"`
-	Binary         string         `json:"binary,omitempty"`
+	// LimitMode is what happens when a usage limit stops the session:
+	// "auto" continues at the reset, "off" waits for you, and "" (opt-in)
+	// asks once per session.
+	LimitMode string `json:"limitMode,omitempty"`
+	// RetryBase is the first wait before retrying an API error; each retry
+	// doubles it. RetryMax caps the attempts. Zero means the defaults.
+	RetryBase Duration `json:"retryBase,omitempty"`
+	RetryMax  int      `json:"retryMax,omitempty"`
+	Binary    string   `json:"binary,omitempty"`
 }
 
 // Info is what the list shows about a session; the host keeps it in
@@ -65,11 +73,44 @@ type Info struct {
 	CostUSD        float64 `json:"costUsd,omitempty"`
 	// Queue holds messages sent while the agent was busy; the host sends
 	// the first when the turn ends.
-	Queue     []string  `json:"queue,omitempty"`
+	Queue []string `json:"queue,omitempty"`
+	// Limit is set while a usage limit has stopped the session.
+	Limit *Limit `json:"limit,omitempty"`
+	// Retry is set while an API error is being retried, or has given up.
+	Retry *Retry `json:"retry,omitempty"`
+	// CacheWarm is when the prompt cache written by the last request
+	// expires; a request after it re-reads the whole context.
+	CacheWarm time.Time `json:"cacheWarm,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	StartedAt time.Time `json:"startedAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+// Limit describes a usage limit that stopped the session.
+type Limit struct {
+	ResetsAt time.Time `json:"resetsAt,omitempty"`
+	Window   string    `json:"window,omitempty"` // five_hour, seven_day, …
+	// Continue is whether the session carries on at the reset; Ask is set
+	// when that's still yours to decide.
+	Continue bool `json:"continue"`
+	Ask      bool `json:"ask,omitempty"`
+}
+
+// Retry describes an API error being retried.
+type Retry struct {
+	Reason  string    `json:"reason"`
+	Attempt int       `json:"attempt"`
+	Max     int       `json:"max"`
+	Next    time.Time `json:"next,omitempty"`
+	// GaveUp is set when retries ran out or the next would land after the
+	// cache expired; a message from you retries.
+	GaveUp bool   `json:"gaveUp,omitempty"`
+	Why    string `json:"why,omitempty"`
+}
+
+// cacheLife is how long the prompt cache lasts. Claude Code writes the
+// one-hour cache (usage reports ephemeral_1h_input_tokens).
+const cacheLife = time.Hour
 
 // Duration reads and writes as a Go duration string.
 type Duration time.Duration
@@ -131,6 +172,8 @@ type server struct {
 	commands []byte
 	initID   string
 	stamped  time.Time // when the last time mark went into the ring
+	limitRaw headless.RateLimit
+	wake     *time.Timer // a scheduled continue or retry
 	idle     *time.Timer
 	quit     chan struct{}
 }
@@ -303,7 +346,13 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.Init:
 		s.info.Model, s.info.PermissionMode = ev.Model, ev.PermissionMode
 		s.info.SessionID = ev.SessionID
+	case headless.RateLimit:
+		s.limitRaw = ev
+		return
 	case headless.Message:
+		if ev.Role == "assistant" && ev.Usage != nil {
+			s.info.CacheWarm = time.Now().Add(cacheLife)
+		}
 		if ev.Role == "assistant" && ev.ParentToolUseID == "" {
 			for _, b := range ev.Blocks {
 				switch b.Type {
@@ -333,6 +382,11 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.Result:
 		s.began = true
 		s.info.CostUSD += ev.CostUSD
+		if s.stalled(ev) {
+			s.publish()
+			return
+		}
+		s.info.Retry = nil
 		if len(s.pending) == 0 {
 			s.info.State = "idle"
 			s.info.Needs = ""
@@ -351,6 +405,146 @@ func (s *server) onEvent(ev headless.Event) {
 		return
 	}
 	s.publish()
+}
+
+// stalled handles a turn that ended on a usage limit or an API error,
+// scheduling a continue or a retry when that's allowed. It reports whether
+// the turn stalled. Called with mu held.
+func (s *server) stalled(r headless.Result) bool {
+	text := strings.ToLower(r.Text)
+	switch {
+	case s.limitRaw.Status == "rejected" || strings.Contains(text, "usage limit") || strings.Contains(text, "limit reached"):
+		l := &Limit{Window: limitWindow(s.limitRaw.Raw)}
+		l.ResetsAt = limitReset(s.limitRaw.Raw)
+		switch s.cfg.LimitMode {
+		case "auto":
+			l.Continue = true
+		case "off":
+		default:
+			l.Ask = true
+		}
+		if s.info.Limit != nil && !s.info.Limit.Ask {
+			l.Continue, l.Ask = s.info.Limit.Continue, false // you already chose
+		}
+		s.info.Limit = l
+		s.info.State = "idle"
+		s.info.Detail = "usage limit reached"
+		s.scheduleContinue()
+		return true
+	case !r.IsError:
+		return false
+	case isAuthError(text):
+		s.info.State, s.info.Error = "idle", "log in to continue: "+firstLine(r.Text)
+		return true
+	case strings.Contains(text, "too long") || strings.Contains(text, "too large"):
+		s.info.State, s.info.Error = "idle", firstLine(r.Text)+" · /compact may help"
+		return true
+	case isRetryable(text):
+		s.retry(firstLine(r.Text))
+		return true
+	}
+	return false
+}
+
+func isAuthError(t string) bool {
+	for _, k := range []string{"401", "authentication", "log in", "login", "oauth", "token has expired", "expired token", "apikeyhelper", "invalid api key"} {
+		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRetryable(t string) bool {
+	for _, k := range []string{"529", "overloaded", "api error: 5", "internal server error", "temporarily", "service unavailable", "timed out", "connection"} {
+		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	return false
+}
+
+func limitReset(raw json.RawMessage) time.Time {
+	var r struct {
+		ResetsAt int64 `json:"resetsAt"`
+	}
+	if json.Unmarshal(raw, &r) == nil && r.ResetsAt > 0 {
+		return time.Unix(r.ResetsAt, 0)
+	}
+	return time.Time{}
+}
+
+func limitWindow(raw json.RawMessage) string {
+	var r struct {
+		Type string `json:"rateLimitType"`
+	}
+	_ = json.Unmarshal(raw, &r)
+	return r.Type
+}
+
+// retry schedules the next attempt after an API error: 15s, then double
+// each time. It gives up after RetryMax attempts, or when the next attempt
+// would land after the prompt cache expired, since that attempt re-reads
+// the whole context at full price; a message from you then retries.
+func (s *server) retry(reason string) {
+	base, most := time.Duration(s.cfg.RetryBase), s.cfg.RetryMax
+	if base <= 0 {
+		base = 15 * time.Second
+	}
+	if most <= 0 {
+		most = 8
+	}
+	r := s.info.Retry
+	if r == nil || r.GaveUp {
+		r = &Retry{Max: most}
+	}
+	r.Reason, r.Attempt = reason, r.Attempt+1
+	wait := base << (r.Attempt - 1)
+	r.Next = time.Now().Add(wait)
+	switch {
+	case r.Attempt > most:
+		r.GaveUp, r.Why, r.Next = true, fmt.Sprintf("%d retries used", most), time.Time{}
+	case !s.info.CacheWarm.IsZero() && r.Next.After(s.info.CacheWarm):
+		r.GaveUp, r.Why, r.Next = true, "the next try would come after the cache expires", time.Time{}
+	}
+	s.info.Retry = r
+	s.info.State = "idle"
+	if r.GaveUp {
+		return
+	}
+	s.after(wait, func() { _ = s.sendLocked("continue") })
+}
+
+// scheduleContinue arms the continue at a usage limit's reset, a few
+// seconds apart per session so they don't all hit the fresh limit at once.
+func (s *server) scheduleContinue() {
+	l := s.info.Limit
+	if l == nil || !l.Continue || l.ResetsAt.IsZero() {
+		return
+	}
+	jitter := time.Duration(len(s.cfg.ID)*7+int(s.cfg.ID[0])) % 20 * time.Second
+	s.after(time.Until(l.ResetsAt)+jitter, func() {
+		s.info.Limit = nil
+		msg := "continue"
+		if len(s.info.Queue) > 0 {
+			msg = strings.Join(s.info.Queue, "\n\n")
+			s.info.Queue = nil
+		}
+		_ = s.sendLocked(msg)
+	})
+}
+
+// after runs f with mu held once d has passed, replacing anything already
+// scheduled.
+func (s *server) after(d time.Duration, f func()) {
+	if s.wake != nil {
+		s.wake.Stop()
+	}
+	s.wake = time.AfterFunc(max(0, d), func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		f()
+	})
 }
 
 // answered forgets a permission request and tells clients it is settled.
@@ -401,7 +595,7 @@ func (s *server) publish() {
 func (s *server) send(text string, now bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !now && (s.info.State == "working" || s.info.State == "blocked") {
+	if !now && (s.info.State == "working" || s.info.State == "blocked" || (s.info.Limit != nil && s.info.Limit.Continue)) {
 		s.info.Queue = append(s.info.Queue, text)
 		s.publish()
 		return nil
@@ -414,6 +608,13 @@ func (s *server) send(text string, now bool) error {
 func (s *server) sendLocked(text string) error {
 	if s.idle != nil {
 		s.idle.Stop()
+	}
+	if s.wake != nil {
+		s.wake.Stop()
+	}
+	s.info.Error = ""
+	if s.info.Retry != nil && s.info.Retry.GaveUp {
+		s.info.Retry = nil // your message is the retry
 	}
 	if err := s.start(); err != nil {
 		s.info.Error = err.Error()
@@ -486,6 +687,18 @@ func (s *server) do(o op) error {
 	s.mu.Lock()
 	sess := s.sess
 	switch o.Op {
+	case "limit":
+		if l := s.info.Limit; l != nil {
+			l.Continue, l.Ask = o.Now, false
+			if l.Continue {
+				s.scheduleContinue()
+			} else if s.wake != nil {
+				s.wake.Stop()
+			}
+			s.publish()
+		}
+		s.mu.Unlock()
+		return nil
 	case "queue_edit", "queue_remove", "queue_move", "queue_merge", "queue_send":
 		err := s.editQueue(o)
 		s.mu.Unlock()

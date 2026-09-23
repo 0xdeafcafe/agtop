@@ -52,6 +52,10 @@ type Dispatch struct {
 	// RunIn is where new Claude sessions run: "" for agtop mode (agtop's own
 	// host, headless) or "daemon" for Claude Code's background service.
 	RunIn string `json:"runIn,omitempty"`
+	// OnLimit is what agtop-mode sessions do when a usage limit stops them:
+	// "" asks once per session (opt-in), "auto" continues at the reset,
+	// "off" waits for you.
+	OnLimit string `json:"onLimit,omitempty"`
 }
 
 func (d Dispatch) Flags() []string {

@@ -253,6 +253,12 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	}
 	state := dim("idle")
 	switch {
+	case info.Limit != nil:
+		state = paint(cYellow, "⏸ "+limitText(info.Limit))
+	case info.Retry != nil && info.Retry.GaveUp:
+		state = paint(cRed, "✗ API error · "+info.Retry.Why)
+	case info.Retry != nil:
+		state = paint(cYellow, fmt.Sprintf("⟳ retry %d of %d in %s", info.Retry.Attempt, info.Retry.Max, dur(time.Until(info.Retry.Next).Round(time.Second))))
 	case len(s.Pending()) > 0:
 		state = paint(cYellow+bold, "● needs you")
 	case s.Live() != nil:
@@ -303,6 +309,13 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 		meta += dim(" · ") + paint(col, mode)
 	}
 	conn := paint(cGreen, "●") + dim(" connected")
+	if (info.Limit != nil || info.Retry != nil) && !info.CacheWarm.IsZero() {
+		if time.Now().Before(info.CacheWarm) {
+			conn = dim("cache warm until ") + paint(cGreen, info.CacheWarm.Local().Format("15:04")) + "   " + conn
+		} else {
+			conn = paint(cYellow, "cache cold") + "   " + conn
+		}
+	}
 	row2 := spread("  "+meta, conn+" ", w)
 
 	var tabs []string
@@ -353,6 +366,16 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 			t = dim("no task in progress")
 		}
 		line(spread("  "+t+"  "+paint(cSub, fmt.Sprintf("%d/%d", done, total)), "", w))
+	}
+	if l := s.Info.Limit; l != nil && l.Ask {
+		card := "\x1b[48;2;42;36;25m"
+		cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
+		cl(paint(cYellow, "▍") + " " + paint(cYellow+bold, "⏸ usage limit") + "   " + paint(cText, limitText(l)))
+		cl(paint(cYellow, "▍") + "     " + dim("Continue by itself when the limit resets? Anything you send meanwhile waits in the queue."))
+		cl(paint(cYellow, "▍") + "   " + paint(cText+bold, "y") + " " + paint(cSub, "continue at the reset") + "   " + paint(cText+bold, "n") + " " + paint(cSub, "wait for me"))
+	}
+	if r := s.Info.Retry; r != nil && r.GaveUp {
+		line("  " + paint(cRed, "✗ "+r.Reason) + dim(" · "+r.Why+" · send anything to try again"))
 	}
 	if p := s.Pending(); len(p) > 0 {
 		st := p[0]
@@ -501,6 +524,10 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	}
 	empty := len(c.input) == 0
+	if l := c.sess.Info.Limit; empty && l != nil && l.Ask && (s == "y" || s == "n") {
+		yes := s == "y"
+		return hostCmd(func() error { return c.client.ContinueAtReset(yes) })
+	}
 	pending := c.sess.Pending()
 	if empty && len(pending) > 0 {
 		req := pending[0].Approval
@@ -746,7 +773,7 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 	d := m.store.Config.Dispatch
 	cfg := host.Config{
 		Account: m.store.Config.ActiveAccount(), Cwd: dir, Prompt: text, Name: sessionName(text),
-		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission,
+		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit,
 	}
 	m.flash("starting a new session…", false)
 	return func() tea.Msg {
@@ -809,7 +836,7 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 	d := m.store.Config.Dispatch
 	cfg := host.Config{
 		SessionID: a.SessionID, Resume: true, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
-		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission,
+		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit,
 	}
 	old := a.Key
 	m.flash("moving "+a.DisplayName+" to agtop mode…", false)
@@ -830,4 +857,22 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 type movedToAgtopMsg struct {
 	from    string
 	started hostStartedMsg
+}
+
+func limitText(l *host.Limit) string {
+	win := map[string]string{"five_hour": "5h limit", "seven_day": "7d limit", "seven_day_opus": "7d Opus limit"}[l.Window]
+	if win == "" {
+		win = "usage limit"
+	}
+	t := win
+	if !l.ResetsAt.IsZero() {
+		t += " · resets " + l.ResetsAt.Local().Format("15:04")
+	}
+	switch {
+	case l.Continue:
+		t += " · continues then"
+	case !l.Ask:
+		t += " · waiting for you"
+	}
+	return t
 }

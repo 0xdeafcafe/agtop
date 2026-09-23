@@ -3,6 +3,7 @@
 package fleet
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -433,7 +434,20 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 		Cwd: info.Cwd, SessionID: info.SessionID, CreatedAt: info.StartedAt, UpdatedAt: info.UpdatedAt,
 		TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(info.Cwd), info.SessionID+".jsonl"),
 	}
-	if info.Error != "" && st == "done" {
+	switch {
+	case info.Limit != nil:
+		j.Detail = "usage limit"
+		if !info.Limit.ResetsAt.IsZero() {
+			j.Detail += " · resets " + info.Limit.ResetsAt.Local().Format("15:04")
+		}
+		if info.Limit.Ask {
+			st, j.State, j.Needs = "blocked", "blocked", "continue when the limit resets?"
+		}
+	case info.Retry != nil && info.Retry.GaveUp:
+		j.Detail = "API error · " + info.Retry.Why
+	case info.Retry != nil:
+		j.Detail = fmt.Sprintf("API error · retry %d of %d", info.Retry.Attempt, info.Retry.Max)
+	case info.Error != "" && st == "done":
 		j.Detail = "stopped mid-turn · your next message resumes it"
 	}
 	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: acct, DisplayName: name, Agtop: true}

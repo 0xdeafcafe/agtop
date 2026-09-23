@@ -260,3 +260,87 @@ func TestQueueEdits(t *testing.T) {
 		t.Error("removing past the end should fail")
 	}
 }
+
+// stallClaude fails its first turn with an API error or a usage limit, as
+// asked, and succeeds on "continue".
+const stallClaude = `#!/bin/sh
+echo '{"type":"system","subtype":"init","session_id":"SID","model":"claude-haiku-4-5"}'
+while read -r line; do
+  case "$line" in
+  *overload*)
+    echo '{"type":"assistant","message":{"id":"m1","role":"assistant","usage":{"input_tokens":1,"output_tokens":1},"content":[{"type":"text","text":"trying"}]}}'
+    echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"API Error: 529 Overloaded"}' ;;
+  *limit*)
+    echo '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":'$(( $(date +%s) + 3600 ))',"rateLimitType":"five_hour"}}'
+    echo '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"Claude usage limit reached"}' ;;
+  *continue*)
+    echo '{"type":"result","subtype":"success","result":"Recovered."}' ;;
+  esac
+done
+`
+
+func TestRetryAndLimit(t *testing.T) {
+	bin := setup(t)
+	if err := os.WriteFile(bin, []byte(stallClaude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Binary: bin, Prompt: "please overload", RetryBase: Duration(300 * time.Millisecond)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Dial(cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	// The error schedules a retry; the retry sends "continue" and recovers.
+	r := next(t, c, func(ev any) bool { i, ok := ev.(InfoEvent); return ok && i.Info.Retry != nil }).(InfoEvent).Info.Retry
+	if r.Attempt != 1 || r.GaveUp || !strings.Contains(r.Reason, "529") {
+		t.Fatalf("retry: %+v", r)
+	}
+	next(t, c, func(ev any) bool { s, ok := ev.(Sent); return ok && s.Text == "continue" })
+	res := next(t, c, func(ev any) bool { _, ok := ev.(headless.Result); return ok }).(headless.Result)
+	if res.Text != "Recovered." {
+		t.Fatalf("after retry: %+v", res)
+	}
+	next(t, c, func(ev any) bool { i, ok := ev.(InfoEvent); return ok && i.Info.Retry == nil && i.Info.State == "idle" })
+
+	// A usage limit asks whether to continue at the reset (opt-in).
+	if err := c.Send("hit the limit"); err != nil {
+		t.Fatal(err)
+	}
+	l := next(t, c, func(ev any) bool { i, ok := ev.(InfoEvent); return ok && i.Info.Limit != nil }).(InfoEvent).Info.Limit
+	if !l.Ask || l.Continue || l.Window != "five_hour" || time.Until(l.ResetsAt) < 50*time.Minute {
+		t.Fatalf("limit: %+v", l)
+	}
+	if err := c.ContinueAtReset(true); err != nil {
+		t.Fatal(err)
+	}
+	l = next(t, c, func(ev any) bool { i, ok := ev.(InfoEvent); return ok && i.Info.Limit != nil && !i.Info.Limit.Ask }).(InfoEvent).Info.Limit
+	if !l.Continue {
+		t.Fatalf("after yes: %+v", l)
+	}
+	// While waiting for the reset, a new message queues instead of going now.
+	if err := c.Send("then do this"); err != nil {
+		t.Fatal(err)
+	}
+	q := next(t, c, func(ev any) bool { i, ok := ev.(InfoEvent); return ok && len(i.Info.Queue) > 0 }).(InfoEvent).Info.Queue
+	if q[0] != "then do this" {
+		t.Fatalf("queue: %v", q)
+	}
+	_ = c.Stop()
+}
+
+func TestRetryGivesUpPastTheCache(t *testing.T) {
+	s := &server{cfg: Config{ID: "x", RetryBase: Duration(time.Minute)}, clients: map[*conn]struct{}{}}
+	s.info.CacheWarm = time.Now().Add(90 * time.Second)
+	s.retry("API Error: 529")
+	if s.info.Retry.GaveUp || s.info.Retry.Attempt != 1 {
+		t.Fatalf("first retry fits in the cache window: %+v", s.info.Retry)
+	}
+	s.wake.Stop()
+	s.retry("API Error: 529") // the second would wait 2m, past the cache
+	if !s.info.Retry.GaveUp || !strings.Contains(s.info.Retry.Why, "cache") {
+		t.Fatalf("should give up past the cache: %+v", s.info.Retry)
+	}
+}
