@@ -73,15 +73,43 @@ func row(b, left, right string, width, capw int) string {
 	if rw > 0 {
 		room -= 2
 	}
-	if cellw.String(left) > room {
+	lw := cellw.String(left)
+	if lw > room {
 		left = ansi.Truncate(left, max(0, room), "…")
+		lw = cellw.String(left)
 	}
-	gap := capw - cellw.String(left) - rw
-	s := left + strings.Repeat(" ", max(0, gap)) + right + strings.Repeat(" ", max(0, width-capw))
+	gap := max(0, capw-lw-rw)
+	var sb strings.Builder
+	sb.Grow(len(b) + len(left) + gap + len(right) + max(0, width-capw) + 32)
 	if b == "" {
-		return s
+		sb.WriteString(left)
+		sb.WriteString(blanks(gap))
+		sb.WriteString(right)
+		sb.WriteString(blanks(width - capw))
+		return sb.String()
 	}
-	return b + strings.ReplaceAll(s, reset, reset+b) + reset
+	// Every reset inside returns to the row's background.
+	sb.WriteString(b)
+	writeIn(&sb, left, b)
+	sb.WriteString(blanks(gap))
+	writeIn(&sb, right, b)
+	sb.WriteString(blanks(width - capw))
+	sb.WriteString(reset)
+	return sb.String()
+}
+
+// writeIn writes s with every reset followed by bg.
+func writeIn(sb *strings.Builder, s, bg string) {
+	for {
+		i := strings.Index(s, reset)
+		if i < 0 {
+			sb.WriteString(s)
+			return
+		}
+		sb.WriteString(s[:i+len(reset)])
+		sb.WriteString(bg)
+		s = s[i+len(reset):]
+	}
 }
 
 func dur(d time.Duration) string {
@@ -107,7 +135,25 @@ func money(v float64) string {
 }
 
 func oneLine(s string) string {
+	if single(s) {
+		return s
+	}
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// single is whether s is already one line of single-spaced ASCII words, so
+// oneLine has nothing to do.
+func single(s string) bool {
+	if s == "" || s[0] == ' ' || s[len(s)-1] == ' ' {
+		return s == ""
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x21 && (c != ' ' || s[i+1] == ' ') || c >= 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // wrap breaks styled text to w cells.

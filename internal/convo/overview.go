@@ -405,7 +405,7 @@ func (s *Session) LastWords() string {
 		items := s.Turns[i].Items
 		for j := len(items) - 1; j >= 0; j-- {
 			if items[j].Kind == KText && strings.TrimSpace(items[j].Text) != "" {
-				return firstLine(stripMarkdown(items[j].Text))
+				return firstPlain(items[j].Text)
 			}
 		}
 	}

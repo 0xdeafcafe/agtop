@@ -97,7 +97,7 @@ type Turn struct {
 func (t *Turn) Outcome() string {
 	for i := len(t.Items) - 1; i >= 0; i-- {
 		if it := t.Items[i]; it.Kind == KText && it.Answer {
-			return firstLine(stripMarkdown(it.Text))
+			return firstPlain(it.Text)
 		}
 	}
 	return ""
@@ -612,7 +612,26 @@ func firstLine(s string) string {
 	return strings.TrimSpace(s)
 }
 
+var mdMarks = strings.NewReplacer("**", "", "__", "", "`", "")
+
 func stripMarkdown(s string) string {
-	s = strings.NewReplacer("**", "", "__", "", "`", "").Replace(s)
+	s = mdMarks.Replace(s)
 	return strings.TrimLeft(s, "#> -*")
+}
+
+// firstPlain is firstLine(stripMarkdown(s)), reading only as far as the
+// line it returns: the marks never span lines, so each line strips alone.
+func firstPlain(s string) string {
+	for first := true; s != ""; first = false {
+		line, rest, _ := strings.Cut(s, "\n")
+		l := mdMarks.Replace(line)
+		if first {
+			l = strings.TrimLeft(l, "#> -*")
+		}
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+		s = rest
+	}
+	return ""
 }

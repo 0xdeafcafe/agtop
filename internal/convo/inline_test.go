@@ -3,6 +3,7 @@ package convo
 import (
 	"math/rand"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,23 @@ func TestInlineMatchesRegexp(t *testing.T) {
 		}
 		if got, want := stripANSI(s), ansiRe.ReplaceAllString(s, ""); got != want {
 			t.Fatalf("stripANSI %q: got %q want %q", s, got, want)
+		}
+	}
+}
+
+func TestShortcutsMatch(t *testing.T) {
+	pieces := []string{"**", "*", "`", "__", "#", ">", "-", " ", "  ", "\n", "\t", "\r", "a", "word", "é", " ", " ", "\v"}
+	r := rand.New(rand.NewSource(4))
+	for n := 0; n < 300000; n++ {
+		s := ""
+		for k := r.Intn(12); k >= 0; k-- {
+			s += pieces[r.Intn(len(pieces))]
+		}
+		if got, want := firstPlain(s), firstLine(stripMarkdown(s)); got != want {
+			t.Fatalf("firstPlain %q: %q want %q", s, got, want)
+		}
+		if got, want := oneLine(s), strings.Join(strings.Fields(s), " "); got != want {
+			t.Fatalf("oneLine %q: %q want %q", s, got, want)
 		}
 	}
 }
