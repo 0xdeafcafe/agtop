@@ -84,6 +84,11 @@ func (m *Model) mood(t tally) mood {
 	return moodIdle
 }
 
+var (
+	mdPlain        = strings.NewReplacer("**", "", "`", "", "__", "")
+	mdPlainNoUnder = strings.NewReplacer("**", "", "`", "")
+)
+
 // headH is the header's height: clanker's.
 const headH = 4
 
@@ -776,7 +781,7 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 	if text == "" {
 		text = "…"
 	}
-	text = strings.NewReplacer("**", "", "`", "", "__", "").Replace(oneLine(text))
+	text = mdPlain.Replace(oneLine(text))
 	var lines []string
 	for _, l := range wrap(text, inner) {
 		if strings.TrimSpace(l) != "" {
@@ -1467,7 +1472,7 @@ func (m *Model) previewLines(w, h int) []string {
 				name, arg, _ := strings.Cut(e.Text, "\x00")
 				body = append(body, faint("● ")+dim(name)+"  "+faint(ansi.Truncate(oneLine(tildify(arg)), w-len(name)-4, "…")))
 			default:
-				text := strings.NewReplacer("**", "", "`", "").Replace(oneLine(e.Text))
+				text := mdPlainNoUnder.Replace(oneLine(e.Text))
 				lines := wrap(text, w-2)
 				if len(lines) > 4 {
 					lines = append(lines[:3], ansi.Truncate(lines[3], w-5, "…"))

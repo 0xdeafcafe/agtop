@@ -110,3 +110,12 @@ func TestLayoutHeights(t *testing.T) {
 		t.Fatal("zen has no Prompt")
 	}
 }
+
+func TestOneLineShortcut(t *testing.T) {
+	for _, s := range []string{"", " ", "a", "a b", "a  b", " a", "a ", "a\tb", "a\nb", "é b", "a b", "x\rz", "a\vb"} {
+		want := strings.Join(strings.Fields(strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(s)), " ")
+		if got := oneLine(s); got != want {
+			t.Errorf("oneLine(%q) = %q, want %q", s, got, want)
+		}
+	}
+}

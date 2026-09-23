@@ -106,10 +106,28 @@ func right(s string, w int) string {
 }
 
 func oneLine(s string) string {
+	if single(s) {
+		return s
+	}
 	s = strings.ReplaceAll(s, "\r", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\t", " ")
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// single is whether s is already one line of single-spaced ASCII words, so
+// oneLine has nothing to do.
+func single(s string) bool {
+	if s == "" || s[0] == ' ' || s[len(s)-1] == ' ' {
+		return s == ""
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x21 && (c != ' ' || s[i+1] == ' ') || c >= 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // age matches the native view: 3s, 12m, 4h, 2d.
