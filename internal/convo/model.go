@@ -65,8 +65,8 @@ type Item struct {
 	Kind    Kind
 	Text    string
 	Compact *headless.Compact
-	Step   *Step
-	Answer bool // the turn's final words, promoted when the turn ends
+	Step    *Step
+	Answer  bool // the turn's final words, promoted when the turn ends
 }
 
 // Turn runs from your message to Claude's last word.

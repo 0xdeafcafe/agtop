@@ -176,12 +176,13 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 
 Done this round, beyond the ticks above: `/` lists skills and custom commands and works mid-message (83787ca); short `↻` reset times and coloured usage meters with a pace tick (99246ba, 703308d); Claude Code sessions get agtop's queue and images (d8bae26); `/agtop` from the Session box, waits for the turn, forks terminal sessions (505b36c); keys go into a Claude Code screen directly (6fa3b02); artifacts view (dac1a98); the conversation shows a Claude Code agent's live screen line, todos and status (3e29b2a); quiet divider with resize pointer (4808806); one-row contextual hints and a shorter keys sheet (1af5422).
 
+Later the same night: thinking and live token line (04effe8); failed steps show just the error, heredocs fixed (e64243c); performance pass (15 commits, 2–4× cheaper frames, streaming within a frame); zen/changes/search review fixes (f54f443, b9bbce0, d5b2dae); conversation review fixes (9096425); markdown tables (afd5dd6); compaction divider (b33fd2a); overview dashboard (23e5146); diff viewer with hunk attribution, review marks and git diffs (8f4cc65); subagent master–detail and alt+↑↓ switcher (8ac2753, c106f4f); rail "now" section (e03f1e9); paste chips and ctrl+g (aecd341); /model and /effort pickers (74cb852); artifacts view (dac1a98); layout polish (4009597).
+
 Still open:
-- [ ] **Thinking indicator and live token count** while a turn streams (render.go).
-- [ ] **Failed steps show just the error** (last error-looking line, red), command shrunk to its first line, enter/click opens everything; fix every heredoc line getting its own `$`.
 - [ ] **Context compaction via "jev" or classifier.dev**, for this project only, to test it. Waiting on the user for what these are and where the key lives.
-- [ ] Performance pass (a subagent is on it; benchmarks in `internal/convo/bench_test.go`, `internal/ui/bench_test.go`).
-- [ ] Review findings for zen, changes and search (a review ran; fix what it found).
+- [ ] **Drop the "screen" view?** The handover said so, but the user now uses it (asked for ← to go into it and for its subagent switcher in the conversation). Ask before removing.
+- [ ] From the performance pass, not done: streamed text is appended with `+=` (quadratic for very long answers); every mouse move draws a frame; `Render` could reuse the caller's buffer; transcript lines are JSON-parsed three times (`headless.Decode`).
+- [ ] The live screen reader (`internal/ui/screeninfo.go`) is tested on a sample screen only; check it against a real Claude Code screen.
 
 ## How to test and look at it safely
 

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"unicode/utf8"
 	"time"
+	"unicode/utf8"
 
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
