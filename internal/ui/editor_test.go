@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -60,5 +62,34 @@ func TestCursorSurvivesReplacement(t *testing.T) {
 	m.input, m.back = []rune("a new name"), 0 // what rename does
 	if m.cursorPos() != len(m.input) {
 		t.Fatalf("cursor should be at the end after a replacement, got %d", m.cursorPos())
+	}
+}
+
+func TestImagePaths(t *testing.T) {
+	dir := t.TempDir()
+	a := dir + "/Screen Shot 1.png"
+	b := dir + "/b.jpg"
+	for _, p := range []string{a, b} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	escaped := strings.ReplaceAll(a, " ", `\ `)
+	cases := []struct {
+		paste string
+		want  int
+	}{
+		{escaped, 1},
+		{"'" + a + "'", 1},
+		{escaped + " " + b, 2},
+		{escaped + "\n" + b + "\n", 2},
+		{"look at " + b, 0},       // ordinary text stays text
+		{dir + "/missing.png", 0}, // must exist
+		{dir + "/notes.txt", 0},   // must be an image
+	}
+	for _, c := range cases {
+		if got := imagePaths(c.paste); len(got) != c.want {
+			t.Errorf("%q: got %v", c.paste, got)
+		}
 	}
 }

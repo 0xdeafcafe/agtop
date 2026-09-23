@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,8 +37,15 @@ type hostConn struct {
 	verbose bool
 	scroll  int // rows up from the bottom; 0 follows the latest output
 
-	input     []rune
-	back      int
+	input  []rune
+	back   int
+	images []string // image files attached to the next message
+
+	// Answering Claude's questions, one at a time.
+	qFor      string
+	qIdx      int
+	qPicked   map[int]bool
+	qAnswer   map[string]string
 	stopArmed time.Time
 	lastSend  time.Time
 }
@@ -377,7 +385,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	if r := s.Info.Retry; r != nil && r.GaveUp {
 		line("  " + paint(cRed, "✗ "+r.Reason) + dim(" · "+r.Why+" · send anything to try again"))
 	}
-	if p := s.Pending(); len(p) > 0 {
+	if p := s.Pending(); len(p) > 0 && p[0].Approval.Tool == "AskUserQuestion" {
+		out = append(out, m.questionCard(c, p[0].Approval, w)...)
+	} else if len(p) > 0 {
 		st := p[0]
 		req := st.Approval
 		card := "\x1b[48;2;42;36;25m"
@@ -411,6 +421,8 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	}
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
 	switch {
+	case isQuestion(s.Pending()):
+		top += dim(" · ") + paint(cYellow, "pick above, or type your own answer · enter sends it")
 	case len(s.Pending()) > 0:
 		top += dim(" · ") + paint(cYellow, "answer the card first, or type a note")
 	case s.Live() != nil:
@@ -422,6 +434,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 		lead: paint(cOrange, "❯ "), holder: "a message for this agent", maxRows: 6}
 	if mode := s.Info.PermissionMode; mode != "" {
 		b.topR = paint(cOrange, mode)
+	}
+	if l := chips(c.images, w); l != "" {
+		out = append(out, onBg(bgChrome, l, w))
 	}
 	out = append(out, b.lines()...)
 	hint := keysFit(w-4, "enter", "send", "esc · ←", "back to the list", "↑↓", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
@@ -529,7 +544,11 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return hostCmd(func() error { return c.client.ContinueAtReset(yes) })
 	}
 	pending := c.sess.Pending()
-	if empty && len(pending) > 0 {
+	if isQuestion(pending) {
+		if cmd, used := m.questionKey(c, pending[0].Approval, s, empty); used {
+			return cmd
+		}
+	} else if empty && len(pending) > 0 {
 		req := pending[0].Approval
 		switch s {
 		case "y", "enter":
@@ -539,6 +558,10 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		case "n":
 			return m.answerHost(c, req, false, false)
 		}
+	}
+	if (s == "backspace" || s == "ctrl+h") && empty && len(c.images) > 0 {
+		c.images = c.images[:len(c.images)-1]
+		return nil
 	}
 	switch s {
 	case "esc":
@@ -557,6 +580,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	case "enter":
+		if empty && len(c.images) > 0 {
+			return m.sendPane(c, false)
+		}
 		if empty {
 			if c.sel != "" {
 				c.open[c.sel] = !m.isOpen(c, c.sel)
@@ -676,11 +702,19 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	text = strings.TrimSpace(text)
-	c.input, c.back = c.input[:0], 0
+	images := c.images
+	// Paths typed or dropped without a paste become attachments too.
+	if imgs := imagePaths(text); imgs != nil {
+		images, text = append(images, imgs...), ""
+	}
+	c.input, c.back, c.images = c.input[:0], 0, nil
 	c.scroll = 0
 	c.lastSend = time.Now()
 	if a := m.focused(); a != nil {
 		m.markSeen(a)
+	}
+	if len(images) > 0 {
+		return hostCmd(func() error { return c.client.SendImages(text, images) })
 	}
 	if now {
 		return hostCmd(func() error { return c.client.SendNow(text) })
@@ -771,8 +805,17 @@ func (m *Model) resume(a *fleet.Agent) tea.Cmd {
 // Claude Code headless, with the model, effort and mode from Settings.
 func (m *Model) startHosted(text, dir string) tea.Cmd {
 	d := m.store.Config.Dispatch
+	images := m.images
+	if imgs := imagePaths(text); imgs != nil {
+		images, text = append(images, imgs...), ""
+	}
+	m.images = nil
+	name := sessionName(text)
+	if name == "" && len(images) > 0 {
+		name = "about " + filepath.Base(images[0])
+	}
 	cfg := host.Config{
-		Account: m.store.Config.ActiveAccount(), Cwd: dir, Prompt: text, Name: sessionName(text),
+		Account: m.store.Config.ActiveAccount(), Cwd: dir, Prompt: text, Images: images, Name: name,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit,
 	}
 	m.flash("starting a new session…", false)
@@ -875,4 +918,152 @@ func limitText(l *host.Limit) string {
 		t += " · waiting for you"
 	}
 	return t
+}
+
+// --- Claude's questions (the AskUserQuestion tool) ---
+
+type question struct {
+	Question    string `json:"question"`
+	Header      string `json:"header"`
+	MultiSelect bool   `json:"multiSelect"`
+	Options     []struct {
+		Label       string `json:"label"`
+		Description string `json:"description"`
+	} `json:"options"`
+}
+
+func isQuestion(p []*convo.Step) bool {
+	return len(p) > 0 && p[0].Approval != nil && p[0].Approval.Tool == "AskUserQuestion"
+}
+
+func questions(req *headless.PermissionRequest) (title string, qs []question) {
+	var in struct {
+		Title     string     `json:"title"`
+		Questions []question `json:"questions"`
+	}
+	_ = json.Unmarshal(req.Input, &in)
+	return in.Title, in.Questions
+}
+
+// syncQuestion resets the answering state when a new question arrives.
+func (c *hostConn) syncQuestion(req *headless.PermissionRequest) {
+	if c.qFor != req.ID {
+		c.qFor, c.qIdx, c.qPicked, c.qAnswer = req.ID, 0, map[int]bool{}, map[string]string{}
+	}
+}
+
+func (m *Model) questionCard(c *hostConn, req *headless.PermissionRequest, w int) []string {
+	c.syncQuestion(req)
+	title, qs := questions(req)
+	if c.qIdx >= len(qs) {
+		return nil
+	}
+	q := qs[c.qIdx]
+	card := "\x1b[48;2;42;36;25m"
+	var out []string
+	cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
+	head := paint(cYellow+bold, "? Claude asks")
+	if title != "" {
+		head += "   " + paint(cText, title)
+	}
+	count := ""
+	if len(qs) > 1 {
+		count = fmt.Sprintf("question %d of %d", c.qIdx+1, len(qs))
+	}
+	if q.Header != "" {
+		count = strings.TrimSpace(q.Header + "   " + count)
+	}
+	cl(spread(paint(cYellow, "▍")+" "+head, paint(cSub, count)+"  ", w))
+	for _, l := range wrap(q.Question, w-8) {
+		cl(paint(cYellow, "▍") + "     " + paint(cText+bold, l))
+	}
+	for i, o := range q.Options {
+		mark := paint(cText+bold, fmt.Sprint(i+1))
+		if q.MultiSelect {
+			box := "☐"
+			if c.qPicked[i] {
+				box = paint(cGreen, "☑")
+			}
+			mark += " " + box
+		}
+		line := paint(cYellow, "▍") + "   " + mark + "  " + paint(cText, o.Label)
+		if o.Description != "" {
+			line += dim("  " + oneLine(o.Description))
+		}
+		cl(ansi.Truncate(line, w, "…"))
+	}
+	keysHint := fmt.Sprintf("1–%d picks · or type your own answer · esc skips", len(q.Options))
+	if q.MultiSelect {
+		keysHint = fmt.Sprintf("1–%d toggles · enter confirms · or type your own · esc skips", len(q.Options))
+	}
+	cl(paint(cYellow, "▍") + "   " + dim(keysHint))
+	return out
+}
+
+// questionKey answers the current question: a digit picks (or toggles, for
+// multi-select), enter confirms toggles or sends typed text as the answer,
+// and esc skips. It reports whether it used the key.
+func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s string, empty bool) (tea.Cmd, bool) {
+	c.syncQuestion(req)
+	_, qs := questions(req)
+	if c.qIdx >= len(qs) {
+		return nil, false
+	}
+	q := qs[c.qIdx]
+	if empty && len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
+		i := int(s[0] - '1')
+		if i >= len(q.Options) {
+			return nil, true
+		}
+		if q.MultiSelect {
+			c.qPicked[i] = !c.qPicked[i]
+			return nil, true
+		}
+		return m.answerQuestion(c, req, qs, q.Options[i].Label), true
+	}
+	switch s {
+	case "enter":
+		if !empty {
+			text := strings.TrimSpace(string(c.input))
+			c.input, c.back = c.input[:0], 0
+			return m.answerQuestion(c, req, qs, text), true
+		}
+		if q.MultiSelect && len(c.qPicked) > 0 {
+			var picked []string
+			for i, o := range q.Options {
+				if c.qPicked[i] {
+					picked = append(picked, o.Label)
+				}
+			}
+			return m.answerQuestion(c, req, qs, strings.Join(picked, ", ")), true
+		}
+		return nil, true
+	case "esc":
+		if empty {
+			id := req.ID
+			c.qFor = ""
+			return hostCmd(func() error {
+				return c.client.Deny(id, "The user skipped the question; carry on with your best judgement.", false)
+			}), true
+		}
+	}
+	return nil, false
+}
+
+// answerQuestion records one answer and, after the last question, replies:
+// Claude Code takes the answers as the tool's input, keyed by question text.
+func (m *Model) answerQuestion(c *hostConn, req *headless.PermissionRequest, qs []question, answer string) tea.Cmd {
+	c.qAnswer[qs[c.qIdx].Question] = answer
+	c.qIdx++
+	c.qPicked = map[int]bool{}
+	if c.qIdx < len(qs) {
+		return nil
+	}
+	in := map[string]any{}
+	_ = json.Unmarshal(req.Input, &in)
+	in["answers"] = c.qAnswer
+	b, _ := json.Marshal(in)
+	id := req.ID
+	c.qFor = ""
+	return hostCmd(func() error { return c.client.Allow(id, b, false) })
 }

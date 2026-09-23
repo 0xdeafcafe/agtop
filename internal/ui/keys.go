@@ -100,6 +100,13 @@ func (m *Model) editKey(k tea.KeyPressMsg, s string) bool {
 func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	a := m.selected()
 	empty := len(m.input) == 0
+	if (s == "backspace" || s == "ctrl+h") && empty && len(m.images) > 0 {
+		m.images = m.images[:len(m.images)-1]
+		return nil
+	}
+	if s == "enter" && empty && len(m.images) > 0 && m.inKind == inPrompt {
+		return m.startHosted("", m.startDir())
+	}
 	switch s {
 	case "up":
 		m.move(-1)

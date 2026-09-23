@@ -2,6 +2,7 @@ package headless
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -163,10 +164,31 @@ func (s *Session) write(v any) error {
 
 // Send queues a user message. Sent mid-turn, Claude Code picks it up at its
 // next step, as typing into a busy session does.
-func (s *Session) Send(text string) error {
+func (s *Session) Send(text string) error { return s.SendWith(text, nil) }
+
+// Image is a picture sent with a message.
+type Image struct {
+	MediaType string // image/png, image/jpeg, image/gif, image/webp
+	Data      []byte
+}
+
+// SendWith sends a message with images attached.
+func (s *Session) SendWith(text string, images []Image) error {
+	var content any = text
+	if len(images) > 0 {
+		blocks := []map[string]any{}
+		for _, im := range images {
+			blocks = append(blocks, map[string]any{"type": "image", "source": map[string]any{
+				"type": "base64", "media_type": im.MediaType, "data": base64.StdEncoding.EncodeToString(im.Data)}})
+		}
+		if strings.TrimSpace(text) != "" {
+			blocks = append(blocks, map[string]any{"type": "text", "text": text})
+		}
+		content = blocks
+	}
 	return s.write(map[string]any{
 		"type":    "user",
-		"message": map[string]any{"role": "user", "content": text},
+		"message": map[string]any{"role": "user", "content": content},
 	})
 }
 

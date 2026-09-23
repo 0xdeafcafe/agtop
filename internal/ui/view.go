@@ -1055,7 +1055,11 @@ func (m *Model) promptLines(w int) []string {
 		b.holder = "esc or ← to come back here"
 		b.text = nil
 	}
-	out := b.lines()
+	var out []string
+	if l := chips(m.images, w); l != "" {
+		out = append(out, l)
+	}
+	out = append(out, b.lines()...)
 	row1 := keysFit(w-4, "enter", "open", "ctrl+o", "reply", "F2", "rename", "ctrl+l", "move", "ctrl+t", "pin", "ctrl+x", "stop")
 	if a != nil && a.Agtop && !m.paneFocus {
 		row1 = keysFit(w-4, "enter · →", "talk to "+ansi.Truncate(oneLine(a.DisplayName), 20, "…"), "F2", "rename", "ctrl+x", "stop")

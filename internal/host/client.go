@@ -154,7 +154,10 @@ type Answered struct{ ID string }
 type ErrorEvent struct{ Error string }
 
 // Sent is a message a client sent, echoed so every client shows it.
-type Sent struct{ Text string }
+type Sent struct {
+	Text   string
+	Images []string // names of attached images
+}
 
 // Stamp is when the output that follows it happened.
 type Stamp struct{ At time.Time }
@@ -170,6 +173,7 @@ func Decode(line []byte) (any, error) {
 		RequestID string             `json:"request_id"`
 		Error     string             `json:"error"`
 		Sent      bool               `json:"agtop_sent"`
+		Images    []string           `json:"agtop_images"`
 		Message   json.RawMessage    `json:"message"`
 		Commands  []headless.Command `json:"commands"`
 		T         int64              `json:"t"`
@@ -194,7 +198,7 @@ func Decode(line []byte) (any, error) {
 			Content string `json:"content"`
 		}
 		_ = json.Unmarshal(head.Message, &m)
-		return Sent{Text: m.Content}, nil
+		return Sent{Text: m.Content, Images: head.Images}, nil
 	}
 	return headless.Decode(line)
 }
@@ -243,6 +247,12 @@ func (c *Client) Send(text string) error { return c.do(op{Op: "send", Text: text
 
 // SendNow delivers a message mid-turn; Claude reads it at its next step.
 func (c *Client) SendNow(text string) error { return c.do(op{Op: "send", Text: text, Now: true}) }
+
+// SendImages delivers a message with image files attached; it goes now,
+// even mid-turn, since only text can wait in the queue.
+func (c *Client) SendImages(text string, paths []string) error {
+	return c.do(op{Op: "send", Text: text, Images: paths, Now: true})
+}
 
 // Queue edits, by index into Info.Queue.
 func (c *Client) EditQueued(i int, text string) error {

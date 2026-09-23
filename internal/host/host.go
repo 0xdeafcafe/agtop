@@ -42,6 +42,7 @@ type Config struct {
 	PermissionMode string         `json:"permissionMode,omitempty"`
 	Flags          []string       `json:"flags,omitempty"`
 	Prompt         string         `json:"prompt,omitempty"` // first message
+	Images         []string       `json:"images,omitempty"` // files attached to it
 	IdleStop       Duration       `json:"idleStop,omitempty"`
 	// LimitMode is what happens when a usage limit stops the session:
 	// "auto" continues at the reset, "off" waits for you, and "" (opt-in)
@@ -211,8 +212,8 @@ func Run(id string) error {
 			StartedAt: now, UpdatedAt: now},
 	}
 	s.publish()
-	if cfg.Prompt != "" {
-		if err := s.send(cfg.Prompt, false); err != nil {
+	if cfg.Prompt != "" || len(cfg.Images) > 0 {
+		if err := s.send(cfg.Prompt, cfg.Images, false); err != nil {
 			return err
 		}
 	}
@@ -591,21 +592,48 @@ func (s *server) publish() {
 	}
 }
 
-// send delivers a message, or queues it while the agent is busy.
-func (s *server) send(text string, now bool) error {
+// send delivers a message, or queues it while the agent is busy. Images
+// always go now: a queued message is text only.
+func (s *server) send(text string, images []string, now bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !now && (s.info.State == "working" || s.info.State == "blocked" || (s.info.Limit != nil && s.info.Limit.Continue)) {
+	busy := s.info.State == "working" || s.info.State == "blocked" || (s.info.Limit != nil && s.info.Limit.Continue)
+	if !now && busy && len(images) == 0 {
 		s.info.Queue = append(s.info.Queue, text)
 		s.publish()
 		return nil
 	}
-	return s.sendLocked(text)
+	return s.sendLocked(text, images...)
+}
+
+// readImage loads a picture to attach, refusing what the API won't take.
+func readImage(path string) (headless.Image, error) {
+	types := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+	mt := types[strings.ToLower(filepath.Ext(path))]
+	if mt == "" {
+		return headless.Image{}, fmt.Errorf("%s isn't a png, jpeg, gif or webp image", filepath.Base(path))
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return headless.Image{}, err
+	}
+	if len(b) > 5<<20 {
+		return headless.Image{}, fmt.Errorf("%s is %d MB; images must be under 5 MB", filepath.Base(path), len(b)>>20)
+	}
+	return headless.Image{MediaType: mt, Data: b}, nil
 }
 
 // sendLocked gives Claude Code a message now; mid-turn it is picked up at
 // the next step. Called with mu held.
-func (s *server) sendLocked(text string) error {
+func (s *server) sendLocked(text string, images ...string) error {
+	var pics []headless.Image
+	for _, p := range images {
+		im, err := readImage(p)
+		if err != nil {
+			return err
+		}
+		pics = append(pics, im)
+	}
 	if s.idle != nil {
 		s.idle.Stop()
 	}
@@ -622,12 +650,20 @@ func (s *server) sendLocked(text string) error {
 		return err
 	}
 	// Echo it so every client shows the message before Claude answers.
-	b, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}, "agtop_sent": true})
+	echo := map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}, "agtop_sent": true}
+	if len(images) > 0 {
+		var names []string
+		for _, p := range images {
+			names = append(names, filepath.Base(p))
+		}
+		echo["agtop_images"] = names
+	}
+	b, _ := json.Marshal(echo)
 	s.record(b)
 	s.info.State = "working"
 	s.info.Detail = ""
 	s.publish()
-	return s.sess.Send(text)
+	return s.sess.SendWith(text, pics)
 }
 
 // editQueue applies a queue op. Called with mu held.
@@ -676,13 +712,14 @@ type op struct {
 	Model     string          `json:"model,omitempty"`
 	Effort    string          `json:"effort,omitempty"`
 	Now       bool            `json:"now,omitempty"`
+	Images    []string        `json:"images,omitempty"`
 	Index     int             `json:"index,omitempty"`
 	To        int             `json:"to,omitempty"`
 }
 
 func (s *server) do(o op) error {
 	if o.Op == "send" {
-		return s.send(o.Text, o.Now)
+		return s.send(o.Text, o.Images, o.Now)
 	}
 	s.mu.Lock()
 	sess := s.sess
@@ -858,6 +895,13 @@ func toolSummary(input json.RawMessage) string {
 	var m map[string]any
 	if json.Unmarshal(input, &m) != nil {
 		return ""
+	}
+	if qs, ok := m["questions"].([]any); ok && len(qs) > 0 {
+		if q, ok := qs[0].(map[string]any); ok {
+			if t, ok := q["question"].(string); ok {
+				return firstLine(t)
+			}
+		}
 	}
 	for _, k := range []string{"command", "file_path", "path", "pattern", "url", "query", "description", "prompt"} {
 		if v, ok := m[k].(string); ok && v != "" {

@@ -79,6 +79,7 @@ type Turn struct {
 	Stopped bool   // you stopped it
 	Model   string // the main agent's model for this turn
 	Effort  string
+	Images  []string // names of images sent with the prompt
 
 	steps map[string]*Step
 	ver   int
@@ -185,12 +186,16 @@ func (s *Session) Apply(ev any, now time.Time) {
 	switch ev := ev.(type) {
 	case host.Sent:
 		if t := s.Live(); t != nil {
-			t.Items = append(t.Items, &Item{Kind: KInterject, Text: ev.Text})
+			txt := ev.Text
+			for _, im := range ev.Images {
+				txt += "  ▣ " + im
+			}
+			t.Items = append(t.Items, &Item{Kind: KInterject, Text: txt})
 			t.touch()
 			return
 		}
 		s.streaming = nil
-		s.Turns = append(s.Turns, &Turn{N: len(s.Turns) + 1, Prompt: ev.Text, Start: now, Live: true, steps: map[string]*Step{}, Effort: s.Info.Effort})
+		s.Turns = append(s.Turns, &Turn{N: len(s.Turns) + 1, Prompt: ev.Text, Start: now, Live: true, steps: map[string]*Step{}, Effort: s.Info.Effort, Images: ev.Images})
 	case host.InfoEvent:
 		s.Info = ev.Info
 		// The host went idle with a turn still open: Claude died mid-turn.

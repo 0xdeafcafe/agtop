@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -126,4 +129,75 @@ func (m *Model) editInput(k tea.KeyPressMsg, s string) bool {
 		m.setCursor(pos)
 	}
 	return ok
+}
+
+// imagePaths reads a paste as image files dropped onto the terminal: paths
+// separated by spaces or newlines, quoted or with escaped spaces. It returns
+// nil unless every piece is an image file that exists, so ordinary text is
+// never swallowed.
+func imagePaths(paste string) []string {
+	var out []string
+	for _, tok := range splitPaths(paste) {
+		ext := strings.ToLower(filepath.Ext(tok))
+		switch ext {
+		case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		default:
+			return nil
+		}
+		if st, err := os.Stat(tok); err != nil || st.IsDir() {
+			return nil
+		}
+		out = append(out, tok)
+	}
+	return out
+}
+
+// splitPaths splits on unescaped, unquoted whitespace, undoing the escaping
+// terminals add when a file is dropped on them.
+func splitPaths(s string) []string {
+	var out []string
+	var cur strings.Builder
+	quote := rune(0)
+	esc := false
+	flush := func() {
+		if cur.Len() > 0 {
+			out = append(out, cur.String())
+			cur.Reset()
+		}
+	}
+	for _, r := range strings.TrimSpace(s) {
+		switch {
+		case esc:
+			cur.WriteRune(r)
+			esc = false
+		case r == '\\' && quote != '\'':
+			esc = true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case unicode.IsSpace(r):
+			flush()
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush()
+	return out
+}
+
+// chips draws attached images above an input box.
+func chips(images []string, w int) string {
+	if len(images) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, p := range images {
+		parts = append(parts, paint(cBlue, "▣ ")+paint(cText, filepath.Base(p)))
+	}
+	return fit("  "+strings.Join(parts, "   ")+dim("   backspace on an empty box removes the last"), w)
 }

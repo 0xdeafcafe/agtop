@@ -218,6 +218,9 @@ func (d *drawer) open() {
 		}
 	}
 	ask := strings.TrimSpace(t.Prompt)
+	if ask == "" && len(t.Images) > 0 {
+		ask = "(images)"
+	}
 	if ask == "" {
 		ask = "(resumed)"
 	}
@@ -232,6 +235,13 @@ func (d *drawer) open() {
 		} else {
 			d.add(d.ref, band, d.spine()+"          "+r, "")
 		}
+	}
+	if len(t.Images) > 0 {
+		var chips []string
+		for _, im := range t.Images {
+			chips = append(chips, paint(cBlue, "▣ ")+sub(im))
+		}
+		d.add(d.ref, band, d.spine()+"          "+strings.Join(chips, "   "), "")
 	}
 	d.blank()
 
@@ -573,6 +583,14 @@ func (d *drawer) label(st *Step) string {
 		return g + " " + text(in.str("url"))
 	case "WebSearch":
 		return g + " " + text(in.str("query"))
+	case "AskUserQuestion":
+		q := ""
+		if qs, ok := in["questions"].([]any); ok && len(qs) > 0 {
+			if m, ok := qs[0].(map[string]any); ok {
+				q, _ = m["question"].(string)
+			}
+		}
+		return paint(cYellow, "?") + " " + text(oneLine(q))
 	case "Artifact":
 		t := in.str("title")
 		if t == "" {

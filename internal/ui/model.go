@@ -87,7 +87,8 @@ type Model struct {
 	// paneFocus sends keys to an agtop-mode session's pane instead of the
 	// list and its prompt.
 	paneFocus bool
-	dragging  bool // resizing the list by its edge
+	dragging  bool     // resizing the list by its edge
+	images    []string // image files attached to the prompt's next message
 	// host is the connection to the agtop-mode session the pane shows.
 	host        *hostConn
 	hostOpening string
@@ -490,6 +491,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		if m.embedded {
 			m.embedPaste(msg.Content)
+			return m, nil
+		}
+		// Image files dropped onto the terminal arrive as a paste of their
+		// paths; they become attachments on whichever box has focus.
+		if imgs := imagePaths(msg.Content); imgs != nil && m.dialog == nil {
+			if c := m.host; c != nil && m.paneFocus {
+				c.images = append(c.images, imgs...)
+			} else {
+				m.images = append(m.images, imgs...)
+			}
+			m.flash(fmt.Sprintf("attached %d image(s)", len(imgs)), false)
 			return m, nil
 		}
 		// A paste goes into whichever box has focus, at its cursor, newlines
