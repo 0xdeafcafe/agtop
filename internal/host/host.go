@@ -35,6 +35,10 @@ type Config struct {
 	ID             string         `json:"id"`
 	SessionID      string         `json:"sessionId"`
 	Resume         bool           `json:"resume"` // the conversation already exists
+	// Fork continues a copy of the conversation (Claude Code's
+	// --fork-session), leaving the original to whoever has it open. Once
+	// Claude Code names the copy, SessionID becomes that and Fork is cleared.
+	Fork bool `json:"fork,omitempty"`
 	Account        claude.Account `json:"account"`
 	Cwd            string         `json:"cwd"`
 	Name           string         `json:"name,omitempty"`
@@ -253,6 +257,9 @@ func (s *server) start() error {
 	}
 	if s.began {
 		o.Resume = s.cfg.SessionID
+		if s.cfg.Fork {
+			o.Flags = append(append([]string{}, o.Flags...), "--fork-session")
+		}
 	} else {
 		o.SessionID = s.cfg.SessionID
 	}
@@ -278,6 +285,19 @@ func (s *server) detach() *headless.Session {
 	s.info.ClaudePID = 0
 	s.pending = map[string]headless.PermissionRequest{}
 	return sess
+}
+
+// saveConfig writes the config back, for what changes while running.
+// Called with mu held.
+func (s *server) saveConfig() {
+	b, err := json.MarshalIndent(s.cfg, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := filepath.Join(dir(s.cfg.ID), "config.json.tmp")
+	if os.WriteFile(tmp, b, 0o600) == nil {
+		_ = os.Rename(tmp, filepath.Join(dir(s.cfg.ID), "config.json"))
+	}
 }
 
 // tap records Claude Code's output for replay and passes it to clients.
@@ -364,6 +384,11 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.Init:
 		s.info.Model, s.info.PermissionMode = ev.Model, ev.PermissionMode
 		s.info.SessionID = ev.SessionID
+		if s.cfg.Fork && ev.SessionID != "" && ev.SessionID != s.cfg.SessionID {
+			// The copy has its own id now; later restarts resume that.
+			s.cfg.SessionID, s.cfg.Fork = ev.SessionID, false
+			s.saveConfig()
+		}
 	case headless.RateLimit:
 		s.limitRaw = ev
 		return

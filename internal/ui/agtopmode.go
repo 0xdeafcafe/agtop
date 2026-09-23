@@ -3,7 +3,9 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -60,13 +62,90 @@ func (m *Model) refreshSubs() {
 		}
 		_, _ = t.Read()
 	}
+	m.readSub()
+}
+
+// readSub takes in what the opened subagent has written, and closes its
+// last turn once its step has finished.
+func (m *Model) readSub() {
+	c := m.host
+	if c == nil || c.subTail == nil {
+		return
+	}
+	_, _ = c.subTail.Read()
+	if st := c.sess.Step(c.subToolUse()); st != nil && st.Status != convo.Running {
+		if live := c.subTail.Sess.Live(); live != nil {
+			c.subTail.Sess.Apply(headless.Result{Subtype: "success"}, time.Now())
+		}
+	}
+}
+
+// growMsg says a transcript the pane follows has grown.
+type growMsg struct{ key string }
+
+// tailPoll is how often the followed transcripts are checked for growth:
+// one stat each, so what Claude Code writes shows within a frame or two
+// rather than on the next second's tick.
+const tailPoll = 25 * time.Millisecond
+
+type watched struct {
+	path string
+	size int64
+}
+
+// syncWatch keeps a watch on the transcripts the pane follows: a Claude
+// Code session's own, and the subagent opened.
+func (m *Model) syncWatch() tea.Cmd {
+	c := m.host
+	if c == nil {
+		return nil
+	}
+	var want []watched
+	if c.tail != nil {
+		want = append(want, watched{c.tail.Path, c.tail.Size()})
+	}
 	if c.subTail != nil {
-		_, _ = c.subTail.Read()
-		if st := c.sess.Step(c.subToolUse()); st != nil && st.Status != convo.Running {
-			if live := c.subTail.Sess.Live(); live != nil {
-				c.subTail.Sess.Apply(headless.Result{Subtype: "success"}, time.Now())
+		want = append(want, watched{c.subTail.Path, c.subTail.Size()})
+	}
+	if c.stopWatch != nil && slices.Equal(want, c.watching) {
+		return nil
+	}
+	c.unwatch()
+	if len(want) == 0 {
+		return nil
+	}
+	stop, key := make(chan struct{}), c.key
+	c.watching, c.stopWatch = want, stop
+	return func() tea.Msg {
+		t := time.NewTicker(tailPoll)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return nil
+			case <-t.C:
+			}
+			for _, w := range want {
+				if st, err := os.Stat(w.path); err == nil && st.Size() != w.size {
+					return growMsg{key}
+				}
 			}
 		}
+	}
+}
+
+func (c *hostConn) unwatch() {
+	if c.stopWatch != nil {
+		close(c.stopWatch)
+	}
+	c.stopWatch, c.watching = nil, nil
+}
+
+func (m *Model) onGrow(msg growMsg) {
+	if c := m.host; c != nil && c.key == msg.key {
+		c.unwatch() // that watch is over; the next update starts another
+		m.followTail()
+		m.readSub()
 	}
 }
 
@@ -314,6 +393,8 @@ type hostConn struct {
 	stopArmed time.Time
 	lastSend  time.Time
 	flushed   time.Time // when the last batch of host lines was taken in
+	watching  []watched // the transcripts being watched for growth
+	stopWatch chan struct{}
 	// selMoved asks the next draw to scroll the selection into view;
 	// rowRefs is what each drawn row of the pane belongs to, for clicks.
 	selMoved bool
@@ -442,6 +523,9 @@ func (m *Model) syncHost() tea.Cmd {
 }
 
 func (m *Model) dropHost() {
+	if m.host != nil {
+		m.host.unwatch()
+	}
 	if m.host != nil && m.host.client != nil {
 		_ = m.host.client.Close()
 	}
@@ -449,7 +533,7 @@ func (m *Model) dropHost() {
 }
 
 // openTail reads a Claude Code session's transcript in the background the
-// first time; after that the tick takes in only what's new.
+// first time; after that a watch takes in what is new as it is written.
 func openTail(a *fleet.Agent) tea.Cmd {
 	key, id, path := a.Key, a.ID, a.TranscriptPath
 	return func() tea.Msg {
@@ -737,10 +821,14 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 		switch {
 		case a.Agtop:
 			conn = dim("stopped · a message resumes it")
-		case a.Interactive:
+		case a.Headless:
 			conn = dim("Claude Code · " + a.Where())
+		case a.Interactive:
+			conn = dim("Claude Code · "+a.Where()+" · ") + paint(cOrange, "/agtop") + dim(" copies it here")
+		case m.moveWhenIdle[a.Key]:
+			conn = paint(cOrange, "moves to agtop mode when this turn ends")
 		default:
-			conn = dim("Claude Code · from its transcript")
+			conn = dim("Claude Code · ") + paint(cOrange, "/agtop") + dim(" moves it here")
 		}
 	}
 	if (info.Limit != nil || info.Retry != nil) && !info.CacheWarm.IsZero() {
@@ -1505,19 +1593,40 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 	case a.Agtop:
 		m.flash(a.DisplayName+" already runs in agtop mode", false)
 		return nil
-	case a.Interactive:
-		m.flash(a.DisplayName+" is "+a.Where()+"; stop it there first", true)
-		return nil
 	case a.SessionID == "":
 		m.flash("can't find "+a.DisplayName+"'s conversation to resume", true)
 		return nil
+	case a.Headless:
+		m.flash(a.DisplayName+" is driven by another program; agtop can't take it over", true)
+		return nil
+	case !a.Interactive && busy(a) && !m.moveWhenIdle[a.Key]:
+		// Stopping it now would lose the turn in progress.
+		if m.moveWhenIdle == nil {
+			m.moveWhenIdle = map[string]bool{}
+		}
+		m.moveWhenIdle[a.Key] = true
+		m.flash(a.DisplayName+" moves to agtop mode when this turn ends · /agtop again moves it now", false)
+		return nil
 	}
+	delete(m.moveWhenIdle, a.Key)
 	d := m.store.Config.Dispatch
 	cfg := host.Config{
 		SessionID: a.SessionID, Resume: true, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit,
 	}
 	old := a.Key
+	if a.Interactive {
+		// Its terminal keeps the original; agtop carries on with a copy.
+		cfg.Fork = true
+		m.flash("copying "+a.DisplayName+" into agtop mode · the terminal one is left as it is", false)
+		return func() tea.Msg {
+			c, err := host.Spawn(cfg)
+			if err != nil {
+				return doneMsg{err: err}
+			}
+			return hostStartedMsg{id: c.ID, name: cfg.Name, acct: cfg.Account.Name}
+		}
+	}
 	m.flash("moving "+a.DisplayName+" to agtop mode…", false)
 	return func() tea.Msg {
 		if a.PID != 0 || a.Live() {
@@ -1531,6 +1640,21 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 		}
 		return movedToAgtopMsg{from: old, started: hostStartedMsg{id: c.ID, name: cfg.Name, acct: cfg.Account.Name}}
 	}
+}
+
+// movePending moves agents waiting to go to agtop mode once they're idle.
+func (m *Model) movePending() tea.Cmd {
+	var cmds []tea.Cmd
+	for key := range m.moveWhenIdle {
+		a := m.agentByKey(key)
+		switch {
+		case a == nil || a.Agtop:
+			delete(m.moveWhenIdle, key)
+		case !busy(a):
+			cmds = append(cmds, m.moveToAgtop(a))
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 type movedToAgtopMsg struct {

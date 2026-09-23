@@ -109,24 +109,25 @@ type Model struct {
 	hostOpening string
 	dirIdx      int
 
-	status     string
-	statusErr  bool
-	statusAt   time.Time
-	armed      string
-	quitArmed  time.Time
-	confirm    *confirmation
-	dialog     *dialog
-	picker     *picker
-	embedded   bool
-	promptFor  string
-	listW      int
-	localQ     map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
-	divHover   bool // the mouse is on the edge between Agents and the Session
-	hibernated map[string]bool
-	usageWait  map[string]time.Time
-	armedAt    time.Time
-	attached   string
-	view       int
+	status       string
+	statusErr    bool
+	statusAt     time.Time
+	armed        string
+	quitArmed    time.Time
+	confirm      *confirmation
+	dialog       *dialog
+	picker       *picker
+	embedded     bool
+	promptFor    string
+	listW        int
+	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
+	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
+	divHover     bool                   // the mouse is on the edge between Agents and the Session
+	hibernated   map[string]bool
+	usageWait    map[string]time.Time
+	armedAt      time.Time
+	attached     string
+	view         int
 
 	procCursor int
 	cwdMove    bool
@@ -402,7 +403,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.pendingCopy != "" {
 		copyCmd, m.pendingCopy = tea.SetClipboard(m.pendingCopy), ""
 	}
-	return m, tea.Batch(cmd, copyCmd, m.syncLive(), m.syncHost())
+	return m, tea.Batch(cmd, copyCmd, m.syncLive(), m.syncHost(), m.syncWatch())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -415,6 +416,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onHostOpen(msg)
 	case hostLinesMsg:
 		return m, m.onHostLines(msg)
+	case growMsg:
+		m.onGrow(msg)
+		return m, nil
 	case movedToAgtopMsg:
 		// The old row is finished; the conversation carries on in agtop mode.
 		m.store.Overlay.Done[msg.from] = time.Now()
@@ -440,7 +444,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.zenPick()
 		m.followTail()
 		m.refreshSubs()
-		cmds := []tea.Cmd{tick(), m.flushLocalQueues()}
+		cmds := []tea.Cmd{tick(), m.flushLocalQueues(), m.movePending()}
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}

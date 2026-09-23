@@ -19,13 +19,21 @@ import (
 // Spawn writes cfg and starts its host as a detached process, returning once
 // the host is accepting connections. cfg.ID and cfg.SessionID are filled in
 // for a new conversation when empty.
-func Spawn(cfg Config) (Config, error) {
+// fillIDs names a new session, and gives a fork an id of its own.
+func (cfg *Config) fillIDs() {
 	if cfg.SessionID == "" {
 		cfg.SessionID, cfg.ID = NewSessionID()
+	}
+	if cfg.ID == "" && cfg.Fork {
+		_, cfg.ID = NewSessionID() // the copy is a session of its own
 	}
 	if cfg.ID == "" {
 		cfg.ID = shortOf(cfg.SessionID)
 	}
+}
+
+func Spawn(cfg Config) (Config, error) {
+	cfg.fillIDs()
 	d := dir(cfg.ID)
 	if err := os.MkdirAll(d, 0o700); err != nil {
 		return cfg, err

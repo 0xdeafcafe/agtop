@@ -178,6 +178,7 @@ var agtopCommands = []headless.Command{
 	{Name: "clear", Description: "start a fresh session in the same folder (this one stays in the list)"},
 	{Name: "model", Description: "switch model for the next turn: /model opus, sonnet, haiku, fable", ArgumentHint: "<model>"},
 	{Name: "effort", Description: "change effort (applies from the next start): low, medium, high, xhigh, max", ArgumentHint: "<level>"},
+	{Name: "agtop", Description: "move this Claude Code session into agtop mode (a terminal one is copied, not stopped)"},
 }
 
 // slashWord finds the /word being typed at the cursor, at the start of the
@@ -348,6 +349,11 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 	arg = strings.TrimSpace(arg)
 	a := m.agentByKey(c.key)
 	switch name {
+	case "agtop":
+		if a == nil {
+			return nil, true
+		}
+		return m.moveToAgtop(a), true
 	case "clear":
 		if a == nil {
 			return nil, true
