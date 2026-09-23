@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -37,15 +38,41 @@ func TestAnswerQuestions(t *testing.T) {
 	m.questionKey(c, req, "3", true)
 	m.questionKey(c, req, "3", true)
 	m.questionKey(c, req, "2", true)
-	cmd, used := m.questionKey(c, req, "enter", true)
-	if !used || cmd == nil {
-		t.Fatal("confirming the last question should reply")
+	if cmd, _ := m.questionKey(c, req, "enter", true); cmd != nil || c.qIdx != 2 {
+		t.Fatalf("with two questions, the last answer goes to the review, not straight out: idx=%d", c.qIdx)
 	}
 	want := map[string]string{"Which rules first?": "no-floating-promises", "Which packages?": "mcp, skills"}
 	for k, v := range want {
 		if c.qAnswer[k] != v {
 			t.Errorf("%q: got %q want %q", k, c.qAnswer[k], v)
 		}
+	}
+	// From the review, a digit goes back to a question to change it; the
+	// cursor sits on what was chosen, and answering returns to the review.
+	c.cardFocus = true
+	m.questionKey(c, req, "1", true)
+	if c.qIdx != 0 || c.qCursor != 0 {
+		t.Fatalf("back to question 1: idx=%d cursor=%d", c.qIdx, c.qCursor)
+	}
+	m.questionKey(c, req, "down", true)
+	m.questionKey(c, req, "enter", true)
+	if c.qIdx != 2 || c.qAnswer["Which rules first?"] != "explicit return types" {
+		t.Fatalf("changed answer: idx=%d %v", c.qIdx, c.qAnswer)
+	}
+	// ← from the review is the last question, with its ticks kept.
+	m.questionKey(c, req, "left", true)
+	if c.qIdx != 1 || !c.picks(1)[0] || !c.picks(1)[1] || c.picks(1)[2] {
+		t.Fatalf("ticks kept: idx=%d %v", c.qIdx, c.qPicks)
+	}
+	m.questionKey(c, req, "right", true)
+	if cmd, used := m.questionKey(c, req, "enter", true); !used || cmd == nil || c.qFor != "" {
+		t.Fatal("enter on the review should reply")
+	}
+	// A lone question sends as soon as it's answered.
+	one, _ := json.Marshal(map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{{"label": "yes"}, {"label": "no"}}}}})
+	c1 := &hostConn{}
+	if cmd, _ := m.questionKey(c1, &headless.PermissionRequest{ID: "q2", Tool: "AskUserQuestion", Input: one}, "2", true); cmd == nil {
+		t.Fatal("a single question should reply on its answer")
 	}
 	// Typed text answers in your own words.
 	c2 := &hostConn{input: []rune("both, but start with promises")}
@@ -280,5 +307,81 @@ func TestLocalQueueSends(t *testing.T) {
 	m.localQ["k"].since = time.Now().Add(-time.Minute)
 	if m.flushLocalQueues() != nil {
 		t.Fatal("sent while it waits on you")
+	}
+}
+
+func TestQuestionCardDraws(t *testing.T) {
+	in := map[string]any{"questions": []map[string]any{
+		{"question": "Which layout?", "header": "Layout", "options": []map[string]any{
+			{"label": "Split (Recommended)", "description": "Agents left, Session right", "preview": "```\n┌────┬────────┐\n│ A  │ S      │\n└────┴────────┘\n```"},
+			{"label": "Stacked", "preview": "┌────────┐\n│ A      │\n├────────┤\n│ S      │\n└────────┘"},
+		}},
+		{"question": "Theme?", "header": "Theme", "options": []map[string]any{{"label": "dark"}, {"label": "light"}}},
+	}}
+	b, _ := json.Marshal(in)
+	req := &headless.PermissionRequest{ID: "q9", Tool: "AskUserQuestion", Input: b}
+	m := &Model{}
+	c := &hostConn{cardFocus: true}
+	draw := func(w int) string {
+		var sb strings.Builder
+		for _, l := range m.questionCard(c, req, w) {
+			if cellw.String(l) > w {
+				t.Fatalf("row wider than %d: %q", w, ansi.Strip(l))
+			}
+			sb.WriteString(ansi.Strip(l) + "\n")
+		}
+		return sb.String()
+	}
+	wide := draw(120)
+	for _, want := range []string{"● Layout", "○ Theme", "○ send", "0 of 2 answered", "Split  recommended", "╭─ Split ─", "│ A  │ S      │", "←→ questions"} {
+		if !strings.Contains(wide, want) {
+			t.Fatalf("wide card missing %q:\n%s", want, wide)
+		}
+	}
+	// Side by side: the option and the preview share a row.
+	sideBySide := false
+	for _, l := range strings.Split(wide, "\n") {
+		if strings.Contains(l, "Split  recommended") && strings.Contains(l, "╭─ Split") {
+			sideBySide = true
+		}
+	}
+	if !sideBySide || strings.Contains(wide, "```") {
+		t.Fatalf("preview beside the options, fences dropped:\n%s", wide)
+	}
+	// Narrow: the preview goes under, and the option says it has one.
+	narrow := draw(70)
+	if !strings.Contains(narrow, "◇ preview") || !strings.Contains(narrow, "│ A  │ S      │") {
+		t.Fatalf("narrow card:\n%s", narrow)
+	}
+	// Answered, the strip shows the answer and the review lists them.
+	m.questionKey(c, req, "1", true)
+	m.questionKey(c, req, "2", true)
+	review := draw(120)
+	for _, want := range []string{"✓ Layout Split", "● send", "Layout   Split", "Theme    light", "sends your answers"} {
+		if !strings.Contains(review, want) {
+			t.Fatalf("review missing %q:\n%s", want, review)
+		}
+	}
+}
+
+func TestAnswersCarryPreview(t *testing.T) {
+	in := map[string]any{"questions": []map[string]any{
+		{"question": "Which?", "options": []map[string]any{{"label": "a", "preview": "A!"}, {"label": "b"}}},
+		{"question": "And?", "options": []map[string]any{{"label": "x"}}},
+	}}
+	b, _ := json.Marshal(in)
+	req := &headless.PermissionRequest{ID: "q3", Tool: "AskUserQuestion", Input: b}
+	_, qs := questions(req)
+	var got struct {
+		Questions   []any                        `json:"questions"`
+		Answers     map[string]string            `json:"answers"`
+		Annotations map[string]map[string]string `json:"annotations"`
+	}
+	_ = json.Unmarshal(answerInput(req, qs, map[string]string{"Which?": "a", "And?": "my own"}), &got)
+	if len(got.Questions) != 2 || got.Answers["Which?"] != "a" || got.Answers["And?"] != "my own" {
+		t.Fatalf("answers: %+v", got)
+	}
+	if got.Annotations["Which?"]["preview"] != "A!" || got.Annotations["And?"] != nil {
+		t.Fatalf("annotations: %+v", got.Annotations)
 	}
 }

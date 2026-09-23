@@ -447,8 +447,8 @@ type hostConn struct {
 	// Answering Claude's questions, one at a time.
 	qFor      string
 	qIdx      int
-	qCursor   int // the option ↑↓ is on while the card has the keys
-	qPicked   map[int]bool
+	qCursor   int                  // the option ↑↓ is on while the card has the keys
+	qPicks    map[int]map[int]bool // ticked options, by question
 	qAnswer   map[string]string
 	stopArmed time.Time
 	lastSend  time.Time
@@ -1947,6 +1947,7 @@ type question struct {
 	Options     []struct {
 		Label       string `json:"label"`
 		Description string `json:"description"`
+		Preview     string `json:"preview"`
 	} `json:"options"`
 }
 
@@ -1966,111 +1967,308 @@ func questions(req *headless.PermissionRequest) (title string, qs []question) {
 // syncQuestion resets the answering state when a new question arrives.
 func (c *hostConn) syncQuestion(req *headless.PermissionRequest) {
 	if c.qFor != req.ID {
-		c.qFor, c.qIdx, c.qCursor, c.qPicked, c.qAnswer = req.ID, 0, 0, map[int]bool{}, map[string]string{}
+		c.qFor, c.qIdx, c.qCursor, c.qPicks, c.qAnswer = req.ID, 0, 0, map[int]map[int]bool{}, map[string]string{}
 	}
 }
 
+// picks is what's ticked on a multi-select question.
+func (c *hostConn) picks(i int) map[int]bool {
+	if c.qPicks[i] == nil {
+		c.qPicks[i] = map[int]bool{}
+	}
+	return c.qPicks[i]
+}
+
+// optionLabel is an option's label without "(Recommended)", and whether it
+// had it.
+func optionLabel(l string) (string, bool) {
+	l = strings.TrimSpace(l)
+	i := strings.Index(strings.ToLower(l), "(recommended)")
+	if i < 0 {
+		return l, false
+	}
+	return strings.TrimSpace(l[:i] + l[i+len("(recommended)"):]), true
+}
+
+// questionCard draws Claude's questions as one form: a strip of every
+// question (answered ones with their answer, so you can go back and change
+// one), the question at hand with its options, and beside them the preview
+// of the option under the cursor when Claude gave one. With more than one
+// question, a last step lists your answers before they go.
 func (m *Model) questionCard(c *hostConn, req *headless.PermissionRequest, w int) []string {
 	c.syncQuestion(req)
 	title, qs := questions(req)
-	if c.qIdx >= len(qs) {
+	if len(qs) == 0 {
 		return nil
 	}
-	q := qs[c.qIdx]
 	card := "\x1b[48;2;42;36;25m"
 	var out []string
 	cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
-	head := paint(cYellow+bold, "? Claude asks")
-	if title != "" {
-		head += "   " + paint(cText, title)
-	}
-	count := ""
-	if len(qs) > 1 {
-		count = fmt.Sprintf("question %d of %d", c.qIdx+1, len(qs))
-	}
-	if q.Header != "" {
-		count = strings.TrimSpace(q.Header + "   " + count)
-	}
-	cl(spread(paint(cYellow, "▍")+" "+head, paint(cSub, count)+"  ", w))
-	for _, l := range wrap(q.Question, w-8) {
-		cl(paint(cYellow, "▍") + "     " + paint(cText+bold, l))
-	}
 	edge := paint(cYellow, "▍")
 	if c.cardFocus {
 		edge = paint(cOrange, "▍")
 	}
+	review := c.qIdx >= len(qs)
+	head := paint(cYellow+bold, "? Claude asks")
+	if title != "" {
+		head += "   " + paint(cText, title)
+	}
+	right := ""
+	if !review && qs[c.qIdx].Header != "" && len(qs) == 1 {
+		right = qs[0].Header
+	}
+	if len(qs) > 1 {
+		right = fmt.Sprintf("%d of %d answered", len(c.qAnswer), len(qs))
+	}
+	cl(spread(edge+" "+head, paint(cSub, right)+"  ", w))
+	if len(qs) > 1 {
+		cl(edge + "   " + questionStrip(c, qs, w-6))
+	}
 	cl(edge)
-	descW := min(w-14, 100)
-	for i, o := range q.Options {
-		label := strings.TrimSpace(o.Label)
-		rec := strings.Contains(strings.ToLower(label), "(recommended)")
-		if rec {
-			label = strings.TrimSpace(strings.Replace(strings.Replace(label, "(Recommended)", "", 1), "(recommended)", "", 1))
+	if review {
+		labelW := 0
+		for i, q := range qs {
+			labelW = max(labelW, cellw.String(firstNonEmpty(q.Header, fmt.Sprintf("Question %d", i+1))))
 		}
-		num := paint(cSub, fmt.Sprint(i+1))
-		box := ""
-		if q.MultiSelect {
-			box = dim("☐ ")
-			if c.qPicked[i] {
-				box = paint(cGreen, "☑ ")
+		labelW = min(labelW, 24)
+		for i, q := range qs {
+			name := ansi.Truncate(firstNonEmpty(q.Header, fmt.Sprintf("Question %d", i+1)), labelW, "…")
+			ans, ok := c.qAnswer[q.Question]
+			a := paint(cText+bold, shownAnswer(ans))
+			if !ok {
+				a = paint(cYellow, "not answered")
 			}
+			cl(edge + "   " + paint(cSub, fmt.Sprint(i+1)) + "  " + paint(cSub, name) + strings.Repeat(" ", labelW-cellw.String(name)+3) + a)
+		}
+		cl(edge)
+		hint := paint(cText+bold, "enter") + " " + paint(cSub, "sends your answers") + dim("   ·   ← or 1–"+fmt.Sprint(len(qs))+" changes one   ·   s skips them all")
+		if c.cardFocus {
+			cl(edge + "   " + cardHint(c, hint))
+		} else {
+			cl(edge + "   " + dim("↑ to send or change your answers"))
+		}
+		return out
+	}
+	q := qs[c.qIdx]
+	for _, l := range wrap(q.Question, w-8) {
+		cl(edge + "   " + paint(cText+bold, l))
+	}
+	cl(edge)
+
+	// The option rows, then the preview beside them when there's room, or
+	// under them when there isn't.
+	cursor := c.qCursor
+	var preview string
+	if cursor < len(q.Options) {
+		preview = q.Options[cursor].Preview
+	}
+	side := preview != "" && w >= 96
+	lw := w - 1
+	if side {
+		lw = min(52, (w-1)*9/20)
+	}
+	type orow struct {
+		text string
+		sel  bool
+	}
+	var rows []orow
+	descW := min(lw-8, 100)
+	picked := c.picks(c.qIdx)
+	prev, _ := c.qAnswer[q.Question]
+	for i, o := range q.Options {
+		label, rec := optionLabel(o.Label)
+		mark := "  "
+		switch {
+		case q.MultiSelect && picked[i]:
+			mark = paint(cGreen, "☑ ")
+		case q.MultiSelect:
+			mark = dim("☐ ")
+		case prev == o.Label:
+			mark = paint(cGreen, "✓ ")
 		}
 		name := paint(cText+bold, label)
 		if rec {
 			name += "  " + paint(cGreen, "recommended")
 		}
-		sel := c.cardFocus && c.qCursor == i
-		row := edge + "   " + num + "  " + box + name
-		if sel {
-			row = edge + " " + paint(cOrange, "▸") + " " + num + "  " + box + name
+		if o.Preview != "" && !side {
+			name += "  " + dim("◇ preview")
 		}
+		sel := c.cardFocus && cursor == i
+		lead := "   "
 		if sel {
-			out = append(out, onBg(selBG, row, w))
-		} else {
-			cl(row)
+			lead = " " + paint(cOrange, "▸") + " "
 		}
+		rows = append(rows, orow{lead + paint(cSub, fmt.Sprint(i+1)) + " " + mark + name, sel})
 		// Descriptions wrap under their option, two lines at most.
-		for j, l := range wrap(oneLine(o.Description), descW) {
-			if j == 2 {
-				cl(edge + "        " + dim("…"))
-				break
+		if d := oneLine(o.Description); d != "" {
+			for j, l := range wrap(d, descW) {
+				if j == 2 {
+					rows = append(rows, orow{"       " + dim("…"), false})
+					break
+				}
+				rows = append(rows, orow{"       " + dim(l), false})
 			}
-			if o.Description == "" {
-				break
-			}
-			cl(edge + "        " + dim(l))
 		}
 	}
-	own := dim("✎ answer in your own words: type below and press enter")
-	if c.cardFocus && c.qCursor == len(q.Options) {
-		own = paint(cOrange, "▸ ") + paint(cText, "✎ answer in your own words: type below and press enter")
-		out = append(out, onBg(selBG, edge+"   "+own, w))
-	} else {
-		cl(edge + "   " + own)
+	ownSel := c.cardFocus && cursor == len(q.Options)
+	own := "   " + dim("✎ your own words: type below, enter")
+	if ownSel {
+		own = " " + paint(cOrange, "▸") + " " + paint(cText, "✎ your own words: type below, enter")
+	}
+	rows = append(rows, orow{own, ownSel})
+
+	var pv []string
+	if preview != "" {
+		pw := w - 1 - 3
+		if side {
+			pw = w - 1 - lw - 3
+		}
+		name, _ := optionLabel(q.Options[cursor].Label)
+		pv = previewBox(name, preview, pw)
+	}
+	n := len(rows)
+	if side {
+		n = max(n, len(pv))
+	}
+	for i := 0; i < n; i++ {
+		left := ""
+		sel := false
+		if i < len(rows) {
+			left, sel = rows[i].text, rows[i].sel
+		}
+		if !side {
+			if sel {
+				out = append(out, onBg(card, edge+onBg(selBG, left, w-1), w))
+			} else {
+				cl(edge + left)
+			}
+			continue
+		}
+		bg := card
+		if sel {
+			bg = selBG
+		}
+		r := ""
+		if i < len(pv) {
+			r = pv[i]
+		}
+		cl(edge + onBg(bg, left, lw) + "  " + r)
+	}
+	if !side && len(pv) > 0 {
+		cl(edge)
+		for _, r := range pv {
+			cl(edge + "   " + r)
+		}
 	}
 	cl(edge)
-	keysHint := "↑↓ choose · enter picks · 1–" + fmt.Sprint(len(q.Options)) + " · s skips"
+	keysHint := "↑↓ choose · enter picks · 1–" + fmt.Sprint(len(q.Options))
 	if q.MultiSelect {
-		keysHint = "↑↓ choose · space toggles · enter confirms · s skips"
+		keysHint = "↑↓ choose · space ticks · enter confirms"
 	}
+	if len(qs) > 1 {
+		keysHint += " · ←→ questions"
+	}
+	keysHint += " · s skips"
 	if c.cardFocus {
 		cl(edge + "   " + cardHint(c, paint(cSub, keysHint)))
 	} else {
-		cl(edge + "   " + dim("↑ to choose an option   ·   or type your own answer below"))
+		cl(edge + "   " + dim("↑ to choose   ·   or type your own answer below"))
 	}
 	return out
 }
 
-// questionKey answers the current question: a digit picks (or toggles, for
-// multi-select), enter confirms toggles or sends typed text as the answer,
-// and esc skips. It reports whether it used the key.
+// questionStrip is a row naming every question: ✓ and its answer once
+// answered, ● the one at hand, ○ the rest, then ✓ send.
+func questionStrip(c *hostConn, qs []question, w int) string {
+	var parts []string
+	for i, q := range qs {
+		name := firstNonEmpty(q.Header, fmt.Sprintf("Question %d", i+1))
+		ans, ok := c.qAnswer[q.Question]
+		switch {
+		case i == c.qIdx:
+			parts = append(parts, paint(cOrange, "● ")+paint(cText+bold, name))
+		case ok:
+			parts = append(parts, paint(cGreen, "✓ ")+paint(cSub, name)+" "+dim(ansi.Truncate(shownAnswer(ans), 18, "…")))
+		default:
+			parts = append(parts, dim("○ "+name))
+		}
+	}
+	send := dim("○ send")
+	if c.qIdx >= len(qs) {
+		send = paint(cOrange, "● ") + paint(cText+bold, "send")
+	}
+	parts = append(parts, send)
+	return ansi.Truncate(strings.Join(parts, dim("  ─  ")), w, "…")
+}
+
+// previewBox frames an option's preview under its name: Claude writes it as markdown, most
+// often a mockup or code, so its lines are kept as they are (fences
+// dropped), cut to the width and to 14 rows.
+func previewBox(name, md string, w int) []string {
+	var body []string
+	for _, l := range strings.Split(strings.ReplaceAll(md, "\t", "    "), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "```") {
+			continue
+		}
+		body = append(body, ansi.Strip(strings.TrimRight(l, " \r")))
+	}
+	for len(body) > 0 && strings.TrimSpace(body[len(body)-1]) == "" {
+		body = body[:len(body)-1]
+	}
+	const maxRows = 14
+	more := 0
+	if len(body) > maxRows {
+		more = len(body) - maxRows + 1
+		body = body[:maxRows-1]
+	}
+	inner := 8
+	for _, l := range body {
+		inner = max(inner, cellw.String(l))
+	}
+	inner = min(inner, max(8, w-4))
+	label := ansi.Truncate(oneLine(name), max(4, inner-2), "…")
+	top := faint("╭─") + " " + paint(cSub, label) + " " + faint(strings.Repeat("─", max(0, inner-cellw.String(label)-1))+"╮")
+	out := []string{top}
+	for _, l := range body {
+		if cellw.String(l) > inner {
+			l = ansi.Truncate(l, inner-1, "") + faint("›")
+		}
+		out = append(out, faint("│")+" "+paint(cText, l)+strings.Repeat(" ", inner-cellw.String(l))+" "+faint("│"))
+	}
+	if more > 0 {
+		t := fmt.Sprintf("… %d more lines", more)
+		out = append(out, faint("│")+" "+dim(t)+strings.Repeat(" ", max(0, inner-cellw.String(t)))+" "+faint("│"))
+	}
+	return append(out, faint("╰"+strings.Repeat("─", inner+2)+"╯"))
+}
+
+// questionKey answers Claude's questions. While the card has the keys, ↑↓
+// choose, a digit or enter picks (or ticks, for multi-select, where enter
+// confirms), and ←→ move between questions; typed text and enter answer in
+// your own words. With several questions the last step is a review, where
+// enter sends. It reports whether it used the key.
 func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s string, empty bool) (tea.Cmd, bool) {
 	c.syncQuestion(req)
 	_, qs := questions(req)
+	if len(qs) == 0 {
+		return nil, false
+	}
 	if c.qIdx >= len(qs) {
+		// The review: enter sends, a digit or ← goes back to one.
+		switch {
+		case s == "enter":
+			return m.sendAnswers(c, req, qs), true
+		case s == "left":
+			m.goQuestion(c, qs, len(qs)-1)
+			return nil, true
+		case empty && len(s) == 1 && s[0] >= '1' && s[0] <= '9' && int(s[0]-'1') < len(qs):
+			m.goQuestion(c, qs, int(s[0]-'1'))
+			return nil, true
+		}
 		return nil, false
 	}
 	q := qs[c.qIdx]
+	picked := c.picks(c.qIdx)
 	if c.cardFocus && empty {
 		switch s {
 		case "up":
@@ -2082,9 +2280,20 @@ func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s stri
 			}
 			c.qCursor++
 			return nil, true
+		case "left", "right":
+			if len(qs) > 1 {
+				to := c.qIdx - 1
+				if s == "right" {
+					to = c.qIdx + 1
+				}
+				if to >= 0 {
+					m.goQuestion(c, qs, to)
+				}
+				return nil, true
+			}
 		case "space":
 			if q.MultiSelect && c.qCursor < len(q.Options) {
-				c.qPicked[c.qCursor] = !c.qPicked[c.qCursor]
+				picked[c.qCursor] = !picked[c.qCursor]
 				return nil, true
 			}
 		case "enter":
@@ -2094,8 +2303,8 @@ func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s stri
 				return nil, true
 			case !q.MultiSelect:
 				return m.answerQuestion(c, req, qs, q.Options[c.qCursor].Label), true
-			case len(c.qPicked) == 0:
-				c.qPicked[c.qCursor] = true
+			case !anyPicked(picked):
+				picked[c.qCursor] = true
 			}
 		}
 	}
@@ -2105,48 +2314,109 @@ func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s stri
 			return nil, true
 		}
 		if q.MultiSelect {
-			c.qPicked[i] = !c.qPicked[i]
+			picked[i] = !picked[i]
 			return nil, true
 		}
 		return m.answerQuestion(c, req, qs, q.Options[i].Label), true
 	}
-	switch s {
-	case "enter":
+	if s == "enter" {
 		if !empty {
 			text := strings.TrimSpace(string(c.input))
 			c.input, c.back = c.input[:0], 0
 			return m.answerQuestion(c, req, qs, text), true
 		}
-		if q.MultiSelect && len(c.qPicked) > 0 {
-			var picked []string
+		if q.MultiSelect && anyPicked(picked) {
+			var labels []string
 			for i, o := range q.Options {
-				if c.qPicked[i] {
-					picked = append(picked, o.Label)
+				if picked[i] {
+					labels = append(labels, o.Label)
 				}
 			}
-			return m.answerQuestion(c, req, qs, strings.Join(picked, ", ")), true
+			return m.answerQuestion(c, req, qs, strings.Join(labels, ", ")), true
 		}
 		return nil, true
 	}
 	return nil, false
 }
 
-// answerQuestion records one answer and, after the last question, replies:
-// Claude Code takes the answers as the tool's input, keyed by question text.
+func anyPicked(p map[int]bool) bool {
+	for _, v := range p {
+		if v {
+			return true
+		}
+	}
+	return false
+}
+
+// goQuestion moves to question i (len(qs) is the review), with the cursor
+// on the option already chosen there.
+func (m *Model) goQuestion(c *hostConn, qs []question, i int) {
+	if len(qs) < 2 {
+		i = min(i, len(qs)-1)
+	}
+	c.qIdx, c.qCursor = max(0, min(i, len(qs))), 0
+	if c.qIdx < len(qs) {
+		for j, o := range qs[c.qIdx].Options {
+			if c.qAnswer[qs[c.qIdx].Question] == o.Label {
+				c.qCursor = j
+			}
+		}
+	}
+}
+
+// answerQuestion records one answer, then moves to the next question still
+// unanswered. A lone question sends at once; several end on the review.
 func (m *Model) answerQuestion(c *hostConn, req *headless.PermissionRequest, qs []question, answer string) tea.Cmd {
 	c.qAnswer[qs[c.qIdx].Question] = answer
-	c.qIdx++
-	c.qPicked, c.qCursor = map[int]bool{}, 0
-	if c.qIdx < len(qs) {
-		return nil
+	if len(qs) == 1 {
+		return m.sendAnswers(c, req, qs)
 	}
-	in := map[string]any{}
-	_ = json.Unmarshal(req.Input, &in)
-	in["answers"] = c.qAnswer
-	b, _ := json.Marshal(in)
+	next := len(qs)
+	for k := 1; k < len(qs); k++ {
+		j := (c.qIdx + k) % len(qs)
+		if _, done := c.qAnswer[qs[j].Question]; !done {
+			next = j
+			break
+		}
+	}
+	m.goQuestion(c, qs, next)
+	return nil
+}
+
+// sendAnswers replies: Claude Code takes the answers as the tool's input,
+// keyed by question text, with the preview of each chosen option beside
+// it. Questions left unanswered go without one.
+func (m *Model) sendAnswers(c *hostConn, req *headless.PermissionRequest, qs []question) tea.Cmd {
+	b := answerInput(req, qs, c.qAnswer)
 	id := req.ID
 	c.qFor = ""
 	return hostCmd(func() error { return c.client.Allow(id, b, false) })
+}
+
+// answerInput is the tool input that answers req.
+func answerInput(req *headless.PermissionRequest, qs []question, answers map[string]string) json.RawMessage {
+	in := map[string]any{}
+	_ = json.Unmarshal(req.Input, &in)
+	in["answers"] = answers
+	notes := map[string]any{}
+	for _, q := range qs {
+		for _, o := range q.Options {
+			if o.Preview != "" && answers[q.Question] == o.Label {
+				notes[q.Question] = map[string]string{"preview": o.Preview}
+			}
+		}
+	}
+	if len(notes) > 0 {
+		in["annotations"] = notes
+	}
+	b, _ := json.Marshal(in)
+	return b
+}
+
+// shownAnswer is an answer as the card shows it.
+func shownAnswer(a string) string {
+	l, _ := optionLabel(a)
+	return oneLine(l)
 }
 
 // searchKey handles keys while the message box is a search box.

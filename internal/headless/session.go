@@ -89,7 +89,9 @@ func Start(o Options) (*Session, error) {
 	}
 	cmd := exec.Command(bin, o.args()...)
 	cmd.Dir = o.Dir
-	cmd.Env = o.Account.Env()
+	// agtop draws a question's option previews, which Claude Code only
+	// offers a headless session when told the format.
+	cmd.Env = append(o.Account.Env(), "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT=markdown")
 	// Its own process group, so stopping the session takes its shells too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
