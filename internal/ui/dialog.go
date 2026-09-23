@@ -644,15 +644,7 @@ func (m *Model) dialogBody(w int) []string {
 			if v == "" {
 				v = "Claude Code default"
 			}
-			out = append(out, row(i, fit(st.label, 14)+faint("‹ ")+paint(cText, v)+faint(" ›")))
-			what, now := settingHelp(st.label, st.value)
-			for _, l := range wrap(what, w-6) {
-				out = append(out, "    "+dim(l))
-			}
-			if now != "" {
-				out = append(out, "    "+paint(cSub, now))
-			}
-			out = append(out, "")
+			out = append(out, m.settingRow(i, st, v, 14, w)...)
 		}
 		out = append(out, "", dim("Coding agents"))
 		cur := m.store.Config.Dispatch.Agent
@@ -671,17 +663,7 @@ func (m *Model) dialogBody(w int) []string {
 		out = append(out, "", keysFit(w, "enter", "use for new sessions", "←→", "change", "e", "edit", "n", "new", "d", "delete"))
 	default:
 		for i, st := range m.generalSettings() {
-			out = append(out, row(i, fit(st.label, 32)+faint("‹ ")+paint(cText, st.value)+faint(" ›")))
-			what, now := settingHelp(st.label, st.value)
-			for _, l := range wrap(what, w-6) {
-				out = append(out, "    "+dim(l))
-			}
-			if now != "" {
-				for _, l := range wrap(now, w-6) {
-					out = append(out, "    "+paint(cSub, l))
-				}
-			}
-			out = append(out, "")
+			out = append(out, m.settingRow(i, st, st.value, 32, w)...)
 		}
 		out = append(out, "", keysFit(w, "←→", "change", "tab", "next view", "esc", "back to agents"))
 	}
@@ -802,4 +784,34 @@ func (m *Model) accountDetail(a acctRow, av fleet.AccountView, w int) []string {
 	}
 	out = append(out, label("status")+faint(strings.Join(status, " · ")))
 	return out
+}
+
+// settingRow is one line per setting with a short note on the current
+// choice; the highlighted one opens up to explain itself in full.
+func (m *Model) settingRow(i int, st setting, shown string, labelW, w int) []string {
+	d := m.dialog
+	what, now := settingHelp(st.label, st.value)
+	short := now
+	if _, rest, ok := strings.Cut(now, ": "); ok {
+		short = rest
+	}
+	head := fit(st.label, labelW) + faint("‹ ") + paint(cText, fit(shown, 18)) + faint(" › ")
+	room := w - ansi.StringWidth(head) - 6
+	line := head
+	if room > 12 && i != d.cursor {
+		line += faint(ansi.Truncate(short, room, "…"))
+	}
+	if i != d.cursor {
+		return []string{"  " + line}
+	}
+	out := []string{highlight(paint(cOrange, "▍")+" "+line, w)}
+	for _, l := range wrap(what, w-8) {
+		out = append(out, "      "+dim(l))
+	}
+	if now != "" {
+		for _, l := range wrap(now, w-8) {
+			out = append(out, "      "+paint(cSub, l))
+		}
+	}
+	return append(out, "")
 }
