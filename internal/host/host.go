@@ -418,7 +418,7 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.PermissionRequest:
 		s.pending[ev.ID] = ev
 		s.info.State = "blocked"
-		s.info.Needs = ev.Tool + " " + toolSummary(ev.Input)
+		s.info.Needs = needs(ev)
 	case headless.PermissionCancelled:
 		s.answered(ev.ID)
 	case headless.ControlReply:
@@ -1010,6 +1010,23 @@ func (s *server) serve(nc net.Conn) {
 }
 
 // toolSummary picks the argument that says what a tool call does.
+// needs says what a waiting request wants, in words for the list.
+func needs(r headless.PermissionRequest) string {
+	if r.Tool == "AskUserQuestion" {
+		var in struct {
+			Questions []struct {
+				Question string `json:"question"`
+			} `json:"questions"`
+		}
+		_ = json.Unmarshal(r.Input, &in)
+		if len(in.Questions) > 0 {
+			return "asks: " + firstLine(in.Questions[0].Question)
+		}
+		return "has a question"
+	}
+	return r.Tool + " " + toolSummary(r.Input)
+}
+
 func toolSummary(input json.RawMessage) string {
 	var m map[string]any
 	if json.Unmarshal(input, &m) != nil {
