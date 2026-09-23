@@ -26,6 +26,10 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if m.dialog != nil {
 		return m.dialogKey(k, s)
 	}
+	if s == "ctrl+q" {
+		m.scanner.Flush()
+		return tea.Quit
+	}
 	if s == "ctrl+c" && len(m.input) == 0 && m.mode == modeList {
 		if time.Since(m.quitArmed) < 2*time.Second {
 			m.scanner.Flush()
@@ -141,8 +145,14 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.input, m.inKind = m.input[:0], inPrompt
 		case m.preview:
 			m.preview, m.full = false, false
-		default:
+		case m.armed != "":
 			m.armed = ""
+		case time.Since(m.quitArmed) < 2*time.Second:
+			m.scanner.Flush()
+			return tea.Quit
+		default:
+			m.quitArmed = time.Now()
+			m.flash("esc again to quit", false)
 		}
 		return nil
 	case "enter":
@@ -189,6 +199,12 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	case "ctrl+g":
 		m.openDialog(tabAgents)
+		return nil
+	case "ctrl+n":
+		m.dirIdx++
+		return nil
+	case "ctrl+b":
+		m.dirIdx--
 		return nil
 	case "ctrl+l":
 		if a != nil {
@@ -311,7 +327,7 @@ func (m *Model) submit() tea.Cmd {
 		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
 	}
 	acct := m.store.Config.ActiveAccount()
-	dir := m.launchDir
+	dir := m.startDir()
 	flags := m.store.Config.Dispatch.Flags()
 	m.flash("starting a new session…", false)
 	return func() tea.Msg {

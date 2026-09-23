@@ -186,7 +186,15 @@ func render(args []string) {
 			keys = append(keys, tea.KeyPressMsg{Code: tea.KeyTab})
 		case "down":
 			keys = append(keys, tea.KeyPressMsg{Code: tea.KeyDown})
+		case "?":
+			keys = append(keys, tea.KeyPressMsg{Code: '?', Text: "?"})
 		default:
+			if t, ok := strings.CutPrefix(k, "text="); ok {
+				for _, r := range t {
+					keys = append(keys, tea.KeyPressMsg{Code: r, Text: string(r)})
+				}
+				continue
+			}
 			if strings.HasPrefix(k, "ctrl+") {
 				keys = append(keys, tea.KeyPressMsg{Code: rune(k[5]), Mod: tea.ModCtrl})
 			}

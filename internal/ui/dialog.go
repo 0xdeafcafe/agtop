@@ -545,7 +545,7 @@ func (m *Model) dialogBody(w int) []string {
 			}
 			out = append(out, row(i, mark+" "+name+"  "+faint(fit(tildify(a.ConfigDir), 20))+"  "+extra))
 		}
-		out = append(out, "", keys("enter", "use for new sessions", "a", "add", "r", "rename", "l", "sign in", "d", "remove"))
+		out = append(out, "", keysFit(w, "enter", "use for new sessions", "a", "add", "r", "rename", "l", "sign in", "d", "remove"))
 	case tabAgents:
 		out = append(out, dim("New sessions start with"))
 		settings := m.agentSettings()
@@ -570,12 +570,12 @@ func (m *Model) dialogBody(w int) []string {
 			line := mark + " " + paint(cText, fit(a.name, 18)) + faint(fit(a.scope+model, 24)) + dim(fit(a.desc, max(10, w-50)))
 			out = append(out, row(len(settings)+j, line))
 		}
-		out = append(out, "", keys("enter", "use for new sessions", "←→", "change", "e", "edit", "n", "new", "d", "delete"))
+		out = append(out, "", keysFit(w, "enter", "use for new sessions", "←→", "change", "e", "edit", "n", "new", "d", "delete"))
 	default:
 		for i, st := range m.generalSettings() {
 			out = append(out, row(i, fit(st.label, 32)+faint("‹ ")+paint(cText, st.value)+faint(" ›")))
 		}
-		out = append(out, "", keys("←→", "change", "tab", "next tab", "esc", "close"))
+		out = append(out, "", keysFit(w, "←→", "change", "tab", "next tab", "esc", "close"))
 	}
 	switch {
 	case d.confirm != "":
@@ -588,10 +588,15 @@ func (m *Model) dialogBody(w int) []string {
 
 // overlay draws the dialog box centred over the rendered screen.
 func (m *Model) overlay(base string) string {
-	lines := strings.Split(base, "\n")
 	bw := min(m.w-6, 110)
+	return m.overlayBox(base, m.dialogBody(bw-4), bw)
+}
+
+// overlayBox draws body in a panel of width bw centred over base, dimming
+// everything behind it.
+func (m *Model) overlayBox(base string, body []string, bw int) string {
+	lines := strings.Split(base, "\n")
 	inner := bw - 4
-	body := m.dialogBody(inner)
 	bh := len(body) + 4
 	top := max(1, (len(lines)-bh)/2)
 	left := (m.w - bw) / 2

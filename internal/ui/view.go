@@ -148,11 +148,11 @@ func (m *Model) render() string {
 	}
 	switch m.mode {
 	case modeHelp:
-		return m.frame(m.helpBody(), "any key to go back")
+		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-6, 116))
 	case modeProcs:
-		return m.frame(m.procBody(), keys("tab", "agent / machine", "enter", "jump to agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "esc", "back"))
+		return m.frame(m.procBody(), keysFit(m.w-4, "tab", "agent / machine", "enter", "jump to agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "esc", "back"))
 	case modeCwd:
-		return m.frame(m.cwdBody(), keys("enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
+		return m.frame(m.cwdBody(), keysFit(m.w-4, "enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
 	}
 	return m.listView()
 }
@@ -197,6 +197,18 @@ func (m *Model) statusOr(hint string) string {
 	return fit("  "+hint, m.w)
 }
 
+// keysFit drops the least important pairs (those before the last) until the
+// line fits w, so a hint never runs off the screen.
+func keysFit(w int, pairs ...string) string {
+	for len(pairs) > 2 {
+		if s := keys(pairs...); ansi.StringWidth(s) <= w {
+			return s
+		}
+		pairs = append(pairs[:len(pairs)-4], pairs[len(pairs)-2:]...)
+	}
+	return keys(pairs...)
+}
+
 // keys renders "key label" pairs with the key brighter than its label.
 func keys(pairs ...string) string {
 	var parts []string
@@ -217,7 +229,8 @@ func (m *Model) listView() string {
 			paneW, listW = m.w, 0
 		}
 	}
-	bodyH := m.h - len(head) - 1 - 4
+	prompt := m.promptLines()
+	bodyH := m.h - len(head) - 1 - len(prompt)
 	if bodyH < 3 {
 		bodyH = 3
 	}
@@ -255,7 +268,12 @@ func (m *Model) listView() string {
 		}
 		b.WriteByte('\n')
 	}
-	b.WriteString(m.promptBlock())
+	for i, l := range prompt {
+		b.WriteString(fit(l, m.w))
+		if i < len(prompt)-1 {
+			b.WriteByte('\n')
+		}
+	}
 	if m.dialog != nil {
 		return m.overlay(b.String())
 	}
@@ -303,8 +321,16 @@ func (m *Model) listLines(w, h int) []string {
 			if focus == nil || focus.Key != l.agent.Key || m.preview {
 				continue
 			}
-			for _, c := range m.cardLines(l.agent, w) {
-				emit(c, l.agent.Key, l.agent.Key == m.sel)
+			bar := " "
+			if l.agent.Key == m.sel {
+				bar = paint(cOrange, "▍")
+			}
+			for _, c := range m.cardLines(l.agent, w-4) {
+				all = append(all, bar+"   "+c)
+				keys = append(keys, l.agent.Key)
+				if l.agent.Key == m.sel {
+					selBottom = len(all) - 1
+				}
 			}
 		}
 	}
@@ -360,57 +386,88 @@ func (m *Model) sectionLine(l listLine, w int) string {
 	return "  " + arrow + rule(l.title, meta, w-6)
 }
 
-// cardLines are the details a focused row opens up to: what it is doing,
-// what it said last, how full its context is, and what it has cost.
+// cardLines draw the focused row's details as a box: what it is doing now
+// in the title, its latest words inside, and its numbers in a footer.
 func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 	p := m.previews[a.Key].p
-	inner := w - 8
-	var out []string
-	add := func(s string) { out = append(out, "      "+s) }
-	if a.Live() && p.Tool != "" {
-		add(paint(cOrange, "● ") + paint(cText, p.Tool) + "  " + dim(fit(oneLine(tildify(p.ToolArg)), inner-len(p.Tool)-4)))
+	inner := w - 6
+	edge := func(s string) string { return paint(cDim, s) }
+	line := func(s string) string { return edge("│") + panel("  "+fit(s, inner)+"  ") + edge("│") }
+
+	title := ""
+	switch {
+	case a.Live() && p.Tool != "":
+		arg := oneLine(tildify(p.ToolArg))
+		title = paint(cOrange, "● ") + paint(cText+bold, p.Tool) + "  " + paint(cSub, ansi.Truncate(arg, max(10, inner-len(p.Tool)-8), "…"))
+	case a.State == "blocked":
+		title = paint(cYellow+bold, "waiting on you")
+	case a.PID != 0:
+		title = dim("idle · still in memory")
+	default:
+		title = dim("finished " + age(a.Age(m.snap.At)) + " ago")
 	}
+	tw := ansi.StringWidth(title)
+	top := edge("╭─ ") + title + edge(" "+strings.Repeat("─", max(0, w-tw-5))+"╮")
+
+	var body []string
 	text := p.Text
 	if !a.Live() && strings.TrimSpace(a.Detail) != "" && a.Detail != "stopped" {
 		text = a.Detail
 	}
-	if text != "" {
-		lines := wrap(oneLine(text), inner)
-		for i, l := range lines {
-			if i == 3 {
-				add(faint("…  tab for the full preview"))
-				break
-			}
-			add(paint(cSub, l))
+	if a.State == "blocked" && a.Needs != "" {
+		text = a.Needs
+	}
+	if text == "" {
+		text = "…"
+	}
+	text = strings.NewReplacer("**", "", "`", "", "__", "").Replace(oneLine(text))
+	var lines []string
+	for _, l := range wrap(text, inner) {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
 		}
 	}
-	var meta []string
+	for i, l := range lines {
+		if i == 3 {
+			body = append(body, faint("…   tab opens the full preview"))
+			break
+		}
+		body = append(body, paint(cText, l))
+	}
+
+	var cells []string
 	if p.Context > 0 {
 		win := claude.ContextWindow(p.Model)
 		pct := float64(p.Context) / float64(win) * 100
-		meta = append(meta, dim("context ")+ctxBar(pct)+dim(fmt.Sprintf(" %.0f%% of %s", pct, tokens(win))))
+		cells = append(cells, dim("context ")+ctxBar(pct)+" "+paint(cText, fmt.Sprintf("%.0f%%", pct))+dim(" of "+tokens(win)))
 	}
 	u := a.Spend.Usage
 	if a.Spend.Cost > 0 {
-		meta = append(meta, dim("spent ")+paint(cText, money(a.Spend.Cost))+dim(fmt.Sprintf(" · %s out · %s cache read", tokens(u.Output), tokens(u.CacheRead))))
+		cells = append(cells, dim("spent ")+paint(cText, money(a.Spend.Cost)))
+		cells = append(cells, dim("out ")+paint(cSub, tokens(u.Output))+dim("  cache ")+paint(cSub, tokens(u.CacheRead)))
 	}
 	if a.PID != 0 && a.Procs > 0 {
-		meta = append(meta, dim(fmt.Sprintf("%d processes · %s", a.Procs, mem(a.Mem))))
+		cells = append(cells, dim(fmt.Sprintf("%d procs ", a.Procs))+paint(cSub, mem(a.Mem)))
 	}
 	if !a.Live() {
 		if el := a.Elapsed(m.snap.At); el > 0 {
-			meta = append(meta, dim("ran "+dur(el)))
-		}
-		if c := m.context(a); c != "" {
-			meta = append(meta, faint(c))
+			cells = append(cells, dim("ran ")+paint(cSub, dur(el)))
 		}
 	}
-	if len(meta) > 0 {
-		add(strings.Join(meta, faint("   ·   ")))
+	if c := m.context(a); c != "" && c != m.sharedContext() {
+		cells = append(cells, faint(c))
 	}
-	if len(out) == 0 {
-		add(faint("loading…"))
+
+	out := []string{top, line("")}
+	for _, l := range body {
+		out = append(out, line(l))
 	}
+	out = append(out, line(""))
+	if len(cells) > 0 {
+		out = append(out, edge("├"+strings.Repeat("─", w-2)+"┤"))
+		out = append(out, line(""), line(strings.Join(cells, edge("   │   "))), line(""))
+	}
+	out = append(out, edge("╰"+strings.Repeat("─", w-2)+"╯"), "")
 	return out
 }
 
@@ -448,9 +505,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	now := m.snap.At
 	live := a.Live()
 	marker := " "
-	if a.Interactive && !live {
-		marker = faint("○")
-	}
+
 	switch {
 	case a.State == "blocked":
 		marker = paint(cYellow, "●")
@@ -458,30 +513,29 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 		marker = paint(cOrange, spinner[(m.tick+len(a.ID))%len(spinner)])
 	case a.Done:
 		marker = paint(cGreen, "✓")
+	case a.PID != 0:
+		marker = faint("◦")
 	}
 
+	resident := !live && a.PID != 0
 	var right string
-	if live {
-		cpu, ram := "", ""
+	if live || resident {
+		cpu, ram := strings.Repeat(" ", wCPU), strings.Repeat(" ", wRAM)
 		if a.PID != 0 {
-			cpu = cpuColor(a.CPU, right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU))
-			ram = memColor(a.Mem, right1(mem(a.Mem), wRAM))
-		} else {
-			cpu, ram = strings.Repeat(" ", wCPU), strings.Repeat(" ", wRAM)
+			cpu = right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)
+			ram = right1(mem(a.Mem), wRAM)
 		}
-		right = dim(cpu) + ram + paint(cText, right1(money(a.Spend.Cost), wCost))
+		if live {
+			right = dim(cpuColor(a.CPU, cpu)) + memColor(a.Mem, ram) + paint(cText, right1(money(a.Spend.Cost), wCost))
+		} else {
+			right = faint(cpu) + dim(ram) + dim(right1(money(a.Spend.Cost), wCost))
+		}
 	} else {
-		resident := ""
-		if a.Worker != nil && a.Mem > 0 {
-			resident = paint(cYellow, right1("● "+mem(a.Mem), wCPU+wRAM))
-		} else {
-			resident = strings.Repeat(" ", wCPU+wRAM)
-		}
 		cost := money(a.Spend.Cost)
 		if cost == "–" {
 			cost = ""
 		}
-		right = resident + dim(right1(cost, wCost))
+		right = strings.Repeat(" ", wCPU+wRAM) + dim(right1(cost, wCost))
 	}
 	if live {
 		right += strings.Repeat(" ", wAge) + " "
@@ -501,7 +555,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	name := oneLine(a.DisplayName)
 	badges := m.badges(a)
 	summary := ""
-	if !live && !m.expanded[a.Key] {
+	if f := m.focused(); !live && !m.expanded[a.Key] && (m.preview || f == nil || f.Key != a.Key) {
 		summary = oneLine(a.Detail)
 		if summary == "stopped" || summary == "" {
 			summary = ""
@@ -542,6 +596,16 @@ func (m *Model) sharedContext() string {
 		}
 	}
 	return shared
+}
+
+// dirLabel names a folder the way the list does: repository · branch.
+func (m *Model) dirLabel(dir string) string {
+	for _, a := range m.snap.Agents {
+		if a.Cwd == dir && a.Repo == dir {
+			return paint(cText, m.context(a))
+		}
+	}
+	return paint(cText, tildify(dir))
 }
 
 // context is where a live agent works: repository and branch.
@@ -614,8 +678,9 @@ func (m *Model) badges(a *fleet.Agent) string {
 	return strings.Join(parts, " ")
 }
 
-func (m *Model) promptBlock() string {
-	ruleLine := faint(strings.Repeat("─", m.w))
+// promptLines are the input box: a rule carrying where a new session will
+// start, the input wrapped over up to six lines, a rule, and the key hints.
+func (m *Model) promptLines() []string {
 	label := paint(cOrange, "❯ ")
 	placeholder := "describe a task for a new session"
 	a := m.selected()
@@ -629,17 +694,45 @@ func (m *Model) promptBlock() string {
 		placeholder = "a message for this agent"
 	}
 	text := string(m.input)
-	var line string
+	top := faint(strings.Repeat("─", m.w))
+	if m.inKind == inPrompt && !(m.preview && a != nil) && !strings.HasPrefix(text, "/") {
+		where := dim("start in ") + m.dirLabel(m.startDir())
+		if n := len(m.startDirs()); n > 1 {
+			where += faint(fmt.Sprintf("  %d/%d  ", ((m.dirIdx%n)+n)%n+1, n)) + paint(cSub, "ctrl+n") + faint(" next")
+		}
+		ww := ansi.StringWidth(where)
+		if ww+8 < m.w {
+			top = faint(strings.Repeat("─", m.w-ww-5)) + " " + where + " " + faint("───")
+		}
+	}
+	out := []string{top}
+	lw := ansi.StringWidth(label)
 	if text == "" {
-		line = "  " + label + faint(placeholder)
+		out = append(out, "  "+label+faint(placeholder))
 	} else {
-		line = "  " + label + paint(cText, text) + paint(cOrange, "▏")
+		lines := strings.Split(ansi.Wrap(text, max(10, m.w-lw-4), ""), "\n")
+		if len(lines) > 6 {
+			lines = append([]string{faint("…")}, lines[len(lines)-5:]...)
+		}
+		for i, l := range lines {
+			pre := strings.Repeat(" ", lw)
+			if i == 0 {
+				pre = label
+			}
+			if i == len(lines)-1 {
+				l = paint(cText, l) + paint(cOrange, "▏")
+			} else {
+				l = paint(cText, l)
+			}
+			out = append(out, "  "+pre+l)
+		}
 	}
-	hint := keys("enter", "open", "tab", "preview", "ctrl+f", "done", "ctrl+x", "stop", "ctrl+p", "processes", "ctrl+s", "group", "?", "all keys")
+	out = append(out, faint(strings.Repeat("─", m.w)))
+	hint := keysFit(m.w-4, "enter", "open", "tab", "preview", "ctrl+f", "done", "ctrl+x", "stop", "ctrl+p", "processes", "ctrl+s", "group", "?", "all keys")
 	if m.preview {
-		hint = keys("enter", "send · empty opens", "←", "close preview", "ctrl+p", "processes", "ctrl+l", "move", "?", "all keys")
+		hint = keysFit(m.w-4, "enter", "send · empty opens", "←", "close preview", "ctrl+p", "processes", "ctrl+l", "move", "?", "all keys")
 	}
-	return ruleLine + "\n" + fit(line, m.w) + "\n" + ruleLine + "\n" + m.statusOr(hint)
+	return append(out, m.statusOr(hint))
 }
 
 func (m *Model) previewLines(w, h int) []string {
@@ -843,30 +936,56 @@ func (m *Model) cwdBody() []string {
 }
 
 func (m *Model) helpBody() []string {
-	rows := [][2]string{
-		{"↑ ↓  enter", "move · open the agent in Claude Code (← inside it comes back; ctrl+] always does)"},
-		{"type + enter", "start a new session; with the preview open, send it to the selected agent"},
-		{"ctrl+r", "rename"},
-		{"ctrl+x", "stop a running agent; on a stopped one, press twice to delete"},
-		{"ctrl+t", "pin to the top"},
-		{"ctrl+e", "put in a group (by hand)"},
-		{"ctrl+s", "group by: status → repo → account → your groups"},
-		{"ctrl+o", "expand the selected row"},
-		{"tab  → ←", "preview pane"},
-		{"ctrl+f", "move to Done / back (nothing is merged or deleted)"},
-		{"ctrl+p", "processes: CPU and RAM for everything an agent started; kill from there"},
-		{"ctrl+a", "accounts: usage per account, switch, move an agent to another account"},
-		{"ctrl+l", "change repo: move the conversation to another folder, or add one"},
-		{"ctrl+c ctrl+c", "exit"},
-		{"/done /stop /rm /kill", "the same actions as commands"},
-		{"/cd <path>  /add-dir <path>", "move the conversation, or grant another folder"},
-		{"/account <name>  /by <mode>", "switch account · group by status, repo, account or group"},
-		{"/hibernate <minutes>", "stop finished agents still in memory after that long; 0 turns it off"},
-		{"/native", "open the native agents view once"},
+	type group struct {
+		title string
+		rows  [][2]string
 	}
-	out := []string{paint(cText+bold, "Shortcuts"), ""}
-	for _, r := range rows {
-		out = append(out, "  "+paint(cOrange, fit(r[0], 30))+r[1])
+	left := []group{
+		{"Move & open", [][2]string{
+			{"↑ ↓", "move"}, {"enter", "open the agent · fold a section"}, {"← →", "fold · unfold · back"},
+			{"tab", "preview · again for full screen"}, {"ctrl+]", "leave an open agent"},
+		}},
+		{"Manage", [][2]string{
+			{"ctrl+r", "rename"}, {"ctrl+t", "pin"}, {"ctrl+f", "done / back"},
+			{"ctrl+x", "stop · twice to delete"}, {"ctrl+e", "put in a group"}, {"ctrl+l", "move to another folder"},
+		}},
+	}
+	right := []group{
+		{"Views", [][2]string{
+			{"ctrl+s", "group by status, repo, account…"}, {"ctrl+p", "processes · CPU and RAM"},
+			{"ctrl+a", "accounts"}, {"ctrl+g", "coding agents & settings"},
+		}},
+		{"New sessions", [][2]string{
+			{"type + enter", "start one"}, {"ctrl+n ctrl+b", "choose its folder"}, {"with preview", "enter sends a reply"},
+		}},
+		{"Commands", [][2]string{
+			{"/done /stop /rm", "same as the keys"}, {"/cd /add-dir", "move or grant a folder"}, {"/native", "open the native view"},
+		}},
+	}
+	col := func(gs []group) []string {
+		var out []string
+		for i, g := range gs {
+			if i > 0 {
+				out = append(out, "")
+			}
+			out = append(out, paint(cSub+bold, g.title))
+			for _, r := range g.rows {
+				out = append(out, paint(cOrange, fit(r[0], 18))+dim(r[1]))
+			}
+		}
+		return out
+	}
+	l, r := col(left), col(right)
+	out := []string{paint(cText+bold, "Keys") + faint("   any key closes"), ""}
+	for i := 0; i < max(len(l), len(r)); i++ {
+		a, b := "", ""
+		if i < len(l) {
+			a = l[i]
+		}
+		if i < len(r) {
+			b = r[i]
+		}
+		out = append(out, fit(a, 52)+"  "+b)
 	}
 	return out
 }

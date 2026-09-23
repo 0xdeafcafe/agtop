@@ -79,6 +79,7 @@ type Model struct {
 
 	input  []rune
 	inKind inputKind
+	dirIdx int
 
 	status    string
 	statusErr bool
@@ -173,6 +174,42 @@ func (m *Model) scan() tea.Cmd {
 	targets := m.targets()
 	sc := m.scanner
 	return func() tea.Msg { return scanMsg(sc.Run(targets)) }
+}
+
+// startDirs are the folders a new session can start in: where agtop was
+// opened, then folders with agents running, then recent ones.
+func (m *Model) startDirs() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(d string) {
+		if d != "" && !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
+	}
+	add(m.launchDir)
+	agents := append([]*fleet.Agent(nil), m.snap.Agents...)
+	sort.SliceStable(agents, func(i, j int) bool {
+		if agents[i].Open() != agents[j].Open() {
+			return agents[i].Open()
+		}
+		return agents[i].UpdatedAt.After(agents[j].UpdatedAt)
+	})
+	for _, a := range agents {
+		if len(out) >= 12 {
+			break
+		}
+		if a.Interactive && strings.Contains(a.Cwd, "/var/folders/") {
+			continue
+		}
+		add(a.Cwd)
+	}
+	return out
+}
+
+func (m *Model) startDir() string {
+	dirs := m.startDirs()
+	return dirs[((m.dirIdx%len(dirs))+len(dirs))%len(dirs)]
 }
 
 func (m *Model) targets() []fleet.Target {
@@ -487,8 +524,8 @@ func (m *Model) rebuild() {
 			add("Pinned", 1, a)
 		case a.Live() && by == "status":
 			add("Working", 2, a)
-		case a.Interactive && by == "status":
-			add("Open in terminals", 3, a)
+		case a.PID != 0 && by == "status":
+			add("Idle", 3, a)
 		case !fresh:
 			add("Earlier", 9, a)
 		case a.Done:
@@ -534,7 +571,15 @@ func (m *Model) rebuild() {
 			}
 		}
 		fold := m.folded(g.name)
-		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: sectionMeta(len(g.agents), cost),
+		meta := sectionMeta(len(g.agents), cost)
+		if g.name == "Idle" {
+			var held uint64
+			for _, a := range g.agents {
+				held += a.Mem
+			}
+			meta = fmt.Sprintf("%d · %s held in memory", len(g.agents), mem(held))
+		}
+		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: meta,
 			folded: fold, peek: strings.Join(names, ", ")})
 		for _, a := range g.agents {
 			m.order = append(m.order, a)
