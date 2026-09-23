@@ -435,6 +435,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.store.Overlay.Names[state.Key(msg.started.acct, "a:"+msg.started.id)] = n
 		}
 		_ = m.store.SaveOverlay()
+		if a := m.agentByKey(msg.from); a != nil && a.Interactive {
+			defer m.flash(a.DisplayName+" carries on in agtop mode · its terminal copy is still open there, now under Done", false)
+		}
 		return m.update(msg.started)
 	case hostStartedMsg:
 		// Select the new session and give it the keys.

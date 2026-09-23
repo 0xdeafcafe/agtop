@@ -1794,7 +1794,9 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 			if err != nil {
 				return doneMsg{err: err}
 			}
-			return hostStartedMsg{id: c.ID, name: cfg.Name, acct: cfg.Account.Name}
+			// The original goes to Done, the copy takes its name: one agent
+			// carrying on, not two.
+			return movedToAgtopMsg{from: old, started: hostStartedMsg{id: c.ID, name: cfg.Name, acct: cfg.Account.Name}}
 		}
 	}
 	m.flash("moving "+a.DisplayName+" to agtop mode…", false)
