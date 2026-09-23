@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 )
@@ -17,6 +18,7 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.WindowTitle = "agtop"
+	v.MouseMode = tea.MouseModeAllMotion
 	return v
 }
 
@@ -151,8 +153,6 @@ func (m *Model) render() string {
 		return m.frame(m.helpBody(), "any key to go back")
 	case modeProcs:
 		return m.frame(m.procBody(), keys("tab", "agent / machine", "enter", "jump to agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "esc", "back"))
-	case modeAccounts:
-		return m.frame(m.acctBody(), keys("enter", "use for new sessions", "m", "move selected agent here", "l", "sign in", "n", "add", "esc", "back"))
 	case modeCwd:
 		return m.frame(m.cwdBody(), keys("enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
 	}
@@ -212,8 +212,8 @@ func (m *Model) listView() string {
 	head := m.header()
 	listW, paneW := m.w, 0
 	if m.preview {
-		if m.w >= 120 {
-			paneW = m.w * 45 / 100
+		if m.w >= 120 && !m.full {
+			paneW = m.w * 55 / 100
 			listW = m.w - paneW - 1
 		} else {
 			paneW, listW = m.w, 0
@@ -223,6 +223,8 @@ func (m *Model) listView() string {
 	if bodyH < 3 {
 		bodyH = 3
 	}
+	m.listTop = len(head) + 1
+	m.rowKeys = nil
 	var left []string
 	if listW > 0 {
 		left = m.listLines(listW, bodyH)
@@ -256,6 +258,9 @@ func (m *Model) listView() string {
 		b.WriteByte('\n')
 	}
 	b.WriteString(m.promptBlock())
+	if m.dialog != nil {
+		return m.overlay(b.String())
+	}
 	return b.String()
 }
 
@@ -269,41 +274,45 @@ const (
 
 func (m *Model) listLines(w, h int) []string {
 	nameCol := m.nameColumn(w)
-	var all []string
+	focus := m.focused()
+	var all, keys []string
 	selTop, selBottom := -1, -1
+	emit := func(line, key string, sel bool) {
+		if sel {
+			if selTop < 0 {
+				selTop = len(all)
+			}
+			selBottom = len(all)
+			line = highlight(paint(cOrange, "▍")+line[1:], w)
+		} else if key != "" && key == m.hover {
+			line = hoverLine(line, w)
+		}
+		all = append(all, line)
+		keys = append(keys, key)
+	}
 	for _, l := range m.lines {
 		switch l.kind {
 		case lineSection:
-			meta := l.meta
-			if (l.title == "Working" || l.title == "Needs you") && m.sharedContext() != "" {
-				meta += "  ·  " + m.sharedContext()
-			}
-			all = append(all, "  "+rule(l.title, meta, w-4))
-		case lineEarlier:
-			all = append(all, "  "+rule("Earlier", l.meta+" · ↓ to show", w-4))
+			key := sectionKey(l.title)
+			emit(m.sectionLine(l, w), key, key == m.sel)
 		case lineBlank:
-			all = append(all, "")
-		case lineAgent, lineSub:
-			sel := l.agent.Key == m.sel
-			var s string
-			if l.kind == lineAgent {
-				s = m.agentLine(l.agent, w, sel, nameCol)
-			} else {
-				s = m.subLine(l.agent, w)
+			emit("", "", false)
+		case lineAgent:
+			emit(m.agentLine(l.agent, w, l.agent.Key == m.sel, nameCol), l.agent.Key, l.agent.Key == m.sel)
+		case lineSub:
+			emit(m.subLine(l.agent, w), l.agent.Key, l.agent.Key == m.sel)
+		case lineCard:
+			if focus == nil || focus.Key != l.agent.Key || m.preview {
+				continue
 			}
-			if sel {
-				if selTop < 0 {
-					selTop = len(all)
-				}
-				selBottom = len(all)
-				s = paint(cOrange, "▍") + s[1:]
-				s = highlight(s, w)
+			for _, c := range m.cardLines(l.agent, w) {
+				emit(c, l.agent.Key, l.agent.Key == m.sel)
 			}
-			all = append(all, s)
 		}
 	}
 	if len(m.order) == 0 {
-		all = append(all, "", dim("  No background agents yet. Describe a task below to start one."))
+		all = append(all, "", dim("  No agents yet. Describe a task below to start one."))
+		keys = append(keys, "", "")
 	}
 	if selTop >= 0 {
 		if selTop-1 < m.scroll {
@@ -318,10 +327,105 @@ func (m *Model) listLines(w, h int) []string {
 	}
 	end := min(len(all), m.scroll+h)
 	out := append([]string(nil), all[m.scroll:end]...)
+	m.rowKeys = keys[m.scroll:end]
 	if end < len(all) && len(out) > 0 {
 		out[len(out)-1] = faint(fmt.Sprintf("  ↓ %d more lines", len(all)-end))
+		m.rowKeys[len(out)-1] = ""
 	}
 	return out
+}
+
+const hoverBG = "\x1b[48;2;33;31;29m"
+
+func hoverLine(line string, w int) string {
+	line = fit(line, w)
+	return hoverBG + strings.ReplaceAll(line, reset, reset+hoverBG) + reset
+}
+
+func (m *Model) sectionLine(l listLine, w int) string {
+	arrow := faint("▾ ")
+	if l.folded {
+		arrow = faint("▸ ")
+	}
+	meta := l.meta
+	if (l.title == "Working" || l.title == "Needs you") && m.sharedContext() != "" {
+		meta += "  ·  " + m.sharedContext()
+	}
+	if l.folded {
+		head := arrow + paint(cSub+bold, l.title) + "  " + dim(meta)
+		room := w - ansi.StringWidth(head) - 6
+		if room > 10 && l.peek != "" {
+			head += "   " + faint(fit(l.peek, room))
+		}
+		return "  " + head
+	}
+	return "  " + arrow + rule(l.title, meta, w-6)
+}
+
+// cardLines are the details a focused row opens up to: what it is doing,
+// what it said last, how full its context is, and what it has cost.
+func (m *Model) cardLines(a *fleet.Agent, w int) []string {
+	p := m.previews[a.Key].p
+	inner := w - 8
+	var out []string
+	add := func(s string) { out = append(out, "      "+s) }
+	if a.Live() && p.Tool != "" {
+		add(paint(cOrange, "● ") + paint(cText, p.Tool) + "  " + dim(fit(oneLine(tildify(p.ToolArg)), inner-len(p.Tool)-4)))
+	}
+	text := p.Text
+	if !a.Live() && strings.TrimSpace(a.Detail) != "" && a.Detail != "stopped" {
+		text = a.Detail
+	}
+	if text != "" {
+		lines := wrap(oneLine(text), inner)
+		for i, l := range lines {
+			if i == 3 {
+				add(faint("…  tab for the full preview"))
+				break
+			}
+			add(paint(cSub, l))
+		}
+	}
+	var meta []string
+	if p.Context > 0 {
+		win := claude.ContextWindow(p.Model)
+		pct := float64(p.Context) / float64(win) * 100
+		meta = append(meta, dim("context ")+ctxBar(pct)+dim(fmt.Sprintf(" %.0f%% of %s", pct, tokens(win))))
+	}
+	u := a.Spend.Usage
+	if a.Spend.Cost > 0 {
+		meta = append(meta, dim("spent ")+paint(cText, money(a.Spend.Cost))+dim(fmt.Sprintf(" · %s out · %s cache read", tokens(u.Output), tokens(u.CacheRead))))
+	}
+	if a.PID != 0 && a.Procs > 0 {
+		meta = append(meta, dim(fmt.Sprintf("%d processes · %s", a.Procs, mem(a.Mem))))
+	}
+	if !a.Live() {
+		if el := a.Elapsed(m.snap.At); el > 0 {
+			meta = append(meta, dim("ran "+dur(el)))
+		}
+		if c := m.context(a); c != "" {
+			meta = append(meta, faint(c))
+		}
+	}
+	if len(meta) > 0 {
+		add(strings.Join(meta, faint("   ·   ")))
+	}
+	if len(out) == 0 {
+		add(faint("loading…"))
+	}
+	return out
+}
+
+func ctxBar(pct float64) string {
+	n := min(8, max(0, int(pct/12.5+0.5)))
+	c := cSub
+	switch {
+	case pct >= 80:
+		c = cRed
+	case pct >= 50:
+		c = cYellow
+	}
+	return paint(c, strings.Repeat("━", n)) + faint(strings.Repeat("━", 8-n))
 }
 
 // nameColumn is where summaries start: wide enough for most names, never
@@ -346,6 +450,9 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	now := m.snap.At
 	live := a.Live()
 	marker := " "
+	if a.Interactive && !live {
+		marker = faint("○")
+	}
 	switch {
 	case a.State == "blocked":
 		marker = paint(cYellow, "●")
@@ -358,7 +465,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	var right string
 	if live {
 		cpu, ram := "", ""
-		if a.Worker != nil {
+		if a.PID != 0 {
 			cpu = cpuColor(a.CPU, right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU))
 			ram = memColor(a.Mem, right1(mem(a.Mem), wRAM))
 		} else {
@@ -426,7 +533,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 func (m *Model) sharedContext() string {
 	shared := ""
 	for _, a := range m.order {
-		if !a.Live() {
+		if !a.Live() || a.Interactive {
 			continue
 		}
 		c := m.context(a)
@@ -442,6 +549,9 @@ func (m *Model) sharedContext() string {
 // context is where a live agent works: repository and branch.
 func (m *Model) context(a *fleet.Agent) string {
 	if a.Repo == "" {
+		if strings.Contains(a.Cwd, "/var/folders/") || strings.HasPrefix(a.Cwd, "/tmp/") {
+			return "tmp/" + filepath.Base(a.Cwd)
+		}
 		return tildify(a.Cwd)
 	}
 	s := filepath.Base(a.Repo)
@@ -456,6 +566,9 @@ func (m *Model) subLine(a *fleet.Agent, w int) string {
 	text, col := oneLine(a.Detail), cSub
 	if text == "" {
 		text = oneLine(a.Intent)
+	}
+	if text == "" && a.Interactive {
+		text, col = "working in a terminal", cDim
 	}
 	if a.State == "blocked" && a.Needs != "" {
 		text, col = oneLine(a.Needs), cYellow
@@ -497,6 +610,9 @@ func (m *Model) badges(a *fleet.Agent) string {
 	if a.Children > 0 {
 		parts = append(parts, faint(fmt.Sprintf("⧉%d", a.Children)))
 	}
+	if a.Interactive {
+		parts = append(parts, faint("terminal"))
+	}
 	return strings.Join(parts, " ")
 }
 
@@ -529,16 +645,16 @@ func (m *Model) promptBlock() string {
 }
 
 func (m *Model) previewLines(w, h int) []string {
-	a := m.selected()
+	a := m.focused()
 	if a == nil {
-		return []string{dim("nothing selected")}
+		return []string{dim("select an agent to preview it")}
 	}
 	now := m.snap.At
 	e := m.previews[a.Key]
 	p := e.p
 	var out []string
 	add := func(s ...string) { out = append(out, s...) }
-	label := func(k string) string { return dim(fit(k, 7)) }
+	label := func(k string) string { return dim(fit(k, 9)) }
 	model := p.Model
 	if model == "" {
 		model = a.Spend.Model
@@ -559,11 +675,11 @@ func (m *Model) previewLines(w, h int) []string {
 	}
 	add(label("STATE") + st + dim(" · updated "+age(a.Age(now))+" ago"))
 	if a.State == "blocked" && a.Needs != "" {
-		for i, l := range wrap(a.Needs, w-7) {
+		for i, l := range wrap(a.Needs, w-9) {
 			if i == 0 {
 				add(label("NEEDS") + paint(cYellow, l))
 			} else {
-				add("       " + paint(cYellow, l))
+				add("         " + paint(cYellow, l))
 			}
 		}
 	}
@@ -571,19 +687,22 @@ func (m *Model) previewLines(w, h int) []string {
 	if p.Tool != "" && a.Live() {
 		now2 = paint(cOrange, "● ") + p.Tool + "  " + oneLine(p.ToolArg)
 	}
-	add(label("NOW") + fit(now2, w-7))
+	add(label("NOW") + fit(now2, w-9))
 	if p.Text != "" {
-		lines := wrap(p.Text, w-7)
+		lines := wrap(p.Text, w-9)
 		limit := max(3, h/3)
+		if m.full {
+			limit = max(6, h-18)
+		}
 		for i, l := range lines {
 			if i >= limit {
-				add("       " + dim("…"))
+				add("         " + dim("…"))
 				break
 			}
 			if i == 0 {
 				add(label("LAST") + l)
 			} else {
-				add("       " + l)
+				add("         " + l)
 			}
 		}
 	}
@@ -591,14 +710,19 @@ func (m *Model) previewLines(w, h int) []string {
 	u := a.Spend.Usage
 	add(label("SPEND") + paint(cText+bold, money(a.Spend.Cost)) + dim(fmt.Sprintf("  in %s · cache read %s · written %s · out %s",
 		tokens(u.Input), tokens(u.CacheRead), tokens(u.CacheWrite5m+u.CacheWrite1h), tokens(u.Output))))
+	if p.Context > 0 {
+		win := claude.ContextWindow(p.Model)
+		pct := float64(p.Context) / float64(win) * 100
+		add(label("CONTEXT") + ctxBar(pct) + fmt.Sprintf(" %.0f%%", pct) + dim(fmt.Sprintf("  %s of %s tokens", tokens(p.Context), tokens(win))))
+	}
 	add(label("TIME") + dur(a.Elapsed(now)) + dim(" since "+a.CreatedAt.Local().Format("Mon 15:04")))
 	for _, pr := range a.PRs {
 		add(label("PR") + fmt.Sprintf("#%d %s", pr.Number, strings.ToLower(pr.State)) +
 			dim(fmt.Sprintf(" · checks %d✓ %d✗ %d…", pr.Checks.Passed, pr.Checks.Failed, pr.Checks.Pending)))
 	}
-	if a.Worker != nil && m.snap.Table != nil {
+	if a.PID != 0 && m.snap.Table != nil {
 		add("", label("TREE")+dim(fmt.Sprintf("%d processes · %s · %.1f%% cpu", a.Procs, mem(a.Mem), a.CPU)))
-		nodes := m.snap.Table.Tree(a.Worker.PID)
+		nodes := m.snap.Table.Tree(a.PID)
 		shown := 0
 		for _, n := range nodes {
 			if shown >= 6 {
@@ -686,51 +810,6 @@ func roleName(r fleet.Role) string {
 	default:
 		return "Other Claude processes"
 	}
-}
-
-func (m *Model) acctBody() []string {
-	out := []string{paint(cText+bold, "Accounts") + dim("   enter use for new sessions · m move selected agent here · l sign in · n add · esc back"), ""}
-	out = append(out, faint(fit("    ACCOUNT", 18)+fit("PLAN", 22)+fit("5-HOUR", 34)+fit("7-DAY", 22)+right("AGENTS", 8)+right("TODAY", 10)+right("ALL", 10)))
-	for i, av := range m.snap.Accounts {
-		cur := "  "
-		if i == m.acctCursor {
-			cur = paint(cOrange, "› ")
-		}
-		dot := dim("○ ")
-		if av.Current {
-			dot = paint(cOrange, "● ")
-		}
-		u := av.Usage
-		plan := u.Plan
-		if plan == "" {
-			plan = "—"
-		}
-		five, seven := dim("no reading"), dim("—")
-		if u.FiveHour.Present {
-			five = bar(u.FiveHour.Percent) + fmt.Sprintf(" %3.0f%%", u.FiveHour.Percent)
-			if !u.FiveHour.ResetsAt.IsZero() {
-				five += dim(" " + u.FiveHour.ResetsAt.Local().Format("15:04"))
-			}
-		}
-		if u.SevenDay.Present {
-			seven = bar(u.SevenDay.Percent) + fmt.Sprintf(" %3.0f%%", u.SevenDay.Percent)
-		}
-		out = append(out, cur+dot+fit(av.Name, 14)+fit(plan, 22)+fit(five, 34)+fit(seven, 22)+
-			right(fmt.Sprintf("%d/%d", av.Live, av.Agents), 8)+right(money(av.Today), 10)+right(money(av.Spend), 10))
-		asOf := ""
-		if !u.FetchedAt.IsZero() {
-			asOf = "  usage as of " + u.FetchedAt.Local().Format("Mon 15:04")
-		}
-		out = append(out, "      "+dim(tildify(av.ConfigDir)+"  "+u.Email+asOf))
-	}
-	if m.inKind == inNewAccount {
-		out = append(out, "", paint(cOrange, "new account ❯ ")+string(m.input)+paint(cOrange, "▏"),
-			dim("  a name, optionally followed by a folder (default ~/.claude-<name>); sign-in opens next"))
-	}
-	if a := m.selected(); a != nil {
-		out = append(out, "", dim("selected agent: ")+a.DisplayName+dim(" on "+a.Acct.Name))
-	}
-	return out
 }
 
 func (m *Model) cwdBody() []string {

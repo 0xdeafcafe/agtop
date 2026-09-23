@@ -84,6 +84,15 @@ type Preview struct {
 	At       time.Time
 	Model    string
 	LastUser string
+	Context  int64 // tokens the last request sent: how full the context window is
+}
+
+// ContextWindow is the model's window; everything current but Haiku has 1M.
+func ContextWindow(model string) int64 {
+	if strings.Contains(model, "haiku") {
+		return 200_000
+	}
+	return 1_000_000
 }
 
 type line struct {
@@ -233,7 +242,7 @@ func ReadPreview(path string, window int64) Preview {
 		return p
 	}
 	lines := bytes.Split(b, []byte{'\n'})
-	for i := len(lines) - 1; i >= 0 && (p.Text == "" || p.Tool == "" || p.LastUser == ""); i-- {
+	for i := len(lines) - 1; i >= 0 && (p.Text == "" || p.Tool == "" || p.LastUser == "" || p.Context == 0); i-- {
 		var l line
 		if json.Unmarshal(lines[i], &l) != nil {
 			continue
@@ -259,6 +268,9 @@ func ReadPreview(path string, window int64) Preview {
 		}
 		if p.Model == "" {
 			p.Model = l.Message.Model
+		}
+		if u := l.Message.Usage; u != nil && p.Context == 0 && l.Message.Model != "<synthetic>" {
+			p.Context = u.Input + u.CacheRead + u.CacheCreate
 		}
 		for j := len(blocks) - 1; j >= 0; j-- {
 			bl := blocks[j]

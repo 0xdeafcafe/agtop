@@ -31,6 +31,8 @@ type Agent struct {
 	Procs       int
 	Spend       Spend
 	PRs         []claude.PR
+	Interactive bool
+	PID         int // root of the process tree
 }
 
 // Age is what the native view prints on the right: time since last change.
@@ -211,16 +213,45 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 					a.PRs = append(a.PRs, pr)
 				}
 			}
-			if tab != nil && a.Worker != nil {
-				tab.Fill(l.prevTab, []int{a.Worker.PID})
-				a.Mem, a.CPU, a.Procs = tab.Sum(a.Worker.PID, nil)
+			if a.Worker != nil {
+				a.PID = a.Worker.PID
 			}
+			l.sample(tab, a)
 			if a.Live() {
 				av.Live++
 			}
 			av.Agents++
 			av.Spend += a.Spend.Cost
 			av.Today += a.Spend.Today
+			snap.Agents = append(snap.Agents, a)
+		}
+		for _, ss := range claude.ReadSessions(acct) {
+			if ss.Kind != "interactive" || ss.SessionID == "" {
+				continue
+			}
+			key := state.Key(acct.Name, "i:"+ss.SessionID[:8])
+			seen[key] = true
+			st := "idle"
+			if ss.Status == "busy" || ss.Status == "shell" {
+				st = "working"
+			}
+			j := claude.Job{
+				ID: ss.SessionID[:8], Account: acct.Name, Name: ss.Name, State: st, Cwd: ss.Cwd,
+				SessionID: ss.SessionID, CreatedAt: ss.StartedAt(), UpdatedAt: ss.UpdatedAt(),
+				TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(ss.Cwd), ss.SessionID+".jsonl"),
+			}
+			if st == "idle" {
+				j.Detail = "open in a terminal"
+			}
+			a := &Agent{Job: j, Key: key, Acct: acct, DisplayName: ss.Name, Interactive: true, PID: ss.PID}
+			if n := ov.Names[key]; n != "" {
+				a.DisplayName = n
+			}
+			_, a.Done = ov.Done[key]
+			a.Group = ov.Groups[key]
+			a.Repo, a.Branch = l.gitFor(ss.Cwd, now)
+			a.Spend = l.spend[key]
+			l.sample(tab, a)
 			snap.Agents = append(snap.Agents, a)
 		}
 		snap.Accounts = append(snap.Accounts, av)
@@ -240,6 +271,14 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		return snap.Agents[i].Age(now) < snap.Agents[j].Age(now)
 	})
 	return snap
+}
+
+func (l *Loader) sample(tab *proc.Table, a *Agent) {
+	if tab == nil || a.PID == 0 {
+		return
+	}
+	tab.Fill(l.prevTab, []int{a.PID})
+	a.Mem, a.CPU, a.Procs = tab.Sum(a.PID, nil)
 }
 
 func (l *Loader) job(acct claude.Account, id, key string) (claude.Job, bool) {

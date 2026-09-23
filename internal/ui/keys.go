@@ -23,6 +23,9 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if m.confirm != nil {
 		return m.confirmKey(s)
 	}
+	if m.dialog != nil {
+		return m.dialogKey(k, s)
+	}
 	if s == "ctrl+c" && len(m.input) == 0 && m.mode == modeList {
 		if time.Since(m.quitArmed) < 2*time.Second {
 			m.scanner.Flush()
@@ -38,8 +41,6 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case modeProcs:
 		return m.procKey(s)
-	case modeAccounts:
-		return m.acctKey(k, s)
 	case modeCwd:
 		return m.cwdKey(k, s)
 	}
@@ -98,16 +99,40 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.loadPreview()
 		}
 	case "tab":
-		m.preview = !m.preview
+		switch {
+		case !m.preview:
+			m.preview = true
+		case !m.full:
+			m.full = true
+		default:
+			m.preview, m.full = false, false
+		}
 		return m.loadPreview()
 	case "right":
 		if empty {
+			if t, ok := strings.CutPrefix(m.sel, "§"); ok {
+				if m.folded(t) {
+					m.toggleFold(t)
+				}
+				return nil
+			}
 			m.preview = true
 			return m.loadPreview()
 		}
 	case "left":
-		if empty && m.preview {
-			m.preview = false
+		if empty {
+			switch {
+			case m.full:
+				m.full = false
+			case m.preview:
+				m.preview = false
+			case strings.HasPrefix(m.sel, "§"):
+				if t := strings.TrimPrefix(m.sel, "§"); !m.folded(t) {
+					m.toggleFold(t)
+				}
+			default:
+				m.sel = m.sectionOf(m.sel)
+			}
 			return nil
 		}
 	case "esc":
@@ -115,12 +140,16 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		case !empty:
 			m.input, m.inKind = m.input[:0], inPrompt
 		case m.preview:
-			m.preview = false
+			m.preview, m.full = false, false
 		default:
 			m.armed = ""
 		}
 		return nil
 	case "enter":
+		if t, ok := strings.CutPrefix(m.sel, "§"); ok && empty {
+			m.toggleFold(t)
+			return nil
+		}
 		return m.submit()
 	case "ctrl+r":
 		if a != nil {
@@ -153,10 +182,13 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "ctrl+x":
 		return m.stopOrRemove(a)
 	case "ctrl+p":
-		m.mode, m.procCursor, m.procMachine = modeProcs, 0, a == nil || a.Worker == nil
+		m.mode, m.procCursor, m.procMachine = modeProcs, 0, a == nil || a.PID == 0
 		return nil
 	case "ctrl+a":
-		m.mode, m.acctCursor = modeAccounts, 0
+		m.openDialog(tabAccounts)
+		return nil
+	case "ctrl+g":
+		m.openDialog(tabAgents)
 		return nil
 	case "ctrl+l":
 		if a != nil {
@@ -171,6 +203,19 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	m.editKey(k, s)
 	return nil
+}
+
+func (m *Model) sectionOf(key string) string {
+	cur := ""
+	for _, l := range m.lines {
+		if l.kind == lineSection {
+			cur = sectionKey(l.title)
+		}
+		if l.kind == lineAgent && l.agent.Key == key {
+			return cur
+		}
+	}
+	return key
 }
 
 func (m *Model) cycleGroupBy() {
@@ -189,6 +234,17 @@ func (m *Model) cycleGroupBy() {
 
 func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 	if a == nil {
+		return nil
+	}
+	if a.Interactive {
+		pid := a.PID
+		m.confirm = &confirmation{
+			question: "Close " + a.DisplayName + "?",
+			detail:   fmt.Sprintf("sends SIGTERM to the terminal session (pid %d)", pid),
+			onYes: func() tea.Cmd {
+				return cmdErr("closed "+a.DisplayName, func() error { return actions.Terminate(pid) })
+			},
+		}
 		return nil
 	}
 	if a.Live() && a.Worker != nil {
@@ -246,15 +302,20 @@ func (m *Model) submit() tea.Cmd {
 	if strings.HasPrefix(text, "/") {
 		return m.command(text)
 	}
+	if m.preview && a != nil && a.Interactive {
+		m.flash("replies go to background agents; this one is open in a terminal", true)
+		return nil
+	}
 	if m.preview && a != nil {
 		m.flash("sending to "+a.DisplayName+"…", false)
 		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
 	}
 	acct := m.store.Config.ActiveAccount()
 	dir := m.launchDir
+	flags := m.store.Config.Dispatch.Flags()
 	m.flash("starting a new session…", false)
 	return func() tea.Msg {
-		id, err := actions.Dispatch(acct, dir, text)
+		id, err := actions.Dispatch(acct, dir, text, flags...)
 		if err != nil {
 			return doneMsg{err: err}
 		}
@@ -300,7 +361,7 @@ func (m *Model) command(text string) tea.Cmd {
 		}
 	case "/account":
 		if arg == "" {
-			m.mode = modeAccounts
+			m.openDialog(tabAccounts)
 			return nil
 		}
 		return m.useAccount(arg)
@@ -446,10 +507,10 @@ func (m *Model) procRows() []procRow {
 		return out
 	}
 	a := m.selected()
-	if a == nil || a.Worker == nil {
+	if a == nil || a.PID == 0 {
 		return nil
 	}
-	for _, n := range tab.Tree(a.Worker.PID) {
+	for _, n := range tab.Tree(a.PID) {
 		cmd := m.shortCmd(n.PID, n.Comm)
 		label := cmd
 		if i := strings.IndexByte(cmd, ' '); i > 0 && len(cmd) > 40 {
@@ -530,54 +591,6 @@ func trimCmd(s string, n int) string {
 	return ansi.Truncate(s, n, "…")
 }
 
-func (m *Model) acctKey(k tea.KeyPressMsg, s string) tea.Cmd {
-	accts := m.snap.Accounts
-	if m.inKind == inNewAccount {
-		switch s {
-		case "esc":
-			m.inKind, m.input = inPrompt, m.input[:0]
-		case "enter":
-			name := strings.TrimSpace(string(m.input))
-			m.inKind, m.input = inPrompt, m.input[:0]
-			return m.addAccount(name)
-		default:
-			m.editKey(k, s)
-		}
-		return nil
-	}
-	switch s {
-	case "esc", "q", "ctrl+a":
-		m.mode = modeList
-	case "up", "k":
-		if m.acctCursor > 0 {
-			m.acctCursor--
-		}
-	case "down", "j":
-		if m.acctCursor < len(accts)-1 {
-			m.acctCursor++
-		}
-	case "enter":
-		if m.acctCursor < len(accts) {
-			return m.useAccount(accts[m.acctCursor].Name)
-		}
-	case "n", "ctrl+n":
-		m.inKind, m.input = inNewAccount, m.input[:0]
-	case "l":
-		if m.acctCursor < len(accts) {
-			acct := accts[m.acctCursor].Account
-			return tea.ExecProcess(actions.Login(acct), func(err error) tea.Msg { return doneMsg{err: err, text: "signed in to " + acct.Name} })
-		}
-	case "m":
-		a := m.selected()
-		if a != nil && m.acctCursor < len(accts) && accts[m.acctCursor].Name != a.Acct.Name {
-			to := accts[m.acctCursor].Account
-			m.mode = modeList
-			return m.relaunch(a, "", nil, to)
-		}
-	}
-	return nil
-}
-
 func (m *Model) useAccount(name string) tea.Cmd {
 	for _, a := range m.store.Config.AllAccounts() {
 		if a.Name == name {
@@ -590,31 +603,6 @@ func (m *Model) useAccount(name string) tea.Cmd {
 	}
 	m.flash("no account named "+name, true)
 	return nil
-}
-
-func (m *Model) addAccount(name string) tea.Cmd {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil
-	}
-	fields := strings.Fields(name)
-	name = fields[0]
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".claude-"+name)
-	if len(fields) > 1 {
-		dir = expand(fields[1])
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		m.flash(err.Error(), true)
-		return nil
-	}
-	m.store.Config.Accounts = append(m.store.Config.Accounts, claude.Account{Name: name, ConfigDir: dir})
-	_ = m.store.SaveConfig()
-	m.refresh()
-	acct := claude.Account{Name: name, ConfigDir: dir}
-	return tea.ExecProcess(actions.Login(acct), func(err error) tea.Msg {
-		return doneMsg{err: err, text: "added " + name}
-	})
 }
 
 func (m *Model) openCwd(a *fleet.Agent) {

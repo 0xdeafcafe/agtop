@@ -63,15 +63,19 @@ type Model struct {
 	scanning bool
 	loaded   bool
 
-	sel      string
-	order    []*fleet.Agent
-	lines    []listLine
-	scroll   int
-	preview  bool
-	previews map[string]previewEntry
-	expanded map[string]bool
-	earlier  bool
-	hidden   int
+	sel       string
+	order     []*fleet.Agent
+	lines     []listLine
+	scroll    int
+	preview   bool
+	full      bool
+	previews  map[string]previewEntry
+	expanded  map[string]bool
+	hover     string
+	hoverAt   time.Time
+	rowKeys   []string
+	listTop   int
+	lastClick time.Time
 
 	input  []rune
 	inKind inputKind
@@ -82,6 +86,7 @@ type Model struct {
 	armed     string
 	quitArmed time.Time
 	confirm   *confirmation
+	dialog    *dialog
 
 	procCursor  int
 	procMachine bool
@@ -105,15 +110,19 @@ const (
 	lineSection
 	lineAgent
 	lineSub
-	lineEarlier
+	lineCard
 )
 
 type listLine struct {
-	kind  lineKind
-	title string
-	meta  string
-	agent *fleet.Agent
+	kind   lineKind
+	title  string
+	meta   string
+	folded bool
+	peek   string
+	agent  *fleet.Agent
 }
+
+func sectionKey(title string) string { return "§" + title }
 
 func New(store *state.Store, version string) *Model {
 	dir, _ := os.Getwd()
@@ -131,6 +140,7 @@ func New(store *state.Store, version string) *Model {
 }
 
 type tickMsg time.Time
+type hoverMsg struct{}
 type scanMsg map[string]fleet.Spend
 type previewMsg struct {
 	key string
@@ -175,8 +185,44 @@ func (m *Model) targets() []fleet.Target {
 	return targets
 }
 
+func (m *Model) rowAt(y int) string {
+	i := y - m.listTop
+	if m.mode != modeList || m.dialog != nil || i < 0 || i >= len(m.rowKeys) {
+		return ""
+	}
+	return m.rowKeys[i]
+}
+
+func (m *Model) mouseMove(y int) tea.Cmd {
+	k := m.rowAt(y)
+	if k != m.hover {
+		m.hover, m.hoverAt = k, time.Now()
+		if k != "" && !strings.HasPrefix(k, "§") {
+			return tea.Tick(400*time.Millisecond, func(time.Time) tea.Msg { return hoverMsg{} })
+		}
+	}
+	return nil
+}
+
+func (m *Model) mouseClick(y int) tea.Cmd {
+	k := m.rowAt(y)
+	if k == "" {
+		return nil
+	}
+	double := k == m.sel && time.Since(m.lastClick) < 400*time.Millisecond
+	m.sel, m.lastClick, m.armed = k, time.Now(), ""
+	if strings.HasPrefix(k, "§") {
+		m.toggleFold(strings.TrimPrefix(k, "§"))
+		return nil
+	}
+	if double {
+		return m.attach(m.selected())
+	}
+	return m.loadPreview()
+}
+
 func (m *Model) loadPreview() tea.Cmd {
-	a := m.selected()
+	a := m.focused()
 	if a == nil || a.TranscriptPath == "" {
 		return nil
 	}
@@ -189,7 +235,7 @@ func (m *Model) loadPreview() tea.Cmd {
 	}
 	key, path, size := a.Key, a.TranscriptPath, st.Size()
 	return func() tea.Msg {
-		return previewMsg{key: key, e: previewEntry{p: claude.ReadPreview(path, 96<<10), size: size}}
+		return previewMsg{key: key, e: previewEntry{p: claude.ReadPreview(path, 384<<10), size: size}}
 	}
 }
 
@@ -209,9 +255,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}
-		if m.preview || m.mode == modeProcs {
-			cmds = append(cmds, m.loadPreview())
-		}
+		cmds = append(cmds, m.loadPreview())
 		return m, tea.Batch(cmds...)
 	case scanMsg:
 		m.scanning = false
@@ -219,6 +263,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loaded = true
 		m.refresh()
 		return m, nil
+	case dialogReload:
+		if m.dialog != nil {
+			m.loadDialog()
+		}
+		if msg.err != nil {
+			m.flash(msg.err.Error(), true)
+		}
+		return m, nil
+	case hoverMsg:
+		return m, m.loadPreview()
 	case previewMsg:
 		m.previews[msg.key] = msg.e
 		return m, nil
@@ -262,12 +316,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
+	case tea.MouseMotionMsg:
+		return m, m.mouseMove(msg.Y)
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft {
+			return m, m.mouseClick(msg.Y)
+		}
+	case tea.MouseWheelMsg:
+		if m.mode == modeList && m.dialog == nil {
+			switch msg.Button {
+			case tea.MouseWheelUp:
+				m.move(-3)
+			case tea.MouseWheelDown:
+				m.move(3)
+			}
+			return m, m.loadPreview()
+		}
 	}
 	return m, nil
 }
 
 func (m *Model) acceptsText() bool {
-	return m.confirm == nil && (m.mode == modeList || m.mode == modeCwd || m.inKind == inNewAccount)
+	return m.confirm == nil && m.dialog == nil && (m.mode == modeList || m.mode == modeCwd || m.inKind == inNewAccount)
 }
 
 func (m *Model) refresh() {
@@ -283,7 +353,7 @@ func (m *Model) notify() {
 	for _, a := range m.snap.Agents {
 		prev := m.lastState[a.Key]
 		m.lastState[a.Key] = a.State
-		if !first && prev != "" && prev != "blocked" && a.State == "blocked" {
+		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.State == "blocked" {
 			body := a.Needs
 			if body == "" {
 				body = oneLine(a.Detail)
@@ -325,26 +395,68 @@ func (m *Model) selIndex() int {
 }
 
 func (m *Model) move(d int) {
-	if len(m.order) == 0 {
+	items := m.items()
+	if len(items) == 0 {
 		return
 	}
-	i := m.selIndex() + d
-	if i < 0 {
-		i = 0
+	i := 0
+	for j, k := range items {
+		if k == m.sel {
+			i = j
+		}
 	}
-	if i >= len(m.order) && !m.earlier && m.hidden > 0 {
-		m.earlier = true
-		m.rebuild()
-	}
-	if i >= len(m.order) {
-		i = len(m.order) - 1
-	}
-	m.sel = m.order[i].Key
+	i = min(max(i+d, 0), len(items)-1)
+	m.sel = items[i]
 	m.armed = ""
 }
 
+// items are the selectable rows in display order: sections and agents.
+func (m *Model) items() []string {
+	var out []string
+	for _, l := range m.lines {
+		switch l.kind {
+		case lineSection:
+			out = append(out, sectionKey(l.title))
+		case lineAgent:
+			out = append(out, l.agent.Key)
+		}
+	}
+	return out
+}
+
+func (m *Model) folded(title string) bool {
+	if v, ok := m.store.Config.Folds[title]; ok {
+		return v
+	}
+	return title == "Earlier"
+}
+
+func (m *Model) toggleFold(title string) {
+	if m.store.Config.Folds == nil {
+		m.store.Config.Folds = map[string]bool{}
+	}
+	m.store.Config.Folds[title] = !m.folded(title)
+	_ = m.store.SaveConfig()
+	m.rebuild()
+}
+
+// focused is the agent whose card is open: the selection, or a row the
+// mouse has rested on.
+func (m *Model) focused() *fleet.Agent {
+	key := m.sel
+	if m.hover != "" && time.Since(m.hoverAt) > 350*time.Millisecond {
+		key = m.hover
+	}
+	for _, a := range m.order {
+		if a.Key == key {
+			return a
+		}
+	}
+	return nil
+}
+
 // rebuild groups the agents for the current group-by mode. What needs the
-// user comes first; anything finished more than a day ago folds into Earlier.
+// user comes first; anything finished more than a day ago goes to Earlier.
 func (m *Model) rebuild() {
 	by := m.store.Config.GroupBy
 	now := m.snap.At
@@ -366,9 +478,8 @@ func (m *Model) rebuild() {
 			g.recent = a.UpdatedAt
 		}
 	}
-	var earlier []*fleet.Agent
 	for _, a := range m.snap.Agents {
-		fresh := a.Live() || a.Pinned || a.Age(now) < 24*time.Hour
+		fresh := a.Open() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
 		case a.State == "blocked":
 			add("Needs you", 0, a)
@@ -376,8 +487,10 @@ func (m *Model) rebuild() {
 			add("Pinned", 1, a)
 		case a.Live() && by == "status":
 			add("Working", 2, a)
+		case a.Interactive && by == "status":
+			add("Open in terminals", 3, a)
 		case !fresh:
-			earlier = append(earlier, a)
+			add("Earlier", 9, a)
 		case a.Done:
 			add("Done", 8, a)
 		case by == "repo":
@@ -388,11 +501,11 @@ func (m *Model) rebuild() {
 					name += " · " + a.Branch
 				}
 			}
-			add(name, 3, a)
+			add(name, 4, a)
 		case by == "account":
-			add(a.Acct.Name, 3, a)
+			add(a.Acct.Name, 4, a)
 		case by == "group" && a.Group != "":
-			add(a.Group, 3, a)
+			add(a.Group, 4, a)
 		case a.Live():
 			add("Working", 2, a)
 		default:
@@ -411,42 +524,39 @@ func (m *Model) rebuild() {
 	})
 	m.order = m.order[:0]
 	m.lines = m.lines[:0]
-	push := func(a *fleet.Agent) {
-		m.order = append(m.order, a)
-		m.lines = append(m.lines, listLine{kind: lineAgent, agent: a})
-		if a.Live() || m.expanded[a.Key] {
-			m.lines = append(m.lines, listLine{kind: lineSub, agent: a})
-		}
-	}
 	for _, g := range list {
 		var cost float64
+		var names []string
 		for _, a := range g.agents {
 			cost += a.Spend.Cost
+			if len(names) < 4 {
+				names = append(names, oneLine(a.DisplayName))
+			}
 		}
-		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: sectionMeta(len(g.agents), cost)})
+		fold := m.folded(g.name)
+		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: sectionMeta(len(g.agents), cost),
+			folded: fold, peek: strings.Join(names, ", ")})
 		for _, a := range g.agents {
-			push(a)
+			m.order = append(m.order, a)
+			if fold {
+				continue
+			}
+			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a})
+			if a.Live() || a.State == "blocked" {
+				m.lines = append(m.lines, listLine{kind: lineSub, agent: a})
+			}
+			m.lines = append(m.lines, listLine{kind: lineCard, agent: a})
 		}
 		m.lines = append(m.lines, listLine{kind: lineBlank})
 	}
-	m.hidden = 0
-	if len(earlier) > 0 {
-		var cost float64
-		for _, a := range earlier {
-			cost += a.Spend.Cost
-		}
-		if m.earlier {
-			m.lines = append(m.lines, listLine{kind: lineSection, title: "Earlier", meta: sectionMeta(len(earlier), cost)})
-			for _, a := range earlier {
-				push(a)
-			}
-		} else {
-			m.hidden = len(earlier)
-			m.lines = append(m.lines, listLine{kind: lineEarlier, meta: sectionMeta(len(earlier), cost)})
-		}
+	valid := false
+	for _, k := range m.items() {
+		valid = valid || k == m.sel
 	}
-	if m.selected() == nil && len(m.order) > 0 {
-		m.sel = m.order[0].Key
+	if !valid {
+		if items := m.items(); len(items) > 0 {
+			m.sel = items[min(1, len(items)-1)]
+		}
 	}
 }
 
@@ -486,6 +596,10 @@ func cmdErr(text string, f func() error) tea.Cmd {
 
 func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 	if a == nil {
+		return nil
+	}
+	if a.Interactive {
+		m.flash(fmt.Sprintf("%s is open in another terminal (pid %d)", a.DisplayName, a.PID), false)
 		return nil
 	}
 	s := &daemon.Session{Client: daemon.Client{Account: a.Acct}, Short: a.ID}

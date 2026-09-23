@@ -28,12 +28,34 @@ type Config struct {
 	Accounts  []claude.Account `json:"accounts"`
 	Active    string           `json:"active"`
 	GroupBy   string           `json:"groupBy"`
+	Folds     map[string]bool  `json:"folds,omitempty"`
+	Dispatch  Dispatch         `json:"dispatch"`
+	Quiet     bool             `json:"quiet,omitempty"`
 	Hibernate struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`
 }
 
 // AllAccounts is the default account plus any configured ones.
+// Dispatch is how new sessions start: which coding agent, model, effort and
+// permission mode. Empty means Claude Code's own default.
+type Dispatch struct {
+	Agent      string `json:"agent,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Effort     string `json:"effort,omitempty"`
+	Permission string `json:"permission,omitempty"`
+}
+
+func (d Dispatch) Flags() []string {
+	var f []string
+	for _, p := range [][2]string{{"--agent", d.Agent}, {"--model", d.Model}, {"--effort", d.Effort}, {"--permission-mode", d.Permission}} {
+		if p[1] != "" {
+			f = append(f, p[0], p[1])
+		}
+	}
+	return f
+}
+
 func (c Config) AllAccounts() []claude.Account {
 	out := []claude.Account{claude.DefaultAccount()}
 	for _, a := range c.Accounts {

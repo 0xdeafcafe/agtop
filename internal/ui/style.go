@@ -125,6 +125,8 @@ func thousands(n int64) string {
 
 func tokens(n int64) string {
 	switch {
+	case n >= 1_000_000 && n%1_000_000 == 0:
+		return fmt.Sprintf("%dM", n/1_000_000)
 	case n >= 1_000_000:
 		return fmt.Sprintf("%.1fM", float64(n)/1e6)
 	case n >= 1000:

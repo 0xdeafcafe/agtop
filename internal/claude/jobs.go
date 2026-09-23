@@ -34,6 +34,9 @@ type Job struct {
 
 func (j Job) Live() bool { return j.State == "working" || j.State == "blocked" }
 
+// Open is true for anything with a live process, including idle terminals.
+func (j Job) Open() bool { return j.Live() || j.State == "idle" }
+
 type jobFile struct {
 	State          string          `json:"state"`
 	Detail         string          `json:"detail"`
