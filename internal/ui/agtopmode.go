@@ -53,7 +53,7 @@ func (m *Model) refreshSubs() {
 	if c == nil || c.path == "" {
 		return
 	}
-	c.subs = convo.ListSubagents(c.path)
+	c.subs = c.subList.List(c.path)
 	if c.subTails == nil {
 		c.subTails = map[string]*convo.Tail{}
 	}
@@ -468,7 +468,8 @@ type hostConn struct {
 	subTail  *convo.Tail
 	subTails map[string]*convo.Tail // every run, followed for its numbers
 	subOpen  string
-	subSel   string // selection inside the opened subagent
+	subList  convo.Subagents // finds the runs, reading each one's meta once
+	subSel   string          // selection inside the opened subagent
 
 	// Search: ctrl+f turns the message box into a search box.
 	searching bool

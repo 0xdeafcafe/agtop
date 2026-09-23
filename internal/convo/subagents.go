@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Subagent is one run of a subagent, as Claude Code records it beside the
@@ -22,21 +23,48 @@ type Subagent struct {
 
 // ListSubagents finds the subagents of the session whose transcript is at
 // path, oldest first.
-func ListSubagents(transcript string) []Subagent {
+func ListSubagents(transcript string) []Subagent { return new(Subagents).List(transcript) }
+
+// Subagents lists a session's subagents again and again, reading each
+// run's meta file only when it's new or has changed.
+type Subagents struct {
+	metas map[string]subMeta
+}
+
+type subMeta struct {
+	mod  time.Time
+	size int64
+	sa   Subagent
+	ok   bool
+}
+
+// List is ListSubagents.
+func (l *Subagents) List(transcript string) []Subagent {
 	dir := filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")
 	metas, _ := filepath.Glob(filepath.Join(dir, "agent-*.meta.json"))
+	if l.metas == nil {
+		l.metas = map[string]subMeta{}
+	}
 	var out []Subagent
 	for _, meta := range metas {
-		b, err := os.ReadFile(meta)
+		st, err := os.Stat(meta)
 		if err != nil {
 			continue
 		}
-		var sa Subagent
-		if json.Unmarshal(b, &sa) != nil {
+		m, seen := l.metas[meta]
+		if !seen || !m.mod.Equal(st.ModTime()) || m.size != st.Size() {
+			m = subMeta{mod: st.ModTime(), size: st.Size()}
+			if b, err := os.ReadFile(meta); err == nil && json.Unmarshal(b, &m.sa) == nil {
+				m.ok = true
+				m.sa.ID = strings.TrimSuffix(strings.TrimPrefix(filepath.Base(meta), "agent-"), ".meta.json")
+				m.sa.Path = filepath.Join(dir, "agent-"+m.sa.ID+".jsonl")
+			}
+			l.metas[meta] = m // a half-written one changes size, and is read again
+		}
+		if !m.ok {
 			continue
 		}
-		sa.ID = strings.TrimSuffix(strings.TrimPrefix(filepath.Base(meta), "agent-"), ".meta.json")
-		sa.Path = filepath.Join(dir, "agent-"+sa.ID+".jsonl")
+		sa := m.sa
 		if st, err := os.Stat(sa.Path); err == nil {
 			sa.Mod = st.ModTime().UnixNano()
 		}
