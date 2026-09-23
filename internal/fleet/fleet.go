@@ -35,6 +35,10 @@ type Agent struct {
 	PID         int // root of the process tree
 }
 
+// Busy is a finished turn whose background work is still running in a live
+// process; a job file can claim work long after its process has gone.
+func (a *Agent) Busy() bool { return a.Job.Busy() && a.PID != 0 }
+
 // Age is what the native view prints on the right: time since last change.
 func (a *Agent) Age(now time.Time) time.Duration {
 	t := a.UpdatedAt

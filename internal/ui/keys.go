@@ -200,6 +200,16 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "ctrl+g":
 		m.openDialog(tabAgents)
 		return nil
+	case "shift+up", "shift+down":
+		n := m.dockLines()
+		if s == "shift+up" {
+			n++
+		} else {
+			n--
+		}
+		m.store.Config.DockLines = min(max(n, 1), 15)
+		_ = m.store.SaveConfig()
+		return nil
 	case "ctrl+n":
 		m.dirIdx++
 		return nil

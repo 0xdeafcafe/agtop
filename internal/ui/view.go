@@ -23,8 +23,8 @@ func (m *Model) View() tea.View {
 }
 
 type tally struct {
-	blocked, working, done int
-	today                  float64
+	blocked, working, busy, done int
+	today                        float64
 }
 
 func (m *Model) tally() tally {
@@ -35,6 +35,8 @@ func (m *Model) tally() tally {
 			t.blocked++
 		case a.Live():
 			t.working++
+		case a.Busy():
+			t.busy++
 		default:
 			t.done++
 		}
@@ -70,6 +72,9 @@ func (m *Model) header() []string {
 	}
 	if t.working > 0 {
 		counts = append(counts, paint(cOrange, fmt.Sprintf("✻ %d working", t.working)))
+	}
+	if t.busy > 0 {
+		counts = append(counts, paint(cSub, fmt.Sprintf("◌ %d in background", t.busy)))
 	}
 	counts = append(counts, dim(fmt.Sprintf("%d finished", t.done)))
 	left1 := paint(cText+bold, "agtop") + "   " + strings.Join(counts, "   ")
@@ -231,7 +236,7 @@ func (m *Model) listView() string {
 	}
 	prompt := m.promptLines()
 	var dock []string
-	if !m.preview && m.h >= 24 {
+	if !m.preview && m.h >= 20+m.dockLines() {
 		if f := m.focused(); f != nil {
 			for _, l := range m.cardLines(f, m.w-4) {
 				dock = append(dock, "  "+l)
@@ -239,7 +244,7 @@ func (m *Model) listView() string {
 		} else {
 			dock = append(dock, "", faint("  select an agent to see what it is doing"))
 		}
-		for len(dock) < 7 {
+		for len(dock) < 4+m.dockLines() {
 			dock = append(dock, "")
 		}
 	}
@@ -393,7 +398,7 @@ func (m *Model) sectionLine(l listLine, w int) string {
 // cardLines draw the focused row's details as a box: what it is doing now
 // in the title, its latest words inside, and its numbers in a footer.
 func (m *Model) cardLines(a *fleet.Agent, w int) []string {
-	const bodyLines = 3
+	bodyLines := m.dockLines()
 	p := m.previews[a.Key].p
 	inner := w - 6
 	edge := func(s string) string { return paint(cDim, s) }
@@ -406,6 +411,8 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 		title = paint(cOrange, "● ") + paint(cText+bold, p.Tool) + "  " + paint(cSub, ansi.Truncate(arg, max(10, inner-len(p.Tool)-8), "…"))
 	case a.State == "blocked":
 		title = paint(cYellow+bold, "waiting on you")
+	case a.Busy():
+		title = paint(cOrange, "◌ ") + paint(cText, "background work still running")
 	case a.PID != 0:
 		title = dim("idle · still in memory")
 	default:
@@ -459,7 +466,7 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 			cells = append(cells, dim("ran ")+paint(cSub, dur(el)))
 		}
 	}
-	if c := m.context(a); c != "" && c != m.sharedContext() {
+	if c := m.context(a); c != "" {
 		cells = append(cells, faint(c))
 	}
 
@@ -493,7 +500,7 @@ func ctxBar(pct float64) string {
 func (m *Model) nameColumn(w int) int {
 	widest := 0
 	for _, l := range m.lines {
-		if l.kind != lineAgent || l.agent.Live() {
+		if l.kind != lineAgent {
 			continue
 		}
 		n := ansi.StringWidth(oneLine(l.agent.DisplayName))
@@ -516,12 +523,15 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 		marker = paint(cYellow, "●")
 	case live:
 		marker = paint(cOrange, spinner[(m.tick+len(a.ID))%len(spinner)])
+	case a.Busy():
+		marker = paint(cOrange, "◌")
 	case a.Done:
 		marker = paint(cGreen, "✓")
 	case a.PID != 0:
 		marker = faint("◦")
 	}
 
+	busy := a.Busy()
 	resident := !live && a.PID != 0
 	var right string
 	if live || resident {
@@ -530,7 +540,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 			cpu = right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)
 			ram = right1(mem(a.Mem), wRAM)
 		}
-		if live {
+		if live || busy {
 			right = dim(cpuColor(a.CPU, cpu)) + memColor(a.Mem, ram) + paint(cText, right1(money(a.Spend.Cost), wCost))
 		} else {
 			right = faint(cpu) + dim(ram) + dim(right1(money(a.Spend.Cost), wCost))
@@ -543,15 +553,19 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 		right = strings.Repeat(" ", wCPU+wRAM) + dim(right1(cost, wCost))
 	}
 	if live {
-		right += strings.Repeat(" ", wAge) + " "
+		right += faint(right1(dur(a.Elapsed(now)), wAge+2)) + " "
+	} else if busy {
+		right += faint(right1(age(a.Age(now)), wAge+2)) + " "
 	} else {
-		right += faint(right1(age(a.Age(now)), wAge)) + " "
+		right += faint(right1(age(a.Age(now)), wAge+2)) + " "
 	}
 
 	nameColor := cSub
 	switch {
 	case live || sel:
 		nameColor = cText + bold
+	case busy:
+		nameColor = cText
 	case a.Pinned:
 		nameColor = cText
 	case a.Done:
@@ -559,27 +573,37 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	}
 	name := oneLine(a.DisplayName)
 	badges := m.badges(a)
-	summary := ""
-	if f := m.focused(); !live && !m.expanded[a.Key] && (m.preview || f == nil || f.Key != a.Key) {
-		summary = oneLine(a.Detail)
-		if summary == "stopped" || summary == "" {
-			summary = ""
+	summary, sumColor := "", cDim
+	switch {
+	case a.State == "blocked":
+		summary, sumColor = oneLine(a.Needs), cYellow
+		if summary == "" {
+			summary = oneLine(a.Detail)
 		}
+	case live:
+		summary, sumColor = oneLine(a.Detail), cSub
+		if summary == "" && a.Interactive {
+			summary = "working in a terminal"
+		}
+	case busy:
+		summary = backgroundText(a)
+	default:
+		if f := m.focused(); m.preview || f == nil || f.Key != a.Key {
+			summary = oneLine(a.Detail)
+		}
+	}
+	if summary == "stopped" {
+		summary = ""
 	}
 	room := w - 3 - ansi.StringWidth(right)
 	left := paint(nameColor, name)
 	if badges != "" {
 		left += " " + badges
 	}
-	switch {
-	case live:
-		if ctx := m.context(a); ctx != "" && ctx != m.sharedContext() {
-			left += "   " + faint(ctx)
-		}
-	case summary != "":
+	if summary != "" {
 		left = fit(left, nameCol)
 		if sw := room - nameCol - 2; sw > 8 {
-			left += "  " + dim(fit(summary, sw))
+			left += "  " + paint(sumColor, fit(summary, sw))
 		}
 	}
 	return " " + marker + " " + fit(left, room) + right
@@ -628,6 +652,37 @@ func (m *Model) context(a *fleet.Agent) string {
 	return s
 }
 
+// backgroundText says what a finished agent is still waiting on.
+func backgroundText(a *fleet.Agent) string {
+	kinds := map[string]int{}
+	var first string
+	for _, b := range a.Background {
+		k, label, _ := strings.Cut(b, "\x00")
+		kinds[k]++
+		if first == "" {
+			first = oneLine(label)
+		}
+	}
+	var parts []string
+	for _, k := range []string{"shell", "agent", "monitor"} {
+		if n := kinds[k]; n > 0 {
+			name := map[string]string{"shell": "shell", "agent": "subagent", "monitor": "monitor"}[k]
+			if n > 1 {
+				name += "s"
+			}
+			parts = append(parts, fmt.Sprintf("%d %s", n, name))
+		}
+	}
+	if len(parts) == 0 {
+		parts = append(parts, fmt.Sprintf("%d tasks", a.InFlight))
+	}
+	s := "background · " + strings.Join(parts, ", ") + " running"
+	if first != "" {
+		s += " · " + first
+	}
+	return s
+}
+
 // subLine is the second line of a live row: what the agent is doing.
 func (m *Model) subLine(a *fleet.Agent, w int) string {
 	text, col := oneLine(a.Detail), cSub
@@ -640,12 +695,18 @@ func (m *Model) subLine(a *fleet.Agent, w int) string {
 	if a.State == "blocked" && a.Needs != "" {
 		text, col = oneLine(a.Needs), cYellow
 	}
-	if !a.Live() && m.expanded[a.Key] {
+	if a.Busy() {
+		text, col = backgroundText(a), cSub
+	}
+	if !a.Live() && !a.Busy() && m.expanded[a.Key] {
 		text = oneLine(a.Detail) + dim("  ·  "+tildify(a.Cwd))
 	}
 	tail := ""
-	if a.Live() {
+	switch {
+	case a.Live():
 		tail = faint(dur(a.Elapsed(m.snap.At)) + " running")
+	case a.Busy():
+		tail = faint("turn ended " + age(a.Age(m.snap.At)) + " ago")
 	}
 	room := w - 5 - ansi.StringWidth(tail) - 3
 	return "    " + paint(col, fit(text, room)) + "  " + tail
@@ -673,6 +734,13 @@ func (m *Model) badges(a *fleet.Agent) string {
 			col = cRed
 		}
 		parts = append(parts, paint(col, fmt.Sprintf("#%d", pr.Number)))
+	}
+	if a.Subagents > 0 {
+		label := "subagent"
+		if a.Subagents > 1 {
+			label += "s"
+		}
+		parts = append(parts, paint(cOrange, fmt.Sprintf("↳%d", a.Subagents))+faint(" "+label))
 	}
 	if a.Children > 0 {
 		parts = append(parts, faint(fmt.Sprintf("⧉%d", a.Children)))
@@ -948,7 +1016,7 @@ func (m *Model) helpBody() []string {
 	left := []group{
 		{"Move & open", [][2]string{
 			{"↑ ↓", "move"}, {"enter", "open the agent · fold a section"}, {"← →", "fold · unfold · back"},
-			{"tab", "preview · again for full screen"}, {"ctrl+]", "leave an open agent"},
+			{"tab", "preview · again for full screen"}, {"shift+↑ ↓", "taller or shorter preview"}, {"ctrl+]", "leave an open agent"},
 		}},
 		{"Manage", [][2]string{
 			{"ctrl+r", "rename"}, {"ctrl+t", "pin"}, {"ctrl+f", "done / back"},

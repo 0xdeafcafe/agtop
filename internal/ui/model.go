@@ -207,6 +207,15 @@ func (m *Model) startDirs() []string {
 	return out
 }
 
+// dockLines is how many lines of the latest message the dock shows.
+func (m *Model) dockLines() int {
+	n := m.store.Config.DockLines
+	if n == 0 {
+		n = 3
+	}
+	return min(max(n, 1), max(1, m.h/3))
+}
+
 func (m *Model) startDir() string {
 	dirs := m.startDirs()
 	return dirs[((m.dirIdx%len(dirs))+len(dirs))%len(dirs)]
@@ -516,13 +525,13 @@ func (m *Model) rebuild() {
 		}
 	}
 	for _, a := range m.snap.Agents {
-		fresh := a.Open() || a.Pinned || a.Age(now) < 24*time.Hour
+		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
 		case a.State == "blocked":
 			add("Needs you", 0, a)
 		case a.Pinned:
 			add("Pinned", 1, a)
-		case a.Live() && by == "status":
+		case (a.Live() || a.Busy()) && by == "status":
 			add("Working", 2, a)
 		case a.PID != 0 && by == "status":
 			add("Idle", 3, a)
@@ -559,6 +568,9 @@ func (m *Model) rebuild() {
 		}
 		return list[i].recent.After(list[j].recent)
 	})
+	for _, g := range list {
+		sort.SliceStable(g.agents, func(i, j int) bool { return g.agents[i].Live() && !g.agents[j].Live() })
+	}
 	m.order = m.order[:0]
 	m.lines = m.lines[:0]
 	for _, g := range list {
@@ -587,9 +599,6 @@ func (m *Model) rebuild() {
 				continue
 			}
 			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a})
-			if a.Live() || a.State == "blocked" {
-				m.lines = append(m.lines, listLine{kind: lineSub, agent: a})
-			}
 			m.lines = append(m.lines, listLine{kind: lineCard, agent: a})
 		}
 		m.lines = append(m.lines, listLine{kind: lineBlank})

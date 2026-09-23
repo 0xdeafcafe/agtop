@@ -17,6 +17,7 @@ func TestKeyNames(t *testing.T) {
 		"pgdown":    {Code: tea.KeyPgDown},
 		"ctrl+r":    {Code: 'r', Mod: tea.ModCtrl},
 		"ctrl+t":    {Code: 't', Mod: tea.ModCtrl},
+		"shift+up":  {Code: tea.KeyUp, Mod: tea.ModShift},
 	}
 	for want, k := range cases {
 		if got := k.String(); got != want {

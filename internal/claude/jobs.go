@@ -27,12 +27,18 @@ type Job struct {
 	WorktreePath   string
 	WorktreeBranch string
 	Children       int
+	InFlight       int      // background tasks running or queued
+	Background     []string // what they are: shell commands, subagent names
+	Subagents      int      // subagents still running
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	ModTime        time.Time
 }
 
 func (j Job) Live() bool { return j.State == "working" || j.State == "blocked" }
+
+// Busy is a finished turn whose background work is still running.
+func (j Job) Busy() bool { return !j.Live() && j.InFlight > 0 && len(j.Background) > 0 }
 
 // Open is true for anything with a live process, including idle terminals.
 func (j Job) Open() bool { return j.Live() || j.State == "idle" }
@@ -54,8 +60,17 @@ type jobFile struct {
 	WorktreePath   string          `json:"worktreePath"`
 	WorktreeBranch string          `json:"worktreeBranch"`
 	Children       json.RawMessage `json:"children"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	UpdatedAt      time.Time       `json:"updatedAt"`
+	InFlightRaw    *struct {
+		Tasks  int `json:"tasks"`
+		Queued int `json:"queued"`
+	} `json:"inFlight"`
+	Fan []struct {
+		Kind   string `json:"kind"`
+		Label  string `json:"label"`
+		DoneAt int64  `json:"doneAt"`
+	} `json:"fan"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func LoadJob(a Account, id string) (Job, error) {
@@ -90,6 +105,17 @@ func LoadJob(a Account, id string) (Job, error) {
 		var c []json.RawMessage
 		if json.Unmarshal(f.Children, &c) == nil {
 			j.Children = len(c)
+		}
+	}
+	if f.InFlightRaw != nil {
+		j.InFlight = f.InFlightRaw.Tasks + f.InFlightRaw.Queued
+	}
+	for _, x := range f.Fan {
+		if x.Kind != "todo" && x.DoneAt == 0 && x.Label != "" {
+			j.Background = append(j.Background, x.Kind+"\x00"+x.Label)
+			if x.Kind == "agent" {
+				j.Subagents++
+			}
 		}
 	}
 	if j.Name == "" {

@@ -31,6 +31,7 @@ type Config struct {
 	Folds     map[string]bool  `json:"folds,omitempty"`
 	Dispatch  Dispatch         `json:"dispatch"`
 	Quiet     bool             `json:"quiet,omitempty"`
+	DockLines int              `json:"dockLines,omitempty"`
 	Hibernate struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`
