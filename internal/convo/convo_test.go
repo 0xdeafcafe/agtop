@@ -641,3 +641,27 @@ func TestCompactDivider(t *testing.T) {
 		t.Fatalf("no divider:\n%s", out)
 	}
 }
+
+func TestChangesHunks(t *testing.T) {
+	s := session()
+	var ref string
+	for _, l := range s.ChangesView(Options{Width: 110, Now: at(40)}) {
+		if strings.HasPrefix(l.Ref, "chg:") {
+			ref = l.Ref
+			break
+		}
+	}
+	if ref == "" {
+		t.Fatal("no file rows")
+	}
+	lines := s.ChangesView(Options{Width: 110, Now: at(40), Open: map[string]bool{ref: true}, Marks: map[string]bool{strings.TrimPrefix(ref, "chg:"): true}})
+	out, jump := plain(lines), false
+	for _, l := range lines {
+		if strings.HasPrefix(l.Ref, "jump:t") && strings.Contains(l.Ref, ":s:") {
+			jump = true
+		}
+	}
+	if !jump || !strings.Contains(out, "@ line") || !strings.Contains(out, "✓") || !strings.Contains(out, "1 of") {
+		t.Fatalf("hunks and marks:\n%s", out)
+	}
+}

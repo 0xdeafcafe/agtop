@@ -435,6 +435,7 @@ type hostConn struct {
 	slashSel int    // the slash-command picker's selection
 	pastes   pastes // long pastes shown as chips
 	arts     []*artifact
+	marks    map[string]bool // files marked reviewed in the changes view
 	artsKey  string
 	local    []headless.Command // custom commands and skills on disk
 	skills   map[string]bool
@@ -745,6 +746,7 @@ func (m *Model) agtopPane(w, h int) []string {
 	case "overview":
 		body = s.Overview(o)
 	case "changes":
+		o.Marks = c.marks
 		body = s.ChangesView(o)
 	case "queue":
 		body = m.queueLines(c, o)
@@ -1234,6 +1236,16 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.quitKey()
 		}
 	case "enter", "right":
+		if step, ok := strings.CutPrefix(c.sel, "jump:"); ok && empty && s == "enter" && step != "" {
+			// From a hunk to the step that made it, in the conversation.
+			turn, _, _ := strings.Cut(step, ":")
+			c.open[turn], c.open[step] = true, true
+			if p := c.sess.ParentRef(step); p != "" {
+				c.open[p] = true
+			}
+			c.view, c.sel, c.selMoved = 0, step, true
+			return nil
+		}
 		if url, ok := strings.CutPrefix(c.sel, "art:"); ok && empty && m.viewName(c) == "artifacts" {
 			return browse(url)
 		}
@@ -1308,6 +1320,15 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			default:
 				m.leavePane()
 			}
+			return nil
+		}
+	case "alt+r":
+		// Mark a file reviewed in the changes view, or unmark it.
+		if path, ok := strings.CutPrefix(c.sel, "chg:"); ok && m.viewName(c) == "changes" {
+			if c.marks == nil {
+				c.marks = map[string]bool{}
+			}
+			c.marks[path] = !c.marks[path]
 			return nil
 		}
 	case "alt+down", "alt+up":

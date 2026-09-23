@@ -32,6 +32,7 @@ type Options struct {
 	Verbose  bool            // ctrl+o: open everything, trim nothing
 	Selected string
 	Focused  bool
+	Marks    map[string]bool // files you've marked reviewed in the changes view
 }
 
 const (

@@ -23,7 +23,9 @@ type FileChange struct {
 	New     bool
 	Turns   []int
 	Patches []headless.Patch
-	Content string // a new file's content
+	From    []string // for each patch, the step that made it ("t3:s:toolu_…")
+	Content string   // a new file's content
+	NewFrom string   // the step that created it
 }
 
 // Changes collects the session's edits by file, in the order files were
@@ -69,13 +71,15 @@ func (s *Session) changesNow() []*FileChange {
 				Content string `json:"content"`
 			}
 			_ = json.Unmarshal(st.Result, &r)
+			stepRef := fmt.Sprintf("t%d:s:%s", t.N, st.ID)
 			if r.Type == "create" {
-				fc.New, fc.Content = true, r.Content
+				fc.New, fc.Content, fc.NewFrom = true, r.Content, stepRef
 				fc.Add += countLines(r.Content)
 				continue
 			}
 			for _, p := range headless.Patches(st.Result) {
 				fc.Patches = append(fc.Patches, p)
+				fc.From = append(fc.From, stepRef)
 				for _, l := range p.Lines {
 					switch {
 					case strings.HasPrefix(l, "+"):
@@ -250,6 +254,13 @@ func (s *Session) ChangesView(o Options) []Line {
 	meta := "nothing edited yet"
 	if len(changes) > 0 {
 		meta = fmt.Sprintf("%s · +%d −%d", plural(len(changes), "file"), adds, dels)
+		seen := 0
+		for _, fc := range changes {
+			if o.Marks[fc.Path] {
+				seen++
+			}
+		}
+		meta += fmt.Sprintf(" · %d of %d reviewed · alt+r marks one", seen, len(changes))
 	}
 	rule("This session", meta)
 	for _, fc := range changes {
@@ -267,13 +278,25 @@ func (s *Session) ChangesView(o Options) []Line {
 		for _, n := range fc.Turns {
 			turns = append(turns, fmt.Sprintf("#%d", n))
 		}
-		add(ref, "  "+arrow+" "+text(d.rel(fc.Path)), counts+"   "+dim(strings.Join(turns, " ")))
+		name := text(d.rel(fc.Path))
+		mark := "  "
+		if o.Marks[fc.Path] {
+			mark, name = paint(cGreen, "✓ "), dim(d.rel(fc.Path))
+		}
+		add(ref, "  "+arrow+" "+mark+name, counts+"   "+dim(strings.Join(turns, " ")))
 		if !open {
 			continue
 		}
 		pad := strings.Repeat(" ", 7)
 		bw := w - 16
+		// Each hunk under a row naming the turn that made it; enter on it
+		// goes to that step in the conversation.
+		hunk := func(from, what string) {
+			turn, _, _ := strings.Cut(from, ":")
+			add("jump:"+from, pad+paint(cBlue, "@ ")+dim(what)+"  "+sub("#"+strings.TrimPrefix(turn, "t")), dim("enter goes to the step"))
+		}
 		if fc.New {
+			hunk(fc.NewFrom, "created")
 			for i, l := range strings.Split(strings.TrimRight(fc.Content, "\n"), "\n") {
 				if i >= 40 && !o.Verbose {
 					add("", pad+dim("… ctrl+o shows the rest"), "")
@@ -284,9 +307,11 @@ func (s *Session) ChangesView(o Options) []Line {
 			// Edits made after it was created follow.
 		}
 		for pi, p := range fc.Patches {
-			if pi > 0 || fc.New {
-				add("", pad+dim("  ..."), "")
+			from := ""
+			if pi < len(fc.From) {
+				from = fc.From[pi]
 			}
+			hunk(from, fmt.Sprintf("line %d", p.NewStart))
 			oldN, newN := p.OldStart, p.NewStart
 			for _, l := range p.Lines {
 				if l == "" {
@@ -354,7 +379,27 @@ func (s *Session) ChangesView(o Options) []Line {
 		if f.Ours {
 			who, mark = paint(cOrange, "this session"), paint(cOrange, "●")
 		}
-		add("", "    "+mark+" "+text(d.rel(f.Path)), counts+"   "+who)
+		tref := "tree:" + f.Path
+		arrow := faint("▸")
+		if o.Open[tref] {
+			arrow = faint("▾")
+		}
+		add(tref, "  "+arrow+" "+mark+" "+text(d.rel(f.Path)), counts+"   "+who)
+		if o.Open[tref] {
+			for _, l := range treeDiff(tree, f) {
+				b := bgWell
+				switch {
+				case strings.HasPrefix(l, "+"):
+					b = bgAdd
+				case strings.HasPrefix(l, "-"):
+					b = bgDel
+				case strings.HasPrefix(l, "@@"):
+					out = append(out, Line{Text: row("", "       "+paint(cBlue, truncateCells(l, w-10)), "", o.Width, w)})
+					continue
+				}
+				out = append(out, Line{Text: row(b, "       "+text(truncateCells(expandTabs(cleanOutput(l)), w-10)), "", o.Width, w)})
+			}
+		}
 	}
 	return out
 }
@@ -500,4 +545,50 @@ patches:
 	}
 	s.rail[st] = b
 	return b
+}
+
+var diffs = struct {
+	sync.Mutex
+	m       map[string][]string
+	reading map[string]bool
+}{m: map[string][]string{}, reading: map[string]bool{}}
+
+// treeDiff is git's own diff of one working-tree file against HEAD (or the
+// file itself when it's untracked), read in the background: the first call
+// says so and the next frame has it. It is read again with each new
+// reading of the tree.
+func treeDiff(t *Tree, f TreeFile) []string {
+	key := fmt.Sprint(t.Root, "\x00", f.Path, "\x00", t.at.UnixNano())
+	diffs.Lock()
+	defer diffs.Unlock()
+	if d, ok := diffs.m[key]; ok {
+		return d
+	}
+	if !diffs.reading[key] {
+		diffs.reading[key] = true
+		go func() {
+			var out []byte
+			if f.Untracked {
+				out, _ = git(t.Root, "diff", "--no-index", "--", "/dev/null", f.Path)
+			} else {
+				out, _ = git(t.Root, "diff", "HEAD", "--", f.Path)
+			}
+			var lines []string
+			for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+				// The header lines say what the row already says.
+				if strings.HasPrefix(l, "diff --git") || strings.HasPrefix(l, "index ") || strings.HasPrefix(l, "--- ") ||
+					strings.HasPrefix(l, "+++ ") || strings.HasPrefix(l, "new file") || strings.HasPrefix(l, "\\") {
+					continue
+				}
+				lines = append(lines, l)
+			}
+			if len(lines) > 400 {
+				lines = append(lines[:400], fmt.Sprintf("… %d more lines", len(lines)-400))
+			}
+			diffs.Lock()
+			diffs.m[key], diffs.reading[key] = lines, false
+			diffs.Unlock()
+		}()
+	}
+	return []string{"reading the diff…"}
 }
