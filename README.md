@@ -12,7 +12,7 @@ It keeps the native layout and keys, and adds what the native view doesn't show.
 
 - **Cost, tokens and time** for every agent, estimated from its transcript at list prices (subagents included), and today's spend per account.
 - **CPU and RAM for everything an agent started**, not just the agent itself, plus a whole-machine view: the daemon, pre-warmed spares, and leftover processes from sessions that have ended.
-- **Preview** (`tab`): what the agent is doing now, its last message, spend, and its process tree. Type into the prompt to reply without opening it.
+- **Preview** (`tab`): the agent's own screen, live, for background sessions the daemon hosts; otherwise what it is doing now, its last message, spend, and its process tree. Type into the prompt to reply without opening it.
 - **Instant open** (`enter`): connects to the running session through the daemon the way the native view does. `←` inside the session, or `ctrl+]`, comes back.
 - **Done** (`ctrl+f`) moves an agent out of the way. Nothing is merged, stopped or deleted.
 - **Kill** (`ctrl+x`, or `ctrl+p` then `!`): stop gracefully, or SIGKILL the whole process tree.

@@ -63,19 +63,22 @@ type Model struct {
 	scanning bool
 	loaded   bool
 
-	sel       string
-	order     []*fleet.Agent
-	lines     []listLine
-	scroll    int
-	preview   bool
-	full      bool
-	previews  map[string]previewEntry
-	expanded  map[string]bool
-	hover     string
-	hoverAt   time.Time
-	rowKeys   []string
-	listTop   int
-	lastClick time.Time
+	sel         string
+	order       []*fleet.Agent
+	lines       []listLine
+	scroll      int
+	preview     bool
+	full        bool
+	previews    map[string]previewEntry
+	live        *live
+	liveOpening string
+	liveFailed  string
+	expanded    map[string]bool
+	hover       string
+	hoverAt     time.Time
+	rowKeys     []string
+	listTop     int
+	lastClick   time.Time
 
 	input  []rune
 	inKind inputKind
@@ -294,7 +297,16 @@ func (m *Model) flash(s string, err bool) {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	_, cmd := m.update(msg)
+	return m, tea.Batch(cmd, m.syncLive())
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case liveOpenMsg:
+		return m, m.onLiveOpen(msg)
+	case liveMsg:
+		return m, m.onLive(msg)
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 		return m, nil
@@ -679,6 +691,9 @@ func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 		m.flash(fmt.Sprintf("%s is open in another terminal (pid %d)", a.DisplayName, a.PID), false)
 		return nil
 	}
+	// One attach at a time from here: the preview's would fight the full
+	// screen over the session's size.
+	m.closeLive()
 	s := &daemon.Session{Client: daemon.Client{Account: a.Acct}, Short: a.ID}
 	return tea.Exec(s, func(err error) tea.Msg { return attachDoneMsg{agent: a, err: err} })
 }

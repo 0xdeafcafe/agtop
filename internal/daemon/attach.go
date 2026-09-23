@@ -54,6 +54,10 @@ func (s *Session) Run() error {
 	}
 	defer term.Restore(in.Fd(), state)
 
+	// The session repaints relative to a blank screen, so give it one: the
+	// alternate screen, cleared, as Claude Code's own attach does. Without it
+	// the repaint lands on top of whatever the shell left behind.
+	fmt.Fprint(out, "\x1b[?1049h\x1b[H\x1b[2J")
 	for _, m := range info.DecModes {
 		fmt.Fprintf(out, "\x1b[?%dh", m)
 	}
@@ -61,7 +65,7 @@ func (s *Session) Run() error {
 		for _, m := range info.DecModes {
 			fmt.Fprintf(out, "\x1b[?%dl", m)
 		}
-		fmt.Fprint(out, "\x1b[0m\x1b[?25h")
+		fmt.Fprint(out, "\x1b[0m\x1b[?25h\x1b[?1049l")
 	}()
 
 	winch := make(chan os.Signal, 1)
@@ -90,6 +94,16 @@ func (s *Session) Run() error {
 }
 
 var errDetach = fmt.Errorf("detach")
+
+// Relay copies a session's terminal stream to w with the daemon's control
+// markers taken out. It returns nil when the session detaches or ends.
+func Relay(r io.Reader, w io.Writer) error {
+	err := pumpOut(r, w)
+	if err == io.EOF || err == errDetach || errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
+}
 
 func pumpOut(r io.Reader, w io.Writer) error {
 	buf := make([]byte, 32<<10)

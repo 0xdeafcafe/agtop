@@ -223,9 +223,10 @@ func keys(pairs ...string) string {
 	return strings.Join(parts, faint("  ·  "))
 }
 
-func (m *Model) listView() string {
-	head := m.header()
-	listW, paneW := m.w, 0
+// layout splits the screen between the list and the preview pane and says
+// how many rows the body gets under the header and above the prompt.
+func (m *Model) layout() (listW, paneW, bodyH int) {
+	listW = m.w
 	if m.preview {
 		if m.w >= 120 && !m.full {
 			paneW = m.w * 55 / 100
@@ -234,6 +235,12 @@ func (m *Model) listView() string {
 			paneW, listW = m.w, 0
 		}
 	}
+	bodyH = max(3, m.h-len(m.header())-1-len(m.promptLines()))
+	return listW, paneW, bodyH
+}
+
+func (m *Model) listView() string {
+	head := m.header()
 	prompt := m.promptLines()
 	var dock []string
 	if !m.preview && m.h >= 20+m.dockLines() {
@@ -248,10 +255,8 @@ func (m *Model) listView() string {
 			dock = append(dock, "")
 		}
 	}
-	bodyH := m.h - len(head) - 1 - len(prompt) - len(dock)
-	if bodyH < 3 {
-		bodyH = 3
-	}
+	listW, paneW, bodyH := m.layout()
+	bodyH = max(3, bodyH-len(dock))
 	m.listTop = len(head) + 1
 	m.rowKeys = nil
 	var left []string
@@ -260,7 +265,9 @@ func (m *Model) listView() string {
 	}
 	var pane []string
 	if paneW > 0 {
-		pane = m.previewLines(paneW-3, bodyH)
+		if pane = m.liveLines(paneW - 3); pane == nil {
+			pane = m.previewLines(paneW-3, bodyH)
+		}
 	}
 	var b strings.Builder
 	for _, l := range head {
