@@ -41,6 +41,11 @@ func (m *Model) zenPick() {
 			return
 		}
 	}
+	// The one on screen is answered. Move on only once you've stopped
+	// typing, so a key meant for it never lands on the next agent's card.
+	if c := m.host; c != nil && c.key == m.sel && (len(c.input) > 0 || time.Since(m.lastKeyAt) < 2*time.Second) {
+		return
+	}
 	if len(q) > 0 {
 		m.sel = q[0].Key
 		m.paneFocus = true

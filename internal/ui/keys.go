@@ -20,6 +20,7 @@ import (
 func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	s := k.String()
 	m.hover = "" // the keyboard takes over from the mouse
+	m.lastKeyAt = time.Now()
 	if m.embedded {
 		return m.embedKey(k)
 	}
@@ -32,6 +33,11 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	}
 	if m.picker != nil {
 		return m.pickerKey(s)
+	}
+	// In zen, while the next agent connects, keys wait rather than land in
+	// some other box.
+	if m.zen && m.host == nil && s != "tab" && s != "shift+tab" && s != "ctrl+q" && s != "ctrl+c" {
+		return nil
 	}
 	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s == "ctrl+c" {
 		return m.paneKey(k, s)
@@ -235,13 +241,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		m.cycleGroupBy()
 		return nil
 	case "ctrl+o":
-		switch {
-		case m.inKind == inReply:
-			m.inKind = inPrompt
-		case a != nil && a.Interactive:
-			m.flash(a.DisplayName+" is open in a terminal; reply there", true)
-		case a != nil:
-			m.inKind = inReply
+		// Reply: straight into the agent's Session message box.
+		if a != nil {
+			return m.focusPane(a)
 		}
 		return nil
 	case "ctrl+x":
@@ -259,8 +261,11 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "[", "]":
 		if empty && a != nil {
 			if c := m.host; c != nil && c.key == a.Key {
-				n := len(m.views(c))
-				c.view = (c.view%n + 1) % n
+				n, d := len(m.views(c)), 1
+				if s == "[" {
+					d = -1
+				}
+				c.view, c.scroll = (c.view%n+d+n)%n, 0
 			} else {
 				m.claudeView = 1 - m.claudeView
 			}
@@ -441,16 +446,8 @@ func (m *Model) submit() tea.Cmd {
 	if strings.HasPrefix(text, "/") {
 		return m.command(text)
 	}
-	if m.preview && a != nil && a.Interactive {
-		m.flash("replies go to background agents; this one is open in a terminal", true)
-		return nil
-	}
-	if m.preview && a != nil {
-		m.flash("sending to "+a.DisplayName+"…", false)
-		m.loader.Nudge(a.Key)
-		m.refresh()
-		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
-	}
+	// The Prompt only starts new sessions; replies go through a Session's
+	// own message box.
 	if d := m.store.Config.Dispatch; d.RunIn != "daemon" && (d.Agent == "" || d.Agent == "claude") {
 		return m.startHosted(text, m.startDir())
 	}

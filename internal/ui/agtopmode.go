@@ -158,6 +158,9 @@ type hostConn struct {
 	box    box      // the message box as last drawn, and where
 	boxIdx int
 	boxY   int
+	// cardFocus is set when ↑ has moved the keys from the box onto a card
+	// waiting for an answer; only then do plain letters and digits answer.
+	cardFocus bool
 
 	// Answering Claude's questions, one at a time.
 	qFor      string
@@ -634,7 +637,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 		cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
 		cl(paint(cYellow, "▍") + " " + paint(cYellow+bold, "⏸ usage limit") + "   " + paint(cText, limitText(l)))
 		cl(paint(cYellow, "▍") + "     " + dim("Continue by itself when the limit resets? Anything you send meanwhile waits in the queue."))
-		cl(paint(cYellow, "▍") + "   " + paint(cText+bold, "y") + " " + paint(cSub, "continue at the reset") + "   " + paint(cText+bold, "n") + " " + paint(cSub, "wait for me"))
+		cl(paint(cYellow, "▍") + "   " + cardHint(c, paint(cText+bold, "y")+" "+paint(cSub, "continue at the reset")+"   "+paint(cText+bold, "n")+" "+paint(cSub, "wait for me")))
 	}
 	if r := s.Info.Retry; r != nil && r.GaveUp {
 		line("  " + paint(cRed, "✗ "+r.Reason) + dim(" · "+r.Why+" · send anything to try again"))
@@ -654,14 +657,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 		for _, l := range approvalBody(req, a.Cwd, w-6) {
 			cl(paint(cYellow, "▍") + "     " + l)
 		}
-		armed := len(c.input) == 0
-		k := func(key, label string) string {
-			if !armed {
-				return dim(key + " " + label)
-			}
-			return paint(cText+bold, key) + " " + paint(cSub, label)
+		k := func(key, label string) string { return paint(cText+bold, key) + " " + paint(cSub, label) }
+		edge := paint(cYellow, "▍")
+		if c.cardFocus {
+			edge = paint(cOrange, "▍")
 		}
-		cl(spread(paint(cYellow, "▍")+"   "+k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny"), dim("clear the prompt to answer")+"  ", w))
+		cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
 	}
 	if q := s.Info.Queue; len(q) > 0 {
 		line(spread("  "+paint(cSub+bold, fmt.Sprintf("queue %d", len(q)))+dim(" · sends when this turn ends"), "", w))
@@ -800,25 +801,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	}
 	empty := len(c.input) == 0
-	if l := c.sess.Info.Limit; empty && l != nil && l.Ask && (s == "y" || s == "n") {
-		yes := s == "y"
-		return hostCmd(func() error { return c.client.ContinueAtReset(yes) })
-	}
-	pending := c.sess.Pending()
-	if isQuestion(pending) {
-		if cmd, used := m.questionKey(c, pending[0].Approval, s, empty); used {
-			return cmd
-		}
-	} else if empty && len(pending) > 0 {
-		req := pending[0].Approval
-		switch s {
-		case "y", "enter":
-			return m.answerHost(c, req, true, false)
-		case "a":
-			return m.answerHost(c, req, true, true)
-		case "n":
-			return m.answerHost(c, req, false, false)
-		}
+	if cmd, used := m.cardKey(c, s, empty); used {
+		return cmd
 	}
 	if (s == "backspace" || s == "ctrl+h") && empty && len(c.images) > 0 {
 		c.images = c.images[:len(c.images)-1]
@@ -913,7 +897,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 		if empty {
-			if turn, _, ok := strings.Cut(c.sel, ":"); ok {
+			if turn, _, ok := strings.Cut(c.sel, ":"); ok && strings.HasPrefix(c.sel, "t") {
 				c.sel, c.selMoved = turn, true
 				return nil
 			}
@@ -1396,11 +1380,15 @@ func (m *Model) questionCard(c *hostConn, req *headless.PermissionRequest, w int
 		}
 		cl(ansi.Truncate(line, w, "…"))
 	}
-	keysHint := fmt.Sprintf("1–%d picks · or type your own answer · esc skips", len(q.Options))
+	keysHint := fmt.Sprintf("1–%d picks · s skips", len(q.Options))
 	if q.MultiSelect {
-		keysHint = fmt.Sprintf("1–%d toggles · enter confirms · or type your own · esc skips", len(q.Options))
+		keysHint = fmt.Sprintf("1–%d toggles · enter confirms · s skips", len(q.Options))
 	}
-	cl(paint(cYellow, "▍") + "   " + dim(keysHint))
+	if c.cardFocus {
+		cl(paint(cOrange, "▍") + "   " + cardHint(c, paint(cSub, keysHint)))
+	} else {
+		cl(paint(cYellow, "▍") + "   " + dim("↑ to pick an option   ·   or type your own answer below and press enter"))
+	}
 	return out
 }
 
@@ -1503,4 +1491,92 @@ func (m *Model) searchKey(c *hostConn, k tea.KeyPressMsg, s string) tea.Cmd {
 		c.query, c.sel = buf, ""
 	}
 	return nil
+}
+
+// cardKind is the card waiting in the dock, if any.
+func cardKind(c *hostConn) string {
+	switch {
+	case c.sess.Info.Limit != nil && c.sess.Info.Limit.Ask:
+		return "limit"
+	case isQuestion(c.sess.Pending()):
+		return "question"
+	case len(c.sess.Pending()) > 0:
+		return "approval"
+	}
+	return ""
+}
+
+// cardKey answers a waiting card. Plain letters and digits answer only
+// once ↑ has put the keys on the card, so typing a message that starts
+// with "yes" or "1." can never answer by accident; alt+y, alt+a and alt+n
+// answer from anywhere. It reports whether it used the key.
+func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
+	kind := cardKind(c)
+	if kind == "" {
+		c.cardFocus = false
+		return nil, false
+	}
+	done := func(cmd tea.Cmd) (tea.Cmd, bool) {
+		c.cardFocus = false
+		return cmd, true
+	}
+	pending := c.sess.Pending()
+	switch kind {
+	case "limit":
+		yes, no := s == "alt+y", s == "alt+n"
+		if c.cardFocus {
+			yes, no = yes || s == "y" || s == "enter", no || s == "n"
+		}
+		if yes || no {
+			return done(hostCmd(func() error { return c.client.ContinueAtReset(yes) }))
+		}
+	case "approval":
+		req := pending[0].Approval
+		switch {
+		case s == "alt+y" || c.cardFocus && (s == "y" || s == "enter"):
+			return done(m.answerHost(c, req, true, false))
+		case s == "alt+a" || c.cardFocus && s == "a":
+			return done(m.answerHost(c, req, true, true))
+		case s == "alt+n" || c.cardFocus && s == "n":
+			return done(m.answerHost(c, req, false, false))
+		}
+	case "question":
+		req := pending[0].Approval
+		if c.cardFocus && s == "s" {
+			id := req.ID
+			return done(hostCmd(func() error {
+				return c.client.Deny(id, "The user skipped the question; carry on with your best judgement.", false)
+			}))
+		}
+		// Typed text and enter answer in your own words; digits pick only
+		// while the card has the keys.
+		if !empty && s == "enter" || c.cardFocus {
+			if cmd, used := m.questionKey(c, req, s, empty); used {
+				if cmd != nil {
+					c.cardFocus = false
+				}
+				return cmd, true
+			}
+		}
+	}
+	switch {
+	case !c.cardFocus && empty && s == "up" && c.sel == "":
+		c.cardFocus = true
+		return nil, true
+	case c.cardFocus && (s == "esc" || s == "down"):
+		c.cardFocus = false
+		return nil, true
+	case c.cardFocus:
+		c.cardFocus = false // anything else goes back to typing
+	}
+	return nil, false
+}
+
+// cardHint is the last line of a card: its keys when it has focus, how to
+// give it focus when not.
+func cardHint(c *hostConn, keys string) string {
+	if c.cardFocus {
+		return paint(cOrange, "▸ ") + keys + dim("   ·   esc back to typing")
+	}
+	return dim("↑ to answer   ·   or alt+y alt+a alt+n from the box")
 }

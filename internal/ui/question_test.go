@@ -7,8 +7,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
 func askReq() *headless.PermissionRequest {
@@ -52,6 +54,27 @@ func TestAnswerQuestions(t *testing.T) {
 	// Letters still type while a question is up.
 	if _, used := m.questionKey(c2, req, "a", true); used {
 		t.Error("a letter shouldn't be taken by the question card")
+	}
+}
+
+// A message that starts with y, a, n or a digit must never answer a card:
+// only ↑ onto the card, or an alt chord, does.
+func TestCardsNeedFocus(t *testing.T) {
+	m := &Model{}
+	c := &hostConn{sess: convo.New()}
+	c.sess.Apply(host.Sent{Text: "go"}, time.Now())
+	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}}}, time.Now())
+	c.sess.Apply(headless.PermissionRequest{ID: "r1", Tool: "Bash", ToolUseID: "b1"}, time.Now())
+	for _, k := range []string{"y", "a", "n", "enter", "1"} {
+		if _, used := m.cardKey(c, k, true); used {
+			t.Errorf("%q answered the card without focus", k)
+		}
+	}
+	if _, used := m.cardKey(c, "up", true); !used || !c.cardFocus {
+		t.Fatal("↑ from an empty box should focus the card")
+	}
+	if _, used := m.cardKey(c, "esc", true); !used || c.cardFocus {
+		t.Fatal("esc should hand the keys back to the box")
 	}
 	_ = tea.KeyPressMsg{}
 }

@@ -100,7 +100,8 @@ type Model struct {
 	// 1 the summary.
 	claudeView int
 	zen        bool // the Zen view: only the agent that needs you
-	paneTop    int  // screen row of the pane's first line, for clicks
+	lastKeyAt  time.Time
+	paneTop    int // screen row of the pane's first line, for clicks
 	// host is the connection to the agtop-mode session the pane shows.
 	host        *hostConn
 	hostOpening string

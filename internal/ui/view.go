@@ -1068,8 +1068,10 @@ func (m *Model) badges(a *fleet.Agent) string {
 // edge says where the text goes and what enter will do; the agent pane's
 // own input is the same box, so the two always read alike.
 func (m *Model) promptLines(w int) []string {
-	if m.zen {
-		return nil // zen answers in the Session's own box
+	// Zen answers in the Session's own box, and a Session filling a narrow
+	// screen has its own box too: never two boxes on screen at once.
+	if m.zen || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList) {
+		return nil
 	}
 	a := m.selected()
 	text := string(m.input)
@@ -1082,7 +1084,7 @@ func (m *Model) promptLines(w int) []string {
 	case m.inKind == inGroup && a != nil:
 		b.topL = dim("group for ") + paint(cText, oneLine(a.DisplayName)) + dim(" · enter saves")
 		b.holder = "a group name · empty clears it"
-	case (m.inKind == inReply || m.preview) && a != nil && !a.Agtop:
+	case m.inKind == inReply && a != nil && !a.Agtop:
 		b.topL = dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…")) + dim(" · enter sends")
 		b.holder = "a message for this agent · esc leaves reply mode"
 	case strings.HasPrefix(text, "/"):
