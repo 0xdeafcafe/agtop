@@ -339,6 +339,8 @@ func (m *Model) listLines(w, h int) []string {
 			emit(m.agentLine(l.agent, w, l.agent.Key == m.sel, nameCol), l.agent.Key, l.agent.Key == m.sel)
 		case lineSub:
 			emit(m.subLine(l.agent, w), l.agent.Key, l.agent.Key == m.sel)
+		case lineTask:
+			emit(m.taskLine(l, w), l.agent.Key, false)
 		case lineCard:
 			_ = focus
 		}
@@ -656,6 +658,32 @@ func (m *Model) context(a *fleet.Agent) string {
 	return s
 }
 
+// taskLine is a subagent, shell or monitor nested under the agent running it.
+func (m *Model) taskLine(l listLine, w int) string {
+	t := l.task
+	branch := "├"
+	if l.last {
+		branch = "└"
+	}
+	icon, kind, col := "▸", "shell", cSub
+	switch t.Kind {
+	case "agent":
+		icon, kind, col = "↳", "subagent", cOrange
+	case "monitor":
+		icon, kind, col = "◎", "monitor", cDim
+	}
+	label := oneLine(tildify(t.Label))
+	if l.more > 0 {
+		label += faint(fmt.Sprintf("   +%d more", l.more))
+	}
+	since := ""
+	if !t.StartedAt.IsZero() && t.StartedAt.Unix() > 0 {
+		since = dur(m.snap.At.Sub(t.StartedAt))
+	}
+	room := w - 22 - wAge - 4
+	return "    " + faint(branch+" ") + paint(col, icon+" "+fit(kind, 9)) + " " + dim(fit(label, room)) + faint(right1(since, wAge+2))
+}
+
 // backgroundText says what a finished agent is still waiting on.
 func backgroundText(a *fleet.Agent) string {
 	kinds := map[string]int{}
@@ -746,8 +774,11 @@ func (m *Model) badges(a *fleet.Agent) string {
 		}
 		parts = append(parts, paint(cOrange, fmt.Sprintf("↳%d", a.Subagents))+faint(" "+label))
 	}
+	if a.Todos > 0 && (a.Live() || a.Busy()) {
+		parts = append(parts, faint(fmt.Sprintf("☐ %d/%d", a.TodosDone, a.Todos)))
+	}
 	if a.Children > 0 {
-		parts = append(parts, faint(fmt.Sprintf("⧉%d", a.Children)))
+		parts = append(parts, faint(fmt.Sprintf("◫%d", a.Children)))
 	}
 	if a.Interactive {
 		parts = append(parts, faint("terminal"))

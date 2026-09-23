@@ -30,12 +30,22 @@ type Job struct {
 	InFlight       int      // background tasks running or queued
 	Background     []string // what they are: shell commands, subagent names
 	Subagents      int      // subagents still running
+	Running        []Task   // subagents, shells and monitors not yet finished
+	TodosDone      int
+	Todos          int
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	ModTime        time.Time
 }
 
 func (j Job) Live() bool { return j.State == "working" || j.State == "blocked" }
+
+// Task is something an agent started that runs beside it.
+type Task struct {
+	Kind      string // agent, shell, monitor
+	Label     string
+	StartedAt time.Time
+}
 
 // Busy is a finished turn whose background work is still running.
 func (j Job) Busy() bool { return !j.Live() && j.InFlight > 0 && len(j.Background) > 0 }
@@ -65,9 +75,10 @@ type jobFile struct {
 		Queued int `json:"queued"`
 	} `json:"inFlight"`
 	Fan []struct {
-		Kind   string `json:"kind"`
-		Label  string `json:"label"`
-		DoneAt int64  `json:"doneAt"`
+		Kind      string `json:"kind"`
+		Label     string `json:"label"`
+		StartedAt int64  `json:"startedAt"`
+		DoneAt    int64  `json:"doneAt"`
 	} `json:"fan"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -111,6 +122,16 @@ func LoadJob(a Account, id string) (Job, error) {
 		j.InFlight = f.InFlightRaw.Tasks + f.InFlightRaw.Queued
 	}
 	for _, x := range f.Fan {
+		if x.Kind == "todo" {
+			j.Todos++
+			if x.DoneAt > 0 {
+				j.TodosDone++
+			}
+			continue
+		}
+		if x.DoneAt == 0 && x.Label != "" {
+			j.Running = append(j.Running, Task{Kind: x.Kind, Label: x.Label, StartedAt: time.UnixMilli(x.StartedAt)})
+		}
 		if x.Kind != "todo" && x.DoneAt == 0 && x.Label != "" {
 			j.Background = append(j.Background, x.Kind+"\x00"+x.Label)
 			if x.Kind == "agent" {

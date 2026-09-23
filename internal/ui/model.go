@@ -112,6 +112,7 @@ const (
 	lineAgent
 	lineSub
 	lineCard
+	lineTask
 )
 
 type listLine struct {
@@ -121,6 +122,9 @@ type listLine struct {
 	folded bool
 	peek   string
 	agent  *fleet.Agent
+	task   claude.Task
+	last   bool
+	more   int
 }
 
 func sectionKey(title string) string { return "§" + title }
@@ -534,9 +538,9 @@ func (m *Model) rebuild() {
 			add("Needs you", 0, a)
 		case a.Pinned:
 			add("Pinned", 1, a)
-		case (a.Live() || a.Busy()) && by == "status":
+		case a.Live() || a.Busy():
 			add("Working", 2, a)
-		case a.PID != 0 && by == "status":
+		case a.PID != 0:
 			add("Idle", 3, a)
 		case !fresh:
 			add("Earlier", 9, a)
@@ -602,7 +606,23 @@ func (m *Model) rebuild() {
 				continue
 			}
 			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a})
-			m.lines = append(m.lines, listLine{kind: lineCard, agent: a})
+			if a.Live() || a.Busy() || a.State == "blocked" {
+				tasks := a.Running
+				if a.PID == 0 {
+					tasks = nil
+				}
+				show := tasks
+				if len(show) > 4 {
+					show = show[:3]
+				}
+				for i, t := range show {
+					l := listLine{kind: lineTask, agent: a, task: t, last: i == len(show)-1}
+					if l.last && len(tasks) > len(show) {
+						l.more = len(tasks) - len(show)
+					}
+					m.lines = append(m.lines, l)
+				}
+			}
 		}
 		m.lines = append(m.lines, listLine{kind: lineBlank})
 	}

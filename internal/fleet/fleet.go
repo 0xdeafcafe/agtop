@@ -46,7 +46,7 @@ func (a *Agent) applyStatus(ss claude.Session) {
 	case ss.Status == "idle" && a.State == "working":
 		a.State, a.Checking = "blocked", true
 		a.Needs = ""
-	case (ss.Status == "busy" || ss.Status == "shell") && (a.State == "blocked" || a.State == "done"):
+	case ss.Status == "busy" && (a.State == "blocked" || a.State == "done"):
 		a.State, a.Needs = "working", ""
 		a.Detail = "working on your reply"
 	}
