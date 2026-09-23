@@ -535,7 +535,7 @@ func TestFailureInBrief(t *testing.T) {
 	s.Apply(toolResult("b1", "Exit code 1\nTraceback (most recent call last):\n  File \"<stdin>\", line 1\nModuleNotFoundError: No module named 'yaml'", true,
 		map[string]any{"stdout": "", "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 1\nModuleNotFoundError: No module named 'yaml'"}), at(2))
 	out := plain(s.Render(Options{Width: 110, Now: at(3)}))
-	if !strings.Contains(out, "▎ModuleNotFoundError: No module named 'yaml'") || strings.Contains(out, "import yaml") {
+	if !strings.Contains(out, "▸ ModuleNotFoundError: No module named 'yaml'") || strings.Contains(out, "import yaml") {
 		t.Fatalf("brief failure:\n%s", out)
 	}
 	ref := ""

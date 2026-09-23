@@ -1562,12 +1562,20 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 	if c.drewConvo {
 		o = c.drawn
 	}
+	// Folded if any of its rows shows ▸ (a failed step's shows on the error
+	// line under it).
+	seen := false
 	for _, l := range c.sess.Render(o) {
 		if l.Ref == ref {
-			return !strings.Contains(ansi.Strip(l.Text), "▸")
+			seen = true
+			if strings.Contains(ansi.Strip(l.Text), "▸") {
+				return false
+			}
+		} else if seen {
+			break
 		}
 	}
-	return false
+	return seen
 }
 
 // moveSel moves the selection over rows you can act on: turns and steps.

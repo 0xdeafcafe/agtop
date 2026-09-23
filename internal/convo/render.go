@@ -956,11 +956,7 @@ func (d *drawer) step(st *Step, depth int) {
 	}
 	// A failure shows just its error until you open it for everything.
 	brief := st.Status == Failed && !open
-	cells := d.cells(st)
-	if brief {
-		cells += "  " + faint("▸")
-	}
-	d.add(ref, "", left, cells)
+	d.add(ref, "", left, d.cells(st))
 	switch {
 	case open:
 		d.body(st, indent+4)
@@ -1434,18 +1430,14 @@ func (d *drawer) errorLine(st *Step, indent int, ref string) {
 	if hit == "" {
 		return
 	}
-	pad := d.spine() + strings.Repeat(" ", indent-1)
-	w := d.cw - indent - 24
-	for i, l := range wrap(hit, max(20, w)) {
-		right := ""
-		if i == 0 {
-			right = dim("enter shows all")
-		}
-		if i == 2 {
-			break
-		}
-		d.add(ref, bgErr, pad+paint(cRed, "▎")+paint(cRed, l), right)
+	// One quiet line: the error itself, cut to fit; the rest is a key away.
+	pad := d.spine() + strings.Repeat(" ", indent-3)
+	right := ""
+	if d.o.Selected == ref {
+		right = dim("enter shows all")
 	}
+	w := d.cw - indent - 20
+	d.add(ref, "", pad+faint("▸ ")+paint(cRed, truncateCells(hit, max(20, w))), right)
 }
 
 // output draws text in a well: head and tail when it's long, all of it in
