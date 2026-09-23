@@ -529,7 +529,9 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 
 	switch {
 	case a.Checking:
-		marker = paint(cYellow, "◔")
+		marker = paint(cSub, "◔")
+	case a.JustFinished(now):
+		marker = paint(cGreen, "✓")
 	case a.State == "blocked":
 		marker = paint(cYellow, "●")
 	case live:
@@ -588,6 +590,8 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	switch {
 	case a.Checking:
 		summary, sumColor = "turn ended · checking…", cDim
+	case a.JustFinished(now):
+		summary, sumColor = "just finished · "+oneLine(a.Detail), cGreen
 	case a.State == "blocked":
 		summary, sumColor = oneLine(a.Needs), cYellow
 		if summary == "" {
@@ -804,21 +808,32 @@ func (m *Model) promptLines() []string {
 		label, placeholder = paint(cOrange, "rename ❯ "), "new name · enter to save · empty resets it"
 	case m.inKind == inGroup:
 		label, placeholder = paint(cOrange, "group ❯ "), "group name · empty clears it"
-	case m.preview && a != nil:
-		label = dim("reply to ") + paint(cOrange, ansi.Truncate(oneLine(a.DisplayName), 32, "…")+" ❯ ")
-		placeholder = "a message for this agent"
+	case (m.inKind == inReply || m.preview) && a != nil:
+		label = paint(cOrange+bold, "reply ") + dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…")) + paint(cOrange, " ❯ ")
+		placeholder = "a message for this agent · enter sends · esc leaves reply mode"
 	}
 	text := string(m.input)
 	top := faint(strings.Repeat("─", m.w))
+	sel := ""
+	if a != nil {
+		sel = faint("── ") + dim(tildify(a.Cwd))
+		if a.Branch != "" {
+			sel += faint(" · " + a.Branch)
+		}
+		sel += " "
+	}
+	where := ""
 	if m.inKind == inPrompt && !(m.preview && a != nil) && !strings.HasPrefix(text, "/") {
-		where := dim("start in ") + m.dirLabel(m.startDir())
+		where = dim("start in ") + m.dirLabel(m.startDir())
 		if n := len(m.startDirs()); n > 1 {
 			where += faint(fmt.Sprintf("  %d/%d  ", ((m.dirIdx%n)+n)%n+1, n)) + paint(cSub, "ctrl+n") + faint(" next")
 		}
-		ww := ansi.StringWidth(where)
-		if ww+8 < m.w {
-			top = faint(strings.Repeat("─", m.w-ww-5)) + " " + where + " " + faint("───")
-		}
+		where = " " + where + " " + faint("───")
+	}
+	if gap := m.w - ansi.StringWidth(sel) - ansi.StringWidth(where); gap >= 3 {
+		top = sel + faint(strings.Repeat("─", gap)) + where
+	} else if gap := m.w - ansi.StringWidth(where); where != "" && gap >= 3 {
+		top = faint(strings.Repeat("─", gap)) + where
 	}
 	out := []string{top}
 	lw := ansi.StringWidth(label)
@@ -843,7 +858,10 @@ func (m *Model) promptLines() []string {
 		}
 	}
 	out = append(out, faint(strings.Repeat("─", m.w)))
-	hint := keysFit(m.w-4, "enter", "open", "tab", "preview", "ctrl+f", "done", "ctrl+x", "stop", "ctrl+p", "processes", "ctrl+s", "group", "?", "all keys")
+	hint := keysFit(m.w-4, "enter", "open", "ctrl+o", "reply", "tab", "preview", "ctrl+f", "done", "ctrl+x", "stop", "ctrl+p", "processes", "?", "all keys")
+	if m.inKind == inReply {
+		hint = keysFit(m.w-4, "enter", "send", "↑↓", "pick another agent", "esc", "leave reply mode", "?", "all keys")
+	}
 	if m.preview {
 		hint = keysFit(m.w-4, "enter", "send · empty opens", "←", "close preview", "ctrl+p", "processes", "ctrl+l", "move", "?", "all keys")
 	}
@@ -1061,7 +1079,7 @@ func (m *Model) helpBody() []string {
 			{"tab", "preview · again for full screen"}, {"shift+↑ ↓", "taller or shorter preview"}, {"ctrl+]", "leave an open agent"},
 		}},
 		{"Manage", [][2]string{
-			{"ctrl+r", "rename"}, {"ctrl+t", "pin"}, {"ctrl+f", "done / back"},
+			{"ctrl+o", "reply without opening"}, {"ctrl+r", "rename"}, {"ctrl+t", "pin"}, {"ctrl+f", "done / back"},
 			{"ctrl+x", "stop · twice to delete"}, {"ctrl+e", "put in a group"}, {"ctrl+l", "move to another folder"},
 		}},
 	}

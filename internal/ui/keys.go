@@ -142,7 +142,12 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "esc":
 		switch {
 		case !empty:
-			m.input, m.inKind = m.input[:0], inPrompt
+			m.input = m.input[:0]
+			if m.inKind != inReply {
+				m.inKind = inPrompt
+			}
+		case m.inKind == inReply:
+			m.inKind = inPrompt
 		case m.preview:
 			m.preview, m.full = false, false
 		case m.armed != "":
@@ -184,9 +189,13 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		m.cycleGroupBy()
 		return nil
 	case "ctrl+o":
-		if a != nil {
-			m.expanded[a.Key] = !m.expanded[a.Key]
-			m.rebuild()
+		switch {
+		case m.inKind == inReply:
+			m.inKind = inPrompt
+		case a != nil && a.Interactive:
+			m.flash(a.DisplayName+" is open in a terminal; reply there", true)
+		case a != nil:
+			m.inKind = inReply
 		}
 		return nil
 	case "ctrl+x":
@@ -322,6 +331,16 @@ func (m *Model) submit() tea.Cmd {
 		m.refresh()
 		return nil
 	}
+	if kind == inReply {
+		if a == nil || text == "" {
+			return nil
+		}
+		m.inKind = inReply
+		m.flash("sending to "+a.DisplayName+"…", false)
+		m.loader.Nudge(a.Key)
+		m.refresh()
+		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
+	}
 	if text == "" {
 		return m.attach(a)
 	}
@@ -334,6 +353,8 @@ func (m *Model) submit() tea.Cmd {
 	}
 	if m.preview && a != nil {
 		m.flash("sending to "+a.DisplayName+"…", false)
+		m.loader.Nudge(a.Key)
+		m.refresh()
 		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
 	}
 	acct := m.store.Config.ActiveAccount()

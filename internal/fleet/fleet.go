@@ -36,20 +36,27 @@ type Agent struct {
 	Checking    bool // turn just ended; Claude Code has not classified it yet
 }
 
-// applyStatus trusts the session's own busy/idle flag when it is newer than
-// the job file: Claude Code rewrites the job's state only every 15-40s.
+// applyStatus trusts the session's live busy/idle flag over the job file,
+// whose state Claude Code only re-summarises every 15-40s.
 func (a *Agent) applyStatus(ss claude.Session) {
-	if ss.StatusMs == 0 || !ss.StatusAt().After(a.UpdatedAt) {
-		return
-	}
 	switch {
-	case ss.Status == "idle" && a.State == "working":
-		a.State, a.Checking = "blocked", true
-		a.Needs = ""
-	case ss.Status == "busy" && a.InFlight == 0 && (a.State == "blocked" || a.State == "done"):
-		a.State, a.Needs = "working", ""
-		a.Detail = "working again"
+	case ss.Status == "busy" && a.State == "blocked":
+		a.State, a.Needs, a.Detail = "working", "", "working on your reply"
+	case ss.Status == "busy" && a.State == "done" && a.InFlight == 0:
+		a.State, a.Detail = "working", "working again"
+	case ss.Status == "idle" && a.State == "working" && ss.StatusMs > 0 && ss.StatusAt().After(a.UpdatedAt):
+		a.State, a.Checking, a.Needs = "blocked", true, ""
 	}
+}
+
+// Nudge marks agents the user just sent something to as working until their
+// own files catch up.
+func (l *Loader) Nudge(key string) { l.nudged[key] = time.Now() }
+
+// JustFinished is a turn that ended moments ago; it lingers in Working so a
+// finish is noticed rather than vanishing into history.
+func (a *Agent) JustFinished(now time.Time) bool {
+	return a.State == "done" && !a.Busy() && now.Sub(a.UpdatedAt) < 2*time.Minute
 }
 
 // Busy is a finished turn whose background work is still running in a live
@@ -152,6 +159,7 @@ type Loader struct {
 	usage   map[string]usageEntry
 	prevTab *proc.Table
 	spend   map[string]Spend
+	nudged  map[string]time.Time
 }
 
 type argsEntry struct {
@@ -173,7 +181,7 @@ func NewLoader(s *state.Store) *Loader {
 	return &Loader{
 		store: s, jobs: map[string]claude.Job{}, mtimes: map[string]time.Time{},
 		args: map[int]argsEntry{}, git: map[string]gitInfo{}, usage: map[string]usageEntry{},
-		spend: map[string]Spend{},
+		spend: map[string]Spend{}, nudged: map[string]time.Time{},
 	}
 }
 
@@ -223,6 +231,14 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			a := &Agent{Job: j, Key: key, Acct: acct, DisplayName: j.Name}
 			if ss, ok := byJob[id]; ok {
 				a.applyStatus(ss)
+			}
+			if t, ok := l.nudged[key]; ok {
+				switch {
+				case now.Sub(t) > 20*time.Second || j.UpdatedAt.After(t) && j.State == "working":
+					delete(l.nudged, key)
+				case !a.Live():
+					a.State, a.Needs, a.Checking, a.Detail = "working", "", false, "sending…"
+				}
 			}
 			if n := ov.Names[key]; n != "" {
 				a.DisplayName = n

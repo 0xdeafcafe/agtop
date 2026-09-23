@@ -36,6 +36,7 @@ const (
 	inPrompt inputKind = iota
 	inRename
 	inGroup
+	inReply
 	inNewAccount
 )
 
@@ -91,6 +92,7 @@ type Model struct {
 	quitArmed time.Time
 	confirm   *confirmation
 	dialog    *dialog
+	attached  string
 
 	procCursor  int
 	procMachine bool
@@ -359,6 +361,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 	case attachDoneMsg:
+		m.attached = ""
 		m.refresh()
 		if msg.err != nil && msg.agent != nil {
 			if daemon.IsRefusal(msg.err, "EKICKED") {
@@ -546,8 +549,10 @@ func (m *Model) rebuild() {
 	for _, a := range m.snap.Agents {
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
-		case a.State == "blocked":
+		case a.State == "blocked" && !a.Checking:
 			add("Needs you", 0, a)
+		case a.Checking || a.JustFinished(now):
+			add("Working", 2, a)
 		case a.Pinned:
 			add("Pinned", 1, a)
 		case a.Live() || a.Busy():
@@ -588,7 +593,17 @@ func (m *Model) rebuild() {
 		return list[i].recent.After(list[j].recent)
 	})
 	for _, g := range list {
-		sort.SliceStable(g.agents, func(i, j int) bool { return g.agents[i].Live() && !g.agents[j].Live() })
+		rank := func(a *fleet.Agent) int {
+			switch {
+			case a.Live() && !a.Checking:
+				return 0
+			case a.Checking || a.JustFinished(now):
+				return 1
+			default:
+				return 2
+			}
+		}
+		sort.SliceStable(g.agents, func(i, j int) bool { return rank(g.agents[i]) < rank(g.agents[j]) })
 	}
 	m.order = m.order[:0]
 	m.lines = m.lines[:0]
@@ -687,6 +702,7 @@ func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 	if a == nil {
 		return nil
 	}
+	m.attached = a.Key
 	if a.Interactive {
 		m.flash(fmt.Sprintf("%s is open in another terminal (pid %d)", a.DisplayName, a.PID), false)
 		return nil
