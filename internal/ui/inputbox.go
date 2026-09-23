@@ -4,12 +4,14 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 )
 
 // The input box sits on the brightest surface on screen, so where you type
 // is never in doubt; its edge turns orange while your keys go there.
 var (
 	bgInput = "\x1b[48;2;40;36;32m"
+	bgMark  = "\x1b[48;2;74;64;54m" // selected text
 	cEdge   = rgb(79, 73, 67)
 )
 
@@ -23,6 +25,7 @@ type box struct {
 	footR   string
 	text    []rune
 	cursor  int
+	anchor  int    // selection start, -1 for none
 	holder  string // shown faint while the box is empty
 	lead    string // before the text on its first line, e.g. ❯
 	maxRows int
@@ -65,50 +68,139 @@ func (b box) lines() []string {
 	return append(out, border("╰", "╯", b.footL, b.footR))
 }
 
-// cursorMark stands in for the cursor while text is wrapped; it's one cell
-// wide, like the bar that replaces it.
-const cursorMark = ''
+// seg is one wrapped row of the text, as rune offsets [from, to).
+type seg struct{ from, to int }
+
+// wrapSegs word-wraps text to w cells a row, breaking long words, and keeps
+// each row's offsets so a click or the cursor maps to an exact character.
+func wrapSegs(text []rune, w int) []seg {
+	w = max(4, w)
+	var out []seg
+	start := 0
+	for start <= len(text) {
+		end := start
+		for end < len(text) && text[end] != '\n' {
+			end++
+		}
+		line := text[start:end]
+		from := 0
+		for {
+			if cells(line[from:]) <= w {
+				out = append(out, seg{start + from, start + len(line)})
+				break
+			}
+			cut, width := from, 0
+			for cut < len(line) && width+runewidth.RuneWidth(line[cut]) <= w {
+				width += runewidth.RuneWidth(line[cut])
+				cut++
+			}
+			brk := cut
+			for i := cut; i > from; i-- {
+				if line[i-1] == ' ' {
+					brk = i
+					break
+				}
+			}
+			out = append(out, seg{start + from, start + brk})
+			from = brk
+		}
+		if end >= len(text) {
+			break
+		}
+		start = end + 1
+	}
+	return out
+}
+
+func cells(r []rune) int {
+	n := 0
+	for _, c := range r {
+		n += runewidth.RuneWidth(c)
+	}
+	return n
+}
+
+// window is which wrapped rows are on screen: the cursor's row always is.
+func (b box) window(segs []seg) (start, end int) {
+	limit := max(1, b.maxRows)
+	if len(segs) <= limit {
+		return 0, len(segs)
+	}
+	at := len(segs) - 1
+	for i, sg := range segs {
+		if b.cursor >= sg.from && b.cursor <= sg.to {
+			at = i
+			break
+		}
+	}
+	start = max(0, min(at-limit+1, len(segs)-limit))
+	return start, start + limit
+}
+
+func (b box) leadW() int { return ansi.StringWidth(b.lead) }
 
 func (b box) content(w int) []string {
-	lead := b.lead
-	lw := ansi.StringWidth(lead)
+	lw := b.leadW()
 	if len(b.text) == 0 {
 		cur := ""
 		if b.focused {
-			cur = paint(cOrange, "▏")
+			cur = reverse(" ")
 		}
-		return []string{lead + cur + faint(ansi.Truncate(b.holder, max(1, w-lw-1), "…"))}
+		return []string{b.lead + cur + faint(ansi.Truncate(b.holder, max(1, w-lw-1), "…"))}
 	}
-	pos := max(0, min(b.cursor, len(b.text)))
-	marked := string(b.text[:pos]) + string(cursorMark) + string(b.text[pos:])
+	segs := wrapSegs(b.text, w-lw)
+	start, end := b.window(segs)
+	from, to := -1, -1
+	if b.anchor >= 0 && b.anchor != b.cursor {
+		from, to = min(b.anchor, b.cursor), max(b.anchor, b.cursor)
+	}
 	var rows []string
-	for _, para := range strings.Split(marked, "\n") {
-		rows = append(rows, strings.Split(ansi.Wrap(para, max(10, w-lw), ""), "\n")...)
-	}
-	// Keep the cursor's row in view when the text is taller than the box.
-	limit := max(1, b.maxRows)
-	if len(rows) > limit {
-		at := 0
-		for i, r := range rows {
-			if strings.ContainsRune(r, cursorMark) {
-				at = i
+	for i := start; i < end; i++ {
+		sg := segs[i]
+		var sb strings.Builder
+		for p := sg.from; p < sg.to; p++ {
+			ch := string(b.text[p])
+			switch {
+			case b.focused && p == b.cursor:
+				sb.WriteString(reverse(ch))
+			case p >= from && p < to:
+				sb.WriteString(bgMark + cText + ch + reset + bgInput)
+			default:
+				sb.WriteString(cText + ch)
 			}
 		}
-		start := max(0, min(at-limit+1, len(rows)-limit))
-		rows = rows[start : start+limit]
-	}
-	cur := " "
-	if b.focused {
-		cur = paint(cOrange, "▏") + cText
-	}
-	for i, r := range rows {
-		r = paint(cText, strings.ReplaceAll(r, string(cursorMark), reset+cur))
-		if i == 0 {
-			r = lead + r
-		} else {
-			r = strings.Repeat(" ", lw) + r
+		// The cursor at the end of a row shows as a block after it.
+		last := i == len(segs)-1 || segs[i+1].from > sg.to
+		if b.focused && b.cursor == sg.to && last {
+			sb.WriteString(reverse(" "))
 		}
-		rows[i] = r
+		lead := strings.Repeat(" ", lw)
+		if i == 0 {
+			lead = b.lead
+		}
+		rows = append(rows, lead+sb.String()+reset)
 	}
 	return rows
+}
+
+func reverse(s string) string { return "\x1b[7m" + s + "\x1b[27m" }
+
+// at maps a click inside the box's text area (row from the first text row,
+// col from the box's left edge) to a position in the text.
+func (b box) at(row, col int) int {
+	lw := b.leadW()
+	segs := wrapSegs(b.text, b.w-4-lw)
+	start, end := b.window(segs)
+	i := start + row
+	if i < start || i >= end {
+		return b.cursor
+	}
+	sg := segs[i]
+	x := col - 2 - lw // "│ " then the lead
+	p, width := sg.from, 0
+	for p < sg.to && width+runewidth.RuneWidth(b.text[p]) <= x {
+		width += runewidth.RuneWidth(b.text[p])
+		p++
+	}
+	return p
 }

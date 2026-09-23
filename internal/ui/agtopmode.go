@@ -153,7 +153,11 @@ type hostConn struct {
 
 	input  []rune
 	back   int
+	anchor int      // selection start + 1; 0 when nothing is selected
 	images []string // image files attached to the next message
+	box    box      // the message box as last drawn, and where
+	boxIdx int
+	boxY   int
 
 	// Answering Claude's questions, one at a time.
 	qFor      string
@@ -474,6 +478,7 @@ func (m *Model) agtopPane(w, h int) []string {
 	for len(out) < h-len(dock) {
 		out = append(out, "")
 	}
+	c.boxY = m.paneTop + len(out) + c.boxIdx
 	return append(out, dock...)
 }
 
@@ -685,7 +690,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	default:
 		top += dim(" · enter sends")
 	}
-	b := box{w: w, focused: m.paneFocus, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back),
+	b := box{w: w, focused: m.paneFocus, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back), anchor: c.anchor - 1,
 		lead: paint(cOrange, "❯ "), holder: "a message for this agent", maxRows: 6}
 	if c.searching {
 		b = box{w: w, focused: m.paneFocus, topL: paint(cOrange, "search this session") + dim(" · ↑↓ pick · enter jumps · esc closes"),
@@ -697,6 +702,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	if l := chips(c.images, w); l != "" {
 		out = append(out, onBg(bgChrome, l, w))
 	}
+	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
 	hint := keysFit(w-4, "enter", "send", "esc · ←", "back to the list", "↑↓", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
 	if c.sel != "" {
@@ -832,9 +838,14 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		return nil
 	case "ctrl+c":
-		if !empty {
-			c.input, c.back = c.input[:0], 0
+		switch {
+		case c.anchor > 0 && c.anchor-1 != len(c.input)-c.back:
+			// a selection: copy it (handled by the editor below)
+		case !empty:
+			c.input, c.back, c.anchor = c.input[:0], 0, 0
 			return nil
+		default:
+			return m.quitKey()
 		}
 	case "enter", "right":
 		if empty && m.viewName(c) == "subagents" && strings.HasPrefix(c.sel, "sub:") && c.subOpen == "" {
@@ -858,7 +869,10 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			}
 		}
 		if s == "right" {
-			if empty && c.sel != "" {
+			if !empty {
+				break // move the cursor
+			}
+			if c.sel != "" {
 				c.open[c.sel] = true
 			}
 			return nil
@@ -976,9 +990,42 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	}
-	buf, pos, _ := edit(c.input, max(0, len(c.input)-c.back), k, s)
-	c.input, c.back = buf, len(buf)-pos
+	buf, pos, anchor, copied, _ := editSel(c.input, max(0, len(c.input)-c.back), c.anchor-1, k, s)
+	c.input, c.back, c.anchor = buf, len(buf)-pos, anchor+1
+	if copied != "" {
+		m.copyText(copied)
+	}
 	return nil
+}
+
+// clickBox places the cursor where a click lands inside either input box,
+// and gives that box the keys. It reports whether the click was in one.
+func (m *Model) clickBox(x, y int) bool {
+	if c := m.host; c != nil && len(c.box.text) >= 0 && c.box.w > 0 {
+		x0 := 2
+		if m.listW > 0 {
+			x0 = m.listW + 3
+		}
+		rows := len(c.box.lines()) - 2
+		if y > c.boxY && y <= c.boxY+rows && x >= x0 && x < x0+c.box.w {
+			m.paneFocus = true
+			pos := c.box.at(y-c.boxY-1, x-x0)
+			c.back, c.anchor = len(c.input)-pos, 0
+			return true
+		}
+	}
+	b := m.promptBox
+	if m.zen || b.w == 0 {
+		return false
+	}
+	rows := len(b.lines()) - 2
+	if y > m.promptBoxY && y <= m.promptBoxY+rows && x < b.w {
+		m.paneFocus, m.embedded = false, false
+		m.setCursor(b.at(y-m.promptBoxY-1, x))
+		m.anchor = 0
+		return true
+	}
+	return false
 }
 
 func hostCmd(f func() error) tea.Cmd {

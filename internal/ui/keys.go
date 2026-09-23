@@ -33,18 +33,19 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if m.picker != nil {
 		return m.pickerKey(s)
 	}
+	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s == "ctrl+c" {
+		return m.paneKey(k, s)
+	}
 	if s == "ctrl+c" {
-		switch {
-		case len(m.input) > 0:
-			m.input = m.input[:0]
+		if m.anchor > 0 && m.anchor-1 != m.cursorPos() {
+			m.editInput(k, s) // copies the selection
 			return nil
-		case time.Since(m.quitArmed) < 2*time.Second:
-			m.scanner.Flush()
-			return tea.Quit
 		}
-		m.quitArmed = time.Now()
-		m.flash("ctrl+c again to quit", false)
-		return nil
+		if len(m.input) > 0 {
+			m.input, m.back, m.anchor = m.input[:0], 0, 0
+			return nil
+		}
+		return m.quitKey()
 	}
 	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s != "tab" {
 		return m.paneKey(k, s)
@@ -309,6 +310,17 @@ func (m *Model) nextNeedingYou() tea.Cmd {
 	m.sel = best.Key
 	m.rebuild()
 	return m.loadPreview()
+}
+
+// quitKey arms quitting on the first ctrl+c and quits on a second one.
+func (m *Model) quitKey() tea.Cmd {
+	if time.Since(m.quitArmed) < 2*time.Second {
+		m.scanner.Flush()
+		return tea.Quit
+	}
+	m.quitArmed = time.Now()
+	m.flash("ctrl+c again to quit", false)
+	return nil
 }
 
 func (m *Model) sectionOf(key string) string {

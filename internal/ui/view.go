@@ -409,6 +409,7 @@ func (m *Model) listView() string {
 		b.WriteString(fit(l, m.w))
 		b.WriteByte('\n')
 	}
+	m.promptBoxY = len(head) + 1 + bodyH + len(dock) + m.promptBoxIdx
 	for i, l := range prompt {
 		if split {
 			p := ""
@@ -1072,7 +1073,7 @@ func (m *Model) promptLines(w int) []string {
 	}
 	a := m.selected()
 	text := string(m.input)
-	b := box{w: w, focused: !m.sessionFocused(), text: m.input, cursor: m.cursorPos(),
+	b := box{w: w, focused: !m.sessionFocused(), text: m.input, cursor: m.cursorPos(), anchor: m.anchor - 1,
 		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-len(m.header())-1-4-5))}
 	switch {
 	case m.inKind == inRename && a != nil:
@@ -1112,6 +1113,7 @@ func (m *Model) promptLines(w int) []string {
 	if l := chips(m.images, w); l != "" {
 		out = append(out, l)
 	}
+	m.promptBox, m.promptBoxIdx = b, len(out)
 	out = append(out, b.lines()...)
 	row1 := keysFit(w-4, "enter", "open", "ctrl+o", "reply", "F2", "rename", "ctrl+l", "move", "ctrl+t", "pin", "ctrl+x", "stop")
 	if a != nil && a.Agtop && !m.paneFocus {

@@ -93,3 +93,69 @@ func TestImagePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestSelection(t *testing.T) {
+	type st struct {
+		buf         string
+		pos, anchor int
+	}
+	run := func(in st, keys ...string) (st, string) {
+		b, p, a := []rune(in.buf), in.pos, in.anchor
+		var copied string
+		for _, k := range keys {
+			msg := tea.KeyPressMsg{}
+			s := k
+			if len(k) > 1 && k[0] == '"' {
+				msg.Text, s = k[1:len(k)-1], k[1:len(k)-1]
+			}
+			var c string
+			b, p, a, c, _ = editSel(b, p, a, msg, s)
+			if c != "" {
+				copied = c
+			}
+		}
+		return st{string(b), p, a}, copied
+	}
+	got, _ := run(st{"hello world", 11, -1}, "shift+left", "shift+left", "shift+left", "shift+left", "shift+left")
+	if got.pos != 6 || got.anchor != 11 {
+		t.Fatalf("select back: %+v", got)
+	}
+	got, _ = run(got, `"there"`)
+	if got.buf != "hello there" || got.anchor != -1 {
+		t.Fatalf("typing replaces the selection: %+v", got)
+	}
+	got, copied := run(st{"run the tests", 0, -1}, "ctrl+shift+right", "ctrl+c")
+	if copied != "run" || got.buf != "run the tests" {
+		t.Fatalf("copy: %q %+v", copied, got)
+	}
+	got, _ = run(st{"run the tests", 13, -1}, "shift+home", "backspace")
+	if got.buf != "" {
+		t.Fatalf("delete selection: %+v", got)
+	}
+	got, _ = run(st{"abc", 1, -1}, "shift+right", "left")
+	if got.anchor != -1 || got.pos != 1 {
+		t.Fatalf("moving clears the selection: %+v", got)
+	}
+}
+
+func TestBoxClickMapsToText(t *testing.T) {
+	b := box{w: 24, text: []rune("one two three four five six"), lead: "❯ ", maxRows: 6}
+	// Inner width 20, lead 2: rows of 18 cells, word wrapped.
+	segs := wrapSegs(b.text, b.w-4-b.leadW())
+	if len(segs) != 2 || string(b.text[segs[0].from:segs[0].to]) != "one two three " {
+		t.Fatalf("wrap: %+v", segs)
+	}
+	// Col 0-1 is "│ ", then the lead "❯ ": col 4 is the first character.
+	if p := b.at(0, 4); p != 0 {
+		t.Errorf("first char: %d", p)
+	}
+	if p := b.at(0, 8); p != 4 {
+		t.Errorf("start of 'two': %d", p)
+	}
+	if p := b.at(1, 4); p != segs[1].from {
+		t.Errorf("second row start: %d", p)
+	}
+	if p := b.at(1, 99); p != len(b.text) {
+		t.Errorf("past the end: %d", p)
+	}
+}

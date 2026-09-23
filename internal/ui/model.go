@@ -83,7 +83,14 @@ type Model struct {
 
 	input  []rune
 	back   int // cursor distance from the input's end
-	inKind inputKind
+	anchor int // selection start + 1; 0 when nothing is selected
+	// pendingCopy is text to put on the clipboard with the next update.
+	pendingCopy string
+	// Where the Prompt's box was drawn, so a click can place the cursor.
+	promptBox    box
+	promptBoxIdx int
+	promptBoxY   int
+	inKind       inputKind
 	// paneFocus sends keys to an agtop-mode session's pane instead of the
 	// list and its prompt.
 	paneFocus bool
@@ -386,7 +393,11 @@ func (m *Model) flash(s string, err bool) {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := m.update(msg)
-	return m, tea.Batch(cmd, m.syncLive(), m.syncHost())
+	var copyCmd tea.Cmd
+	if m.pendingCopy != "" {
+		copyCmd, m.pendingCopy = tea.SetClipboard(m.pendingCopy), ""
+	}
+	return m, tea.Batch(cmd, copyCmd, m.syncLive(), m.syncHost())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -542,6 +553,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dragging = false
 		return m, nil
 	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft && m.clickBox(msg.X, msg.Y) {
+			return m, nil
+		}
 		// Grabbing the edge between list and pane resizes the list.
 		if msg.Button == tea.MouseLeft && m.listW > 0 && m.mode == modeList && (msg.X == m.listW || msg.X == m.listW+1) {
 			m.dragging = true

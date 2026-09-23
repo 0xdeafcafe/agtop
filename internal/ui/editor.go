@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,6 +116,45 @@ func lineEnd(buf []rune, pos int) int {
 	return pos
 }
 
+// editSel is edit with a selection. anchor is where a selection started
+// (-1 for none). shift with the arrows, home and end extends it; typing
+// replaces it; backspace and delete remove it. copied is set when ctrl+c
+// copies it.
+func editSel(buf []rune, pos, anchor int, k tea.KeyPressMsg, s string) (nbuf []rune, npos, nanchor int, copied string, ok bool) {
+	pos = max(0, min(pos, len(buf)))
+	if anchor > len(buf) {
+		anchor = -1
+	}
+	if strings.HasPrefix(s, "shift+") || strings.HasPrefix(s, "ctrl+shift+") || strings.HasPrefix(s, "alt+shift+") {
+		move := strings.NewReplacer("shift+", "").Replace(s)
+		switch move {
+		case "left", "right", "home", "end", "ctrl+left", "ctrl+right", "alt+left", "alt+right", "super+left", "super+right":
+			if anchor < 0 {
+				anchor = pos
+			}
+			_, np, _ := edit(buf, pos, tea.KeyPressMsg{}, move)
+			return buf, np, anchor, "", true
+		}
+	}
+	has := anchor >= 0 && anchor != pos
+	from, to := min(anchor, pos), max(anchor, pos)
+	if has {
+		switch {
+		case s == "ctrl+c":
+			return buf, pos, -1, string(buf[from:to]), true
+		case s == "backspace" || s == "delete" || s == "ctrl+h":
+			return cut(buf, from, to), from, -1, "", true
+		case k.Text != "" && k.Mod&^tea.ModShift == 0:
+			nb := insert(cut(buf, from, to), from, []rune(k.Text))
+			return nb, from + len([]rune(k.Text)), -1, "", true
+		case s == "esc":
+			return buf, pos, -1, "", true
+		}
+	}
+	nb, np, used := edit(buf, pos, k, s)
+	return nb, np, -1, "", used
+}
+
 // cursorPos is where the prompt's cursor sits. It's kept as a distance from
 // the end, so anything that replaces the input leaves the cursor at its end.
 func (m *Model) cursorPos() int { return max(0, len(m.input)-m.back) }
@@ -123,12 +163,22 @@ func (m *Model) setCursor(pos int) { m.back = max(0, len(m.input)-pos) }
 
 // editInput runs an editing key against the main prompt.
 func (m *Model) editInput(k tea.KeyPressMsg, s string) bool {
-	buf, pos, ok := edit(m.input, m.cursorPos(), k, s)
+	buf, pos, anchor, copied, ok := editSel(m.input, m.cursorPos(), m.anchor-1, k, s)
 	if ok {
 		m.input = buf
 		m.setCursor(pos)
+		m.anchor = anchor + 1
+		if copied != "" {
+			m.copyText(copied)
+		}
 	}
 	return ok
+}
+
+// copyText puts text on the clipboard through the terminal (OSC 52).
+func (m *Model) copyText(t string) {
+	m.pendingCopy = t
+	m.flash(fmt.Sprintf("copied %d characters", len([]rune(t))), false)
 }
 
 // imagePaths reads a paste as image files dropped onto the terminal: paths
