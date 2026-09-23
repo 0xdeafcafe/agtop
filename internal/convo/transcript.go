@@ -29,6 +29,9 @@ type Tail struct {
 
 func NewTail(path string) *Tail { return &Tail{Path: path, Sess: New()} }
 
+// Size is how far into the file Read has got.
+func (t *Tail) Size() int64 { return t.off }
+
 type tline struct {
 	Type          string          `json:"type"`
 	Subtype       string          `json:"subtype"`

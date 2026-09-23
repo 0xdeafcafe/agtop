@@ -74,7 +74,9 @@ func main() {
 			return
 		}
 	}
-	p := tea.NewProgram(ui.New(state.Load(), version))
+	// 120 frames a second: a streamed delta reaches the terminal within
+	// about 8ms of being drawn, and nothing is drawn when nothing changed.
+	p := tea.NewProgram(ui.New(state.Load(), version), tea.WithFPS(120))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "agtop:", err)
 		os.Exit(1)
