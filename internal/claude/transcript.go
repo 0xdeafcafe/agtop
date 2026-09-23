@@ -334,7 +334,11 @@ func recentEvents(lines [][]byte, n int) []Event {
 			switch {
 			case bl.Type == "text" && strings.TrimSpace(bl.Text) != "":
 				if l.Type == "user" {
-					continue // text blocks from the user side are harness notes, not prompts
+					t := strings.TrimSpace(bl.Text)
+					if strings.HasPrefix(t, "<") || strings.HasPrefix(t, "[") || strings.Contains(t, "</") {
+						continue // a harness note, not something the user typed
+					}
+					out = append(out, Event{Role: "user", Text: t, At: l.Timestamp})
 				} else {
 					out = append(out, Event{Role: "assistant", Text: strings.TrimSpace(bl.Text), At: l.Timestamp})
 				}

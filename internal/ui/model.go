@@ -295,6 +295,29 @@ func (m *Model) loadPreview() tea.Cmd {
 	}
 }
 
+// loadLivePreviews keeps the transcript tail of every working agent fresh, so
+// rows can say what each one is doing right now.
+func (m *Model) loadLivePreviews() tea.Cmd {
+	var cmds []tea.Cmd
+	for _, a := range m.snap.Agents {
+		if !a.Live() || a.TranscriptPath == "" || len(cmds) >= 8 {
+			continue
+		}
+		st, err := os.Stat(a.TranscriptPath)
+		if err != nil {
+			continue
+		}
+		if e, ok := m.previews[a.Key]; ok && e.size == st.Size() {
+			continue
+		}
+		key, path, size := a.Key, a.TranscriptPath, st.Size()
+		cmds = append(cmds, func() tea.Msg {
+			return previewMsg{key: key, e: previewEntry{p: claude.ReadPreview(path, 128<<10), size: size}}
+		})
+	}
+	return tea.Batch(cmds...)
+}
+
 func (m *Model) flash(s string, err bool) {
 	m.status, m.statusErr, m.statusAt = s, err, time.Now()
 }
@@ -321,6 +344,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.scan())
 		}
 		cmds = append(cmds, m.loadPreview())
+		if m.tick%2 == 0 {
+			cmds = append(cmds, m.loadLivePreviews())
+		}
 		return m, tea.Batch(cmds...)
 	case scanMsg:
 		m.scanning = false

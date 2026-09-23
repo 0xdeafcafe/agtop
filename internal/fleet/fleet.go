@@ -42,9 +42,9 @@ type Agent struct {
 func (a *Agent) applyStatus(ss claude.Session) {
 	switch {
 	case ss.Status == "busy" && a.State == "blocked":
-		a.State, a.Needs, a.Detail = "working", "", "working on your reply"
-	case ss.Status == "busy" && a.State == "done" && a.InFlight == 0:
-		a.State, a.Detail = "working", "working again"
+		a.State, a.Needs, a.Detail = "working", "", ""
+	case ss.Status == "busy" && a.State == "done" && len(a.Background) == 0:
+		a.State, a.Detail = "working", ""
 	case ss.Status == "idle" && a.State == "working" && ss.StatusMs > 0 && ss.StatusAt().After(a.UpdatedAt):
 		a.State, a.Checking, a.Needs = "blocked", true, ""
 	}
@@ -244,7 +244,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				case now.Sub(t) > 20*time.Second || j.UpdatedAt.After(t) && j.State == "working":
 					delete(l.nudged, key)
 				case !a.Live():
-					a.State, a.Needs, a.Checking, a.Detail = "working", "", false, "sending…"
+					a.State, a.Needs, a.Checking, a.Detail = "working", "", false, ""
 				}
 			}
 			if n := ov.Names[key]; n != "" {

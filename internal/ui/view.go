@@ -328,6 +328,7 @@ func (m *Model) listView() string {
 
 // Column widths on the right of a row.
 const (
+	wAct  = 10
 	wCPU  = 6
 	wRAM  = 7
 	wCost = 8
@@ -563,29 +564,50 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 
 	busy := a.Busy()
 	resident := !live && a.PID != 0
+	act := m.activity(a)
+	cpuCell := func() string {
+		if a.PID == 0 {
+			return strings.Repeat(" ", wCPU)
+		}
+		v := right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)
+		switch {
+		case a.CPU >= 50:
+			return paint(cYellow, v)
+		case a.CPU >= 5:
+			return paint(cSub, v)
+		default:
+			return faint(v)
+		}
+	}
+	ramCell := func(active bool) string {
+		if a.PID == 0 {
+			return strings.Repeat(" ", wRAM)
+		}
+		v := right1(mem(a.Mem), wRAM)
+		switch {
+		case a.Mem >= 4<<30:
+			return paint(cYellow, v)
+		case active:
+			return paint(cSub, v)
+		default:
+			return dim(v)
+		}
+	}
 	var right string
-	if live || resident {
-		cpu, ram := strings.Repeat(" ", wCPU), strings.Repeat(" ", wRAM)
-		if a.PID != 0 {
-			cpu = right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)
-			ram = right1(mem(a.Mem), wRAM)
-		}
-		if live || busy {
-			right = dim(cpuColor(a.CPU, cpu)) + memColor(a.Mem, ram) + paint(cText, right1(money(a.Spend.Cost), wCost))
-		} else {
-			right = faint(cpu) + dim(ram) + dim(right1(money(a.Spend.Cost), wCost))
-		}
-	} else {
+	switch {
+	case live || busy:
+		right = act + cpuCell() + ramCell(true) + paint(cText, right1(money(a.Spend.Cost), wCost))
+	case resident:
+		right = act + faint(right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)) + ramCell(false) + dim(right1(money(a.Spend.Cost), wCost))
+	default:
 		cost := money(a.Spend.Cost)
 		if cost == "–" {
 			cost = ""
 		}
-		right = strings.Repeat(" ", wCPU+wRAM) + dim(right1(cost, wCost))
+		right = act + strings.Repeat(" ", wCPU+wRAM) + dim(right1(cost, wCost))
 	}
 	if live {
 		right += faint(right1(dur(a.Elapsed(now)), wAge+2)) + " "
-	} else if busy {
-		right += faint(right1(age(a.Age(now)), wAge+2)) + " "
 	} else {
 		right += faint(right1(age(a.Age(now)), wAge+2)) + " "
 	}
@@ -604,11 +626,13 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	name := oneLine(a.DisplayName)
 	badges := m.badges(a)
 	summary, sumColor := "", cDim
+	justDone := false
 	switch {
 	case a.Checking:
 		summary, sumColor = "turn ended · checking…", cDim
 	case a.JustFinished(now):
-		summary, sumColor = "just finished · "+oneLine(a.Detail), cGreen
+		summary, sumColor = oneLine(a.Detail), cDim
+		justDone = true
 	case a.State == "blocked":
 		summary, sumColor = oneLine(a.Needs), cYellow
 		if summary == "" {
@@ -616,8 +640,14 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 		}
 	case live:
 		summary, sumColor = oneLine(a.Detail), cSub
+		if p := m.previews[a.Key].p; summary == "" && p.Tool != "" {
+			summary = p.Tool + " · " + oneLine(tildify(p.ToolArg))
+		}
 		if summary == "" && a.Interactive {
 			summary = "working in a terminal"
+		}
+		if summary == "" {
+			summary, sumColor = "working…", cDim
 		}
 	case busy:
 		summary = backgroundText(a)
@@ -637,7 +667,11 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	if summary != "" {
 		left = fit(left, nameCol)
 		if sw := room - nameCol - 2; sw > 8 {
-			left += "  " + paint(sumColor, fit(summary, sw))
+			if justDone {
+				left += "  " + paint(cGreen, "just finished") + faint(" · ") + paint(sumColor, fit(summary, sw-16))
+			} else {
+				left += "  " + paint(sumColor, fit(summary, sw))
+			}
 		}
 	}
 	return " " + marker + " " + fit(left, room) + right
@@ -684,6 +718,31 @@ func (m *Model) context(a *fleet.Agent) string {
 		s += " · " + a.Branch
 	}
 	return s
+}
+
+// activity is the small column of what an agent is running beside itself:
+// subagents (orange, +nested) and background shells.
+func (m *Model) activity(a *fleet.Agent) string {
+	var parts []string
+	if sub := a.Subs; sub.Direct+sub.Nested > 0 {
+		v := fmt.Sprintf("↳%d", sub.Direct)
+		if sub.Nested > 0 {
+			v += fmt.Sprintf("+%d", sub.Nested)
+		}
+		parts = append(parts, paint(cOrange, v))
+	}
+	shells := 0
+	if a.PID != 0 {
+		for _, t := range a.Running {
+			if t.Kind == "shell" {
+				shells++
+			}
+		}
+	}
+	if shells > 0 {
+		parts = append(parts, dim(fmt.Sprintf("▸%d", shells)))
+	}
+	return right1(strings.Join(parts, " "), wAct)
 }
 
 // taskLine is a subagent, shell or monitor nested under the agent running it.
@@ -794,33 +853,6 @@ func (m *Model) badges(a *fleet.Agent) string {
 			col = cRed
 		}
 		parts = append(parts, paint(col, fmt.Sprintf("#%d", pr.Number)))
-	}
-	if sub := a.Subs; sub.Direct+sub.Nested > 0 {
-		b := paint(cOrange, fmt.Sprintf("↳%d", sub.Direct))
-		if sub.Nested > 0 {
-			b += paint(cOrange, fmt.Sprintf("+%d", sub.Nested))
-		}
-		parts = append(parts, b+faint(fmt.Sprintf("/%d", sub.Spawned)))
-	} else if sub.Spawned > 0 && (a.Live() || a.Busy()) {
-		parts = append(parts, faint(fmt.Sprintf("↳0/%d", sub.Spawned)))
-	}
-	shells := 0
-	for _, t := range a.Running {
-		if t.Kind == "shell" {
-			shells++
-		}
-	}
-	if shells > 0 && a.PID != 0 {
-		parts = append(parts, paint(cSub, fmt.Sprintf("▸%d", shells)))
-	}
-	if a.Todos > 0 && (a.Live() || a.Busy()) {
-		parts = append(parts, faint(fmt.Sprintf("☐ %d/%d", a.TodosDone, a.Todos)))
-	}
-	if a.Children > 0 {
-		parts = append(parts, faint(fmt.Sprintf("◫%d", a.Children)))
-	}
-	if a.Interactive {
-		parts = append(parts, faint("terminal"))
 	}
 	return strings.Join(parts, " ")
 }

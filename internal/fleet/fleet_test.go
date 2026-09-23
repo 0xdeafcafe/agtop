@@ -20,9 +20,14 @@ func TestSessionStatusBeatsAStaleJobFile(t *testing.T) {
 	if answered.State != "working" || answered.Needs != "" {
 		t.Fatalf("reply not surfaced: %+v", answered.Job)
 	}
-	tending := &Agent{Job: claude.Job{State: "done", InFlight: 2, UpdatedAt: now.Add(-time.Minute)}}
+	tending := &Agent{Job: claude.Job{State: "done", InFlight: 2, Background: []string{"shell\x00pnpm test"}, UpdatedAt: now.Add(-time.Minute)}}
 	tending.applyStatus(claude.Session{Status: "busy", StatusMs: now.UnixMilli()})
 	if tending.State != "done" {
 		t.Fatal("a session tending background work is not working on a reply")
+	}
+	watching := &Agent{Job: claude.Job{State: "done", InFlight: 1, UpdatedAt: now.Add(-time.Minute)}}
+	watching.applyStatus(claude.Session{Status: "busy", StatusMs: now.UnixMilli()})
+	if watching.State != "working" {
+		t.Fatal("a watcher or cron is not background work; a busy session is working")
 	}
 }
