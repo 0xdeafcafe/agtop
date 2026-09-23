@@ -730,17 +730,24 @@ func (m *Model) agtopPane(w, h int) []string {
 		}
 	}
 	c.scroll = max(0, min(c.scroll, len(body)-bodyH))
+	// Scrolled up, the "more below" pill takes a row of its own rather
+	// than covering the last one (which may be the selected one).
+	rows := bodyH
+	if c.scroll > 0 {
+		rows--
+	}
 	end := len(body) - c.scroll
-	start := max(0, end-bodyH)
+	start := max(0, end-rows)
 	out := append([]string{}, head...)
 	c.rowRefs = make([]string, len(head), h)
 	for _, l := range body[start:end] {
 		out = append(out, l.Text)
 		c.rowRefs = append(c.rowRefs, l.Ref)
 	}
-	if c.scroll > 0 && len(out) > len(head) {
+	if c.scroll > 0 {
 		pill := selBG + " " + paint(cText, fmt.Sprintf("↓ %d more · end follows", c.scroll)) + " " + reset
-		out[len(out)-1] = spread("", pill, w)
+		out = append(out, spread("", pill, w))
+		c.rowRefs = append(c.rowRefs, "")
 	}
 	for len(out) < h-len(dock) {
 		out = append(out, "")
