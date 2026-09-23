@@ -70,6 +70,76 @@ func (m *Model) refreshSubs() {
 	}
 }
 
+// subState is how a subagent run stands: the status its task-finished
+// notice gave (or failed), and whether it is still working.
+func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
+	t := convo.New()
+	if tl := c.subTails[sa.ID]; tl != nil {
+		t = tl.Sess
+	}
+	status = c.sess.TaskStatus[sa.ID]
+	st := c.sess.Step(sa.ToolUseID)
+	if st != nil && st.Status == convo.Failed && status == "" {
+		status = "failed"
+	}
+	// No word that it finished, and it wrote recently: still working.
+	live = status == "" && !t.Last.IsZero() && time.Since(t.Last) < 90*time.Second
+	if st != nil && st.Status == convo.Running {
+		live = true
+	}
+	return status, live
+}
+
+// runningSubs are the subagent runs still working, newest first.
+func (c *hostConn) runningSubs() []convo.Subagent {
+	var out []convo.Subagent
+	for i := len(c.subs) - 1; i >= 0; i-- {
+		if _, live := c.subState(c.subs[i]); live {
+			out = append(out, c.subs[i])
+		}
+	}
+	return out
+}
+
+// cycleSub steps through the conversation and its subagent runs (running
+// ones first, then the rest, newest first), each shown in place.
+func (m *Model) cycleSub(c *hostConn, dir int) {
+	order := c.runningSubs()
+	seen := map[string]bool{}
+	for _, sa := range order {
+		seen[sa.ID] = true
+	}
+	for i := len(c.subs) - 1; i >= 0; i-- {
+		if !seen[c.subs[i].ID] {
+			order = append(order, c.subs[i])
+		}
+	}
+	if len(order) == 0 {
+		return
+	}
+	// Position 0 is the main conversation.
+	cur := 0
+	if m.viewName(c) == "subagents" && c.subOpen != "" {
+		for i, sa := range order {
+			if sa.ID == c.subOpen {
+				cur = i + 1
+			}
+		}
+	}
+	next := (cur + dir + len(order) + 1) % (len(order) + 1)
+	if next == 0 {
+		c.subOpen, c.subTail = "", nil
+		c.view, c.sel, c.scroll = 0, "", 0
+		return
+	}
+	for i, v := range m.views(c) {
+		if v == "subagents" {
+			c.view = i
+		}
+	}
+	m.openSub(c, order[next-1].ID)
+}
+
 func (c *hostConn) subToolUse() string {
 	for _, sa := range c.subs {
 		if sa.ID == c.subOpen {
@@ -104,7 +174,7 @@ func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 				sa = x
 			}
 		}
-		crumb := "  " + paint(cSub, "‹ subagents") + dim("  ·  ") + paint(cText+bold, sa.Type) + "  " + dim(oneLine(sa.Description)) + dim("   ← back")
+		crumb := "  " + paint(cSub, "‹ subagents") + dim("  ·  ") + paint(cText+bold, sa.Type) + "  " + dim(oneLine(sa.Description)) + dim("   ← back · alt+↑↓ next run")
 		lines := []convo.Line{{Text: fit(crumb, w)}, {Text: ""}}
 		so := o
 		so.Selected = c.sel
@@ -124,15 +194,7 @@ func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 		if t := c.subTails[sa.ID]; t != nil {
 			r.t = t.Sess
 		}
-		r.status = c.sess.TaskStatus[sa.ID]
-		if st := c.sess.Step(sa.ToolUseID); st != nil && st.Status == convo.Failed && r.status == "" {
-			r.status = "failed"
-		}
-		// No word that it finished, and it wrote recently: still working.
-		r.live = r.status == "" && !r.t.Last.IsZero() && time.Since(r.t.Last) < 90*time.Second
-		if st := c.sess.Step(sa.ToolUseID); st != nil && st.Status == convo.Running {
-			r.live = true
-		}
+		r.status, r.live = c.subState(sa)
 		if r.live {
 			running++
 		}
@@ -251,6 +313,7 @@ type hostConn struct {
 	qAnswer   map[string]string
 	stopArmed time.Time
 	lastSend  time.Time
+	flushed   time.Time // when the last batch of host lines was taken in
 	// selMoved asks the next draw to scroll the selection into view;
 	// rowRefs is what each drawn row of the pane belongs to, for clicks.
 	selMoved bool
@@ -284,8 +347,12 @@ type hostLinesMsg struct {
 
 var cBright = rgb(240, 236, 228)
 
-// frame is how long a burst of output collects before the pane redraws.
-const frame = 33 * time.Millisecond
+// frame is how long a burst of output collects before the pane redraws;
+// the replay on connecting gathers for a little longer so it draws whole.
+const (
+	frame  = 16 * time.Millisecond
+	replay = 33 * time.Millisecond
+)
 
 func openHost(a *fleet.Agent) tea.Cmd {
 	key, id, path := a.Key, a.ID, a.TranscriptPath
@@ -298,32 +365,50 @@ func openHost(a *fleet.Agent) tea.Cmd {
 	}
 }
 
-// next waits for output, then gathers whatever else arrives within a frame,
-// so a busy session costs one redraw per frame, not one per line.
+// next waits for output and hands it over at once when the pane last drew
+// a while ago; in a burst it gathers lines until a frame has passed since
+// the last batch, so a busy session costs one redraw per frame, not one per
+// line, and a delta never waits more than a frame.
 func (c *hostConn) next() tea.Cmd {
-	lines := c.client.Lines
-	key := c.key
+	lines, key, last := c.client.Lines, c.key, c.flushed
 	return func() tea.Msg {
 		first, ok := <-lines
 		if !ok {
 			return hostLinesMsg{key: key, closed: true}
 		}
 		batch := [][]byte{first}
-		deadline := time.After(frame)
-		for {
-			select {
-			case l, ok := <-lines:
-				if !ok {
-					return hostLinesMsg{key: key, lines: batch, closed: true}
-				}
-				batch = append(batch, l)
-				if len(batch) >= 4096 {
+		wait := replay
+		if !last.IsZero() {
+			wait = frame - time.Since(last)
+		}
+		var due <-chan time.Time
+		if wait > 0 {
+			t := time.NewTimer(wait)
+			defer t.Stop()
+			due = t.C
+		}
+		for len(batch) < 4096 {
+			var l []byte
+			ok := true
+			if due == nil { // only what is already here comes along
+				select {
+				case l, ok = <-lines:
+				default:
 					return hostLinesMsg{key: key, lines: batch}
 				}
-			case <-deadline:
-				return hostLinesMsg{key: key, lines: batch}
+			} else {
+				select {
+				case l, ok = <-lines:
+				case <-due:
+					return hostLinesMsg{key: key, lines: batch}
+				}
 			}
+			if !ok {
+				return hostLinesMsg{key: key, lines: batch, closed: true}
+			}
+			batch = append(batch, l)
 		}
+		return hostLinesMsg{key: key, lines: batch}
 	}
 }
 
@@ -438,7 +523,7 @@ func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
 			m.flash(e.Error, true)
 		}
 	}
-	c.ready = true
+	c.ready, c.flushed = true, time.Now()
 	if msg.closed {
 		_ = c.client.Close()
 		m.host = nil
@@ -751,6 +836,15 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 		}
 		cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
 	}
+	if run := c.runningSubs(); len(run) > 0 && m.viewName(c) == "conversation" {
+		var names []string
+		for _, sa := range run {
+			names = append(names, sa.Type)
+		}
+		left := "  " + paint(cOrange, spinner[m.tick%len(spinner)]) + " " + paint(cBlue, "⇉ ") +
+			paint(cSub+bold, fmt.Sprintf("%d running", len(run))) + "  " + dim(ansi.Truncate(strings.Join(names, " · "), max(10, w-44), "…"))
+		line(spread(left, keys("alt+↓", "view them")+"  ", w))
+	}
 	if q := m.queueOf(c).items; len(q) > 0 {
 		when := " · sends when this turn ends"
 		if c.client == nil {
@@ -1018,6 +1112,15 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			}
 			return nil
 		}
+	case "alt+down", "alt+up":
+		// Step through the subagent runs in place, like Claude Code's
+		// switcher; the main conversation sits at either end.
+		d := 1
+		if s == "alt+up" {
+			d = -1
+		}
+		m.cycleSub(c, d)
+		return nil
 	case "[", "]":
 		if empty {
 			d, n := 1, len(m.views(c))
