@@ -121,6 +121,7 @@ type Model struct {
 	promptFor    string
 	listW        int
 	pastes       pastes                 // long pastes in the main box, shown as chips
+	blurred      bool                   // the terminal says agtop isn\'t the focused window
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
 	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
@@ -284,12 +285,13 @@ func (m *Model) dockLines() int {
 	return min(max(n, 1), max(1, m.h/3))
 }
 
-func (m *Model) startDir() string {
-	dirs := m.startDirs()
+func (m *Model) startDir() string { return pickDir(m.startDirs(), m.dirIdx) }
+
+func pickDir(dirs []string, i int) string {
 	if len(dirs) == 0 {
 		return ""
 	}
-	return dirs[((m.dirIdx%len(dirs))+len(dirs))%len(dirs)]
+	return dirs[((i%len(dirs))+len(dirs))%len(dirs)]
 }
 
 func (m *Model) targets() []fleet.Target {
@@ -482,6 +484,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadPreview()
 	case previewMsg:
 		m.previews[msg.key] = msg.e
+		return m, nil
+	case tea.FocusMsg:
+		m.blurred = false
+		return m, nil
+	case tea.BlurMsg:
+		m.blurred = true
 		return m, nil
 	case editedMsg:
 		switch {
@@ -700,7 +708,9 @@ func (m *Model) notify() {
 		}
 		prev := m.lastState[a.Key]
 		m.lastState[a.Key] = a.State
-		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.NeedsYou() {
+		// Not for the agent you're looking at while agtop has focus.
+		watching := !m.blurred && m.paneFocus && m.host != nil && m.host.key == a.Key
+		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.NeedsYou() && !watching {
 			body := a.Needs
 			if body == "" {
 				body = oneLine(a.Detail)

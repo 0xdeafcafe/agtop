@@ -20,9 +20,27 @@ import (
 func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
-	v.WindowTitle = "agtop"
+	v.WindowTitle = m.title()
 	v.MouseMode = tea.MouseModeAllMotion
+	v.ReportFocus = true // to know when a notification is worth sending
 	return v
+}
+
+// title counts the agents waiting on you, so a tab or dock shows it.
+func (m *Model) title() string {
+	n := 0
+	for _, a := range m.snap.Agents {
+		if a.NeedsYou() {
+			n++
+		}
+	}
+	if n == 0 {
+		return "agtop"
+	}
+	if n == 1 {
+		return "(1) agtop · 1 agent needs you"
+	}
+	return fmt.Sprintf("(%d) agtop · %d agents need you", n, n)
 }
 
 type tally struct {
@@ -65,6 +83,9 @@ func (m *Model) mood(t tally) mood {
 	}
 	return moodIdle
 }
+
+// headH is the header's height: clanker's.
+const headH = 4
 
 func (m *Model) header() []string {
 	t := m.tally()
@@ -340,7 +361,7 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 	if listW > 0 && paneW > maxPane+minRail && m.host != nil && !m.zen {
 		m.railW = paneW - maxPane - 1
 	}
-	bodyH = max(3, m.h-len(m.header())-1-len(m.promptLines(m.promptW(listW, paneW))))
+	bodyH = max(3, m.h-headH-1-m.promptH(m.promptW(listW, paneW)))
 	return listW, paneW, bodyH
 }
 
@@ -400,7 +421,7 @@ func (m *Model) promptW(listW, paneW int) int {
 func (m *Model) paneH() int {
 	listW, paneW, bodyH := m.layout()
 	if listW > 0 && paneW > 0 {
-		return bodyH + len(m.promptLines(listW))
+		return bodyH + m.promptH(listW)
 	}
 	return bodyH
 }
@@ -1166,19 +1187,45 @@ func (m *Model) badges(a *fleet.Agent) string {
 	return strings.Join(parts, " ")
 }
 
+// noPrompt is when there's no Prompt box: zen answers in the Session's own
+// box, and a Session filling a narrow screen has its own box too, so there
+// are never two boxes on screen at once.
+func (m *Model) noPrompt() bool {
+	return m.zen || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList)
+}
+
+// promptBoxAt is the Prompt's box at width w, before its labels.
+func (m *Model) promptBoxAt(w int) box {
+	b := box{w: w, focused: !m.sessionFocused(), text: m.input, cursor: m.cursorPos(), anchor: m.anchor - 1,
+		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-headH-1-4-5))}
+	if m.sessionFocused() {
+		b.text = nil
+	}
+	return b
+}
+
+// promptH is len(m.promptLines(w)), without drawing them.
+func (m *Model) promptH(w int) int {
+	if m.noPrompt() {
+		return 0
+	}
+	n := 2 + m.promptBoxAt(w).rows() + 1
+	if len(m.images) > 0 && w > 0 {
+		n++ // the chips
+	}
+	return n
+}
+
 // promptLines are the input box and a row of key hints. The box's top
 // edge says where the text goes and what enter will do; the agent pane's
 // own input is the same box, so the two always read alike.
 func (m *Model) promptLines(w int) []string {
-	// Zen answers in the Session's own box, and a Session filling a narrow
-	// screen has its own box too: never two boxes on screen at once.
-	if m.zen || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList) {
+	if m.noPrompt() {
 		return nil
 	}
 	a := m.selected()
 	text := string(m.input)
-	b := box{w: w, focused: !m.sessionFocused(), text: m.input, cursor: m.cursorPos(), anchor: m.anchor - 1,
-		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-len(m.header())-1-4-5))}
+	b := m.promptBoxAt(w)
 	switch {
 	case m.inKind == inRename && a != nil:
 		b.topL = dim("rename ") + paint(cText, oneLine(a.DisplayName)) + dim(" · enter saves")
@@ -1192,9 +1239,10 @@ func (m *Model) promptLines(w int) []string {
 	case strings.HasPrefix(text, "/"):
 		b.topL = dim("command · enter runs it")
 	default:
-		b.topL = dim("new session in ") + m.dirLabel(m.startDir()) + dim(" · enter starts it")
+		dirs := m.startDirs()
+		b.topL = dim("new session in ") + m.dirLabel(pickDir(dirs, m.dirIdx)) + dim(" · enter starts it")
 		b.holder = "describe a task for a new session"
-		if len(m.startDirs()) > 1 {
+		if len(dirs) > 1 {
 			b.topR = paint(cSub, "ctrl+l") + dim(" folder")
 		}
 	}
@@ -1204,7 +1252,6 @@ func (m *Model) promptLines(w int) []string {
 		if m.embedded {
 			b.holder = "ctrl+] or click here to come back"
 		}
-		b.text = nil
 	}
 	var out []string
 	if l := chips(m.images, w); l != "" {
