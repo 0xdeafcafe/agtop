@@ -945,11 +945,11 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 		chips += paint(cOrange, "ctrl+o all shown") + "  "
 	}
 	if m.viewName(c) == "screen" {
-		chips = dim("enter types into it · ctrl+] comes back · ctrl+f full screen") + "  "
+		chips = dim("typing goes into it · ctrl+] comes back · ctrl+f full screen") + "  "
 	}
 	row3 := spread("  "+strings.Join(tabs, " ")+dim("   [ ]"), chips, w)
-	return []string{onBg(bgChrome, row1, w), onBg(bgChrome, row2, w), onBg(bgChrome, row3, w),
-		paint(rgb(30, 28, 26), strings.Repeat("▀", w))}
+	// The chrome's own background marks it off; no half-block edge.
+	return []string{onBg(bgChrome, row1, w), onBg(bgChrome, row2, w), onBg(bgChrome, row3, w)}
 }
 
 func firstNonEmpty(xs ...string) string {
@@ -965,7 +965,7 @@ func firstNonEmpty(xs ...string) string {
 // an approval waiting, the queue, and the input box.
 func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	s := c.sess
-	out := []string{paint(rgb(30, 28, 26), strings.Repeat("▄", w))}
+	out := []string{onBg(bgChrome, "", w)} // a row of the dock's own ground
 	line := func(txt string) { out = append(out, onBg(bgChrome, txt, w)) }
 
 	if now, done, total := s.Current(); total > 0 {

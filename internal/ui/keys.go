@@ -31,6 +31,11 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if m.confirm != nil {
 		return m.confirmKey(s)
 	}
+	// A Session filling a narrow screen has the only box there is, so the
+	// keys are its: never typing into a Prompt that isn't drawn.
+	if m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList && m.dialog == nil && !m.zen {
+		m.paneFocus = true
+	}
 	if m.picker != nil {
 		return m.pickerKey(s)
 	}
