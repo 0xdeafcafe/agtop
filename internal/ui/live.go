@@ -247,7 +247,10 @@ func (m *Model) liveLines(w int) []string {
 	if a == nil || l == nil || l.key != a.Key || !l.ready.Load() {
 		return nil
 	}
-	title := paint(cText+bold, oneLine(a.DisplayName)) + "  " + paint(cOrange, "●") + dim(" live · enter opens it · type to reply")
+	title := paint(cText+bold, oneLine(a.DisplayName)) + "  " + paint(cOrange, "●") + dim(" live · → to type into it · enter opens it full screen")
+	if m.embedded {
+		title = paint(cOrange+bold, "▍typing into "+oneLine(a.DisplayName)) + dim("  ·  ctrl+] to stop")
+	}
 	out := []string{fit(title, w)}
 	for _, s := range l.lines() {
 		out = append(out, s+"\x1b[0m")

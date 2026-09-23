@@ -93,7 +93,6 @@ func (m *Model) header() []string {
 		right2 = dim("costing transcripts…   ") + right2
 	}
 
-	pad := strings.Repeat(" ", ansi.StringWidth(robot[0]))
 	line := func(r, l, rt string) string {
 		body := "  " + r + "   " + l
 		gap := m.w - ansi.StringWidth(body) - ansi.StringWidth(rt) - 2
@@ -118,7 +117,6 @@ func (m *Model) header() []string {
 		}
 	}
 	out[3] = "  " + robot[3] + "   " + strings.Join(tabs, " ") + faint("   tab ⇥")
-	_ = pad
 	return out
 }
 
@@ -163,7 +161,7 @@ func (m *Model) render() string {
 	}
 	switch m.mode {
 	case modeHelp:
-		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-6, 116))
+		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 124))
 	case modeProcs:
 		return m.frame(m.procBody(), keysFit(m.w-4, "tab", "next view", "a", "agent / whole machine", "enter", "jump to agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "esc", "back"))
 	case modeCwd:
@@ -187,16 +185,36 @@ func (m *Model) frame(body []string, hint string) string {
 	}
 	b.WriteByte('\n')
 	avail := m.h - len(head) - 3
+	// Keep the cursor row in view on long lists.
+	start := 0
+	if cur := m.frameCursor(body); cur >= avail {
+		start = cur - avail + 2
+	}
 	for i := 0; i < avail; i++ {
-		if i < len(body) {
-			b.WriteString(fit("  "+body[i], m.w))
+		if j := start + i; j < len(body) {
+			b.WriteString(fit("  "+body[j], m.w))
 		}
 		b.WriteByte('\n')
 	}
 	b.WriteString(faint(strings.Repeat("─", m.w)))
 	b.WriteByte('\n')
+	if d := m.dialog; d != nil && d.confirm != "" {
+		hint = paint(cText+bold, d.confirm) + "   " + paint(cOrange, "y") + dim(" yes   ") + paint(cOrange, "n") + dim(" no")
+	} else if d != nil && d.asking != "" {
+		hint = paint(cOrange, d.asking+" ❯ ") + paint(cText, string(d.input)) + paint(cOrange, "▏")
+	}
 	b.WriteString(m.statusOr(hint))
 	return b.String()
+}
+
+// frameCursor finds the highlighted row in a framed body.
+func (m *Model) frameCursor(body []string) int {
+	for i, l := range body {
+		if strings.Contains(l, selBG) {
+			return i
+		}
+	}
+	return 0
 }
 
 func (m *Model) statusOr(hint string) string {
@@ -276,6 +294,9 @@ func (m *Model) listView() string {
 		}
 	}
 	prompt := m.promptLines()
+	if bodyH-len(dock) < 5 {
+		dock = nil // the list needs a few rows more than the dock does
+	}
 	bodyH = max(3, bodyH-len(dock))
 	m.listTop = len(head) + 1
 	m.rowKeys = nil
@@ -325,9 +346,6 @@ func (m *Model) listView() string {
 			b.WriteByte('\n')
 		}
 	}
-	if m.dialog != nil {
-		return m.overlay(b.String())
-	}
 	return b.String()
 }
 
@@ -342,7 +360,6 @@ const (
 
 func (m *Model) listLines(w, h int) []string {
 	nameCol := m.nameColumn(w)
-	focus := m.focused()
 	var all, keys []string
 	selTop, selBottom := -1, -1
 	emit := func(line, key string, sel bool) {
@@ -367,12 +384,6 @@ func (m *Model) listLines(w, h int) []string {
 			emit("", "", false)
 		case lineAgent:
 			emit(m.agentLine(l.agent, w, l.agent.Key == m.sel, nameCol), l.agent.Key, l.agent.Key == m.sel)
-		case lineSub:
-			emit(m.subLine(l.agent, w), l.agent.Key, l.agent.Key == m.sel)
-		case lineTask:
-			emit(m.taskLine(l, w), l.agent.Key, false)
-		case lineCard:
-			_ = focus
 		}
 	}
 	if len(m.order) == 0 {
@@ -829,32 +840,6 @@ func (m *Model) activity(a *fleet.Agent) string {
 	return right1(strings.Join(parts, " "), wAct)
 }
 
-// taskLine is a subagent, shell or monitor nested under the agent running it.
-func (m *Model) taskLine(l listLine, w int) string {
-	t := l.task
-	branch := "├"
-	if l.last {
-		branch = "└"
-	}
-	icon, kind, col := "▸", "shell", cSub
-	switch t.Kind {
-	case "agent":
-		icon, kind, col = "↳", "subagent", cOrange
-	case "monitor":
-		icon, kind, col = "◎", "monitor", cDim
-	}
-	label := oneLine(tildify(t.Label))
-	if l.more > 0 {
-		label += faint(fmt.Sprintf("   +%d more", l.more))
-	}
-	since := ""
-	if !t.StartedAt.IsZero() && t.StartedAt.Unix() > 0 {
-		since = dur(m.snap.At.Sub(t.StartedAt))
-	}
-	room := w - 22 - wAge - 4
-	return "    " + faint(branch+" ") + paint(col, icon+" "+fit(kind, 9)) + " " + dim(fit(label, room)) + faint(right1(since, wAge+2))
-}
-
 // backgroundText says what a finished agent is still waiting on.
 func backgroundText(a *fleet.Agent) string {
 	kinds := map[string]int{}
@@ -884,35 +869,6 @@ func backgroundText(a *fleet.Agent) string {
 		s += " · " + first
 	}
 	return s
-}
-
-// subLine is the second line of a live row: what the agent is doing.
-func (m *Model) subLine(a *fleet.Agent, w int) string {
-	text, col := oneLine(a.Detail), cSub
-	if text == "" {
-		text = oneLine(a.Intent)
-	}
-	if text == "" && a.Interactive {
-		text, col = "working in a terminal", cDim
-	}
-	if a.State == "blocked" && a.Needs != "" {
-		text, col = oneLine(a.Needs), cYellow
-	}
-	if a.Busy() {
-		text, col = backgroundText(a), cSub
-	}
-	if !a.Live() && !a.Busy() && m.expanded[a.Key] {
-		text = oneLine(a.Detail) + dim("  ·  "+tildify(a.Cwd))
-	}
-	tail := ""
-	switch {
-	case a.Live():
-		tail = faint(dur(a.Elapsed(m.snap.At)) + " running")
-	case a.Busy():
-		tail = faint("turn ended " + age(a.Age(m.snap.At)) + " ago")
-	}
-	room := w - 5 - ansi.StringWidth(tail) - 3
-	return "    " + paint(col, fit(text, room)) + "  " + tail
 }
 
 func right1(s string, w int) string { return right(s, w) }
@@ -985,8 +941,9 @@ func (m *Model) promptLines() []string {
 		out = append(out, "  "+label+faint(placeholder))
 	} else {
 		lines := strings.Split(ansi.Wrap(text, max(10, m.w-lw-4), ""), "\n")
-		if len(lines) > 6 {
-			lines = append([]string{faint("…")}, lines[len(lines)-5:]...)
+		limit := min(6, max(1, m.h-len(m.header())-1-4-5))
+		if len(lines) > limit {
+			lines = append([]string{faint("…")}, lines[len(lines)-(limit-1):]...)[:limit]
 		}
 		for i, l := range lines {
 			pre := strings.Repeat(" ", lw)
@@ -1229,7 +1186,7 @@ func (m *Model) procBody() []string {
 		out = append(out, line)
 	}
 	if len(rows) == 0 {
-		out = append(out, dim("This agent has no running process.  tab shows the whole machine."))
+		out = append(out, dim("This agent has no running process.  a shows the whole machine."))
 	}
 	if m.procMachine {
 		mc := m.snap.Machine
@@ -1294,25 +1251,30 @@ func (m *Model) helpBody() []string {
 	}
 	left := []group{
 		{"Move & open", [][2]string{
-			{"↑ ↓", "move"}, {"enter", "open the agent · fold a section"}, {"← →", "fold · unfold · back"},
-			{"tab", "preview · again for full screen"}, {"shift+↑ ↓", "taller or shorter preview"}, {"ctrl+]", "leave an open agent"},
+			{"↑ ↓", "move"}, {"enter", "open the agent full screen · fold a section"},
+			{"→", "preview · type into the live pane"}, {"←", "back · fold"}, {"ctrl+]", "stop typing into an agent"},
+			{"tab", "next view"}, {"shift+↑ ↓", "taller or shorter preview"},
 		}},
 		{"Manage", [][2]string{
-			{"ctrl+o", "reply without opening"}, {"ctrl+r", "rename"}, {"ctrl+t", "pin"}, {"ctrl+f", "done / back"},
-			{"ctrl+x", "stop · twice to delete"}, {"ctrl+e", "put in a group"}, {"ctrl+l", "move to another folder"},
+			{"ctrl+o", "reply without opening"}, {"ctrl+r", "rename"}, {"ctrl+l", "move to another folder"},
+			{"ctrl+t", "pin"}, {"ctrl+f", "done / back"}, {"ctrl+x", "stop · twice to delete"},
+			{"ctrl+e", "put in a group"}, {"ctrl+y", "open its pull request"},
 		}},
 	}
 	right := []group{
-		{"Views", [][2]string{
-			{"ctrl+s", "group by status, repo, account…"}, {"ctrl+p", "processes · CPU and RAM"},
-			{"ctrl+a", "accounts"}, {"ctrl+g", "coding agents & settings"},
+		{"Views & sorting", [][2]string{
+			{"ctrl+p", "processes · CPU and RAM"}, {"ctrl+a", "accounts"}, {"ctrl+g", "coding agents"},
+			{"ctrl+s", "group by status, repo, account…"}, {"click a header", "sort by that column"},
 		}},
 		{"New sessions", [][2]string{
-			{"type + enter", "start one"}, {"ctrl+n ctrl+b", "choose its folder"}, {"with preview", "enter sends a reply"},
+			{"type + enter", "start one"}, {"ctrl+n ctrl+b", "choose its folder"},
 		}},
 		{"Commands", [][2]string{
-			{"/done /stop /rm", "same as the keys"}, {"/cd /add-dir", "move or grant a folder"}, {"/native", "open the native view"},
+			{"/done /stop /rm /kill", "the same as the keys"}, {"/cd /add-dir", "move or grant a folder"},
+			{"/sort /by", "sort rows · group sections"}, {"/rename /group", "name or group the agent"},
+			{"/account /hibernate", "switch account · stop idle agents"}, {"/native /quit", "native view · quit"},
 		}},
+		{"Quit", [][2]string{{"esc esc · ctrl+q", "quit"}, {"ctrl+c", "clear the text, twice to quit"}}},
 	}
 	col := func(gs []group) []string {
 		var out []string
@@ -1322,13 +1284,16 @@ func (m *Model) helpBody() []string {
 			}
 			out = append(out, paint(cSub+bold, g.title))
 			for _, r := range g.rows {
-				out = append(out, paint(cOrange, fit(r[0], 18))+dim(r[1]))
+				out = append(out, paint(cOrange, fit(r[0], 22))+dim(r[1]))
 			}
 		}
 		return out
 	}
 	l, r := col(left), col(right)
 	out := []string{paint(cText+bold, "Keys") + faint("   any key closes"), ""}
+	if m.w < 110 {
+		return append(append(append(out, l...), ""), r...)
+	}
 	for i := 0; i < max(len(l), len(r)); i++ {
 		a, b := "", ""
 		if i < len(l) {
@@ -1337,7 +1302,7 @@ func (m *Model) helpBody() []string {
 		if i < len(r) {
 			b = r[i]
 		}
-		out = append(out, fit(a, 52)+"  "+b)
+		out = append(out, fit(a, 58)+"  "+b)
 	}
 	return out
 }

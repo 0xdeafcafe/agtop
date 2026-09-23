@@ -20,6 +20,9 @@ import (
 func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	s := k.String()
 	m.hover = "" // the keyboard takes over from the mouse
+	if m.embedded {
+		return m.embedKey(k)
+	}
 	if s == "ctrl+q" {
 		m.scanner.Flush()
 		return tea.Quit
@@ -123,6 +126,10 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				if m.folded(t) {
 					m.toggleFold(t)
 				}
+				return nil
+			}
+			if m.canEmbed() {
+				m.embedded = true
 				return nil
 			}
 			// On a narrow screen the preview is already full width.

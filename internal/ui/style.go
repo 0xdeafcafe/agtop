@@ -25,7 +25,6 @@ var (
 	cYellow = rgb(229, 181, 103)
 	cRed    = rgb(224, 104, 92)
 	cBlue   = rgb(143, 179, 217)
-	cWhite  = rgb(240, 236, 228)
 )
 
 func paint(c, s string) string {

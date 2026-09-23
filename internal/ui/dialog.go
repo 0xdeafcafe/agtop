@@ -23,7 +23,7 @@ const (
 	tabGeneral
 )
 
-var tabNames = []string{"Accounts", "Coding agents", "General"}
+var tabNames = []string{"Accounts", "Coding agents", "Settings"}
 
 type dialog struct {
 	tab      int
@@ -594,19 +594,7 @@ func (m *Model) dialogBody(w int) []string {
 		}
 		out = append(out, "", keysFit(w, "←→", "change", "tab", "next view", "esc", "back to agents"))
 	}
-	switch {
-	case d.confirm != "":
-		out = append(out, "", paint(cText+bold, d.confirm)+"   "+paint(cOrange, "y")+dim(" yes   ")+paint(cOrange, "n")+dim(" no"))
-	case d.asking != "":
-		out = append(out, "", paint(cOrange, d.asking+" ❯ ")+paint(cText, string(d.input))+paint(cOrange, "▏"))
-	}
 	return out
-}
-
-// overlay draws the dialog box centred over the rendered screen.
-func (m *Model) overlay(base string) string {
-	bw := min(m.w-6, 110)
-	return m.overlayBox(base, m.dialogBody(bw-4), bw)
 }
 
 // overlayBox draws body in a panel of width bw centred over base, dimming

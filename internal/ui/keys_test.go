@@ -34,3 +34,17 @@ func TestFitAndAge(t *testing.T) {
 		t.Fatalf("%q", s)
 	}
 }
+
+func TestKeyBytesForTheLivePane(t *testing.T) {
+	cases := map[string]tea.KeyPressMsg{
+		"\r":     {Code: tea.KeyEnter},
+		"\x1b[A": {Code: tea.KeyUp},
+		"\x03":   {Code: 'c', Mod: tea.ModCtrl},
+		"é":      {Code: 'é', Text: "é"},
+	}
+	for want, k := range cases {
+		if got := string(keyBytes(k)); got != want {
+			t.Errorf("%q sent %q", want, got)
+		}
+	}
+}

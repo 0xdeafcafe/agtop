@@ -25,7 +25,6 @@ type mode int
 const (
 	modeList mode = iota
 	modeProcs
-	modeAccounts
 	modeCwd
 	modeHelp
 )
@@ -37,7 +36,6 @@ const (
 	inRename
 	inGroup
 	inReply
-	inNewAccount
 )
 
 var groupModes = []string{"status", "repo", "account", "group"}
@@ -75,7 +73,6 @@ type Model struct {
 	liveOpening  string
 	liveFailed   string
 	liveFailedAt time.Time
-	expanded     map[string]bool
 	hover        string
 	hoverAt      time.Time
 	rowKeys      []string
@@ -94,6 +91,7 @@ type Model struct {
 	confirm    *confirmation
 	dialog     *dialog
 	picker     *picker
+	embedded   bool
 	promptFor  string
 	listW      int
 	hibernated map[string]bool
@@ -103,7 +101,6 @@ type Model struct {
 
 	procCursor  int
 	procMachine bool
-	acctCursor  int
 	cwdMove     bool
 	cwdCursor   int
 	cwdFor      string
@@ -122,9 +119,6 @@ const (
 	lineBlank lineKind = iota
 	lineSection
 	lineAgent
-	lineSub
-	lineCard
-	lineTask
 )
 
 type listLine struct {
@@ -134,9 +128,6 @@ type listLine struct {
 	folded bool
 	peek   string
 	agent  *fleet.Agent
-	task   claude.Task
-	last   bool
-	more   int
 }
 
 func sectionKey(title string) string { return "§" + title }
@@ -146,7 +137,7 @@ func New(store *state.Store, version string) *Model {
 	m := &Model{
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
-		expanded: map[string]bool{}, lastState: map[string]string{}, cwdMove: true,
+		lastState: map[string]string{}, cwdMove: true,
 		hibernated: map[string]bool{},
 	}
 	if store.Config.GroupBy == "" {
@@ -427,6 +418,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.PasteMsg:
+		if m.embedded {
+			m.embedPaste(msg.Content)
+			return m, nil
+		}
 		if m.acceptsText() {
 			if m.dialog != nil {
 				m.dialog.input = append(m.dialog.input, []rune(oneLine(msg.Content))...)
@@ -536,15 +531,6 @@ func (m *Model) selected() *fleet.Agent {
 		}
 	}
 	return nil
-}
-
-func (m *Model) selIndex() int {
-	for i, a := range m.order {
-		if a.Key == m.sel {
-			return i
-		}
-	}
-	return -1
 }
 
 func (m *Model) move(d int) {
@@ -663,8 +649,6 @@ func (m *Model) rebuild() {
 			add(a.Acct.Name, 4, a)
 		case by == "group" && a.Group != "":
 			add(a.Group, 4, a)
-		case a.Live():
-			add("Working", 2, a)
 		default:
 			add("Today", 7, a)
 		}
