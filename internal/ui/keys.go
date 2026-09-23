@@ -341,6 +341,7 @@ func (m *Model) submit() tea.Cmd {
 			return nil
 		}
 		m.inKind = inReply
+		m.markSeen(a)
 		m.flash("sending to "+a.DisplayName+"…", false)
 		m.loader.Nudge(a.Key)
 		m.refresh()

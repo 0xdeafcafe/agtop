@@ -86,6 +86,7 @@ type Overlay struct {
 	Names  map[string]string    `json:"names,omitempty"`
 	Groups map[string]string    `json:"groups,omitempty"`
 	Moved  map[string]string    `json:"moved,omitempty"`
+	Seen   map[string]time.Time `json:"seen,omitempty"`
 }
 
 type Store struct {
@@ -109,6 +110,9 @@ func Load() *Store {
 	}
 	if s.Overlay.Moved == nil {
 		s.Overlay.Moved = map[string]string{}
+	}
+	if s.Overlay.Seen == nil {
+		s.Overlay.Seen = map[string]time.Time{}
 	}
 	return s
 }

@@ -32,7 +32,7 @@ func (m *Model) tally() tally {
 	var t tally
 	for _, a := range m.snap.Agents {
 		switch {
-		case a.State == "blocked":
+		case a.NeedsYou():
 			t.blocked++
 		case a.Live():
 			t.working++
@@ -550,8 +550,10 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 		marker = paint(cSub, "◔")
 	case a.JustFinished(now):
 		marker = paint(cGreen, "✓")
-	case a.State == "blocked":
+	case a.NeedsYou():
 		marker = paint(cYellow, "●")
+	case a.Waiting():
+		marker = paint(cYellow, "○")
 	case live:
 		marker = paint(cOrange, spinner[(m.tick+len(a.ID))%len(spinner)])
 	case a.Busy():
@@ -633,6 +635,11 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	case a.JustFinished(now):
 		summary, sumColor = oneLine(a.Detail), cDim
 		justDone = true
+	case a.Waiting():
+		summary, sumColor = oneLine(a.Needs), cSub
+		if summary == "" {
+			summary = oneLine(a.Detail)
+		}
 	case a.State == "blocked":
 		summary, sumColor = oneLine(a.Needs), cYellow
 		if summary == "" {

@@ -35,6 +35,17 @@ type Agent struct {
 	PID         int  // root of the process tree
 	Checking    bool // turn just ended; Claude Code has not classified it yet
 	Subs        claude.SubagentStats
+	Seen        bool // the user has opened or answered this question already
+}
+
+// NeedsYou is a live agent asking something the user has not looked at yet.
+func (a *Agent) NeedsYou() bool {
+	return a.State == "blocked" && !a.Checking && a.PID != 0 && !a.Seen
+}
+
+// Waiting is a question the user has seen and left for later.
+func (a *Agent) Waiting() bool {
+	return a.State == "blocked" && !a.Checking && a.PID != 0 && a.Seen
 }
 
 // applyStatus trusts the session's live busy/idle flag over the job file,
@@ -253,6 +264,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			a.Pinned = pins[id] > 0
 			_, a.Done = ov.Done[key]
 			a.Group = ov.Groups[key]
+			if t, ok := ov.Seen[key]; ok && !j.UpdatedAt.After(t) {
+				a.Seen = true
+			}
 			if w, ok := roster.Workers[id]; ok {
 				w := w
 				a.Worker = &w

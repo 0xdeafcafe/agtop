@@ -31,3 +31,18 @@ func TestSessionStatusBeatsAStaleJobFile(t *testing.T) {
 		t.Fatal("a watcher or cron is not background work; a busy session is working")
 	}
 }
+
+func TestNeedsYouOnlyForLiveUnseenQuestions(t *testing.T) {
+	asking := &Agent{Job: claude.Job{State: "blocked"}, PID: 42}
+	if !asking.NeedsYou() {
+		t.Fatal("a live unseen question needs you")
+	}
+	asking.Seen = true
+	if asking.NeedsYou() || !asking.Waiting() {
+		t.Fatal("a seen question waits instead of nagging")
+	}
+	gone := &Agent{Job: claude.Job{State: "blocked"}}
+	if gone.NeedsYou() || gone.Waiting() {
+		t.Fatal("a question from a process that has exited needs nobody")
+	}
+}

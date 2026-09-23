@@ -318,6 +318,15 @@ func (m *Model) loadLivePreviews() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// markSeen acknowledges an agent's question until it asks something new.
+func (m *Model) markSeen(a *fleet.Agent) {
+	if a == nil || a.State != "blocked" {
+		return
+	}
+	m.store.Overlay.Seen[a.Key] = time.Now()
+	_ = m.store.SaveOverlay()
+}
+
 func (m *Model) flash(s string, err bool) {
 	m.status, m.statusErr, m.statusAt = s, err, time.Now()
 }
@@ -466,7 +475,7 @@ func (m *Model) notify() {
 		}
 		prev := m.lastState[a.Key]
 		m.lastState[a.Key] = a.State
-		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.State == "blocked" {
+		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.NeedsYou() {
 			body := a.Needs
 			if body == "" {
 				body = oneLine(a.Detail)
@@ -594,8 +603,10 @@ func (m *Model) rebuild() {
 	for _, a := range m.snap.Agents {
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
-		case a.State == "blocked" && !a.Checking:
+		case a.NeedsYou():
 			add("Needs you", 0, a)
+		case a.Waiting():
+			add("Waiting on you", 3, a)
 		case a.Checking || a.JustFinished(now):
 			add("Working", 2, a)
 		case a.Pinned:
@@ -732,6 +743,7 @@ func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 		return nil
 	}
 	m.attached = a.Key
+	m.markSeen(a)
 	if a.Interactive {
 		m.flash(fmt.Sprintf("%s is open in another terminal (pid %d)", a.DisplayName, a.PID), false)
 		return nil
