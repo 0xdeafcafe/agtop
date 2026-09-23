@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -548,4 +549,26 @@ func TestFailureInBrief(t *testing.T) {
 	if !strings.Contains(out, "$ python3 - <<'EOF'") || !strings.Contains(out, "  import yaml") || strings.Contains(out, "$ import yaml") {
 		t.Fatalf("opened failure:\n%s", out)
 	}
+}
+
+func TestSearchEdges(t *testing.T) {
+	if i, j := findFold("İstanbul — Ünïcode ERROR here", "error"); i < 0 || "İstanbul — Ünïcode ERROR here"[i:j] != "ERROR" {
+		t.Fatalf("findFold = %d %d", i, j)
+	}
+	long := strings.Repeat("— ", 40) + "needle"
+	if sn := snippet(long, []string{"needle"}); !utf8.ValidString(sn) {
+		t.Fatalf("snippet cut a character: %q", sn)
+	}
+	p := parseQuery("turn:13-10 is:foo x")
+	if p.from != 10 || p.to != 13 || len(p.unknown) != 1 {
+		t.Fatalf("query = %+v", p)
+	}
+	if p := parseQuery("turn:5-"); p.from != 5 || p.to < 1000 {
+		t.Fatalf("open range = %+v", p)
+	}
+	s := session()
+	if len(s.Search("is:claude")) == 0 {
+		t.Fatal("is:claude alone lists what Claude said")
+	}
+	_ = s.SearchView("İ", Options{Width: 100}) // mustn't panic
 }

@@ -1625,6 +1625,7 @@ func (m *Model) helpBody() []string {
 		{"ctrl+x", "stop · twice deletes"},
 		{"ctrl+y", "open its pull request"},
 		{"ctrl+s", "group rows"},
+		{"ctrl+f", "a Claude Code agent full screen"},
 	}}
 	if m.sessionFocused() {
 		here = group{"In the Session", [][2]string{

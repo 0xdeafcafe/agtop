@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Hit is one search result: where it is and the text around the match.
@@ -19,14 +21,22 @@ type query struct {
 	kinds    map[string]bool // failed, edit, cmd, read, you, claude
 	file     string
 	from, to int // turn range; 0 means any
+	unknown  []string
 }
+
+var knownKinds = map[string]bool{"failed": true, "edit": true, "cmd": true, "read": true, "you": true, "claude": true}
 
 func parseQuery(q string) query {
 	p := query{kinds: map[string]bool{}}
 	for _, f := range strings.Fields(strings.ToLower(q)) {
 		switch {
 		case strings.HasPrefix(f, "is:"):
-			p.kinds[strings.TrimPrefix(f, "is:")] = true
+			k := strings.TrimPrefix(f, "is:")
+			if !knownKinds[k] {
+				p.unknown = append(p.unknown, f)
+				continue
+			}
+			p.kinds[k] = true
 		case strings.HasPrefix(f, "file:"):
 			p.file = strings.TrimPrefix(f, "file:")
 		case strings.HasPrefix(f, "turn:"):
@@ -36,6 +46,12 @@ func parseQuery(q string) query {
 			p.to = p.from
 			if found {
 				p.to, _ = strconv.Atoi(b)
+				if b == "" {
+					p.to = 1 << 30 // turn:5- runs to the end
+				}
+			}
+			if p.to < p.from {
+				p.from, p.to = p.to, p.from
 			}
 		default:
 			p.words = append(p.words, f)
@@ -46,13 +62,36 @@ func parseQuery(q string) query {
 
 // matches reports whether every word is in text.
 func (p query) matches(text string) bool {
-	t := strings.ToLower(text)
 	for _, w := range p.words {
-		if !strings.Contains(t, w) {
+		if i, _ := findFold(text, w); i < 0 {
 			return false
 		}
 	}
 	return true
+}
+
+// findFold finds w in s ignoring case, rune by rune, and returns the byte
+// span of the match in s itself (lowercasing can change a string's byte
+// length, so an index into a lowercased copy doesn't fit the original).
+func findFold(s, w string) (start, end int) {
+	if w == "" {
+		return 0, 0
+	}
+	for i := range s {
+		j, k := i, 0
+		for k < len(w) && j < len(s) {
+			a, na := utf8.DecodeRuneInString(s[j:])
+			b, nb := utf8.DecodeRuneInString(w[k:])
+			if unicode.ToLower(a) != unicode.ToLower(b) {
+				break
+			}
+			j, k = j+na, k+nb
+		}
+		if k == len(w) {
+			return i, j
+		}
+	}
+	return -1, -1
 }
 
 // Search finds turns and steps that match q: plain words anywhere, narrowed
@@ -79,7 +118,7 @@ func (s *Session) Search(q string) []Hit {
 		for _, it := range t.Items {
 			switch it.Kind {
 			case KText:
-				if steps || len(p.words) == 0 || !p.matches(it.Text) {
+				if steps || len(p.words) == 0 && !p.kinds["claude"] || !p.matches(it.Text) {
 					continue
 				}
 				hits = append(hits, Hit{Ref: ref, Turn: t.N, Who: "claude", Snippet: snippet(it.Text, p.words)})
@@ -135,11 +174,16 @@ func snippet(text string, words []string) string {
 	if len(words) == 0 {
 		return t
 	}
-	i := strings.Index(strings.ToLower(t), words[0])
+	i, _ := findFold(t, words[0])
 	if i < 0 {
 		return t
 	}
-	start := max(0, i-30)
+	// About 30 characters before it, starting on a whole character.
+	start := i
+	for n := 0; n < 30 && start > 0; n++ {
+		_, size := utf8.DecodeLastRuneInString(t[:start])
+		start -= size
+	}
 	out := t[start:]
 	if start > 0 {
 		out = "…" + out
@@ -150,11 +194,19 @@ func snippet(text string, words []string) string {
 // SearchView draws the hits as rows, with the first word lit.
 func (s *Session) SearchView(q string, o Options) []Line {
 	w := min(o.Width, capRow)
-	hits := s.Search(q)
+	// The same query over an unchanged session gives the same hits.
+	key := fmt.Sprint(q, "\x00", s.stepVer, len(s.Turns), s.Last.UnixNano())
+	if s.searchKey != key {
+		s.searchHits, s.searchKey = s.Search(q), key
+	}
+	hits := s.searchHits
 	var out []Line
 	head := fmt.Sprintf("%d matches", len(hits))
 	if strings.TrimSpace(q) == "" {
 		head = "type to search · is:failed is:edit is:cmd is:read is:you is:claude file:<name> turn:10-13"
+	}
+	if u := parseQuery(q).unknown; len(u) > 0 {
+		head += " · " + strings.Join(u, " ") + " isn't a filter (is:failed is:edit is:cmd is:read is:you is:claude)"
 	}
 	out = append(out, Line{Text: row("", "  "+dim(head), dim("enter jumps · esc closes"), o.Width, w)}, Line{Text: ""})
 	words := parseQuery(q).words
@@ -165,8 +217,8 @@ func (s *Session) SearchView(q string, o Options) []Line {
 		}
 		snip := h.Snippet
 		if len(words) > 0 {
-			if i := strings.Index(strings.ToLower(snip), words[0]); i >= 0 {
-				snip = sub(snip[:i]) + paint(cYellow+bold, snip[i:i+len(words[0])]) + sub(snip[i+len(words[0]):])
+			if i, j := findFold(snip, words[0]); i >= 0 {
+				snip = sub(snip[:i]) + paint(cYellow+bold, snip[i:j]) + sub(snip[j:])
 			} else {
 				snip = sub(snip)
 			}
@@ -184,4 +236,17 @@ func (s *Session) SearchView(q string, o Options) []Line {
 		out = append(out, Line{Text: row(b, left, "", o.Width, w), Ref: h.Ref})
 	}
 	return out
+}
+
+// ParentRef is the ref of the step a subagent's step belongs to, or "" when
+// ref isn't a subagent's step. Opening it shows the step.
+func (s *Session) ParentRef(ref string) string {
+	turn, id, ok := strings.Cut(ref, ":s:")
+	if !ok {
+		return ""
+	}
+	if st := s.byID[id]; st != nil && st.parent != nil {
+		return turn + ":s:" + st.parent.ID
+	}
+	return ""
 }

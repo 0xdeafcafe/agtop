@@ -2039,6 +2039,9 @@ func (m *Model) searchKey(c *hostConn, k tea.KeyPressMsg, s string) tea.Cmd {
 		c.open[turn] = true
 		if isStep {
 			c.open[c.sel] = true
+			if p := c.sess.ParentRef(c.sel); p != "" {
+				c.open[p] = true // a subagent's step shows under its opened parent
+			}
 		}
 		c.view, c.searching, c.query, c.selMoved = 0, false, nil, true
 		return nil
