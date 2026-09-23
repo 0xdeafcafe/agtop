@@ -82,7 +82,7 @@ func FetchUsage(ctx context.Context, a Account) (Usage, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&data); err != nil {
 		return Usage{}, err
 	}
-	return Usage{FiveHour: data.FiveHour.window(), SevenDay: data.SevenDay.window(), FetchedAt: time.Now()}, nil
+	return Usage{FiveHour: data.FiveHour.window(), SevenDay: data.SevenDay.window(), FetchedAt: time.Now(), Fetched: true}, nil
 }
 
 func retryAfter(v string) time.Time {

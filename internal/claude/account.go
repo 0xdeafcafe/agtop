@@ -65,12 +65,20 @@ type Usage struct {
 	SevenDay  Window
 	FetchedAt time.Time
 	Problem   string // why no fresh reading: not signed in, expired, rate-limited
+	Fetched   bool   // read from Anthropic by agtop, not Claude Code's cache
+	Role      string
+	Billing   string
+	OrgType   string
+	Extra     bool
 }
 
 type usageFile struct {
 	OAuthAccount *struct {
 		EmailAddress     string `json:"emailAddress"`
 		OrganizationName string `json:"organizationName"`
+		OrganizationRole string `json:"organizationRole"`
+		OrganizationType string `json:"organizationType"`
+		ExtraUsage       bool   `json:"hasExtraUsageEnabled"`
 		BillingType      string `json:"billingType"`
 		SeatTier         string `json:"seatTier"`
 		UserRateLimit    string `json:"userRateLimitTier"`
@@ -111,6 +119,7 @@ func ReadUsage(a Account) (Usage, error) {
 	var u Usage
 	if o := f.OAuthAccount; o != nil {
 		u.Email, u.Org = o.EmailAddress, o.OrganizationName
+		u.Role, u.Billing, u.OrgType, u.Extra = o.OrganizationRole, o.BillingType, o.OrganizationType, o.ExtraUsage
 		for _, v := range []string{o.UserRateLimit, o.SeatTier, o.OrganizationName, o.BillingType} {
 			if v != "" {
 				u.Plan = v

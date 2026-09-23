@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -629,7 +630,10 @@ func (m *Model) dialogBody(w int) []string {
 			out = append(out, row(i, mark+" "+line))
 		}
 		if len(d.accounts) > 0 {
-			out = append(out, "", faint("usage is fetched from Anthropic for every signed-in account every 5 minutes"))
+			if d.cursor < len(d.accounts) {
+				out = append(out, "", rule(d.accounts[d.cursor].Name, "", w))
+				out = append(out, m.accountDetail(d.accounts[d.cursor], views[d.accounts[d.cursor].ConfigDir], w)...)
+			}
 		}
 		out = append(out, "", keysFit(w, "enter", "use for new sessions", "a", "add", "r", "rename", "l", "sign in", "d", "remove"))
 	case tabAgents:
@@ -716,4 +720,86 @@ const panelBG = "\x1b[48;2;30;28;26m"
 
 func panel(s string) string {
 	return panelBG + strings.ReplaceAll(s, reset, reset+panelBG) + reset
+}
+
+// accountDetail is everything known about one account, under the table.
+func (m *Model) accountDetail(a acctRow, av fleet.AccountView, w int) []string {
+	now := m.snap.At
+	u := av.Usage
+	var out []string
+	label := func(k string) string { return dim(fit(k, 10)) }
+	who := []string{}
+	seen := map[string]bool{}
+	for _, v := range []string{u.Email, u.Org, u.Role, u.Plan, u.Billing} {
+		if v = strings.ReplaceAll(v, "_", " "); v != "" && !seen[v] {
+			seen[v] = true
+			who = append(who, v)
+		}
+	}
+	if u.Extra {
+		who = append(who, "extra usage on")
+	}
+	if len(who) == 0 {
+		who = append(who, "not signed in: press l to sign in")
+	}
+	out = append(out, label("who")+paint(cText, strings.Join(who, " · ")))
+	window := func(name string, win claude.Window) string {
+		if !win.Present {
+			msg := "no reading"
+			if u.Problem != "" {
+				msg = u.Problem
+			}
+			return label(name) + paint(cYellow, msg)
+		}
+		s := label(name) + bar(win.Percent) + " " + paint(cText, fmt.Sprintf("%.0f%%", win.Percent))
+		if !win.ResetsAt.IsZero() {
+			when := win.ResetsAt.Local().Format("15:04")
+			if win.ResetsAt.Sub(now) > 20*time.Hour {
+				when = win.ResetsAt.Local().Format("Mon 15:04")
+			}
+			if win.ResetsAt.After(now) {
+				s += dim("  resets " + when + " · in " + dur(win.ResetsAt.Sub(now)))
+			} else {
+				s += faint("  reset at " + when + ", since this reading")
+			}
+		}
+		return s
+	}
+	out = append(out, window("5-hour", u.FiveHour), window("7-day", u.SevenDay))
+	out = append(out, label("agents")+paint(cText, fmt.Sprintf("%d running · %d in total", av.Live, av.Agents))+dim("  ·  today ")+paint(cText, money(av.Today))+dim("  ·  all time ")+paint(cText, money(av.Spend)))
+	var top []*fleet.Agent
+	for _, ag := range m.snap.Agents {
+		if ag.Acct.ConfigDir == a.ConfigDir && ag.Spend.Today > 0 {
+			top = append(top, ag)
+		}
+	}
+	sort.Slice(top, func(i, j int) bool { return top[i].Spend.Today > top[j].Spend.Today })
+	if len(top) > 0 {
+		var parts []string
+		for i, ag := range top {
+			if i == 3 {
+				break
+			}
+			parts = append(parts, oneLine(ag.DisplayName)+" "+paint(cText, money(ag.Spend.Today)))
+		}
+		out = append(out, label("top today")+dim(strings.Join(parts, "  ·  ")))
+	}
+	source := "Claude Code's saved reading"
+	if u.Fetched {
+		source = "fetched from Anthropic"
+	}
+	status := []string{tildify(a.ConfigDir)}
+	if u.Email != "" {
+		status = append(status, "signed in")
+	}
+	if av.Daemon {
+		status = append(status, "daemon running")
+	} else {
+		status = append(status, "daemon not running")
+	}
+	if !u.FetchedAt.IsZero() {
+		status = append(status, "usage "+source+" at "+u.FetchedAt.Local().Format("15:04"))
+	}
+	out = append(out, label("status")+faint(strings.Join(status, " · ")))
+	return out
 }

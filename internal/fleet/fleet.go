@@ -430,6 +430,7 @@ func (l *Loader) freshest(acct claude.Account, cached claude.Usage) claude.Usage
 	}
 	if f.FetchedAt.After(cached.FetchedAt) {
 		f.Email, f.Org, f.Plan = cached.Email, cached.Org, cached.Plan
+		f.Role, f.Billing, f.OrgType, f.Extra = cached.Role, cached.Billing, cached.OrgType, cached.Extra
 		return f
 	}
 	cached.Problem = f.Problem
