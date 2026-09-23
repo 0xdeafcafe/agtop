@@ -193,7 +193,7 @@ func (d *drawer) folded() {
 	if w := len([]rune(ask)); w > askW {
 		ask = string([]rune(ask)[:askW-1]) + "…"
 	}
-	left := "  " + faint("▸") + " " + d.mark() + " " + dim(fmt.Sprintf("#%d", t.N)) + "  " + sub(ask)
+	left := "  " + faint("▸") + " " + d.mark() + " " + dim(fmt.Sprintf("#%d", t.N)) + "  " + styledAsk(ask, cSub)
 	if outcome != "" && outcome != text("") {
 		left += "  " + dim("→") + " " + outcome
 	}
@@ -225,7 +225,7 @@ func (d *drawer) open() {
 		ask = "(resumed)"
 	}
 	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
-	rows := wrap(paint(cWhite+bold, oneLine(ask)), min(headW, capProse))
+	rows := wrap(styledAsk(oneLine(ask), cText+bold), min(headW, capProse))
 	if len(rows) > 3 {
 		rows = append(rows[:2], rows[2]+dim(" …"))
 	}
@@ -403,6 +403,35 @@ func (d *drawer) answer(s string) {
 	}
 }
 
+// styledAsk draws your words with the things that act singled out: a
+// shell command tinted, slash commands and @files in bold white, image and
+// paste markers as chips, links underlined.
+func styledAsk(s, base string) string {
+	if cmd, ok := strings.CutPrefix(s, "! "); ok {
+		return paint(cWhite+bold, "$ ") + tint(cmd)
+	}
+	s = specialRe.ReplaceAllStringFunc(s, func(m string) string {
+		switch {
+		case strings.HasPrefix(m, "[Image"):
+			return reset + paint(cBlue, "▣ "+strings.Trim(m, "[]")) + base
+		case strings.HasPrefix(m, "[Pasted"):
+			return reset + paint(cBlue, "▤ "+strings.Trim(m, "[]")) + base
+		case strings.HasPrefix(m, "http"):
+			return reset + link(m) + base
+		}
+		return reset + paint(cWhite+bold, m) + base
+	})
+	return paint(base, inline(s, base))
+}
+
+var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[Pasted text #\d+[^\]]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*|@[\w./-]+`)
+
+// link underlines a URL and makes it clickable in terminals that support
+// OSC 8 hyperlinks.
+func link(url string) string {
+	return "\x1b]8;;" + url + "\x1b\\" + paint(cBlue+"\x1b[4m", url) + "\x1b]8;;\x1b\\"
+}
+
 var (
 	numbered = regexp.MustCompile(`^(\d+\.)\s+(.*)$`)
 	boldRe   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
@@ -414,8 +443,11 @@ var (
 func inline(s, base string) string {
 	s = boldRe.ReplaceAllString(s, bold+"$1"+reset+base)
 	s = codeRe.ReplaceAllString(s, cWhite+"$1"+reset+base)
+	s = urlRe.ReplaceAllStringFunc(s, func(u string) string { return reset + link(u) + base })
 	return s
 }
+
+var urlRe = regexp.MustCompile(`https?://[^\s)>\]"'` + "`" + `]+`)
 
 func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
 
@@ -544,6 +576,8 @@ func glyphFor(tool string) string {
 		return "↗"
 	case "Artifact":
 		return "◆"
+	case "Skill", "SlashCommand":
+		return "✦"
 	}
 	return "•"
 }
@@ -606,6 +640,9 @@ func (d *drawer) label(st *Step) string {
 		return g + " " + text(in.str("url"))
 	case "WebSearch":
 		return g + " " + text(in.str("query"))
+	case "Skill", "SlashCommand":
+		name := firstNonEmpty(in.str("skill"), in.str("command"), in.str("name"))
+		return paint(cWhite, "✦") + " " + paint(cWhite+bold, name) + "  " + dim(oneLine(in.str("args")))
 	case "AskUserQuestion":
 		q := ""
 		if qs, ok := in["questions"].([]any); ok && len(qs) > 0 {

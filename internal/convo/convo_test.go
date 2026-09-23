@@ -409,3 +409,41 @@ func TestSearch(t *testing.T) {
 		}
 	}
 }
+
+func TestShellTurnsAndStyling(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/s.jsonl"
+	lines := []string{
+		`{"type":"user","timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"<bash-input>ls /tmp</bash-input>"}}`,
+		`{"type":"user","timestamp":"2026-09-23T20:00:01Z","message":{"role":"user","content":"<bash-stdout>a\nb</bash-stdout><bash-stderr></bash-stderr>"}}`,
+		`{"type":"user","timestamp":"2026-09-23T20:01:00Z","message":{"role":"user","content":"/design:design-critique look at @internal/ui/view.go and https://example.com [Image #1]"}}`,
+	}
+	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	tl := NewTail(path)
+	if _, err := tl.Read(); err != nil {
+		t.Fatal(err)
+	}
+	s := tl.Sess
+	if len(s.Turns) != 2 || s.Turns[0].Prompt != "! ls /tmp" || s.Turns[0].Live {
+		t.Fatalf("turns: %d %+v", len(s.Turns), s.Turns[0])
+	}
+	st := s.byID["you-1"]
+	if st == nil || st.Status != OK || !strings.Contains(st.Output, "a\nb") {
+		t.Fatalf("shell step: %+v", st)
+	}
+	s.Apply(headless.Result{Subtype: "success"}, at(100))
+	raw := s.Render(Options{Width: 120, Now: at(100)})
+	out := plain(raw)
+	if !strings.Contains(out, "you  $ ls /tmp") || strings.Contains(out, "bash-input") {
+		t.Errorf("shell heading:\n%s", out)
+	}
+	joined := ""
+	for _, l := range raw {
+		joined += l.Text
+	}
+	for _, want := range []string{cWhite + bold + "/design:design-critique", cWhite + bold + "@internal/ui/view.go", "\x1b]8;;https://example.com", "▣ Image #1"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing styled %q", want)
+		}
+	}
+}

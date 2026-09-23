@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -108,11 +109,22 @@ func (t *Tail) apply(b []byte) bool {
 		}
 		_ = json.Unmarshal(l.Message, &m)
 		if text, images, ok := prompt(m.Content); ok {
+			// A shell command you ran with ! is its own small turn, and
+			// its output lands on it rather than starting another.
+			if out, ok := shellOutput(text); ok {
+				if live := s.Live(); live != nil && strings.HasPrefix(live.Prompt, "! ") {
+					s.shellResult(live, out, at)
+				}
+				return true
+			}
 			// A new prompt closes a turn the transcript never marked done.
 			if live := s.Live(); live != nil && live.Prompt != "" {
 				s.Apply(headless.Result{Subtype: "success"}, at)
 			}
 			s.Apply(host.Sent{Text: text, Images: images}, at)
+			if cmd, ok := strings.CutPrefix(text, "! "); ok {
+				s.shellStart(cmd, at)
+			}
 			if n := len(s.Turns); n > 0 && l.Effort != "" {
 				s.Turns[n-1].Effort = l.Effort
 			}
@@ -168,6 +180,12 @@ func prompt(raw json.RawMessage) (string, []string, bool) {
 // cleanPrompt drops the markup Claude Code wraps around slash commands and
 // system notes, keeping what you actually said.
 func cleanPrompt(s string) string {
+	if cmd := between(s, "<bash-input>", "</bash-input>"); cmd != "" {
+		return "! " + cmd
+	}
+	if strings.Contains(s, "<bash-stdout>") || strings.Contains(s, "<bash-stderr>") {
+		return s // kept whole for shellOutput
+	}
 	if name := between(s, "<command-name>", "</command-name>"); name != "" {
 		args := between(s, "<command-args>", "</command-args>")
 		return strings.TrimSpace(name + " " + args)
@@ -196,4 +214,45 @@ func between(s, a, b string) string {
 		return ""
 	}
 	return strings.TrimSpace(rest[:j])
+}
+
+// shellOutput reads the line Claude Code writes after a ! command.
+func shellOutput(s string) (shellOut, bool) {
+	if !strings.Contains(s, "<bash-stdout>") && !strings.Contains(s, "<bash-stderr>") {
+		return shellOut{}, false
+	}
+	return shellOut{stdout: between(s, "<bash-stdout>", "</bash-stdout>"), stderr: between(s, "<bash-stderr>", "</bash-stderr>")}, true
+}
+
+type shellOut struct{ stdout, stderr string }
+
+func (s *Session) shellStart(cmd string, at time.Time) {
+	t := s.Live()
+	if t == nil {
+		return
+	}
+	id := fmt.Sprintf("you-%d", t.N)
+	in, _ := json.Marshal(map[string]string{"command": cmd, "description": "you ran"})
+	st := &Step{ID: id, Tool: "Bash", Input: in, Start: at, Exit: -1}
+	s.byID[id] = st
+	t.steps[id] = st
+	t.Items = append(t.Items, &Item{Kind: KStep, Step: st})
+	t.touch()
+}
+
+func (s *Session) shellResult(t *Turn, out shellOut, at time.Time) {
+	st := s.byID[fmt.Sprintf("you-%d", t.N)]
+	if st == nil {
+		return
+	}
+	stdout := out.stdout
+	if stdout == "(Bash completed with no output)" {
+		stdout = ""
+	}
+	st.Output, st.End, st.Status = strings.TrimSpace(stdout+"\n"+out.stderr), at, OK
+	st.Result, _ = json.Marshal(map[string]string{"stdout": stdout, "stderr": out.stderr})
+	if strings.TrimSpace(out.stderr) != "" {
+		st.Status = Failed
+	}
+	s.Apply(headless.Result{Subtype: "success"}, at)
 }
