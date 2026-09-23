@@ -69,6 +69,15 @@ func (b box) lines() []string {
 	return append(out, border("╰", "╯", b.footL, b.footR))
 }
 
+// rows is how many text rows lines() draws.
+func (b box) rows() int {
+	if len(b.text) == 0 {
+		return 1
+	}
+	start, end := b.window(wrapSegs(b.text, max(20, b.w)-4-b.leadW()))
+	return end - start
+}
+
 // seg is one wrapped row of the text, as rune offsets [from, to).
 type seg struct{ from, to int }
 
