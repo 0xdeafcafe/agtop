@@ -86,6 +86,7 @@ type Preview struct {
 	LastUser string
 	Context  int64 // tokens the last request sent: how full the context window is
 	Recent   []Event
+	First    Event // the message that started the conversation
 }
 
 // Event is one step of the conversation tail: a prompt, a reply or a tool call.
@@ -251,6 +252,7 @@ func ReadPreview(path string, window int64) Preview {
 	}
 	lines := bytes.Split(b, []byte{'\n'})
 	p.Recent = recentEvents(lines, 14)
+	p.First = firstUser(f, lines, off)
 	for i := len(lines) - 1; i >= 0 && (p.Text == "" || p.Tool == "" || p.LastUser == "" || p.Context == 0); i-- {
 		var l line
 		if json.Unmarshal(lines[i], &l) != nil {
@@ -305,6 +307,28 @@ func toolArg(in json.RawMessage) string {
 		}
 	}
 	return ""
+}
+
+// firstUser finds the first thing the user typed, reading the head of the
+// file when the tail window does not reach back to it.
+func firstUser(f *os.File, tail [][]byte, off int64) Event {
+	lines := tail
+	if off > 0 {
+		b := make([]byte, 256<<10)
+		n, _ := f.ReadAt(b, 0)
+		lines = bytes.Split(b[:n], []byte{'\n'})
+	}
+	for _, l := range lines {
+		if !bytes.Contains(l, []byte(`"type":"user"`)) {
+			continue
+		}
+		for _, e := range recentEvents([][]byte{l}, 1) {
+			if e.Role == "user" {
+				return e
+			}
+		}
+	}
+	return Event{}
 }
 
 func recentEvents(lines [][]byte, n int) []Event {

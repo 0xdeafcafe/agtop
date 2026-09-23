@@ -1125,19 +1125,36 @@ func (m *Model) previewLines(w, h int) []string {
 
 	room := h - len(top) - len(tail) - 2
 	var conv []string
-	if room >= 3 && len(p.Recent) > 0 {
+	if room >= 3 && (len(p.Recent) > 0 || p.First.Text != "") {
 		conv = append(conv, "", section("Conversation"))
+		asked := func(t string) []string {
+			var out []string
+			for i, l := range wrap(oneLine(t), w-2) {
+				pre := "  "
+				if i == 0 {
+					pre = paint(cOrange, "› ")
+				}
+				out = append(out, pre+paint(cText+bold, l))
+			}
+			return out
+		}
+		// The message that started it stays on top; the tail fills the rest.
+		var first []string
+		recent := p.Recent
+		if p.First.Text != "" {
+			first = asked(p.First.Text)
+			if len(first) > 3 {
+				first = append(first[:2], ansi.Truncate(first[2], w-3, "")+faint("…"))
+			}
+			if len(recent) > 0 && recent[0].Role == "user" && recent[0].Text == p.First.Text {
+				recent = recent[1:]
+			}
+		}
 		var body []string
-		for _, e := range p.Recent {
+		for _, e := range recent {
 			switch e.Role {
 			case "user":
-				for i, l := range wrap(oneLine(e.Text), w-2) {
-					pre := "  "
-					if i == 0 {
-						pre = paint(cOrange, "› ")
-					}
-					body = append(body, pre+paint(cText+bold, l))
-				}
+				body = append(body, asked(e.Text)...)
 			case "tool":
 				name, arg, _ := strings.Cut(e.Text, "\x00")
 				body = append(body, faint("● ")+dim(name)+"  "+faint(ansi.Truncate(oneLine(tildify(arg)), w-len(name)-4, "…")))
@@ -1152,10 +1169,14 @@ func (m *Model) previewLines(w, h int) []string {
 				}
 			}
 		}
-		if len(body) > room-2 {
-			body = body[len(body)-(room-2):]
+		keep := room - 2 - len(first)
+		if keep < 2 {
+			first, keep = nil, room-2
 		}
-		conv = append(conv, body...)
+		if len(body) > keep {
+			body = append([]string{faint("  ⋯")}, body[len(body)-(keep-1):]...)
+		}
+		conv = append(append(conv, first...), body...)
 	}
 	out := append(append(top, conv...), tail...)
 	if len(out) > h {
