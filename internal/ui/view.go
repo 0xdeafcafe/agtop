@@ -578,7 +578,7 @@ func (m *Model) claudeStrip(w int) string {
 	case m.embedded:
 		right = paint(cOrange+bold, "typing into it") + dim(" · ctrl+] comes back")
 	case screenOn:
-		right = dim("enter types into it · ctrl+f full screen")
+		right = dim("typing goes into it · ctrl+] leaves · ctrl+f full screen")
 	case !live && a != nil && a.Interactive:
 		right = dim(a.Where())
 	case !live:

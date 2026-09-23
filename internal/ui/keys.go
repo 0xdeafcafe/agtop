@@ -53,6 +53,16 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		}
 		return m.quitKey()
 	}
+	// On a Claude Code agent's screen, typing goes into it: ← moves its
+	// cursor rather than leaving. tab, [ ] and ctrl+] stay agtop's.
+	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && m.viewName(m.host) == "screen" && m.canEmbed() {
+		switch s {
+		case "tab", "shift+tab", "[", "]", "ctrl+]":
+		default:
+			m.embedded = true
+			return m.embedKey(k)
+		}
+	}
 	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s != "tab" {
 		return m.paneKey(k, s)
 	}
