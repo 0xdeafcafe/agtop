@@ -128,18 +128,20 @@ func resetIn(at, now time.Time, week bool) string {
 		return ""
 	}
 	if !at.After(now) {
-		// Usage read before a reset that has since passed.
-		return faint(" reset " + at.Local().Format("15:04"))
+		return faint(" reset") // read before a reset that has since passed
 	}
-	left := at.Sub(now)
-	if week {
-		when := at.Local().Format("Mon 15:04")
-		if left < 24*time.Hour {
-			when = at.Local().Format("15:04")
-		}
-		return faint(" resets " + when)
+	return faint(" ↻" + roughly(at.Sub(now)))
+}
+
+// roughly is a duration to one unit: 40m, 3h, 5d.
+func roughly(d time.Duration) string {
+	switch {
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", max(1, int(d.Round(time.Minute).Minutes())))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Round(time.Hour).Hours()))
 	}
-	return faint(" resets " + at.Local().Format("15:04") + " (" + dur(left.Round(time.Minute)) + ")")
+	return fmt.Sprintf("%dd", int(d.Round(24*time.Hour).Hours()/24))
 }
 
 // activeUsage is the current account's plan usage, with when each window
