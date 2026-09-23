@@ -262,3 +262,23 @@ func TestArtifacts(t *testing.T) {
 		t.Fatalf("artifacts = %+v", arts)
 	}
 }
+
+func TestLocalQueueSends(t *testing.T) {
+	a := &fleet.Agent{Key: "k"}
+	a.State = "working"
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}}
+	m.queueLocal("k", "hi")
+	if m.flushLocalQueues() != nil {
+		t.Fatal("sent straight away while it works; should gather for a moment")
+	}
+	m.localQ["k"].since = time.Now().Add(-20 * time.Second)
+	if m.flushLocalQueues() == nil || len(m.localQ["k"].items) != 0 {
+		t.Fatal("a busy agent never got its queue")
+	}
+	a.State = "blocked"
+	m.queueLocal("k", "later")
+	m.localQ["k"].since = time.Now().Add(-time.Minute)
+	if m.flushLocalQueues() != nil {
+		t.Fatal("sent while it waits on you")
+	}
+}

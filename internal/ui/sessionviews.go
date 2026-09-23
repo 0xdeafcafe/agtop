@@ -28,7 +28,7 @@ func (m *Model) queueLines(c *hostConn, o convo.Options) []convo.Line {
 	how := "sends as one message when this turn ends"
 	switch {
 	case q.local:
-		how = "sends as one message when the agent is idle"
+		how = "sends as one message once idle, or within 15s while it works"
 	case q.separate:
 		how = "sends one message per turn"
 	}

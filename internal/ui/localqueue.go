@@ -19,6 +19,7 @@ type localQueue struct {
 	items  []string
 	held   bool
 	sentAt time.Time
+	since  time.Time // when the oldest waiting message was queued
 }
 
 // queued is a session's queue as the queue view shows it, whichever side
@@ -56,6 +57,9 @@ func (m *Model) queueLocal(key, text string) {
 		q = &localQueue{}
 		m.localQ[key] = q
 	}
+	if len(q.items) == 0 {
+		q.since = time.Now()
+	}
 	q.items = append(q.items, text)
 }
 
@@ -84,7 +88,18 @@ func (m *Model) flushLocalQueues() tea.Cmd {
 			continue
 		}
 		a := m.agentByKey(key)
-		if !canQueue(a) || busy(a) || !a.Live() && a.State != "idle" && a.State != "done" {
+		if !canQueue(a) {
+			continue
+		}
+		// Idle (or stopped: the message resumes it), it goes now. Working,
+		// it goes after a short wait, so a burst of messages goes as one:
+		// Claude Code takes it at its next step, and an agent that keeps
+		// picking up work on its own is never idle to wait for. Waiting on
+		// you, it holds until you've answered.
+		switch {
+		case a.State == "blocked":
+			continue
+		case busy(a) && time.Since(q.since) < 15*time.Second:
 			continue
 		}
 		text := strings.Join(q.items, "\n\n")

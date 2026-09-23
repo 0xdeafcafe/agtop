@@ -1061,7 +1061,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	if q := m.queueOf(c).items; len(q) > 0 {
 		when := " · sends when this turn ends"
 		if c.client == nil {
-			when = " · sends when it's idle"
+			when = " · sends within 15s, or when it's idle"
 		}
 		line(spread("  "+paint(cSub+bold, fmt.Sprintf("queue %d", len(q)))+dim(when), "", w))
 		for i, item := range q {
@@ -1655,7 +1655,7 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string) tea.Cmd {
 		// It's working: the message waits in the queue and goes when it
 		// is idle, together with anything else waiting.
 		m.queueLocal(a.Key, text)
-		m.flash(fmt.Sprintf("queued · %d waiting · sends when %s is idle", len(m.localQ[a.Key].items), a.DisplayName), false)
+		m.flash(fmt.Sprintf("queued · %d waiting · goes to %s within 15s", len(m.localQ[a.Key].items), a.DisplayName), false)
 		return nil
 	}
 	m.loader.Nudge(a.Key)
