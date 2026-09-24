@@ -28,6 +28,7 @@ type mode int
 const (
 	modeList mode = iota
 	modeProcs
+	modeCleanup
 	modeCwd
 	modeHelp
 )
@@ -145,7 +146,8 @@ type Model struct {
 	cwdFor     string
 
 	lastState map[string]string
-	measuring bool // temp work is being measured in the background
+	measuring bool    // temp work is being measured in the background
+	clean     cleanup // the Cleanup view's worktrees, and the tidy-up
 }
 
 type previewEntry struct {
@@ -437,6 +439,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tempMsg:
 		m.onTemp(msg)
 		return m, nil
+	case worktreesMsg:
+		m.onWorktrees(msg)
+		return m, nil
+	case tidiedMsg:
+		m.onTidied(msg)
+		return m, nil
+	case removedMsg:
+		m.onRemoved(msg)
+		return m, nil
 	case cleanedMsg:
 		m.onCleaned(msg)
 		return m, nil
@@ -490,7 +501,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.followTail()
-		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues(), m.movePending(), m.measureTemp()}
+		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues(), m.movePending(), m.measureTemp(), m.tidy()}
+		if m.mode == modeCleanup && time.Since(m.clean.checked) > 2*time.Minute {
+			cmds = append(cmds, m.scanWorktrees()) // looked at when the view opens, and every 2 minutes while it's open
+		}
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}
@@ -744,7 +758,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-var viewNames = []string{"Agents", "Zen", "Processes", "Accounts", "Coding agents", "Settings", "Claude"}
+var viewNames = []string{"Agents", "Zen", "Processes", "Accounts", "Coding agents", "Settings", "Claude", "Cleanup"}
 
 // setView switches the whole screen; tab and shift+tab cycle through them.
 func (m *Model) setView(v int) {
@@ -763,6 +777,8 @@ func (m *Model) setView(v int) {
 		m.mode, m.procCursor = modeProcs, 0
 	case 3, 4, 5, 6:
 		m.openDialog(m.view - 3)
+	case 7:
+		m.mode = modeCleanup
 	}
 }
 

@@ -264,6 +264,15 @@ func settingHelp(label, value string) (what, now string) {
 			"auto": "auto: every session continues by itself at the reset, a few seconds apart.",
 			"off":  "off: sessions wait for you after a limit.",
 		}[value]
+	case "Clean up done work after":
+		what = "What happens to an agent's worktree and temp work once you've marked it done (alt+d) and left it alone. Stopping an agent never removes anything. A worktree goes only if git says every change in it is committed and pushed; its branch stays. One that isn't is kept and listed in the Cleanup view (the last tab)."
+		now = map[string]string{
+			"":    "3h: done work that's committed and pushed goes 3 hours after it was last touched.",
+			"off": "off: nothing goes by itself; the Cleanup view removes what you choose.",
+		}[value]
+		if now == "" {
+			now = value + ": done work that's committed and pushed goes " + value + " after it was last touched."
+		}
 	case "Rest Claude after":
 		what = "How long an idle agtop-mode session keeps Claude Code running. An idle Claude Code holds 150-580 MB; after this it stops, and your next message starts it again in about a second. The prompt cache lasts an hour either way."
 		now = "Claude stops after " + firstNonEmpty(value, "5 min") + " idle; the host, the conversation and its queue stay."

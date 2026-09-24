@@ -96,6 +96,8 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case modeProcs:
 		return m.procKey(s)
+	case modeCleanup:
+		return m.cleanupKey(s)
 	case modeCwd:
 		return m.cwdKey(k, s)
 	}

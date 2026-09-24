@@ -39,6 +39,25 @@ type Config struct {
 	Hibernate struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`
+	// CleanupHours is how long an agent must have been done and untouched
+	// before its worktree (clean and pushed) and temp work are removed on
+	// their own; 0 is the default, and a negative number turns it off.
+	CleanupHours int `json:"cleanupHours,omitempty"`
+}
+
+// DefaultCleanup is how long done work waits before it's cleaned up.
+const DefaultCleanup = 3 * time.Hour
+
+// CleanupAfter is how long done work waits before it's cleaned up; zero
+// means never.
+func (c Config) CleanupAfter() time.Duration {
+	switch {
+	case c.CleanupHours < 0:
+		return 0
+	case c.CleanupHours > 0:
+		return time.Duration(c.CleanupHours) * time.Hour
+	}
+	return DefaultCleanup
 }
 
 // AllAccounts is the default account plus any configured ones.
@@ -184,7 +203,7 @@ func writeJSON(path string, v any) error {
 }
 
 // CostCache persists transcript totals so a restart does not rescan gigabytes.
-const costCacheVersion = 2
+const costCacheVersion = 3 // 3: the folders each transcript worked in
 
 type CostCache struct {
 	mu      sync.Mutex

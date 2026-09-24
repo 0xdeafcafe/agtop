@@ -136,6 +136,15 @@ func (m *Model) claudeRows() []claudeRow {
 			fmt.Sscanf(v, "%d", &cfg.Dispatch.RestMinutes)
 			_ = m.store.SaveConfig()
 		}}, "2 min", "5 min", "10 min", "30 min"),
+		row("agtop", "Clean up done work after", setting{value: cleanupValue(cfg.CleanupHours), set: func(v string) {
+			switch v {
+			case "off":
+				cfg.CleanupHours = -1
+			default:
+				fmt.Sscanf(v, "%dh", &cfg.CleanupHours)
+			}
+			_ = m.store.SaveConfig()
+		}}, "1h", "3h", "12h", "24h", "off"),
 		row("agtop", "Quick start", setting{value: onOff(cfg.Dispatch.Lean), set: func(v string) {
 			cfg.Dispatch.Lean = v == "on"
 			_ = m.store.SaveConfig()
@@ -191,6 +200,8 @@ func shownValue(r claudeRow) string {
 		return "off"
 	case "Rest Claude after":
 		return "5 min"
+	case "Clean up done work after":
+		return "3h"
 	case "Account":
 		return r.value
 	}
@@ -325,4 +336,14 @@ func restValue(min int) string {
 		return ""
 	}
 	return fmt.Sprintf("%d min", min)
+}
+
+func cleanupValue(h int) string {
+	switch {
+	case h < 0:
+		return "off"
+	case h > 0:
+		return fmt.Sprintf("%dh", h)
+	}
+	return ""
 }

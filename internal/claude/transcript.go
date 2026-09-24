@@ -24,6 +24,9 @@ type Totals struct {
 	PRs       []string               `json:"p,omitempty"`
 	LastModel string                 `json:"lm,omitempty"`
 	Days      map[string]float64     `json:"d,omitempty"`
+	// Dirs are the folders the session worked in (the line's cwd), which
+	// says which worktrees are its; capped so a wandering one stays small.
+	Dirs []string `json:"w,omitempty"`
 	// pending is the newest assistant message; its usage can still change
 	// while more content blocks of the same message are appended.
 	PendingID    string     `json:"pi,omitempty"`
@@ -107,6 +110,7 @@ func ContextWindow(model string) int64 {
 type line struct {
 	Type      string    `json:"type"`
 	Timestamp time.Time `json:"timestamp"`
+	Cwd       string    `json:"cwd"`
 	Message   struct {
 		ID      string          `json:"id"`
 		Model   string          `json:"model"`
@@ -183,6 +187,9 @@ func consume(t *Totals, b []byte) {
 	var l line
 	if json.Unmarshal(b, &l) != nil || l.Type != "assistant" {
 		return
+	}
+	if l.Cwd != "" && len(t.Dirs) < 64 && (len(t.Dirs) == 0 || t.Dirs[len(t.Dirs)-1] != l.Cwd) {
+		addUnique(&t.Dirs, l.Cwd)
 	}
 	if !l.Timestamp.IsZero() {
 		if t.First.IsZero() {

@@ -119,6 +119,9 @@ func (s *Scanner) Run(targets []Target) map[string]Spend {
 			for _, p := range tot.PRs {
 				addUnique(&sp.PRs, p)
 			}
+			for _, d := range tot.Dirs {
+				addUnique(&sp.Dirs, d)
+			}
 		}
 		if cap(s.buf) > 8<<20 {
 			s.buf = make([]byte, 0, 64<<10)

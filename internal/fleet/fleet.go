@@ -119,6 +119,7 @@ type Spend struct {
 	First time.Time
 	Last  time.Time
 	PRs   []string
+	Dirs  []string // folders the agent worked in, subagents included
 	Today float64
 	Ready bool
 }

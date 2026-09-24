@@ -256,6 +256,8 @@ func (m *Model) render() string {
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 124))
 	case modeProcs:
 		return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "enter", "go to the agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "tab", "next view", "esc", "back"))
+	case modeCleanup:
+		return m.frame(m.cleanupBody(), keysFit(m.w-4, "↑↓", "move", "x", "remove", "A", "remove all that's safe", "r", "check again", "tab", "next view", "esc", "back"))
 	case modeCwd:
 		return m.frame(m.cwdBody(), keysFit(m.w-4, "enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
 	}
