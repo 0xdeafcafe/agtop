@@ -11,7 +11,7 @@ Plugins run on macOS only for now. Elsewhere agtop won't run them rather than ru
 | [Using plugins](#using-plugins) | install, approve, list, revoke |
 | [What a plugin can't do](#what-a-plugin-cant-do) | the sandbox, in short |
 | [Writing one](#writing-one) | with Claude and the skill, or by hand |
-| [Examples](examples) | `delegate` and `memory` |
+| [Examples](examples) | `neighbours`, `kanban`, `delegate` and `memory` |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | the processes, the boundaries, why it's built this way |
 | [Protocol](skills/write-agtop-plugin/references/protocol.md) · [Manifest](skills/write-agtop-plugin/references/manifest.md) · [Sandbox](skills/write-agtop-plugin/references/sandbox.md) | the reference |
 
@@ -83,6 +83,29 @@ In short, it talks to agtop on **fd 3**, one end of a socket pair agtop made for
 Every method and event: [protocol](skills/write-agtop-plugin/references/protocol.md). Every field: [manifest](skills/write-agtop-plugin/references/manifest.md). When something won't start: [sandbox § troubleshooting](skills/write-agtop-plugin/references/sandbox.md#troubleshooting).
 
 ## Examples
+
+- [`neighbours`](examples/neighbours) is the smallest useful plugin, and the one to read first: one tool that tells Claude which other agents are working in the same repository, and on which branch, so it doesn't trip over them. About 100 lines of Go, with only the `list` capability.
+
+  ```sh
+  mkdir -p ~/.config/agtop/plugins/neighbours
+  go build -o ~/.config/agtop/plugins/neighbours/neighbours ./plugins/examples/neighbours
+  cp plugins/examples/neighbours/plugin.json ~/.config/agtop/plugins/neighbours/
+  agtop plugin approve neighbours
+  ```
+
+- [`kanban`](examples/kanban) connects agtop to [kanban-code](https://github.com/langwatch/kanban-code), the board that shows coding agents as cards. It shows how a plugin works with another tool on your machine: it reads the tool's files and drives its CLI through `exec`. With it:
+  - Claude can read the board, and the card it's working on, with the issue, the PR, failing checks and unresolved review threads.
+  - Claude can start an agent on a card, in the card's worktree or a new one, tagged with the card. The plugin then has kanban-code link the card to the agent's conversation (`kanban relink`), so the card follows it across the board.
+  - When a card's PR fails a check or gets a new review thread, the agent working on it is sent a message when its turn ends.
+
+  It needs kanban-code's app running for the link, and its CLI at `~/.local/bin/kanban`, where the app installs it. Change `workspaces` in `plugin.json` to where your projects are.
+
+  ```sh
+  mkdir -p ~/.config/agtop/plugins/kanban
+  go build -o ~/.config/agtop/plugins/kanban/kanban ./plugins/examples/kanban
+  cp plugins/examples/kanban/plugin.json ~/.config/agtop/plugins/kanban/
+  agtop plugin approve kanban
+  ```
 
 - [`delegate`](examples/delegate) lets Claude hand work to agents of its own, follow them and message them. It's written in Go, uses every session capability, and brings a `reviewer` subagent.
 

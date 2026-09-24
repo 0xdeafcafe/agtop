@@ -1,0 +1,14 @@
+{
+  "name": "kanban",
+  "description": "Connects agtop to kanban-code: Claude reads the board and its own card, starts agents on cards, and hears when a card's PR fails a check or gets a review.",
+  "version": "1",
+  "command": ["kanban"],
+  "tools": true,
+  "sessions": ["list", "start", "queue"],
+  "workspaces": ["~/Source"],
+  "read": ["~/.kanban-code"],
+  "env": { "KANBAN_CODE_HOME": "~/.kanban-code" },
+  "exec": { "kanban": ["~/.local/bin/kanban"] },
+  "memoryMB": 64,
+  "prompt": "The user tracks work on a kanban-code board. If your task is a card on it, mcp__agtop-kanban__my_card shows the card: its issue, its PR, failing checks and unresolved review threads. mcp__agtop-kanban__board shows the whole board, and start_card starts another agent on a card."
+}

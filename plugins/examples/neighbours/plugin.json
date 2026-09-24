@@ -1,0 +1,10 @@
+{
+  "name": "neighbours",
+  "description": "Tells Claude which other agents are working in the same repository, and on which branch.",
+  "version": "1",
+  "command": ["neighbours"],
+  "tools": true,
+  "sessions": ["list"],
+  "memoryMB": 32,
+  "prompt": "Other agents may be working in this repository at the same time. Before switching branches, rewriting shared files or running anything that changes shared state (migrations, lockfiles, generated code), call mcp__agtop-neighbours__neighbours."
+}

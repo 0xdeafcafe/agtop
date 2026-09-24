@@ -125,4 +125,5 @@ Each boundary is enforced by something the plugin can't touch.
 The tests exercise it for real:
 - `internal/plugin/sandbox_darwin_test.go` runs a probe plugin inside the sandbox, which tries to read secrets, write elsewhere, start a program, and reach the internet, localhost and agtop's socket. Each attempt must be denied by the sandbox itself.
 - `internal/plugind/plugind_test.go` builds the delegate example and drives it through the broker as a host would, covering permission refusals, ids crafted as paths, restarting after a crash, and shutting down on revoke.
+- `internal/plugind/kanban_test.go` runs the kanban example, sandboxed, against a board and a `kanban` CLI of its own: reading the board and the calling session's card, reaching the card's agent, and linking the card to it through `exec`.
 - `internal/plugind/api_test.go` covers `exec` (only named programs, only in workspaces), which sessions `queue` may reach, what `sessions.start` refuses in `meta` and `worktree`, and reading a session's checkout and branch.
