@@ -171,6 +171,24 @@ Runs a program the manifest names in `exec`, **outside the sandbox, as the user*
 
 A non-zero exit is a result, not an error. Limits: 64 arguments of at most 4 KB, 1 MB of stdin, the first 1 MB of each of stdout and stderr (`truncated` says if more was cut), a minute to run, and 4 programs at once.
 
+### `sidebar.set` — needs `sidebar`
+
+Arranges agtop's agent list: the plugin's own sections, in its order, and a name and place for each agent it knows, by Claude Code session id (`sessionId` in `sessions.list`).
+
+```json
+{"title": "Kanban",
+ "sections": [{"title": "In Progress"}, {"title": "Waiting"}],
+ "agents": {"8c76706f-1c00-4aed-9c6d-7509f3033943": {"name": "Fix login bug", "section": "In Progress", "order": 0}}}
+```
+
+The list offers it as a group-by mode, `plugin:<name>`, labelled with `title`. In that mode the plugin's sections replace agtop's, agents sort by `order` inside each, and each shows `name` unless the user renamed it in agtop. Agents it doesn't place go to a folded section, Other. Each call replaces the last; empty params or no `sections` clear it. Returns `{}`. What agtop enforces:
+
+- At most 32 sections and 2000 agents; titles at most 64 characters, names 200. Section titles are unique.
+- Every id matches `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`, and every agent's `section` is one of `sections`.
+- Escape sequences and control characters are removed from every string, and line breaks become spaces.
+
+agtop keeps it in `~/.config/agtop/plugin-sidebar/<name>.json`, outside the plugin's reach, and removes it when the plugin is revoked. It only labels agents agtop shows anyway: it grants the plugin nothing.
+
 ### `log`
 
 `{"message": "…"}`. This writes a line (at most 1 KB) to the broker's log. It works as a request or a notification. Plain stderr works too, and goes to the plugin's own log.
@@ -183,4 +201,4 @@ A non-zero exit is a result, not an error. Limits: 64 arguments of at most 4 KB,
 | -32601 | method not found |
 | -32602 | bad params (bad id, cwd doesn't exist, text too long …) |
 | -32000 | something failed (the session isn't running …) |
-| -32001 | not permitted: the capability wasn't approved, the session isn't the plugin's, the cwd is outside its workspaces, the program isn't in `exec`, a limit was hit |
+| -32001 | not permitted: the capability (or `sidebar`) wasn't approved, the session isn't the plugin's, the cwd is outside its workspaces, the program isn't in `exec`, a limit was hit |

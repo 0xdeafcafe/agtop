@@ -23,6 +23,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
+	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
 	"github.com/0xdeafcafe/agtop/internal/update"
@@ -203,6 +204,11 @@ type Model struct {
 	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
 	// its agent's key once the snapshot has it.
 	solo, soloKey string
+	// sidebars are the plugins' arrangements of the list, read from
+	// sidebarFiles; renamed holds the names an arrangement replaced.
+	sidebars     []plugin.Sidebar
+	sidebarFiles plugin.Sidebars
+	renamed      map[*fleet.Agent]string
 }
 
 type previewEntry struct {
@@ -244,6 +250,7 @@ func New(store *state.Store, version string) *Model {
 	applyColors(store.Config.ColorBlind)
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
 	m.snap = m.loader.Load(true)
+	m.loadSidebars()
 	m.rebuild()
 	m.onboard = true
 	return m
@@ -1078,6 +1085,7 @@ func (m *Model) refresh() {
 		m.hibernate()
 		m.reap()
 	}
+	m.loadSidebars()
 	m.rebuild()
 }
 
@@ -1192,7 +1200,7 @@ func (m *Model) folded(title string) bool {
 	if v, ok := m.store.Config.Folds[title]; ok {
 		return v
 	}
-	return title == "Earlier"
+	return title == "Earlier" || title == otherSection && m.activeSidebar() != nil
 }
 
 func (m *Model) toggleFold(title string) {
@@ -1226,12 +1234,15 @@ func (m *Model) focused() *fleet.Agent {
 func (m *Model) rebuild() {
 	by := m.store.Config.GroupBy
 	now := m.snap.At
+	sb := m.activeSidebar()
+	m.nameAgents(sb)
 	type group struct {
 		name   string
 		agents []*fleet.Agent
 		rank   int
 		recent time.Time
 	}
+	order := map[*fleet.Agent]int{} // places under a plugin's arrangement
 	groups := map[string]*group{}
 	add := func(name string, rank int, a *fleet.Agent) {
 		g := groups[name]
@@ -1247,6 +1258,14 @@ func (m *Model) rebuild() {
 	for _, a := range m.snap.Agents {
 		if m.zen && !a.NeedsYou() && !a.Waiting() {
 			continue // Zen's list is only the agents waiting on you
+		}
+		if sb != nil {
+			// The plugin's sections replace agtop's; each row still shows
+			// its agent's state.
+			name, rank, at := sidebarPlace(sb, a)
+			order[a] = at
+			add(name, rank, a)
+			continue
 		}
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
@@ -1295,7 +1314,15 @@ func (m *Model) rebuild() {
 	})
 	for _, g := range list {
 		less := m.sortLess
-		if g.name == "Done" {
+		switch {
+		case sb != nil && g.rank < len(sb.Sections):
+			less = func(a, b *fleet.Agent) bool {
+				if order[a] != order[b] {
+					return order[a] < order[b]
+				}
+				return m.sortLess(a, b)
+			}
+		case sb == nil && g.name == "Done":
 			less = m.doneLess
 		}
 		sort.SliceStable(g.agents, func(i, j int) bool { return less(g.agents[i], g.agents[j]) })
@@ -1319,8 +1346,9 @@ func (m *Model) rebuild() {
 		meta := sectionMeta(len(g.agents), cost)
 		// One extra figure at most, and only one you can act on: temp work
 		// where /clean all reaches it, memory where agents rest.
-		switch g.name {
-		case "Done", "Earlier":
+		switch name := g.name; {
+		case sb != nil:
+		case name == "Done", name == "Earlier":
 			var temp int64
 			for _, a := range g.agents {
 				if a.PID == 0 {
@@ -1330,7 +1358,7 @@ func (m *Model) rebuild() {
 			if temp >= tempShown {
 				meta += " · " + disk(temp) + " tmp"
 			}
-		case "Idle":
+		case name == "Idle":
 			var held uint64
 			for _, a := range g.agents {
 				held += a.Mem

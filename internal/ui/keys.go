@@ -593,15 +593,16 @@ func (m *Model) sectionOf(key string) string {
 
 func (m *Model) cycleGroupBy() {
 	cur := m.store.Config.GroupBy
-	next := groupModes[0]
-	for i, g := range groupModes {
+	modes := m.groupModes()
+	next := modes[0]
+	for i, g := range modes {
 		if g == cur {
-			next = groupModes[(i+1)%len(groupModes)]
+			next = modes[(i+1)%len(modes)]
 		}
 	}
 	m.store.Config.GroupBy = next
 	_ = m.store.SaveConfig()
-	m.flash("grouped by "+next, false)
+	m.flash("grouped by "+m.groupLabel(next), false)
 	m.rebuild()
 }
 
@@ -846,7 +847,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			return m.submit()
 		}
 	case "by":
-		for _, g := range groupModes {
+		for _, g := range m.groupModes() {
 			if g == arg {
 				m.store.Config.GroupBy = g
 				_ = m.store.SaveConfig()
@@ -854,7 +855,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 				return nil
 			}
 		}
-		m.flash("group by one of: "+strings.Join(groupModes, ", "), true)
+		m.flash("group by one of: "+strings.Join(m.groupModes(), ", "), true)
 	case "rename":
 		if need() {
 			if arg == "" {

@@ -239,6 +239,9 @@ func describe(p plugin.Plugin) string {
 	if p.Can(plugin.CapControl) {
 		grants = append(grants, "interrupts and stops the sessions it started")
 	}
+	if p.Sidebar {
+		grants = append(grants, "arranges your agent list: groups and names agents in sections of its own, offered as a group-by mode")
+	}
 	if len(grants) > 0 {
 		w("\nIt:\n")
 		for _, g := range grants {

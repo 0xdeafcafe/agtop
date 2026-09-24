@@ -418,7 +418,7 @@ func (m *Model) generalSettings() []setting {
 			}
 			c.SetView(v)
 		}},
-		{"Group by", c.GroupBy, groupModes, func(v string) { c.GroupBy = v }},
+		{"Group by", c.GroupBy, m.groupModes(), func(v string) { c.GroupBy = v }},
 		{"Enter on an agent", enter, []string{"rename", "open", "ask"}, func(v string) {
 			c.EnterOn = v
 			if v == "ask" {

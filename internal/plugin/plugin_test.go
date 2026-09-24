@@ -65,6 +65,8 @@ func TestValidate(t *testing.T) {
 		{"exec relative", func(m *Manifest) { m.Exec = map[string][]string{"kanban": {"kanban"}} }, "absolute"},
 		{"exec bad name", func(m *Manifest) { m.Exec = map[string][]string{"K B": {"/bin/echo"}} }, "exec name"},
 		{"exec from mcp", func(m *Manifest) { m.Protocol = ProtoMCP; m.Exec = map[string][]string{"e": {"/bin/echo"}} }, "MCP plugin"},
+		{"sidebar ok", func(m *Manifest) { m.Sidebar = true }, ""},
+		{"sidebar from mcp", func(m *Manifest) { m.Protocol = ProtoMCP; m.Sidebar = true }, "sidebar"},
 		{"exec ok", func(m *Manifest) { m.Exec = map[string][]string{"kanban": {"~/.local/bin/kanban", "--json"}} }, ""},
 	}
 	for _, c := range cases {
