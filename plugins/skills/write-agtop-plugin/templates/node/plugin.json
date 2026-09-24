@@ -1,0 +1,9 @@
+{
+  "name": "notes",
+  "description": "Notes Claude keeps across sessions.",
+  "version": "1",
+  "command": ["/opt/homebrew/bin/node", "plugin.mjs"],
+  "tools": true,
+  "sessions": ["list"],
+  "memoryMB": 128
+}

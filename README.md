@@ -167,6 +167,19 @@ Settings › Coding agents sets the model, effort and permissions new sessions s
   </tr>
 </table>
 
+## Plugins
+
+Plugins add tools, subagents, prompt text and memory to every agtop-mode session, and can run agents of their own. Any MCP server can be one. Each runs sandboxed and does only what you approved: no files but its own, no network but the hosts it named, no programs, and only the agents it started. macOS only for now.
+
+```sh
+agtop plugin list            # what's installed, approved and running
+agtop plugin approve <name>  # read what it may do, and say yes
+```
+
+To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe/agtop`, then `/plugin install agtop-plugin-dev@agtop`.
+
+[plugins/](plugins) has everything else: using and writing them, the examples, the skill, and how it works.
+
 ## And
 
 - **Menu bar**: every account's usage, the agents working, and a badge for each waiting on you. Questions arrive as notifications you can answer from. It's a small Swift app built on your Mac the first time (it needs Xcode's command line tools).
@@ -200,6 +213,8 @@ Settings › Coding agents sets the model, effort and permissions new sessions s
 agtop reads Claude Code's files: `jobs/*/state.json`, `daemon/roster.json`, `jobs/pins.json`, the transcripts and the cached plan usage. It changes things only through Claude Code (the daemon's control socket, or the `claude` CLI), with one exception: switching account writes the other sign-in into Claude Code's keychain item and its `oauthAccount` into `~/.claude.json`. Each sign-in is kept in your login keychain as `agtop-login`.
 
 Its own state (Done, names, groups, accounts, not their sign-ins) lives in `~/.config/agtop`, and a cost cache in `~/Library/Caches/agtop`.
+
+Plugins run under `agtop plugind`, sandboxed; [plugins/ARCHITECTURE.md](plugins/ARCHITECTURE.md) has how.
 
 The control socket and the files are undocumented, checked against Claude Code v2.1.280. If an update changes them, the column affected shows `–`, and opening an agent falls back to `claude attach`.
 

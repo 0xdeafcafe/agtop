@@ -15,6 +15,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
+	"github.com/0xdeafcafe/agtop/internal/plugind"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
 	"github.com/0xdeafcafe/agtop/internal/ui"
@@ -40,6 +41,7 @@ const usage = `agtop — a lighter agents view for Claude Code
   agtop menubar     put agtop in the menu bar: usage, what's working, and
                     questions you can answer from their notification
   agtop menubar off take it out again
+  agtop plugin      sandboxed plugins: list, approve, revoke
   agtop --dump      print what the view sees, for debugging
 `
 
@@ -81,6 +83,14 @@ func main() {
 			return
 		case "menubar":
 			exitIf(menuBar(args[1:]))
+			return
+		case "plugin", "plugins":
+			exitIf(pluginCmd(args[1:]))
+			return
+		case "plugind":
+			// The plugin broker. agtop starts it when a plugin is approved;
+			// it is not meant to be run by hand.
+			exitIf(plugind.Run())
 			return
 		case "statusline":
 			// Claude Code's statusLine command, set up by /statusline in a

@@ -1,0 +1,9 @@
+{
+  "name": "notes",
+  "description": "Notes Claude keeps across sessions.",
+  "version": "1",
+  "command": ["notes"],
+  "tools": true,
+  "sessions": ["list"],
+  "memoryMB": 32
+}

@@ -30,6 +30,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -73,6 +74,12 @@ type Config struct {
 	// Branches are the paths /rewind left behind, newest last, so you can
 	// go back down one.
 	Branches []Branch `json:"branches,omitempty"`
+	// StartedBy is the plugin that started the session, if one did; only
+	// it may send to it or stop it.
+	StartedBy string `json:"startedBy,omitempty"`
+	// Meta is what whoever started it tagged it with (a plugin's card or
+	// ticket id, say), handed back wherever the session is listed.
+	Meta map[string]string `json:"meta,omitempty"`
 }
 
 // Branch is a path of the conversation that /rewind left: its own
@@ -128,6 +135,13 @@ type Info struct {
 	// Proto is what the host can do, so a newer agtop can tell a host from
 	// an older one (0) that needs restarting to do it: see Proto.
 	Proto int `json:"proto,omitempty"`
+	// StartedBy is the plugin that started it, if one did.
+	StartedBy string `json:"startedBy,omitempty"`
+	// Meta is the config's, as it started with.
+	Meta map[string]string `json:"meta,omitempty"`
+	// ContextTokens is how much context the last request sent: the
+	// conversation's size as the model sees it, until it next compacts.
+	ContextTokens int `json:"contextTokens,omitempty"`
 }
 
 // Proto is this build's host protocol: 1 adds rewind.
@@ -229,6 +243,10 @@ type server struct {
 	idle     *time.Timer
 	quit     chan struct{}
 	stopOnce sync.Once
+	// plugins are the MCP servers of the approved plugins the running
+	// Claude Code was told about; broker reaches them.
+	plugins []string
+	broker  plugin.Broker
 }
 
 // ringMax bounds what a reconnecting client is replayed.
@@ -267,7 +285,7 @@ func Run(id string) error {
 		quit: make(chan struct{}),
 		info: Info{ID: cfg.ID, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
 			HostPID: os.Getpid(), State: "idle", Proto: Proto, Model: cfg.Model, Effort: cfg.Effort, PermissionMode: cfg.PermissionMode,
-			StartedAt: now, UpdatedAt: now},
+			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta},
 	}
 	s.publish()
 	if cfg.Prompt != "" || len(cfg.Images) > 0 {
@@ -301,7 +319,15 @@ func (s *server) start() error {
 		Account: s.cfg.Account, Dir: s.cfg.Cwd, Model: s.cfg.Model, Effort: s.cfg.Effort,
 		PermissionMode: s.cfg.PermissionMode, Binary: s.cfg.Binary, Tap: s.tap, Skip: relayOnly,
 		// agtop's own tools only draw, so they never ask.
-		Flags: append([]string{"--allowedTools", strings.Join(agtools.Allowed(), ",")}, s.cfg.Flags...),
+		Flags: []string{"--allowedTools", strings.Join(agtools.Allowed(), ",")},
+	}
+	// Approved plugins add subagents and prompt text, and their tools, which
+	// ask like any other.
+	pc := plugin.ForSession()
+	o.Flags = append(append(o.Flags, pc.Flags...), s.cfg.Flags...)
+	s.plugins = pc.Servers
+	if len(pc.Servers) > 0 {
+		go func() { _ = plugin.EnsureBroker() }()
 	}
 	// Its scratch goes in a folder of its own, as Claude Code's daemon does
 	// for its jobs, so what it leaves behind can be seen and cleaned up.
@@ -330,7 +356,7 @@ func (s *server) start() error {
 	s.info.ClaudePID = sess.PID()
 	s.info.Error = ""
 	// Every process needs agtop's tools registered before its first message.
-	s.initID, _ = sess.Initialize(agtools.Server)
+	s.initID, _ = sess.Initialize(append([]string{agtools.Server}, s.plugins...)...)
 	go s.watch(sess)
 	return nil
 }
@@ -423,7 +449,7 @@ func ownTraffic(l []byte) bool {
 		return false
 	}
 	r := e.Request
-	return r.Subtype == "mcp_message" && r.Server == agtools.Server ||
+	return r.Subtype == "mcp_message" && (r.Server == agtools.Server || strings.HasPrefix(r.Server, plugin.ServerPrefix)) ||
 		r.Subtype == "can_use_tool" && strings.HasPrefix(r.Tool, agtools.Prefix)
 }
 
@@ -488,6 +514,10 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.Message:
 		if ev.Role == "assistant" && ev.Usage != nil {
 			s.info.CacheWarm = time.Now().Add(cacheLife)
+			if ev.ParentToolUseID == "" {
+				u := ev.Usage
+				s.info.ContextTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+			}
 		}
 		if ev.Role == "assistant" && s.info.State == "idle" {
 			// It picked up on its own (a background task finished).
@@ -511,6 +541,11 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.MCPRequest:
 		if s.sess != nil && ev.Server == agtools.Server {
 			_ = s.sess.ReplyMCP(ev.ID, agtools.Handle(ev.Message))
+		}
+		if name, ok := plugin.NameOf(ev.Server); ok && s.sess != nil && slices.Contains(s.plugins, ev.Server) {
+			// A plugin's tool may take a while; the session carries on.
+			sess, id := s.sess, s.cfg.ID
+			go func() { _ = sess.ReplyMCP(ev.ID, s.broker.MCP(name, id, ev.Message)) }()
 		}
 		return
 	case headless.PermissionRequest:

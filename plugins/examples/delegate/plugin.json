@@ -1,0 +1,18 @@
+{
+  "name": "delegate",
+  "description": "Lets Claude start agents of its own in agtop, follow them and message them.",
+  "version": "1",
+  "command": ["delegate"],
+  "tools": true,
+  "sessions": ["list", "start", "read", "send", "control"],
+  "workspaces": ["~/Source"],
+  "memoryMB": 64,
+  "agents": {
+    "reviewer": {
+      "description": "Reviews a change for correctness bugs before it's called done. Use after finishing a non-trivial change.",
+      "prompt": "You review code changes for correctness. Read the diff and the code around it, and report only real bugs, each with the input that triggers it. Say plainly if there are none.",
+      "tools": ["Read", "Grep", "Glob", "Bash"]
+    }
+  },
+  "prompt": "You can hand self-contained work to other agents with the mcp__agtop-delegate__start_agent tool, and follow them with agent_result. Do it for independent tasks in another folder or that would take long; keep work that needs your context."
+}

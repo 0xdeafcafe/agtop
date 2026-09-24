@@ -1,0 +1,19 @@
+{
+  "name": "agtop",
+  "owner": {
+    "name": "Alexander Forbes-Reed"
+  },
+  "metadata": {
+    "description": "Skills for working with agtop",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "agtop-plugin-dev",
+      "description": "Teaches Claude to write, test and debug sandboxed agtop plugins: tools, subagents, memory and agents of their own.",
+      "source": "./plugins/skills/write-agtop-plugin",
+      "strict": false,
+      "skills": ["./"]
+    }
+  ]
+}

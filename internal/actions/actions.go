@@ -344,6 +344,12 @@ func RepoRoot(dir string) string {
 // Code puts its own (.claude/worktrees/<name>), on a new branch named after
 // it, and returns the folder that matches dir inside it.
 func NewWorktree(dir, name string) (string, error) {
+	return NewWorktreeOn(dir, name, "worktree-"+name, "")
+}
+
+// NewWorktreeOn is NewWorktree on a branch of your choosing, made from base
+// (HEAD when it's "").
+func NewWorktreeOn(dir, name, branch, base string) (string, error) {
 	root := RepoRoot(dir)
 	if root == "" {
 		return "", fmt.Errorf("%s isn't in a git repository", dir)
@@ -352,7 +358,11 @@ func NewWorktree(dir, name string) (string, error) {
 	if _, err := os.Stat(path); err == nil {
 		return "", fmt.Errorf("a worktree named %s already exists", name)
 	}
-	if out, err := exec.Command("git", "-C", root, "worktree", "add", "-b", "worktree-"+name, path).CombinedOutput(); err != nil {
+	args := []string{"-C", root, "worktree", "add", "-b", branch, path}
+	if base != "" {
+		args = append(args, base)
+	}
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git worktree add: %s", strings.TrimSpace(string(out)))
 	}
 	if rel, err := filepath.Rel(root, dir); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {

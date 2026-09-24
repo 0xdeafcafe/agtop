@@ -1,0 +1,10 @@
+{
+  "name": "memory",
+  "description": "The reference MCP memory server: a knowledge graph Claude keeps across sessions, stored in the plugin's data folder.",
+  "version": "2026.8.31",
+  "protocol": "mcp",
+  "command": ["/opt/homebrew/bin/node", "node_modules/@modelcontextprotocol/server-memory/dist/index.js"],
+  "env": { "MEMORY_FILE_PATH": "${DATA}/memory.jsonl" },
+  "memoryMB": 256,
+  "prompt": "You have a long-term memory across sessions in the mcp__agtop-memory__* tools, a knowledge graph of entities, relations and observations. At the start of a task, search it for the project and the people involved. When you learn something durable (a decision, a preference, how something works), record it."
+}
