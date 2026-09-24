@@ -51,6 +51,7 @@ func soak(args []string) {
 	if len(args) > 1 {
 		fmt.Sscanf(args[1], "%dx%d", &w, &h)
 	}
+	viewGC() // as the view runs
 	m := ui.New(state.Load(), version)
 	m.Offline()
 	if want := os.Getenv("AGTOP_RENDER_SELECT"); want != "" {

@@ -3,11 +3,11 @@ package fleet
 import (
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -48,21 +48,39 @@ func ClaudeScratch() string { return filepath.Join("/tmp", fmt.Sprintf("claude-%
 func DiskUsage(dirs []TempDir) int64 {
 	var n int64
 	for _, d := range dirs {
-		_ = filepath.WalkDir(d.Path, func(_ string, e fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			info, err := e.Info()
-			if err != nil {
-				return nil
-			}
-			if st, ok := info.Sys().(*syscall.Stat_t); ok {
-				n += st.Blocks * 512
-			} else {
-				n += info.Size()
-			}
-			return nil
-		})
+		var st unix.Stat_t
+		if unix.Lstat(d.Path, &st) != nil {
+			continue
+		}
+		n += st.Blocks * 512
+		if st.Mode&unix.S_IFMT == unix.S_IFDIR {
+			n += dirUsage(d.Path)
+		}
+	}
+	return n
+}
+
+// dirUsage is what's inside a folder, each entry looked at through the
+// folder's own descriptor: a temp folder can hold a node_modules or two, and
+// a whole path and a FileInfo for every file made walks allocate megabytes.
+func dirUsage(dir string) int64 {
+	f, err := os.Open(dir)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	names, _ := f.Readdirnames(-1)
+	fd := int(f.Fd())
+	var n int64
+	for _, name := range names {
+		var st unix.Stat_t
+		if unix.Fstatat(fd, name, &st, unix.AT_SYMLINK_NOFOLLOW) != nil {
+			continue
+		}
+		n += st.Blocks * 512
+		if st.Mode&unix.S_IFMT == unix.S_IFDIR {
+			n += dirUsage(dir + "/" + name)
+		}
 	}
 	return n
 }

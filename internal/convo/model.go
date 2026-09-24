@@ -200,6 +200,9 @@ type Session struct {
 	memoOld    map[memoKey][]Line
 	chains     map[string]string // chain labels drawn this render, by colour and command
 	chainsOld  map[string]string
+	rows       map[stepKey]string // steps' labels and summaries drawn this render
+	rowsOld    map[stepKey]string
+	rowsFor    string        // the folders rows were drawn against
 	stepVer    int           // bumped whenever a step is added or changes
 	changes    []*FileChange // Changes, as of changesVer
 	parts      [][]Line      // RenderInto's scratch, one entry per turn

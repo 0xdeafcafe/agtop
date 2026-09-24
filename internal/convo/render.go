@@ -682,7 +682,7 @@ func (d *drawer) run(ref string, items []*Item) {
 	var order []string
 	var first, last time.Time
 	for _, it := range items {
-		g := d.verb(it.Step)
+		g := d.stepMemo(it.Step, 'v', d.verb)
 		if counts[g] == 0 {
 			order = append(order, g)
 		}
@@ -959,6 +959,37 @@ type memoKey struct {
 func (s *Session) memoTurn() {
 	s.memoOld, s.memo = s.memo, make(map[memoKey][]Line, len(s.memo))
 	s.chainsOld, s.chains = s.chains, make(map[string]string, len(s.chains))
+	if f := s.Info.Cwd + "|" + s.Cwd; f != s.rowsFor {
+		s.rows, s.rowsFor = nil, f // paths read relative to other folders now
+	}
+	s.rowsOld, s.rows = s.rows, make(map[stepKey]string, len(s.rows))
+}
+
+// stepKey names a step's label, summary or verb as drawn: they read only
+// the step, so they hold until its status, output or subagent steps change.
+// A running turn redraws every second; its finished steps don't need to
+// parse their input and output again each time.
+type stepKey struct {
+	st                  *Step
+	what                byte
+	status              Status
+	out, res, kids, pal int
+}
+
+func (d *drawer) stepMemo(st *Step, what byte, f func(*Step) string) string {
+	s := d.s
+	k := stepKey{st: st, what: what, status: st.Status, out: len(st.Output), res: len(st.Result), kids: len(st.Children), pal: palette}
+	if v, ok := s.rows[k]; ok {
+		return v
+	}
+	v, ok := s.rowsOld[k]
+	if !ok {
+		v = f(st)
+	}
+	if s.rows != nil {
+		s.rows[k] = v
+	}
+	return v
 }
 
 func (s *Session) memoGet(k memoKey) ([]Line, bool) {
@@ -1337,7 +1368,7 @@ func (d *drawer) step(st *Step, depth int) {
 	// How it came out follows the label, so the eye never has to cross the
 	// pane for it; the label gives way first when the row is too long.
 	lead := d.spine() + strings.Repeat(" ", indent-1) + d.statusMark(st) + " "
-	label, cells := d.label(st), d.cells(st)
+	label, cells := d.stepMemo(st, 'l', d.label), d.cells(st)
 	if cells != "" {
 		cells = faint("  · ") + cells
 		room := min(d.cw, capRow) - cellw.String(lead) - cellw.String(cells) - 1
@@ -1380,7 +1411,7 @@ func (d *drawer) cells(st *Step) string {
 	if blocked(st) {
 		return paint(cRed, "blocked by the harness")
 	}
-	if s := d.summary(st); s != "" {
+	if s := d.stepMemo(st, 's', d.summary); s != "" {
 		parts = append(parts, s)
 	}
 	if st.Tool == "Bash" && st.Exit > 0 {

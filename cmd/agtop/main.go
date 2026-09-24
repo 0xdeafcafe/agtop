@@ -118,12 +118,7 @@ func main() {
 	}
 	// 120 frames a second: a streamed delta reaches the terminal within
 	// about 8ms of being drawn, and nothing is drawn when nothing changed.
-	// Most of the time the view holds 10-20 MB. A soft ceiling makes the
-	// collector give memory back after a big session is let go, without
-	// working harder the rest of the time.
-	if os.Getenv("GOMEMLIMIT") == "" {
-		debug.SetMemoryLimit(128 << 20)
-	}
+	viewGC()
 	p := tea.NewProgram(ui.New(state.Load(), version), tea.WithFPS(120))
 	here := menubar.Here() // so the menu bar app comes back to this terminal
 	var err error
@@ -132,6 +127,21 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "agtop:", err)
 		os.Exit(1)
+	}
+}
+
+// viewGC tunes the collector for the view. Most of the time it holds
+// 10-20 MB and allocates a few MB a second, so collecting at half again the
+// live heap rather than double keeps some 8 MB less resident for about a
+// collection a second more. A soft ceiling makes the collector give memory
+// back after a big session is let go, without working harder the rest of
+// the time.
+func viewGC() {
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(50)
+	}
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(128 << 20)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -136,6 +137,10 @@ var (
 	prURL           = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/\d+`)
 )
 
+// scanReaders are Scan's readers, kept: a scan every few seconds of the
+// few transcripts that grew would otherwise make a 256 KB buffer each.
+var scanReaders = sync.Pool{New: func() any { return bufio.NewReaderSize(nil, 256<<10) }}
+
 // Scan advances t over whatever was appended to path since t.Offset. Only
 // complete lines are consumed, so a half-written line is read next time.
 func Scan(path string, t *Totals, buf []byte) ([]byte, error) {
@@ -158,7 +163,9 @@ func Scan(path string, t *Totals, buf []byte) ([]byte, error) {
 	if _, err := f.Seek(t.Offset, io.SeekStart); err != nil {
 		return buf, err
 	}
-	r := bufio.NewReaderSize(f, 256<<10)
+	r := scanReaders.Get().(*bufio.Reader)
+	r.Reset(f)
+	defer func() { r.Reset(nil); scanReaders.Put(r) }()
 	for {
 		buf = buf[:0]
 		complete := false

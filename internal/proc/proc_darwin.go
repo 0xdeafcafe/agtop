@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -13,26 +14,75 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// kinfo is the process table's read buffer, kept between samples: the view
+// samples every second, and the table is some 600 KB. comms keeps each
+// process name once, as most are the same from one sample to the next.
+var kinfo struct {
+	sync.Mutex
+	buf   []unix.KinfoProc
+	comms map[string]string
+}
+
 func list() []*Proc {
-	kps, err := unix.SysctlKinfoProcSlice("kern.proc.all")
+	kinfo.Lock()
+	defer kinfo.Unlock()
+	kps, err := readKinfo()
 	if err != nil {
 		return nil
 	}
-	out := make([]*Proc, 0, len(kps))
+	if kinfo.comms == nil || len(kinfo.comms) > 4096 {
+		kinfo.comms = map[string]string{}
+	}
+	procs := make([]Proc, len(kps))
+	out := make([]*Proc, len(kps))
 	for i := range kps {
 		k := &kps[i]
 		comm := k.Proc.P_comm[:]
 		if n := bytes.IndexByte(comm, 0); n >= 0 {
 			comm = comm[:n]
 		}
-		out = append(out, &Proc{
+		c, ok := kinfo.comms[string(comm)]
+		if !ok {
+			c = string(comm)
+			kinfo.comms[c] = c
+		}
+		procs[i] = Proc{
 			PID:   int(k.Proc.P_pid),
 			PPID:  int(k.Eproc.Ppid),
-			Comm:  string(comm),
+			Comm:  c,
 			Start: time.Unix(k.Proc.P_starttime.Sec, int64(k.Proc.P_starttime.Usec)*1000),
-		})
+		}
+		out[i] = &procs[i]
 	}
 	return out
+}
+
+// readKinfo is sysctl kern.proc.all into the kept buffer, grown when the
+// table has outgrown it.
+func readKinfo() ([]unix.KinfoProc, error) {
+	mib := [3]int32{unix.CTL_KERN, 14, 0} // KERN_PROC, KERN_PROC_ALL
+	for range 8 {
+		if len(kinfo.buf) > 0 {
+			n := uintptr(len(kinfo.buf)) * unix.SizeofKinfoProc
+			_, _, e := unix.Syscall6(unix.SYS_SYSCTL, uintptr(unsafe.Pointer(&mib[0])), uintptr(len(mib)),
+				uintptr(unsafe.Pointer(&kinfo.buf[0])), uintptr(unsafe.Pointer(&n)), 0, 0)
+			switch {
+			case e == 0:
+				return kinfo.buf[:n/unix.SizeofKinfoProc], nil
+			case e != unix.ENOMEM:
+				return nil, e
+			}
+		}
+		// Too small, or the first time: ask how big, with room to grow.
+		var n uintptr
+		_, _, e := unix.Syscall6(unix.SYS_SYSCTL, uintptr(unsafe.Pointer(&mib[0])), uintptr(len(mib)), 0,
+			uintptr(unsafe.Pointer(&n)), 0, 0)
+		if e != 0 {
+			return nil, e
+		}
+		kinfo.buf = make([]unix.KinfoProc, n/unix.SizeofKinfoProc+n/unix.SizeofKinfoProc/8+16)
+	}
+	return unix.SysctlKinfoProcSlice("kern.proc.all")
 }
 
 // rusage_info_v2 from <sys/resource.h>, only as far as the fields we read.

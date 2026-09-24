@@ -23,8 +23,9 @@ type Table struct {
 
 // Snapshot samples every process. prev supplies the CPU-time baseline.
 func Snapshot(prev *Table) *Table {
-	t := &Table{At: time.Now(), Procs: map[int]*Proc{}, Children: map[int][]int{}}
-	for _, p := range list() {
+	ps := list()
+	t := &Table{At: time.Now(), Procs: make(map[int]*Proc, len(ps)), Children: make(map[int][]int, len(ps)/4)}
+	for _, p := range ps {
 		t.Procs[p.PID] = p
 		t.Children[p.PPID] = append(t.Children[p.PPID], p.PID)
 	}

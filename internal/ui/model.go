@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -1356,9 +1359,8 @@ var sortModes = []string{"name", "recent", "cost", "cpu", "ram", "time"}
 func (m *Model) sortLess(a, b *fleet.Agent) bool {
 	now := m.snap.At
 	byName := func() bool {
-		x, y := strings.ToLower(a.DisplayName), strings.ToLower(b.DisplayName)
-		if x != y {
-			return x < y
+		if c := cmpLower(a.DisplayName, b.DisplayName); c != 0 {
+			return c < 0
 		}
 		return a.Key < b.Key
 	}
@@ -1381,6 +1383,20 @@ func (m *Model) sortLess(a, b *fleet.Agent) bool {
 		return x > y
 	}
 	return byName()
+}
+
+// cmpLower compares strings as their strings.ToLower forms would compare,
+// without making them: the list sorts by name every second.
+func cmpLower(x, y string) int {
+	for x != "" && y != "" {
+		r, n := utf8.DecodeRuneInString(x)
+		q, k := utf8.DecodeRuneInString(y)
+		if r, q = unicode.ToLower(r), unicode.ToLower(q); r != q {
+			return cmp.Compare(r, q)
+		}
+		x, y = x[n:], y[k:]
+	}
+	return cmp.Compare(len(x), len(y))
 }
 
 // doneLess orders Done by when each was last touched, newest first: put
