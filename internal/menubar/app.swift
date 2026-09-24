@@ -55,11 +55,21 @@ struct FeedLine: Decodable {
     var error: String?
 }
 
+// Formatters are made once: each is a good deal of ICU to set up.
+let iso = ISO8601DateFormatter()
+let clock = formatter("HH:mm"), dayClock = formatter("EEE HH:mm")
+
+func formatter(_ format: String) -> DateFormatter {
+    let f = DateFormatter()
+    f.dateFormat = format
+    return f
+}
+
 func parseTime(_ s: String?) -> Date? {
     guard var s = s, !s.hasPrefix("0001") else { return nil }
     // Go writes nanoseconds, which the ISO 8601 parser doesn't take.
     if let r = s.range(of: #"\.\d+"#, options: .regularExpression) { s.removeSubrange(r) }
-    return ISO8601DateFormatter().date(from: s)
+    return iso.date(from: s)
 }
 
 func ago(_ s: String) -> String {
@@ -72,9 +82,7 @@ func ago(_ s: String) -> String {
 
 func resets(_ s: String?) -> String {
     guard let d = parseTime(s) else { return "" }
-    let f = DateFormatter()
-    f.dateFormat = Calendar.current.isDateInToday(d) ? "HH:mm" : "EEE HH:mm"
-    return f.string(from: d)
+    return (Calendar.current.isDateInToday(d) ? clock : dayClock).string(from: d)
 }
 
 final class LineBuffer {
@@ -112,6 +120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     var problem: String?
     var notified: [String: String] = [:] // key → what it was asking
     var categories: [String: UNNotificationCategory] = [:]
+    var drawn: String? // what the icon shows, so drawing it again the same is skipped
+    var tick: Timer?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         if !alone() { return }
@@ -122,9 +132,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         draw()
         startFeed()
-        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            if (self?.state.working?.count ?? 0) > 0 { self?.draw() }
-        }
     }
 
     func applicationWillTerminate(_ n: Notification) {
@@ -164,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         p.standardOutput = out
         p.standardInput = inp
         p.standardError = FileHandle.nullDevice
-        let buf = LineBuffer()
+        let buf = LineBuffer(), decoder = JSONDecoder()
         out.fileHandleForReading.readabilityHandler = { [weak self] h in
             let d = h.availableData
             if d.isEmpty {
@@ -172,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
             for l in buf.lines(adding: d) {
-                guard let f = try? JSONDecoder().decode(FeedLine.self, from: l) else { continue }
+                guard let f = try? decoder.decode(FeedLine.self, from: l) else { continue }
                 DispatchQueue.main.async { self?.apply(f) }
             }
         }
@@ -223,11 +230,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // He's clanker, as in agtop's header: working he steps from one
         // pose to the other every other second, and needing you he holds
         // his arms up by a !, in orange.
-        if waiting > 0 {
-            b.image = clanker("needs").map { tinted($0, .systemOrange) }
-        } else {
-            b.image = clanker(working > 0 && Int(Date().timeIntervalSince1970) / 2 % 2 == 1 ? "working" : "idle")
-        }
+        let pose = waiting > 0 ? "needs" : working > 0 && Int(Date().timeIntervalSince1970) / 2 % 2 == 1 ? "working" : "idle"
+        animate(waiting == 0 && working > 0)
+        // Setting the button's image or title has the menu bar lay it out
+        // and draw it again, even when they're what they were.
+        let look = "\(pose) \(waiting) \(problem != nil)"
+        guard look != drawn else { return }
+        drawn = look
+        b.image = pose == "needs" ? needsImage : pose == "working" ? workingImage : idleImage
         b.appearsDisabled = problem != nil
         b.imagePosition = .imageLeading
         b.attributedTitle = waiting > 0
@@ -238,6 +248,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             : NSAttributedString(string: "")
         b.toolTip = waiting > 0 ? "\(waiting) waiting on you" : "agtop"
     }
+
+    /// animate ticks while he's working, on the even seconds his pose
+    /// changes at, and not at all otherwise.
+    func animate(_ on: Bool) {
+        guard on != (tick != nil) else { return }
+        tick?.invalidate()
+        tick = nil
+        guard on else { return }
+        let next = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 2).rounded(.down) * 2 + 2)
+        let t = Timer(fire: next, interval: 2, repeats: true) { [weak self] _ in self?.draw() }
+        t.tolerance = 0.1
+        RunLoop.main.add(t, forMode: .default)
+        tick = t
+    }
+
+    lazy var idleImage = clanker("idle")
+    lazy var workingImage = clanker("working")
+    lazy var needsImage = clanker("needs").map { tinted($0, .systemOrange) }
 
     func clanker(_ pose: String) -> NSImage? {
         let i = Bundle.main.image(forResource: "clanker-\(pose)Template")
