@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -77,6 +79,7 @@ func main() {
 			if len(args) < 3 || args[1] != "run" {
 				exitIf(fmt.Errorf("usage: agtop host run <id>"))
 			}
+			background("") // it lowers GOGC itself once it runs turns
 			var err error
 			profiled(func() { err = host.Run(args[2]) })
 			exitIf(err)
@@ -90,6 +93,7 @@ func main() {
 		case "plugind":
 			// The plugin broker. agtop starts it when a plugin is approved;
 			// it is not meant to be run by hand.
+			background("")
 			exitIf(plugind.Run())
 			return
 		case "statusline":
@@ -127,6 +131,38 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "agtop:", err)
 		os.Exit(1)
+	}
+}
+
+// background sets up one of agtop's own long-lived processes (a session's
+// host, the menu bar feed, the plugin broker): one runs per agent, so each
+// should cost a few MB. They mostly wait, so two Ps is plenty: fewer
+// threads, and less cached per P. The runtime only takes that as it starts
+// (set later it costs more than it saves), so the process starts again
+// with it, once, and with gogc when that's set. Heap profiling is off
+// unless asked for.
+func background(gogc string) {
+	const mark = "AGTOP_GOENV"
+	if set, ok := os.LookupEnv(mark); ok {
+		// Not for Claude Code, or anything it runs.
+		for _, k := range strings.Fields(set) {
+			_ = os.Unsetenv(k)
+		}
+		_ = os.Unsetenv(mark)
+	} else {
+		var env, set []string
+		for _, kv := range [][2]string{{"GOMAXPROCS", "2"}, {"GOGC", gogc}} {
+			if os.Getenv(kv[0]) == "" && kv[1] != "" {
+				env, set = append(env, kv[0]+"="+kv[1]), append(set, kv[0])
+			}
+		}
+		if exe, err := os.Executable(); err == nil && len(set) > 0 {
+			env = append(append(os.Environ(), env...), mark+"="+strings.Join(set, " "))
+			_ = syscall.Exec(exe, os.Args, env) // only returns if it failed
+		}
+	}
+	if os.Getenv("AGTOP_MEMPROFILE") == "" {
+		runtime.MemProfileRate = 0
 	}
 }
 
@@ -283,6 +319,9 @@ func menuBar(args []string) error {
 	st := state.Load()
 	switch {
 	case len(args) > 0 && args[0] == "feed":
+		// It reloads everything every couple of seconds, a few MB of
+		// garbage over a small live heap: collecting sooner keeps less of it.
+		background("50")
 		return menubar.Feed(os.Stdin, os.Stdout)
 	case len(args) > 0 && args[0] == "off":
 		st.Config.MenuBar, st.Config.MenuBarAsked = false, true

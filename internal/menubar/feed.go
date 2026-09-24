@@ -8,6 +8,7 @@ package menubar
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -318,6 +319,9 @@ func waitingOn(id string) (*headless.PermissionRequest, host.Info) {
 			if !ok {
 				return nil, host.Info{}
 			}
+			if skipped(l) {
+				continue
+			}
 			ev, err := host.Decode(l)
 			if err != nil {
 				continue
@@ -342,6 +346,15 @@ func waitingOn(id string) (*headless.PermissionRequest, host.Info) {
 			return nil, host.Info{}
 		}
 	}
+}
+
+// skipped is a replay line of Claude Code's that can't be a permission
+// request or its cancelling: most of the replay, and its biggest lines
+// (whole messages, tool results), so they aren't taken apart for nothing.
+func skipped(l []byte) bool {
+	return bytes.HasPrefix(l, []byte(`{"type":"`)) &&
+		!bytes.HasPrefix(l, []byte(`{"type":"agtop_`)) &&
+		!bytes.HasPrefix(l, []byte(`{"type":"control_`))
 }
 
 // do carries out an op on the session it names.

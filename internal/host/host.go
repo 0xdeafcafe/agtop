@@ -233,9 +233,10 @@ type server struct {
 
 	mu      sync.Mutex
 	sess    *headless.Session
-	began   bool // the conversation has a transcript to resume
-	ring    [][]byte
-	ringN   int
+	began   bool     // the conversation has a transcript to resume
+	ring    [][]byte // big lines packed: see pack
+	ringN   int      // the ring's size as written
+	pk      packer
 	clients map[*conn]struct{}
 	pending map[string]headless.PermissionRequest
 	info    Info
@@ -258,6 +259,8 @@ type server struct {
 	plugins []string
 	broker  plugin.Broker
 }
+
+var lowGC sync.Once
 
 // ringMax bounds what a reconnecting client is replayed.
 const ringMax = 8 << 20
@@ -362,6 +365,15 @@ func (s *server) start() error {
 	if err != nil {
 		return err
 	}
+	lowGC.Do(func() {
+		// Running turns, its heap is the ring and lines passing through:
+		// collecting at a quarter over what's live rather than double keeps
+		// a long session's high water down, for little CPU. Before the first
+		// turn it would only cost more collections while starting up.
+		if os.Getenv("GOGC") == "" {
+			debug.SetGCPercent(25)
+		}
+	})
 	s.sess = sess
 	s.info.ClaudePID = sess.PID()
 	s.info.Error = ""
@@ -427,12 +439,12 @@ func (s *server) record(line []byte) {
 		for _, l := range s.ring {
 			if !isStreamEvent(l) {
 				kept = append(kept, l)
-				n += len(l)
+				n += lineLen(l)
 			}
 		}
 		s.ring, s.ringN = kept, n
 	}
-	s.ring = append(s.ring, line)
+	s.ring = append(s.ring, s.pk.pack(line))
 	s.ringN += len(line)
 	s.trim()
 	for c := range s.clients {
@@ -461,7 +473,7 @@ func (s *server) trim() {
 		if fallback < 0 && n <= ringMax*3/4 {
 			fallback, fallbackFrom = i, from
 		}
-		n -= len(l)
+		n -= lineLen(l)
 	}
 	if cut < 0 {
 		// One turn is all of it: keep its latest part, with room to grow.
@@ -471,7 +483,7 @@ func (s *server) trim() {
 		}
 	}
 	for _, l := range s.ring[:cut] {
-		s.ringN -= len(l)
+		s.ringN -= lineLen(l)
 	}
 	s.ring = slices.Clone(s.ring[cut:])
 	if !from.Equal(s.info.ReplayFrom) {
@@ -679,6 +691,8 @@ func (s *server) onEvent(ev headless.Event) {
 				return
 			}
 			s.armIdle()
+			// Waiting for you now: give back what the turn used.
+			go debug.FreeOSMemory()
 		}
 	default:
 		return
@@ -1338,8 +1352,9 @@ func (s *server) serve(nc net.Conn) {
 			_, err := w.Write(append(l, '\n'))
 			return err == nil
 		}
+		var u unpacker
 		for _, l := range replay {
-			if !write(l) {
+			if u.writeTo(w, l) != nil || w.WriteByte('\n') != nil {
 				c.close()
 				return
 			}
