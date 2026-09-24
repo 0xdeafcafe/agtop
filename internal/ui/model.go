@@ -157,10 +157,16 @@ type Model struct {
 	cwdFor     string
 
 	lastState map[string]string
-	measuring bool         // temp work is being measured in the background
-	clean     cleanup      // the Cleanup view's worktrees, and the tidy-up
-	reaper    fleet.Reaper // ends what agents leave running when they stop
-	squeezing bool         // transcripts are being compressed in the background
+	lastErr   map[string]bool // agents last seen with an error, so one starting is noticed
+	fx        clkFX           // what clanker is reacting to
+	fxOn      bool            // his reaction is ticking
+	fxKick    bool            // a reaction started this update; its ticking needs starting
+	clkMark   bool            // clanker is the monogram for now
+	clkMarkAt int             // the tick he turned into it
+	measuring bool            // temp work is being measured in the background
+	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
+	reaper    fleet.Reaper    // ends what agents leave running when they stop
+	squeezing bool            // transcripts are being compressed in the background
 
 	bar     *cmdBar  // the command bar, while it's open
 	barBack *spot    // where the bar last jumped from
@@ -431,6 +437,9 @@ func (m *Model) markSeen(a *fleet.Agent) {
 
 func (m *Model) flash(s string, err bool) {
 	m.status, m.statusErr, m.statusAt = s, err, time.Now()
+	if err {
+		m.react(fxError)
+	}
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -440,7 +449,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.pendingCopy != "" {
 		copyCmd, m.pendingCopy = tea.SetClipboard(m.pendingCopy), ""
 	}
-	return m, tea.Batch(cmd, copyCmd, m.syncLive(), m.syncHost(), m.syncWatch())
+	var fxCmd tea.Cmd
+	if m.fxKick {
+		fxCmd, m.fxKick = fxTick(), false
+	}
+	return m, tea.Batch(cmd, copyCmd, fxCmd, m.syncLive(), m.syncHost(), m.syncWatch())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -540,6 +553,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tick%60 == 0 {
 			cmds = append(cmds, m.fetchUsage(), m.findLogins())
 		}
+		m.clkBeat(m.mood(m.tally()))
 		cmds = append(cmds, m.loadPreview())
 		if m.tick%2 == 0 {
 			cmds = append(cmds, m.loadLivePreviews())
@@ -569,6 +583,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onSwitched(msg)
 	case addedLoginMsg:
 		return m, m.onAddedLogin(msg)
+	case fxTickMsg:
+		return m, m.onFXTick()
 	case hoverMsg:
 		return m, m.loadPreview()
 	case previewMsg:
@@ -888,15 +904,34 @@ func (m *Model) refresh() {
 	m.rebuild()
 }
 
-// notify posts a notification when an agent starts waiting on the user.
+// notify posts a notification when an agent starts waiting on the user,
+// and has clanker react to that and to agents answered, finished or failing.
 func (m *Model) notify() {
 	first := len(m.lastState) == 0
+	if m.lastErr == nil {
+		m.lastErr = map[string]bool{}
+	}
 	for _, a := range m.snap.Agents {
 		if a.Checking {
 			continue
 		}
 		prev := m.lastState[a.Key]
 		m.lastState[a.Key] = a.State
+		failing := strings.HasPrefix(a.Detail, "API error") || strings.HasPrefix(a.Detail, "usage limit")
+		wasFailing := m.lastErr[a.Key]
+		m.lastErr[a.Key] = failing
+		if !first && prev != "" {
+			switch {
+			case failing && !wasFailing:
+				m.react(fxError)
+			case prev != "blocked" && a.NeedsYou():
+				m.react(fxAsk)
+			case prev == "blocked" && (a.State == "working" || a.State == "running"):
+				m.react(fxAnswered)
+			case (prev == "working" || prev == "running") && a.State == "done":
+				m.react(fxDone)
+			}
+		}
 		// Not for the agent you're looking at while agtop has focus.
 		watching := !m.blurred && m.paneFocus && m.host != nil && m.host.key == a.Key
 		// The menu bar icon, when it runs, notifies instead, with buttons.

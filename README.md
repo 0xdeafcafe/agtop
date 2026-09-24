@@ -4,10 +4,10 @@ A small, fast replacement for Claude Code's agents view (`claude agents`), writt
 It keeps the native layout and keys, and adds what the native view doesn't show.
 
 ```
-   ╻     agtop 0.1.0 · clanker wrangler · Claude Code v2.1.280
- ┌─┴─┐   default · ~/Source/github.com/langwatch/langwatch
- │◉_◉│   0 awaiting input · 3 working · 78 completed   cpu 402%  ram 10.1G  today $970
- └┬─┬┘   ● default 5h ▰▱▱▱▱▱▱▱▱▱ 12% resets 13:50 · 7d 22%
+     ▀▄   ▄▀
+    ▄█▀███▀█▄     agtop 0.1.0 · clanker wrangler · Claude Code v2.1.280
+   █▀███████▀█    default · ~/Source/github.com/langwatch/langwatch
+   ▀ ▀▄▄ ▄▄▀ ▀    0 awaiting input · 3 working · 78 completed   cpu 402%  ram 10.1G  today $970
 ```
 
 - **Cost, tokens and time** for every agent, estimated from its transcript at list prices (subagents included), and today's spend per account.

@@ -79,8 +79,6 @@ func (m *Model) mood(t tally) mood {
 	switch {
 	case t.blocked > 0:
 		return moodNeedsYou
-	case t.today >= 500 && m.tick%8 < 2:
-		return moodSpendy
 	case t.working > 0:
 		return moodWorking
 	}
@@ -126,7 +124,8 @@ func (m *Model) pages() string {
 
 func (m *Model) header() []string {
 	t := m.tally()
-	robot := clanker(m.mood(t), m.tick)
+	md := m.mood(t)
+	robot := clanker(m.clkState(md, t))
 	var counts []string
 	if t.blocked > 0 {
 		counts = append(counts, paint(cYellow+bold, fmt.Sprintf("● %d needs you", t.blocked)))
