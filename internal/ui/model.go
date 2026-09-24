@@ -87,6 +87,7 @@ type Model struct {
 	scroll       int
 	preview      bool
 	full         bool
+	peekFrom     string // the agent whose Session alone you left to peek at Agents
 	previews     map[string]previewEntry
 	btws         map[string]*btwThread // agents' side threads (/btw), by key
 	live         *live
@@ -269,7 +270,21 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar(), m.checkUpdate())
+	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar(), m.startView(), m.checkUpdate())
+}
+
+// startView opens on the layout you kept, or asks which, the first time.
+// Agents alone kept before there was a choice counts as picking it.
+func (m *Model) startView() tea.Cmd {
+	c := &m.store.Config
+	if c.View == "" && c.ListOnly {
+		c.View = "list"
+	}
+	if c.View == "" {
+		m.askView()
+		return nil
+	}
+	return m.openView()
 }
 
 // startMenuBar opens the menu bar icon when it's on and not running,

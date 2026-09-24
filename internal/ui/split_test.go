@@ -87,7 +87,7 @@ func TestSplitKeys(t *testing.T) {
 
 // From Agents alone, a Session opens as you last had one: pushed to the
 // whole screen, the next one opens there too; closing goes back to Agents
-// alone, and splitting it makes Sessions open beside the list again.
+// alone, and splitting it keeps the split, next time too.
 func TestChatOpensAsLast(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
@@ -109,11 +109,97 @@ func TestChatOpensAsLast(t *testing.T) {
 	}
 	m.listW, _, _ = m.layout()
 	m.stepSplit(true)
-	if got := m.viewNow(); got != "split" || !m.store.Config.ListOnly {
-		t.Fatalf("shift+→ from it splits, Agents alone still kept: %s", got)
+	if got := m.viewNow(); got != "split" || m.store.Config.ListOnly || m.store.Config.View != "split" {
+		t.Fatalf("shift+→ from it splits, and keeps the split: %s %+v", got, m.store.Config)
 	}
 	closeIt()
-	if got := open(); got != "split" {
-		t.Fatalf("and Sessions open beside the list again, got %s", got)
+	if got := m.viewNow(); got != "split" {
+		t.Fatalf("closing it leaves the split, got %s", got)
+	}
+}
+
+// The layout picked is kept for next time: #view agent opens agtop on the
+// Session alone, #view list on Agents alone.
+func TestViewKept(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	a := &fleet.Agent{Key: "a"}
+	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
+	for _, want := range []string{"agent", "list", "split"} {
+		m.command(a, "#view "+want)
+		saved := state.Load()
+		next := &Model{store: saved, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
+		next.startView()
+		if next.sheet != nil || saved.Config.View != want || next.viewNow() != want {
+			t.Fatalf("#view %s: next time opened on %s (kept %q)", want, next.viewNow(), saved.Config.View)
+		}
+	}
+}
+
+// The first time, agtop asks which layout; a layout kept before there was
+// a choice counts as the answer.
+func TestViewAsked(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	a := &fleet.Agent{Key: "a"}
+	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
+	m.startView()
+	if _, ok := m.sheet.(*viewSheet); !ok {
+		t.Fatalf("the first time should ask which layout")
+	}
+	m.key(tea.KeyPressMsg{Code: tea.KeyDown})
+	m.key(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.sheet != nil || m.store.Config.View != "agent" || m.viewNow() != "agent" {
+		t.Fatalf("picking the Session alone should keep and show it: %q %s", m.store.Config.View, m.viewNow())
+	}
+
+	old := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
+	old.store.Config.ListOnly = true
+	old.startView()
+	if old.sheet != nil || old.viewNow() != "list" {
+		t.Fatalf("Agents alone kept from before shouldn't ask: %s", old.viewNow())
+	}
+}
+
+// Typing #view's choices lays the screen out without asking the layout
+// which layout is on (that went round forever).
+func TestHashViewPicker(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	a := &fleet.Agent{Key: "a"}
+	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a", inKind: inPrompt}
+	m.input = []rune("#view ")
+	if cmds, _ := m.promptPicker(); len(cmds) != 3 {
+		t.Fatalf("#view should offer its three layouts: %v", cmds)
+	}
+	m.layout()
+}
+
+// With the Session alone kept, leaving it is a peek at Agents: enter opens
+// the one picked, alone again, and esc goes back to the one you left.
+func TestPeekFromSession(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	a, b := &fleet.Agent{Key: "a", DisplayName: "alpha"}, &fleet.Agent{Key: "b", DisplayName: "beta"}
+	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{Agents: []*fleet.Agent{a, b}}, w: 240, h: 50, order: []*fleet.Agent{a, b}, sel: "a", inKind: inPrompt, previews: map[string]previewEntry{}}
+	esc := tea.KeyPressMsg{Code: tea.KeyEscape}
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	m.command(a, "#view agent")
+	m.key(esc)
+	if !m.peeking() || m.viewNow() != "list" {
+		t.Fatalf("esc from the Session alone should peek at Agents: %s", m.viewNow())
+	}
+	m.sel = "b"
+	m.key(enter)
+	if m.viewNow() != "agent" || m.sel != "b" || m.inKind == inRename || m.sheet != nil {
+		t.Fatalf("enter while peeking should open beta alone: %s %s", m.viewNow(), m.sel)
+	}
+	m.key(esc)
+	m.sel = "a"
+	m.key(esc)
+	if m.viewNow() != "agent" || m.sel != "b" {
+		t.Fatalf("esc while peeking should go back to beta: %s %s", m.viewNow(), m.sel)
+	}
+
+	m.command(b, "#view split")
+	m.key(esc)
+	if m.peeking() {
+		t.Fatalf("closing a split Session isn't a peek")
 	}
 }

@@ -349,8 +349,11 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			}
 		case m.inKind != inPrompt:
 			m.inKind = inPrompt
+		case m.peeking() && m.agentByKey(m.peekFrom) != nil:
+			m.sel = m.peekFrom
+			return m.openPeeked()
 		case m.preview:
-			m.preview, m.full = false, false
+			m.leaveChat()
 		case m.armed != "":
 			m.armed = ""
 		case time.Since(m.quitArmed) < 2*time.Second:
@@ -365,6 +368,10 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		if t, ok := strings.CutPrefix(m.sel, "§"); ok && empty {
 			m.toggleFold(t)
 			return nil
+		}
+		// Peeking from a Session, enter opens the one picked, as it was.
+		if empty && a != nil && m.inKind == inPrompt && m.peeking() {
+			return m.openPeeked()
 		}
 		// Enter on an agent renames it, as in the Finder, or opens it, as
 		// you chose the first time; ⌘↓, → and tab always open it.

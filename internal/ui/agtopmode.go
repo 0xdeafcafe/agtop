@@ -1549,7 +1549,15 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
-	hint := keysFit(w-4, "enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list", "↑", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
+	pairs := []string{"enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list"}
+	if m.store.Config.View == "agent" && m.chatAlone() && !m.zen {
+		pairs[5] = "peek at Agents"
+	}
+	if l, _ := m.widths(); l == 0 {
+		// The Session alone: how to have Agents beside it is kept in view.
+		pairs = append(pairs, m.splitHint("shift+→")...)
+	}
+	hint := keysFit(w-4, append(pairs, "↑", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")...)
 	if m.watchingSub(c) {
 		back := "back to the list"
 		if c.subBack {
@@ -2376,8 +2384,30 @@ func (m *Model) clickRow(c *hostConn, y int) {
 func (m *Model) leavePane() {
 	m.paneFocus = false
 	if m.listW == 0 {
-		m.preview, m.full = false, false
+		m.leaveChat()
 	}
+}
+
+// leaveChat closes the Session for Agents. From the Session alone, kept
+// that way, it's a peek: esc goes back, enter opens the one picked.
+func (m *Model) leaveChat() {
+	m.peekFrom = ""
+	if m.store.Config.View == "agent" && m.chatAlone() && !m.zen {
+		m.peekFrom = m.sel
+	}
+	m.preview, m.full = false, false
+}
+
+// peeking is whether Agents are on screen for a peek from the Session
+// alone.
+func (m *Model) peeking() bool {
+	return m.peekFrom != "" && m.store.Config.View == "agent" && !m.chatOpen() && !m.zen
+}
+
+// openPeeked ends a peek on the picked agent, its Session alone again.
+func (m *Model) openPeeked() tea.Cmd {
+	m.peekFrom = ""
+	return m.switchFocus()
 }
 
 // sendOffline sends from the message box of a session agtop isn't hosting:

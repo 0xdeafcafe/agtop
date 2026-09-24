@@ -507,6 +507,15 @@ func keys(pairs ...string) string {
 // layout splits the screen between the list and the preview pane and says
 // how many rows the body gets under the header and above the prompt.
 func (m *Model) layout() (listW, paneW, bodyH int) {
+	listW, paneW = m.widths()
+	bodyH = max(3, m.h-m.topH()-m.promptH(m.promptW(listW, paneW)))
+	return listW, paneW, bodyH
+}
+
+// widths is how the screen splits between the list and the pane, without
+// the height, which needs the prompt drawn and so the picker, and #view's
+// picker asks which layout is on.
+func (m *Model) widths() (listW, paneW int) {
 	listW = m.w
 	showing := m.full || m.preview || m.autoSplit()
 	if m.zenFull() {
@@ -526,8 +535,7 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 			paneW, listW = m.w, 0
 		}
 	}
-	bodyH = max(3, m.h-m.topH()-m.promptH(m.promptW(listW, paneW)))
-	return listW, paneW, bodyH
+	return listW, paneW
 }
 
 // sideWidth is the list's width in a split: your own share when you've set
@@ -603,37 +611,47 @@ func (m *Model) chatAlone() bool {
 }
 
 // listOnly hides the Session and gives the screen to Agents, and keeps it
-// that way on a wide screen: a Session opens from there as you last had one.
+// that way, next time too: a Session opens from there as you last had one.
 func (m *Model) listOnly() {
-	m.store.Config.ListOnly = true
+	m.store.Config.View, m.store.Config.ListOnly = "list", true
 	_ = m.store.SaveConfig()
 	m.preview, m.full, m.paneFocus = false, false, false
-	m.flash("just Agents · shift+← brings the Session back", false)
+	m.flash("just Agents, next time too · shift+← or #view split puts the Session beside them", false)
 }
 
-// splitAgain puts Agents and the Session side by side, when there's room.
-// From a Session opened off Agents alone, that's how the next one opens;
-// from Agents alone, the split is back for good.
+// splitAgain puts Agents and the Session side by side, when there's room,
+// and keeps them that way, next time too.
 func (m *Model) splitAgain() tea.Cmd {
-	if m.w-max((m.w+3)/4, 30)-1 < minPane {
+	if !m.canSplit() {
 		m.flash("too narrow for Agents and the Session side by side", true)
 		return nil
 	}
-	if m.chatOpen() {
-		m.store.Config.ChatFull = false
-	} else {
-		m.store.Config.ListOnly = false
+	if !m.chatOpen() {
 		m.preview = !m.wide()
 	}
+	m.store.Config.SetView("split")
 	m.full = false
 	_ = m.store.SaveConfig()
-	m.flash("Agents and the Session side by side", false)
+	m.flash("Agents and the Session side by side, next time too", false)
 	return m.loadPreview()
+}
+
+// canSplit is whether the screen is wide enough for Agents and the Session
+// side by side.
+func (m *Model) canSplit() bool { return m.w-max((m.w+3)/4, 30)-1 >= minPane }
+
+// splitHint is the key back to the split, for the hint row, while one side
+// has the screen and there's room for both.
+func (m *Model) splitHint(back string) []string {
+	if m.zen || !m.canSplit() {
+		return nil
+	}
+	return []string{back + " · #view split", "back to side by side"}
 }
 
 // viewNow is which of #view's layouts is on screen.
 func (m *Model) viewNow() string {
-	l, p, _ := m.layout()
+	l, p := m.widths()
 	switch {
 	case l == 0:
 		return "agent"
@@ -643,20 +661,16 @@ func (m *Model) viewNow() string {
 	return "split"
 }
 
-// sessionOnly gives the screen to the picked agent's Session. With Agents
-// alone kept, Sessions open that way from then on.
+// sessionOnly gives the screen to the picked agent's Session, and keeps it
+// that way: Sessions open alone from then on, and agtop opens on one.
 func (m *Model) sessionOnly() tea.Cmd {
 	if m.selected() == nil {
 		return nil
 	}
 	m.preview, m.full = true, true
-	msg := "just the Session · shift+→ brings Agents back"
-	if m.store.Config.ListOnly {
-		m.store.Config.ChatFull = true
-		_ = m.store.SaveConfig()
-		msg = "just the Session, and Sessions open this way · shift+→ brings Agents back"
-	}
-	m.flash(msg, false)
+	m.store.Config.SetView("agent")
+	_ = m.store.SaveConfig()
+	m.flash("just the Session, next time too · esc for Agents · shift+→ or #view split for both side by side", false)
 	return m.loadPreview()
 }
 
@@ -674,10 +688,10 @@ func (m *Model) dragSplit(x int) {
 		}
 	default:
 		if !m.chatOpen() {
-			m.store.Config.ListOnly = false
 			m.preview = !m.wide()
 		}
-		m.full, m.store.Config.ChatFull = false, false
+		m.full = false
+		m.store.Config.SetView("split")
 		m.setSideWidth(x)
 	}
 }
@@ -1667,14 +1681,37 @@ func (m *Model) promptLines(w int) []string {
 		hint = keysFit(w-4, "enter", "run it", "esc", "clear", "?", "guide")
 	case len(m.input) > 0:
 		hint = keysFit(w-4, "enter", "start it", "ctrl+l", "folder", "esc", "clear", "?", "guide")
-	case a != nil && a.Agtop && m.store.Config.EnterOn == "open":
-		hint = keysFit(w-4, "enter · tab", "talk to it", "ctrl+r", "rename", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "?", "guide")
-	case a != nil && m.store.Config.EnterOn == "open":
-		hint = keysFit(w-4, "enter · tab", "open", "ctrl+r", "rename", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "?", "guide")
-	case a != nil && a.Agtop:
-		hint = keysFit(w-4, "enter", "rename", "⌘↓ · tab", "talk to it", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "tab", "its Session", "?", "guide")
+	case m.peeking():
+		back := "esc"
+		if from := m.agentByKey(m.peekFrom); from != nil {
+			back = "back to " + oneLine(from.DisplayName)
+		}
+		hint = keysFit(w-4, "↑↓", "pick", "enter · tab", "open it", "esc", back, "shift+← · #view split", "side by side", "?", "guide")
 	default:
-		hint = keysFit(w-4, "enter", "rename", "⌘↓ · tab", "open", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session", "?", "guide")
+		var pairs []string
+		switch {
+		case a != nil && a.Agtop && m.store.Config.EnterOn == "open":
+			pairs = []string{"enter · tab", "talk to it", "ctrl+r", "rename", "ctrl+k", "go anywhere", "ctrl+n", "next needing you"}
+		case a != nil && m.store.Config.EnterOn == "open":
+			pairs = []string{"enter · tab", "open", "ctrl+r", "rename", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you"}
+		case a != nil && a.Agtop:
+			pairs = []string{"enter", "rename", "⌘↓ · tab", "talk to it", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "tab", "its Session"}
+		default:
+			pairs = []string{"enter", "rename", "⌘↓ · tab", "open", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session"}
+		}
+		if m.newer.Version != "" && !m.updating {
+			pairs = append([]string{"#update", "new agtop"}, pairs...)
+		}
+		// With one side on screen, how to have both is kept in view.
+		l, p := m.widths()
+		back := "shift+←"
+		if l == 0 {
+			back = "shift+→"
+		}
+		if v := m.splitHint(back); v != nil && (l == 0 || p == 0) {
+			pairs = append(pairs[:2:2], append(v, pairs[2:]...)...)
+		}
+		hint = keysFit(w-4, append(pairs, "?", "guide")...)
 	}
 	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil {
 		hint = strings.TrimRight(m.statusOr(""), " ") // it pads to the screen, not this box

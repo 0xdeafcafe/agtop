@@ -190,6 +190,14 @@ type setting struct {
 // settingHelp says what a setting does, and what its current choice means.
 func settingHelp(label, value string) (what, now string) {
 	switch label {
+	case "Layout":
+		what = "How agtop lays out Agents and the Session, now and next time. #view and shift+← → change it too."
+		now = map[string]string{
+			"split": "split: Agents on the left, the picked agent's Session beside them, when the screen is wide enough.",
+			"agent": "agent: one Session with the whole screen; esc shows Agents, and the next one you open has the whole screen too.",
+			"list":  "list: Agents alone; a Session you open takes the screen until esc.",
+			"ask":   "ask: agtop asks which the next time it opens.",
+		}[value]
 	case "Group by":
 		what = "How finished agents are sorted into sections. Needs you, Working, Waiting on you and Idle always come first."
 		now = map[string]string{
@@ -398,7 +406,18 @@ func (m *Model) generalSettings() []setting {
 	if enter == "" {
 		enter = "ask"
 	}
+	view := c.View
+	if view == "" {
+		view = "ask"
+	}
 	return []setting{
+		{"Layout", view, []string{"split", "agent", "list", "ask"}, func(v string) {
+			if v == "ask" {
+				c.View = ""
+				return
+			}
+			c.SetView(v)
+		}},
 		{"Group by", c.GroupBy, groupModes, func(v string) { c.GroupBy = v }},
 		{"Enter on an agent", enter, []string{"rename", "open", "ask"}, func(v string) {
 			c.EnterOn = v

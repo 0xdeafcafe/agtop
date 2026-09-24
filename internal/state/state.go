@@ -48,6 +48,10 @@ type Config struct {
 	// SideWidth is the agent list's share of a split screen, 0.25 to 0.5;
 	// zero means agtop's own choice.
 	SideWidth float64 `json:"sideWidth,omitempty"`
+	// View is the layout you picked: "split" (Agents and the Session side
+	// by side), "agent" (the Session alone) or "list" (Agents alone).
+	// Empty asks, the first time agtop opens.
+	View string `json:"view,omitempty"`
 	// ListOnly keeps a wide screen to the list alone: no Session beside
 	// it until you open one.
 	ListOnly bool `json:"listOnly,omitempty"`
@@ -90,6 +94,13 @@ type Onboarding struct {
 
 // DefaultCleanup is how long done work waits before it's cleaned up.
 const DefaultCleanup = 3 * time.Hour
+
+// SetView keeps layout v ("split", "agent" or "list") for next time.
+// Agents alone and the Session alone both leave the list without a Session
+// beside it; the Session alone also opens every Session that way.
+func (c *Config) SetView(v string) {
+	c.View, c.ListOnly, c.ChatFull = v, v != "split", v == "agent"
+}
 
 // CleanupAfter is how long done work waits before it's cleaned up; zero
 // means never.
