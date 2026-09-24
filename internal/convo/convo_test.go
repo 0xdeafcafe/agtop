@@ -596,6 +596,9 @@ func TestFailureInBrief(t *testing.T) {
 	s.Apply(toolUse("b1", "Bash", map[string]any{"command": "python3 - <<'EOF'\nimport yaml\nprint(1)\nEOF", "description": "Compare lockfile"}), at(1))
 	s.Apply(toolResult("b1", "Exit code 1\nTraceback (most recent call last):\n  File \"<stdin>\", line 1\nModuleNotFoundError: No module named 'yaml'", true,
 		map[string]any{"stdout": "", "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 1\nModuleNotFoundError: No module named 'yaml'"}), at(2))
+	// A step after it, so the failure isn't the newest (which shows opened).
+	s.Apply(toolUse("r1", "Read", map[string]any{"file_path": "/work/go.mod"}), at(2))
+	s.Apply(toolResult("r1", "module x", false, nil), at(2))
 	out := plain(s.Render(Options{Width: 110, Now: at(3)}))
 	if !strings.Contains(out, "▸ ModuleNotFoundError: No module named 'yaml'") || strings.Contains(out, "import yaml") {
 		t.Fatalf("brief failure:\n%s", out)
@@ -884,3 +887,33 @@ func TestInterjectedScreenshots(t *testing.T) {
 	}
 }
 
+func TestNewestStepOpensAndWraps(t *testing.T) {
+	long := "A replacement for the whole Claude Code interface, written in Go and built to be very fast, and then some more words."
+	edit := func(id string) map[string]any {
+		return map[string]any{"structuredPatch": []map[string]any{{"oldStart": 4, "oldLines": 1, "newStart": 4, "newLines": 1,
+			"lines": []string{"-short", "+" + long}}}}
+	}
+	s := New()
+	s.Apply(host.Sent{Text: "tagline"}, at(0))
+	s.Apply(toolUse("e1", "Edit", map[string]any{"file_path": "/work/README.md"}), at(1))
+	s.Apply(toolResult("e1", "ok", false, edit("e1")), at(2))
+	out := plain(s.Render(Options{Width: 80, Now: at(3)}))
+	if !strings.Contains(out, "− short") || !strings.Contains(out, "more words.") || strings.Contains(out, "›") {
+		t.Fatalf("the newest edit opens, its long line wrapped whole:\n%s", out)
+	}
+	s.Apply(toolUse("e2", "Edit", map[string]any{"file_path": "/work/other.md"}), at(3))
+	s.Apply(toolResult("e2", "ok", false, edit("e2")), at(4))
+	out = plain(s.Render(Options{Width: 80, Now: at(5)}))
+	if n := strings.Count(out, "− short"); n != 1 {
+		t.Fatalf("a newer step folds the one before (%d open):\n%s", n, out)
+	}
+	ref := ""
+	for _, l := range s.Render(Options{Width: 80, Now: at(5)}) {
+		if strings.Contains(l.Ref, ":s:e2") {
+			ref = l.Ref
+		}
+	}
+	if !s.StepOpen(ref, false) || s.StepOpen(strings.Replace(ref, "e2", "e1", 1), false) {
+		t.Fatalf("StepOpen(%q) disagrees with the drawing", ref)
+	}
+}

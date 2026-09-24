@@ -51,6 +51,7 @@ func TestShellShape(t *testing.T) {
 		{"tail -n 20 /tmp/log.txt", "read", "◧", "/tmp/log.txt", ""},
 		{`grep -n "m\.scroll" internal/ui/*.go | grep -v _test`, "search", "⌕", `m\.scroll in internal/ui/*.go`, ""},
 		{`rg -g '*.go' -e foo`, "search", "⌕", "foo", ""},
+		{`grep -n "langFor\|heredocLang" *.go`, "search", "⌕", "langFor|heredocLang in *.go", ""},
 		{"cat > internal/ui/zz_test.go <<'EOF'\npackage ui\n\nfunc x() {}\nEOF", "write", "✎", "internal/ui/zz_test.go", "3 lines"},
 		{"cat <<'EOF' > out.txt\nhi\nEOF", "write", "✎", "out.txt", "1 line"},
 		{"cat <<'EOF' > out.txt && echo done\nhi\nEOF", "", "", "", ""},
@@ -60,6 +61,8 @@ func TestShellShape(t *testing.T) {
 		{`git commit -m "readme: done"`, "commit", "$", "git commit", "“readme: done”"},
 		{"cd /elsewhere && cat x.txt", "read", "◧", "x.txt", ""},
 		{"sed -n 1,5p a.go; grep x b.go", "", "", "", ""},
+		{"grep -rn x internal\ngrep -n y a.go", "", "", "", ""},
+		{"grep -n x \\\n  a.go", "search", "⌕", "x in a.go", ""},
 		{"go test ./...", "", "", "", ""},
 		{"head -5", "", "", "", ""},
 	} {
@@ -106,5 +109,83 @@ func TestChainOutputHighlighted(t *testing.T) {
 	}
 	if strings.Contains(out, hlKw+"---") {
 		t.Errorf("the echo's line isn't code:\n%q", out)
+	}
+}
+
+// A search's hits start their code in one column, less the indentation
+// they all share.
+func TestSearchHitsAligned(t *testing.T) {
+	s := New()
+	s.Info.Cwd = "/work"
+	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 200, Verbose: true, Open: map[string]bool{}}, cw: 200}
+	in, _ := json.Marshal(map[string]string{"command": `grep -rn "x" .`})
+	out := "render.go:2267:\t\tlg := x\n../ui/docstyle.go:35:\t\t\tif x {\n"
+	res, _ := json.Marshal(map[string]string{"stdout": out})
+	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
+	var got []string
+	for _, l := range d.lines {
+		if t := stripANSI(l.Text); strings.Contains(t, ".go:") {
+			got = append(got, strings.TrimSpace(strings.TrimLeft(t, " ▏")))
+		}
+	}
+	want := []string{"render.go:2267:      lg := x", "../ui/docstyle.go:35:    if x {"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("hits = %q, want %q", got, want)
+	}
+}
+
+// Two greps on their own lines, the second with lines around its match:
+// each part is highlighted in its own file's language, and a string one
+// match leaves open doesn't colour the next.
+func TestSearchChainHighlighted(t *testing.T) {
+	s := New()
+	s.Info.Cwd = "/work"
+	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 200, Verbose: true, Open: map[string]bool{}}, cw: 200}
+	cmd := "grep -rn \"type Agent\" internal\ngrep -n \"func x\" -A2 a-b/c.go | head -30"
+	in, _ := json.Marshal(map[string]string{"command": cmd})
+	out := "internal/fleet/fleet.go:20:type Agent struct { s := `open\n" +
+		"a-b/x.go:9:\treturn nil\n" +
+		"823:func x() {\n824-\treturn nil\n825-}\n"
+	res, _ := json.Marshal(map[string]string{"stdout": out})
+	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
+	var got []string
+	for _, l := range d.lines {
+		got = append(got, l.Text)
+	}
+	all := strings.Join(got, "\n")
+	for _, want := range []string{hlKw + "type", hlKw + "func", hlKw + "return"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("search chain output should highlight %q:\n%q", want, all)
+		}
+	}
+	if strings.Count(all, hlKw+"return") != 2 {
+		t.Errorf("the open string shouldn't reach the next match:\n%q", all)
+	}
+}
+
+// A script's heredoc, a grep and a git diff in one step: the grep's hits
+// are highlighted in their file's language after the script's output, and
+// the diff's lines are coloured by what they do.
+func TestHeredocChainWithDiff(t *testing.T) {
+	s := New()
+	s.Info.Cwd = "/work"
+	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 200, Verbose: true, Open: map[string]bool{}}, cw: 200}
+	cmd := "python3 - <<'EOF'\nprint('ok')\nEOF\ngrep -n \"confirm\" internal/ui/keys.go | head\ngit diff internal/ui/fleetslash.go | head -20"
+	in, _ := json.Marshal(map[string]string{"command": cmd})
+	out := "patched\n40:\t\tif m.confirm != nil {\n" +
+		"diff --git a/internal/ui/fleetslash.go b/internal/ui/fleetslash.go\n" +
+		"--- a/internal/ui/fleetslash.go\n+++ b/internal/ui/fleetslash.go\n@@ -1,2 +1,3 @@\n" +
+		" \tvar x = 1\n+\treturn nil\n-\tbreak\n"
+	res, _ := json.Marshal(map[string]string{"stdout": out})
+	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
+	var got []string
+	for _, l := range d.lines {
+		got = append(got, l.Text)
+	}
+	all := strings.Join(got, "\n")
+	for _, want := range []string{hlKw + "if", hlKw + "var", hlKw + "return", hlKw + "break", paint(cGreen, "+"), paint(cRed, "−"), paint(cBlue, "@@ -1,2 +1,3 @@")} {
+		if !strings.Contains(all, want) {
+			t.Errorf("output should have %q:\n%q", want, all)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package convo
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -19,7 +20,20 @@ var (
 	hlComment = fg(122, 116, 108)
 	hlFn      = fg(137, 180, 222) // a call, a key, a variable
 	hlType    = fg(120, 190, 175)
+	hlSpace   = fg(92, 88, 82) // · and → marking spaces and tabs
 )
+
+// showSpace marks spaces and tabs in diffs, as · and →, the way an editor
+// can; SetShowWhitespace turns it on.
+var showSpace bool
+
+// SetShowWhitespace turns marking spaces and tabs in diffs on or off.
+func SetShowWhitespace(on bool) {
+	if on != showSpace {
+		showSpace = on
+		palette++ // what's drawn already has them, or hasn't
+	}
+}
 
 // lang is what the highlighter knows of a language.
 type lang struct {
@@ -33,6 +47,7 @@ type lang struct {
 	caps       bool            // a capitalised word is a type
 	vars       bool            // $name is a variable
 	keys       bool            // a key before : (JSON, YAML, TOML's =)
+	md         bool            // Markdown, drawn by its own rules
 }
 
 func set(class byte, ws string, into map[string]byte) map[string]byte {
@@ -101,6 +116,7 @@ var (
 		"abstract and array as break case catch class clone const continue declare default do echo else elseif empty endif extends final finally fn for foreach function global if implements include interface isset list match namespace new or print private protected public readonly require return static switch throw trait try unset use var while yield",
 		"int string bool float array object mixed void", "true false null TRUE FALSE NULL"),
 		line: "//", line2: "#", open: "/*", shut: "*/", quotes: `"'`, vars: true, caps: true}
+	langMD = &lang{md: true}
 )
 
 // langByName is a language by a fence's tag or a file's extension.
@@ -120,6 +136,7 @@ var langByName = map[string]*lang{
 	"c": langC, "h": langC, "cpp": langC, "cc": langC, "hpp": langC, "c++": langC, "cs": langC, "csharp": langC,
 	"java": langC, "kt": langC, "kts": langC, "kotlin": langC, "swift": langC, "dart": langC, "scala": langC, "zig": langC,
 	"lua": langLua, "php": langPHP,
+	"md": langMD, "markdown": langMD, "mdx": langMD,
 }
 
 // langFor is the language of a fence tag, a file name or an interpreter;
@@ -158,6 +175,12 @@ type emph struct {
 // on from st and leaving st for the next line. Plain text and a nil l come
 // back in base.
 func highlight(l *lang, st *hlState, s, base string, em *emph) string {
+	return paintCode(l, st, s, base, em, false)
+}
+
+// paintCode is highlight, drawing each space as · and each tab as → and
+// three spaces when marked, in a colour of their own; s keeps its tabs.
+func paintCode(l *lang, st *hlState, s, base string, em *emph, marked bool) string {
 	var b strings.Builder
 	b.Grow(len(s) + 64)
 	cur := ""
@@ -183,6 +206,23 @@ func highlight(l *lang, st *hlState, s, base string, em *emph) string {
 					k = em.to
 				}
 			}
+			if marked {
+				if ws := strings.IndexAny(s[i:k], " \t"); ws == 0 {
+					if cur != hlSpace {
+						b.WriteString(hlSpace)
+						cur = hlSpace
+					}
+					if s[i] == '\t' {
+						b.WriteString("→   ")
+					} else {
+						b.WriteString("·")
+					}
+					i++
+					continue
+				} else if ws > 0 {
+					k = i + ws
+				}
+			}
 			if c != cur {
 				b.WriteString(c)
 				cur = c
@@ -193,6 +233,10 @@ func highlight(l *lang, st *hlState, s, base string, em *emph) string {
 	}
 	if l == nil {
 		out(0, len(s), base)
+		return end(&b, inEm, em)
+	}
+	if l.md {
+		markdown(st, s, base, out)
 		return end(&b, inEm, em)
 	}
 	i := 0
@@ -319,6 +363,120 @@ func highlight(l *lang, st *hlState, s, base string, em *emph) string {
 	return end(&b, inEm, em)
 }
 
+// markdown draws a line of Markdown: a heading, a quote, a rule and a
+// fenced block whole; a list's mark and a table's pipes quiet; inline code,
+// bold and links in the line. st carries a fence from line to line.
+func markdown(st *hlState, s, base string, out func(i, j int, c string)) {
+	t := strings.TrimLeft(s, " \t")
+	ind := len(s) - len(t)
+	if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+		switch fence := t[:3]; st.str {
+		case "":
+			st.str = fence
+		case fence:
+			st.str = ""
+		}
+		out(0, len(s), hlComment)
+		return
+	}
+	if st.str != "" {
+		out(0, len(s), hlStr)
+		return
+	}
+	h := 0
+	for h < len(t) && t[h] == '#' {
+		h++
+	}
+	switch {
+	case t == "":
+		out(0, len(s), base)
+		return
+	case h > 0 && h <= 6 && (h == len(t) || t[h] == ' '):
+		out(0, len(s), hlKw)
+		return
+	case t[0] == '>':
+		out(0, len(s), hlComment)
+		return
+	case len(t) >= 3 && strings.Trim(t, string(t[0])+" ") == "" && strings.IndexByte("-*_=", t[0]) >= 0,
+		t[0] == '|' && strings.Trim(t, "|-: ") == "":
+		out(0, len(s), hlComment) // a rule, a heading's underline, a table's
+		return
+	}
+	i := 0
+	if m := listMark(t); m > 0 {
+		out(0, ind+m, hlNum)
+		i = ind + m
+	}
+	table := t[0] == '|'
+	for i < len(s) {
+		c := s[i]
+		switch {
+		case c == '`':
+			n := 1
+			for i+n < len(s) && s[i+n] == '`' {
+				n++
+			}
+			j := i + n
+			if k := strings.Index(s[j:], s[i:j]); k >= 0 {
+				j += k + n
+			}
+			out(i, j, hlStr)
+			i = j
+		case c == '*' && i+1 < len(s) && s[i+1] == '*' && strings.Contains(s[i+2:], "**"):
+			j := i + 2 + strings.Index(s[i+2:], "**") + 2
+			out(i, j, hlType)
+			i = j
+		case c == '[' && mdLink(s[i:]) > 0:
+			k := strings.IndexByte(s[i:], ']')
+			j := i + mdLink(s[i:])
+			out(i, i+1, hlComment)
+			out(i+1, i+k, hlFn)
+			out(i+k, j, hlComment)
+			i = j
+		case c == '|' && table:
+			out(i, i+1, hlComment)
+			i++
+		default:
+			j := i + 1
+			for j < len(s) && strings.IndexByte("`*[|", s[j]) < 0 {
+				j++
+			}
+			out(i, j, base)
+			i = j
+		}
+	}
+}
+
+// listMark is how long a list item's mark is with its space: "- ", "* ",
+// "1. ", "2) "; 0 when t isn't one.
+func listMark(t string) int {
+	if len(t) >= 2 && strings.IndexByte("-*+", t[0]) >= 0 && t[1] == ' ' {
+		return 2
+	}
+	n := 0
+	for n < len(t) && n < 9 && t[n] >= '0' && t[n] <= '9' {
+		n++
+	}
+	if n > 0 && n+1 < len(t) && (t[n] == '.' || t[n] == ')') && t[n+1] == ' ' {
+		return n + 2
+	}
+	return 0
+}
+
+// mdLink is how long the [text](url) that s starts with is, 0 when it
+// doesn't start one.
+func mdLink(s string) int {
+	k := strings.IndexByte(s, ']')
+	if k < 1 || !strings.HasPrefix(s[k:], "](") {
+		return 0
+	}
+	e := strings.IndexByte(s[k:], ')')
+	if e < 0 {
+		return 0
+	}
+	return k + e + 1
+}
+
 // end closes a highlighted line: the emphasis off, then every style.
 func end(b *strings.Builder, inEm bool, em *emph) string {
 	if inEm {
@@ -424,9 +582,17 @@ func codePrefix(l string) (n int, path string) {
 	for i < len(l) && l[i] == ' ' {
 		i++
 	}
-	// path: or path- before the number, as grep writes it.
+	// path: or path- before the number, as grep writes it; a path can
+	// have a - of its own.
 	start := i
-	if k := strings.IndexAny(l[i:], ":-"); k > 0 && !strings.ContainsAny(l[i:i+k], " \t") {
+	word := l[i:]
+	if k := strings.IndexAny(word, " \t"); k >= 0 {
+		word = word[:k]
+	}
+	for k := 1; k < len(word); k++ {
+		if word[k] != ':' && word[k] != '-' {
+			continue
+		}
 		j := i + k + 1
 		m := j
 		for m < len(l) && l[m] >= '0' && l[m] <= '9' {
@@ -446,8 +612,20 @@ func codePrefix(l string) (n int, path string) {
 	switch {
 	case strings.HasPrefix(l[j:], "→"):
 		return j + len("→"), ""
-	case j < len(l) && (l[j] == '\t' || l[j] == ':'):
+	case j < len(l) && (l[j] == '\t' || l[j] == ':' || l[j] == '-'):
+		// grep -n on one file: 12: for a match, 12- for the lines around.
 		return j + 1, ""
 	}
 	return 0, ""
+}
+
+// lineNo is the line number a code prefix gives, 0 for none.
+func lineNo(prefix string) int {
+	prefix = strings.TrimRightFunc(prefix, func(r rune) bool { return r < '0' || r > '9' })
+	k := len(prefix)
+	for k > 0 && prefix[k-1] >= '0' && prefix[k-1] <= '9' {
+		k--
+	}
+	n, _ := strconv.Atoi(prefix[k:])
+	return n
 }

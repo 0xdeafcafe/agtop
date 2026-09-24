@@ -302,7 +302,7 @@ func (s *Session) ChangesView(o Options) []Line {
 					add("", pad+dim("… ctrl+o shows the rest"), "")
 					break
 				}
-				add("", pad+paint(cGreen, "▏")+dim(fmt.Sprintf("%5d ", i+1))+sub(truncateCells(expandTabs(l), bw)), "")
+				add("", pad+paint(cGreen, "▏")+dim(fmt.Sprintf("%5d ", i+1))+diffText(nil, nil, l, cSub, bw), "")
 			}
 			// Edits made after it was created follow.
 		}
@@ -320,16 +320,15 @@ func (s *Session) ChangesView(o Options) []Line {
 				if l[0] == '\\' {
 					continue // "\ No newline at end of file"
 				}
-				body := truncateCells(expandTabs(l[1:]), bw)
 				switch l[0] {
 				case '+':
-					out = append(out, Line{Text: row(bgAdd, pad+dim(fmt.Sprintf("%5d ", newN))+paint(cGreen, "+")+" "+text(body), "", o.Width, w)})
+					out = append(out, Line{Text: row(bgAdd, pad+dim(fmt.Sprintf("%5d ", newN))+paint(cGreen, "+")+" "+diffText(nil, nil, l[1:], cText, bw), "", o.Width, w)})
 					newN++
 				case '-':
-					out = append(out, Line{Text: row(bgDel, pad+dim(fmt.Sprintf("%5d ", oldN))+paint(cRed, "−")+" "+text(body), "", o.Width, w)})
+					out = append(out, Line{Text: row(bgDel, pad+dim(fmt.Sprintf("%5d ", oldN))+paint(cRed, "−")+" "+diffText(nil, nil, l[1:], cText, bw), "", o.Width, w)})
 					oldN++
 				default:
-					out = append(out, Line{Text: row(bgWell, pad+dim(fmt.Sprintf("%5d ", newN))+"  "+sub(body), "", o.Width, w)})
+					out = append(out, Line{Text: row(bgWell, pad+dim(fmt.Sprintf("%5d ", newN))+"  "+diffText(nil, nil, l[1:], cSub, bw), "", o.Width, w)})
 					oldN++
 					newN++
 				}
@@ -397,7 +396,7 @@ func (s *Session) ChangesView(o Options) []Line {
 					out = append(out, Line{Text: row("", "       "+paint(cBlue, truncateCells(l, w-10)), "", o.Width, w)})
 					continue
 				}
-				out = append(out, Line{Text: row(b, "       "+text(truncateCells(expandTabs(cleanOutput(l)), w-10)), "", o.Width, w)})
+				out = append(out, Line{Text: row(b, "       "+diffText(nil, nil, cleanOutput(l), cText, w-10), "", o.Width, w)})
 			}
 		}
 	}

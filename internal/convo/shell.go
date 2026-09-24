@@ -26,7 +26,7 @@ var sedLines = regexp.MustCompile(`^(\d+)(?:,(\d+))?p$`)
 // does a heredoc with more commands after it; a read or a search may pipe
 // through filters such as head or grep -v.
 func (d *drawer) shellShape(cmd string) shape {
-	cmd = strings.TrimSpace(cmd)
+	cmd = joinLines(strings.TrimSpace(cmd))
 	var sh shape
 	if m := cdRe.FindStringSubmatch(cmd); m != nil {
 		dir := strings.Trim(m[1], `"'`)
@@ -185,10 +185,100 @@ func (d *drawer) shellShape(cmd string) shape {
 }
 
 // span is a stretch of a chain's output: n lines of it (0 for the rest)
-// in language lg.
+// in language lg, or a search's, whose lines each say their own file, or a
+// diff's, whose added and removed lines are coloured.
 type span struct {
-	lg *lang
-	n  int
+	lg     *lang
+	n      int
+	byPath bool
+	diff   bool
+}
+
+// starts is whether l looks like the first line of sp's output, so that a
+// part of unknown length before it ends there.
+func (sp span) starts(l string) bool {
+	switch {
+	case sp.diff:
+		return strings.HasPrefix(l, "diff ") || strings.HasPrefix(l, "--- ") || strings.HasPrefix(l, "@@ ")
+	case sp.byPath:
+		n, _ := codePrefix(l)
+		return n > 0
+	}
+	return false
+}
+
+// dropHeredocs is cmd without its heredocs' bodies and the << that starts
+// each, so the commands around them read as a chain.
+func dropHeredocs(cmd string) string {
+	if !strings.Contains(cmd, "<<") {
+		return cmd
+	}
+	var out []string
+	end := ""
+	for _, l := range strings.Split(cmd, "\n") {
+		if end != "" {
+			if strings.TrimSpace(l) == end {
+				end = ""
+			}
+			continue
+		}
+		toks := shellTokens(l)
+		for i := 0; i < len(toks); i++ {
+			if !strings.HasPrefix(toks[i], "<<") {
+				continue
+			}
+			end = strings.TrimLeft(toks[i], "<-")
+			toks[i] = ""
+			if end == "" {
+				for k := i + 1; k < len(toks); k++ {
+					if strings.TrimSpace(toks[k]) != "" {
+						end, toks[k] = toks[k], ""
+						break
+					}
+				}
+			}
+			end = unquote(end)
+			break
+		}
+		out = append(out, strings.Join(toks, ""))
+	}
+	return strings.Join(out, "\n")
+}
+
+// joinLines is cmd with the line breaks between its commands as the ; they
+// amount to, and continued lines joined. A heredoc keeps its lines, as does
+// a quoted string.
+func joinLines(cmd string) string {
+	if !strings.Contains(cmd, "\n") || strings.Contains(cmd, "<<") {
+		return cmd
+	}
+	var b strings.Builder
+	var q byte
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		switch {
+		case q != 0:
+			if c == q {
+				q = 0
+			}
+		case c == '"' || c == '\'':
+			q = c
+		case c == '\\' && i+1 < len(cmd):
+			i++
+			if cmd[i] == '\n' {
+				b.WriteByte(' ')
+			} else {
+				b.WriteByte(c)
+				b.WriteByte(cmd[i])
+			}
+			continue
+		case c == '\n':
+			b.WriteString(" ; ")
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // silent commands print nothing, so a chain's output has no part of theirs.
@@ -199,7 +289,7 @@ var silent = map[string]bool{"cd": true, "export": true, "set": true, "unset": t
 // length covers that many lines, an echo one, a silent command none, and a
 // part of unknown length the rest. Nil when no part is a read.
 func (d *drawer) chainSpans(cmd string) []span {
-	cmd = strings.TrimSpace(cmd)
+	cmd = joinLines(dropHeredocs(strings.TrimSpace(cmd)))
 	if strings.Contains(cmd, "\n") {
 		return nil
 	}
@@ -222,8 +312,24 @@ func (d *drawer) chainSpans(cmd string) []span {
 		case sh.kind == "read":
 			sp.lg = langFor(sh.what)
 			reads = reads || sp.lg != nil
+		case sh.kind == "search":
+			sp.byPath, reads = true, true
+			if _, p, ok := strings.Cut(sh.what, " in "); ok {
+				sp.lg = langFor(strings.Split(p, ", ")[0])
+			}
 		case prog == "echo":
 			sp.n = 1
+		case isDiff(s):
+			sp.diff, reads = true, true
+			f := strings.Fields(strings.Split(s, "|")[0])[1:]
+			if prog == "git" {
+				f = f[1:] // diff, show
+			}
+			for _, a := range nonFlags(f) {
+				if sp.lg = langFor(unquote(a)); sp.lg != nil {
+					break
+				}
+			}
 		}
 		spans = append(spans, sp)
 	}
@@ -236,10 +342,34 @@ func (d *drawer) chainSpans(cmd string) []span {
 		}
 	}
 	flush()
-	if !reads || len(spans) < 2 {
+	if !reads || len(spans) < 2 && !spans[0].diff {
 		return nil
 	}
+	// A search of unknown length runs to the end, over what the parts
+	// after it print too: its own lines say their file, and theirs, when
+	// they don't, are in the language of the next part that has one.
+	for i := len(spans) - 2; i >= 0; i-- {
+		if spans[i].byPath && spans[i].n == 0 && spans[i].lg == nil {
+			spans[i].lg = spans[i+1].lg
+		}
+	}
 	return spans
+}
+
+// isDiff is whether cmd prints a diff: git diff, git show, diff -u.
+func isDiff(cmd string) bool {
+	f := strings.Fields(cmd)
+	switch filepath.Base(f[0]) {
+	case "git":
+		return len(f) > 1 && (f[1] == "diff" || f[1] == "show")
+	case "diff":
+		for _, a := range f[1:] {
+			if a == "-u" || strings.HasPrefix(a, "-U") || a == "--unified" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // grepArgs splits grep's arguments into its pattern and the paths it looks
@@ -263,7 +393,8 @@ func grepArgs(args []string) (string, []string) {
 			paths = append(paths, a)
 		}
 	}
-	return pat, paths
+	// grep's \| is the | it means.
+	return strings.ReplaceAll(pat, `\|`, "|"), paths
 }
 
 func nonFlags(xs []string) []string {

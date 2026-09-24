@@ -22,7 +22,7 @@ func TestHighlightKeepsText(t *testing.T) {
 		inputs = append(inputs, string(b))
 	}
 	inputs = append(inputs, extra...)
-	for _, lg := range []*lang{nil, langGo, langJS, langPy, langRust, langSh, langJSON, langYAML, langTOML, langCSS, langSQL, langRuby, langC, langLua, langPHP} {
+	for _, lg := range []*lang{nil, langGo, langJS, langPy, langRust, langSh, langJSON, langYAML, langTOML, langCSS, langSQL, langRuby, langC, langLua, langPHP, langMD} {
 		for _, src := range inputs {
 			var st hlState
 			for _, l := range strings.Split(src, "\n") {
@@ -62,6 +62,53 @@ func TestHighlightClasses(t *testing.T) {
 	}
 }
 
+// Markdown's parts each have their colour; a fence carries over lines.
+func TestHighlightMarkdown(t *testing.T) {
+	var st hlState
+	for line, want := range map[string][]string{
+		"## 5. Work completed":                 {hlKw + "## 5. Work completed"},
+		"- **process-stores:** two `new` ones": {hlNum + "- ", hlType + "**process-stores:**", hlStr + "`new`"},
+		"| a.ts | rewritten |":                 {hlComment + "|", cText + " a.ts "},
+		"|---|---|":                            {hlComment + "|---|---|"},
+		"see [the spec](https://x.y) now":      {hlFn + "the spec", hlComment + "](https://x.y)"},
+		"12. twelfth":                          {hlNum + "12. "},
+	} {
+		got := highlight(langMD, &st, line, cText, nil)
+		for _, w := range want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%q: missing %q in %q", line, w, got)
+			}
+		}
+	}
+	st = hlState{}
+	highlight(langMD, &st, "```go", cText, nil)
+	if got := highlight(langMD, &st, "# not a heading", cText, nil); !strings.HasPrefix(got, hlStr) {
+		t.Errorf("a fence's inside should be code: %q", got)
+	}
+	highlight(langMD, &st, "```", cText, nil)
+	if st.str != "" {
+		t.Error("the fence should close")
+	}
+}
+
+// Marked, a space shows as · and a tab as → and three spaces, in their
+// own colour; the rest of the line keeps its own.
+func TestPaintCodeMarksSpace(t *testing.T) {
+	var st hlState
+	got := paintCode(langGo, &st, "\treturn x ", cText, nil, true)
+	if s := stripANSI(got); s != "→   return·x·" {
+		t.Fatalf("marked = %q", s)
+	}
+	if !strings.Contains(got, hlSpace+"→") || !strings.Contains(got, hlKw+"return") {
+		t.Errorf("colours: %q", got)
+	}
+	em := emph{from: 1, to: 7, on: bgAddHi, off: bgAdd}
+	st = hlState{}
+	if s := stripANSI(paintCode(langGo, &st, "a b\tc", cText, &em, true)); s != "a·b→   c" {
+		t.Errorf("marked with emphasis = %q", s)
+	}
+}
+
 func TestChanged(t *testing.T) {
 	for _, c := range []struct {
 		a, b     string
@@ -84,7 +131,7 @@ func TestChanged(t *testing.T) {
 func TestLangFor(t *testing.T) {
 	for name, want := range map[string]*lang{
 		"go": langGo, "internal/ui/view.go": langGo, "App.tsx": langJS, "x.py": langPy, "Makefile": langSh,
-		"config.yaml": langYAML, "TypeScript": langJS, "README.md": nil, "": nil, "noext": nil,
+		"config.yaml": langYAML, "TypeScript": langJS, "README.md": langMD, "": nil, "noext": nil,
 	} {
 		if got := langFor(name); got != want {
 			t.Errorf("langFor(%q) wrong", name)
@@ -103,6 +150,7 @@ func TestCodePrefix(t *testing.T) {
 	for l, want := range map[string]string{
 		"    12→\tfunc x()": "    12→", "12\tfunc x()": "12\t", "internal/ui/view.go:1749:func x": "internal/ui/view.go:1749:",
 		"a.go-12-  ctx": "a.go-12-", "no prefix here": "", "12:30 meeting": "12:",
+		"a-b/c.go:12:x": "a-b/c.go:12:", "824-\treturn": "824-",
 	} {
 		n, _ := codePrefix(l)
 		if l[:n] != want {

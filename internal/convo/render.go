@@ -65,6 +65,7 @@ type cacheKey struct {
 	tick       int
 	now        int64
 	clock      bool
+	latest     string // the session's newest step, when it's in this turn
 }
 
 // Render draws every turn, oldest first.
@@ -79,6 +80,7 @@ func (s *Session) RenderInto(o Options, buf []Line) []Line {
 	}
 	s.memoTurn()
 	folds := foldsByTurn(o.Open)
+	latest := s.latest()
 	if cap(s.parts) < len(s.Turns) {
 		s.parts = make([][]Line, len(s.Turns))
 	}
@@ -86,7 +88,7 @@ func (s *Session) RenderInto(o Options, buf []Line) []Line {
 	n := 0
 	for i, t := range s.Turns {
 		recent := i >= len(s.Turns)-2
-		parts[i] = s.turn(t, o, recent, folds)
+		parts[i] = s.turn(t, o, recent, folds, latest)
 		n += len(parts[i])
 	}
 	out := buf[:0]
@@ -119,7 +121,41 @@ func foldsByTurn(open map[string]bool) map[string]string {
 	return out
 }
 
-func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string) []Line {
+// latest is the newest step the session has drawn at the top level, which
+// shows opened until a newer one takes its place.
+func (s *Session) latest() *Step {
+	for i := len(s.Turns) - 1; i >= 0; i-- {
+		items := s.Turns[i].Items
+		for j := len(items) - 1; j >= 0; j-- {
+			if it := items[j]; it.Kind == KStep && !hidden(it.Step) {
+				return it.Step
+			}
+		}
+	}
+	return nil
+}
+
+// StepOpen is whether a step's row draws opened when nothing's overridden
+// it: in verbose, or when it's the session's newest step.
+func (s *Session) StepOpen(ref string, verbose bool) bool {
+	if verbose {
+		return true
+	}
+	st := s.latest()
+	if st == nil {
+		return false
+	}
+	for _, t := range s.Turns {
+		for _, it := range t.Items {
+			if it.Step == st {
+				return ref == "t"+strconv.Itoa(t.N)+":s:"+st.ID
+			}
+		}
+	}
+	return false
+}
+
+func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string, latest *Step) []Line {
 	if t.ref == "" {
 		t.ref = "t" + strconv.Itoa(t.N)
 	}
@@ -128,11 +164,19 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string)
 	if v, ok := o.Open[ref]; ok {
 		open = v
 	}
+	d := drawer{s: s, t: t, o: o, ref: ref, cw: min(o.Width, capRow)}
+	for _, it := range t.Items {
+		if latest != nil && it.Step == latest {
+			d.latest = latest
+		}
+	}
 	key := s.cacheKey(t, o, ref, open, folds)
+	if d.latest != nil {
+		key.latest = d.latest.ID
+	}
 	if c, ok := s.cache[t]; ok && c.key == key {
 		return c.lines
 	}
-	d := drawer{s: s, t: t, o: o, ref: ref, cw: min(o.Width, capRow)}
 	if open {
 		d.open()
 	} else {
@@ -193,8 +237,14 @@ type drawer struct {
 	lg     *lang
 	byPath bool
 	hs     hlState
+	// hsPath and hsN are the file and line the highlighter's state is from.
+	hsPath string
+	hsN    int
 	// spans are the languages of a chain's output, part by part.
 	spans []span
+	// latest is the session's newest step when it's in this turn: it
+	// shows opened, and never folds into a run.
+	latest *Step
 }
 
 var (
@@ -429,7 +479,7 @@ func (d *drawer) open() {
 		// never folds.
 		if !d.o.Verbose && it.Kind == KStep && i < keep {
 			j := i
-			for j < keep && j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) {
+			for j < keep && j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) && items[j].Step != d.latest {
 				j++
 			}
 			if j-i >= 2 {
@@ -1289,7 +1339,7 @@ func (d *drawer) step(st *Step, depth int) {
 	}
 	left := lead + label + cells
 	d.worked = true
-	open := d.o.Verbose
+	open := d.o.Verbose || st == d.latest
 	if v, ok := d.o.Open[ref]; ok {
 		open = v
 	}
@@ -1873,7 +1923,8 @@ func countLines(s string) int {
 
 func (d *drawer) body(st *Step, indent int) {
 	// Code read from files shows highlighted.
-	d.lg, d.byPath, d.hs = nil, false, hlState{}
+	d.lg, d.byPath = nil, false
+	d.resetHL()
 	defer func() { d.lg, d.byPath, d.spans = nil, false, nil }()
 	in := readInput(st.Input)
 	switch st.Tool {
@@ -2083,46 +2134,115 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	// text: a heading or a list in a file never passes for Claude's own.
 	// A failure's error lines stay red.
 	// A chain's parts each have their own language, in the order it ran them.
-	spanOf := make([]*lang, 0, len(d.spans))
-	if d.spans != nil {
-		for _, sp := range d.spans {
-			for k := 0; (sp.n == 0 || k < sp.n) && len(spanOf) < len(lines); k++ {
-				spanOf = append(spanOf, sp.lg)
+	// A part of known length covers that many lines; one of unknown length
+	// runs until a line that looks like the start of the next and not like
+	// its own.
+	spanOf := make([]int, 0, len(lines))
+	for j, k := 0, 0; len(d.spans) > 0 && len(spanOf) < len(lines); k++ {
+		sp, l := d.spans[j], cleanOutput(lines[len(spanOf)])
+		if sp.n > 0 && k >= sp.n || sp.n == 0 && j+1 < len(d.spans) && d.spans[j+1].starts(l) && !sp.starts(l) {
+			if j++; j == len(d.spans) {
+				break
 			}
+			k = 0
+		}
+		spanOf = append(spanOf, j)
+	}
+	// A diff's lines are coloured by what they do, and its code in the
+	// language of the file it's in.
+	var diffLg *lang
+	diffLine := func(i int, l string) bool {
+		if failed || i >= len(spanOf) || !d.spans[spanOf[i]].diff {
+			return false
+		}
+		if i == 0 || spanOf[i-1] != spanOf[i] {
+			diffLg = d.spans[spanOf[i]].lg
+		}
+		l = truncateCells(l, w)
+		switch {
+		case strings.HasPrefix(l, "+++ "):
+			if p := strings.TrimPrefix(strings.Fields(l[4:] + " ")[0], "b/"); langFor(p) != nil {
+				diffLg = langFor(p)
+			}
+			d.resetHL()
+			d.add("", b, pad+edge+faint(l), "")
+		case strings.HasPrefix(l, "diff ") || strings.HasPrefix(l, "index ") || strings.HasPrefix(l, "--- "):
+			d.add("", b, pad+edge+faint(l), "")
+		case strings.HasPrefix(l, "@@"):
+			d.resetHL()
+			d.add("", b, pad+edge+paint(cBlue, l), "")
+		case strings.HasPrefix(l, "+"):
+			d.add("", bgAdd, pad+edge+paint(cGreen, "+")+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
+		case strings.HasPrefix(l, "-"):
+			d.add("", bgDel, pad+edge+paint(cRed, "−")+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
+		default:
+			d.add("", b, pad+edge+highlight(diffLg, &d.hs, l, cOut, nil), "")
+		}
+		return true
+	}
+	// code is how long line i's prefix is, the path in it and the language
+	// its code is in; a nil language when it isn't code.
+	code := func(i int, l string) (int, string, *lang) {
+		lg, byPath := d.lg, d.byPath
+		if i < len(spanOf) {
+			lg, byPath = d.spans[spanOf[i]].lg, d.spans[spanOf[i]].byPath
+		}
+		if failed || lg == nil && !byPath || i < len(spanOf) && d.spans[spanOf[i]].diff {
+			return 0, "", nil
+		}
+		n, path := codePrefix(l)
+		if byPath && path != "" {
+			lg = langFor(path)
+		}
+		return n, path, lg
+	}
+	// Code lines start in one column after their prefixes, less the
+	// indentation they all share.
+	prefixW, shared := 0, -1
+	for i, l := range lines {
+		l = expandTabs(cleanOutput(l))
+		n, _, lg := code(i, l)
+		if lg == nil || strings.TrimSpace(l[n:]) == "" {
+			continue
+		}
+		prefixW = max(prefixW, cellw.String(l[:n]))
+		if ind := len(l[n:]) - len(strings.TrimLeft(l[n:], " ")); shared < 0 || ind < shared {
+			shared = ind
 		}
 	}
-	var last *lang
+	last := -1
 	emit := func(i int, l string) {
 		// A tool's own escape codes (colours, cursor moves, titles) would
 		// reach the terminal or throw widths off; agtop does the colour.
-		l = truncateCells(expandTabs(cleanOutput(l)), w)
+		l = expandTabs(cleanOutput(l))
 		if d.marks[strings.TrimSpace(l)] {
 			d.add("", b, pad+edge+markHeading(strings.TrimSpace(l), w), "")
 			return
 		}
+		if i < len(spanOf) && !failed {
+			if k := spanOf[i]; k != last {
+				d.resetHL()
+				last = k
+			}
+		}
+		if diffLine(i, l) {
+			return
+		}
+		if n, path, lg := code(i, l); lg != nil {
+			d.carry(path, l[:n])
+			pre := l[:n] + strings.Repeat(" ", max(0, prefixW-cellw.String(l[:n])))
+			body := l[n:]
+			if len(body)-len(strings.TrimLeft(body, " ")) >= shared && shared > 0 {
+				body = body[shared:]
+			}
+			body = truncateCells(body, max(4, w-cellw.String(pre)))
+			d.add("", b, pad+edge+faint(pre)+highlight(lg, &d.hs, body, cOut, nil), "")
+			return
+		}
+		l = truncateCells(l, w)
 		if isJSON {
 			d.add("", b, pad+edge+highlight(langJSON, &d.hs, l, cOut, nil), "")
 			return
-		}
-		if i < len(spanOf) && !failed {
-			if lg := spanOf[i]; lg != last {
-				d.hs, last = hlState{}, lg
-			}
-			if last != nil {
-				d.add("", b, pad+edge+highlight(last, &d.hs, l, cOut, nil), "")
-				return
-			}
-		}
-		if (d.lg != nil || d.byPath) && !failed {
-			n, path := codePrefix(l)
-			lg := d.lg
-			if d.byPath && path != "" {
-				lg = langFor(path)
-			}
-			if lg != nil {
-				d.add("", b, pad+edge+faint(l[:n])+highlight(lg, &d.hs, l[n:], cOut, nil), "")
-				return
-			}
 		}
 		c := cOut
 		if failed && errRe.MatchString(l) {
@@ -2131,6 +2251,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		d.add("", b, pad+edge+paint(c, l), "")
 	}
 	more := func(n int) {
+		d.resetHL() // what follows the gap doesn't go on from what came before it
 		d.add("", b, pad+edge+faint(fmt.Sprintf("… %d lines · ctrl+o shows all", n)), "")
 	}
 	if !d.o.Verbose && len(lines) > 8 {
@@ -2169,6 +2290,21 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		}
 		emit(i, l)
 	}
+}
+
+func (d *drawer) resetHL() {
+	d.hs, d.hsPath, d.hsN = hlState{}, "", 0
+}
+
+// carry keeps the highlighter's state from the line before only when this
+// line goes on from it in the same file: grep's matches are fragments, and
+// a string or comment one leaves open mustn't colour the next.
+func (d *drawer) carry(path, prefix string) {
+	n := lineNo(prefix)
+	if path != d.hsPath || n != 0 && d.hsN != 0 && n != d.hsN+1 {
+		d.hs = hlState{}
+	}
+	d.hsPath, d.hsN = path, n
 }
 
 // prettyJSON is s indented two spaces a level when it's one JSON object or
@@ -2286,8 +2422,14 @@ func (d *drawer) diff(st *Step, indent int) bool {
 				newN++
 				continue
 			}
-			body := truncateCells(expandTabs(l[1:]), w)
-			d.add("", bgWell, pad+faint(fmt.Sprintf("%5d ", newN))+"  "+highlight(lg, &newSt, body, cSub, nil), "")
+			for i, r := range d.codeRows(highlight(lg, &newSt, expandTabs(l[1:]), cSub, nil), w) {
+				if i == 0 {
+					d.add("", bgWell, pad+faint(fmt.Sprintf("%5d ", newN))+"  "+r, "")
+				} else {
+					d.add("", bgWell, pad+blanks(8)+r, "")
+					d.wrapped()
+				}
+			}
 			oldSt = newSt // a line both sides share leaves them alike
 			oldN++
 			newN++
@@ -2300,18 +2442,52 @@ func (d *drawer) diff(st *Step, indent int) bool {
 // highlighted on the line's colour and, when it pairs with a line on the
 // other side, the words that changed a step brighter.
 func (d *drawer) diffLine(pad string, w int, lg *lang, st *hlState, sign byte, n int, code, pair string, paired bool) {
-	body := truncateCells(expandTabs(code), w)
+	body, other := expandTabs(code), expandTabs(pair)
+	if showSpace {
+		body, other = stripANSI(code), stripANSI(pair) // tabs drawn as →
+	}
 	row, hi, mark := bgAdd, bgAddHi, paint(cGreen, "+")
 	if sign == '-' {
 		row, hi, mark = bgDel, bgDelHi, paint(cRed, "−")
 	}
 	var em *emph
 	if paired {
-		if from, to, ok := changed(body, truncateCells(expandTabs(pair), w)); ok {
+		if from, to, ok := changed(body, other); ok {
 			em = &emph{from: from, to: to, on: hi, off: row}
 		}
 	}
-	d.add("", row, pad+faint(fmt.Sprintf("%5d ", n))+mark+" "+highlight(lg, st, body, cText, em), "")
+	for i, r := range d.codeRows(paintCode(lg, st, body, cText, em, showSpace), w) {
+		if i == 0 {
+			d.add("", row, pad+faint(fmt.Sprintf("%5d ", n))+mark+" "+r, "")
+		} else {
+			d.add("", row, pad+blanks(8)+r, "")
+			d.wrapped()
+		}
+	}
+}
+
+// codeRows wraps a highlighted line of code to rows w cells wide, keeping
+// its colours across the breaks. Past a few rows the rest is cut, unless
+// verbose.
+func (d *drawer) codeRows(s string, w int) []string {
+	w = max(w, 4)
+	n := cellw.String(s)
+	if n <= w {
+		return []string{s}
+	}
+	most := 6
+	if d.o.Verbose {
+		most = n
+	}
+	var rows []string
+	for at := 0; at < n; at += w {
+		if len(rows) == most-1 && at+w < n {
+			rows = append(rows, ansi.Truncate(ansi.Cut(s, at, n), w, "›"))
+			break
+		}
+		rows = append(rows, ansi.Cut(s, at, min(at+w, n)))
+	}
+	return rows
 }
 
 // collapseCR keeps only the last state of lines redrawn with carriage
@@ -2327,6 +2503,15 @@ func collapseCR(s string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// diffText is a line of a diff highlighted in lg over colour c, cut to w
+// cells, its spaces and tabs marked when that's on.
+func diffText(lg *lang, st *hlState, s, c string, w int) string {
+	if !showSpace {
+		return highlight(lg, st, truncateCells(expandTabs(s), w), c, nil)
+	}
+	return ansi.Truncate(paintCode(lg, st, stripANSI(s), c, nil, true), max(w, 4), "›")
 }
 
 func expandTabs(s string) string { return strings.ReplaceAll(stripANSI(s), "\t", "    ") }
