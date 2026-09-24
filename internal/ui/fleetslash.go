@@ -252,9 +252,18 @@ func (m *Model) paneHashKey(c *hostConn, s string) (tea.Cmd, bool) {
 
 func pickerMove(sel, n int, s string) int {
 	if s == "up" {
-		return max(0, sel-1)
+		return roundMove(sel, -1, n)
 	}
-	return min(n-1, sel+1)
+	return roundMove(sel, 1, n)
+}
+
+// roundMove is a menu's cursor moved d rows: ↑ on the first row goes to
+// the last, ↓ on the last to the first.
+func roundMove(cur, d, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return ((cur+d)%n + n) % n
 }
 
 // needsArg is whether a picked command can't run without an argument.

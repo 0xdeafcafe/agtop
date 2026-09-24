@@ -67,9 +67,9 @@ func (m *Model) pickerKey(s string) tea.Cmd {
 	case "esc", "q", "ctrl+y", "ctrl+l":
 		m.picker = nil
 	case "up", "k", "shift+tab":
-		p.cursor = max(0, p.cursor-1)
+		p.cursor = roundMove(p.cursor, -1, p.size())
 	case "down", "j", "tab":
-		p.cursor = min(p.size()-1, p.cursor+1)
+		p.cursor = roundMove(p.cursor, 1, p.size())
 	case "enter":
 		if p.dirs != nil {
 			m.dirIdx = p.cursor

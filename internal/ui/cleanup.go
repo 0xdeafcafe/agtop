@@ -427,9 +427,9 @@ func (m *Model) cleanupKey(s string) tea.Cmd {
 	case "esc", "left", "q":
 		m.setView(0)
 	case "up", "k":
-		c.cursor = max(0, c.cursor-1)
+		c.cursor = roundMove(c.cursor, -1, len(rows))
 	case "down", "j":
-		c.cursor = min(len(rows)-1, c.cursor+1)
+		c.cursor = roundMove(c.cursor, 1, len(rows))
 	case "r":
 		return m.scanWorktrees()
 	case "x", "enter", "backspace", "delete":

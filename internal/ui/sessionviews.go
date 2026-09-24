@@ -571,9 +571,9 @@ func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
 		c.slashSel = max(0, min(c.slashSel, len(args)-1))
 		switch s {
 		case "up":
-			c.slashSel = max(0, c.slashSel-1)
+			c.slashSel = roundMove(c.slashSel, -1, len(args))
 		case "down":
-			c.slashSel = min(len(args)-1, c.slashSel+1)
+			c.slashSel = roundMove(c.slashSel, 1, len(args))
 		case "tab":
 			c.input, c.back = []rune("/"+args[c.slashSel].Name), 0
 		case "enter":
@@ -600,10 +600,10 @@ func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
 	}
 	switch s {
 	case "up":
-		c.slashSel = max(0, c.slashSel-1)
+		c.slashSel = roundMove(c.slashSel, -1, len(cmds))
 		return nil, true
 	case "down":
-		c.slashSel = min(len(cmds)-1, c.slashSel+1)
+		c.slashSel = roundMove(c.slashSel, 1, len(cmds))
 		return nil, true
 	case "tab":
 		complete(" ")

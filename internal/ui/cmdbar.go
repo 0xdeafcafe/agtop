@@ -184,10 +184,10 @@ func (m *Model) barKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		m.closeBar()
 		return nil
 	case "up", "ctrl+p":
-		b.cursor = max(0, b.cursor-1)
+		b.cursor = roundMove(b.cursor, -1, len(b.items))
 		return nil
 	case "down", "ctrl+n":
-		b.cursor = min(len(b.items)-1, b.cursor+1)
+		b.cursor = roundMove(b.cursor, 1, len(b.items))
 		return nil
 	case "pgup":
 		b.cursor = max(0, b.cursor-10)

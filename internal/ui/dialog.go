@@ -475,10 +475,10 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		m.refresh()
 		return nil
 	case "up", "k":
-		d.cursor = max(0, d.cursor-1)
+		d.cursor = roundMove(d.cursor, -1, m.dialogLen())
 		return nil
 	case "down", "j":
-		d.cursor = min(m.dialogLen()-1, d.cursor+1)
+		d.cursor = roundMove(d.cursor, 1, m.dialogLen())
 		return nil
 	}
 	switch d.tab {

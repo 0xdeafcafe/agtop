@@ -1005,13 +1005,9 @@ func (m *Model) procKey(s string) tea.Cmd {
 	case "esc", "q", "ctrl+p", "left":
 		m.setView(0)
 	case "up", "k":
-		if m.procCursor > 0 {
-			m.procCursor--
-		}
+		m.procCursor = roundMove(m.procCursor, -1, len(rows))
 	case "down", "j":
-		if m.procCursor < len(rows)-1 {
-			m.procCursor++
-		}
+		m.procCursor = roundMove(m.procCursor, 1, len(rows))
 	case "enter":
 		if m.procCursor < len(rows) && rows[m.procCursor].key != "" {
 			m.sel = rows[m.procCursor].key
@@ -1156,14 +1152,10 @@ func (m *Model) cwdKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		m.mode, m.input = modeList, m.input[:0]
 	case "tab":
 		m.cwdMove = !m.cwdMove
-	case "up":
-		if m.cwdCursor > 0 {
-			m.cwdCursor--
-		}
-	case "down":
-		if m.cwdCursor < len(choices)-1 {
-			m.cwdCursor++
-		}
+	case "up", "down":
+		// -1 is the typed path, before the first choice.
+		d := map[string]int{"up": -1, "down": 1}[s]
+		m.cwdCursor = roundMove(m.cwdCursor+1, d, len(choices)+1) - 1
 	case "enter":
 		target := expand(string(m.input))
 		if m.cwdCursor >= 0 && m.cwdCursor < len(choices) {
