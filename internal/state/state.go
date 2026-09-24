@@ -229,8 +229,8 @@ type Store struct {
 
 func Load() *Store {
 	s := &Store{}
-	readJSON(filepath.Join(Dir(), "config.json"), &s.Config)
-	readJSON(filepath.Join(Dir(), "state.json"), &s.Overlay)
+	loadJSON(filepath.Join(Dir(), "config.json"), &s.Config)
+	loadJSON(filepath.Join(Dir(), "state.json"), &s.Overlay)
 	if s.Overlay.Done == nil {
 		s.Overlay.Done = map[string]time.Time{}
 	}
@@ -267,6 +267,25 @@ func readJSON(path string, v any) {
 	}
 }
 
+// loadJSON reads one of agtop's own files, falling back to the copy of it
+// last read whole when it can't be: starting from nothing would save
+// nothing over it, and your settings, accounts and done marks with it. The
+// unreadable one is kept aside as .broken.
+func loadJSON(path string, v any) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		readJSON(path+".bak", v)
+		return
+	}
+	if json.Valid(b) {
+		_ = json.Unmarshal(b, v)
+		_ = os.WriteFile(path+".bak", b, 0o600)
+		return
+	}
+	_ = os.WriteFile(path+".broken", b, 0o600)
+	readJSON(path+".bak", v)
+}
+
 func writeJSON(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -275,11 +294,24 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	// A temp file of its own, so two agtops saving at once can't write
+	// into each other's and leave half of one behind.
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	_, err = f.Write(b)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(f.Name(), 0o600)
+	}
+	if err != nil {
+		_ = os.Remove(f.Name())
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 
 // CostCache persists transcript totals so a restart does not rescan gigabytes.
