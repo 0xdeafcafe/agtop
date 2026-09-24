@@ -102,8 +102,12 @@ func (m *Model) headH() int {
 	return 4
 }
 
-// topH is the rows above the body: the header and the row under it.
+// topH is the rows above the body: the header and the row under it. Zen
+// has none; it's only what needs you.
 func (m *Model) topH() int {
+	if m.zen {
+		return 0
+	}
 	return m.headH() + 1
 }
 
@@ -572,7 +576,10 @@ func (m *Model) paneH() int {
 }
 
 func (m *Model) listView() string {
-	head := append(m.header(), "")
+	var head []string
+	if !m.zen {
+		head = append(m.header(), "")
+	}
 	listW, paneW, bodyH := m.layout()
 	var dock []string
 	if paneW == 0 && m.h >= 20+m.dockLines() {
@@ -694,6 +701,11 @@ func (m *Model) listView() string {
 		}
 	}
 	m.frameLen = b.Len()
+	if len(prompt) == 0 {
+		// No Prompt under the body (zen): a last newline would scroll the
+		// screen and lose the top row.
+		return strings.TrimSuffix(b.String(), "\n")
+	}
 	return b.String()
 }
 

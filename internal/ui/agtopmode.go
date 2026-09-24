@@ -908,7 +908,10 @@ func (m *Model) agtopPane(w, h int) []string {
 		return []string{"", dim("  connecting to " + oneLine(a.DisplayName) + "…")}
 	}
 	s := c.sess
-	head := m.paneHeader(a, c, w)
+	var head []string
+	if !m.zenFull() {
+		head = m.paneHeader(a, c, w) // zen is only the agent and its box
+	}
 	dock := m.paneDock(a, c, w, h)
 	bodyH := max(3, h-len(head)-len(dock))
 
@@ -1401,6 +1404,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		hint = keysFit(w-4, "enter · →", "type here", "ctrl+n", "next needing you")
 		b.holder = "enter or → to talk to this agent"
 		out = append(out[:len(out)-len(b.lines())], b.lines()...)
+	}
+	if m.zenFull() {
+		return out
 	}
 	return append(out, "  "+hint)
 }

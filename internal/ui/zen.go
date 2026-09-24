@@ -14,7 +14,8 @@ import (
 
 // Zen shows nothing until an agent needs you, then only that agent: what it
 // last said and what it needs, answered in its dock. Answer it and the next
-// one takes its place.
+// one takes its place. No header, strip or key hints: ctrl+n skips, ctrl+z
+// leaves, and ? says so.
 
 // zenQueue is every agent waiting on you, oldest first.
 func (m *Model) zenQueue() []*fleet.Agent {
@@ -83,9 +84,7 @@ func (m *Model) zenQuiet(w, h int) []string {
 		counts = append(counts, dim(fmt.Sprintf("◌ %d in background", t.busy)))
 	}
 	counts = append(counts, dim(fmt.Sprintf("%d finished", t.done)))
-	out = append(out, center(strings.Join(counts, dim(" · "))), "")
-	out = append(out, center(faint("the moment an agent asks for something it appears here · ctrl+z leaves zen")))
-	return out
+	return append(out, center(strings.Join(counts, dim(" · "))))
 }
 
 func stripAnsi(s string) string { return ansi.Strip(s) }
@@ -135,5 +134,5 @@ func (m *Model) zenBody(a *fleet.Agent, c *hostConn, w int) []convo.Line {
 	if a.Needs != "" && c != nil && len(c.sess.Pending()) == 0 {
 		lines = append(lines, convo.Line{Text: ""}, convo.Line{Text: "    " + dim("it needs  ") + paint(cYellow, oneLine(a.Needs))})
 	}
-	return append(lines, convo.Line{Text: ""}, convo.Line{Text: "  " + dim("ctrl+n skips to the next · ctrl+z leaves zen")})
+	return lines
 }

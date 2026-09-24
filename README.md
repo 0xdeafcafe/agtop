@@ -50,7 +50,7 @@ The menu bar icon shows every account's 5-hour and weekly usage, the agents work
 | `tab` | the list ⇄ the agent's Session; in Machine and Settings, their pages |
 | `ctrl+k` (or `cmd+k` where the terminal passes it on) | the command bar: go to a place or page, an agent, a Session's view, a turn (`#12`), `Back` to where you jumped from, *Start an agent* (what's typed, under *Start*, becomes a new agent's task, in the folder for new sessions); words search the open conversation and every agent's transcript (`in:name`, `is:failed`, `file:x`, `turn:10-13` narrow it). In a box, `ctrl+k` still cuts to the end of the line when there's text after the cursor |
 | `ctrl+f` | the same bar, finding where you are: in a Session, that chat (`#12`, `is:failed`, `file:x`); in the list, the selected agent's group and its transcripts; in Machine or Settings, that place's pages. `ctrl+f` again widens it (chat → group → all agents → everywhere), as does backspace with nothing typed; `ctrl+k` jumps to everywhere. A Claude Code agent full screen is `#full` or the bar's *Open full screen* |
-| `ctrl+z` | Zen: only the agent that needs you, the next one when it's answered |
+| `ctrl+z` | Zen: only the agent that needs you and its box, no header or hints; the next one when it's answered. `ctrl+n` skips, `ctrl+z` leaves |
 | `<` `>` (nothing typed) | previous and next place: Agents · Machine (Processes, Cleanup) · Settings (Accounts, Coding agents, General, Claude) |
 | `alt+d` | Done: to Done, its idle process stops |
 | `ctrl+l` | change repo |
