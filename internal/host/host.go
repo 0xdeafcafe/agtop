@@ -70,7 +70,23 @@ type Config struct {
 	// it's ready in about half the time, but without the features that
 	// need it (DesignSync, Projects, plugin downloads, live preview).
 	Lean bool `json:"lean,omitempty"`
+	// Branches are the paths /rewind left behind, newest last, so you can
+	// go back down one.
+	Branches []Branch `json:"branches,omitempty"`
 }
+
+// Branch is a path of the conversation that /rewind left: its own
+// conversation, sharing the turns before From with the one it left for.
+type Branch struct {
+	SessionID string    `json:"sessionId"`
+	Left      time.Time `json:"left"`
+	From      int       `json:"from,omitempty"`  // the first turn of its own
+	Turns     int       `json:"turns,omitempty"` // your messages on it
+	Last      string    `json:"last,omitempty"`  // the last of them
+}
+
+// maxBranches is how many left paths an agent remembers.
+const maxBranches = 30
 
 // Info is what the list shows about a session; the host keeps it in
 // info.json and sends it to clients whenever it changes.
@@ -106,7 +122,16 @@ type Info struct {
 	Error     string    `json:"error,omitempty"`
 	StartedAt time.Time `json:"startedAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// RewoundAt is when /rewind last switched it to an earlier point of
+	// the conversation: everything before it is in the transcript.
+	RewoundAt time.Time `json:"rewoundAt,omitempty"`
+	// Proto is what the host can do, so a newer agtop can tell a host from
+	// an older one (0) that needs restarting to do it: see Proto.
+	Proto int `json:"proto,omitempty"`
 }
+
+// Proto is this build's host protocol: 1 adds rewind.
+const Proto = 1
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
@@ -241,7 +266,7 @@ func Run(id string) error {
 		clients: map[*conn]struct{}{}, pending: map[string]headless.PermissionRequest{},
 		quit: make(chan struct{}),
 		info: Info{ID: cfg.ID, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
-			HostPID: os.Getpid(), State: "idle", Model: cfg.Model, Effort: cfg.Effort, PermissionMode: cfg.PermissionMode,
+			HostPID: os.Getpid(), State: "idle", Proto: Proto, Model: cfg.Model, Effort: cfg.Effort, PermissionMode: cfg.PermissionMode,
 			StartedAt: now, UpdatedAt: now},
 	}
 	s.publish()
@@ -286,6 +311,9 @@ func (s *server) start() error {
 	if s.cfg.Lean {
 		o.Env = append(o.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	}
+	// Checkpoints, as Claude Code keeps them in a terminal, so /rewind can
+	// put the files back too.
+	o.Env = append(o.Env, headless.CheckpointEnv)
 	if s.began {
 		o.Resume = s.cfg.SessionID
 		if s.cfg.Fork {
@@ -953,6 +981,7 @@ type op struct {
 	Index     int             `json:"index,omitempty"`
 	Was       string          `json:"was,omitempty"` // the queued text the client saw at Index
 	To        int             `json:"to,omitempty"`
+	Branch    *Branch         `json:"branch,omitempty"` // what rewind leaves
 }
 
 func (s *server) do(o op) error {
@@ -1021,6 +1050,13 @@ func (s *server) do(o op) error {
 			s.mu.Unlock()
 			return sess.Stop(10 * time.Second)
 		}
+	case "rewind":
+		err := s.rewind(o.Text, o.Now, o.Branch)
+		s.mu.Unlock()
+		if err == nil && sess != nil {
+			_ = sess.Stop(10 * time.Second)
+		}
+		return err
 	case "stop":
 		s.info.State = "stopped"
 		s.detach()
@@ -1047,6 +1083,53 @@ func (s *server) do(o op) error {
 		return sess.SetModel(o.Model)
 	}
 	return nil
+}
+
+// rewind carries on from sessionID instead: a copy of the conversation
+// cut before one of your messages (resume), a new one when it was cut
+// before the first, or a branch an earlier rewind left. The path it
+// leaves becomes a branch, described by left. Clients are let go, to
+// reconnect and draw it afresh. Called with mu held; the caller stops the
+// old process.
+func (s *server) rewind(sessionID string, resume bool, left *Branch) error {
+	switch {
+	case sessionID == "":
+		return errors.New("no conversation to rewind to")
+	case s.info.State == "working" || s.info.State == "blocked" || s.info.State == "starting":
+		return errors.New("it's working: stop it (esc) or let the turn end, then rewind")
+	}
+	s.detach()
+	s.cfg.rewindTo(sessionID, resume, left, s.began)
+	s.began = resume
+	s.saveConfig()
+	s.ring, s.ringN, s.stamped = nil, 0, time.Time{}
+	s.info.SessionID, s.info.RewoundAt = sessionID, time.Now()
+	s.info.Error, s.info.Retry, s.info.Needs = "", nil, ""
+	if s.info.State != "stopped" {
+		s.info.State = "idle"
+	}
+	s.publish()
+	for c := range s.clients {
+		c.close()
+	}
+	return nil
+}
+
+// rewindTo points the config at sessionID, keeping the conversation it
+// leaves as a branch (when it has one, began) described by left.
+func (cfg *Config) rewindTo(sessionID string, resume bool, left *Branch, began bool) {
+	cfg.Branches = slices.DeleteFunc(cfg.Branches, func(b Branch) bool {
+		return b.SessionID == sessionID || b.SessionID == cfg.SessionID
+	})
+	if left != nil && began && cfg.SessionID != "" && !cfg.Fork {
+		b := *left
+		b.SessionID, b.Left = cfg.SessionID, time.Now()
+		cfg.Branches = append(cfg.Branches, b)
+		if n := len(cfg.Branches); n > maxBranches {
+			cfg.Branches = cfg.Branches[n-maxBranches:]
+		}
+	}
+	cfg.SessionID, cfg.Resume, cfg.Fork, cfg.From, cfg.Prompt, cfg.Images = sessionID, resume, false, "", "", nil
 }
 
 // conn is one connected client.

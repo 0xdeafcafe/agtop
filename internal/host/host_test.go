@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
@@ -356,5 +357,79 @@ func TestOwnTrafficStaysInHost(t *testing.T) {
 		if got := ownTraffic([]byte(line)); got != want {
 			t.Errorf("ownTraffic(%s) = %v", line, got)
 		}
+	}
+}
+
+// A rewind switches the host to the cut conversation and keeps the path it
+// leaves as a branch; going back down that branch keeps this one in turn.
+func TestRewindKeepsBranches(t *testing.T) {
+	setup(t)
+	if err := os.MkdirAll(dir("r"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &server{cfg: Config{ID: "r", SessionID: "old", Resume: true}, began: true, clients: map[*conn]struct{}{}}
+	s.ring, s.ringN = [][]byte{[]byte(`{"type":"assistant"}`)}, 20
+	s.info.State = "working"
+	if err := s.rewind("cut", true, &Branch{From: 3}); err == nil {
+		t.Fatal("rewinding mid-turn should be refused")
+	}
+	s.info.State = "idle"
+	if err := s.rewind("cut", true, &Branch{From: 3, Turns: 5, Last: "try the cache"}); err != nil {
+		t.Fatal(err)
+	}
+	if s.cfg.SessionID != "cut" || !s.began || len(s.ring) != 0 || s.info.RewoundAt.IsZero() || s.info.SessionID != "cut" {
+		t.Fatalf("after rewind: cfg %+v ring %d info %+v", s.cfg, len(s.ring), s.info)
+	}
+	if b := s.cfg.Branches; len(b) != 1 || b[0].SessionID != "old" || b[0].From != 3 || b[0].Last != "try the cache" {
+		t.Fatalf("branches %+v", b)
+	}
+	saved, err := ReadConfig("r")
+	if err != nil || saved.SessionID != "cut" || len(saved.Branches) != 1 {
+		t.Fatalf("saved %+v %v", saved, err)
+	}
+	// Back down the old path: it stops being a branch, and "cut" becomes one.
+	if err := s.rewind("old", true, &Branch{From: 3, Turns: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if b := s.cfg.Branches; s.cfg.SessionID != "old" || len(b) != 1 || b[0].SessionID != "cut" {
+		t.Fatalf("after switching back: %s %+v", s.cfg.SessionID, b)
+	}
+	// Before the first message: a fresh conversation, nothing to resume.
+	if err := s.rewind("fresh", false, &Branch{From: 1, Turns: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if s.began || s.cfg.Resume || len(s.cfg.Branches) != 2 {
+		t.Fatalf("fresh: began %v cfg %+v", s.began, s.cfg)
+	}
+}
+
+// A host from before rewind is restarted on this build, already rewound,
+// with the path it left kept as a branch.
+func TestRewindByRestart(t *testing.T) {
+	bin := setup(t)
+	acct := claude.Account{Name: "t", ConfigDir: t.TempDir()}
+	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Binary: bin, Account: acct, Resume: true, SessionID: "old-0000-aaaa"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, _ := ReadInfo(cfg.ID)
+	// The old conversation has a transcript, so it's worth keeping.
+	tp := acct.TranscriptPath(cfg.Cwd, cfg.SessionID)
+	os.MkdirAll(filepath.Dir(tp), 0o700)
+	os.WriteFile(tp, []byte("{}\n"), 0o600)
+	if err := RewindByRestart(cfg.ID, "cut-0000-bbbb", true, Branch{From: 2, Turns: 3}); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := ReadInfo(cfg.ID)
+	got, _ := ReadConfig(cfg.ID)
+	if info.HostPID == old.HostPID || !alive(info.HostPID) || info.Proto != Proto || info.SessionID != "cut-0000-bbbb" {
+		t.Fatalf("restarted: %+v (was pid %d)", info, old.HostPID)
+	}
+	if got.SessionID != "cut-0000-bbbb" || len(got.Branches) != 1 || got.Branches[0].SessionID != "old-0000-aaaa" || got.Branches[0].From != 2 {
+		t.Fatalf("config %+v", got)
+	}
+	if c, err := Dial(cfg.ID); err == nil {
+		c.Stop()
+		c.Close()
 	}
 }

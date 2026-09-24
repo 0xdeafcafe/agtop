@@ -362,6 +362,48 @@ func (c *Client) ContinueAtReset(yes bool) error { return c.do(op{Op: "limit", N
 // SetEffort changes effort; it applies from the next Claude Code start.
 func (c *Client) SetEffort(e string) error { return c.do(op{Op: "effort", Effort: e}) }
 
+// Rewind carries on from another conversation, sessionID: a copy cut
+// before one of your messages (resume), a fresh one, or one of its
+// Branches. The path it leaves is kept as a branch, as left describes it.
+// The connection closes once it has; dial again to see it.
+func (c *Client) Rewind(sessionID string, resume bool, left Branch) error {
+	return c.do(op{Op: "rewind", Text: sessionID, Now: resume, Branch: &left})
+}
+
+// Restart ends a session's host and starts it again on this agtop's
+// binary, with change applied to its config first: how a host from an
+// older agtop gets what's new. The session must be idle.
+func Restart(id string, change func(*Config)) error {
+	cfg, err := ReadConfig(id)
+	if err != nil {
+		return err
+	}
+	info, _ := ReadInfo(id)
+	if c, err := Dial(id); err == nil {
+		_ = c.Stop()
+		c.Close()
+	}
+	for deadline := time.Now().Add(15 * time.Second); alive(info.HostPID); time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the host for %s didn't stop", id)
+		}
+	}
+	change(&cfg)
+	cfg.Prompt, cfg.Images = "", nil
+	_, err = Spawn(cfg)
+	return err
+}
+
+// RewindByRestart is Rewind for a host from before it could (Proto 0):
+// the host is restarted on this agtop, already carrying on from
+// sessionID, with the path it leaves kept as a branch.
+func RewindByRestart(id, sessionID string, resume bool, left Branch) error {
+	return Restart(id, func(cfg *Config) {
+		_, err := os.Stat(cfg.Account.TranscriptPath(cfg.Cwd, cfg.SessionID))
+		cfg.rewindTo(sessionID, resume, &left, err == nil)
+	})
+}
+
 // Stop ends the session and its host; the conversation is kept.
 func (c *Client) Stop() error { return c.do(op{Op: "stop"}) }
 
