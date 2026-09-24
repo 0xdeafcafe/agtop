@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
@@ -53,6 +54,7 @@ type Step struct {
 type flight struct {
 	tool  string
 	start time.Time
+	doing string // the call in words: "reading view.go"
 }
 
 // Kind of an item in a turn.
@@ -197,6 +199,7 @@ type Session struct {
 	// tool inputs or outputs, no thinking, and only each turn's latest words.
 	light    bool
 	inFlight map[string]flight // a light session's tool calls still out
+	done     []string          // a light session's latest calls back, in words, oldest first
 
 	// TaskStatus is what Claude Code last said about each background task
 	// (completed, killed, …), keyed by task id: a subagent's agent id.
@@ -464,7 +467,7 @@ func (s *Session) message(m headless.Message, now time.Time) {
 					if s.inFlight == nil {
 						s.inFlight = map[string]flight{}
 					}
-					s.inFlight[b.ID] = flight{b.Name, now}
+					s.inFlight[b.ID] = flight{b.Name, now, claude.Doing(b.Name, b.Input)}
 					continue
 				}
 				st := &Step{ID: b.ID, Tool: b.Name, Input: b.Input, Start: now, Exit: -1, parent: parent, turn: t}
@@ -537,6 +540,9 @@ func (s *Session) results(m headless.Message, now time.Time) {
 		}
 		if f, ok := s.inFlight[b.ToolUseID]; ok {
 			delete(s.inFlight, b.ToolUseID)
+			if s.done = append(s.done, firstNonEmpty(f.doing, f.tool)); len(s.done) > 3 {
+				s.done = s.done[1:]
+			}
 			ts := s.tool(f.tool)
 			if b.IsError && !isRejection(b.Text) {
 				ts.Failed++

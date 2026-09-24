@@ -52,7 +52,7 @@ func (m *Model) views(c *hostConn) []string {
 
 // refreshSubs looks for new subagent runs and follows the one opened. The
 // runs' rows need each one's numbers, read only while the subagents view is
-// on screen: what has grown is read here, and runs never read yet are read
+// on screen (the running ones' while the conversation is): what has grown is read here, and runs never read yet are read
 // in the background by the command it returns.
 func (m *Model) refreshSubs() tea.Cmd {
 	c := m.host
@@ -64,14 +64,24 @@ func (m *Model) refreshSubs() tea.Cmd {
 		_, _ = c.subPeek.Read()
 	}
 	m.readSub()
-	if len(c.subs) == 0 || m.viewName(c) != "subagents" {
+	// The conversation shows what each running one is doing, so those are
+	// followed there too.
+	follow := c.subs
+	switch m.viewName(c) {
+	case "subagents":
+	case "conversation":
+		follow = c.runningSubs()
+	default:
+		follow = nil
+	}
+	if len(follow) == 0 {
 		return nil
 	}
 	if c.subTails == nil {
 		c.subTails = map[string]*convo.Tail{}
 	}
 	var unread []convo.Subagent
-	for _, sa := range c.subs {
+	for _, sa := range follow {
 		switch t := c.subTails[sa.ID]; {
 		case t == nil:
 			unread = append(unread, sa)
@@ -294,7 +304,7 @@ func (m *Model) openSub(c *hostConn, id string) {
 		if sa.ID == id {
 			t := convo.SubagentTail(sa.Path)
 			_, _ = t.Read()
-			c.subTail, c.subOpen, c.subSel = t, id, ""
+			c.subTail, c.subOpen, c.subSel, c.subBack = t, id, "", false
 			c.sel, c.scroll = "", 0
 			m.refreshSubs() // numbers for the list come on the next tick
 			return
@@ -313,7 +323,7 @@ func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 				sa = x
 			}
 		}
-		crumb := "  " + paint(cSub, "‹ subagents") + dim("  ·  ") + paint(cText+bold, sa.Type) + "  " + dim(oneLine(sa.Description)) + dim("   ← back · alt+↑↓ next run")
+		crumb := "  " + paint(cSub, "‹ subagents") + dim("  ·  ") + paint(cText+bold, sa.Type) + "  " + dim(oneLine(sa.Description)) + dim("   ← back")
 		lines := []convo.Line{{Text: fit(crumb, w)}, {Text: ""}}
 		so := o
 		so.Selected = c.sel
@@ -461,6 +471,75 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 	return lines
 }
 
+// dockRuns are the running subagents the dock shows, each one a row ↑ from
+// the box can pick.
+func (c *hostConn) dockRuns() []convo.Subagent {
+	run := c.runningSubs()
+	return run[:min(len(run), 3)]
+}
+
+// runningPreview is what the conversation shows of the subagents still
+// working: a heading, then two lines each (three runs at most): what it was
+// asked, and what it's doing right now after what it just did.
+func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []string {
+	what := "subagent working"
+	if len(run) > 1 {
+		what = "subagents working"
+	}
+	shown := c.dockRuns()
+	picked := strings.HasPrefix(c.sel, "run:")
+	hint := ""
+	switch {
+	case picked:
+		hint = keys("enter", "watch it")
+	case m.paneFocus && len(c.input) == 0 && len(m.queueOf(c).items) == 0:
+		hint = keys("↑", "pick one to watch")
+	}
+	out := []string{spread("  "+paint(cBlue, "⇉ ")+paint(cSub+bold, fmt.Sprintf("%d %s", len(run), what)), hint+"  ", w)}
+	now := time.Now()
+	for i, sa := range shown {
+		var doing, trail string
+		var facts []string
+		if t := c.subTails[sa.ID]; t != nil {
+			s := t.Sess
+			if d, since := s.Doing(); d != "" {
+				doing = paint(cText, d)
+				if el := now.Sub(since); el >= 5*time.Second {
+					doing += dim(" " + dur(el.Round(time.Second)))
+				}
+			} else {
+				doing = dim("thinking…")
+			}
+			for _, d := range s.Did() {
+				trail += faint("  ‹ " + d)
+			}
+			if trail == "" {
+				if lw := s.LastWords(); lw != "" {
+					trail = faint("  ‹ " + lw)
+				}
+			}
+			facts = append(facts, fmt.Sprintf("%d steps", s.Totals(now).ToolCalls))
+			if !s.First.IsZero() {
+				facts = append(facts, dur(now.Sub(s.First).Round(time.Second)))
+			}
+		} else {
+			doing = dim("starting…")
+		}
+		right := dim(strings.Join(facts, " · ")) + "  "
+		top := spread("    "+paint(cOrange, spinner[(m.tick+i)%len(spinner)])+" "+paint(cText+bold, sa.Type)+
+			"  "+paint(cSub, ansi.Truncate(oneLine(sa.Description), max(12, w-cellw.String(ansi.Strip(right))-cellw.String(sa.Type)-10), "…")), right, w)
+		act := ansi.Truncate("      "+paint(cOrange, "›")+" "+doing+trail, w-2, "…")
+		if c.sel == "run:"+sa.ID {
+			top, act = picked1(top, w, m.paneFocus), picked1(act, w, m.paneFocus)
+		}
+		out = append(out, top, act)
+	}
+	if rest := len(run) - len(shown); rest > 0 {
+		out = append(out, dim(fmt.Sprintf("      … %d more in the subagents view", rest)))
+	}
+	return out
+}
+
 func (m *Model) viewName(c *hostConn) string {
 	v := m.views(c)
 	return v[c.view%len(v)]
@@ -530,6 +609,7 @@ type hostConn struct {
 	subs       []convo.Subagent
 	subTail    *convo.Tail
 	subTails   map[string]*convo.Tail // every run, followed for its row's numbers only
+	subBack    bool                   // the open run was picked in the dock: ← goes back there
 	subPeek    *convo.Tail            // the run picked in the list, in full, shown beside it
 	subPeekID  string
 	subReading bool // runs' numbers are being read in the background
@@ -1164,13 +1244,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 		cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
 	}
 	if run := c.runningSubs(); len(run) > 0 && m.viewName(c) == "conversation" {
-		var names []string
-		for _, sa := range run {
-			names = append(names, sa.Type)
+		for _, l := range m.runningPreview(c, run, w) {
+			line(l)
 		}
-		left := "  " + paint(cOrange, spinner[m.tick%len(spinner)]) + " " + paint(cBlue, "⇉ ") +
-			paint(cSub+bold, fmt.Sprintf("%d running", len(run))) + "  " + dim(ansi.Truncate(strings.Join(names, " · "), max(10, w-44), "…"))
-		line(spread(left, keys("alt+↓", "view them")+"  ", w))
 	}
 	if qs := m.queueOf(c); len(qs.items) > 0 {
 		q := qs.items
@@ -1263,6 +1339,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	hint := keysFit(w-4, "enter", "send", "esc · ←", "back to the list", "↑↓", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
 	if c.sel != "" {
 		hint = keysFit(w-4, "enter · space", "open or close", "↑↓", "pick a step", "esc", "done picking", "ctrl+o", "show all")
+		if strings.HasPrefix(c.sel, "run:") {
+			hint = keysFit(w-4, "enter", "watch this subagent", "↑↓", "pick", "esc", "done picking")
+		}
 	}
 	if qs := m.queueOf(c); len(qs.items) > 0 {
 		if _, ok := queueSel(c, len(qs.items)); ok {
@@ -1433,6 +1512,17 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.openSub(c, strings.TrimPrefix(c.sel, "sub:"))
 			return nil
 		}
+		// Enter on a running subagent in the dock watches it.
+		if id, ok := strings.CutPrefix(c.sel, "run:"); ok && empty {
+			for i, v := range m.views(c) {
+				if v == "subagents" {
+					c.view = i
+				}
+			}
+			m.openSub(c, id)
+			c.subBack = true
+			return nil
+		}
 		// Enter on a subagent's step opens its own conversation.
 		if empty && s == "enter" && m.viewName(c) == "conversation" {
 			if _, id, ok := strings.Cut(c.sel, ":s:"); ok {
@@ -1496,7 +1586,13 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		if empty {
 			switch {
 			case c.subOpen != "" && m.viewName(c) == "subagents":
-				c.subOpen, c.subTail, c.sel = "", nil, ""
+				if c.subBack {
+					// Watched from the dock: back to the conversation, on its row.
+					c.view, c.sel = 0, "run:"+c.subOpen
+				} else {
+					c.sel = ""
+				}
+				c.subOpen, c.subTail, c.subBack = "", nil, false
 			case c.sel != "":
 				c.sel = ""
 			case m.zen:
@@ -1818,9 +1914,12 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 func (m *Model) moveSel(c *hostConn, d int) {
 	refs := c.bodyRefs
 	if m.viewName(c) == "conversation" {
-		// Under the conversation, the dock's queue: ↑ from the box picks
-		// the last queued message first.
+		// Under the conversation, the dock's running subagents and queue:
+		// ↑ from the box picks the last queued message first.
 		refs = slices.Clip(refs)
+		for _, sa := range c.dockRuns() {
+			refs = append(refs, "run:"+sa.ID)
+		}
 		for i := range m.queueOf(c).items {
 			refs = append(refs, fmt.Sprintf("q:%d", i))
 		}

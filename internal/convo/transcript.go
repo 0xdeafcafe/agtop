@@ -446,12 +446,13 @@ type lightContent struct {
 }
 
 type lightBlock struct {
-	Type      string `json:"type"`
-	Text      string `json:"text"`
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ToolUseID string `json:"tool_use_id"`
-	IsError   bool   `json:"is_error"`
+	Type      string          `json:"type"`
+	Text      string          `json:"text"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Input     json.RawMessage `json:"input"` // read for the call in words, then dropped
+	ToolUseID string          `json:"tool_use_id"`
+	IsError   bool            `json:"is_error"`
 }
 
 func (c *lightContent) UnmarshalJSON(b []byte) error {
@@ -509,7 +510,7 @@ func (t *Tail) applyLight(b []byte) bool {
 				m.Blocks = append(m.Blocks, headless.Block{Type: "text", Text: strings.Clone(firstPlain(bl.Text))})
 			}
 		case "tool_use":
-			m.Blocks = append(m.Blocks, headless.Block{Type: "tool_use", ID: bl.ID, Name: bl.Name})
+			m.Blocks = append(m.Blocks, headless.Block{Type: "tool_use", ID: bl.ID, Name: bl.Name, Input: bl.Input})
 		case "tool_result":
 			m.Blocks = append(m.Blocks, headless.Block{Type: "tool_result", ToolUseID: bl.ToolUseID, IsError: bl.IsError})
 		}

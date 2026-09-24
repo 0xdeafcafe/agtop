@@ -407,6 +407,32 @@ func TestSubagentStatsMatchFull(t *testing.T) {
 	}
 }
 
+// A run read only for its numbers still says what it's doing: the call
+// still out, in words, and nothing once it has come back.
+func TestSubagentStatsDoing(t *testing.T) {
+	path := t.TempDir() + "/agent-a1.jsonl"
+	lines := []string{
+		`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"find where the pane is drawn"}}`,
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-09-23T20:00:01Z","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"/w/internal/ui/view.go"}}]}}`,
+	}
+	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	light := SubagentStats(path)
+	_, _ = light.Read()
+	if d, since := light.Sess.Doing(); d != "reading view.go" || !since.Equal(time.Date(2026, 9, 23, 20, 0, 1, 0, time.UTC)) {
+		t.Errorf("doing: %q since %v", d, since)
+	}
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	_, _ = f.WriteString(`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"r1","content":"package ui"}]}}` + "\n")
+	_ = f.Close()
+	_, _ = light.Read()
+	if d, _ := light.Sess.Doing(); d != "" {
+		t.Errorf("doing after its result: %q", d)
+	}
+	if did := light.Sess.Did(); len(did) != 1 || did[0] != "reading view.go" {
+		t.Errorf("did: %q", did)
+	}
+}
+
 func TestChanges(t *testing.T) {
 	s := session()
 	s.Apply(headless.Result{Subtype: "success"}, at(50))

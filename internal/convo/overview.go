@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -524,6 +525,29 @@ func (s *Session) LastWords() string {
 		}
 	}
 	return ""
+}
+
+// Doing is what a light session (SubagentStats) is doing now: its latest
+// tool call still out, in words, and since when; "" when none is out.
+func (s *Session) Doing() (string, time.Time) {
+	var f flight
+	for _, c := range s.inFlight {
+		if c.start.After(f.start) || f.tool == "" {
+			f = c
+		}
+	}
+	if f.tool == "" {
+		return "", time.Time{}
+	}
+	return firstNonEmpty(f.doing, f.tool), f.start
+}
+
+// Did is what a light session (SubagentStats) did last: its latest calls to
+// have come back, in words, newest first.
+func (s *Session) Did() []string {
+	out := slices.Clone(s.done)
+	slices.Reverse(out)
+	return out
 }
 
 // Tokens formats a token count the way the overview does.
