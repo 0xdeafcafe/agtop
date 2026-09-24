@@ -305,12 +305,12 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return m.loadPreview()
 	case "home":
 		if empty {
-			m.move(-len(m.order))
+			m.move(-len(m.lines))
 			return m.loadPreview()
 		}
 	case "end":
 		if empty {
-			m.move(len(m.order))
+			m.move(len(m.lines))
 			return m.loadPreview()
 		}
 	case "right":
@@ -337,8 +337,11 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.loadPreview()
 		}
 	case "left":
-		// In Agents, ← has nothing to go back to; sections fold with enter.
+		// In Agents, ← has nothing to go back to but folds a heading it's on.
 		if empty {
+			if t, ok := strings.CutPrefix(m.sel, "§"); ok && !m.folded(t) {
+				m.toggleFold(t)
+			}
 			return nil
 		}
 	case "esc":

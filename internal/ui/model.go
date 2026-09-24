@@ -1150,17 +1150,13 @@ func (m *Model) move(d int) {
 	m.armed, m.hover = "", ""
 }
 
-// items are the rows ↑↓ stop on, in display order: the agents, and the
-// sections folded shut, whose agents can't be reached otherwise. An open
-// section's heading is passed over; a click still folds it.
+// items are the rows ↑↓ stop on, in display order: the agents and every
+// section heading, where enter folds or opens the section.
 func (m *Model) items() []string {
 	var out []string
 	for _, l := range m.lines {
 		switch l.kind {
 		case lineSection:
-			if !m.folded(l.title) {
-				continue
-			}
 			out = append(out, sectionKey(l.title))
 		case lineAgent:
 			out = append(out, l.agent.Key)
@@ -1183,24 +1179,10 @@ func (m *Model) toggleFold(title string) {
 	m.store.Config.Folds[title] = !m.folded(title)
 	_ = m.store.SaveConfig()
 	m.rebuild()
-	// Opened from its heading, the pick goes onto its first agent: ↑↓
-	// don't stop on an open section's heading.
-	if m.sel == sectionKey(title) && !m.folded(title) {
-		in := false
-		for _, l := range m.lines {
-			switch {
-			case l.kind == lineSection:
-				in = l.title == title
-			case in && l.kind == lineAgent:
-				m.sel = l.agent.Key
-				return
-			}
-		}
-	}
 }
 
-// focused is the agent whose card is open: the selection, or on a folded
-// section the agent picked before it, so the Session beside the list
+// focused is the agent whose card is open: the selection, or on a section
+// heading the agent picked before it, so the Session beside the list
 // doesn't come and go as ↑↓ pass a heading.
 func (m *Model) focused() *fleet.Agent {
 	key := m.sel
