@@ -1102,8 +1102,8 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 		}
 	case live:
 		summary, sumColor = oneLine(a.Detail), cSub
-		if p := m.previews[a.Key].p; summary == "" && p.Tool != "" {
-			summary = p.Tool + " · " + oneLine(tildify(p.ToolArg))
+		if p := m.previews[a.Key].p; summary == "" && p.Doing != "" {
+			summary = oneLine(p.Doing)
 		}
 		if summary == "" && a.Interactive {
 			summary = "working in a terminal"

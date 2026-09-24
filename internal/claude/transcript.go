@@ -84,6 +84,7 @@ type Preview struct {
 	Text     string
 	Tool     string
 	ToolArg  string
+	Doing    string // the tool call in words: "running pnpm test"
 	At       time.Time
 	Model    string
 	LastUser string
@@ -296,7 +297,7 @@ func ReadPreview(path string, window int64) Preview {
 			case bl.Type == "text" && p.Text == "" && strings.TrimSpace(bl.Text) != "":
 				p.Text = strings.TrimSpace(bl.Text)
 			case bl.Type == "tool_use" && p.Tool == "":
-				p.Tool, p.ToolArg = bl.Name, toolArg(bl.Input)
+				p.Tool, p.ToolArg, p.Doing = bl.Name, toolArg(bl.Input), Doing(bl.Name, bl.Input)
 			}
 		}
 	}

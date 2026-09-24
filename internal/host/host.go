@@ -471,7 +471,7 @@ func (s *server) onEvent(ev headless.Event) {
 			for _, b := range ev.Blocks {
 				switch b.Type {
 				case "tool_use":
-					s.info.Detail = b.Name + " " + toolSummary(b.Input)
+					s.info.Detail = claude.Doing(b.Name, b.Input)
 				case "text":
 					if t := strings.TrimSpace(b.Text); t != "" {
 						s.info.Detail = firstLine(t)
@@ -1090,7 +1090,6 @@ func (s *server) serve(nc net.Conn) {
 	}
 }
 
-// toolSummary picks the argument that says what a tool call does.
 // needs says what a waiting request wants, in words for the list.
 func needs(r headless.PermissionRequest) string {
 	if r.Tool == "AskUserQuestion" {
@@ -1108,6 +1107,7 @@ func needs(r headless.PermissionRequest) string {
 	return r.Tool + " " + toolSummary(r.Input)
 }
 
+// toolSummary picks the argument that says what a tool call does.
 func toolSummary(input json.RawMessage) string {
 	var m map[string]any
 	if json.Unmarshal(input, &m) != nil {
