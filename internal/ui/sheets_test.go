@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -152,6 +153,49 @@ func TestSlashAliasComesFirst(t *testing.T) {
 	c.input = []rune("/compact")
 	if got := slashMatches(c); got[0].Name != "compact" {
 		t.Fatalf("exact first: %v", got)
+	}
+}
+
+// Segments drag to a new place with the mouse, through the screen's own
+// mouse messages: onto another, it takes that one's place; onto a line's
+// heading from below, it goes to the end of the line above.
+func TestStatusSheetDrag(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 50}
+	m.openTopBar(nil)
+	st := m.sheet.(*statusSheet)
+	if w := m.sheetWidth(); w != m.w-6 {
+		t.Fatalf("the top bar's sheet should be as wide as it can: %d", w)
+	}
+	at := func(text string) (int, int) {
+		lines := strings.Split(ansi.Strip(m.sheetView(strings.Repeat("\n", m.h-1))), "\n")
+		for y, l := range lines {
+			if x := strings.Index(l, text); x >= 0 {
+				return ansi.StringWidth(l[:x]), y
+			}
+		}
+		t.Fatalf("no %q on screen", text)
+		return 0, 0
+	}
+	drag := func(what, onto string) {
+		x, y := at(what)
+		m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+		x, y = at(onto)
+		m.Update(tea.MouseMotionMsg{X: x, Y: y, Button: tea.MouseLeft})
+		m.Update(tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
+	}
+	drag("Spend today", "CPU")
+	if got := st.bars.Top.Lines; !slices.Equal(got[0], []string{"usage"}) || !slices.Equal(got[1], []string{"ram", "cpu", "today", "tmp"}) {
+		t.Fatalf("onto CPU: %v", got)
+	}
+	drag("Clock", "Line 2")
+	if got := st.bars.Top.Lines[0]; !slices.Equal(got, []string{"usage", "clock"}) || st.drag != "" {
+		t.Fatalf("onto Line 2's heading: %v", got)
+	}
+	x, y := at("Claude Code  ")
+	m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	if st.tab != stClaude {
+		t.Fatalf("clicking a tab: %d", st.tab)
 	}
 }
 

@@ -157,6 +157,7 @@ type Model struct {
 	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
 	pointer      string                 // the pointer's shape last asked of the terminal
+	sheetAt      [2]int                 // where the open sheet's body was drawn: x, y
 	hibernated   map[string]bool
 	offline      bool // never ask Anthropic for usage (--soak)
 	// newer is the agtop that's out when it's newer than this one; #update
@@ -823,6 +824,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
 	case tea.MouseMotionMsg:
+		// An open sheet has the mouse, as it has the keys.
+		if m.sheet != nil {
+			if msg.Button != tea.MouseLeft {
+				m.sameFrame = true
+				return m, m.pointerShape("default")
+			}
+			return m, tea.Batch(m.sheetMouse(mouseDrag, msg.X, msg.Y), m.pointerShape("grabbing"))
+		}
 		if c := m.host; c != nil && c.txt.drag {
 			if msg.Button == tea.MouseLeft {
 				m.dragTextSel(c, msg.X, msg.Y)
@@ -854,8 +863,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !changed && !subChanged && m.hover == hover {
 			m.sameFrame = true // nothing moved that shows: keep the last frame
 		}
-		// OSC 22 sets the pointer's shape in terminals that support it
-		// (kitty, ghostty, wezterm, foot); others ignore it.
 		want := "default"
 		switch {
 		case on:
@@ -863,13 +870,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.host != nil && m.host.subHover != "":
 			want = "pointer" // a run to open, or the banner to go back
 		}
-		var shape tea.Cmd
-		if want != m.pointer && (want != "default" || m.pointer != "") {
-			shape = tea.Raw("\x1b]22;" + want + "\x1b\\")
-		}
-		m.pointer = want
-		return m, tea.Batch(shape, cmd, subCmd)
+		return m, tea.Batch(m.pointerShape(want), cmd, subCmd)
 	case tea.MouseReleaseMsg:
+		if m.sheet != nil {
+			return m, tea.Batch(m.sheetMouse(mouseRelease, msg.X, msg.Y), m.pointerShape("default"))
+		}
 		if c := m.host; c != nil && c.txt.drag {
 			m.endTextSel(c)
 		}
@@ -882,6 +887,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.MouseClickMsg:
+		if m.sheet != nil {
+			if msg.Button == tea.MouseLeft {
+				return m, m.sheetMouse(mousePress, msg.X, msg.Y)
+			}
+			return m, nil
+		}
 		if msg.Button == tea.MouseLeft && m.clickBox(msg.X, msg.Y) {
 			return m, nil
 		}
@@ -916,6 +927,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.mouseClick(msg.X, msg.Y)
 		}
 	case tea.MouseWheelMsg:
+		if m.sheet != nil {
+			ev := mouseWheelDown
+			if msg.Button == tea.MouseWheelUp {
+				ev = mouseWheelUp
+			}
+			return m, m.sheetMouse(ev, msg.X, msg.Y)
+		}
 		// The wheel scrolls whatever is under the pointer: over the pane it
 		// scrolls the conversation, and never moves the list behind it.
 		if _, paneW, _ := m.layout(); m.mode == modeList && m.dialog == nil && paneW > 0 && (m.listW == 0 || msg.X > m.listW) {
@@ -940,6 +958,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// pointerShape asks the terminal for the pointer's shape, when it's
+// changed. OSC 22 sets it in terminals that support it (kitty, ghostty,
+// wezterm, foot); others ignore it.
+func (m *Model) pointerShape(want string) tea.Cmd {
+	if want == m.pointer || (want == "default" && m.pointer == "") {
+		return nil
+	}
+	m.pointer = want
+	return tea.Raw("\x1b]22;" + want + "\x1b\\")
 }
 
 // viewNames are the places at the top: ctrl+\ moves between them, and tab

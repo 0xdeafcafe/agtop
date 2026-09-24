@@ -41,11 +41,40 @@ func (m *Model) sheetWidth() int {
 	return max(40, min(m.w-6, want))
 }
 
-// sheetView draws the open sheet over base.
+// mouseSheet is a sheet that takes the mouse: x and y are within its
+// body, as body drew it, and ev is what happened there.
+type mouseSheet interface {
+	mouse(m *Model, ev mouseEv, x, y int) tea.Cmd
+}
+
+type mouseEv int
+
+const (
+	mousePress mouseEv = iota
+	mouseDrag          // moved with the left button down
+	mouseRelease
+	mouseWheelUp
+	mouseWheelDown
+)
+
+// sheetView draws the open sheet over base, and keeps where its body
+// landed for the mouse.
 func (m *Model) sheetView(base string) string {
 	bw := m.sheetWidth()
 	body := m.sheet.body(m, bw-4, max(8, m.h-6))
+	// As overlayBox places it: the edge and a blank line above the body,
+	// the edge and a space left of it.
+	box := len(body) + 4
+	m.sheetAt = [2]int{(m.w-bw)/2 + 2, max(1, (strings.Count(base, "\n")+1-box)/2) + 2}
 	return m.overlayBox(base, body, bw)
+}
+
+// sheetMouse hands the mouse to the open sheet, when it takes it.
+func (m *Model) sheetMouse(ev mouseEv, x, y int) tea.Cmd {
+	if s, ok := m.sheet.(mouseSheet); ok {
+		return s.mouse(m, ev, x-m.sheetAt[0], y-m.sheetAt[1])
+	}
+	return nil
 }
 
 // sheetTitle is a sheet's first line: its name, and what it's for.

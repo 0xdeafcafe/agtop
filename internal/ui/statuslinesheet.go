@@ -44,6 +44,13 @@ type statusSheet struct {
 	// rnd draws Claude Code's line many times a second without running
 	// git, or your own command, each time.
 	rnd statusline.Renderer
+
+	// For the mouse, as body last drew them: the tabs' row and where each
+	// tab ends, the list's first row and the first of its rows showing.
+	tabsY, listY, from int
+	tabEnds            []int
+	// drag is the segment being dragged to a new place.
+	drag string
 }
 
 const (
@@ -103,15 +110,9 @@ func (m *Model) openTopBar(a *fleet.Agent) {
 	}
 }
 
-// width asks for room to show the agent header as wide as the pane it
-// sits on.
-func (st *statusSheet) width(m *Model) int {
-	if st.tab != stAgent {
-		return 0
-	}
-	_, paneW, _ := m.layout()
-	return max(112, paneW+10) // the panel's border and padding, and the well's
-}
+// width is the window's, on every tab, so the sheet doesn't change size
+// as you go between them and the lines show as wide as they really are.
+func (st *statusSheet) width(m *Model) int { return m.w }
 
 // lay is the layout of the tab showing.
 func (st *statusSheet) lay() *statusline.Layout {
@@ -242,6 +243,112 @@ func (st *statusSheet) place(id string, line, pos int) {
 			st.cur = i
 		}
 	}
+}
+
+// listRow is a row of the builder's list: a line's heading, the note
+// on an empty line, or a segment (slot, its index in slots()). Line
+// len(Lines) is Not shown.
+type listRow struct {
+	line  int
+	head  bool
+	empty bool
+	slot  int // -1 when it isn't a segment
+}
+
+// rows are the list's rows top to bottom, as body draws them.
+func (st *statusSheet) rows() []listRow {
+	var out []listRow
+	l := st.lay()
+	i := 0
+	for n, ln := range l.Lines {
+		out = append(out, listRow{line: n, head: true, slot: -1})
+		if len(ln) == 0 {
+			out = append(out, listRow{line: n, empty: true, slot: -1})
+		}
+		for range ln {
+			out = append(out, listRow{line: n, slot: i})
+			i++
+		}
+	}
+	out = append(out, listRow{line: len(l.Lines), head: true, slot: -1})
+	for ; i < len(st.slots()); i++ {
+		out = append(out, listRow{line: -1, slot: i})
+	}
+	return out
+}
+
+// mouse picks a tab, or a segment, and drags a segment to where the
+// pointer takes it: onto another it takes that one's place, onto a
+// line's heading it goes to the end of the line above or the start of the
+// one below, whichever it came from, and onto Not shown it's hidden.
+func (st *statusSheet) mouse(m *Model, ev mouseEv, x, y int) tea.Cmd {
+	switch ev {
+	case mouseWheelUp:
+		return st.key(m, tea.KeyPressMsg{}, "up")
+	case mouseWheelDown:
+		return st.key(m, tea.KeyPressMsg{}, "down")
+	case mouseRelease:
+		st.drag = ""
+		return nil
+	}
+	if ev == mousePress && y == st.tabsY {
+		for t, end := range st.tabEnds {
+			if x < end {
+				if t != st.tab {
+					st.tab, st.cur, st.err = t, 0, ""
+				}
+				break
+			}
+		}
+		return nil
+	}
+	rows, slots := st.rows(), st.slots()
+	at := st.from + y - st.listY
+	if y < st.listY || at < 0 || at >= len(rows) {
+		return nil
+	}
+	r := rows[at]
+	if ev == mousePress {
+		st.drag = ""
+		if r.slot >= 0 {
+			st.cur, st.drag = r.slot, slots[r.slot].id
+		}
+		return nil
+	}
+	if st.drag == "" {
+		return nil
+	}
+	l := st.lay()
+	was := slices.IndexFunc(rows, func(r listRow) bool { return r.slot >= 0 && slots[r.slot].id == st.drag })
+	if was < 0 || was == at {
+		return nil
+	}
+	from := slots[rows[was].slot]
+	down := at > was
+	switch {
+	case r.empty:
+		st.place(st.drag, r.line, 0)
+	case r.head && down && r.line == len(l.Lines):
+		st.place(st.drag, -1, 0)
+	case r.head && down:
+		st.place(st.drag, r.line, 0)
+	case r.head && r.line == 0:
+		st.place(st.drag, 0, 0)
+	case r.head:
+		st.place(st.drag, r.line-1, len(l.Lines[r.line-1]))
+	case slots[r.slot].line < 0:
+		if from.line >= 0 {
+			st.place(st.drag, -1, 0)
+		}
+	default:
+		to := slots[r.slot]
+		pos := slices.Index(l.Lines[to.line], to.id)
+		if down && from.line != to.line {
+			pos++ // below it: within a line, taking it out already makes room
+		}
+		st.place(st.drag, to.line, pos)
+	}
+	return nil
 }
 
 func (st *statusSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
@@ -425,6 +532,12 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		stClaude: "what Claude Code shows under its prompt · " + st.acct.Name,
 	}[st.tab]
 	out := []string{sheetTitle("Status lines", about, w), "", "  " + sheetTabs(statusTabNames, st.tab), ""}
+	st.tabsY, st.tabEnds = 2, nil
+	end := 2
+	for _, n := range statusTabNames {
+		end += ansi.StringWidth(n) + 5 // and the "  ·  " after it
+		st.tabEnds = append(st.tabEnds, end-2)
+	}
 	l := st.lay()
 
 	// What the real header, drawn just before this, had no room for.
@@ -492,9 +605,10 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 	st.cur = max(0, min(st.cur, len(slots)-1))
 	listH := max(4, h-len(out)-5)
 	var list []string
-	selAt, i := 0, 0
+	selAt := 0
 	infos := st.segs()
-	row := func(sl slot) {
+	row := func(i int) {
+		sl := slots[i]
 		var seg segInfo
 		for _, s := range infos {
 			if s.id == sl.id {
@@ -508,6 +622,9 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		noRoom := sl.line >= 0 && dropped[sl.id]
 		if noRoom {
 			mark = paint(cYellow, "■")
+		}
+		if sl.id == st.drag {
+			mark = paint(cOrange, "↕")
 		}
 		if i == st.cur {
 			selAt = len(list)
@@ -525,10 +642,11 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		}
 		text := "  " + mark + " " + paint(cText, fit(seg.name, 16)) + fit(sample, 24) + "  " + faint(about)
 		list = append(list, sheetRow(ansi.Truncate(text, w-3, "…"), i == st.cur, w))
-		i++
 	}
 	lineName := func(n int) string {
 		switch {
+		case n == len(l.Lines):
+			return "Not shown"
 		case st.tab == stAgent && n == 0:
 			return "Line 1 · right of the name"
 		case st.tab == stAgent:
@@ -536,20 +654,23 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		}
 		return "Line " + strconv.Itoa(n+1)
 	}
-	for n, ln := range l.Lines {
-		list = append(list, paint(cSub+bold, "  "+lineName(n)))
-		if len(ln) == 0 {
-			list = append(list, faint("      empty · shift+↓ or "+strconv.Itoa(n+1)+" moves a segment here"))
+	for _, r := range st.rows() {
+		switch {
+		case r.head:
+			list = append(list, paint(cSub+bold, "  "+lineName(r.line)))
+		case r.empty:
+			list = append(list, faint("      empty · drag a segment here, or shift+↓ or "+strconv.Itoa(r.line+1)))
+		default:
+			row(r.slot)
 		}
-		for _, id := range ln {
-			row(slot{n, id})
-		}
-	}
-	list = append(list, paint(cSub+bold, "  Not shown"))
-	for _, sl := range slots[i:] {
-		row(sl)
 	}
 	from, to := window(len(list), selAt, listH)
+	// While dragging the list stays put unless the segment would leave it,
+	// so what's under the pointer is what was.
+	if st.drag != "" && st.from+listH <= len(list) && selAt >= st.from && selAt < st.from+listH {
+		from, to = st.from, st.from+listH
+	}
+	st.listY, st.from = len(out), from
 	out = append(out, list[from:to]...)
 	out = append(out, "")
 	if st.err != "" {
@@ -564,7 +685,7 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		lines = "1 2 3"
 	}
 	// Most needed first: what doesn't fit is left off the end.
-	pairs := []string{"space", "show/hide", "shift+↑↓", "move", "tab", "next", "enter", "save", "esc", "cancel", lines, "to line", "s", "separator " + sepName}
+	pairs := []string{"space", "show/hide", "shift+↑↓ or drag", "move", "tab", "next", "enter", "save", "esc", "cancel", lines, "to line", "s", "separator " + sepName}
 	if st.tab == stClaude {
 		colour := "on"
 		if l.Plain {
