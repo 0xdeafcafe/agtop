@@ -1,0 +1,99 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"regexp"
+	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/plugin"
+)
+
+// What agtop takes in sidebar.set: more is refused whole.
+const (
+	maxSidebarAgents = 2000
+	maxSidebarName   = 200
+)
+
+var sessionIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+func clipRunes(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
+}
+
+// sidebarPayload is the board as agtop's agent list shows it: a section
+// per column, in board order, and each card's agent under the card's name,
+// in the card's place in its column. Only cards with a conversation are
+// there, as agtop knows agents by it.
+func sidebarPayload(cards []card) map[string]any {
+	type section struct {
+		Title string `json:"title"`
+	}
+	type agent struct {
+		Name    string `json:"name"`
+		Section string `json:"section"`
+		Order   int    `json:"order"`
+	}
+	sections := []section{}
+	agents := map[string]agent{}
+	for _, col := range columns {
+		var in []card
+		for _, c := range cards {
+			if c.Column == col.id && c.sessionID() != "" {
+				in = append(in, c)
+			}
+		}
+		if len(in) == 0 {
+			continue
+		}
+		sortColumn(in)
+		sections = append(sections, section{Title: col.title})
+		for i, c := range in {
+			id := c.sessionID()
+			if _, dup := agents[id]; dup || !sessionIDRE.MatchString(id) || len(agents) >= maxSidebarAgents {
+				continue
+			}
+			agents[id] = agent{Name: clipRunes(c.title(), maxSidebarName), Section: col.title, Order: i}
+		}
+	}
+	return map[string]any{"title": "Kanban", "sections": sections, "agents": agents}
+}
+
+// showBoard keeps agtop's list arranged as the board: it looks at
+// links.json every two seconds, and sends the arrangement when it changed.
+func showBoard() {
+	var mod time.Time
+	var sent []byte
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		if fi, err := os.Stat(filepath.Join(kanbanHome(), "links.json")); err == nil && !fi.ModTime().Equal(mod) {
+			if cards, err := readCards(); err == nil {
+				p := sidebarPayload(cards)
+				b, _ := json.Marshal(p)
+				if string(b) == string(sent) {
+					mod = fi.ModTime()
+				} else if err := conn.Call(context.Background(), "sidebar.set", p, nil); err == nil {
+					mod, sent = fi.ModTime(), b
+				} else {
+					logf("arranging agtop's list: %v", err)
+					var e *plugin.Error
+					if errors.As(err, &e) && e.Code == plugin.CodeDenied {
+						return // not approved for it
+					}
+				}
+			}
+		}
+		select {
+		case <-conn.Done():
+			return
+		case <-t.C:
+		}
+	}
+}

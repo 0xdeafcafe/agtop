@@ -34,7 +34,7 @@ func TestBrokerRunsTheKanbanExample(t *testing.T) {
 	kb := filepath.Join(home, "kb")
 	_ = os.MkdirAll(kb, 0o700)
 	_ = os.WriteFile(filepath.Join(kb, "links.json"), []byte(`{"links": [{"id": "card_bbb222", "column": "backlog",
-		"projectPath": "`+home+`", "issueLink": {"number": 12, "title": "Dark mode", "body": "Please."},
+		"projectPath": "`+home+`", "sessionLink": {"sessionId": "s-9"}, "issueLink": {"number": 12, "title": "Dark mode", "body": "Please."},
 		"manualOverrides": {}, "manuallyArchived": false, "source": "githubIssue", "isRemote": false,
 		"createdAt": "2026-09-01T00:00:00Z", "updatedAt": "2026-09-01T00:00:00Z"}]}`), 0o600)
 	cli := filepath.Join(home, "bin", "kanban")
@@ -51,7 +51,7 @@ func TestBrokerRunsTheKanbanExample(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	m, _ := json.Marshal(plugin.Manifest{Name: "kanban", Command: []string{"kanban"}, Tools: true,
-		Sessions: []string{plugin.CapList, plugin.CapStart, plugin.CapQueue}, Workspaces: []string{home},
+		Sidebar: true, Sessions: []string{plugin.CapList, plugin.CapStart, plugin.CapQueue}, Workspaces: []string{home},
 		Read: []string{kb}, Env: map[string]string{"KANBAN_CODE_HOME": kb}, Exec: map[string][]string{"kanban": {cli}}})
 	_ = os.WriteFile(filepath.Join(dir, "plugin.json"), m, 0o600)
 	p, err := plugin.Load(dir)
@@ -105,6 +105,18 @@ func TestBrokerRunsTheKanbanExample(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
+	// It arranged agtop's list as the board.
+	for {
+		b, _ := os.ReadFile(plugin.SidebarPath("kanban"))
+		if strings.Contains(string(b), `"s-9":{"name":"Dark mode","section":"Backlog"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no sidebar; have %q", b)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	if err := plugin.Revoke("kanban"); err != nil {
 		t.Fatal(err)
 	}
@@ -113,6 +125,9 @@ func TestBrokerRunsTheKanbanExample(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("broker still running with nothing approved")
+	}
+	if _, err := os.Stat(plugin.SidebarPath("kanban")); !os.IsNotExist(err) {
+		t.Fatal("revoked, its sidebar stayed")
 	}
 }
 

@@ -23,6 +23,7 @@ type card struct {
 	ParentCardID     string `json:"parentCardId"`
 	PromptBody       string `json:"promptBody"`
 	LastActivity     string `json:"lastActivity"`
+	SortOrder        *int   `json:"sortOrder"`
 	UpdatedAt        string `json:"updatedAt"`
 	SessionLink      *struct {
 		SessionID string `json:"sessionId"`
@@ -72,9 +73,9 @@ func (p pr) failing() []string {
 
 // columns in board order, as kanban-code names and shows them.
 var columns = []struct{ id, title string }{
-	{"in_progress", "In progress"},
+	{"in_progress", "In Progress"},
 	{"requires_attention", "Waiting"},
-	{"in_review", "In review"},
+	{"in_review", "In Review"},
 	{"backlog", "Backlog"},
 	{"done", "Done"},
 }
@@ -278,9 +279,7 @@ func board(cards []card, column string) string {
 		if len(in) == 0 {
 			continue
 		}
-		sort.SliceStable(in, func(i, j int) bool {
-			return or(in[i].LastActivity, in[i].UpdatedAt) > or(in[j].LastActivity, in[j].UpdatedAt)
-		})
+		sortColumn(in)
 		fmt.Fprintf(&b, "## %s\n", col.title)
 		for _, c := range in {
 			fmt.Fprintf(&b, "- %s  %s", c.ID, c.title())
@@ -298,6 +297,24 @@ func board(cards []card, column string) string {
 		return "The board is empty."
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// sortColumn puts a column's cards in the order kanban-code shows them:
+// those given a place first, by it, then the most recently active.
+func sortColumn(cards []card) {
+	sort.SliceStable(cards, func(i, j int) bool {
+		a, b := cards[i], cards[j]
+		switch {
+		case a.SortOrder != nil && b.SortOrder != nil:
+			return *a.SortOrder < *b.SortOrder
+		case a.SortOrder != nil || b.SortOrder != nil:
+			return a.SortOrder != nil
+		}
+		if ta, tb := or(a.LastActivity, a.UpdatedAt), or(b.LastActivity, b.UpdatedAt); ta != tb {
+			return ta > tb
+		}
+		return a.ID < b.ID
+	})
 }
 
 func or(a, b string) string {

@@ -210,6 +210,8 @@ agtop session list --json [--meta k=v]...
 
 `send` reads the message from stdin. If the session is stopped it resumes with the message, as sending from the view does. `info` exits 1 with `{"error":"not found"}` for an id with no session. `alive` is whether the session's host is running; a host whose Claude Code is resting while idle counts as alive.
 
+A plugin can also arrange the Agents list for an embedding app: with the `sidebar` capability it sends sections and a name for each agent, keyed by Claude Code session id, and the list offers them as a group-by mode (`ctrl+s`, or `/by plugin:<name>`). The [`kanban`](plugins/examples/kanban) example shows the kanban-code board this way.
+
 `agtop open <id> --solo` is the view of that one session alone, at full width: no Agents list, no header or places, and the keys that lead to other agents or places (`, . < > ctrl+\ ctrl+z ctrl+n ctrl+k tab`) do nothing. The message box has the keys from the start. `esc` at the top level and `ctrl+q` close the view; the session keeps running. A stopped session shows its conversation and resumes with the first message.
 
 ## And

@@ -41,7 +41,7 @@ func TestReadCards(t *testing.T) {
 		t.Fatalf("archived, subagent and unfiled cards should be left off: %+v", cards)
 	}
 	b := board(cards, "")
-	if !strings.Contains(b, "## In progress\n- card_aaa111  Fix login  [fix-login]  PR #7 failing") ||
+	if !strings.Contains(b, "## In Progress\n- card_aaa111  Fix login  [fix-login]  PR #7 failing") ||
 		!strings.Contains(b, "## Backlog\n- card_bbb222  Dark mode") {
 		t.Fatalf("board =\n%s", b)
 	}
@@ -79,7 +79,7 @@ func TestCardOf(t *testing.T) {
 func TestDescribeAndTask(t *testing.T) {
 	cards := testBoard(t)
 	d := describe(cards[0])
-	for _, want := range []string{"Column: In progress", "PR #7", "Failing checks: lint", "Unresolved review threads: 1 (first: https://gh/t/1)"} {
+	for _, want := range []string{"Column: In Progress", "PR #7", "Failing checks: lint", "Unresolved review threads: 1 (first: https://gh/t/1)"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("describe lacks %q:\n%s", want, d)
 		}

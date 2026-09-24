@@ -13,6 +13,8 @@
 //   - When a card's PR gets a failing check or a new review thread, the
 //     agent working on it hears about it: the plugin queues it a message,
 //     sent when its turn ends.
+//   - agtop's agent list can show the board: a section per column, and
+//     each card's agent under the card's name (sidebar.set).
 //
 // It reads ~/.kanban-code/links.json, and changes cards only through the
 // kanban CLI, which asks the running app to: the app owns the file.
@@ -99,6 +101,7 @@ func handle(ctx context.Context, method string, params json.RawMessage) (any, er
 		data = in.DataDir
 		load()
 		go follow()
+		go showBoard()
 		return map[string]any{}, nil
 	case "tools.list":
 		return map[string]any{"tools": tools}, nil
@@ -465,7 +468,7 @@ func schema(props map[string]string, required ...string) map[string]any {
 }
 
 var tools = []map[string]any{
-	{"name": "board", "description": "The kanban-code board: every card by column (In progress, Waiting, In review, Backlog, Done), with its id, branch and PR status.",
+	{"name": "board", "description": "The kanban-code board: every card by column (In Progress, Waiting, In Review, Backlog, Done), with its id, branch and PR status.",
 		"inputSchema": schema(map[string]string{"column": "Only this column: in_progress, requires_attention, in_review, backlog or done."})},
 	{"name": "my_card", "description": "The kanban-code card you're working on: its task or issue, its worktree, and its PRs with their status, failing checks and unresolved review threads.",
 		"inputSchema": schema(map[string]string{})},
