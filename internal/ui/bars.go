@@ -181,12 +181,20 @@ var agentSegs = []barSeg{
 		}
 		return dim(dur(time.Since(ts[0].Start).Round(time.Minute)))
 	}},
-	{"cache", "Prompt cache", "while the cache is warm, until when: a message after that re-reads everything", func(x *barCtx) string {
-		w := x.c.sess.Info.CacheWarm
-		if w.IsZero() || time.Now().After(w) {
+	{"cache", "Prompt cache", "whether the cache is warm, and for how long: a message after that re-reads everything", func(x *barCtx) string {
+		at, cold := x.c.sess.CacheCold(time.Now())
+		switch {
+		case at.IsZero():
 			return ""
+		case cold:
+			return paint(cYellow, "cache cold") + dim(" "+dur(time.Since(at))+" ago")
 		}
-		return dim("warm till ") + paint(cGreen, w.Local().Format("15:04"))
+		left := time.Until(at)
+		col := cGreen
+		if left < 10*time.Minute {
+			col = cYellow
+		}
+		return dim("warm till ") + paint(col, at.Local().Format("15:04")) + dim(" · "+dur(left)+" left")
 	}},
 	{"queue", "Queue", "messages waiting for the turn to end", func(x *barCtx) string {
 		if n := len(x.c.sess.Info.Queue); n > 0 {
