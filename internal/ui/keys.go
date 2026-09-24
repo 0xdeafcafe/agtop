@@ -23,6 +23,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	s := k.String()
 	m.hover = "" // the keyboard takes over from the mouse
 	m.lastKeyAt = time.Now()
+	if cmd, ok := m.barToggle(s); ok {
+		return cmd
+	}
+	if m.bar != nil && s != "ctrl+q" {
+		return m.barKey(k, s)
+	}
 	if m.embedded {
 		return m.embedKey(k)
 	}
@@ -95,7 +101,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	// In Agents tab goes between the list and the Session, unless a
 	// command is being typed: then it completes it.
 	if s == "tab" && m.mode == modeList && m.dialog == nil {
-		if c := m.host; m.paneFocus && c != nil && !c.searching {
+		if c := m.host; m.paneFocus && c != nil {
 			if cmd, used := m.slashKey(c, s); used {
 				return cmd
 			}
@@ -373,12 +379,6 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.preview = true
 			return nil
 		}
-	case "ctrl+f":
-		// Open a Claude Code agent full screen (Claude Code's own view).
-		if a != nil && !a.Agtop && !a.Interactive {
-			return m.attach(a)
-		}
-		return nil
 	case "ctrl+n":
 		return m.nextNeedingYou()
 	case "alt+left", "alt+right":

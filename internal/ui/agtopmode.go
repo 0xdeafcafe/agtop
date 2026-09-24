@@ -603,6 +603,12 @@ type hostConn struct {
 	// rowRefs is what each drawn row of the pane belongs to, for clicks.
 	selMoved bool
 	rowRefs  []string
+	// top is the row at the top of the window when scrolled up, so output
+	// arriving below (a replay, an agent at work) doesn't carry you down.
+	top struct {
+		ref, view   string
+		off, scroll int
+	}
 	bodyRefs []string // every selectable row of the current view, in order
 	// Text dragged over with the mouse. rowBody is which row of shown each
 	// drawn row of the pane is (-1 for the header, pill and dock), and
@@ -627,9 +633,6 @@ type hostConn struct {
 	subList    convo.Subagents // finds the runs, reading each one's meta once
 	subSel     string          // selection inside the opened subagent
 
-	// Search: ctrl+f turns the message box into a search box.
-	searching bool
-	query     []rune
 }
 
 type hostOpenMsg struct {
@@ -913,16 +916,12 @@ func (m *Model) agtopPane(w, h int) []string {
 		Selected: c.sel, Focused: m.paneFocus}
 	var body []convo.Line
 	view := m.viewName(c)
-	if c.searching {
-		view = "search"
-		body = s.SearchView(string(c.query), o)
-	}
 	if m.zen {
 		view = "zen"
 		body = m.zenBody(a, c, w)
 	}
 	switch view {
-	case "search", "zen":
+	case "zen":
 	case "screen":
 		for _, l := range m.liveLines(w) {
 			body = append(body, convo.Line{Text: l})
@@ -970,6 +969,17 @@ func (m *Model) agtopPane(w, h int) []string {
 		}
 		prev = l.Ref
 	}
+	// Scrolled up and not moved since the last draw: keep the same row at
+	// the top, whatever was added below or above it.
+	if t := c.top; c.scroll > 0 && c.scroll == t.scroll && t.view == view && t.ref != "" && !c.selMoved {
+		for i, l := range body {
+			if l.Ref == t.ref {
+				rows := bodyH - 1 // scrolled up, the pill takes a row
+				c.scroll = len(body) - (i + t.off + rows)
+				break
+			}
+		}
+	}
 	if c.selMoved && c.sel != "" {
 		c.selMoved = false
 		for i, l := range body {
@@ -998,10 +1008,25 @@ func (m *Model) agtopPane(w, h int) []string {
 	// A turn's heading (your message) can take several rows. A window
 	// starting inside one shows it from its first row instead of cutting
 	// its top off.
-	if m.viewName(c) == "conversation" && start > 0 && !c.searching && isTurnRef(body[start].Ref) {
+	if m.viewName(c) == "conversation" && start > 0 && isTurnRef(body[start].Ref) {
 		f := headingStart(body, start)
 		if f < start && start-f <= rows/2 {
 			start, end = f, min(len(body), f+rows)
+		}
+	}
+	c.top.ref, c.top.view, c.top.scroll = "", view, c.scroll
+	if c.scroll > 0 {
+		// The first row shown that belongs to something, and how far the
+		// window's top (before a heading moved it) is from that thing's
+		// first row.
+		for i := start; i < end && c.top.ref == ""; i++ {
+			c.top.ref = body[i].Ref
+		}
+		for i, l := range body {
+			if c.top.ref != "" && l.Ref == c.top.ref {
+				c.top.off = len(body) - c.scroll - rows - i
+				break
+			}
 		}
 	}
 	out := append([]string{}, head...)
@@ -1021,7 +1046,7 @@ func (m *Model) agtopPane(w, h int) []string {
 	}
 	// Scrolled into a turn whose heading is off the top: pin the heading
 	// there, so you always know whose turn you're reading.
-	if m.viewName(c) == "conversation" && start > 0 && end > start && !c.searching {
+	if m.viewName(c) == "conversation" && start > 0 && end > start {
 		for i := start; i >= 0; i-- {
 			if r := body[i].Ref; isTurnRef(r) {
 				if i < start && !isTurnRef(body[start].Ref) {
@@ -1346,10 +1371,6 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	b := box{w: w, focused: typing, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back), anchor: c.anchor - 1,
 		lead: paint(cOrange, "❯ "), holder: "a message for this agent", maxRows: 6}
-	if c.searching {
-		b = box{w: w, focused: m.paneFocus, topL: paint(cOrange, "search this session") + dim(" · ↑↓ pick · enter jumps · esc closes"),
-			text: c.query, cursor: len(c.query), lead: paint(cOrange, "⌕ "), holder: "words, or is:failed file:host.go turn:3", maxRows: 1}
-	}
 	if mode := s.Info.PermissionMode; mode != "" {
 		b.topR = paint(cOrange, mode)
 	}
@@ -1362,7 +1383,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
-	hint := keysFit(w-4, "enter", "send", "esc · ←", "back to the list", "↑↓", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
+	hint := keysFit(w-4, "enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list", "↑↓", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
 	if c.sel != "" {
 		hint = keysFit(w-4, "enter · space", "open or close", "↑↓", "pick a step", "esc", "done picking", "ctrl+o", "show all")
 		if strings.HasPrefix(c.sel, "run:") {
@@ -1458,13 +1479,6 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	c := m.host
 	if c == nil {
 		m.paneFocus = false
-		return nil
-	}
-	if c.searching {
-		return m.searchKey(c, k, s)
-	}
-	if s == "ctrl+f" && !m.zen { // zen draws only the agent's card, not results
-		c.searching, c.query, c.sel = true, nil, ""
 		return nil
 	}
 	empty := len(c.input) == 0
@@ -2454,42 +2468,6 @@ func answerInput(req *headless.PermissionRequest, qs []question, answers map[str
 func shownAnswer(a string) string {
 	l, _ := optionLabel(a)
 	return oneLine(l)
-}
-
-// searchKey handles keys while the message box is a search box.
-func (m *Model) searchKey(c *hostConn, k tea.KeyPressMsg, s string) tea.Cmd {
-	switch s {
-	case "esc", "ctrl+f":
-		c.searching, c.query, c.sel = false, nil, ""
-		return nil
-	case "up", "down":
-		m.moveSel(c, map[string]int{"up": -1, "down": 1}[s])
-		return nil
-	case "enter":
-		if c.sel == "" && len(c.bodyRefs) > 0 {
-			c.sel = c.bodyRefs[0]
-		}
-		if c.sel == "" {
-			return nil
-		}
-		// Jump: back to the conversation with the match's turn opened and
-		// the match selected.
-		turn, _, isStep := strings.Cut(c.sel, ":")
-		c.open[turn] = true
-		if isStep {
-			c.open[c.sel] = true
-			if p := c.sess.ParentRef(c.sel); p != "" {
-				c.open[p] = true // a subagent's step shows under its opened parent
-			}
-		}
-		c.view, c.searching, c.query, c.selMoved = 0, false, nil, true
-		return nil
-	}
-	buf, _, ok := edit(c.query, len(c.query), k, s)
-	if ok && !strings.Contains(string(buf), "\n") {
-		c.query, c.sel = buf, ""
-	}
-	return nil
 }
 
 // cardKind is the card waiting in the dock, if any.

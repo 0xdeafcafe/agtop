@@ -161,6 +161,12 @@ type Model struct {
 	clean     cleanup      // the Cleanup view's worktrees, and the tidy-up
 	reaper    fleet.Reaper // ends what agents leave running when they stop
 	squeezing bool         // transcripts are being compressed in the background
+
+	bar     *cmdBar  // the command bar, while it's open
+	barBack *spot    // where the bar last jumped from
+	jump    *barJump // a jump into a conversation that's still opening
+	// groupOf is the list section each agent is in, folded or not.
+	groupOf map[string]string
 }
 
 type previewEntry struct {
@@ -429,6 +435,7 @@ func (m *Model) flash(s string, err bool) {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := m.update(msg)
+	m.applyJump()
 	var copyCmd tea.Cmd
 	if m.pendingCopy != "" {
 		copyCmd, m.pendingCopy = tea.SetClipboard(m.pendingCopy), ""
@@ -437,6 +444,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, ok := m.barMsg(msg); ok {
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case liveOpenMsg:
 		return m, m.onLiveOpen(msg)
@@ -1070,6 +1080,10 @@ func (m *Model) rebuild() {
 	}
 	m.order = m.order[:0]
 	m.lines = m.lines[:0]
+	clear(m.groupOf)
+	if m.groupOf == nil {
+		m.groupOf = map[string]string{}
+	}
 	for _, g := range list {
 		var cost float64
 		var names []string
@@ -1101,6 +1115,7 @@ func (m *Model) rebuild() {
 			folded: fold, peek: strings.Join(names, ", ")})
 		for _, a := range g.agents {
 			m.order = append(m.order, a)
+			m.groupOf[a.Key] = g.name
 			if fold {
 				continue
 			}

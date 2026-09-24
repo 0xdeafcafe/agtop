@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
@@ -117,5 +119,42 @@ func TestOneLineShortcut(t *testing.T) {
 		if got := oneLine(s); got != want {
 			t.Errorf("oneLine(%q) = %q, want %q", s, got, want)
 		}
+	}
+}
+
+// Scrolled up to something (a search's match, say), output arriving
+// below keeps it where it is: a replay still coming in or an agent at work
+// doesn't carry the window down to the end.
+func TestScrolledUpStays(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	c := m.host
+	m.jumpInPane("t5")
+	m.View()
+	shows := func() bool {
+		for _, r := range c.rowRefs {
+			if r == "t5" {
+				return true
+			}
+		}
+		return false
+	}
+	if !shows() {
+		t.Fatal("the jump should show turn 5")
+	}
+	top := append([]string{}, c.rowRefs...)
+	for i := 0; i < 20; i++ {
+		c.sess.Apply(host.Sent{Text: fmt.Sprintf("more %d", i)}, time.Now())
+		c.sess.Apply(headless.Message{Role: "assistant", ID: fmt.Sprintf("x%d", i), Blocks: []headless.Block{{Type: "text", Text: "and more"}}}, time.Now())
+		c.sess.Apply(headless.Result{Subtype: "success"}, time.Now())
+		m.View()
+	}
+	if !shows() || fmt.Sprint(c.rowRefs) != fmt.Sprint(top) {
+		t.Fatalf("the window moved:\n%v\n%v", top, c.rowRefs)
+	}
+	// Scrolling yourself still moves it.
+	c.scroll += 5
+	m.View()
+	if fmt.Sprint(c.rowRefs) == fmt.Sprint(top) {
+		t.Fatal("a scroll should move the window")
 	}
 }

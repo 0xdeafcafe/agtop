@@ -288,6 +288,13 @@ func (m *Model) render() string {
 	if m.w == 0 {
 		return ""
 	}
+	if m.bar != nil {
+		return m.overlayBar(m.renderScreen())
+	}
+	return m.renderScreen()
+}
+
+func (m *Model) renderScreen() string {
 	switch m.mode {
 	case modeHelp:
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 124))
@@ -1365,9 +1372,9 @@ func (m *Model) promptLines(w int) []string {
 	case len(m.input) > 0:
 		hint = keysFit(w-4, "enter", "start it", "ctrl+l", "folder", "esc", "clear", "?", "all keys")
 	case a != nil && a.Agtop:
-		hint = keysFit(w-4, "enter", "talk to it", "ctrl+n", "next needing you", "tab", "its Session", "?", "all keys")
+		hint = keysFit(w-4, "enter", "talk to it", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "tab", "its Session", "?", "all keys")
 	default:
-		hint = keysFit(w-4, "enter", "open", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session", "?", "all keys")
+		hint = keysFit(w-4, "enter", "open", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session", "?", "all keys")
 	}
 	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil {
 		hint = strings.TrimRight(m.statusOr(""), " ") // it pads to the screen, not this box
