@@ -586,6 +586,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fxTickMsg:
 		return m, m.onFXTick()
 	case hoverMsg:
+		// A row the mouse has rested on is selected, as a click would, so
+		// moving over to its Session doesn't take it back.
+		if m.hover == "" || m.hover == m.sel || time.Since(m.hoverAt) < 350*time.Millisecond ||
+			m.mode != modeList || m.dialog != nil || m.picker != nil {
+			return m, nil
+		}
+		m.sel, m.armed = m.hover, ""
 		return m, m.loadPreview()
 	case previewMsg:
 		m.previews[msg.key] = msg.e
@@ -830,7 +837,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// viewNames are the places at the top: < and > move between them, and tab
+// viewNames are the places at the top: ctrl+\ moves between them, and tab
 // moves within one (the list and its Session, or a place's pages).
 var viewNames = []string{"Agents", "Machine", "Settings"}
 
@@ -1023,15 +1030,10 @@ func (m *Model) toggleFold(title string) {
 	m.rebuild()
 }
 
-// focused is the agent whose card is open: the selection, or a row the
-// mouse has rested on.
+// focused is the agent whose card is open: the selection.
 func (m *Model) focused() *fleet.Agent {
-	key := m.sel
-	if m.hover != "" && time.Since(m.hoverAt) > 350*time.Millisecond {
-		key = m.hover
-	}
 	for _, a := range m.order {
-		if a.Key == key {
+		if a.Key == m.sel {
 			return a
 		}
 	}
@@ -1130,21 +1132,25 @@ func (m *Model) rebuild() {
 		}
 		fold := m.folded(g.name)
 		meta := sectionMeta(len(g.agents), cost)
-		var temp int64
-		for _, a := range g.agents {
-			if a.PID == 0 {
-				temp += a.Temp
+		// One extra figure at most, and only one you can act on: temp work
+		// where /clean all reaches it, memory where agents rest.
+		switch g.name {
+		case "Done", "Earlier":
+			var temp int64
+			for _, a := range g.agents {
+				if a.PID == 0 {
+					temp += a.Temp
+				}
 			}
-		}
-		if temp >= tempShown {
-			meta += " · " + disk(temp) + " tmp"
-		}
-		if g.name == "Idle" {
+			if temp >= tempShown {
+				meta += " · " + disk(temp) + " tmp"
+			}
+		case "Idle":
 			var held uint64
 			for _, a := range g.agents {
 				held += a.Mem
 			}
-			meta = fmt.Sprintf("%d · %s held in memory", len(g.agents), mem(held))
+			meta += " · " + mem(held) + " ram"
 		}
 		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: meta,
 			folded: fold, peek: strings.Join(names, ", ")})
@@ -1295,6 +1301,17 @@ func (m *Model) togglePin(a *fleet.Agent) tea.Cmd {
 }
 
 func (m *Model) toggleDone(a *fleet.Agent) {
+	// The selection stays in the group the agent leaves: the row below it,
+	// or above if it was the last.
+	next, from := "", m.sectionOf(a.Key)
+	if m.sel == a.Key {
+		next = m.neighbour(a.Key)
+	}
+	defer func() {
+		if next != "" && m.sectionOf(a.Key) != from && m.sectionOf(next) == from {
+			m.sel = next
+		}
+	}()
 	if _, ok := m.store.Overlay.Done[a.Key]; ok {
 		delete(m.store.Overlay.Done, a.Key)
 		m.flash("moved back: "+a.DisplayName, false)
@@ -1304,6 +1321,36 @@ func (m *Model) toggleDone(a *fleet.Agent) {
 	}
 	_ = m.store.SaveOverlay()
 	m.refresh()
+}
+
+// neighbour is the agent row after key in its section, or the one before
+// when key is the last; "" when it's alone there.
+func (m *Model) neighbour(key string) string {
+	var rows []string
+	i := -1
+	for _, l := range m.lines {
+		if l.kind == lineSection {
+			if i >= 0 {
+				break
+			}
+			rows = rows[:0]
+		}
+		if l.kind == lineAgent {
+			if l.agent.Key == key {
+				i = len(rows)
+			}
+			rows = append(rows, l.agent.Key)
+		}
+	}
+	switch {
+	case i < 0:
+		return ""
+	case i+1 < len(rows):
+		return rows[i+1]
+	case i > 0:
+		return rows[i-1]
+	}
+	return ""
 }
 
 func (m *Model) nativeView() tea.Cmd {

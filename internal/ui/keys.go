@@ -355,6 +355,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	case "ctrl+x":
 		return m.stopOrRemove(a)
+	case "alt+d":
+		// Done with it: to Done, its idle process stopped.
+		return m.markDone(a)
 	case "shift+up", "shift+down":
 		n := m.dockLines()
 		if s == "shift+up" {

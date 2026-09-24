@@ -9,6 +9,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -92,11 +95,20 @@ func TestTranscriptWatch(t *testing.T) {
 // must match what's drawn.
 func TestLayoutHeights(t *testing.T) {
 	m, _ := benchModel(200, 50)
-	if len(m.header()) != headH {
-		t.Fatalf("header is %d lines, headH says %d", len(m.header()), headH)
+	for _, w := range []int{200, 46} {
+		m.w = w
+		if len(m.header()) != m.headH() {
+			t.Fatalf("at %d columns the header is %d lines, headH says %d", w, len(m.header()), m.headH())
+		}
+		for i, l := range m.header() {
+			if w < narrowHead && cellw.String(l) > w {
+				t.Errorf("at %d columns header line %d is %d wide: %q", w, i, cellw.String(l), ansi.Strip(l))
+			}
+		}
 	}
+	m.w = 200
 	for _, w := range []int{0, 10, 40, 120} {
-		for _, in := range []string{"", "short", strings.Repeat("a long message that wraps ", 40)} {
+		for _, in := range []string{"", "short", "/s", "/sort ", strings.Repeat("a long message that wraps ", 40)} {
 			for _, focus := range []bool{false, true} {
 				for _, imgs := range [][]string{nil, {"/tmp/a.png"}} {
 					m.input, m.paneFocus, m.images = []rune(in), focus, imgs

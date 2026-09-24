@@ -14,6 +14,9 @@ import (
 // tempShown is the least temp work worth pointing out.
 const tempShown = 1 << 20
 
+// tempLoud is temp work big enough to point out in yellow.
+const tempLoud = 1 << 30
+
 // tempMsg brings temp-work sizes measured in the background.
 type tempMsg map[string]fleet.TempSize
 
@@ -76,19 +79,6 @@ func disk(n int64) string {
 		return fmt.Sprintf("%dK", n>>10)
 	}
 	return "–"
-}
-
-// tempCell is a finished agent's temp work, for the row's resource columns
-// that it no longer uses: nothing below a megabyte, loud from a gigabyte.
-func tempCell(a *fleet.Agent, w int) string {
-	if a.Temp < tempShown || w < 7 {
-		return blanks(w)
-	}
-	v := right1("tmp "+disk(a.Temp), w)
-	if a.Temp >= 1<<30 {
-		return paint(cYellow, v)
-	}
-	return dim(v)
 }
 
 // askClean asks before deleting an agent's temp work.
@@ -181,8 +171,8 @@ func (m *Model) onCleaned(msg cleanedMsg) {
 }
 
 // markDone moves an agent to Done, or back. Done work shouldn't hold memory,
-// so an idle process of its goes too (a message resumes it); one still
-// working is only stopped if you say so, and temp work can go with it.
+// so an idle process of its goes too (a message resumes it); only one still
+// working asks first. Temp work stays; /clean is for that.
 func (m *Model) markDone(a *fleet.Agent) tea.Cmd {
 	if a == nil {
 		m.flash("select an agent first", true)
@@ -192,11 +182,13 @@ func (m *Model) markDone(a *fleet.Agent) tea.Cmd {
 		m.toggleDone(a)
 		return nil
 	}
-	stop := func() tea.Cmd {
+	done := func() tea.Cmd {
+		m.toggleDone(a)
 		switch {
 		case a.PID == 0 || a.Interactive:
 			return nil // nothing resident, or it's open in a terminal: leave it be
 		case a.Agtop:
+			m.flash("done: "+a.DisplayName+" · its process stopped, a message resumes it", false)
 			id := a.ID
 			return cmdErr("", func() error {
 				c, err := host.Dial(id)
@@ -207,40 +199,17 @@ func (m *Model) markDone(a *fleet.Agent) tea.Cmd {
 				return c.Stop()
 			})
 		}
+		m.flash("done: "+a.DisplayName+" · its process stopped, a message resumes it", false)
 		return cmdErr("", func() error { return actions.Stop(a.Acct, a.ID, a.PID) })
 	}
-	done := func(clean bool) tea.Cmd {
-		m.toggleDone(a)
-		cmd := stop()
-		if a.PID != 0 && !a.Interactive {
-			m.flash("done: "+a.DisplayName+" · its process stopped, a message resumes it", false)
-		}
-		if !clean {
-			return cmd
-		}
-		b := *a
-		b.PID = 0 // stopping; its temp work goes once it has
-		return tea.Sequence(cmd, func() tea.Msg { time.Sleep(time.Second); return nil }, m.cleanTemp([]*fleet.Agent{&b}))
+	if !a.Live() && !a.Busy() {
+		return done()
 	}
-	busy := a.Live() || a.Busy()
-	if !busy && a.Temp < tempShown {
-		return done(false)
-	}
-	c := &confirmation{question: "Mark " + a.DisplayName + " done?", onYes: func() tea.Cmd { return done(false) }}
-	switch {
-	case busy && a.Interactive:
+	c := &confirmation{question: "Mark " + a.DisplayName + " done?", onYes: done}
+	if a.Interactive {
 		c.detail = "it's still working, in its terminal; it keeps going there"
-	case busy:
+	} else {
 		c.detail = "it's still working · y stops it"
-	case a.PID != 0 && !a.Interactive:
-		c.detail = "stops its idle process; a message resumes it"
-	}
-	if a.Temp >= tempShown && !a.Interactive {
-		c.bangText = "also delete its " + disk(a.Temp) + " of temp work"
-		c.onBang = func() tea.Cmd { return done(true) }
-		if c.detail == "" {
-			c.detail = disk(a.Temp) + " of temp work stays unless you choose !"
-		}
 	}
 	m.confirm = c
 	return nil

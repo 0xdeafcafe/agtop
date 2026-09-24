@@ -93,34 +93,23 @@ var (
 	mdPlainNoUnder = strings.NewReplacer("**", "", "`", "")
 )
 
-// headH is the header's height: clanker's.
-const headH = 4
-
-// pages are the pages of the place you're in, the one showing bright; tab
-// goes through them. In Agents it says whether Zen is on.
-func (m *Model) pages() string {
-	var names []string
-	cur := 0
-	switch {
-	case m.dialog != nil:
-		names, cur = tabNames, m.dialog.tab
-	case m.mode == modeProcs || m.mode == modeCleanup:
-		names, cur = machinePages, m.machinePage
-	case m.zen:
-		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
-	default:
-		return faint("   ctrl+z zen")
+// headH is the header's height: clanker's, or three lines when the screen
+// is too narrow for him beside the text.
+func (m *Model) headH() int {
+	if m.w < narrowHead {
+		return 3
 	}
-	out := make([]string, len(names))
-	for i, n := range names {
-		if i == cur {
-			out[i] = paint(cText+bold, n)
-		} else {
-			out[i] = dim(n)
-		}
-	}
-	return "   " + strings.Join(out, dim(" · ")) + faint("  tab")
+	return 4
 }
+
+// topH is the rows above the body: the header and the row under it.
+func (m *Model) topH() int {
+	return m.headH() + 1
+}
+
+// narrowHead is the width below which the header drops clanker's body for
+// his face and keeps its lines whole.
+const narrowHead = 60
 
 func (m *Model) header() []string {
 	t := m.tally()
@@ -144,6 +133,12 @@ func (m *Model) header() []string {
 
 	acct := m.store.Config.ActiveAccount()
 	left2 := dim(acct.Name + " · " + tildify(m.launchDir))
+	if m.w < narrowHead {
+		// Only his face fits, so it's always him, never the monogram.
+		var g clkGrid
+		g.sprite(m.clkState(md, t))
+		return m.narrowHeader(g.lines(), counts, acct.Name)
+	}
 
 	right1 := paint(cText, money(t.today)) + dim(" today")
 	if u := m.activeUsage(); u != "" {
@@ -174,6 +169,37 @@ func (m *Model) header() []string {
 	// Text sits level with the head and face; the view strip on the legs.
 	out[1] = line(robot[1], left1, right1)
 	out[2] = line(robot[2], left2, right2)
+	out[3] = "  " + robot[3] + "   " + strings.Join(m.tabs(), " ") + m.pages() + faint("   < >")
+	return out
+}
+
+// pages are the pages of the place you're in, the one showing bright; tab
+// goes through them. In Agents it says whether Zen is on.
+func (m *Model) pages() string {
+	var names []string
+	cur := 0
+	switch {
+	case m.dialog != nil:
+		names, cur = tabNames, m.dialog.tab
+	case m.mode == modeProcs || m.mode == modeCleanup:
+		names, cur = machinePages, m.machinePage
+	case m.zen:
+		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
+	default:
+		return faint("   ctrl+z zen")
+	}
+	out := make([]string, len(names))
+	for i, n := range names {
+		if i == cur {
+			out[i] = paint(cText+bold, n)
+		} else {
+			out[i] = dim(n)
+		}
+	}
+	return "   " + strings.Join(out, dim(" · ")) + faint("  tab")
+}
+
+func (m *Model) tabs() []string {
 	var tabs []string
 	for i, v := range viewNames {
 		if i == m.view {
@@ -182,8 +208,64 @@ func (m *Model) header() []string {
 			tabs = append(tabs, tabOff+" "+v+" "+reset)
 		}
 	}
-	out[3] = "  " + robot[3] + "   " + strings.Join(tabs, " ") + m.pages() + faint("   < >")
-	return out
+	return tabs
+}
+
+// narrowHeader is the header on a narrow screen: clanker's face instead of
+// all of him, the folder shortened from the left, and as many tabs as fit
+// around the current one, so no line is cut off.
+func (m *Model) narrowHeader(robot, counts []string, acct string) []string {
+	face := robot[clkFace] // his eyes and brow
+	indent := strings.Repeat(" ", cellw.String(face)+3)
+	// Whole counts or none: the last ones (finished, orphans) go first.
+	title := paint(cText+bold, "agtop")
+	for n := len(counts); n >= 0; n-- {
+		t := strings.Join(append([]string{paint(cText+bold, "agtop")}, counts[:n]...), "  ")
+		if cellw.String(t) <= m.w-cellw.String(face)-4 || n == 0 {
+			title = t
+			break
+		}
+	}
+	out := []string{
+		"  " + face + "  " + fit(title, m.w-cellw.String(face)-4),
+		"  " + indent + dim(acct+" · "+shortPath(tildify(m.launchDir), m.w-cellw.String(indent)-len(acct)-5)),
+	}
+	tabs := m.tabs()
+	room := m.w - cellw.String(indent) - 4
+	width := func(ts []string) int { return cellw.String(strings.Join(ts, " ")) }
+	start := 0
+	for start < m.view && width(tabs[start:m.view+1]) > room-2 {
+		start++
+	}
+	end := m.view + 1
+	for end < len(tabs) && width(tabs[start:end+1]) <= room-2 {
+		end++
+	}
+	line := strings.Join(tabs[start:end], " ")
+	if start > 0 {
+		line = faint("‹ ") + line
+	}
+	if end < len(tabs) {
+		line += faint(" ›")
+	}
+	return append(out, "  "+indent+line)
+}
+
+// shortPath keeps a path's last folders, as many as fit in w.
+func shortPath(p string, w int) string {
+	if cellw.String(p) <= w {
+		return p
+	}
+	parts := strings.Split(p, "/")
+	s := parts[len(parts)-1]
+	for i := len(parts) - 2; i >= 0; i-- {
+		next := parts[i] + "/" + s
+		if cellw.String(next)+2 > w {
+			break
+		}
+		s = next
+	}
+	return fit("…/"+s, w)
 }
 
 // resetIn says when a usage window resets: the clock time and how long
@@ -424,7 +506,7 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 	if listW > 0 && paneW > maxPane+minRail && m.host != nil && !m.zenFull() {
 		m.railW = paneW - maxPane - 1
 	}
-	bodyH = max(3, m.h-headH-1-m.promptH(m.promptW(listW, paneW)))
+	bodyH = max(3, m.h-m.topH()-m.promptH(m.promptW(listW, paneW)))
 	return listW, paneW, bodyH
 }
 
@@ -490,7 +572,7 @@ func (m *Model) paneH() int {
 }
 
 func (m *Model) listView() string {
-	head := m.header()
+	head := append(m.header(), "")
 	listW, paneW, bodyH := m.layout()
 	var dock []string
 	if paneW == 0 && m.h >= 20+m.dockLines() {
@@ -515,7 +597,7 @@ func (m *Model) listView() string {
 		dock = nil // the list needs a few rows more than the dock does
 	}
 	bodyH = max(3, bodyH-len(dock))
-	m.listTop = len(head) + 1
+	m.listTop = len(head)
 	m.rowKeys = nil
 	var left []string
 	m.listW = listW
@@ -546,12 +628,11 @@ func (m *Model) listView() string {
 	}
 	var b strings.Builder
 	b.Grow(m.frameLen + m.frameLen/8)
-	m.paneTop = len(head) + 1
+	m.paneTop = len(head)
 	for _, l := range head {
 		fitTo(&b, l, m.w, "")
 		b.WriteByte('\n')
 	}
-	b.WriteByte('\n')
 	// Rows beside each other: the side without the keys fades back.
 	listFade, paneFade := "", ""
 	if m.twoSided() {
@@ -596,7 +677,7 @@ func (m *Model) listView() string {
 		fitTo(&b, l, m.w, "")
 		b.WriteByte('\n')
 	}
-	m.promptBoxY = len(head) + 1 + bodyH + len(dock) + m.promptBoxIdx
+	m.promptBoxY = len(head) + bodyH + len(dock) + m.promptBoxIdx
 	for i, l := range prompt {
 		if split {
 			p := ""
@@ -716,7 +797,9 @@ const (
 
 func (m *Model) listLines(w, h int) []string {
 	nameCol := m.nameColumn(w)
+	two := stacked(w, nameCol)
 	var all, keys []string
+	var cont []bool // a stacked row's second line, which the list never starts on
 	selTop, selBottom := -1, -1
 	emit := func(line, key string, sel bool) {
 		if sel {
@@ -730,6 +813,7 @@ func (m *Model) listLines(w, h int) []string {
 		}
 		all = append(all, line)
 		keys = append(keys, key)
+		cont = append(cont, false)
 	}
 	for _, l := range m.lines {
 		switch l.kind {
@@ -739,16 +823,27 @@ func (m *Model) listLines(w, h int) []string {
 		case lineBlank:
 			emit("", "", false)
 		case lineAgent:
-			emit(m.agentLine(l.agent, w, l.agent.Key == m.sel, nameCol), l.agent.Key, l.agent.Key == m.sel)
+			sel := l.agent.Key == m.sel
+			emit(m.agentLine(l.agent, w, sel, nameCol, two), l.agent.Key, sel)
+			if two {
+				emit(m.agentSub(l.agent, w), l.agent.Key, sel)
+				cont[len(cont)-1] = true
+			}
 		}
 	}
 	if len(m.order) == 0 {
 		all = append(all, "", dim("  No agents yet. Describe a task below to start one."))
 		keys = append(keys, "", "")
+		cont = append(cont, false, false)
 	}
+	// Scrolling up shows the whole row above; down and to the end, a row
+	// cut in half at the top gives up its second line instead.
 	if selTop >= 0 {
 		if selTop-1 < m.scroll {
 			m.scroll = max(0, selTop-1)
+			if cont[m.scroll] {
+				m.scroll--
+			}
 		}
 		if selBottom+1 >= m.scroll+h {
 			m.scroll = selBottom + 2 - h
@@ -756,6 +851,9 @@ func (m *Model) listLines(w, h int) []string {
 	}
 	if m.scroll > len(all)-h {
 		m.scroll = max(0, len(all)-h)
+	}
+	if m.scroll < len(cont) && cont[m.scroll] {
+		m.scroll++
 	}
 	end := min(len(all), m.scroll+h)
 	out := append([]string(nil), all[m.scroll:end]...)
@@ -792,7 +890,7 @@ func (m *Model) sectionLine(l listLine, w int) string {
 	if l.folded {
 		head := arrow + paint(cSub+bold, l.title) + "  " + dim(meta)
 		room := w - cellw.String(head) - 6
-		if room > 10 && l.peek != "" {
+		if room >= 20 && l.peek != "" { // less is a word or two cut off
 			head += "   " + faint(fit(l.peek, room))
 		}
 		return "  " + head
@@ -938,7 +1036,7 @@ func (m *Model) columnHeader(w int) string {
 		if mode == sortBy {
 			return paint(cSub+bold, s)
 		}
-		return faint(s)
+		return dim(s)
 	}
 	name := label("AGENTS", "name")
 	left := "   " + fit(name, nameCol+2)
@@ -948,14 +1046,16 @@ func (m *Model) columnHeader(w int) string {
 	if sortBy == "name" {
 		left = "   " + paint(cSub+bold, fit(name, nameCol+2))
 	} else {
-		left = faint(left)
+		left = dim(left)
 	}
-	left += faint("LATEST")
+	if !stacked(w, nameCol) {
+		left += dim("LATEST")
+	}
 	if sortBy == "recent" {
 		left += paint(cSub+bold, " · by recent activity")
 	}
 	rightW := wAct + wCPU + wRAM + wCost + wAge + 3
-	cols := faint(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("COST", "cost", wCost) + col("TIME", "time", wAge+2) + " "
+	cols := dim(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("COST", "cost", wCost) + col("TIME", "time", wAge+2) + " "
 	gap := w - cellw.String(left) - rightW
 	if gap < 1 {
 		return fit(left, w)
@@ -1010,8 +1110,31 @@ func (m *Model) nameColumn(w int) int {
 	return max(20, min(widest, (w-30)*2/5))
 }
 
-// agentLine is the first line of a row: marker, name, badges, figures.
-func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
+// stacked is when the list is too narrow for a readable summary beside each
+// name: rows take two lines then, the summary hung under the name.
+func stacked(w, nameCol int) bool {
+	act, cpu, ram, cost := colWidths(w)
+	return w-3-(act+cpu+ram+cost+wAge+3)-nameCol-2 < 20
+}
+
+// agentSub is a stacked row's second line: its summary, or where it works
+// when it has nothing to say, hung from the name above so the two read as one.
+func (m *Model) agentSub(a *fleet.Agent, w int) string {
+	summary, col, justDone := m.rowSummary(a)
+	room := w - 6
+	text := paint(col, fit(summary, room))
+	switch {
+	case justDone:
+		text = paint(cGreen, "just finished") + faint(" · ") + paint(col, fit(summary, room-16))
+	case summary == "":
+		text = faint(fit(m.context(a), room))
+	}
+	return "   " + faint("╰ ") + text
+}
+
+// agentLine is the first line of a row: marker, name, badges, figures, and
+// the summary too unless the row is stacked.
+func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked bool) string {
 	wAct, wCPU, wRAM, wCost := colWidths(w)
 	now := m.snap.At
 	live := a.Live()
@@ -1033,7 +1156,9 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 	case a.Done:
 		marker = paint(cGreen, "✓")
 	case a.PID != 0:
-		marker = faint("◦")
+		marker = dim("◦")
+	default:
+		marker = faint("·") // stopped: every row has a marker, so none reads as missing
 	}
 
 	busy := a.Busy()
@@ -1065,45 +1190,70 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 		case a.Mem >= 4<<30:
 			return paint(cYellow, v)
 		case active:
-			return paint(cSub, v)
-		default:
 			return dim(v)
+		default:
+			return faint(v)
 		}
 	}
 	var right string
 	switch {
 	case live || busy:
-		right = act + cpuCell() + ramCell(true) + paint(cText, right1(money(a.Spend.Cost), wCost))
+		right = act + cpuCell() + ramCell(true) + costCell(a.Spend.Cost, wCost)
 	case resident:
-		right = act + faint(right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)) + ramCell(false) + dim(right1(money(a.Spend.Cost), wCost))
+		right = act + faint(right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)) + ramCell(false) + faint(right1(money(a.Spend.Cost), wCost))
 	default:
 		cost := money(a.Spend.Cost)
 		if cost == "–" {
 			cost = ""
 		}
-		right = act + tempCell(a, wCPU+wRAM) + dim(right1(cost, wCost))
+		right = act + blanks(wCPU+wRAM) + faint(right1(cost, wCost))
 	}
 	if live {
-		right += faint(right1(dur(a.Elapsed(now)), wAge+2)) + " "
+		right += dim(right1(dur(a.Elapsed(now)), wAge+2)) + " "
 	} else {
 		right += faint(right1(age(a.Age(now)), wAge+2)) + " "
 	}
 
+	// Bold is for what wants you: the selection and an agent that needs you.
+	// Working rows are bright, not bold, so six of them don't drown one.
 	nameColor := cSub
 	switch {
-	case live || sel:
+	case sel || a.NeedsYou() || a.Waiting():
 		nameColor = cText + bold
-	case busy:
+	case live || busy:
 		nameColor = cText
 	case a.Pinned:
 		nameColor = cText
-	case a.Done:
-		nameColor = cDim
+	default:
+		nameColor = cDim // idle, stopped and done step back behind the working
 	}
 	name := oneLine(a.DisplayName)
 	badges := m.badges(a)
-	summary, sumColor := "", cDim
-	justDone := false
+	summary, sumColor, justDone := m.rowSummary(a)
+	room := w - 3 - cellw.String(right)
+	left := paint(nameColor, name)
+	if badges != "" {
+		left += " " + badges
+	}
+	if summary != "" && !stacked {
+		left = fit(left, nameCol)
+		if sw := room - nameCol - 2; sw > 8 {
+			if justDone {
+				left += "  " + paint(cGreen, "just finished") + faint(" · ") + paint(sumColor, fit(summary, sw-16))
+			} else {
+				left += "  " + paint(sumColor, fit(summary, sw))
+			}
+		}
+	}
+	return " " + marker + " " + fit(left, room) + right
+}
+
+// rowSummary is the latest thing an agent said or is doing, the colour to
+// say it in, and whether it has only just finished.
+func (m *Model) rowSummary(a *fleet.Agent) (summary, sumColor string, justDone bool) {
+	now := m.snap.At
+	live, busy := a.Live(), a.Busy()
+	sumColor = cDim
 	switch {
 	case a.Checking:
 		summary, sumColor = "turn ended · checking…", cDim
@@ -1121,7 +1271,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 			summary = oneLine(a.Detail)
 		}
 	case live:
-		summary, sumColor = oneLine(a.Detail), cSub
+		summary, sumColor = oneLine(a.Detail), cDim
 		if p := m.previews[a.Key].p; summary == "" && p.Doing != "" {
 			summary = oneLine(p.Doing)
 		}
@@ -1137,26 +1287,13 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int) string {
 		if f := m.focused(); m.preview || f == nil || f.Key != a.Key {
 			summary = oneLine(a.Detail)
 		}
+		sumColor = cFaint // resting: its last words are there when you look
 	}
 	if summary == "stopped" {
 		summary = ""
 	}
-	room := w - 3 - cellw.String(right)
-	left := paint(nameColor, name)
-	if badges != "" {
-		left += " " + badges
-	}
-	if summary != "" {
-		left = fit(left, nameCol)
-		if sw := room - nameCol - 2; sw > 8 {
-			if justDone {
-				left += "  " + paint(cGreen, "just finished") + faint(" · ") + paint(sumColor, fit(summary, sw-16))
-			} else {
-				left += "  " + paint(sumColor, fit(summary, sw))
-			}
-		}
-	}
-	return " " + marker + " " + fit(left, room) + right
+	summary = mdPlain.Replace(summary)
+	return
 }
 
 // sharedContext is the repository and branch every live agent shares, shown
@@ -1260,6 +1397,16 @@ func backgroundText(a *fleet.Agent) string {
 
 func right1(s string, w int) string { return right(s, w) }
 
+// costCell is a working agent's spend: quiet, yellow from $100 the way cpu
+// is from 50%.
+func costCell(cost float64, w int) string {
+	v := right1(money(cost), w)
+	if cost >= 100 {
+		return paint(cYellow, v)
+	}
+	return dim(v)
+}
+
 func (m *Model) badges(a *fleet.Agent) string {
 	var parts []string
 	for i, pr := range a.PRs {
@@ -1294,7 +1441,7 @@ func (m *Model) noPrompt() bool {
 // promptBoxAt is the Prompt's box at width w, before its labels.
 func (m *Model) promptBoxAt(w int) box {
 	b := box{w: w, focused: !m.sessionFocused(), text: m.input, cursor: m.cursorPos(), anchor: m.anchor - 1,
-		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-headH-1-4-5))}
+		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-m.topH()-4-5))}
 	if m.sessionFocused() {
 		b.text = nil
 	}
