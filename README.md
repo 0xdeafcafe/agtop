@@ -167,6 +167,17 @@ Settings › Coding agents sets the model, effort and permissions new sessions s
   </tr>
 </table>
 
+## Efficiency
+
+Where your tokens go, and whether the things that promise to cut them do. It reads every transcript (a few seconds the first time, only what's new after that) and keeps totals of the ones Claude Code deletes after 30 days.
+
+- **Overview**. What was spent, the cache-hit rate, context per request, the context sessions start with, and where the money goes: usually context read again on every request, rarely what Claude writes.
+- **Timeline**. Any figure over the last day to 90 days (context per request, cost, tokens, output, cache hits, tool output per call, context at the start), with a marker wherever a saver was set up, a setting changed, a saver was first used, or you wrote a note (`n`). `b` compares the days either side of an event and, for a saver, sessions that used it against those that didn't in the same days.
+- **Savers**. rtk, caveman, context-mode, Serena, Graphify, tokensave, Context7 and Claude Code's own settings (shell output cap, compacting sooner, Sonnet for subagents). For each: what it does, what its authors claim and what others measured, whether it's on here, and how often your sessions used it. `enter` shows exactly what setting one up would run and change before anything is done; files it may touch are backed up first, and `x` removes it.
+- **Findings**. What's worth doing, most dollars at stake first, each with the saver that addresses it.
+
+`#efficiency` (or `#eff`) opens it.
+
 ## Plugins
 
 Plugins add tools, subagents, prompt text and memory to every agtop-mode session, and can run agents of their own. Any MCP server can be one. Each runs sandboxed and does only what you approved: no files but its own, no network but the hosts it named, no programs, and only the agents it started. macOS only for now.
@@ -197,7 +208,7 @@ To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe
 | `tab` | the list ⇄ the agent's Session |
 | `ctrl+k` | go anywhere, search everything |
 | `ctrl+f` | find, starting where you are |
-| `,` `.` | Agents · Machine · Settings |
+| `,` `.` | Agents · Efficiency · Machine · Settings |
 | `ctrl+r` `ctrl+t` `ctrl+e` | rename, pin, set group |
 | `ctrl+s` | group by status, repository, account, your groups |
 | `alt+d` | done |

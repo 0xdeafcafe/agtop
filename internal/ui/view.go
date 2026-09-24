@@ -183,6 +183,8 @@ func (m *Model) pages() string {
 		names, cur = tabNames, m.dialog.tab
 	case m.mode == modeProcs || m.mode == modeCleanup:
 		names, cur = machinePages, m.machinePage
+	case m.mode == modeEff:
+		names, cur = effPages, m.eff.page
 	case m.zen:
 		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
 	default:
@@ -388,6 +390,8 @@ func (m *Model) renderScreen() string {
 		return m.frame(m.cleanupBody(), keysFit(m.w-4, "↑↓", "move", "x", "remove", "A", "remove all that's safe", "r", "check again", "tab", "Processes", "esc", "back"))
 	case modeCwd:
 		return m.frame(m.cwdBody(), keysFit(m.w-4, "enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
+	case modeEff:
+		return m.frame(m.effBody(), m.effHint())
 	}
 	if m.dialog != nil {
 		return m.frame(m.dialogBody(m.w-6), "")
@@ -2027,7 +2031,7 @@ var helpPages = []struct {
 	}},
 	{"◈ Around", [][2]string{
 		{"ctrl+z", "zen"},
-		{", .", "Agents · Machine · Settings"},
+		{", .", "Agents · Efficiency · Machine · Settings"},
 		{"shift+← →", "resize · past the end, one side alone"},
 		{"#tips", "Getting started again"},
 		{"esc esc", "quit"},

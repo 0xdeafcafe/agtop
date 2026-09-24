@@ -490,7 +490,7 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	switch s {
 	case "esc", "q", "ctrl+g", "ctrl+a":
-		m.setView(0)
+		m.setView(placeAgents)
 		m.refresh()
 		return nil
 	case "up", "k":

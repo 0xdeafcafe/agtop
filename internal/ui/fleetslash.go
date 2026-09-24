@@ -36,6 +36,7 @@ var fleetCommands = []headless.Command{
 	{Name: "sort", Description: "sort agents by " + strings.Join(sortModes, ", "), ArgumentHint: "<by>"},
 	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", "), ArgumentHint: "<group>"},
 	{Name: "folder", Description: "choose the folder new sessions start in"},
+	{Name: "efficiency", Description: "where tokens go, and the savers that cut them (#eff, #savers)", ArgumentHint: "[timeline|savers|findings]"},
 	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
 	{Name: "account", Description: "switch to another account; alone opens Accounts", ArgumentHint: "[name]"},
 	{Name: "hibernate", Description: "stop finished agents after this many idle minutes; 0 turns it off", ArgumentHint: "<minutes>"},
@@ -50,7 +51,7 @@ var fleetCommands = []headless.Command{
 }
 
 // fleetAliases are other names command() answers to.
-var fleetAliases = map[string]string{"undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart"}
+var fleetAliases = map[string]string{"eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart"}
 
 // isHashCmd is whether text is a # command: # and a letter, so a Markdown
 // heading (# Plan) or an issue (#123) is still a message.

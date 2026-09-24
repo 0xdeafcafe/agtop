@@ -75,7 +75,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	// but a question being asked.
 	if d := m.placeStep(s); d != 0 {
 		m.setView(m.view + d)
-		return m.loadPreview()
+		return tea.Batch(m.loadPreview(), m.effOpen())
 	}
 	if s == "ctrl+z" && m.mode != modeCwd && (m.dialog == nil || m.dialog.asking == "") {
 		m.setZen(!m.zen)
@@ -140,6 +140,16 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		}
 		return m.switchFocus()
 	}
+	// In Efficiency tab goes through its pages, unless a note is being
+	// written or an install waits on an answer.
+	if (s == "tab" || s == "shift+tab") && m.mode == modeEff && !m.eff.typing() && m.eff.plan == nil {
+		d := 1
+		if s == "shift+tab" {
+			d = -1
+		}
+		m.setEffPage(m.eff.page + d)
+		return m.effOpen()
+	}
 	// In Machine and Settings tab goes through the place's pages.
 	if (s == "tab" || s == "shift+tab") && (m.mode == modeProcs || m.mode == modeCleanup || (m.dialog != nil && m.dialog.asking == "")) {
 		d := 1
@@ -173,6 +183,8 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.procKey(s)
 	case modeCleanup:
 		return m.cleanupKey(s)
+	case modeEff:
+		return m.effKey(k, s)
 	case modeCwd:
 		return m.cwdKey(k, s)
 	}
@@ -210,7 +222,7 @@ func (m *Model) editKey(k tea.KeyPressMsg, s string) bool {
 // they can still be typed.
 func (m *Model) placeStep(s string) int {
 	d := map[string]int{",": -1, "<": -1, ".": 1, ">": 1, "ctrl+\\": 1}[s]
-	if d == 0 || m.mode == modeCwd || m.dialog != nil && m.dialog.asking != "" {
+	if d == 0 || m.mode == modeCwd || m.dialog != nil && m.dialog.asking != "" || m.mode == modeEff && m.eff.typing() {
 		return 0
 	}
 	if s == "ctrl+\\" || m.mode != modeList || m.dialog != nil {
@@ -786,7 +798,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "account":
 		if arg == "" {
-			m.setView(2)
+			m.setView(placeSettings)
 			m.setSettingsPage(tabAccounts)
 			return nil
 		}
@@ -888,6 +900,12 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		m.openDirPicker()
 	case "statusline":
 		m.openTopBar(a)
+	case "efficiency":
+		m.setView(placeEff)
+		if p := map[string]int{"timeline": effTimeline, "savers": effSaversPage, "findings": effFindings}[arg]; p > 0 {
+			m.setEffPage(p)
+		}
+		return m.effOpen()
 	case "dock":
 		var n int
 		if _, err := fmt.Sscanf(arg, "%d", &n); err != nil {
@@ -1128,7 +1146,7 @@ func (m *Model) procKey(s string) tea.Cmd {
 	}()
 	switch s {
 	case "esc", "q", "ctrl+p", "left":
-		m.setView(0)
+		m.setView(placeAgents)
 	case "up", "k":
 		m.procCursor = roundMove(m.procCursor, -1, len(rows))
 	case "down", "j":
@@ -1136,7 +1154,7 @@ func (m *Model) procKey(s string) tea.Cmd {
 	case "enter":
 		if m.procCursor < len(rows) && rows[m.procCursor].key != "" {
 			m.sel = rows[m.procCursor].key
-			m.setView(0)
+			m.setView(placeAgents)
 		}
 	case "X":
 		if mc := m.snap.Machine; mc.Orphans > 0 {

@@ -29,8 +29,16 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 
 	m.key(places)
-	if m.view != 1 || m.mode != modeProcs {
-		t.Fatalf("> should go to Machine's Processes, got view %d mode %d", m.view, m.mode)
+	if m.view != placeEff || m.mode != modeEff || m.eff.page != effOverview {
+		t.Fatalf("> should go to Efficiency's Overview, got view %d mode %d", m.view, m.mode)
+	}
+	m.key(tab)
+	if m.eff.page != effTimeline {
+		t.Fatal("tab in Efficiency should go to its Timeline")
+	}
+	m.key(places)
+	if m.view != placeMachine || m.mode != modeProcs {
+		t.Fatalf("> from Efficiency should go to Machine's Processes, got view %d mode %d", m.view, m.mode)
 	}
 	m.key(tab)
 	if m.mode != modeCleanup {
@@ -41,29 +49,30 @@ func TestPlacesAndFocus(t *testing.T) {
 		t.Fatal("tab past Cleanup should come back to Processes")
 	}
 	m.key(back)
-	if m.view != 0 || m.mode != modeList {
-		t.Fatal("< should come back to Agents")
+	m.key(back)
+	if m.view != placeAgents || m.mode != modeList {
+		t.Fatal("< < should come back to Agents")
 	}
 	m.key(back)
-	if m.view != 2 || m.dialog == nil {
+	if m.view != placeSettings || m.dialog == nil {
 		t.Fatal("< from Agents should go round to Settings")
 	}
 	m.key(places)
 	m.key(places)
-	if m.view != 1 {
-		t.Fatal("> from Settings should go round to Agents, then Machine")
+	if m.view != placeEff || m.eff.page != effTimeline {
+		t.Fatal("> from Settings should go round to Agents, then Efficiency on the page it was on")
 	}
 	m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.view != 0 || m.mode != modeList {
+	if m.view != placeAgents || m.mode != modeList {
 		t.Fatal("esc should come back to Agents")
 	}
 	m.input = nil
 	m.key(tea.KeyPressMsg{Code: '.', Text: "."})
-	if m.view != 1 {
-		t.Fatal(". should go to Machine, as > does, without shift")
+	if m.view != placeEff {
+		t.Fatal(". should go to Efficiency, as > does, without shift")
 	}
 	m.key(tea.KeyPressMsg{Code: ',', Text: ","})
-	if m.view != 0 {
+	if m.view != placeAgents {
 		t.Fatal(", should come back to Agents, as < does")
 	}
 	m.key(tea.KeyPressMsg{Code: 'a', Text: "a"})
@@ -104,7 +113,7 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 	m.setZen(true)
 	m.key(places)
-	if m.zen || m.view != 1 {
+	if m.zen || m.view != placeEff {
 		t.Fatal("going to another place leaves zen")
 	}
 }

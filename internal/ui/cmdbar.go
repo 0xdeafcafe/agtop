@@ -47,7 +47,7 @@ func (sc barScope) transcripts() bool {
 // the last is always everywhere.
 func (m *Model) barScopes() []barScope {
 	var out []barScope
-	if m.view != 0 {
+	if m.view != placeAgents {
 		out = append(out, barScope{kind: "place", place: m.view, label: viewNames[m.view%len(viewNames)]})
 	} else {
 		if c := m.host; c != nil && (m.paneFocus || m.zen) {
@@ -96,11 +96,11 @@ type cmdBar struct {
 
 // spot is somewhere the bar jumped from, for "Back".
 type spot struct {
-	view, machinePage, settingsPage int
-	zen                             bool
-	key, name                       string
-	paneView                        int
-	ref                             string
+	view, effPage, machinePage, settingsPage int
+	zen                                      bool
+	key, name                                string
+	paneView                                 int
+	ref                                      string
 }
 
 // barJump is a jump into an agent's conversation waiting for it to open:
@@ -578,7 +578,7 @@ func (m *Model) barPlaces(q string) []barItem {
 		return nil
 	})
 	add(paint(cSub, "◇"), "Agents", "the list", "home list", func(m *Model) tea.Cmd {
-		m.goView(0)
+		m.goView(placeAgents)
 		m.setZen(false)
 		return nil
 	})
@@ -590,16 +590,23 @@ func (m *Model) barPlaces(q string) []barItem {
 		m.setZen(!m.zen)
 		return nil
 	})
+	for i, p := range effPages {
+		add(paint(cSub, "◇"), "Efficiency › "+p, "", "efficiency tokens savers usage cost "+p, func(m *Model) tea.Cmd {
+			m.goView(placeEff)
+			m.setEffPage(i)
+			return nil
+		})
+	}
 	for i, p := range machinePages {
 		add(paint(cSub, "◇"), "Machine › "+p, "", "machine "+p, func(m *Model) tea.Cmd {
-			m.goView(1)
+			m.goView(placeMachine)
 			m.setMachinePage(i)
 			return nil
 		})
 	}
 	for i, p := range tabNames {
 		add(paint(cSub, "◇"), "Settings › "+p, "", "settings preferences "+p, func(m *Model) tea.Cmd {
-			m.goView(2)
+			m.goView(placeSettings)
 			m.setSettingsPage(i)
 			return nil
 		})
@@ -608,7 +615,7 @@ func (m *Model) barPlaces(q string) []barItem {
 		for i, v := range m.views(c) {
 			title := "Session › " + strings.ToUpper(v[:1]) + v[1:]
 			add(paint(cBlue, "▤"), title, oneLine(m.hostName(c)), "session view "+v, func(m *Model) tea.Cmd {
-				m.goView(0)
+				m.goView(placeAgents)
 				if c := m.host; c != nil {
 					c.view = i
 				}
@@ -617,7 +624,7 @@ func (m *Model) barPlaces(q string) []barItem {
 			})
 		}
 		add(paint(cBlue, "⌕"), "Find in this chat", "ctrl+f", "search find session", func(m *Model) tea.Cmd {
-			m.goView(0)
+			m.goView(placeAgents)
 			m.preview, m.paneFocus = true, true
 			m.openBar(true)
 			return nil
@@ -629,12 +636,12 @@ func (m *Model) barPlaces(q string) []barItem {
 		})
 	}
 	add(paint(cSub, "◇"), "Folder for new sessions", tildify(m.startDir()), "start dir cwd", func(m *Model) tea.Cmd {
-		m.goView(0)
+		m.goView(placeAgents)
 		m.openDirPicker()
 		return nil
 	})
 	add(paint(cSub, "◇"), "All keys", "?", "help shortcuts keys", func(m *Model) tea.Cmd {
-		m.goView(0)
+		m.goView(placeAgents)
 		m.mode = modeHelp
 		return nil
 	})
@@ -653,7 +660,7 @@ func (m *Model) barStart(task string) barItem {
 
 // toPrompt puts the keys in Agents' Prompt, where new sessions start.
 func (m *Model) toPrompt() {
-	m.goView(0)
+	m.goView(placeAgents)
 	if m.zen {
 		m.setZen(false)
 	}
@@ -728,7 +735,7 @@ func agentState(a *fleet.Agent, now time.Time) string {
 
 // goAgent selects an agent and opens its Session.
 func (m *Model) goAgent(a *fleet.Agent) tea.Cmd {
-	m.goView(0)
+	m.goView(placeAgents)
 	if m.zen {
 		m.setZen(false)
 	}
@@ -829,7 +836,7 @@ func (m *Model) jumpInPane(ref string) {
 	if c == nil {
 		return
 	}
-	m.goView(0)
+	m.goView(placeAgents)
 	turn, _, isStep := strings.Cut(ref, ":")
 	c.open[turn] = true
 	if isStep {
@@ -887,7 +894,7 @@ func (m *Model) applyJump() {
 
 // here is where the screen is now, to come back to.
 func (m *Model) here() *spot {
-	s := &spot{view: m.view, machinePage: m.machinePage, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
+	s := &spot{view: m.view, effPage: m.eff.page, machinePage: m.machinePage, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
 	if a := m.agentByKey(m.sel); a != nil {
 		s.name = oneLine(a.DisplayName)
 	}
@@ -899,9 +906,11 @@ func (m *Model) here() *spot {
 
 func (s *spot) where() string {
 	switch s.view {
-	case 1:
+	case placeEff:
+		return "Efficiency › " + effPages[s.effPage%len(effPages)]
+	case placeMachine:
 		return "Machine › " + machinePages[s.machinePage%len(machinePages)]
-	case 2:
+	case placeSettings:
 		return "Settings › " + tabNames[s.settingsPage%len(tabNames)]
 	}
 	if s.zen {
@@ -918,16 +927,20 @@ func (s *spot) where() string {
 func (m *Model) goSpot(s *spot) tea.Cmd {
 	m.barBack = m.here()
 	switch s.view {
-	case 1:
-		m.goView(1)
+	case placeEff:
+		m.goView(placeEff)
+		m.setEffPage(s.effPage)
+		return nil
+	case placeMachine:
+		m.goView(placeMachine)
 		m.setMachinePage(s.machinePage)
 		return nil
-	case 2:
-		m.goView(2)
+	case placeSettings:
+		m.goView(placeSettings)
 		m.setSettingsPage(s.settingsPage)
 		return nil
 	}
-	m.goView(0)
+	m.goView(placeAgents)
 	if s.zen != m.zen {
 		m.setZen(s.zen)
 	}

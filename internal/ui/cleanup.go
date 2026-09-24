@@ -425,7 +425,7 @@ func (m *Model) cleanupKey(s string) tea.Cmd {
 	rows := m.cleanRows()
 	switch s {
 	case "esc", "left", "q":
-		m.setView(0)
+		m.setView(placeAgents)
 	case "up", "k":
 		c.cursor = roundMove(c.cursor, -1, len(rows))
 	case "down", "j":

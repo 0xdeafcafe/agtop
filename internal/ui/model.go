@@ -33,6 +33,7 @@ const (
 	modeCleanup
 	modeCwd
 	modeHelp
+	modeEff
 )
 
 type inputKind int
@@ -184,6 +185,7 @@ type Model struct {
 	clkMarkAt int             // the tick he turned into it
 	measuring bool            // temp work is being measured in the background
 	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
+	eff       effState        // the Efficiency place
 	reaper    fleet.Reaper    // ends what agents leave running when they stop
 	squeezing bool            // transcripts are being compressed in the background
 
@@ -578,6 +580,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.zenPick()
 		m.followTail()
 		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues(), m.movePending(), m.measureTemp(), m.tidy(), m.squeezeTranscripts()}
+		if m.mode == modeEff && !m.eff.loading && time.Since(m.eff.loaded) > 30*time.Second {
+			cmds = append(cmds, m.effLoad(true)) // new transcript lines, every 30s while it's open
+		}
 		if m.mode == modeCleanup && time.Since(m.clean.checked) > 2*time.Minute {
 			cmds = append(cmds, m.scanWorktrees()) // looked at when the view opens, and every 2 minutes while it's open
 		}
@@ -593,6 +598,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadLivePreviews())
 		}
 		return m, tea.Batch(cmds...)
+	case effLoadedMsg:
+		m.onEffLoaded(msg)
+		return m, nil
+	case effRanMsg:
+		return m, m.onEffRan(msg)
 	case scanMsg:
 		m.scanning = false
 		m.loader.SetSpend(msg)
@@ -906,7 +916,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // viewNames are the places at the top: ctrl+\ moves between them, and tab
 // moves within one (the list and its Session, or a place's pages).
-var viewNames = []string{"Agents", "Machine", "Settings"}
+var viewNames = []string{"Agents", "Efficiency", "Machine", "Settings"}
+
+// The places, in viewNames' order.
+const (
+	placeAgents = iota
+	placeEff
+	placeMachine
+	placeSettings
+)
 
 // machinePages and the Settings dialog's tabNames are the pages of the
 // Machine and Settings places.
@@ -919,9 +937,11 @@ func (m *Model) setView(v int) {
 	m.input, m.inKind = m.input[:0], inPrompt
 	m.zen = false
 	switch m.view {
-	case 1:
+	case placeEff:
+		m.setEffPage(m.eff.page)
+	case placeMachine:
 		m.setMachinePage(m.machinePage)
-	case 2:
+	case placeSettings:
 		m.openDialog(m.settingsPage)
 	}
 }
@@ -945,8 +965,8 @@ func (m *Model) setSettingsPage(p int) {
 // setZen turns Zen on or off. Zen is Agents with only the agent that needs
 // you on screen, the oldest first; the list comes back when it's off.
 func (m *Model) setZen(on bool) {
-	if on && m.view != 0 {
-		m.setView(0)
+	if on && m.view != placeAgents {
+		m.setView(placeAgents)
 	}
 	m.zen, m.zenList = on, false
 	defer m.rebuild()

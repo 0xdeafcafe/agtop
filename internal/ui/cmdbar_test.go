@@ -34,7 +34,7 @@ func TestBarOpensAndGoes(t *testing.T) {
 		t.Fatalf("top match for clean: %q", it.title)
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.bar != nil || m.view != 1 || m.mode != modeCleanup {
+	if m.bar != nil || m.view != placeMachine || m.mode != modeCleanup {
 		t.Fatalf("enter didn't go to Cleanup: view %d mode %d", m.view, m.mode)
 	}
 	// Back returns to the agent it came from.
@@ -44,7 +44,7 @@ func TestBarOpensAndGoes(t *testing.T) {
 		t.Fatalf("no way back: %q", m.bar.items[0].title)
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.view != 0 || m.mode != modeList {
+	if m.view != placeAgents || m.mode != modeList {
 		t.Fatalf("back didn't return to Agents: view %d", m.view)
 	}
 }
@@ -253,7 +253,7 @@ func TestBarFindInGroup(t *testing.T) {
 	}
 	// In Machine it finds among Machine's pages.
 	m.closeBar()
-	m.setView(1)
+	m.setView(placeMachine)
 	m.Update(ctrlF())
 	if sc := m.bar.scope(); sc.kind != "place" || len(m.bar.items) != len(machinePages) {
 		t.Fatalf("ctrl+f in Machine: %+v %d rows", sc, len(m.bar.items))
