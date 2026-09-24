@@ -264,6 +264,13 @@ func settingHelp(label, value string) (what, now string) {
 			"auto": "auto: every session continues by itself at the reset, a few seconds apart.",
 			"off":  "off: sessions wait for you after a limit.",
 		}[value]
+	case "Compress idle transcripts":
+		what = "Transcripts untouched for two days are stored compressed the way macOS stores its own system files: same names, same contents, and Claude Code, grep, your editor and agtop read them exactly as before; the system decompresses as they're read (about 30 ms for a 33 MB one). A transcript written to again is stored plainly again. Each is checked byte for byte before it replaces the original."
+		now = map[string]string{
+			"on":  "on: about a quarter of the disk they took (33 MB → 8 MB for the biggest).",
+			"off": "off: transcripts stay as Claude Code writes them.",
+			"":    "off: transcripts stay as Claude Code writes them.",
+		}[value]
 	case "Clean up done work after":
 		what = "What happens to an agent's worktree and temp work once you've marked it done (alt+d) and left it alone. Stopping an agent never removes anything. A worktree goes only if git says every change in it is committed and pushed; its branch stays. One that isn't is kept and listed in the Cleanup view (the last tab)."
 		now = map[string]string{

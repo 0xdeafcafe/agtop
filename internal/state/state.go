@@ -43,6 +43,8 @@ type Config struct {
 	// before its worktree (clean and pushed) and temp work are removed on
 	// their own; 0 is the default, and a negative number turns it off.
 	CleanupHours int `json:"cleanupHours,omitempty"`
+	// KeepTranscriptsPlain turns off storing idle transcripts compressed.
+	KeepTranscriptsPlain bool `json:"keepTranscriptsPlain,omitempty"`
 }
 
 // DefaultCleanup is how long done work waits before it's cleaned up.

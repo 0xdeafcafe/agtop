@@ -145,6 +145,10 @@ func (m *Model) claudeRows() []claudeRow {
 			}
 			_ = m.store.SaveConfig()
 		}}, "1h", "3h", "12h", "24h", "off"),
+		row("agtop", "Compress idle transcripts", setting{value: onOff(!cfg.KeepTranscriptsPlain), set: func(v string) {
+			cfg.KeepTranscriptsPlain = v == "off"
+			_ = m.store.SaveConfig()
+		}}, "on", "off"),
 		row("agtop", "Quick start", setting{value: onOff(cfg.Dispatch.Lean), set: func(v string) {
 			cfg.Dispatch.Lean = v == "on"
 			_ = m.store.SaveConfig()
@@ -197,6 +201,8 @@ func shownValue(r claudeRow) string {
 	case "When a usage limit hits":
 		return "ask each session"
 	case "Quick start":
+		return "off"
+	case "Compress idle transcripts":
 		return "off"
 	case "Rest Claude after":
 		return "5 min"
