@@ -110,6 +110,13 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 			cl("  " + keycap(fmt.Sprint(i+1), false) + "  " + paint(cSub, name) + strings.Repeat(" ", labelW-cellw.String(name)+3) + a)
 		}
 		cl("")
+		// The button enter presses: lit while the card has the keys.
+		if c.cardFocus {
+			cl("  " + tabOn + " ⏎ Send answers " + reset)
+		} else {
+			cl("  " + tabOff + " ⏎ Send answers " + reset)
+		}
+		cl("")
 		if c.cardFocus {
 			cl("  " + keysFit(w-6, "enter", "sends your answers", "← · 1–"+fmt.Sprint(len(qs)), "changes one", "s", "skips them all", "esc", "type instead"))
 		} else {

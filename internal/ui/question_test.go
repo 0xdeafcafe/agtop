@@ -709,3 +709,43 @@ func TestChipsKeepPickInView(t *testing.T) {
 		}
 	}
 }
+
+// Answering a card from the card hands the keys on to the card that comes
+// next, a plan to approve after a question, rather than back to the box;
+// a key pressed between the two means you've moved on, and it doesn't.
+func TestCardFocusCarriesOn(t *testing.T) {
+	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
+	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, host: c, paneFocus: true}
+	one, _ := json.Marshal(map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{{"label": "yes"}, {"label": "no"}}}}})
+	ask := func(tool, tu, id string, in json.RawMessage) {
+		c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: tu, Name: tool, Input: in}}}, time.Now())
+		c.sess.Apply(headless.PermissionRequest{ID: id, Tool: tool, ToolUseID: tu, Input: in}, time.Now())
+	}
+	c.sess.Apply(host.Sent{Text: "go"}, time.Now())
+	ask("AskUserQuestion", "b1", "q1", one)
+	a := &fleet.Agent{DisplayName: "x"}
+	m.paneKey(tea.KeyPressMsg{}, "up")
+	if cmd := m.paneKey(tea.KeyPressMsg{}, "enter"); cmd == nil || c.cardFocus {
+		t.Fatalf("enter on an option should answer the lone question: focus %v", c.cardFocus)
+	}
+	m.paneDock(a, c, 100, 40) // the old card still up, not yet settled
+	if c.cardFocus {
+		t.Fatal("the card just answered shouldn't take the keys back")
+	}
+	c.sess.Apply(host.Answered{ID: "q1"}, time.Now())
+	ask("ExitPlanMode", "b2", "p1", json.RawMessage(`{"plan":"do it"}`))
+	m.paneDock(a, c, 100, 40)
+	if !c.cardFocus {
+		t.Fatal("the next card should have the keys")
+	}
+
+	// Answered, then a key before the next one: it stays with the box.
+	m.paneKey(tea.KeyPressMsg{}, "n")
+	c.sess.Apply(host.Answered{ID: "p1"}, time.Now())
+	m.paneKey(tea.KeyPressMsg{}, "down")
+	ask("Bash", "b3", "r1", json.RawMessage(`{"command":"ls"}`))
+	m.paneDock(a, c, 100, 40)
+	if c.cardFocus {
+		t.Fatal("a key between cards should leave the keys in the box")
+	}
+}

@@ -611,7 +611,7 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 	case m.paneFocus && len(c.input) == 0 && len(m.queueOf(c).items) == 0:
 		hint = keys("↑", "pick one to watch")
 	}
-	out := []string{spread("  "+paint(cBlue, "⇉ ")+paint(cSub+bold, fmt.Sprintf("%d %s", len(run), what)), hint+"  ", w)}
+	out := []string{spread(" "+paint(cBlue, "⇉ ")+paint(cBlue+bold, fmt.Sprintf("%d %s", len(run), what)), hint+"  ", w)}
 	now := time.Now()
 	for i, sa := range shown {
 		var doing, trail string
@@ -642,16 +642,17 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 			doing = dim("starting…")
 		}
 		right := dim(strings.Join(facts, " · ")) + "  "
-		top := spread("    "+paint(cOrange, spinner[(m.tick+i)%len(spinner)])+" "+paint(cText+bold, sa.Type)+
+		top := spread("  "+paint(cOrange, spinner[(m.tick+i)%len(spinner)])+" "+paint(cText+bold, sa.Type)+
 			"  "+paint(cSub, ansi.Truncate(oneLine(sa.Description), max(12, w-cellw.String(ansi.Strip(right))-cellw.String(sa.Type)-10), "…")), right, w)
-		act := ansi.Truncate("      "+paint(cOrange, "›")+" "+doing+trail, w-2, "…")
+		// Hung off its spinner, so each run reads as one block.
+		act := ansi.Truncate("  "+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+doing+trail, w-2, "…")
 		if c.sel == "run:"+sa.ID {
 			top, act = picked1(top, w, m.paneFocus), picked1(act, w, m.paneFocus)
 		}
 		out = append(out, top, act)
 	}
 	if rest := len(run) - len(shown); rest > 0 {
-		out = append(out, dim(fmt.Sprintf("      … %d more in the subagents view", rest)))
+		out = append(out, dim(fmt.Sprintf("  + %d more in the subagents view", rest)))
 	}
 	return out
 }
@@ -708,6 +709,7 @@ type hostConn struct {
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
 	// waiting for an answer; only then do plain letters and digits answer.
 	cardFocus bool
+	cardAgain string // the card just answered from the card, to hand the keys on to the next
 
 	// Answering Claude's questions, one at a time.
 	qFor      string
@@ -1030,7 +1032,21 @@ var (
 	bgChrome = "\x1b[48;2;30;28;26m" // L3: pane header and dock
 	bgTabOn  = "\x1b[48;2;17;16;14m" // the active view opens into the body
 	bgSub    = "\x1b[48;2;24;31;42m" // watching a subagent: its own, cooler ground
+	bgRuns   = "\x1b[48;2;26;30;36m" // the dock's running subagents
+	bgQueue  = "\x1b[48;2;33;29;37m" // the dock's queued messages
+
+	cQueue = rgb(178, 160, 214) // what's queued: neither working nor needing you
 )
+
+// dockCard sets rows w-1 wide apart on a ground of their own, edged down
+// the left in the colour that says what they are.
+func dockCard(bg, edge string, rows []string, w int) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = onBg(bg, paint(edge, "▍")+r, w)
+	}
+	return out
+}
 
 func onBg(bg, s string, w int) string {
 	s = fit(s, w)
@@ -1377,11 +1393,64 @@ func firstNonEmpty(xs ...string) string {
 }
 
 // paneDock is the raised area at the bottom of the pane: the current task,
-// an approval waiting, the queue, and the input box.
+// the subagents working, the queue, a card waiting, and the input box.
 func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	s := c.sess
+	// A card answered from the card hands the keys on to the next one
+	// (the review after a question, the plan to approve after it) as long
+	// as nothing's been typed or picked since.
+	if c.cardAgain != "" && m.paneFocus && len(c.input) == 0 && c.sel == "" {
+		if id := cardID(c); id != "" && id != c.cardAgain {
+			c.cardFocus, c.cardAgain = true, ""
+		}
+	}
 	out := []string{onBg(bgChrome, "", w)} // a row of the dock's own ground
 	line := func(txt string) { out = append(out, onBg(bgChrome, txt, w)) }
+	// Each part of the dock (the task, a card, the subagents, the queue)
+	// is its own block, a row of ground between one and the next.
+	blocks := 0
+	block := func() {
+		if blocks > 0 {
+			line("")
+		}
+		blocks++
+	}
+	// A card waiting on you sits last, just above the box: the most
+	// important thing in the dock, and the first stop for ↑.
+	cards := func() {
+		if l := s.Info.Limit; l != nil && l.Ask {
+			block()
+			card := "\x1b[48;2;42;36;25m"
+			cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
+			cl(paint(cYellow, "▍") + " " + paint(cYellow+bold, "⏸ usage limit") + "   " + paint(cText, limitText(l)))
+			cl(paint(cYellow, "▍") + "     " + dim("Continue by itself when the limit resets? Anything you send meanwhile waits in the queue."))
+			cl(paint(cYellow, "▍") + "   " + cardHint(c, paint(cText+bold, "y")+" "+paint(cSub, "continue at the reset")+"   "+paint(cText+bold, "n")+" "+paint(cSub, "wait for me")))
+		}
+		if p := s.Pending(); len(p) > 0 && p[0].Approval.Tool == "AskUserQuestion" {
+			block()
+			out = append(out, m.questionCard(c, p[0].Approval, w, h*3/5)...)
+		} else if len(p) > 0 {
+			block()
+			st := p[0]
+			req := st.Approval
+			card := "\x1b[48;2;42;36;25m"
+			cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
+			count := ""
+			if len(p) > 1 {
+				count = fmt.Sprintf("1 of %d", len(p))
+			}
+			cl(spread(paint(cYellow, "▍")+" "+paint(cYellow+bold, "● needs you")+"   "+paint(cText, approvalTitle(req)), paint(cSub, count)+"  ", w))
+			for _, l := range approvalBody(req, a.Cwd, w-6) {
+				cl(paint(cYellow, "▍") + "     " + l)
+			}
+			k := func(key, label string) string { return paint(cText+bold, key) + " " + paint(cSub, label) }
+			edge := paint(cYellow, "▍")
+			if c.cardFocus {
+				edge = paint(cOrange, "▍")
+			}
+			cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
+		}
+	}
 
 	// A Claude Code agent's own screen says what the transcript can't yet:
 	// that it's working, for how long and on how many tokens. That one
@@ -1391,6 +1460,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		working = readScreen(l.lines()).working
 	}
 	now, done, total := s.Current()
+	if working != "" || total > 0 {
+		block()
+	}
 	if working != "" {
 		count := ""
 		if total > 0 {
@@ -1406,47 +1478,25 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		line(spread("  "+t+"  "+paint(cSub, fmt.Sprintf("%d/%d", done, total)), "", w))
 	}
-	if l := s.Info.Limit; l != nil && l.Ask {
-		card := "\x1b[48;2;42;36;25m"
-		cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
-		cl(paint(cYellow, "▍") + " " + paint(cYellow+bold, "⏸ usage limit") + "   " + paint(cText, limitText(l)))
-		cl(paint(cYellow, "▍") + "     " + dim("Continue by itself when the limit resets? Anything you send meanwhile waits in the queue."))
-		cl(paint(cYellow, "▍") + "   " + cardHint(c, paint(cText+bold, "y")+" "+paint(cSub, "continue at the reset")+"   "+paint(cText+bold, "n")+" "+paint(cSub, "wait for me")))
-	}
 	if r := s.Info.Retry; r != nil && r.GaveUp {
+		block()
 		line("  " + paint(cRed, "✗ "+r.Reason) + dim(" · "+r.Why+" · send anything to try again"))
 	}
-	if p := s.Pending(); len(p) > 0 && p[0].Approval.Tool == "AskUserQuestion" {
-		out = append(out, m.questionCard(c, p[0].Approval, w, h*3/5)...)
-	} else if len(p) > 0 {
-		st := p[0]
-		req := st.Approval
-		card := "\x1b[48;2;42;36;25m"
-		cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
-		count := ""
-		if len(p) > 1 {
-			count = fmt.Sprintf("1 of %d", len(p))
-		}
-		cl(spread(paint(cYellow, "▍")+" "+paint(cYellow+bold, "● needs you")+"   "+paint(cText, approvalTitle(req)), paint(cSub, count)+"  ", w))
-		for _, l := range approvalBody(req, a.Cwd, w-6) {
-			cl(paint(cYellow, "▍") + "     " + l)
-		}
-		k := func(key, label string) string { return paint(cText+bold, key) + " " + paint(cSub, label) }
-		edge := paint(cYellow, "▍")
-		if c.cardFocus {
-			edge = paint(cOrange, "▍")
-		}
-		cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
-	}
 	if run := c.runningSubs(); len(run) > 0 && m.viewName(c) == "conversation" {
-		for _, l := range m.runningPreview(c, run, w) {
+		block()
+		out = append(out, dockCard(bgRuns, cBlue, m.runningPreview(c, run, w-1), w)...)
+	}
+	if l := m.sendingLines(c, w); len(l) > 0 {
+		block()
+		for _, l := range l {
 			line(l)
 		}
 	}
-	for _, l := range m.sendingLines(c, w) {
-		line(l)
-	}
 	if qs := m.queueOf(c); len(qs.items) > 0 {
+		block()
+		var rows []string
+		line := func(txt string) { rows = append(rows, txt) }
+		w := w - 1
 		q := qs.items
 		when := dim(" · sends when this turn ends")
 		if c.client == nil {
@@ -1465,7 +1515,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if m.paneFocus && !picked && len(c.input) == 0 && !inView {
 			how = keys("↑", "edit or reorder", "ctrl+s", "send now") + "  "
 		}
-		line(spread("  "+paint(cSub+bold, fmt.Sprintf("queue %d", len(q)))+when, how, w))
+		line(spread(" "+paint(cQueue, "⋯ ")+paint(cQueue+bold, fmt.Sprintf("queue %d", len(q)))+when, how, w))
 		if !inView {
 			// Three at a time, keeping the picked one in sight.
 			start := 0
@@ -1473,19 +1523,31 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 				start = pick - 2
 			}
 			if start > 0 {
-				line(dim(fmt.Sprintf("   … %d before", start)))
+				line(dim(fmt.Sprintf("  … %d before", start)))
 			}
 			for i := start; i < min(len(q), start+3); i++ {
-				row := "   " + dim(fmt.Sprint(i+1)) + "  " + paint(cSub, ansi.Truncate(shortImages(oneLine(q[i])), w-8, "…"))
+				row := "  " + paint(cQueue, fmt.Sprint(i+1)) + "  " + paint(cText, ansi.Truncate(shortImages(oneLine(q[i])), w-8, "…"))
 				if picked && i == pick {
 					row = picked1(row, w, m.paneFocus)
 				}
 				line(row)
 			}
 			if rest := len(q) - (start + 3); rest > 0 {
-				line(dim(fmt.Sprintf("   … %d more", rest)))
+				line(dim(fmt.Sprintf("  + %d more", rest)))
 			}
 		}
+		out = append(out, dockCard(bgQueue, cQueue, rows, w+1)...)
+	}
+	pick := -1
+	if i, ok := imageSel(c); ok {
+		pick = i
+	}
+	if l := chips(c.images, w, pick, m.paneFocus); l != "" {
+		line(l)
+	}
+	cards()
+	if blocks > 0 {
+		line("") // and one before the box
 	}
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
 	if m.watchingSub(c) {
@@ -1537,13 +1599,6 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		lead: paint(cOrange, "❯ "), holder: "a message for this agent · ctrl+r for past drafts", maxRows: 6}
 	if mode := s.Info.PermissionMode; mode != "" {
 		b.topR = paint(cOrange, mode)
-	}
-	pick := -1
-	if i, ok := imageSel(c); ok {
-		pick = i
-	}
-	if l := chips(c.images, w, pick, m.paneFocus); l != "" {
-		out = append(out, onBg(bgChrome, l, w))
 	}
 	out = append(out, m.slashLines(c, w)...)
 	if c.editQ > 0 {
@@ -2714,7 +2769,10 @@ func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s stri
 	if c.cardFocus && empty {
 		switch s {
 		case "up":
-			c.qCursor = max(0, c.qCursor-1)
+			if c.qCursor == 0 {
+				return nil, false // above the first option: off the card
+			}
+			c.qCursor--
 			return nil, true
 		case "down":
 			if c.qCursor >= len(q.Options) {
@@ -2859,6 +2917,17 @@ func cardKind(c *hostConn) string {
 	return ""
 }
 
+// cardID names the card waiting, to tell a new one from the last.
+func cardID(c *hostConn) string {
+	switch cardKind(c) {
+	case "limit":
+		return "limit"
+	case "question", "approval":
+		return c.sess.Pending()[0].Approval.ID
+	}
+	return ""
+}
+
 // cardKey answers a waiting card. Plain letters and digits answer only
 // once ↑ has put the keys on the card, so typing a message that starts
 // with "yes" or "1." can never answer by accident; alt+y, alt+a and alt+n
@@ -2866,10 +2935,13 @@ func cardKind(c *hostConn) string {
 func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 	kind := cardKind(c)
 	if kind == "" {
-		c.cardFocus = false
+		c.cardFocus, c.cardAgain = false, "" // a key between cards: you've moved on
 		return nil, false
 	}
 	done := func(cmd tea.Cmd) (tea.Cmd, bool) {
+		if c.cardFocus {
+			c.cardAgain = cardID(c)
+		}
 		c.cardFocus = false
 		return cmd, true
 	}
@@ -2906,32 +2978,37 @@ func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 		if !empty && s == "enter" || c.cardFocus {
 			if cmd, used := m.questionKey(c, req, s, empty); used {
 				if cmd != nil {
-					c.cardFocus = false
+					return done(cmd)
 				}
 				return cmd, true
 			}
 		}
 	}
-	// The card sits above the dock's rows: ↑ from the box goes up through
-	// them first, and onto the card from the top one; ↓ off the card comes
-	// back down onto that row.
-	top := ""
+	// The card sits just above the box: ↑ from the box goes straight onto
+	// it, and ↑ again on up through the dock's rows and the conversation;
+	// ↓ off the last of those comes back onto it, and ↓ off it to the box.
+	above := ""
 	if s == "up" || s == "down" {
-		if dock := m.dockRefs(c); len(dock) > 0 {
-			top = dock[0]
+		refs := append(slices.Clip(c.bodyRefs), m.dockRefs(c)...)
+		if len(refs) > 0 {
+			above = refs[len(refs)-1]
 		}
 	}
 	switch {
-	case !c.cardFocus && empty && s == "up" && c.sel == top:
-		c.cardFocus, c.sel = true, ""
+	case !c.cardFocus && empty && s == "up" && c.sel == "":
+		c.cardFocus = true
+		return nil, true
+	case !c.cardFocus && empty && s == "down" && c.sel != "" && c.sel == above:
+		c.cardFocus, c.sel, c.subSel = true, "", ""
 		return nil, true
 	case c.cardFocus && s == "down":
-		c.cardFocus, c.sel = false, top
+		c.cardFocus = false
 		return nil, true
-	case c.cardFocus && s == "up" && len(c.bodyRefs) > 0:
-		// Above the card: the conversation's last row.
-		c.cardFocus, c.sel, c.selMoved = false, c.bodyRefs[len(c.bodyRefs)-1], true
+	case c.cardFocus && s == "up" && above != "":
+		c.cardFocus, c.sel, c.selMoved = false, above, true
 		return nil, true
+	case c.cardFocus && s == "up":
+		return nil, true // nothing above it: stay
 	case c.cardFocus && s == "esc":
 		c.cardFocus = false
 		return nil, true

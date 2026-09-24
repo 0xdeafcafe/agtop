@@ -75,28 +75,29 @@ func TestSubagentDock(t *testing.T) {
 		t.Fatalf("esc: open %q in %s", c.subOpen, m.viewName(c))
 	}
 
-	// A card waiting sits above the subagents: ↑ from the top one reaches
-	// it, ↓ comes back down onto that row, and ↓ again to the box.
+	// A card waiting sits just above the box, below the subagents: ↑ from
+	// the box goes straight onto it, ↑ again to the subagent above, ↓ back
+	// onto the card, and ↓ again to the box.
 	c.sess.Apply(host.Sent{Text: "go"}, time.Now())
 	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}}}, time.Now())
 	c.sess.Apply(headless.PermissionRequest{ID: "r1", Tool: "Bash", ToolUseID: "b1"}, time.Now())
 	key := func(s string) { m.paneKey(tea.KeyPressMsg{}, s) }
 	c.sel = ""
 	key("up")
-	if c.sel != "run:a1" || c.cardFocus {
+	if !c.cardFocus || c.sel != "" {
 		t.Fatalf("↑ from the box: on %q, card %v", c.sel, c.cardFocus)
 	}
 	key("up")
-	if !c.cardFocus || c.sel != "" {
-		t.Fatalf("↑ from the top subagent: on %q, card %v", c.sel, c.cardFocus)
-	}
-	key("down")
 	if c.cardFocus || c.sel != "run:a1" {
-		t.Fatalf("↓ off the card: on %q, card %v", c.sel, c.cardFocus)
+		t.Fatalf("↑ off the card: on %q, card %v", c.sel, c.cardFocus)
 	}
 	key("down")
-	if c.sel != "" {
-		t.Fatalf("↓ past the last row: on %q", c.sel)
+	if !c.cardFocus || c.sel != "" {
+		t.Fatalf("↓ onto the card: on %q, card %v", c.sel, c.cardFocus)
+	}
+	key("down")
+	if c.cardFocus || c.sel != "" {
+		t.Fatalf("↓ off the card: on %q, card %v", c.sel, c.cardFocus)
 	}
 }
 
