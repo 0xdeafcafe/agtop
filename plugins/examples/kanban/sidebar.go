@@ -36,7 +36,7 @@ func sidebarPayload(cards []card) map[string]any {
 		Title string `json:"title"`
 	}
 	type agent struct {
-		Name    string `json:"name"`
+		Name    string `json:"name,omitempty"`
 		Section string `json:"section"`
 		Order   int    `json:"order"`
 	}
@@ -59,7 +59,11 @@ func sidebarPayload(cards []card) map[string]any {
 			if _, dup := agents[id]; dup || !sessionIDRE.MatchString(id) || len(agents) >= maxSidebarAgents {
 				continue
 			}
-			agents[id] = agent{Name: clipRunes(c.title(), maxSidebarName), Section: col.title, Order: i}
+			name := c.title()
+			if name == c.ID {
+				name = "" // no name of its own: agtop keeps the agent's
+			}
+			agents[id] = agent{Name: clipRunes(name, maxSidebarName), Section: col.title, Order: i}
 		}
 	}
 	return map[string]any{"title": "Kanban", "sections": sections, "agents": agents}

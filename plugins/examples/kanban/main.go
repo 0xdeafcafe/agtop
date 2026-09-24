@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -87,6 +88,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "run me from agtop: I talk on fd 3")
 		os.Exit(2)
 	}
+	// Well under the 64 MB the manifest asks for: the board is read often,
+	// and garbage would otherwise pile up past it.
+	debug.SetMemoryLimit(40 << 20)
 	conn = plugin.NewConn(f, handle)
 	<-conn.Done()
 }

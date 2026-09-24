@@ -18,6 +18,7 @@ const board2 = `{"links": [
   {"id": "c5", "name": "No conversation yet", "column": "backlog", "updatedAt": "x", "manuallyArchived": false},
   {"id": "c6", "name": "Archived", "column": "done", "sessionLink": {"sessionId": "66666666-ffff"}, "updatedAt": "x", "manuallyArchived": true},
   {"id": "c7", "name": "Discovered", "column": "all_sessions", "sessionLink": {"sessionId": "77777777-0000"}, "updatedAt": "x", "manuallyArchived": false},
+  {"id": "c9", "column": "done", "sessionLink": {"sessionId": "99999999-2222"}, "updatedAt": "y", "manuallyArchived": false},
   {"id": "c8", "name": "Shipped", "column": "done", "sessionLink": {"sessionId": "88888888-1111"}, "updatedAt": "x", "manuallyArchived": false}
 ]}`
 
@@ -48,7 +49,8 @@ func TestSidebarPayload(t *testing.T) {
 		"33333333-cccc": {Name: "Placed", Section: "Waiting", Order: 0},
 		"22222222-bbbb": {Name: "Newer", Section: "Waiting", Order: 1},
 		"11111111-aaaa": {Name: "Older", Section: "Waiting", Order: 2},
-		"88888888-1111": {Name: "Shipped", Section: "Done", Order: 0},
+		"99999999-2222": {Section: "Done", Order: 0},
+		"88888888-1111": {Name: "Shipped", Section: "Done", Order: 1},
 	}
 	if len(s.Agents) != len(want) {
 		t.Fatalf("agents = %+v", s.Agents)

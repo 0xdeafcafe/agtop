@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -99,23 +100,48 @@ func kanbanHome() string {
 // readCards reads the board: every card that's on it, not archived, and
 // not a subagent of another.
 func readCards() ([]card, error) {
-	b, err := os.ReadFile(filepath.Join(kanbanHome(), "links.json"))
+	f, err := os.Open(filepath.Join(kanbanHome(), "links.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("no kanban-code board at %s: is kanban-code installed, and KANBAN_CODE_HOME right in plugin.json?", kanbanHome())
 		}
 		return nil, err
 	}
-	var file struct {
-		Links []card `json:"links"`
+	defer f.Close()
+	// A card at a time: the file holds every conversation kanban-code has
+	// seen, and can be tens of megabytes, most of it cards left off here.
+	dec := json.NewDecoder(bufio.NewReaderSize(f, 64<<10))
+	var out []card
+	fail := func(err error) ([]card, error) { return nil, fmt.Errorf("reading links.json: %w", err) }
+	if _, err := dec.Token(); err != nil { // {
+		return fail(err)
 	}
-	if err := json.Unmarshal(b, &file); err != nil {
-		return nil, fmt.Errorf("reading links.json: %w", err)
-	}
-	out := file.Links[:0]
-	for _, c := range file.Links {
-		if !c.ManuallyArchived && c.ParentCardID == "" && c.Column != "all_sessions" {
-			out = append(out, c)
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return fail(err)
+		}
+		if key != "links" {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return fail(err)
+			}
+			continue
+		}
+		if _, err := dec.Token(); err != nil { // [
+			return fail(err)
+		}
+		for dec.More() {
+			var c card
+			if err := dec.Decode(&c); err != nil {
+				return fail(err)
+			}
+			if !c.ManuallyArchived && c.ParentCardID == "" && c.Column != "all_sessions" {
+				out = append(out, c)
+			}
+		}
+		if _, err := dec.Token(); err != nil { // ]
+			return fail(err)
 		}
 	}
 	return out, nil
