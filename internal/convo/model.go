@@ -182,7 +182,13 @@ type Session struct {
 	Tasks    []Task
 	Model    string
 	Cwd      string // where Claude Code says it's running
-	Context  int    // tokens in the context window after the last request
+	Version  string // Claude Code's, from its init
+	MCP      []headless.MCPServer
+	// Usage is what fills the context window, as the host last counted
+	// it; nil until it has.
+	Usage    *headless.ContextUsage
+	NTools   int
+	Context  int // tokens in the context window after the last request
 	Limit    string
 	Requests []Request
 	Tools    map[string]*ToolStat
@@ -288,8 +294,12 @@ func (s *Session) Apply(ev any, now time.Time) {
 		}
 	case host.Commands:
 		s.Commands = ev.Commands
+	case host.Context:
+		u := ev.Usage
+		s.Usage = &u
 	case headless.Init:
 		s.Model, s.Cwd = ev.Model, ev.Cwd
+		s.Version, s.MCP, s.NTools = ev.Version, ev.MCPServers, len(ev.Tools)
 	case headless.RateLimit:
 		s.Limit = ev.Status
 	case headless.BlockStart:

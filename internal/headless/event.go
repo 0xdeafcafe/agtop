@@ -21,6 +21,14 @@ type Init struct {
 	Version        string
 	Tools          []string
 	SlashCommands  []string
+	MCPServers     []MCPServer
+}
+
+// MCPServer is one MCP server as Claude Code last saw it: connected,
+// failed, needs-auth, pending.
+type MCPServer struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 // MessageStart opens an assistant message that Deltas then fill in.
@@ -258,13 +266,14 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 	switch subtype {
 	case "init":
 		var r struct {
-			SessionID      string   `json:"session_id"`
-			Model          string   `json:"model"`
-			Cwd            string   `json:"cwd"`
-			PermissionMode string   `json:"permissionMode"`
-			Version        string   `json:"claude_code_version"`
-			Tools          []string `json:"tools"`
-			SlashCommands  []string `json:"slash_commands"`
+			SessionID      string      `json:"session_id"`
+			Model          string      `json:"model"`
+			Cwd            string      `json:"cwd"`
+			PermissionMode string      `json:"permissionMode"`
+			Version        string      `json:"claude_code_version"`
+			Tools          []string    `json:"tools"`
+			SlashCommands  []string    `json:"slash_commands"`
+			MCPServers     []MCPServer `json:"mcp_servers"`
 		}
 		if err := json.Unmarshal(line, &r); err != nil {
 			return nil, err

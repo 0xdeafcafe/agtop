@@ -260,6 +260,26 @@ func (s *Session) Overview(o Options) []Line {
 		}
 	}
 
+	// --- context: what fills the window, by category ---
+	if u := s.Usage; u != nil && u.Max > 0 {
+		meta := tokens(u.Total) + " of " + tokens(u.Max)
+		if u.AutoCompact && u.AutoCompactAt > 0 {
+			meta += " · compacts at " + tokens(u.AutoCompactAt)
+		}
+		switch ago := o.Now.Sub(u.At); {
+		case u.At.IsZero():
+		case ago < time.Minute:
+			meta += " · counted just now"
+		default:
+			meta += " · counted " + dur(ago) + " ago"
+		}
+		section("Context", meta)
+		add("    "+ContextBar(u, max(20, w-8)), "")
+		for _, l := range ContextLegend(u, "    ") {
+			add(l, "")
+		}
+	}
+
 	// --- per turn: cost as bars in the model's colour, then where the
 	// model and effort changed, in words ---
 	if len(s.Turns) > 1 {

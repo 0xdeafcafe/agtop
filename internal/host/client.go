@@ -3,6 +3,7 @@ package host
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -211,6 +212,17 @@ type Stamp struct{ At time.Time }
 // Commands lists the session's slash commands.
 type Commands struct{ Commands []headless.Command }
 
+// Reply answers a control request a client passed through with Ask: ID is
+// the client's own.
+type Reply struct {
+	ID    string
+	Body  json.RawMessage
+	Error string
+}
+
+// Context is what fills the context window, as last counted.
+type Context struct{ Usage headless.ContextUsage }
+
 // Decode reads one line from a host: its own events, or Claude Code's.
 func Decode(line []byte) (any, error) {
 	// Claude Code's lines start with their type; the host's own (and its
@@ -220,15 +232,18 @@ func Decode(line []byte) (any, error) {
 		return headless.Decode(line)
 	}
 	var head struct {
-		Type      string             `json:"type"`
-		Info      Info               `json:"info"`
-		RequestID string             `json:"request_id"`
-		Error     string             `json:"error"`
-		Sent      bool               `json:"agtop_sent"`
-		Images    []string           `json:"agtop_images"`
-		Message   json.RawMessage    `json:"message"`
-		Commands  []headless.Command `json:"commands"`
-		T         int64              `json:"t"`
+		Type      string                 `json:"type"`
+		Info      Info                   `json:"info"`
+		RequestID string                 `json:"request_id"`
+		Error     string                 `json:"error"`
+		Sent      bool                   `json:"agtop_sent"`
+		Images    []string               `json:"agtop_images"`
+		Message   json.RawMessage        `json:"message"`
+		Commands  []headless.Command     `json:"commands"`
+		Context   *headless.ContextUsage `json:"context"`
+		ID        string                 `json:"id"`
+		Reply     json.RawMessage        `json:"reply"`
+		T         int64                  `json:"t"`
 	}
 	if err := json.Unmarshal(line, &head); err != nil {
 		return nil, err
@@ -242,6 +257,13 @@ func Decode(line []byte) (any, error) {
 		return ErrorEvent{Error: head.Error}, nil
 	case typeCommands:
 		return Commands{Commands: head.Commands}, nil
+	case typeReply:
+		return Reply{ID: head.ID, Body: head.Reply, Error: head.Error}, nil
+	case typeContext:
+		if head.Context == nil {
+			return nil, errors.New("context line without a count")
+		}
+		return Context{Usage: *head.Context}, nil
 	case typeTime:
 		return Stamp{At: time.UnixMilli(head.T)}, nil
 	}
@@ -406,6 +428,22 @@ func RewindByRestart(id, sessionID string, resume bool, left Branch) error {
 
 // Stop ends the session and its host; the conversation is kept.
 func (c *Client) Stop() error { return c.do(op{Op: "stop"}) }
+
+// Ask passes a control request to Claude Code (req carries its subtype:
+// side_question, export_conversation, …), waking it if it's asleep. The
+// answer arrives on Lines as a Reply with this id. Hosts before Proto 2
+// ignore it.
+func (c *Client) Ask(id string, req any) error {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return c.do(op{Op: "ask", ID: id, Request: b})
+}
+
+// AskContext asks for a fresh count of what fills the context window; it
+// arrives on Lines as a Context. Hosts before Proto 2 ignore it.
+func (c *Client) AskContext() error { return c.do(op{Op: "context"}) }
 
 // Close ends the connection; it's safe on a nil client.
 func (c *Client) Close() error {

@@ -148,8 +148,9 @@ type Info struct {
 	ContextTokens int `json:"contextTokens,omitempty"`
 }
 
-// Proto is this build's host protocol: 1 adds rewind.
-const Proto = 1
+// Proto is this build's host protocol: 1 adds rewind, 2 context usage and
+// control requests passed through (the ask op).
+const Proto = 2
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
@@ -221,6 +222,8 @@ const (
 	typeInfo     = "agtop_info"
 	typeAnswered = "agtop_answered"
 	typeCommands = "agtop_commands"
+	typeContext  = "agtop_context"
+	typeReply    = "agtop_reply"
 	typeTime     = "agtop_time"
 )
 
@@ -240,7 +243,10 @@ type server struct {
 	// reply, kept apart from the ring so every client gets it.
 	commands []byte
 	initID   string
-	stamped  time.Time // when the last time mark went into the ring
+	ctxID    string            // the context-usage question out, if any
+	asks     map[string]string // control requests out for clients: Claude's id → the client's
+	context  []byte            // the last answer, as the line clients get
+	stamped  time.Time         // when the last time mark went into the ring
 	limitRaw headless.RateLimit
 	wake     *time.Timer // a scheduled continue or retry
 	gen      int         // bumped by every send; a stale timer does nothing
@@ -623,6 +629,25 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.PermissionCancelled:
 		s.answered(ev.ID)
 	case headless.ControlReply:
+		if tag, ok := s.asks[ev.ID]; ok {
+			delete(s.asks, ev.ID)
+			line, _ := json.Marshal(map[string]any{"type": typeReply, "id": tag, "reply": ev.Body, "error": ev.Error})
+			for c := range s.clients {
+				c.push(line)
+			}
+			return
+		}
+		if ev.ID == s.ctxID && ev.ID != "" {
+			s.ctxID = ""
+			if u, err := headless.ParseContextUsage(ev); err == nil && ev.Error == "" {
+				u.At = time.Now()
+				s.context, _ = json.Marshal(map[string]any{"type": typeContext, "context": u})
+				for c := range s.clients {
+					c.push(s.context)
+				}
+			}
+			return
+		}
 		if ev.ID == s.initID && ev.Error == "" {
 			s.commands, _ = json.Marshal(map[string]any{"type": typeCommands, "commands": headless.Commands(ev)})
 			for c := range s.clients {
@@ -633,6 +658,7 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.Result:
 		s.began = true
 		s.info.CostUSD += ev.CostUSD
+		s.askContext()
 		if s.stalled(ev) {
 			s.publish()
 			return
@@ -1015,6 +1041,16 @@ func (s *server) deliver(text string, images []string, pics []headless.Image) er
 	return s.sess.SendWith(text, pics)
 }
 
+// askContext asks Claude Code what fills the context window, unless it's
+// asleep or already asked; clients get the answer as a typeContext line.
+// Called with mu held.
+func (s *server) askContext() {
+	if s.sess == nil || s.ctxID != "" {
+		return
+	}
+	s.ctxID, _ = s.sess.AskContextUsage()
+}
+
 // editQueue applies a queue op. Called with mu held.
 func (s *server) editQueue(o op) error {
 	q := s.info.Queue
@@ -1078,7 +1114,8 @@ type op struct {
 	Index     int             `json:"index,omitempty"`
 	Was       string          `json:"was,omitempty"` // the queued text the client saw at Index
 	To        int             `json:"to,omitempty"`
-	Branch    *Branch         `json:"branch,omitempty"` // what rewind leaves
+	Branch    *Branch         `json:"branch,omitempty"`  // what rewind leaves
+	Request   json.RawMessage `json:"request,omitempty"` // ask: the control request
 }
 
 func (s *server) do(o op) error {
@@ -1088,6 +1125,28 @@ func (s *server) do(o op) error {
 	s.mu.Lock()
 	sess := s.sess
 	switch o.Op {
+	case "ask":
+		// Asleep, it wakes to answer, and rests again once idle.
+		if err := s.start(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		if s.info.State == "idle" {
+			s.armIdle()
+		}
+		id, err := s.sess.Ask(o.Request)
+		if err == nil {
+			if s.asks == nil {
+				s.asks = map[string]string{}
+			}
+			s.asks[id] = o.ID
+		}
+		s.mu.Unlock()
+		return err
+	case "context":
+		s.askContext()
+		s.mu.Unlock()
+		return nil
 	case "limit":
 		if l := s.info.Limit; l != nil {
 			l.Continue, l.Ask = o.Now, false
@@ -1259,6 +1318,9 @@ func (s *server) serve(nc net.Conn) {
 	replay := append([][]byte(nil), s.ring...)
 	if s.commands != nil {
 		replay = append(replay, s.commands)
+	}
+	if s.context != nil {
+		replay = append(replay, s.context)
 	}
 	info, _ := json.Marshal(map[string]any{"type": typeInfo, "info": s.info})
 	s.clients[c] = struct{}{}
