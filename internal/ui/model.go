@@ -616,6 +616,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flash("moved — now "+strings.TrimPrefix(msg.to, msg.from.Acct.Name+"/"), false)
 		m.refresh()
 		return m, nil
+	case jobGoneMsg:
+		a := m.agentByKey(msg.key)
+		if a == nil {
+			return m, nil
+		}
+		return m, m.moveToAgtopWith(a, msg.text)
 	case attachDoneMsg:
 		m.attached = ""
 		m.refresh()
@@ -625,6 +631,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			a := msg.agent
+			if daemon.IsRefusal(msg.err, "ENOJOB") {
+				// Claude Code has let the job go; its conversation carries on here.
+				return m, m.moveToAgtop(a)
+			}
 			return m, tea.ExecProcess(actions.AttachFallback(a.Acct, a.ID), func(err error) tea.Msg {
 				return doneMsg{err: err}
 			})

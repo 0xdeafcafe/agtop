@@ -14,6 +14,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 func askReq() *headless.PermissionRequest {
@@ -180,11 +181,21 @@ func TestSlashQueueTasks(t *testing.T) {
 		t.Fatal("/compact belongs to Claude Code")
 	}
 
-	// Enter on a queued message pulls it into the box for editing.
-	c.sess.Info.Queue = []string{"first", "second"}
+	// Enter on a queued message pulls it into the box for editing, and
+	// holds the queue until it's saved.
+	m.queueLocal("", "first")
+	m.queueLocal("", "second")
 	c.sel = "q:1"
 	if _, used := m.queueKey(c, "enter"); !used || string(c.input) != "second" || c.editQ != 2 || c.sel != "" {
 		t.Fatalf("edit queued: used=%v input=%q editQ=%d", used, string(c.input), c.editQ)
+	}
+	if !m.localQ[""].held {
+		t.Fatal("editing should hold the queue")
+	}
+	c.input = []rune("second, better")
+	m.sendPane(c, false)
+	if q := m.localQ[""]; q.held || q.items[1] != "second, better" || c.editQ != 0 {
+		t.Fatalf("after saving: held=%v items=%q", q.held, q.items)
 	}
 
 	// Tasks group into now, next and done.
@@ -238,7 +249,7 @@ func TestLocalQueue(t *testing.T) {
 		t.Fatalf("queue = %+v", q)
 	}
 	c.sel = "q:0"
-	if _, ok := m.localQueueKey(c, "alt+m"); !ok || m.localQ["k"].items[0] != "one\n\ntwo" {
+	if _, ok := m.queueKey(c, "alt+m"); !ok || m.localQ["k"].items[0] != "one\n\ntwo" {
 		t.Fatalf("merge: %q", m.localQ["k"].items)
 	}
 	m.editLocal(c, 0, "one\n\ntwo", "edited")
@@ -383,5 +394,94 @@ func TestAnswersCarryPreview(t *testing.T) {
 	}
 	if got.Annotations["Which?"]["preview"] != "A!" || got.Annotations["And?"] != nil {
 		t.Fatalf("annotations: %+v", got.Annotations)
+	}
+}
+
+// A message for a job Claude Code has let go of carries the conversation on
+// in agtop mode instead of failing.
+func TestJobGoneMovesToAgtop(t *testing.T) {
+	a := &fleet.Agent{Key: "acct/gone", DisplayName: "gone"}
+	a.SessionID, a.State = "sess", "done"
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}}
+	m.order = m.snap.Agents
+	_, cmd := m.update(jobGoneMsg{key: a.Key, text: "carry on"})
+	if cmd == nil || !strings.HasPrefix(m.status, "moving gone") {
+		t.Fatalf("expected a move to agtop mode, got status %q", m.status)
+	}
+}
+
+func TestQueueKeys(t *testing.T) {
+	a := &fleet.Agent{Key: "k"}
+	a.State = "working"
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}}
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	m.host = c
+	for _, s := range []string{"a", "b", "c", "d"} {
+		m.queueLocal("k", s)
+	}
+	items := func() string { return strings.Join(m.localQ["k"].items, ",") }
+	key := func(s string) tea.Cmd {
+		k := tea.KeyPressMsg{}
+		if len(s) == 1 {
+			k.Text = s
+		}
+		return m.paneKey(k, s)
+	}
+
+	// ↑ from the empty box picks the last queued message, in the dock.
+	key("up")
+	if c.sel != "q:3" {
+		t.Fatalf("↑ picked %q", c.sel)
+	}
+	// Moving follows the message, however fast the keys come.
+	key("up")
+	key("up")
+	key("up")
+	key("shift+down")
+	key("shift+down")
+	if items() != "b,c,a,d" || c.sel != "q:2" {
+		t.Fatalf("moved to %s, sel %s", items(), c.sel)
+	}
+	// Plain keys: ⌫ drops, the pick staying on the next one; h holds.
+	key("backspace")
+	if items() != "b,c,d" || c.sel != "q:2" {
+		t.Fatalf("dropped: %s, sel %s", items(), c.sel)
+	}
+	key("h")
+	if !m.localQ["k"].held || len(c.input) != 0 {
+		t.Fatal("h should hold, not type")
+	}
+	// A key it doesn't use goes back to typing.
+	key("w")
+	if c.sel != "" || string(c.input) != "w" {
+		t.Fatalf("typing: sel %q input %q", c.sel, string(c.input))
+	}
+	// ctrl+s sends the queue, held or not, with what's typed last.
+	if key("ctrl+s") == nil || items() != "" {
+		t.Fatalf("ctrl+s left %s", items())
+	}
+	if key("ctrl+s") != nil {
+		t.Fatal("nothing to send")
+	}
+}
+
+func TestQueueViewKeepsLines(t *testing.T) {
+	m := &Model{snap: &fleet.Snapshot{}}
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	m.queueLocal("k", "fix the tests\n\n\n- first\n- second")
+	var out string
+	for _, l := range m.queueLines(c, convo.Options{Width: 80}) {
+		out += ansi.Strip(l.Text) + "\n"
+	}
+	for _, want := range []string{" 1  fix the tests", "5 lines", "\n       - first", "\n       - second"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("queue view missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\n\n\n") {
+		t.Errorf("blank lines should squeeze to one:\n%s", out)
+	}
+	if h := ansi.Strip(queueHint(m.queueOf(c), 200)); strings.Contains(h, "alt") {
+		t.Errorf("the queue's keys shouldn't need alt: %s", h)
 	}
 }

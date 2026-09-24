@@ -552,7 +552,7 @@ func (m *Model) submit() tea.Cmd {
 			m.flash(fmt.Sprintf("queued for %s · goes within 15s", a.DisplayName), false)
 			return nil
 		}
-		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
+		return reply(a, text)
 	}
 	if text == "" {
 		return m.attach(a)

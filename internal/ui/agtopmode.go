@@ -2,6 +2,7 @@ package ui
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime/debug"
@@ -491,6 +492,7 @@ type hostConn struct {
 	boxY     int
 	editQ    int    // queued message being edited in the box, +1; 0 when none
 	editWas  string // its text before editing
+	editHeld bool   // editing held the queue, to let go once it's saved
 	slashSel int    // the slash-command picker's selection
 	pastes   pastes // long pastes shown as chips
 	arts     []*artifact
@@ -1180,16 +1182,35 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 			when = paint(cYellow, " · send failed, trying again in "+dur(time.Until(lq.retry).Round(time.Second)))
 		}
 		if qs.held {
-			// Never silently stuck: say it's held and how to let it go.
-			when = paint(cYellow, " · held") + dim(" · alt+h sends it")
+			// Never silently stuck: say it's held and how it goes.
+			when = paint(cYellow, " · held") + dim(" · ctrl+s sends it now")
 		}
-		line(spread("  "+paint(cSub+bold, fmt.Sprintf("queue %d", len(q)))+when, "", w))
-		for i, item := range q {
-			if i >= 3 {
-				line(dim(fmt.Sprintf("   … %d more", len(q)-i)))
-				break
+		inView := m.viewName(c) == "queue"
+		pick, picked := queueSel(c, len(q))
+		var how string
+		if m.paneFocus && !picked && len(c.input) == 0 && !inView {
+			how = keys("↑", "edit or reorder", "ctrl+s", "send now") + "  "
+		}
+		line(spread("  "+paint(cSub+bold, fmt.Sprintf("queue %d", len(q)))+when, how, w))
+		if !inView {
+			// Three at a time, keeping the picked one in sight.
+			start := 0
+			if picked && pick >= 3 {
+				start = pick - 2
 			}
-			line("   " + dim(fmt.Sprint(i+1)) + "  " + paint(cSub, ansi.Truncate(shortImages(oneLine(item)), w-8, "…")))
+			if start > 0 {
+				line(dim(fmt.Sprintf("   … %d before", start)))
+			}
+			for i := start; i < min(len(q), start+3); i++ {
+				row := "   " + dim(fmt.Sprint(i+1)) + "  " + paint(cSub, ansi.Truncate(shortImages(oneLine(q[i])), w-8, "…"))
+				if picked && i == pick {
+					row = picked1(row, w, m.paneFocus)
+				}
+				line(row)
+			}
+			if rest := len(q) - (start + 3); rest > 0 {
+				line(dim(fmt.Sprintf("   … %d more", rest)))
+			}
 		}
 	}
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
@@ -1198,6 +1219,11 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 		top += dim(" · " + a.Where() + ", so it can't take messages here")
 	case c.client == nil && a.Agtop:
 		top += dim(" · stopped; ") + paint(cOrange, "enter resumes it") + dim(" with your message")
+	case c.client == nil && busy(a):
+		top += dim(" · working, so ") + paint(cOrange, "enter queues")
+		if len(c.input) > 0 {
+			top += dim(" · ctrl+s sends it now")
+		}
 	case c.client == nil:
 		top += dim(" · enter replies through Claude Code")
 	case isQuestion(s.Pending()):
@@ -1205,7 +1231,10 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	case len(s.Pending()) > 0:
 		top += dim(" · ") + paint(cYellow, "answer the card first, or type a note")
 	case s.Live() != nil:
-		top += dim(" · working, so ") + paint(cOrange, "enter queues") + dim(" · ctrl+s sends now")
+		top += dim(" · working, so ") + paint(cOrange, "enter queues")
+		if len(c.input) > 0 {
+			top += dim(" · ctrl+s sends it now")
+		}
 	default:
 		top += dim(" · enter sends")
 	}
@@ -1234,6 +1263,13 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w int) []string {
 	hint := keysFit(w-4, "enter", "send", "esc · ←", "back to the list", "↑↓", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
 	if c.sel != "" {
 		hint = keysFit(w-4, "enter · space", "open or close", "↑↓", "pick a step", "esc", "done picking", "ctrl+o", "show all")
+	}
+	if qs := m.queueOf(c); len(qs.items) > 0 {
+		if _, ok := queueSel(c, len(qs.items)); ok {
+			hint = queueHint(qs, w-4)
+		} else if m.viewName(c) == "queue" && len(c.input) == 0 {
+			hint = keysFit(w-4, "↑↓", "pick a message", "ctrl+s", "send it all now", "[ ]", "views")
+		}
 	}
 	if !m.paneFocus {
 		hint = keysFit(w-4, "enter · →", "type here", "ctrl+n", "next needing you")
@@ -1339,18 +1375,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if cmd, used := m.slashKey(c, s); used {
 		return cmd
 	}
-	if m.viewName(c) == "queue" {
-		queueKey := m.queueKey
-		if c.client == nil {
-			queueKey = m.localQueueKey
-		}
-		if cmd, used := queueKey(c, s); used {
-			return cmd
-		}
+	if cmd, used := m.queueKey(c, s); used {
+		return cmd
 	}
 	if s == "esc" && c.editQ > 0 {
-		c.editQ, c.input, c.back = 0, c.input[:0], 0
-		return nil
+		c.input, c.back = c.input[:0], 0
+		return m.endQueueEdit(c)
 	}
 	if cmd, used := m.cardKey(c, s, empty); used {
 		return cmd
@@ -1443,8 +1473,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		return m.sendPane(c, false)
 	case "ctrl+s":
-		if !empty {
+		// Now, whatever's waiting: the queue, then what's in the box.
+		if !empty || len(c.images) > 0 {
 			return m.sendPane(c, true)
+		}
+		if len(m.queueOf(c).items) > 0 {
+			return m.sendQueueNow(c, "")
 		}
 	case "up", "down":
 		if empty {
@@ -1477,14 +1511,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return m.markDone(m.agentByKey(c.key))
 	case "alt+h":
 		// Hold or release the queue from any view, as the dock says.
-		if c.client != nil {
-			cmd, _ := m.queueKey(c, s)
-			return cmd
-		}
-		if q := m.localQ[c.key]; q != nil {
-			q.held, q.fails, q.retry = !q.held, 0, time.Time{}
-		}
-		return nil
+		c.editHeld = false // yours now, not the edit's
+		return m.holdQueue(c, !m.queueOf(c).held)
 	case "alt+r":
 		// Mark a file reviewed in the changes view, or unmark it.
 		if path, ok := strings.CutPrefix(c.sel, "chg:"); ok && m.viewName(c) == "changes" {
@@ -1704,12 +1732,27 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	c.pastes = pastes{}
 	if c.editQ > 0 {
 		i, was := c.editQ-1, c.editWas
-		c.editQ, c.input, c.back = 0, c.input[:0], 0
+		c.input, c.back = c.input[:0], 0
 		if c.client == nil {
 			m.editLocal(c, i, was, text)
-			return nil
+			return m.endQueueEdit(c)
 		}
-		return hostCmd(func() error { return c.client.EditQueued(i, was, text) })
+		if items := c.sess.Info.Queue; i < len(items) && items[i] == was {
+			items[i] = text
+		}
+		// Saved before the queue is let go, so the old text never goes.
+		cl, release := c.client, c.editHeld
+		c.editQ, c.editHeld = 0, false
+		if release {
+			c.sess.Info.QueueHeld = false
+		}
+		return hostCmd(func() error {
+			err := cl.EditQueued(i, was, text)
+			if release {
+				err = errors.Join(err, cl.HoldQueue(false))
+			}
+			return err
+		})
 	}
 	if strings.HasPrefix(text, "/") {
 		if cmd, ok := m.runAgtopCommand(c, text); ok {
@@ -1728,8 +1771,11 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	if a := m.focused(); a != nil {
 		m.markSeen(a)
 	}
+	if now && len(images) == 0 && len(m.queueOf(c).items) > 0 {
+		return m.sendQueueNow(c, text)
+	}
 	if c.client == nil {
-		return m.sendOffline(c, text, images)
+		return m.sendOffline(c, text, images, now)
 	}
 	if len(images) > 0 {
 		return hostCmd(func() error { return c.client.SendImages(text, images) })
@@ -1770,6 +1816,14 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 // moveSel moves the selection over rows you can act on: turns and steps.
 func (m *Model) moveSel(c *hostConn, d int) {
 	refs := c.bodyRefs
+	if m.viewName(c) == "conversation" {
+		// Under the conversation, the dock's queue: ↑ from the box picks
+		// the last queued message first.
+		refs = slices.Clip(refs)
+		for i := range m.queueOf(c).items {
+			refs = append(refs, fmt.Sprintf("q:%d", i))
+		}
+	}
 	if len(refs) == 0 {
 		return
 	}
@@ -1827,7 +1881,7 @@ func (m *Model) leavePane() {
 // sendOffline sends from the message box of a session agtop isn't hosting:
 // a stopped agtop session resumes with it, a Claude Code session gets it as
 // a reply through its daemon.
-func (m *Model) sendOffline(c *hostConn, text string, images []string) tea.Cmd {
+func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool) tea.Cmd {
 	a := m.agentByKey(c.key)
 	switch {
 	case a == nil:
@@ -1851,7 +1905,7 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string) tea.Cmd {
 		}
 	}
 	text = withImages(text, images)
-	if busy(a) || len(m.queueOf(c).items) > 0 {
+	if !now && (busy(a) || len(m.queueOf(c).items) > 0) {
 		// It's working: the message waits in the queue and goes when it
 		// is idle, together with anything else waiting.
 		m.queueLocal(a.Key, text)
@@ -1860,7 +1914,7 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string) tea.Cmd {
 	}
 	m.loader.Nudge(a.Key)
 	m.markSeen(a)
-	return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) })
+	return reply(a, text)
 }
 
 // focusPane moves keys into the selected agtop-mode agent's pane.
@@ -1959,7 +2013,10 @@ func sendHosted(a *fleet.Agent, text string) tea.Cmd {
 // moveToAgtop switches a Claude Code session to agtop mode: the daemon's
 // copy stops (the conversation is kept) and the same conversation resumes
 // under agtop's own host, which runs it headless from then on.
-func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
+func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd { return m.moveToAgtopWith(a, "") }
+
+// moveToAgtopWith moves it over with prompt as the first message there.
+func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 	switch {
 	case a.Agtop:
 		m.flash(a.DisplayName+" already runs in agtop mode", false)
@@ -1982,7 +2039,7 @@ func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd {
 	delete(m.moveWhenIdle, a.Key)
 	d := m.store.Config.Dispatch
 	cfg := host.Config{
-		SessionID: a.SessionID, Resume: true, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
+		SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
 	}
 	old := a.Key

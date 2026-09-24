@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
@@ -47,10 +48,39 @@ func (m *Model) queueOf(c *hostConn) queued {
 // canQueue is whether agtop can hold messages for this agent.
 func canQueue(a *fleet.Agent) bool { return a != nil && !a.Agtop && !a.Interactive }
 
+// reply sends a message to a Claude Code background job. A job the daemon
+// has let go of (ENOJOB) still has its conversation on disk: it carries on
+// in agtop mode, with the message as its first turn.
+func reply(a *fleet.Agent, text string) tea.Cmd {
+	acct, id, key, name := a.Acct, a.ID, a.Key, a.DisplayName
+	return func() tea.Msg {
+		err := actions.Reply(acct, id, text)
+		switch {
+		case daemon.IsRefusal(err, "ENOJOB"):
+			return jobGoneMsg{key: key, text: text}
+		case err != nil:
+			return doneMsg{err: err}
+		}
+		return doneMsg{text: "sent to " + name}
+	}
+}
+
+// jobGoneMsg is a message for a job Claude Code no longer has.
+type jobGoneMsg struct{ key, text string }
+
 func busy(a *fleet.Agent) bool { return a.State == "working" || a.State == "blocked" }
 
 // queueLocal adds a message to a Claude Code session's queue.
 func (m *Model) queueLocal(key, text string) {
+	q := m.localQueueOf(key)
+	if len(q.items) == 0 {
+		q.since = time.Now()
+	}
+	q.items = append(q.items, text)
+}
+
+// localQueueOf is a Claude Code session's queue, made if it has none.
+func (m *Model) localQueueOf(key string) *localQueue {
 	if m.localQ == nil {
 		m.localQ = map[string]*localQueue{}
 	}
@@ -59,10 +89,7 @@ func (m *Model) queueLocal(key, text string) {
 		q = &localQueue{}
 		m.localQ[key] = q
 	}
-	if len(q.items) == 0 {
-		q.since = time.Now()
-	}
-	q.items = append(q.items, text)
+	return q
 }
 
 // withImages adds image files to a message as paths; Claude Code opens
@@ -104,74 +131,33 @@ func (m *Model) flushLocalQueues() tea.Cmd {
 		case busy(a) && time.Since(q.since) < 15*time.Second:
 			continue
 		}
-		text := strings.Join(q.items, "\n\n")
-		items := q.items
-		q.items, q.sentAt = nil, time.Now()
-		acct, id, name := a.Acct, a.ID, a.DisplayName
-		cmds = append(cmds, func() tea.Msg {
-			if err := actions.Reply(acct, id, text); err != nil {
-				return localQueueFailed{key: key, items: items, err: err}
-			}
-			return doneMsg{text: "sent the queue to " + name}
-		})
+		cmds = append(cmds, m.sendLocal(key, a, q))
 	}
 	return tea.Batch(cmds...)
+}
+
+// sendLocal sends a Claude Code session's whole queue as one message.
+func (m *Model) sendLocal(key string, a *fleet.Agent, q *localQueue) tea.Cmd {
+	text := strings.Join(q.items, "\n\n")
+	items := q.items
+	q.items, q.sentAt = nil, time.Now()
+	acct, id, name := a.Acct, a.ID, a.DisplayName
+	return func() tea.Msg {
+		err := actions.Reply(acct, id, text)
+		if daemon.IsRefusal(err, "ENOJOB") {
+			return jobGoneMsg{key: key, text: text}
+		}
+		if err != nil {
+			return localQueueFailed{key: key, items: items, err: err}
+		}
+		return doneMsg{text: "sent the queue to " + name}
+	}
 }
 
 type localQueueFailed struct {
 	key   string
 	items []string
 	err   error
-}
-
-// localQueueKey edits a Claude Code session's queue from the queue view.
-func (m *Model) localQueueKey(c *hostConn, s string) (tea.Cmd, bool) {
-	q := m.localQ[c.key]
-	if q == nil {
-		return nil, false
-	}
-	if s == "alt+h" {
-		q.held = !q.held
-		return nil, true
-	}
-	var i int
-	if _, err := fmt.Sscanf(c.sel, "q:%d", &i); err != nil || i >= len(q.items) {
-		return nil, false
-	}
-	switch s {
-	case "enter":
-		c.input, c.back, c.editQ, c.editWas = []rune(q.items[i]), 0, i+1, q.items[i]
-		c.sel = ""
-	case "shift+up", "shift+down":
-		to := i - 1
-		if s == "shift+down" {
-			to = i + 1
-		}
-		if to >= 0 && to < len(q.items) {
-			q.items[i], q.items[to] = q.items[to], q.items[i]
-			c.sel = fmt.Sprintf("q:%d", to)
-		}
-	case "alt+m":
-		if i+1 < len(q.items) {
-			q.items[i] += "\n\n" + q.items[i+1]
-			q.items = slices.Delete(q.items, i+1, i+2)
-		}
-	case "ctrl+s":
-		text := q.items[i]
-		q.items = slices.Delete(q.items, i, i+1)
-		c.sel = ""
-		a := m.agentByKey(c.key)
-		if a == nil {
-			return nil, true
-		}
-		return cmdErr("sent to "+a.DisplayName, func() error { return actions.Reply(a.Acct, a.ID, text) }), true
-	case "ctrl+x", "delete":
-		q.items = slices.Delete(q.items, i, i+1)
-		c.sel = ""
-	default:
-		return nil, false
-	}
-	return nil, true
 }
 
 // editLocal saves an edited queued message back in place.

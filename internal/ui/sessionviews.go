@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -17,108 +18,304 @@ import (
 
 // --- queue view ---
 
-// queueLines lists the messages waiting for the agent. A selected one can
-// be edited, moved, merged, sent now or dropped; the whole queue can be
-// held, and sent as one message or one per turn.
+// The queue's keys never need alt, which a Mac's option key doesn't send
+// unless the terminal is told to. ↑ from the empty box picks the last
+// queued message, in the dock or here; a picked message takes plain keys
+// (anything else goes back to typing), and ctrl+s always sends everything
+// waiting, now.
+
+// queueLines lists the messages waiting for the agent, each as you wrote
+// it, line breaks kept; a picked one shows whole.
 func (m *Model) queueLines(c *hostConn, o convo.Options) []convo.Line {
 	w := o.Width
 	q := m.queueOf(c)
 	var out []convo.Line
 	line := func(text, ref string) { out = append(out, convo.Line{Text: fit(text, w), Ref: ref}) }
-	how := "sends as one message when this turn ends"
-	switch {
-	case q.local:
-		how = "sends as one message once idle, or within 15s while it works"
-	case q.separate:
-		how = "sends one message per turn"
-	}
-	if q.held {
-		how = paint(cYellow, "held") + dim(" · alt+h releases it")
-	} else {
-		how = dim(how)
-	}
-	line("  "+paint(cSub+bold, fmt.Sprintf("Queue  %d", len(q.items)))+"   "+how, "")
+	line("  "+paint(cSub+bold, fmt.Sprintf("Queue  %d", len(q.items)))+"   "+queueHow(q), "")
 	line("  "+faint(strings.Repeat("─", max(0, w-4))), "")
 	if len(q.items) == 0 {
 		line("", "")
 		line("    "+dim("Nothing queued. Messages you send while the agent works wait here."), "")
+		return out
 	}
-	for i, item := range q.items {
-		ref := fmt.Sprintf("q:%d", i)
-		rows := wrap(shortImages(oneLine(item)), max(20, w-10))
-		for j, r := range rows {
-			if j == 3 {
-				line("         "+dim("…"), ref)
-				break
-			}
-			lead := "  " + dim(fmt.Sprintf("%2d", i+1)) + "  "
-			if j > 0 {
-				lead = "      "
+	i, picked := queueSel(c, len(q.items))
+	for j, item := range q.items {
+		ref := fmt.Sprintf("q:%d", j)
+		sel := picked && j == i
+		rows := queueRows(item, max(20, w-12))
+		limit := 4
+		if sel {
+			limit = 30
+		}
+		if len(rows) > limit {
+			more := len(rows) - limit + 1
+			rows = append(rows[:limit-1], dim(fmt.Sprintf("… %d more lines", more)))
+		}
+		if j > 0 {
+			line("", "")
+		}
+		for k, r := range rows {
+			lead := "   " + paint(cSub+bold, fmt.Sprintf("%2d", j+1)) + "  "
+			if k > 0 {
+				lead = "       "
 			}
 			text := lead + paint(cText, r)
-			if ref == o.Selected {
-				bar := faint("▍")
-				if o.Focused {
-					bar = paint(cOrange, "▍")
-				}
-				text = selBG + strings.ReplaceAll(bar+fit(text, w-1)[1:], reset, reset+selBG) + reset
+			if k == 0 {
+				text = spread(text, dim(queueSize(item))+"  ", w-1)
+			}
+			if sel {
+				text = picked1(text, w, o.Focused)
 			}
 			line(text, ref)
 		}
 	}
-	line("", "")
-	hint := keysFit(w-4, "↑↓", "pick", "enter", "edit", "shift+↑↓", "move", "alt+m", "merge with next", "ctrl+s", "send now", "ctrl+x", "drop")
-	line("  "+hint, "")
-	if q.local {
-		line("  "+keysFit(w-4, "alt+h", "hold or release"), "")
-	} else {
-		line("  "+keysFit(w-4, "alt+h", "hold or release", "alt+o", "one message or separately"), "")
-	}
 	return out
 }
 
-// queueKey acts on the queue view. It reports whether it used the key.
-func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
-	info := c.sess.Info
-	switch s {
-	case "alt+h":
-		on := !info.QueueHeld
-		return hostCmd(func() error { return c.client.HoldQueue(on) }), true
-	case "alt+o":
-		on := !info.QueueSeparate
-		return hostCmd(func() error { return c.client.QueueSeparately(on) }), true
+// queueHow says when the queue goes.
+func queueHow(q queued) string {
+	how := "goes as one message when this turn ends"
+	switch {
+	case q.local:
+		how = "goes as one message once idle, or within 15s while it works"
+	case q.separate:
+		how = "goes one message per turn"
 	}
+	if q.held {
+		return paint(cYellow, "held") + dim(" · h on a picked message lets it go")
+	}
+	return dim(how)
+}
+
+// queueHint is the keys for a picked queued message.
+func queueHint(q queued, w int) string {
+	hold := "hold"
+	if q.held {
+		hold = "let go"
+	}
+	pairs := []string{"enter", "edit", "shift+↑↓", "move", "s", "send this now", "⌫", "drop", "h", hold, "m", "merge with next"}
+	if !q.local {
+		how := "one per turn"
+		if q.separate {
+			how = "all together"
+		}
+		pairs = append(pairs, "o", how)
+	}
+	return keysFit(w, append(pairs, "esc", "done")...)
+}
+
+// picked1 draws a row as picked.
+func picked1(text string, w int, focused bool) string {
+	bar := faint("▍")
+	if focused {
+		bar = paint(cOrange, "▍")
+	}
+	return selBG + strings.ReplaceAll(bar+fit(text, w-1)[1:], reset, reset+selBG) + reset
+}
+
+// queueRows is a queued message wrapped to w, its line breaks kept and
+// blank lines between paragraphs squeezed to one.
+func queueRows(item string, w int) []string {
+	var rows []string
+	blank := false
+	for _, l := range strings.Split(strings.TrimSpace(shortImages(item)), "\n") {
+		l = strings.TrimRight(l, " \t")
+		if l == "" {
+			if !blank {
+				rows = append(rows, "")
+			}
+			blank = true
+			continue
+		}
+		blank = false
+		rows = append(rows, wrap(l, w)...)
+	}
+	return rows
+}
+
+// queueSize says how long a queued message is, when that isn't obvious.
+func queueSize(item string) string {
+	if n := strings.Count(strings.TrimSpace(item), "\n") + 1; n > 1 {
+		return fmt.Sprintf("%d lines", n)
+	}
+	return ""
+}
+
+// queueSel is the queued message picked, in the dock or the queue view.
+func queueSel(c *hostConn, n int) (int, bool) {
 	var i int
-	if _, err := fmt.Sscanf(c.sel, "q:%d", &i); err != nil || i >= len(info.Queue) {
+	if _, err := fmt.Sscanf(c.sel, "q:%d", &i); err != nil || i < 0 || i >= n {
+		return 0, false
+	}
+	return i, true
+}
+
+// queueKey acts on a picked queued message. It reports whether it used
+// the key.
+func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
+	q := m.queueOf(c)
+	i, ok := queueSel(c, len(q.items))
+	if !ok {
 		return nil, false
 	}
-	was := info.Queue[i]
 	switch s {
-	case "enter":
-		// Edit it in the box; enter there saves it back in place.
-		c.input, c.back, c.editQ, c.editWas = []rune(info.Queue[i]), 0, i+1, info.Queue[i]
+	case "enter", "e":
+		// Edit it in the box; enter there saves it back in place. The
+		// queue holds meanwhile, so it doesn't go half edited.
+		c.input, c.back, c.editQ, c.editWas = []rune(q.items[i]), 0, i+1, q.items[i]
 		c.sel = ""
-		return nil, true
-	case "shift+up", "shift+down":
+		var cmd tea.Cmd
+		if c.editHeld = !q.held; c.editHeld {
+			cmd = m.holdQueue(c, true)
+		}
+		return cmd, true
+	case "shift+up", "shift+down", "alt+up", "alt+down":
 		to := i - 1
-		if s == "shift+down" {
+		if strings.HasSuffix(s, "down") {
 			to = i + 1
 		}
-		if to < 0 || to >= len(info.Queue) {
+		if to < 0 || to >= len(q.items) {
 			return nil, true
 		}
-		c.sel = fmt.Sprintf("q:%d", to)
-		return hostCmd(func() error { return c.client.MoveQueued(i, was, to) }), true
-	case "alt+m":
-		return hostCmd(func() error { return c.client.MergeQueued(i, was) }), true
-	case "ctrl+s":
-		c.sel = ""
-		return hostCmd(func() error { return c.client.SendQueued(i, was) }), true
-	case "ctrl+x", "delete":
-		c.sel = ""
-		return hostCmd(func() error { return c.client.RemoveQueued(i, was) }), true
+		c.sel, c.selMoved = fmt.Sprintf("q:%d", to), true
+		return m.queueEdit(c, "move", i, to), true
+	case "m", "alt+m":
+		return m.queueEdit(c, "merge", i, 0), true
+	case "s":
+		return m.queueEdit(c, "send", i, 0), true
+	case "backspace", "delete", "ctrl+x":
+		return m.queueEdit(c, "drop", i, 0), true
+	case "h", "alt+h":
+		c.editHeld = false // yours now, not the edit's
+		return m.holdQueue(c, !q.held), true
+	case "o", "alt+o":
+		if q.local {
+			return nil, true
+		}
+		on := !q.separate
+		c.sess.Info.QueueSeparate = on
+		return hostCmd(func() error { return c.client.QueueSeparately(on) }), true
 	}
 	return nil, false
+}
+
+// queueEdit changes the queue here at once, so the view and the next key
+// see it, and tells the host of an agtop session, naming the message by
+// its place and text as you saw it.
+func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
+	items := slices.Clone(m.queueOf(c).items)
+	was := items[i]
+	switch op {
+	case "move":
+		items = slices.Insert(slices.Delete(items, i, i+1), to, was)
+	case "merge":
+		if i+1 >= len(items) {
+			m.flash("nothing after it to merge with", true)
+			return nil
+		}
+		items[i] += "\n\n" + items[i+1]
+		items = slices.Delete(items, i+1, i+2)
+	case "send", "drop":
+		items = slices.Delete(items, i, i+1)
+		// The pick stays where it was, on the next message.
+		if len(items) == 0 {
+			c.sel = ""
+		} else {
+			c.sel = fmt.Sprintf("q:%d", min(i, len(items)-1))
+		}
+	}
+	if c.client == nil {
+		q := m.localQ[c.key]
+		q.items = items
+		if op == "send" {
+			if a := m.agentByKey(c.key); a != nil {
+				return reply(a, was)
+			}
+		}
+		return nil
+	}
+	c.sess.Info.Queue = items
+	cl := c.client
+	return hostCmd(func() error {
+		switch op {
+		case "move":
+			return cl.MoveQueued(i, was, to)
+		case "merge":
+			return cl.MergeQueued(i, was)
+		case "send":
+			return cl.SendQueued(i, was)
+		}
+		return cl.RemoveQueued(i, was)
+	})
+}
+
+// holdQueue holds the queue or lets it go.
+func (m *Model) holdQueue(c *hostConn, on bool) tea.Cmd {
+	if c.client == nil {
+		q := m.localQueueOf(c.key)
+		q.held, q.fails, q.retry = on, 0, time.Time{}
+		return nil
+	}
+	c.sess.Info.QueueHeld = on
+	cl := c.client
+	return hostCmd(func() error { return cl.HoldQueue(on) })
+}
+
+// sendQueueNow sends everything waiting straight away, and extra (what's
+// in the box) after it, as one message: whether the agent is working,
+// waiting on you or the queue is held, and in the order you wrote them.
+func (m *Model) sendQueueNow(c *hostConn, extra string) tea.Cmd {
+	queued := m.queueOf(c).items
+	items := slices.Clone(queued)
+	if extra != "" {
+		items = append(items, extra)
+	}
+	if len(items) == 0 {
+		m.flash("nothing queued", false)
+		return nil
+	}
+	if c.client == nil {
+		a := m.agentByKey(c.key)
+		if !canQueue(a) {
+			return nil
+		}
+		q := m.localQueueOf(c.key)
+		q.items, q.fails, q.retry = items, 0, time.Time{}
+		return m.sendLocal(c.key, a, q)
+	}
+	n := len(queued)
+	c.sess.Info.Queue = nil
+	cl := c.client
+	return hostCmd(func() error {
+		if n == 0 {
+			return cl.SendNow(extra)
+		}
+		// Folded into the first, what's in the box last, then sent.
+		was := items[0]
+		for k, next := range items[1:] {
+			var err error
+			if k+1 < n {
+				err = cl.MergeQueued(0, was)
+			} else {
+				err = cl.EditQueued(0, was, was+"\n\n"+next)
+			}
+			if err != nil {
+				return err
+			}
+			was += "\n\n" + next
+		}
+		return cl.SendQueued(0, was)
+	})
+}
+
+// endQueueEdit lets the queue go again if editing held it.
+func (m *Model) endQueueEdit(c *hostConn) tea.Cmd {
+	c.editQ = 0
+	if !c.editHeld {
+		return nil
+	}
+	c.editHeld = false
+	return m.holdQueue(c, false)
 }
 
 // --- tasks view ---
