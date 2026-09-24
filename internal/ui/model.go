@@ -147,8 +147,12 @@ type Model struct {
 	armedAt      time.Time
 	attached     string
 	view         int
-	machinePage  int // the Machine place's page: Processes or Cleanup
-	settingsPage int // the Settings place's page: a tab of the dialog
+	machinePage  int  // the Machine place's page: Processes or Cleanup
+	settingsPage int  // the Settings place's page: a tab of the dialog
+	helpPage     int  // the guide's tab: helpPages
+	onboard      bool // teaching: Getting started, tips and the tour
+	tour         int  // the tour's stop, from 1; 0 when it isn't showing
+	promptTop    int  // the row the prompt starts on, for the tour
 
 	procCursor int
 	procPID    int // the process the cursor is on, followed as the list reorders
@@ -213,6 +217,10 @@ func New(store *state.Store, version string) *Model {
 	applyColors(store.Config.ColorBlind)
 	m.snap = m.loader.Load(true)
 	m.rebuild()
+	m.onboard = true
+	if !store.Config.Onboarding.Toured {
+		m.startTour()
+	}
 	return m
 }
 
@@ -445,6 +453,8 @@ func (m *Model) flash(s string, err bool) {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := m.update(msg)
 	m.applyJump()
+	_, isTick := msg.(tickMsg)
+	m.noteProgress(isTick)
 	var copyCmd tea.Cmd
 	if m.pendingCopy != "" {
 		copyCmd, m.pendingCopy = tea.SetClipboard(m.pendingCopy), ""

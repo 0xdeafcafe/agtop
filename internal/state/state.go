@@ -64,6 +64,18 @@ type Config struct {
 	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitempty"`
+	// Onboarding is how far a new user has got: the Getting started steps
+	// they've done, whether the tour has shown, which one-time tips have,
+	// and whether they've put Getting started away.
+	Onboarding Onboarding `json:"onboarding"`
+}
+
+// Onboarding is what agtop has taught you so far.
+type Onboarding struct {
+	Steps  []string `json:"steps,omitempty"`
+	Tips   []string `json:"tips,omitempty"`
+	Toured bool     `json:"toured,omitempty"`
+	Hidden bool     `json:"hidden,omitempty"`
 }
 
 // DefaultCleanup is how long done work waits before it's cleaned up.

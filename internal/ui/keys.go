@@ -36,6 +36,10 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.scanner.Flush()
 		return tea.Quit
 	}
+	if m.tour > 0 {
+		m.tourKey(s)
+		return nil
+	}
 	if m.confirm != nil {
 		return m.confirmKey(s)
 	}
@@ -128,7 +132,16 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	}
 	switch m.mode {
 	case modeHelp:
-		m.mode = modeList
+		switch s {
+		case "tab", "right", "l":
+			m.helpPage = (m.helpPage + 1) % len(helpPages)
+		case "shift+tab", "left", "h":
+			m.helpPage = (m.helpPage + len(helpPages) - 1) % len(helpPages)
+		case "1", "2", "3":
+			m.helpPage = int(s[0] - '1')
+		default:
+			m.mode = modeList
+		}
 		return nil
 	case modeProcs:
 		return m.procKey(s)
@@ -430,6 +443,7 @@ func (m *Model) nextNeedingYou() tea.Cmd {
 		m.flash("nothing needs you", false)
 		return nil
 	}
+	m.didStep("next")
 	m.sel = best.Key
 	m.rebuild()
 	return m.loadPreview()
@@ -573,6 +587,9 @@ func (m *Model) submit() tea.Cmd {
 	if isHashCmd(text) {
 		return m.command(a, text)
 	}
+	if !strings.HasPrefix(text, "/") {
+		m.didStep("start")
+	}
 	if strings.HasPrefix(text, "/") {
 		if cmd, ok := m.legacyCommand(text); ok {
 			return cmd
@@ -611,7 +628,17 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 		return true
 	}
+	m.didStep("hash")
 	switch name {
+	case "tour":
+		if strings.TrimSpace(arg) == "off" {
+			m.store.Config.Onboarding.Hidden = true
+			_ = m.store.SaveConfig()
+			m.flash("Getting started put away · #tour shows the tour and brings it back", false)
+			return nil
+		}
+		m.store.Config.Onboarding.Hidden = false
+		m.startTour()
 	case "done":
 		return m.markDone(a)
 	case "clean":

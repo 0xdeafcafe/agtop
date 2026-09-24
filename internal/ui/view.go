@@ -380,9 +380,12 @@ func (m *Model) render() string {
 }
 
 func (m *Model) renderScreen() string {
+	if m.tour > 0 {
+		return m.tourView()
+	}
 	switch m.mode {
 	case modeHelp:
-		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 124))
+		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 50))
 	case modeProcs:
 		if m.snap.Machine.Orphans > 0 {
 			return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "X", "end all orphans", "x", "end / SIGTERM", "!", "SIGKILL tree", "enter", "go to the agent", "tab", "Cleanup", "esc", "back"))
@@ -609,7 +612,18 @@ func (m *Model) listView() string {
 	var left []string
 	m.listW = listW
 	if listW > 0 {
-		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1)...)
+		// Getting started sits at the foot of the list while there's room.
+		var card []string
+		if m.showCard() && bodyH-8 >= 8 {
+			card = m.startedLines(listW)
+		}
+		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1-len(card))...)
+		if card != nil {
+			for len(left) < bodyH-len(card) {
+				left = append(left, "")
+			}
+			left = append(left[:bodyH-len(card)], card...)
+		}
 		m.listTop++
 	}
 	var pane []string
@@ -684,6 +698,7 @@ func (m *Model) listView() string {
 		fitTo(&b, l, m.w, "")
 		b.WriteByte('\n')
 	}
+	m.promptTop = len(head) + 1 + bodyH + len(dock)
 	m.promptBoxY = len(head) + bodyH + len(dock) + m.promptBoxIdx
 	for i, l := range prompt {
 		if split {
@@ -1522,17 +1537,17 @@ func (m *Model) promptLines(w int) []string {
 	var hint string
 	switch {
 	case m.inKind == inReply:
-		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", "?", "all keys")
+		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", "?", "guide")
 	case m.inKind != inPrompt:
 		hint = keysFit(w-4, "enter", "save", "esc", "cancel")
 	case typingHash(text):
 		hint = keysFit(w-4, "enter", "run it", "esc", "clear", "?", "guide")
 	case len(m.input) > 0:
-		hint = keysFit(w-4, "enter", "start it", "ctrl+l", "folder", "esc", "clear", "?", "all keys")
+		hint = keysFit(w-4, "enter", "start it", "ctrl+l", "folder", "esc", "clear", "?", "guide")
 	case a != nil && a.Agtop:
-		hint = keysFit(w-4, "enter", "talk to it", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "tab", "its Session", "?", "all keys")
+		hint = keysFit(w-4, "enter", "talk to it", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "tab", "its Session", "?", "guide")
 	default:
-		hint = keysFit(w-4, "enter", "open", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session", "?", "all keys")
+		hint = keysFit(w-4, "enter", "open", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session", "?", "guide")
 	}
 	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil {
 		hint = strings.TrimRight(m.statusOr(""), " ") // it pads to the screen, not this box
@@ -1864,103 +1879,57 @@ func (m *Model) cwdBody() []string {
 	return out
 }
 
-// helpBody lists the keys for where you are first, then the few that work
-// everywhere; the rest of the commands fit on a line.
-func (m *Model) helpBody() []string {
-	type group struct {
-		title string
-		rows  [][2]string
-	}
-	here := group{"In Agents", [][2]string{
-		{"↑ ↓", "pick an agent"},
+// helpPages are the guide's tabs: a key and what it does.
+var helpPages = []struct {
+	name string
+	rows [][2]string
+}{
+	{"✦ Start", [][2]string{
+		{"enter", "start an agent"},
+		{"ctrl+l", "pick its folder"},
+		{"#", "agtop commands"},
+		{"/", "Claude commands"},
+	}},
+	{"▤ Agents", [][2]string{
+		{"↑↓", "pick one"},
 		{"enter", "open it"},
-		{"→", "go into its Session"},
-		{"ctrl+o", "reply without opening"},
-		{"F2", "rename"},
-		{"ctrl+l", "move to another folder"},
-		{"ctrl+t", "pin"},
-		{"alt+d", "done: to Done, its idle process stops"},
-		{"ctrl+x", "stop · twice deletes"},
-		{"ctrl+y", "open its pull request"},
-		{"ctrl+s", "group rows"},
-		{"ctrl+f", "a Claude Code agent full screen"},
-	}}
-	if m.sessionFocused() {
-		here = group{"In the Session", [][2]string{
-			{"[ ]", "switch view"},
-			{"↑", "pick a step · ↓ past the last returns to the box"},
-			{"enter", "open or fold what's picked"},
-			{"ctrl+f", "search"},
-			{"ctrl+o", "show everything, unfolded"},
-			{"alt+d", "done with this agent"},
-			{"ctrl+x", "stop the turn"},
-			{"/", "commands for this agent"},
-			{"esc · ←", "back to Agents"},
-		}}
-	}
-	typing := group{"Typing", [][2]string{
-		{"alt+← →", "a word at a time"},
-		{"alt+⌫", "delete a word"},
-		{"cmd+⌫", "clear the line"},
-		{"shift+enter", "new line"},
-		{"drag", "select and copy · shift+← → too"},
-		{"alt+c", "copy everything in the box · empty, the picked drawing"},
-		{"cmd+a", "select all"},
-		{"ctrl+v", "paste an image from the clipboard"},
-		{"ctrl+g", "edit the last paste, or the draft, in $EDITOR"},
-	}}
-	everywhere := group{"Everywhere", [][2]string{
-		{"tab", "the list ⇄ the Session · a place's pages"},
-		{"< >", "Agents · Machine · Settings, with nothing typed"},
-		{"ctrl+z", "zen: only the agent that needs you"},
-		{"ctrl+n", "next agent needing you"},
+		{"tab", "its Session"},
+		{"ctrl+n", "next one needing you"},
+		{"#done", "put it away"},
+		{"ctrl+x", "stop it"},
+	}},
+	{"◈ Around", [][2]string{
+		{"ctrl+z", "zen"},
+		{"ctrl+\\", "Machine · Settings"},
+		{"#tour", "the tour again"},
 		{"esc esc", "quit"},
-	}}
-	col := func(gs ...group) []string {
-		keyW := 0
-		for _, g := range gs {
-			for _, r := range g.rows {
-				keyW = max(keyW, cellw.String(r[0]))
-			}
-		}
-		var out []string
-		for i, g := range gs {
-			if i > 0 {
-				out = append(out, "")
-			}
-			out = append(out, paint(cSub+bold, g.title))
-			for _, r := range g.rows {
-				out = append(out, paint(cOrange, fit(r[0], keyW+3))+dim(r[1]))
-			}
-		}
-		return out
-	}
-	l, r := col(here), col(typing, everywhere)
-	out := []string{paint(cText+bold, "Keys") + faint("   any key closes"), ""}
-	lw := 0
-	for _, x := range l {
-		lw = max(lw, cellw.String(x))
-	}
-	if m.w < lw+50 {
-		out = append(append(append(out, l...), ""), r...)
-	} else {
-		for i := 0; i < max(len(l), len(r)); i++ {
-			a, b := "", ""
-			if i < len(l) {
-				a = l[i]
-			}
-			if i < len(r) {
-				b = r[i]
-			}
-			out = append(out, fit(a, lw+6)+b)
+	}},
+}
+
+// helpBody is the guide: three tabs of keys.
+func (m *Model) helpBody() []string {
+	var tabs []string
+	for i, p := range helpPages {
+		if i == m.helpPage {
+			tabs = append(tabs, tabOn+" "+p.name+" "+reset)
+		} else {
+			tabs = append(tabs, tabOff+" "+p.name+" "+reset)
 		}
 	}
-	cmds := "/done /stop /rm /kill /cd /add-dir /sort /by /rename /group /account /hibernate /agtop /native /quit"
-	out = append(out, "", paint(cSub+bold, "Commands")+dim("  type them in the box"))
-	for _, line := range wrap(cmds, max(30, min(m.w-12, 90))) {
-		out = append(out, paint(cOrange, line))
+	out := []string{strings.Join(tabs, " "), ""}
+	page := helpPages[m.helpPage]
+	for _, r := range keyRows(page.rows) {
+		out = append(out, r, "")
 	}
-	return out
+	// Every tab as tall as the tallest, so the box stays put.
+	most := 0
+	for _, p := range helpPages {
+		most = max(most, len(p.rows))
+	}
+	for range most - len(page.rows) {
+		out = append(out, "", "")
+	}
+	return append(out, faint("tab next · any key closes"))
 }
 
 // shortCmd is a process's command with the home folder and binary paths trimmed.

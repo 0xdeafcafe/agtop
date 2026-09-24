@@ -892,28 +892,39 @@ func (m *Model) dialogBody(w int) []string {
 // everything behind it.
 func (m *Model) overlayBox(base string, body []string, bw int) string {
 	lines := strings.Split(base, "\n")
+	box := boxLines(body, bw)
+	for y := range lines {
+		lines[y] = faint(ansi.Strip(fit(lines[y], m.w)))
+	}
+	return strings.Join(pasteAt(lines, box, max(1, (len(lines)-len(box))/2), (m.w-bw)/2), "\n")
+}
+
+// boxLines is body in a rounded box bw wide, a blank line inside top and
+// bottom.
+func boxLines(body []string, bw int) []string { return edgedBox(body, bw, cDim) }
+
+// edgedBox is boxLines with its edge in col.
+func edgedBox(body []string, bw int, col string) []string {
 	inner := bw - 4
-	bh := len(body) + 4
-	top := max(1, (len(lines)-bh)/2)
-	left := (m.w - bw) / 2
-	edge := func(s string) string { return paint(cDim, s) }
+	edge := func(s string) string { return paint(col, s) }
 	box := []string{edge("╭" + strings.Repeat("─", bw-2) + "╮")}
 	for _, l := range append([]string{""}, append(body, "")...) {
 		box = append(box, edge("│")+panel(" "+fit(l, inner)+" ")+edge("│"))
 	}
-	box = append(box, edge("╰"+strings.Repeat("─", bw-2)+"╯"))
-	for y := range lines {
-		lines[y] = faint(ansi.Strip(fit(lines[y], m.w)))
-	}
+	return append(box, edge("╰"+strings.Repeat("─", bw-2)+"╯"))
+}
+
+// pasteAt lays box over lines with its top left corner at (left, top).
+func pasteAt(lines, box []string, top, left int) []string {
 	for i, b := range box {
 		y := top + i
-		if y >= len(lines) {
-			break
+		if y < 0 || y >= len(lines) {
+			continue
 		}
 		l := lines[y]
-		lines[y] = ansi.Truncate(l, left, "") + reset + b + ansi.TruncateLeft(l, left+bw, "")
+		lines[y] = ansi.Truncate(l, left, "") + reset + b + ansi.TruncateLeft(l, left+cellw.String(ansi.Strip(b)), "")
 	}
-	return strings.Join(lines, "\n")
+	return lines
 }
 
 const panelBG = "\x1b[48;2;30;28;26m"
