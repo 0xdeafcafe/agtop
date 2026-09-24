@@ -15,6 +15,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
 	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/agtop/internal/statusline"
 	"github.com/0xdeafcafe/agtop/internal/ui"
 )
 
@@ -70,6 +71,11 @@ func main() {
 			return
 		case "menubar":
 			exitIf(menuBar(args[1:]))
+			return
+		case "statusline":
+			// Claude Code's statusLine command, set up by /statusline in a
+			// Session: the session's JSON in, one line out.
+			exitIf(statusline.Run(os.Stdin, os.Stdout))
 			return
 		case "on":
 			exitIf(turnOn())
