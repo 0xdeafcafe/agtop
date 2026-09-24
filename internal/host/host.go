@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
@@ -824,10 +825,29 @@ func readImage(path string) (headless.Image, error) {
 	if err != nil {
 		return headless.Image{}, err
 	}
+	if mt == "image/png" {
+		if w := toWebP(path); w != nil && len(w) < len(b) {
+			mt, b = "image/webp", w
+		}
+	}
 	if len(b) > 5<<20 {
 		return headless.Image{}, fmt.Errorf("%s is %d MB; images must be under 5 MB", filepath.Base(path), len(b)>>20)
 	}
 	return headless.Image{MediaType: mt, Data: b}, nil
+}
+
+// toWebP is a PNG, most often a screenshot, as a far smaller WebP, or nil
+// when cwebp isn't installed or fails.
+func toWebP(path string) []byte {
+	cwebp, err := exec.LookPath("cwebp")
+	if err != nil {
+		return nil
+	}
+	b, err := exec.Command(cwebp, "-quiet", "-q", "90", path, "-o", "-").Output()
+	if err != nil || len(b) == 0 {
+		return nil
+	}
+	return b
 }
 
 // sendLocked gives Claude Code a message now; mid-turn it is picked up at
