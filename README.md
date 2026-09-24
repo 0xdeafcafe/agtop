@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/agents.webp" alt="agtop: the agent list beside a Session">
+  <img src="docs/screenshots/session-code.webp" alt="agtop: a Session with a failed step opened, its script and error">
 </p>
 
 <table>
