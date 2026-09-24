@@ -274,10 +274,44 @@ func imageNames(images []string) []string {
 		if im == "image" || im == "" {
 			out[i] = fmt.Sprintf("Image #%d", i+1)
 		} else {
-			out[i] = filepath.Base(im)
+			out[i] = ImageLabel(im)
 		}
 	}
 	return out
+}
+
+var screenshotRe = regexp.MustCompile(`^(?:Screenshot|Screen Shot|CleanShot) \d{4}-\d{2}-\d{2} at (.+)\.(?i:png|jpe?g)$`)
+
+// ImageLabel names an image file for a chip: its file name, with a macOS
+// screenshot's long "Screenshot 2026-09-24 at 10.21.03.png" cut to the
+// time that tells it from its neighbours.
+func ImageLabel(path string) string {
+	name := filepath.Base(path)
+	if m := screenshotRe.FindStringSubmatch(strings.ReplaceAll(name, "\u202f", " ")); m != nil {
+		return "screenshot " + m[1]
+	}
+	return name
+}
+
+// imageChips lays images out as chips, as many to a row as fit in w, a
+// chip never broken across rows.
+func imageChips(names []string, w int) []string {
+	var rows []string
+	row, n := "", 0
+	for _, name := range names {
+		cw := 2 + len([]rune(name))
+		if n > 0 && n+3+cw > w {
+			rows, row, n = append(rows, row), "", 0
+		}
+		if n > 0 {
+			row, n = row+"   ", n+3
+		}
+		row, n = row+paint(cBlue, "▣ ")+paint(cText, name), n+cw
+	}
+	if n > 0 {
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // folded is one row: your ask, then how it came out.
@@ -333,13 +367,9 @@ func (d *drawer) open() {
 	}
 	// Images show as the box showed them, unless the words already place
 	// them ([Image #1]).
-	imgs := ""
+	var imgs []string
 	if len(t.Images) > 0 && !strings.Contains(t.Prompt, "[Image #") {
-		var chips []string
-		for _, im := range imageNames(t.Images) {
-			chips = append(chips, paint(cBlue, "▣ ")+paint(cText, im))
-		}
-		imgs = strings.Join(chips, "   ")
+		imgs = imageNames(t.Images)
 	}
 	ask := FoldPastes(t.Prompt)
 	if ask == "" {
@@ -349,14 +379,15 @@ func (d *drawer) open() {
 	styled, label := styledAsk(oneLine(ask), cText+bold), dim("you")
 	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
 		styled, label = dim("picked up on its own"), dim("◌")
-		if imgs != "" {
-			styled, label, imgs = imgs, dim("you"), ""
-		}
 	}
 	if t.From != "" {
 		styled, label = sub(oneLine(ask)), dim("◌ "+t.From)
 	}
-	rows := wrap(styled, min(headW-len([]rune(stripANSI(label)))+3, capProse))
+	rowW := min(headW-len([]rune(stripANSI(label)))+3, capProse)
+	rows := wrap(styled, rowW)
+	if strings.TrimSpace(t.Prompt) == "" && t.From == "" && imgs != nil {
+		rows, label, imgs = imageChips(imgs, rowW), dim("you"), nil
+	}
 	if len(rows) > 3 {
 		rows = append(rows[:2], rows[2]+dim(" …"))
 	}
@@ -368,8 +399,8 @@ func (d *drawer) open() {
 			d.wrapped()
 		}
 	}
-	if imgs != "" {
-		d.add(d.ref, band, d.spine()+"          "+imgs, "")
+	for _, r := range imageChips(imgs, min(d.cw-11, capProse)) {
+		d.add(d.ref, band, d.spine()+"          "+r, "")
 	}
 	d.blank()
 
@@ -460,7 +491,11 @@ func (d *drawer) open() {
 				}
 			}
 		case KInterject:
-			for k, r := range wrap(text(oneLine(it.Text)), min(d.cw-10, capProse)) {
+			rows := imageChips(imageNames(it.Images), min(d.cw-10, capProse))
+			if strings.TrimSpace(it.Text) != "" {
+				rows = append(wrap(styledAsk(oneLine(it.Text), cText), min(d.cw-10, capProse)), rows...)
+			}
+			for k, r := range rows {
 				lead := dim("you") + "  "
 				if k > 0 {
 					lead = "     "
@@ -908,7 +943,7 @@ func styledAsk(s, base string) string {
 	s = specialRe.ReplaceAllStringFunc(s, func(m string) string {
 		switch {
 		case strings.HasPrefix(m, "[image: "):
-			return reset + paint(cBlue, "▣ ") + paint(cText, filepath.Base(strings.TrimSuffix(m[len("[image: "):], "]"))) + base
+			return reset + paint(cBlue, "▣ ") + paint(cText, ImageLabel(strings.TrimSuffix(m[len("[image: "):], "]"))) + base
 		case strings.HasPrefix(m, "[Image"):
 			return reset + paint(cBlue, "▣ ") + paint(cText, strings.Trim(m, "[]")) + base
 		case strings.HasPrefix(m, "[Pasted"):

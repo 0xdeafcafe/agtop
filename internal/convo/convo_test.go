@@ -855,3 +855,32 @@ func TestAgentNameFromResult(t *testing.T) {
 		t.Fatalf("after its result:\n%s", out)
 	}
 }
+
+// Screenshots sent mid-turn show as chips under your words, each whole on
+// its row and named by the time that tells them apart.
+func TestInterjectedScreenshots(t *testing.T) {
+	s := New()
+	at := func(sec int) time.Time { return time.Unix(int64(sec), 0) }
+	s.Apply(host.Sent{Text: "fix it"}, at(0))
+	var shots []string
+	for i := range 11 {
+		shots = append(shots, fmt.Sprintf("/Users/me/Desktop/Screenshot 2026-09-24 at 10.21.%02d.png", i))
+	}
+	s.Apply(host.Sent{Text: "then update the readme", Images: shots}, at(1))
+	out := plain(s.Render(Options{Width: 80, Now: at(2)}))
+	if strings.Contains(out, "2026-09-24") {
+		t.Errorf("screenshot dates shown:\n%s", out)
+	}
+	for _, sh := range shots {
+		if want := "▣ " + ImageLabel(sh); !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if got := ImageLabel("/x/Screenshot 2026-09-24 at 10.21.03 AM.png"); got != "screenshot 10.21.03 AM" {
+		t.Errorf("ImageLabel = %q", got)
+	}
+	if got := ImageLabel("/x/diagram.png"); got != "diagram.png" {
+		t.Errorf("ImageLabel = %q", got)
+	}
+}
+

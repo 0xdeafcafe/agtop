@@ -87,6 +87,7 @@ type Item struct {
 	Compact *headless.Compact
 	buf     *strings.Builder // while it streams
 	Level   string           // a notice's: info, warning, error
+	Images  []string         // files sent with an interjection
 	Step    *Step
 	Answer  bool // the turn's final words, promoted when the turn ends
 }
@@ -272,11 +273,7 @@ func (s *Session) Apply(ev any, now time.Time) {
 			ev.Text = strings.Clone(firstLine(ev.Text))
 		}
 		if t := s.Live(); t != nil {
-			txt := ev.Text
-			for _, im := range ev.Images {
-				txt += "  ▣ " + im
-			}
-			t.Items = append(t.Items, &Item{Kind: KInterject, Text: txt})
+			t.Items = append(t.Items, &Item{Kind: KInterject, Text: ev.Text, Images: ev.Images})
 			t.touch()
 			return
 		}
