@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -73,33 +74,39 @@ func Running() bool {
 }
 
 // Start builds the app if agtop changed since it was last built, and opens
-// it; one already running is left alone unless it was just rebuilt.
+// it; one already running is left alone unless it was just rebuilt. agtops
+// starting together take turns, so only the first builds and opens it.
 func Start() error {
 	if runtime.GOOS != "darwin" {
 		return errors.New("the menu bar icon is macOS only")
+	}
+	_ = os.MkdirAll(dir(), 0o700)
+	if f, err := os.OpenFile(filepath.Join(dir(), "start.lock"), os.O_RDWR|os.O_CREATE, 0o600); err == nil {
+		defer f.Close()
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
 	}
 	rebuilt, err := buildApp()
 	if err != nil {
 		return err
 	}
-	if Running() {
-		if !rebuilt {
-			return nil
-		}
+	if rebuilt {
 		Stop()
 		for i := 0; i < 50 && Running(); i++ {
 			time.Sleep(100 * time.Millisecond)
 		}
+	} else if Running() {
+		return nil
 	}
 	return exec.Command("/usr/bin/open", AppPath()).Run()
 }
 
-// Stop quits the app, and with it the feed.
+// Stop quits the app, every copy of it, and with it the feed.
 func Stop() {
 	b, _ := os.ReadFile(lockPath())
 	if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 1 && Running() {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 	}
+	_ = exec.Command("/usr/bin/pkill", "-f", regexp.QuoteMeta(filepath.Join(AppPath(), "Contents", "MacOS", "agtop-menubar"))).Run()
 }
 
 // build compiles the app with the Swift compiler that comes with Xcode's

@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     var categories: [String: UNNotificationCategory] = [:]
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        if !alone() { return }
         menu.delegate = self
         menu.autoenablesItems = false
         item.menu = menu
@@ -128,6 +129,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func applicationWillTerminate(_ n: Notification) {
         feed?.terminate()
+    }
+
+    /// alone keeps to one icon: agtops starting together, or a new build
+    /// opened over an old, can each launch one. The newest stays and the
+    /// rest quit; false when this one is quitting.
+    func alone() -> Bool {
+        let me = NSRunningApplication.current
+        let id = Bundle.main.bundleIdentifier ?? "dev.agtop.menubar"
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+            .filter { $0.processIdentifier != me.processIdentifier }
+        func newer(_ a: NSRunningApplication, than b: NSRunningApplication) -> Bool {
+            let (x, y) = (a.launchDate ?? .distantPast, b.launchDate ?? .distantPast)
+            return x != y ? x > y : a.processIdentifier > b.processIdentifier
+        }
+        if others.contains(where: { newer($0, than: me) }) {
+            NSApp.terminate(nil)
+            return false
+        }
+        others.forEach { $0.terminate() }
+        return true
     }
 
     // MARK: feed
