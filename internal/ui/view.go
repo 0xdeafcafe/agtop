@@ -131,17 +131,17 @@ func (m *Model) header() []string {
 	}
 	counts = append(counts, dim(fmt.Sprintf("%d finished", t.done)))
 	if mc := m.snap.Machine; mc.Orphans > 0 {
-		counts = append(counts, paint(cYellow, fmt.Sprintf("%d orphaned · %s", mc.Orphans, mem(mc.OrphanMem)))+dim(" · > Machine to end"))
+		counts = append(counts, paint(cYellow, fmt.Sprintf("%d orphaned · %s", mc.Orphans, mem(mc.OrphanMem)))+dim(" · Machine › Processes to end"))
 	}
 	left1 := paint(cText+bold, "agtop") + "   " + strings.Join(counts, "   ")
 
-	acct := m.store.Config.ActiveAccount()
-	left2 := dim(acct.Name + " · " + tildify(m.launchDir))
+	acct := m.inUse()
+	left2 := dim(acct + " · " + tildify(m.launchDir))
 	if m.w < narrowHead {
 		// Only his face fits, so it's always him, never the monogram.
 		var g clkGrid
 		g.sprite(m.clkState(md, t))
-		return m.narrowHeader(g.lines(), counts, acct.Name)
+		return m.narrowHeader(g.lines(), counts, acct)
 	}
 
 	// The right is the top bar you build in /statusline; what's left of
@@ -334,7 +334,8 @@ func usageMeter(label string, pct float64, resets time.Time, window time.Duratio
 }
 
 // activeUsage is the current account's plan usage, with when each window
-// resets, quiet unless it is high.
+// resets, quiet unless it is high. It doesn't say whose: the header does,
+// beside it.
 func (m *Model) activeUsage() string {
 	for _, av := range m.snap.Accounts {
 		if !av.Current {
@@ -358,9 +359,6 @@ func (m *Model) activeUsage() string {
 				when = u.FetchedAt.Local().Format("Mon 15:04")
 			}
 			s += faint(" as of " + when)
-		}
-		if len(m.snap.Accounts) > 1 {
-			s = dim(av.Name+" ") + s
 		}
 		return s
 	}

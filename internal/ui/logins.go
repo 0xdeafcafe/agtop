@@ -111,6 +111,17 @@ func (m *Model) onLogins(msg loginsMsg) tea.Cmd {
 	return nil
 }
 
+// inUse is the name of the login ~/.claude is signed in as, or the
+// folder's name before agtop knows which it is.
+func (m *Model) inUse() string {
+	for _, l := range m.snap.Logins {
+		if l.Current && l.Name != "" {
+			return l.Name
+		}
+	}
+	return m.store.Config.ActiveAccount().Name
+}
+
 func (m *Model) loginIndex(id string) int {
 	for i, l := range m.store.Config.Logins {
 		if l.ID == id {
