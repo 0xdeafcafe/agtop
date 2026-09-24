@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/convo"
 )
@@ -321,7 +322,7 @@ var imageTag = regexp.MustCompile(`\[image: ([^\]]+)\]`)
 func shortImages(s string) string {
 	s = convo.FoldPastes(s)
 	return imageTag.ReplaceAllStringFunc(s, func(m string) string {
-		return "▣ " + filepath.Base(imageTag.FindStringSubmatch(m)[1])
+		return "▣ " + convo.ImageLabel(imageTag.FindStringSubmatch(m)[1])
 	})
 }
 
@@ -399,14 +400,52 @@ func splitPaths(s string) []string {
 	return out
 }
 
-// chips draws attached images above an input box.
-func chips(images []string, w int) string {
+// chips draws attached images above an input box, pick (-1 for none)
+// marked as picked.
+func chips(images []string, w, pick int, focused bool) string {
 	if len(images) == 0 {
 		return ""
 	}
-	var parts []string
-	for _, p := range images {
-		parts = append(parts, bgChip+cBlue+" ▣ "+cText+filepath.Base(p)+" "+reset)
+	hint := dim("   backspace on an empty box removes the last")
+	if pick >= 0 {
+		hint = dim("   ⌫ takes the picked one off")
 	}
-	return fit("  "+strings.Join(parts, " ")+dim("   backspace on an empty box removes the last"), w)
+	// The newest chips stay in view, or the picked one; those before them
+	// fold into a count, as do any after.
+	for hi := len(images) - 1; ; hi-- {
+		var parts []string
+		used := 2 + ansi.StringWidth(hint)
+		if after := len(images) - 1 - hi; after > 0 {
+			used += len(fmt.Sprintf(" +%d after", after))
+		}
+		lo := hi + 1
+		for i := hi; i >= 0; i-- {
+			c := bgChip + cBlue + " ▣ " + cText + convo.ImageLabel(images[i]) + " " + reset
+			if i == pick {
+				mark := cDim
+				if focused {
+					mark = cOrange
+				}
+				c = selBG + mark + "▍▣ " + cText + convo.ImageLabel(images[i]) + " " + reset
+			}
+			more := 0
+			if i > 0 {
+				more = len(fmt.Sprintf(" +%d more", i))
+			}
+			if len(parts) > 0 && used+ansi.StringWidth(c)+1+more > w {
+				parts = append([]string{dim(fmt.Sprintf("+%d more", i+1))}, parts...)
+				break
+			}
+			parts = append([]string{c}, parts...)
+			used += ansi.StringWidth(c) + 1
+			lo = i
+		}
+		if pick < lo && pick >= 0 && hi > pick {
+			continue // the picked one fell off the left: try from one earlier
+		}
+		if after := len(images) - 1 - hi; after > 0 {
+			parts = append(parts, dim(fmt.Sprintf("+%d after", after)))
+		}
+		return fit("  "+strings.Join(parts, " ")+hint, w)
+	}
 }

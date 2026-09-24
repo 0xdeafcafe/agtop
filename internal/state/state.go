@@ -48,7 +48,16 @@ type Config struct {
 	// SideWidth is the agent list's share of a split screen, 0.25 to 0.5;
 	// zero means agtop's own choice.
 	SideWidth float64 `json:"sideWidth,omitempty"`
-	SortBy    string  `json:"sortBy,omitempty"`
+	// ListOnly keeps a wide screen to the list alone: no Session beside
+	// it until you open one.
+	ListOnly bool `json:"listOnly,omitempty"`
+	// ChatFull is how a Session opens from Agents alone: the whole screen
+	// rather than beside the list. It follows how you last had one.
+	ChatFull bool `json:"chatFull,omitempty"`
+	// EnterOn is what enter does on an agent in the list: "rename" it, as
+	// in the Finder, or "open" it. Empty asks, the first time.
+	EnterOn   string `json:"enterOn,omitempty"`
+	SortBy    string `json:"sortBy,omitempty"`
 	Hibernate struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`
@@ -61,12 +70,14 @@ type Config struct {
 	// ColorBlind draws added and removed, done and failed in sky blue and
 	// amber instead of green and red.
 	ColorBlind bool `json:"colorBlind,omitempty"`
+	// ShowWhitespace marks spaces and tabs in diffs, as · and →.
+	ShowWhitespace bool `json:"showWhitespace,omitempty"`
 	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitempty"`
 	// Onboarding is how far a new user has got: the Getting started steps
-	// they've done, whether the tour has shown, which one-time tips have,
-	// and whether they've put Getting started away.
+	// they've done, which one-time tips have shown, and whether they've put
+	// Getting started away.
 	Onboarding Onboarding `json:"onboarding"`
 }
 
@@ -74,7 +85,6 @@ type Config struct {
 type Onboarding struct {
 	Steps  []string `json:"steps,omitempty"`
 	Tips   []string `json:"tips,omitempty"`
-	Toured bool     `json:"toured,omitempty"`
 	Hidden bool     `json:"hidden,omitempty"`
 }
 

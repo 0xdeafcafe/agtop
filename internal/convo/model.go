@@ -200,9 +200,6 @@ type Session struct {
 	searchHits []Hit         // the last search, for searchKey
 	searchKey  string
 	changesVer int
-	editList   []edit
-	editsVer   int
-	rail       map[*Step]railBlock
 	baseList   []string
 	baseFor    string
 	reqIdx     map[string]int

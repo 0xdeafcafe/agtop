@@ -11,12 +11,13 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
-// picker is a small dropdown: one of an agent's pull requests, or the
-// folder a new session starts in.
+// picker is a small dropdown: one of an agent's pull requests, the folder
+// a new session starts in, or what to do with a link.
 type picker struct {
 	title  string
 	prs    []claude.PR
 	dirs   []string
+	acts   []linkAct
 	cursor int
 }
 
@@ -34,6 +35,9 @@ func (m *Model) openDirPicker() {
 func (p *picker) size() int {
 	if p.dirs != nil {
 		return len(p.dirs)
+	}
+	if p.acts != nil {
+		return len(p.acts)
 	}
 	return len(p.prs)
 }
@@ -77,6 +81,10 @@ func (m *Model) pickerKey(s string) tea.Cmd {
 			m.flash("new sessions start in "+tildify(p.dirs[p.cursor]), false)
 			return nil
 		}
+		if p.acts != nil {
+			m.picker = nil
+			return p.acts[p.cursor].do(m)
+		}
 		url := p.prs[p.cursor].URL
 		m.picker = nil
 		return browse(url)
@@ -98,6 +106,18 @@ func (m *Model) pickerBody(w int) []string {
 			out = append(out, line)
 		}
 		return append(out, "", keys("↑↓", "choose", "enter", "start new sessions here", "esc", "close"))
+	}
+	if p.acts != nil {
+		for i, a := range p.acts {
+			line := paint(cText, a.label)
+			if i == p.cursor {
+				line = highlight(paint(cOrange, "▍")+line, w)
+			} else {
+				line = " " + line
+			}
+			out = append(out, line)
+		}
+		return append(out, "", keys("↑↓", "choose", "enter", "do it", "esc", "close"))
 	}
 	for i, pr := range p.prs {
 		col := cGreen

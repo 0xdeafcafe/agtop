@@ -27,7 +27,7 @@ var fleetCommands = []headless.Command{
 	{Name: "clean", Description: "delete the agent's temp work; all does every finished agent", ArgumentHint: "[all]"},
 	{Name: "cd", Description: "restart the agent in another folder", ArgumentHint: "<path>"},
 	{Name: "add-dir", Description: "restart the agent with another folder added", ArgumentHint: "<path>"},
-	{Name: "rename", Description: "rename the agent; empty resets it", ArgumentHint: "[name]"},
+	{Name: "rename", Description: "rename the agent, or type the new name", ArgumentHint: "[name]"},
 	{Name: "group", Description: "put the agent in a group; empty clears it", ArgumentHint: "[name]"},
 	{Name: "pin", Description: "pin the agent in Claude Code's list, or unpin it"},
 	{Name: "pr", Description: "open the agent's pull request"},
@@ -36,13 +36,15 @@ var fleetCommands = []headless.Command{
 	{Name: "sort", Description: "sort agents by " + strings.Join(sortModes, ", "), ArgumentHint: "<by>"},
 	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", "), ArgumentHint: "<group>"},
 	{Name: "folder", Description: "choose the folder new sessions start in"},
+	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
 	{Name: "account", Description: "switch to another account; alone opens Accounts", ArgumentHint: "[name]"},
 	{Name: "hibernate", Description: "stop finished agents after this many idle minutes; 0 turns it off", ArgumentHint: "<minutes>"},
 	{Name: "width", Description: "the list's share of the screen; alone goes back to agtop's", ArgumentHint: "[n%]"},
+	{Name: "view", Description: "Agents and the Session side by side, the agent's Session alone, or Agents alone (shift+← →)", ArgumentHint: "<split|agent|list>"},
 	{Name: "dock", Description: "how many lines the agent's card under the list shows", ArgumentHint: "<lines>"},
 	{Name: "native", Description: "open Claude Code's own agents view"},
 	{Name: "help", Description: "a short guide to agtop"},
-	{Name: "tour", Description: "the tour of agtop again; off puts Getting started away", ArgumentHint: "[off]"},
+	{Name: "tips", Description: "Getting started and tips from the top; off puts them away", ArgumentHint: "[off]"},
 	{Name: "quit", Description: "leave agtop"},
 }
 
@@ -87,6 +89,8 @@ func (m *Model) fleetArgs(name string) (opts []string, now string) {
 		return opts, m.store.Config.ActiveAccount().Name
 	case "clean":
 		return []string{"all"}, ""
+	case "view":
+		return []string{"split", "agent", "list"}, m.viewNow()
 	}
 	return nil, ""
 }

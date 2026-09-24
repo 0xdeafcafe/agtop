@@ -17,7 +17,6 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/fswait"
@@ -43,6 +42,7 @@ func (m *Model) views(c *hostConn) []string {
 	if len(c.artifactsOf()) > 0 {
 		v = append(v, "artifacts")
 	}
+	v = append(v, "memory")
 	if c.client == nil {
 		if a := m.focused(); a != nil && liveCapable(a) {
 			v = append(v, "screen")
@@ -313,27 +313,136 @@ func (m *Model) openSub(c *hostConn, id string) {
 	}
 }
 
+// watchingSub is whether the pane shows one subagent's own conversation.
+func (m *Model) watchingSub(c *hostConn) bool {
+	return c.subOpen != "" && c.subTail != nil && m.viewName(c) == "subagents"
+}
+
+// closeSub leaves an opened subagent for wherever it was opened from.
+func (m *Model) closeSub(c *hostConn) {
+	if c.subBack {
+		// Watched from the dock: back to the conversation, on its row.
+		c.view, c.sel = 0, "run:"+c.subOpen
+	} else {
+		c.sel = ""
+	}
+	c.subOpen, c.subTail, c.subBack = "", nil, false
+}
+
+// subBanner is the row pinned under the header while you watch a subagent,
+// so it's plain whose conversation this is and how to get back.
+func (m *Model) subBanner(c *hostConn, w int) string {
+	if !m.watchingSub(c) {
+		return ""
+	}
+	var sa convo.Subagent
+	for _, x := range c.subs {
+		if x.ID == c.subOpen {
+			sa = x
+		}
+	}
+	t := c.subTail.Sess
+	status, live := c.subState(sa)
+	now := time.Now()
+	state := paint(cGreen, "✓ done")
+	switch {
+	case live:
+		state = paint(cOrange, spinner[m.tick%len(spinner)]+" running")
+	case status == "stopped":
+		state = dim("⏹ " + status)
+	case status == "failed":
+		state = paint(cRed, "✗ failed")
+	case status != "":
+		state = dim(status)
+	}
+	end := t.Last
+	if live {
+		end = now
+	}
+	if !t.First.IsZero() && !end.IsZero() {
+		state += dim(" " + dur(end.Sub(t.First).Round(time.Second)))
+	}
+	state += dim(fmt.Sprintf(" · %d steps", t.Totals(now).ToolCalls))
+	back := "the list"
+	if c.subBack {
+		back = "the conversation"
+	}
+	left := paint(cBlue, "▍") + paint(cBlue+bold, "⇉ WATCHING SUBAGENT  ") + paint(cBright+bold, sa.Type) + "  " +
+		paint(cSub, oneLine(sa.Description)) + "   " + state
+	right := paint(cText, "esc") + dim(" back to "+back) + " "
+	if c.subHover == "subback" {
+		right = paint(cBright+bold, "esc") + paint(cText, " back to "+back) + " " // a click goes back too
+	}
+	// The right side stays; the description gives way.
+	if lw := w - cellw.String(right) - 2; cellw.String(left) > lw {
+		left = ansi.Truncate(paint(cBlue, "▍")+paint(cBlue+bold, "⇉ WATCHING SUBAGENT  ")+paint(cBright+bold, sa.Type)+"  "+state+"  "+paint(cSub, oneLine(sa.Description)), max(10, lw), "…")
+	}
+	return onBg(bgSub, spread(left, right, w), w)
+}
+
+// subPeekAfter is how long the pointer rests on a run before the wide
+// subagents view shows its conversation beside the list.
+const subPeekAfter = 300 * time.Millisecond
+
+type subHoverMsg struct{}
+
+// subHoverAt is what of the subagents view is under the pointer: a run's
+// rows, or the banner that goes back from one being watched.
+func (m *Model) subHoverAt(x, y int) string {
+	c := m.host
+	if c == nil || m.mode != modeList || m.dialog != nil || m.picker != nil || m.zen || m.embedded ||
+		c.txt.drag || (m.listW > 0 && x <= m.listW+1) || m.viewName(c) != "subagents" {
+		return ""
+	}
+	i := y - m.paneTop
+	if i < 0 || i >= len(c.rowRefs) {
+		return ""
+	}
+	r := c.rowRefs[i]
+	// Wide, a run's conversation sits beside the list on its rows; only
+	// the list itself is the run's.
+	if strings.HasPrefix(r, "sub:") && c.subOpen == "" && c.paneW >= 150 && x-m.paneX() >= min(72, c.paneW*2/5) {
+		return ""
+	}
+	if strings.HasPrefix(r, "sub:") || r == "subback" {
+		return r
+	}
+	return ""
+}
+
+// subMouseMove follows the pointer over the subagents view. It says whether
+// that changed what shows, and asks for a redraw once it has rested long
+// enough for the run's conversation to show beside the list.
+func (m *Model) subMouseMove(x, y int) (bool, tea.Cmd) {
+	c := m.host
+	if c == nil {
+		return false, nil
+	}
+	r := m.subHoverAt(x, y)
+	if r == c.subHover {
+		return false, nil
+	}
+	c.subHover, c.subHoverAt = r, time.Now()
+	if !strings.HasPrefix(r, "sub:") || c.subOpen != "" {
+		return true, nil
+	}
+	return true, tea.Tick(subPeekAfter, func(time.Time) tea.Msg { return subHoverMsg{} })
+}
+
 // subagentLines is the subagents view: one row per run, or the opened
 // run's own conversation under a breadcrumb.
 func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 	w := o.Width
 	if c.subOpen != "" && c.subTail != nil {
-		var sa convo.Subagent
-		for _, x := range c.subs {
-			if x.ID == c.subOpen {
-				sa = x
-			}
-		}
-		crumb := "  " + paint(cSub, "‹ subagents") + dim("  ·  ") + paint(cText+bold, sa.Type) + "  " + dim(oneLine(sa.Description)) + dim("   ← back")
-		lines := []convo.Line{{Text: fit(crumb, w)}, {Text: ""}}
+		// The banner pinned above the body says whose this is.
 		so := o
 		so.Selected = c.sel
-		return append(lines, c.subTail.Sess.Render(so)...)
+		return append([]convo.Line{{Text: ""}}, c.subTail.Sess.Render(so)...)
 	}
 	// Wide enough: the runs on the left, the picked one's conversation
 	// beside them, following as it works.
 	if w >= 150 && len(c.subs) > 0 {
-		lw := min(72, w*2/5)
+		lw := min(72, w*2/5) // subHoverAt knows this too
 		lo := o
 		lo.Width = lw
 		list := m.subagentList(c, lo)
@@ -343,6 +452,10 @@ func (m *Model) subagentLines(c *hostConn, o convo.Options) []convo.Line {
 			if run := c.runningSubs(); len(run) > 0 {
 				id = run[0].ID
 			}
+		}
+		// A run the pointer rests on shows beside the list until it moves off.
+		if h, ok := strings.CutPrefix(c.subHover, "sub:"); ok && time.Since(c.subHoverAt) >= subPeekAfter {
+			id = h
 		}
 		var detail []convo.Line
 		if t := c.subDetail(id); t != nil {
@@ -427,7 +540,7 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		switch {
 		case r.live:
 			mark, state = paint(cOrange, spinner[(m.tick+i)%len(spinner)]), paint(cOrange, "running")
-		case r.status == "killed" || r.status == "stopped":
+		case r.status == "stopped":
 			mark, state = dim("⏹"), dim(r.status)
 		case r.status == "failed":
 			mark, state = paint(cRed, "✗"), paint(cRed, "failed")
@@ -465,6 +578,8 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 			lines = append(lines,
 				convo.Line{Text: selBG + strings.ReplaceAll(bar+fit(top, w)[1:], reset, reset+selBG) + reset, Ref: ref},
 				convo.Line{Text: selBG + strings.ReplaceAll(fit(second, w), reset, reset+selBG) + reset, Ref: ref})
+		} else if ref == c.subHover {
+			lines = append(lines, convo.Line{Text: hoverLine(top, w), Ref: ref}, convo.Line{Text: hoverLine(second, w), Ref: ref})
 		} else {
 			lines = append(lines, convo.Line{Text: fit(top, w), Ref: ref}, convo.Line{Text: fit(second, w), Ref: ref})
 		}
@@ -579,6 +694,11 @@ type hostConn struct {
 	marks    map[string]bool // files marked reviewed in the changes view
 	bodyBuf  []convo.Line    // the conversation\'s lines, reused frame to frame
 	artsKey  string
+	mem      []memFile // the memory view's files, and when they were read
+	memAt    time.Time
+	memTop   int                // the first of them in view
+	memEd    *docEditor         // the picked file, open in the editor below them
+	memEdit  bool               // the editor has the keys
 	local    []headless.Command // custom commands and skills on disk
 	skills   map[string]bool
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
@@ -593,6 +713,8 @@ type hostConn struct {
 	qAnswer   map[string]string
 	stopArmed time.Time
 	lastSend  time.Time
+	sending   []sending     // sent, and not yet seen to arrive
+	coldOK    time.Time     // the cold cache you said to send to anyway
 	flushed   time.Time     // when the last batch of host lines was taken in
 	watching  []watched     // the transcripts being watched for growth
 	drawn     convo.Options // how the conversation was last drawn
@@ -632,7 +754,8 @@ type hostConn struct {
 	subOpen    string
 	subList    convo.Subagents // finds the runs, reading each one's meta once
 	subSel     string          // selection inside the opened subagent
-
+	subHover   string          // the run under the pointer, or "subback" for the banner
+	subHoverAt time.Time
 }
 
 type hostOpenMsg struct {
@@ -657,19 +780,28 @@ const (
 )
 
 func openHost(a *fleet.Agent) tea.Cmd {
-	key, id, path := a.Key, a.ID, a.TranscriptPath
+	key, id, path, acct := a.Key, a.ID, a.TranscriptPath, a.Acct
 	return func() tea.Msg {
 		cl, err := host.Dial(id)
 		if err != nil {
 			return hostOpenMsg{key: key, err: err}
 		}
 		// A session that took over an existing conversation shows it: the
-		// transcript up to when the host started, then the host's replay.
+		// transcript up to when the host started (or was last rewound),
+		// then the host's replay.
 		sess := convo.New()
+		info, infoErr := host.ReadInfo(id)
+		if infoErr == nil && info.SessionID != "" && info.Cwd != "" {
+			// The list may not have caught up with a rewind yet.
+			path = acct.TranscriptPath(info.Cwd, info.SessionID)
+		}
 		if cfg, err := host.ReadConfig(id); err == nil && cfg.Resume {
 			started := time.Now()
-			if info, err := host.ReadInfo(id); err == nil && !info.StartedAt.IsZero() {
+			if infoErr == nil && !info.StartedAt.IsZero() {
 				started = info.StartedAt
+				if info.RewoundAt.After(started) {
+					started = info.RewoundAt
+				}
 			}
 			sess = convo.History(path, started)
 			if len(sess.Turns) == 0 && cfg.From != "" {
@@ -837,6 +969,11 @@ func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 		return nil
 	}
 	m.host = msg.c
+	if d, ok := m.rewound[msg.key]; ok && m.host.client != nil {
+		delete(m.rewound, msg.key)
+		m.host.input, m.host.back = []rune(d), 0
+		m.paneFocus = true
+	}
 	if m.host.client == nil {
 		m.followTail()
 		return nil
@@ -878,6 +1015,7 @@ func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
 var (
 	bgChrome = "\x1b[48;2;30;28;26m" // L3: pane header and dock
 	bgTabOn  = "\x1b[48;2;17;16;14m" // the active view opens into the body
+	bgSub    = "\x1b[48;2;24;31;42m" // watching a subagent: its own, cooler ground
 )
 
 func onBg(bg, s string, w int) string {
@@ -912,6 +1050,9 @@ func (m *Model) agtopPane(w, h int) []string {
 	if !m.zenFull() {
 		head = m.paneHeader(a, c, w) // zen is only the agent and its box
 	}
+	if l := m.subBanner(c, w); l != "" {
+		head = append(head, l)
+	}
 	dock := m.paneDock(a, c, w, h)
 	bodyH := max(3, h-len(head)-len(dock))
 
@@ -943,6 +1084,8 @@ func (m *Model) agtopPane(w, h int) []string {
 		body = m.taskLines(c, o)
 	case "artifacts":
 		body = m.artifactLines(c, o)
+	case "memory":
+		body = m.memoryLines(c, o, bodyH)
 	case "subagents":
 		if c.subOpen != "" {
 			o.Selected = c.subSel
@@ -1034,6 +1177,9 @@ func (m *Model) agtopPane(w, h int) []string {
 	}
 	out := append([]string{}, head...)
 	c.rowRefs = make([]string, len(head), h)
+	if m.watchingSub(c) {
+		c.rowRefs[len(head)-1] = "subback" // clicking the banner goes back
+	}
 	c.rowBody = c.rowBody[:0]
 	for range head {
 		c.rowBody = append(c.rowBody, -1)
@@ -1119,46 +1265,27 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	case info.ClaudePID == 0:
 		state = dim("◦ idle · resting")
 	}
-	right := ""
-	if s.Context > 0 {
-		model := info.Model
-		if s.Model != "" {
-			model = s.Model
-		}
-		win := int(claude.ContextWindow(model))
-		right = dim("ctx ") + ctxBar(float64(s.Context)/float64(win)*100) + " " + paint(cSub, fmt.Sprintf("%.0f%%", float64(s.Context)/float64(win)*100))
-	}
-	cost := info.CostUSD
-	if cost > 0 {
-		right += "   " + paint(cText+bold, money(cost))
+	// Filling the screen, it's the only thing there to name, and what's on
+	// the right lines up with the conversation's own right edge.
+	alone := m.paneAlone()
+	hw := w
+	if alone {
+		hw = min(w, maxPane-3)
 	}
 	title := faint("SESSION  ")
-	if m.paneFocus {
+	switch {
+	case alone:
+		title = ""
+	case m.paneFocus:
 		title = paint(cOrange+bold, "SESSION  ")
 	}
-	row1 := spread(mark+title+paint(cBright+bold, oneLine(a.DisplayName))+"   "+state, right+" ", w)
+	// The rest is the agent header you build in /statusline: its first
+	// line right of the name, its second under it.
+	x := &barCtx{m: m, a: a, c: c}
+	left1 := mark + title + paint(cBright+bold, oneLine(a.DisplayName)) + "   " + state
+	right := m.barLine(barAgent, 0, x, hw-cellw.String(left1)-4)
+	row1 := spread(left1, right+" ", hw)
 
-	meta := dim(tildify(a.Cwd))
-	if a.Branch != "" {
-		meta += dim(" · ") + paint(cSub, a.Branch)
-	}
-	if m := firstNonEmpty(s.Model, info.Model); m != "" {
-		meta += dim(" · " + convo.PrettyModel(m))
-	}
-	if info.Effort != "" {
-		meta += dim(" · " + info.Effort)
-	}
-	if info.PermissionMode != "" {
-		mode := info.PermissionMode
-		col := cSub
-		switch mode {
-		case "plan":
-			col = cBlue
-		case "auto", "acceptEdits", "bypassPermissions":
-			col = cOrange
-		}
-		meta += dim(" · ") + paint(col, mode)
-	}
 	conn := paint(cGreen, "●") + dim(" connected")
 	if c.client == nil {
 		switch {
@@ -1181,17 +1308,8 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 			conn = paint(cYellow, "cache cold") + "   " + conn
 		}
 	}
-	if a.Temp >= tempShown {
-		t := dim(" · ") + paint(cSub, disk(a.Temp)+" tmp")
-		if a.Temp >= 1<<30 {
-			t = dim(" · ") + paint(cYellow, disk(a.Temp)+" tmp")
-		}
-		if a.PID == 0 {
-			t += dim(" /clean")
-		}
-		meta += t
-	}
-	row2 := spread("  "+meta, conn+" ", w)
+	meta := m.barLine(barAgent, 1, x, hw-cellw.String(conn)-6)
+	row2 := spread("  "+meta, conn+" ", hw)
 
 	var tabs []string
 	views := m.views(c)
@@ -1213,12 +1331,21 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	if c.verbose {
 		chips += paint(cOrange, "ctrl+o all shown") + "  "
 	}
+	if alone {
+		// Nothing says the list is behind it but this.
+		chips += paint(cText, "esc") + dim(" back to the list") + " "
+	}
 	if m.viewName(c) == "screen" {
 		chips = dim("typing goes into it · ctrl+] comes back · ctrl+f full screen") + "  "
 	}
-	row3 := spread("  "+strings.Join(tabs, " ")+dim("   [ ]"), chips, w)
+	row3 := spread("  "+strings.Join(tabs, " ")+dim("   [ ]"), chips, hw)
 	// The chrome's own background marks it off; no half-block edge.
 	return []string{onBg(bgChrome, row1, w), onBg(bgChrome, row2, w), onBg(bgChrome, row3, w)}
+}
+
+// paneAlone is when the Session fills the screen with no list beside it.
+func (m *Model) paneAlone() bool {
+	return m.listW == 0 && !m.zenFull()
 }
 
 func firstNonEmpty(xs ...string) string {
@@ -1297,6 +1424,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			line(l)
 		}
 	}
+	for _, l := range m.sendingLines(c, w) {
+		line(l)
+	}
 	if qs := m.queueOf(c); len(qs.items) > 0 {
 		q := qs.items
 		when := dim(" · sends when this turn ends")
@@ -1339,6 +1469,10 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 	}
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
+	if m.watchingSub(c) {
+		// What you type goes to the main session; subagents take no messages.
+		top = dim("to the main session, ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(", not the subagent")
+	}
 	switch {
 	case typingHash(string(c.input)):
 		top = dim("agtop command for ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(" · enter runs it")
@@ -1369,6 +1503,8 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	switch {
 	case m.paneFocus && c.cardFocus:
 		top = dim("answering the card above · esc returns here")
+	case m.paneFocus && c.memEdit:
+		top = dim("editing " + filepath.Base(c.memEd.path) + " above · esc returns here")
 	case m.paneFocus && !typing:
 		top = dim("typing returns here · ↓ past the last row or esc")
 	}
@@ -1377,7 +1513,11 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	if mode := s.Info.PermissionMode; mode != "" {
 		b.topR = paint(cOrange, mode)
 	}
-	if l := chips(c.images, w); l != "" {
+	pick := -1
+	if i, ok := imageSel(c); ok {
+		pick = i
+	}
+	if l := chips(c.images, w, pick, m.paneFocus); l != "" {
 		out = append(out, onBg(bgChrome, l, w))
 	}
 	out = append(out, m.slashLines(c, w)...)
@@ -1386,12 +1526,39 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
-	hint := keysFit(w-4, "enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list", "↑↓", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
+	hint := keysFit(w-4, "enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list", "↑", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")
+	if m.watchingSub(c) {
+		back := "back to the list"
+		if c.subBack {
+			back = "back to the conversation"
+		}
+		hint = keysFit(w-4, "enter", "send to the main session", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat", "ctrl+o", "show all")
+		if _, live, _ := m.pickedSub(c); live {
+			hint = keysFit(w-4, "enter", "send to the main session", "ctrl+x", "stop this subagent", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat")
+		}
+	}
 	if c.sel != "" {
 		hint = keysFit(w-4, "enter · space", "open or close", "↑↓", "pick a step", "esc", "done picking", "ctrl+o", "show all")
-		if strings.HasPrefix(c.sel, "run:") {
-			hint = keysFit(w-4, "enter", "watch this subagent", "↑↓", "pick", "esc", "done picking")
+		if selTurn(c) != nil {
+			hint = keysFit(w-4, "alt+r", "rewind to here", "alt+f", "fork from here", "enter · space", "open or close", "↑↓", "pick", "esc", "done picking")
 		}
+		if strings.HasPrefix(c.sel, "run:") {
+			hint = keysFit(w-4, "enter", "watch this subagent", "x", "stop it", "↑↓", "pick", "esc", "done picking")
+		}
+		if _, live, ok := m.pickedSub(c); ok && live && strings.HasPrefix(c.sel, "sub:") {
+			hint = keysFit(w-4, "enter", "watch it", "x", "stop it", "↑↓", "pick", "esc", "done picking")
+		}
+		if strings.HasPrefix(c.sel, "img:") {
+			hint = keysFit(w-4, "⌫", "take it off the message", "↑↓", "pick", "esc", "done picking")
+		}
+		if strings.HasPrefix(c.sel, "mem:") {
+			hint = keysFit(w-4, "enter", "edit it here", "ctrl+g", "open in $EDITOR", "x", "delete", "↑↓", "pick", "esc", "done picking")
+		}
+		if c.memEdit {
+			hint = m.docHint(c.memEd, w-4)
+		}
+	} else if m.viewName(c) == "memory" && len(c.input) == 0 {
+		hint = keysFit(w-4, "↑↓", "pick a file", "[ ]", "views")
 	}
 	if qs := m.queueOf(c); len(qs.items) > 0 {
 		if _, ok := queueSel(c, len(qs.items)); ok {
@@ -1508,10 +1675,35 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			}
 		}
 	}
+	if (s == "alt+r" || s == "alt+f") && empty {
+		// On a turn in the history: rewind back to it, or fork from it.
+		if t := selTurn(c); t != nil {
+			if a := m.agentByKey(c.key); a != nil {
+				if s == "alt+f" {
+					m.openForkAt(c, a, t)
+					return nil
+				}
+				return m.openRewindTo(c, a, t)
+			}
+		}
+	}
 	if cmd, used := m.slashKey(c, s); used {
 		return cmd
 	}
 	if cmd, used := m.queueKey(c, s); used {
+		return cmd
+	}
+	if m.imageKey(c, s) {
+		return nil
+	}
+	// ctrl+x on a subagent, picked or watched, stops that one alone; x
+	// does too on its row.
+	if s == "ctrl+x" || s == "x" && empty && !m.watchingSub(c) {
+		if sa, live, ok := m.pickedSub(c); ok && (live || s == "x") {
+			return m.stopSub(c, sa, live)
+		}
+	}
+	if cmd, used := m.memoryKey(c, k, s); used {
 		return cmd
 	}
 	if s == "esc" && c.editQ > 0 {
@@ -1536,7 +1728,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		case c.txt.on:
 			c.txt = textSel{} // first esc drops the dragged-over text
 		case c.sel != "":
-			c.sel = "" // first esc drops the step selection
+			c.sel, c.subSel = "", "" // first esc drops the step selection
+		case m.watchingSub(c):
+			m.closeSub(c)
 		case m.zen:
 			// Zen keeps the keys on the agent; tab or ctrl+z leaves zen.
 		default:
@@ -1649,14 +1843,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		// selected row, then to Agents. It never folds anything.
 		if empty {
 			switch {
-			case c.subOpen != "" && m.viewName(c) == "subagents":
-				if c.subBack {
-					// Watched from the dock: back to the conversation, on its row.
-					c.view, c.sel = 0, "run:"+c.subOpen
-				} else {
-					c.sel = ""
-				}
-				c.subOpen, c.subTail, c.subBack = "", nil, false
+			case m.watchingSub(c):
+				m.closeSub(c)
 			case c.sel != "":
 				c.sel = ""
 			case m.zen:
@@ -1751,14 +1939,11 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		m.paneFocus = false
 		return m.nextNeedingYou()
-	case "alt+left", "alt+right":
-		if empty && m.listW > 0 {
-			d := 2
-			if s == "alt+left" {
-				d = -2
+	case "shift+left", "shift+right", "alt+left", "alt+right":
+		if empty {
+			if cmd, ok := m.stepSplit(strings.HasSuffix(s, "right")); ok {
+				return cmd
 			}
-			m.setSideWidth(m.sideWidth() + d)
-			return nil
 		}
 	}
 	if k.Text != "" && c.sel != "" {
@@ -1925,12 +2110,18 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 			return cmd
 		}
 	}
+	if m.askCold(c, text, func() tea.Cmd { return m.sendPane(c, now) }) {
+		return nil
+	}
 	images := c.images
 	// Paths typed or dropped without a paste become attachments too.
 	if rest, imgs := extractImages(text); imgs != nil {
 		images, text = append(images, imgs...), rest
 	}
 	c.input, c.back, c.images = c.input[:0], 0, nil
+	if strings.HasPrefix(c.sel, "img:") {
+		c.sel = ""
+	}
 	c.scroll = 0
 	c.lastSend = time.Now()
 	if a := m.focused(); a != nil {
@@ -1942,18 +2133,57 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	if c.client == nil {
 		return m.sendOffline(c, text, images, now)
 	}
-	if len(images) > 0 {
-		return hostCmd(func() error { return c.client.SendImages(text, images) })
+	m.markSending(c, text)
+	cl := c.client
+	switch {
+	case len(images) > 0:
+		return sendingVia(c.key, hostCmd(func() error { return cl.SendImages(text, images) }))
+	case now:
+		return sendingVia(c.key, hostCmd(func() error { return cl.SendNow(text) }))
 	}
-	if now {
-		return hostCmd(func() error { return c.client.SendNow(text) })
+	return sendingVia(c.key, hostCmd(func() error { return cl.Send(text) }))
+}
+
+// coldMin is the context, in tokens, below which re-reading it uncached
+// isn't worth asking about.
+const coldMin = 40_000
+
+// askCold asks before a message you send wakes a session whose prompt cache
+// has expired, since it re-reads the whole context uncached; y runs send.
+// It's only asked where you pressed send: queued messages, retries, a
+// limit's reset and other programs' sends never ask.
+func (m *Model) askCold(c *hostConn, text string, send func() tea.Cmd) bool {
+	if c == nil || c.sess == nil || text == "/clear" {
+		return false
 	}
-	return hostCmd(func() error { return c.client.Send(text) })
+	at, cold := c.sess.CacheCold(time.Now())
+	if !cold || at.Equal(c.coldOK) || c.sess.Context > 0 && c.sess.Context < coldMin {
+		return false
+	}
+	if a := m.agentByKey(c.key); a != nil && busy(a) || c.sess.Info.State == "working" {
+		return false // the turn under way keeps it warm
+	}
+	what := "the whole context"
+	if c.sess.Context > 0 {
+		what = convo.Tokens(c.sess.Context) + " tokens of context"
+	}
+	m.confirm = &confirmation{
+		question: "Send to a cold cache?",
+		detail:   fmt.Sprintf("its prompt cache expired %s ago · this re-reads %s uncached", dur(time.Since(at)), what),
+		onYes: func() tea.Cmd {
+			c.coldOK = at
+			return send()
+		},
+	}
+	return true
 }
 
 func (m *Model) isOpen(c *hostConn, ref string) bool {
 	if v, ok := c.open[ref]; ok {
 		return v
+	}
+	if strings.Contains(ref, ":s:") {
+		return c.sess.StepOpen(ref, c.drewConvo && c.drawn.Verbose)
 	}
 	// What the renderer opens by default: recent turns and failures. The
 	// options the pane last drew with find it in the renderer's cache;
@@ -1978,13 +2208,13 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 	return seen
 }
 
-// moveSel moves the selection over rows you can act on: turns and steps.
-func (m *Model) moveSel(c *hostConn, d int) {
-	refs := c.bodyRefs
+// dockRefs are the rows ↑↓ go through between the conversation and the
+// box, top to bottom as they're drawn: under the conversation the running
+// subagents and the queue, then in any view the attachments. A card
+// waiting sits above them all.
+func (m *Model) dockRefs(c *hostConn) []string {
+	var refs []string
 	if m.viewName(c) == "conversation" {
-		// Under the conversation, the dock's running subagents and queue:
-		// ↑ from the box picks the last queued message first.
-		refs = slices.Clip(refs)
 		for _, sa := range c.dockRuns() {
 			refs = append(refs, "run:"+sa.ID)
 		}
@@ -1992,12 +2222,56 @@ func (m *Model) moveSel(c *hostConn, d int) {
 			refs = append(refs, fmt.Sprintf("q:%d", i))
 		}
 	}
+	for i := range c.images {
+		refs = append(refs, fmt.Sprintf("img:%d", i))
+	}
+	return refs
+}
+
+// imageSel is the attachment picked, if one is.
+func imageSel(c *hostConn) (int, bool) {
+	var i int
+	if _, err := fmt.Sscanf(c.sel, "img:%d", &i); err != nil || i < 0 || i >= len(c.images) {
+		return 0, false
+	}
+	return i, true
+}
+
+// imageKey acts on a picked attachment: ⌫ takes it off the message. It
+// reports whether it used the key.
+func (m *Model) imageKey(c *hostConn, s string) bool {
+	i, ok := imageSel(c)
+	if !ok {
+		return false
+	}
+	switch s {
+	case "backspace", "delete", "ctrl+h", "x":
+		c.images = slices.Delete(c.images, i, i+1)
+		// The pick stays where it was, on the next one; none left, it's
+		// back to typing.
+		c.sel = ""
+		if len(c.images) > 0 {
+			c.sel = fmt.Sprintf("img:%d", min(i, len(c.images)-1))
+		}
+		return true
+	}
+	return false
+}
+
+// moveSel moves the selection over rows you can act on: turns and steps,
+// then what's between them and the box. ↑ from the box goes up through
+// them nearest first; ↓ from it has nowhere to go.
+func (m *Model) moveSel(c *hostConn, d int) {
+	refs := append(slices.Clip(c.bodyRefs), m.dockRefs(c)...)
 	if len(refs) == 0 {
 		return
 	}
 	cur := c.sel
 	if c.subOpen != "" && m.viewName(c) == "subagents" {
 		cur = c.subSel
+	}
+	if cur == "" && d > 0 {
+		return
 	}
 	i := len(refs)
 	for j, r := range refs {
@@ -2026,6 +2300,10 @@ func (m *Model) clickRow(c *hostConn, y int) {
 		return
 	}
 	ref := c.rowRefs[i]
+	if ref == "subback" {
+		m.closeSub(c)
+		return
+	}
 	if ref == c.sel {
 		if id, ok := strings.CutPrefix(ref, "sub:"); ok {
 			m.openSub(c, id)
@@ -2065,12 +2343,13 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool)
 		cfg.Resume, cfg.Prompt, cfg.Images = true, text, images
 		cfg.Lean, cfg.IdleStop = m.store.Config.Dispatch.Lean, host.Duration(m.store.Config.Dispatch.Rest())
 		m.flash("resuming "+a.DisplayName+"…", false)
-		return func() tea.Msg {
+		m.markSending(c, text)
+		return sendingVia(c.key, func() tea.Msg {
 			if _, err := host.Spawn(cfg); err != nil {
 				return doneMsg{err: err}
 			}
 			return doneMsg{text: "resumed " + a.DisplayName}
-		}
+		})
 	}
 	text = withImages(text, images)
 	if !now && (busy(a) || len(m.queueOf(c).items) > 0) {
@@ -2082,7 +2361,8 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool)
 	}
 	m.loader.Nudge(a.Key)
 	m.markSeen(a)
-	return reply(a, text)
+	m.markSending(c, text)
+	return sendingVia(c.key, reply(a, text))
 }
 
 // focusPane moves keys into the selected agtop-mode agent's pane.
@@ -2542,11 +2822,27 @@ func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 			}
 		}
 	}
+	// The card sits above the dock's rows: ↑ from the box goes up through
+	// them first, and onto the card from the top one; ↓ off the card comes
+	// back down onto that row.
+	top := ""
+	if s == "up" || s == "down" {
+		if dock := m.dockRefs(c); len(dock) > 0 {
+			top = dock[0]
+		}
+	}
 	switch {
-	case !c.cardFocus && empty && s == "up" && c.sel == "":
-		c.cardFocus = true
+	case !c.cardFocus && empty && s == "up" && c.sel == top:
+		c.cardFocus, c.sel = true, ""
 		return nil, true
-	case c.cardFocus && (s == "esc" || s == "down"):
+	case c.cardFocus && s == "down":
+		c.cardFocus, c.sel = false, top
+		return nil, true
+	case c.cardFocus && s == "up" && len(c.bodyRefs) > 0:
+		// Above the card: the conversation's last row.
+		c.cardFocus, c.sel, c.selMoved = false, c.bodyRefs[len(c.bodyRefs)-1], true
+		return nil, true
+	case c.cardFocus && s == "esc":
 		c.cardFocus = false
 		return nil, true
 	case c.cardFocus:
@@ -2561,7 +2857,22 @@ func cardHint(c *hostConn, keys string) string {
 	if c.cardFocus {
 		return paint(cOrange, "▸ ") + keys + dim("   ·   esc back to typing")
 	}
-	return dim("↑ to answer   ·   or alt+y alt+a alt+n from the box")
+	return dim("↑ to answer")
+}
+
+// selTurn is the turn picked in the conversation, or the one the picked
+// step belongs to.
+func selTurn(c *hostConn) *convo.Turn {
+	t, _, _ := strings.Cut(c.sel, ":")
+	if !isTurnRef(t) {
+		return nil
+	}
+	for _, turn := range c.sess.Turns {
+		if "t"+strconv.Itoa(turn.N) == t {
+			return turn
+		}
+	}
+	return nil
 }
 
 // isTurnRef is a turn's own row ("t12"), not one of its steps.
@@ -2575,4 +2886,43 @@ func isTurnRef(r string) bool {
 		}
 	}
 	return true
+}
+
+// pickedSub is the subagent run you're on: the one watched, or the one
+// picked in the dock or the subagents view; live when it's still working.
+func (m *Model) pickedSub(c *hostConn) (sa convo.Subagent, live, ok bool) {
+	id := ""
+	switch {
+	case m.watchingSub(c):
+		id = c.subOpen
+	case strings.HasPrefix(c.sel, "run:"):
+		id = strings.TrimPrefix(c.sel, "run:")
+	case strings.HasPrefix(c.sel, "sub:"):
+		id = strings.TrimPrefix(c.sel, "sub:")
+	default:
+		return sa, false, false
+	}
+	for _, x := range c.subs {
+		if x.ID == id {
+			_, live = c.subState(x)
+			return x, live, true
+		}
+	}
+	return sa, false, false
+}
+
+// stopSub stops one subagent, and nothing else: the turn and the other
+// runs carry on.
+func (m *Model) stopSub(c *hostConn, sa convo.Subagent, live bool) tea.Cmd {
+	switch {
+	case !live:
+		m.flash("that subagent has already finished", false)
+		return nil
+	case c.client == nil:
+		m.flash("agtop can stop a subagent only in a session it runs; this one is Claude Code's", true)
+		return nil
+	}
+	m.flash("stopping "+sa.Type+" · the turn carries on", false)
+	cl, id := c.client, sa.ID
+	return hostCmd(func() error { return cl.StopTask(id) })
 }

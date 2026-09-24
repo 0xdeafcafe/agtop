@@ -41,6 +41,9 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 				if pm, ok := msg.(previewMsg); ok {
 					m.previews[pm.key] = pm.e
 				}
+				if sm, ok := msg.(sheetMsg); ok {
+					sm.apply(m) // a sheet's first read, e.g. /plugins' lists
+				}
 			}
 		}
 	}

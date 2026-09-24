@@ -69,6 +69,22 @@ func (s *Session) ColdStarts() []ColdStart {
 	return out
 }
 
+// CacheCold is when the main agent's prompt cache expired, and whether it
+// has: the next message then re-reads the whole context uncached. It isn't
+// cold before the session's first request.
+func (s *Session) CacheCold(now time.Time) (time.Time, bool) {
+	at := s.Info.CacheWarm
+	for i := len(s.Requests) - 1; i >= 0; i-- {
+		if r := s.Requests[i]; r.Run == "" {
+			if t := r.At.Add(cacheHour); t.After(at) {
+				at = t
+			}
+			break
+		}
+	}
+	return at, !at.IsZero() && now.After(at)
+}
+
 // Totals across the whole session.
 type Totals struct {
 	Cost      float64

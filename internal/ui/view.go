@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 )
@@ -144,16 +144,12 @@ func (m *Model) header() []string {
 		return m.narrowHeader(g.lines(), counts, acct.Name)
 	}
 
-	right1 := paint(cText, money(t.today)) + dim(" today")
-	if u := m.activeUsage(); u != "" {
-		right1 += dim("   ") + u
-	}
-	mc := m.snap.Machine
-	right2 := dim(fmt.Sprintf("%s ram · %.0f%% cpu", mem(mc.TotalMem), mc.TotalCPU))
-	if t := m.tempTotal(); t >= tempShown {
-		// Agents' leftover scratch on disk; /clean all frees what's finished.
-		right2 += dim(" · " + disk(t) + " tmp")
-	}
+	// The right is the top bar you build in /statusline; what's left of
+	// the width after clanker and the counts is its room.
+	x := &barCtx{m: m, t: t}
+	room := func(r, l string) int { return m.w - cellw.String("  "+r+"   "+l) - 4 }
+	right1 := m.barLine(barTop, 0, x, room(robot[1], left1))
+	right2 := m.barLine(barTop, 1, x, room(robot[2], left2))
 	if !m.loaded {
 		right2 = dim("costing transcripts…   ") + right2
 	}
@@ -173,7 +169,7 @@ func (m *Model) header() []string {
 	// Text sits level with the head and face; the view strip on the legs.
 	out[1] = line(robot[1], left1, right1)
 	out[2] = line(robot[2], left2, right2)
-	out[3] = "  " + robot[3] + "   " + strings.Join(m.tabs(), " ") + m.pages() + faint("   < >")
+	out[3] = "  " + robot[3] + "   " + strings.Join(m.tabs(), " ") + m.pages() + faint("   , .")
 	return out
 }
 
@@ -380,9 +376,6 @@ func (m *Model) render() string {
 }
 
 func (m *Model) renderScreen() string {
-	if m.tour > 0 {
-		return m.tourView()
-	}
 	switch m.mode {
 	case modeHelp:
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 50))
@@ -401,6 +394,9 @@ func (m *Model) renderScreen() string {
 	}
 	if m.picker != nil {
 		return m.overlayBox(m.listView(), m.pickerBody(min(m.w-10, 96)), min(m.w-6, 100))
+	}
+	if m.sheet != nil {
+		return m.sheetView(m.listView())
 	}
 	return m.listView()
 }
@@ -448,12 +444,7 @@ func (m *Model) frameCursor(body []string) int {
 
 func (m *Model) statusOr(hint string) string {
 	if m.confirm != nil {
-		c := m.confirm
-		s := paint(cText+bold, c.question) + "  " + dim(c.detail) + "   " + paint(cOrange, "y") + dim(" yes")
-		if c.onBang != nil && c.bangText != "" {
-			s += "   " + paint(cOrange, "!") + dim(" "+c.bangText)
-		}
-		return fit("  "+s+"   "+paint(cOrange, "n")+dim(" cancel"), m.w)
+		return m.confirmLine(m.w)
 	}
 	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
 		c := cSub
@@ -463,6 +454,29 @@ func (m *Model) statusOr(hint string) string {
 		return fit("  "+paint(c, m.status), m.w)
 	}
 	return fit("  "+hint, m.w)
+}
+
+// confirmLine is the question being asked and its keys, in w cells. The
+// keys are what it waits on, so when it's tight the detail goes first,
+// then the keys come before the question.
+func (m *Model) confirmLine(w int) string {
+	c := m.confirm
+	keys := "   " + paint(cOrange, "y") + dim(" "+cmp.Or(c.yesText, "yes"))
+	if c.onBang != nil && c.bangText != "" {
+		keys += "   " + paint(cOrange, "!") + dim(" "+c.bangText)
+	}
+	if c.onNo != nil {
+		keys += "   " + paint(cOrange, "n") + dim(" "+c.noText) + "   " + paint(cOrange, "esc") + dim(" cancel")
+	} else {
+		keys += "   " + paint(cOrange, "n") + dim(" cancel")
+	}
+	q := paint(cText+bold, c.question)
+	for _, s := range []string{"  " + q + "  " + dim(c.detail) + keys, "  " + q + keys} {
+		if cellw.String(s) <= w {
+			return fit(s, w)
+		}
+	}
+	return fit(" "+keys[1:]+"   "+q, w)
 }
 
 // keysFit drops the least important pairs (those before the last) until the
@@ -490,7 +504,7 @@ func keys(pairs ...string) string {
 // how many rows the body gets under the header and above the prompt.
 func (m *Model) layout() (listW, paneW, bodyH int) {
 	listW = m.w
-	showing := m.full || m.preview || m.wide()
+	showing := m.full || m.preview || m.autoSplit()
 	if m.zenFull() {
 		listW, paneW = 0, m.w // zen is the one agent, full width
 		showing = false
@@ -500,7 +514,7 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 		// if that leaves the pane too narrow to read, there's no split.
 		side := m.sideWidth()
 		switch {
-		case m.full:
+		case m.chatAlone():
 			paneW, listW = m.w, 0
 		case m.w-side-1 >= minPane:
 			listW, paneW = side, m.w-side-1
@@ -508,18 +522,13 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 			paneW, listW = m.w, 0
 		}
 	}
-	// Room past the Session's widest becomes the recent-changes rail.
-	m.railW = 0
-	if listW > 0 && paneW > maxPane+minRail && m.host != nil && !m.zenFull() {
-		m.railW = paneW - maxPane - 1
-	}
 	bodyH = max(3, m.h-m.topH()-m.promptH(m.promptW(listW, paneW)))
 	return listW, paneW, bodyH
 }
 
 // sideWidth is the list's width in a split: your own share when you've set
-// one (alt+← →, dragging the edge, /width), else agtop's; never under a
-// quarter of the screen or 30 columns.
+// one (shift+← →, dragging the edge, /width), else agtop's; never under a
+// quarter of the screen or 30 columns. Past those ends, see stepSplit.
 func (m *Model) sideWidth() int {
 	floor := max((m.w+3)/4, 30)
 	side := max(floor, min(m.w*28/100, 64))
@@ -527,17 +536,10 @@ func (m *Model) sideWidth() int {
 		// A width you dragged to wins.
 		return max(floor, min(int(float64(m.w)*f+0.5), m.w*3/4))
 	}
-	// The Session never takes more than its content can use. On a wide
-	// screen the spare room becomes the recent-changes rail when there's
-	// enough for one, and otherwise goes to Agents.
-	if m.w-side-1-maxPane >= minRail && m.host != nil {
-		return side
-	}
+	// The Session never takes more than its content can use; the spare
+	// room goes to Agents.
 	return max(side, m.w-1-maxPane)
 }
-
-// minRail is the narrowest recent-changes rail worth showing.
-const minRail = 40
 
 // maxPane is the widest a Session gets: its rows cap at 124 columns, plus
 // the pane's margins.
@@ -553,6 +555,127 @@ func (m *Model) setSideWidth(cols int) {
 	f = max(0.25, min(f, 0.75))
 	m.store.Config.SideWidth = f
 	m.flash(fmt.Sprintf("list width %.0f%% · release to keep", f*100), false)
+}
+
+// stepSplit is shift+← and shift+→ (alt too): they move the list's edge,
+// and pushed past either end, the screen goes to the Session alone or the
+// list alone. It says whether it took the key.
+func (m *Model) stepSplit(grow bool) (tea.Cmd, bool) {
+	floor := max((m.w+3)/4, 30)
+	if m.w-floor-1 < minPane || m.zenFull() {
+		return nil, false // too narrow for a split to step through
+	}
+	ceil := min(m.w*3/4, m.w-1-minPane)
+	switch {
+	case m.listW == 0:
+		if grow {
+			return m.splitAgain(), true
+		}
+	case !m.chatOpen():
+		if !grow {
+			return m.splitAgain(), true
+		}
+	case grow && m.sideWidth()+2 > ceil:
+		m.listOnly()
+	case !grow && m.sideWidth()-2 < floor:
+		return m.sessionOnly(), true
+	default:
+		d := 2
+		if !grow {
+			d = -2
+		}
+		m.setSideWidth(m.sideWidth() + d)
+	}
+	return nil, true
+}
+
+// chatOpen is whether a Session is on screen, beside the list or alone.
+func (m *Model) chatOpen() bool { return m.full || m.preview || m.autoSplit() }
+
+// chatAlone is whether the Session has the whole screen: pushed there, or
+// opened from Agents alone after you last had one that way.
+func (m *Model) chatAlone() bool {
+	return m.full || m.preview && m.store.Config.ListOnly && m.store.Config.ChatFull
+}
+
+// listOnly hides the Session and gives the screen to Agents, and keeps it
+// that way on a wide screen: a Session opens from there as you last had one.
+func (m *Model) listOnly() {
+	m.store.Config.ListOnly = true
+	_ = m.store.SaveConfig()
+	m.preview, m.full, m.paneFocus = false, false, false
+	m.flash("just Agents · shift+← brings the Session back", false)
+}
+
+// splitAgain puts Agents and the Session side by side, when there's room.
+// From a Session opened off Agents alone, that's how the next one opens;
+// from Agents alone, the split is back for good.
+func (m *Model) splitAgain() tea.Cmd {
+	if m.w-max((m.w+3)/4, 30)-1 < minPane {
+		m.flash("too narrow for Agents and the Session side by side", true)
+		return nil
+	}
+	if m.chatOpen() {
+		m.store.Config.ChatFull = false
+	} else {
+		m.store.Config.ListOnly = false
+		m.preview = !m.wide()
+	}
+	m.full = false
+	_ = m.store.SaveConfig()
+	m.flash("Agents and the Session side by side", false)
+	return m.loadPreview()
+}
+
+// viewNow is which of #view's layouts is on screen.
+func (m *Model) viewNow() string {
+	l, p, _ := m.layout()
+	switch {
+	case l == 0:
+		return "agent"
+	case p == 0:
+		return "list"
+	}
+	return "split"
+}
+
+// sessionOnly gives the screen to the picked agent's Session. With Agents
+// alone kept, Sessions open that way from then on.
+func (m *Model) sessionOnly() tea.Cmd {
+	if m.selected() == nil {
+		return nil
+	}
+	m.preview, m.full = true, true
+	msg := "just the Session · shift+→ brings Agents back"
+	if m.store.Config.ListOnly {
+		m.store.Config.ChatFull = true
+		_ = m.store.SaveConfig()
+		msg = "just the Session, and Sessions open this way · shift+→ brings Agents back"
+	}
+	m.flash(msg, false)
+	return m.loadPreview()
+}
+
+// dragSplit follows the list's edge as it's dragged; dropped against
+// either side of the screen, that side's pane goes.
+func (m *Model) dragSplit(x int) {
+	switch {
+	case x >= m.w-2:
+		if m.chatOpen() {
+			m.listOnly()
+		}
+	case x <= 1:
+		if !m.chatAlone() {
+			m.sessionOnly()
+		}
+	default:
+		if !m.chatOpen() {
+			m.store.Config.ListOnly = false
+			m.preview = !m.wide()
+		}
+		m.full, m.store.Config.ChatFull = false, false
+		m.setSideWidth(x)
+	}
 }
 
 // minPane is the narrowest pane worth splitting the screen for: a step row
@@ -584,6 +707,7 @@ func (m *Model) listView() string {
 		head = append(m.header(), "")
 	}
 	listW, paneW, bodyH := m.layout()
+	over := m.pickerOverCard() // as the Prompt was measured
 	var dock []string
 	if paneW == 0 && m.h >= 20+m.dockLines() {
 		if f := m.focused(); f != nil {
@@ -614,8 +738,18 @@ func (m *Model) listView() string {
 	if listW > 0 {
 		// Getting started sits at the foot of the list while there's room.
 		var card []string
-		if m.showCard() && bodyH-8 >= 8 {
-			card = m.startedLines(listW)
+		if m.showCard() {
+			if card = m.startedLines(listW); bodyH-len(card) < 8 {
+				card = nil
+			}
+		}
+		m.cardShown = card != nil
+		if card != nil && over {
+			// The # picker takes Getting started's rows, so the list
+			// doesn't jump when it opens.
+			if pick := m.fleetSlashLines(listW); pick != nil {
+				card = append(make([]string, max(0, len(card)-len(pick))), pick...)
+			}
 		}
 		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1-len(card))...)
 		if card != nil {
@@ -629,9 +763,6 @@ func (m *Model) listView() string {
 	var pane []string
 	if paneW > 0 {
 		sw := paneW - 3
-		if m.railW > 0 {
-			sw = paneW - m.railW - 4
-		}
 		if m.zen && len(m.zenQueue()) == 0 {
 			pane = m.zenQuiet(paneW-3, paneH)
 		} else if pane = m.agtopPane(sw, paneH); pane == nil {
@@ -664,8 +795,7 @@ func (m *Model) listView() string {
 		}
 	}
 	div := m.divider()
-	m.loadRail()
-	split2 := func(l, p string, i int) {
+	split2 := func(l, p string) {
 		b.WriteString(listFade)
 		fitTo(&b, l, listW, listFade)
 		if listFade != "" {
@@ -673,7 +803,7 @@ func (m *Model) listView() string {
 		}
 		b.WriteString(div)
 		b.WriteString("  ")
-		m.paneRow(&b, p, i, paneW-3, paneFade)
+		m.paneRow(&b, p, paneW-3, paneFade)
 	}
 	for i := 0; i < bodyH; i++ {
 		l, p := "", ""
@@ -685,7 +815,7 @@ func (m *Model) listView() string {
 		}
 		switch {
 		case listW > 0 && paneW > 0:
-			split2(l, p, i)
+			split2(l, p)
 		case listW > 0:
 			fitTo(&b, l, m.w, "")
 		default:
@@ -698,7 +828,6 @@ func (m *Model) listView() string {
 		fitTo(&b, l, m.w, "")
 		b.WriteByte('\n')
 	}
-	m.promptTop = len(head) + 1 + bodyH + len(dock)
 	m.promptBoxY = len(head) + bodyH + len(dock) + m.promptBoxIdx
 	for i, l := range prompt {
 		if split {
@@ -706,8 +835,7 @@ func (m *Model) listView() string {
 			if j := bodyH + i; j < len(pane) {
 				p = pane[j]
 			}
-			// The rail carries on beside the Prompt rather than starting over.
-			split2(l, p, bodyH+i)
+			split2(l, p)
 		} else {
 			fitTo(&b, l, m.w, "")
 		}
@@ -733,36 +861,12 @@ func (m *Model) twoSided() bool {
 	return m.listW > 0 && (m.host != nil || (m.live != nil && m.focused() != nil && m.live.key == m.focused().Key))
 }
 
-// loadRail draws the recent-changes rail for this frame, when there's room
-// for one beside the Session.
-func (m *Model) loadRail() {
-	m.rail = m.rail[:0]
-	if m.railW <= 0 || m.host == nil {
-		return
-	}
-	m.rail = append(m.rail, m.railNow(m.host, m.railW)...)
-	for _, l := range m.host.sess.RecentEdits(convo.Options{Width: m.railW, Now: m.snap.At}, m.h-len(m.rail)) {
-		m.rail = append(m.rail, l.Text)
-	}
-}
-
-// paneRow writes a Session row w wide, with the rail's row i beside it
-// when there's a rail, faded when bg is set.
-func (m *Model) paneRow(b *strings.Builder, p string, i, w int, bg string) {
+// paneRow writes a Session row w wide, faded when bg is set.
+func (m *Model) paneRow(b *strings.Builder, p string, w int, bg string) {
 	if bg != "" {
 		b.WriteString(bg)
 	}
-	if m.railW <= 0 || m.host == nil {
-		fitTo(b, p, w, bg)
-	} else {
-		r := ""
-		if i < len(m.rail) {
-			r = m.rail[i]
-		}
-		fitTo(b, p, w-m.railW-1, bg)
-		writeIn(b, faint("│"), bg)
-		fitTo(b, r, m.railW, bg)
-	}
+	fitTo(b, p, w, bg)
 	if bg != "" {
 		b.WriteString(reset)
 	}
@@ -1484,10 +1588,16 @@ func (m *Model) promptH(w int) int {
 	if len(m.images) > 0 && w > 0 {
 		n++ // the chips
 	}
-	if cmds, _ := m.promptPicker(); len(cmds) > 0 {
+	if cmds, _ := m.promptPicker(); len(cmds) > 0 && !m.pickerOverCard() {
 		n += min(len(cmds), 6) + 1 // the picker
 	}
 	return n
+}
+
+// pickerOverCard is whether the Prompt's picker is drawn over Getting
+// started, the rows at the foot of the list, rather than above the box.
+func (m *Model) pickerOverCard() bool {
+	return m.cardShown && m.listW > 0 && m.showCard()
 }
 
 // promptLines are the input box and a row of key hints. The box's top
@@ -1500,6 +1610,9 @@ func (m *Model) promptLines(w int) []string {
 	a := m.selected()
 	text := string(m.input)
 	b := m.promptBoxAt(w)
+	// An empty box with nothing asked of it shows no cursor: the list has
+	// the keys until you type, rename, or reply.
+	b.idle = len(m.input) == 0 && m.inKind == inPrompt
 	switch {
 	case m.inKind == inRename && a != nil:
 		b.topL = dim("rename ") + paint(cText, oneLine(a.DisplayName)) + dim(" · enter saves")
@@ -1527,8 +1640,11 @@ func (m *Model) promptLines(w int) []string {
 			b.holder = "ctrl+] or click here to come back"
 		}
 	}
-	out := m.fleetSlashLines(w)
-	if l := chips(m.images, w); l != "" {
+	var out []string
+	if !m.pickerOverCard() {
+		out = m.fleetSlashLines(w)
+	}
+	if l := chips(m.images, w, -1, false); l != "" {
 		out = append(out, l)
 	}
 	m.promptBox, m.promptBoxIdx = b, len(out)
@@ -1540,17 +1656,27 @@ func (m *Model) promptLines(w int) []string {
 		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", "?", "guide")
 	case m.inKind != inPrompt:
 		hint = keysFit(w-4, "enter", "save", "esc", "cancel")
+		if m.inKind == inRename {
+			hint = keysFit(w-4, "enter", "save", "tab · ↑↓", "save, rename the next", "esc", "cancel")
+		}
 	case typingHash(text):
 		hint = keysFit(w-4, "enter", "run it", "esc", "clear", "?", "guide")
 	case len(m.input) > 0:
 		hint = keysFit(w-4, "enter", "start it", "ctrl+l", "folder", "esc", "clear", "?", "guide")
+	case a != nil && a.Agtop && m.store.Config.EnterOn == "open":
+		hint = keysFit(w-4, "enter · tab", "talk to it", "ctrl+r", "rename", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "?", "guide")
+	case a != nil && m.store.Config.EnterOn == "open":
+		hint = keysFit(w-4, "enter · tab", "open", "ctrl+r", "rename", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "?", "guide")
 	case a != nil && a.Agtop:
-		hint = keysFit(w-4, "enter", "talk to it", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "tab", "its Session", "?", "guide")
+		hint = keysFit(w-4, "enter", "rename", "⌘↓ · tab", "talk to it", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "tab", "its Session", "?", "guide")
 	default:
-		hint = keysFit(w-4, "enter", "open", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session", "?", "guide")
+		hint = keysFit(w-4, "enter", "rename", "⌘↓ · tab", "open", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session", "?", "guide")
 	}
 	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil {
 		hint = strings.TrimRight(m.statusOr(""), " ") // it pads to the screen, not this box
+		if m.confirm != nil {
+			hint = m.confirmLine(w)
+		}
 	} else {
 		hint = "  " + hint
 	}
@@ -1892,16 +2018,18 @@ var helpPages = []struct {
 	}},
 	{"▤ Agents", [][2]string{
 		{"↑↓", "pick one"},
-		{"enter", "open it"},
-		{"tab", "its Session"},
+		{"⌘↓ · tab", "open its Session"},
+		{"enter", "rename or open it, as you chose"},
+		{"ctrl+r", "rename it · tab the next"},
 		{"ctrl+n", "next one needing you"},
 		{"#done", "put it away"},
 		{"ctrl+x", "stop it"},
 	}},
 	{"◈ Around", [][2]string{
 		{"ctrl+z", "zen"},
-		{"ctrl+\\", "Machine · Settings"},
-		{"#tour", "the tour again"},
+		{", .", "Agents · Machine · Settings"},
+		{"shift+← →", "resize · past the end, one side alone"},
+		{"#tips", "Getting started again"},
 		{"esc esc", "quit"},
 	}},
 }

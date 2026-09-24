@@ -200,6 +200,17 @@ func Login(acct claude.Account) *exec.Cmd {
 	return claudeCmd(acct, "", "auth", "login")
 }
 
+// Screen opens Claude Code's own screen for a slash command (/plugin,
+// /hooks, …) in dir. Nothing is sent to a model, and no conversation is
+// kept: it's a fresh Claude Code that starts on the command. hint is
+// printed above it (how to get back).
+func Screen(acct claude.Account, dir, command, hint string) *exec.Cmd {
+	c := exec.Command("sh", "-c", `printf '\033[2J\033[H%s\n\n' "$1"; exec claude "/$2"`, "sh", hint, command)
+	c.Env = acct.Env()
+	c.Dir = dir
+	return c
+}
+
 // Relaunch moves a conversation: stop it, make its transcript visible to the
 // target account and folder, and resume it there with its original flags.
 type Relaunch struct {
@@ -317,4 +328,37 @@ func Notify(title, body string) {
 	if c.Start() == nil {
 		go func() { _ = c.Wait() }()
 	}
+}
+
+// RepoRoot is the top of the git checkout dir is in, or "" if it isn't in
+// one.
+func RepoRoot(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// NewWorktree makes a git worktree for the checkout dir is in, where Claude
+// Code puts its own (.claude/worktrees/<name>), on a new branch named after
+// it, and returns the folder that matches dir inside it.
+func NewWorktree(dir, name string) (string, error) {
+	root := RepoRoot(dir)
+	if root == "" {
+		return "", fmt.Errorf("%s isn't in a git repository", dir)
+	}
+	path := filepath.Join(root, ".claude", "worktrees", name)
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("a worktree named %s already exists", name)
+	}
+	if out, err := exec.Command("git", "-C", root, "worktree", "add", "-b", "worktree-"+name, path).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("git worktree add: %s", strings.TrimSpace(string(out)))
+	}
+	if rel, err := filepath.Rel(root, dir); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+		if st, err := os.Stat(filepath.Join(path, rel)); err == nil && st.IsDir() {
+			return filepath.Join(path, rel), nil
+		}
+	}
+	return path, nil
 }

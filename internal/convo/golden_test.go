@@ -41,7 +41,6 @@ func TestDump(t *testing.T) {
 			}
 			o = Options{Width: w, Now: now, Open: map[string]bool{}}
 			dump(fmt.Sprintf("%s w%d overview", name, w), s.Overview(o))
-			dump(fmt.Sprintf("%s w%d rail", name, w), s.RecentEdits(o, 80))
 			dump(fmt.Sprintf("%s w%d search", name, w), s.SearchView("the", o))
 		}
 	}

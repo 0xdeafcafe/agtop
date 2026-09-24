@@ -109,7 +109,13 @@ func encode(v any) []byte {
 
 // LoadSettings reads acct's settings.json; a missing file is an empty one.
 func LoadSettings(acct Account) (*Settings, error) {
-	s := &Settings{Path: filepath.Join(acct.ConfigDir, "settings.json")}
+	return LoadSettingsFile(filepath.Join(acct.ConfigDir, "settings.json"))
+}
+
+// LoadSettingsFile reads any Claude Code settings file: a project's
+// .claude/settings.json or settings.local.json. Missing is empty.
+func LoadSettingsFile(path string) (*Settings, error) {
+	s := &Settings{Path: path}
 	raw, err := readObject(s.Path)
 	if err != nil {
 		return nil, err

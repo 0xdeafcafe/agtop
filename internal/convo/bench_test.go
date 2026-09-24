@@ -235,12 +235,6 @@ func BenchmarkViews(b *testing.B) {
 			s.Overview(o)
 		}
 	})
-	b.Run("recentEdits", func(b *testing.B) {
-		b.ReportAllocs()
-		for b.Loop() {
-			s.RecentEdits(Options{Width: 56, Now: o.Now}, 60)
-		}
-	})
 	b.Run("search", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {

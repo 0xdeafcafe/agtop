@@ -211,7 +211,7 @@ func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 func (m *Model) syncLive() tea.Cmd {
 	a := m.selected()
 	w, h := m.liveSize()
-	showing := (m.preview || m.wide()) && m.mode == modeList && m.dialog == nil
+	showing := (m.preview || m.autoSplit()) && m.mode == modeList && m.dialog == nil
 	// While the user is inside a session (enter), its attach is the only one.
 	if m.attached != "" || !showing || !liveCapable(a) || w < 20 || h < 4 {
 		m.closeLive()

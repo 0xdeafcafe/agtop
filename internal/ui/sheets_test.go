@@ -1,0 +1,219 @@
+package ui
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/agtop/internal/statusline"
+)
+
+// A fork up to turn 2 is the transcript cut where turn 3 starts, under a
+// session id of its own.
+func TestForkCutsTheTranscript(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "old.jsonl")
+	var b strings.Builder
+	for i, p := range []string{"first", "second", "third"} {
+		fmt.Fprintf(&b, `{"type":"user","sessionId":"old","timestamp":"2026-09-01T10:0%d:00Z","message":{"role":"user","content":%q}}`+"\n", i, p)
+		fmt.Fprintf(&b, `{"type":"assistant","sessionId":"old","timestamp":"2026-09-01T10:0%d:30Z","message":{"id":"m%d","role":"assistant","model":"claude-x","content":[{"type":"text","text":"done %d"}],"usage":{"input_tokens":1,"output_tokens":1}}}`+"\n", i, i, i)
+	}
+	if err := os.WriteFile(src, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	starts, err := convo.TurnStarts(src)
+	if err != nil || len(starts) != 3 || starts[2].Prompt != "third" {
+		t.Fatalf("turn starts: %+v %v", starts, err)
+	}
+	off, err := cutAfter(src, 2, "third")
+	if err != nil || off != starts[2].Offset {
+		t.Fatalf("cut after 2: %d %v (want %d)", off, err, starts[2].Offset)
+	}
+	// The prompt wins over a numbering that's off by one.
+	if off2, _ := cutAfter(src, 1, "third"); off2 != off {
+		t.Fatalf("matched by prompt: %d, want %d", off2, off)
+	}
+	dst := filepath.Join(dir, "new.jsonl")
+	if err := claude.CopyTranscript(src, dst, "old", "new", off); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(dst)
+	if strings.Contains(string(got), "third") || strings.Contains(string(got), `"sessionId":"old"`) || !strings.Contains(string(got), `"sessionId":"new"`) {
+		t.Fatalf("copy:\n%s", got)
+	}
+	if sess := convo.History(dst, time.Now()); len(sess.Turns) != 2 {
+		t.Fatalf("the copy holds %d turns, want 2", len(sess.Turns))
+	}
+	if err := claude.CopyTranscript(src, dst, "old", "new", -1); err == nil {
+		t.Fatal("an existing conversation is never overwritten")
+	}
+}
+
+func TestPluginSheet(t *testing.T) {
+	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
+	p := &pluginSheet{loaded: true, acct: claude.Account{Name: "work"}, cwd: "/x", costs: map[string]string{"lw@m": "~108 tok"}, costAsked: map[string]bool{"lw@m": true}}
+	p.installed = []claude.Plugin{{ID: "lw@m", Name: "lw", Marketplace: "m", Enabled: true, Scope: "user", Description: "records things",
+		Parts: claude.PluginParts{Skills: []string{"lw"}, Hooks: []string{"SessionStart", "Stop"}}}}
+	p.available = []claude.Plugin{{ID: "a@m", Name: "alpha", Installs: 1_300_000, Description: "front ends"}, {ID: "b@m", Name: "beta", Installs: 12, Description: "tests"}}
+	p.markets = []claude.Marketplace{{Name: "m", Source: "github", Repo: "o/m"}}
+	m.sheet = p
+	text := func() string { return ansi.Strip(strings.Join(p.body(m, 120, 40), "\n")) }
+	for _, want := range []string{"Installed 1/1 on", "Discover 2", "● lw", "1 skill: lw", "2 hooks: SessionStart, Stop", "~108 tok in every session"} {
+		if !strings.Contains(text(), want) {
+			t.Errorf("installed tab missing %q:\n%s", want, text())
+		}
+	}
+	// x once arms, it doesn't remove.
+	p.key(m, tea.KeyPressMsg{}, "x")
+	if p.armed != "lw@m" || p.busy != "" || !strings.Contains(text(), "x again removes lw") {
+		t.Fatalf("x should ask first: armed=%q busy=%q", p.armed, p.busy)
+	}
+	p.key(m, tea.KeyPressMsg{}, "tab")
+	for _, r := range "tes" {
+		p.key(m, tea.KeyPressMsg{Text: string(r)}, string(r))
+	}
+	if got := p.shown(); len(got) != 1 || got[0].Name != "beta" {
+		t.Fatalf("search: %v", got)
+	}
+	if !strings.Contains(text(), "beta") || strings.Contains(text(), "alpha ") {
+		t.Fatalf("discover:\n%s", text())
+	}
+	p.key(m, tea.KeyPressMsg{}, "tab")
+	if !strings.Contains(text(), "o/m") {
+		t.Fatalf("marketplaces:\n%s", text())
+	}
+	p.key(m, tea.KeyPressMsg{}, "esc")
+	if m.sheet != nil {
+		t.Fatal("esc closes")
+	}
+}
+
+func TestStatusSheet(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
+	a := &fleet.Agent{Key: "k", Cwd: "/src/agtop", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}}
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c.sess.Model = "Opus 5.5"
+	m.openStatusLine(c, a)
+	st := m.sheet.(*statusSheet)
+	st.tab = stClaude
+	text := func() string { return ansi.Strip(strings.Join(st.body(m, 120, 40), "\n")) }
+	if !strings.Contains(text(), "  Opus 5.5 · agtop") || strings.Contains(text(), "Your own line") {
+		t.Fatalf("preview:\n%s", text())
+	}
+	// Folder moves up above Model, then down past the end of line 1 onto
+	// line 2, then Model comes out of the line.
+	st.cur = 1
+	st.key(m, tea.KeyPressMsg{}, "shift+up")
+	if st.claude.Lines[0][0] != "folder" || st.cur != 0 {
+		t.Fatalf("move: %v cur=%d", st.claude.Lines, st.cur)
+	}
+	st.key(m, tea.KeyPressMsg{}, "2")
+	if len(st.claude.Lines[1]) != 1 || st.claude.Lines[1][0] != "folder" {
+		t.Fatalf("to line 2: %v", st.claude.Lines)
+	}
+	st.cur = 0
+	st.key(m, tea.KeyPressMsg{}, "space")
+	if st.claude.Shown("model") || !strings.Contains(text(), "   ⎇") && !strings.Contains(text(), "   ctx") {
+		t.Fatalf("hide: %v\n%s", st.claude.Lines, text())
+	}
+	if !strings.Contains(text(), "Line 3") || !strings.Contains(text(), "Not shown") {
+		t.Fatalf("headings:\n%s", text())
+	}
+	// Saving writes the layout and points settings.json at agtop.
+	os.WriteFile(filepath.Join(a.Acct.ConfigDir, "settings.json"), []byte(`{"model":"opus"}`), 0o600)
+	st.key(m, tea.KeyPressMsg{}, "enter")
+	b, _ := os.ReadFile(filepath.Join(a.Acct.ConfigDir, "settings.json"))
+	if !strings.Contains(string(b), "statusline") || !strings.Contains(string(b), `"model": "opus"`) || m.sheet != nil {
+		t.Fatalf("settings.json after save:\n%s", b)
+	}
+}
+
+// /plugins is Claude Code's /plugin by another name: enter must open it,
+// not /reload-plugins, which also contains the word.
+func TestSlashAliasComesFirst(t *testing.T) {
+	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
+	c.sess.Commands = []headless.Command{{Name: "reload-plugins"}, {Name: "compact"}}
+	c.input = []rune("/plugins")
+	if got := slashMatches(c); len(got) < 2 || got[0].Name != "plugin" {
+		t.Fatalf("/plugins: %v", got)
+	}
+	c.input = []rune("/compact")
+	if got := slashMatches(c); got[0].Name != "compact" {
+		t.Fatalf("exact first: %v", got)
+	}
+}
+
+// A status line of your own becomes a segment, and survives saving.
+func TestStatusSheetKeepsYourOwn(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
+	a := &fleet.Agent{Key: "k", Cwd: t.TempDir(), Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}}
+	os.WriteFile(filepath.Join(a.Acct.ConfigDir, "settings.json"), []byte(`{"statusLine":{"type":"command","command":"cat >/dev/null; echo mine"}}`), 0o600)
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	m.openStatusLine(c, a)
+	st := m.sheet.(*statusSheet)
+	st.tab = stClaude
+	// Your own command runs off to the side: its output shows once it's in.
+	shows := func() bool { return strings.Contains(ansi.Strip(strings.Join(st.body(m, 120, 40), "\n")), "   mine") }
+	for end := time.Now().Add(3 * time.Second); !shows() && time.Now().Before(end); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st.claude.Lines[0][0] != "custom" || !shows() {
+		t.Fatalf("your own line should lead: %v", st.claude.Lines)
+	}
+	st.key(m, tea.KeyPressMsg{}, "enter")
+	if l := statusline.Load(); l.Custom == "" || l.Lines[0][0] != "custom" || len(l.Lines) != 2 {
+		t.Fatalf("saved: %+v", l)
+	}
+}
+
+// /permissions adds a rule to the file you pick, and takes one out only
+// on the second x; other keys in the file are kept.
+func TestPermSheet(t *testing.T) {
+	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
+	cwd := t.TempDir()
+	a := &fleet.Agent{Key: "k", Cwd: cwd, Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}}
+	user := filepath.Join(a.Acct.ConfigDir, "settings.json")
+	os.WriteFile(user, []byte(`{"model":"opus","permissions":{"allow":["Read"],"defaultMode":"auto"}}`), 0o600)
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	m.openPermissions(c, a)
+	p := m.sheet.(*permSheet)
+	if len(p.rules[0]) != 1 || p.rules[0][0].file.label != "yours" || !strings.Contains(p.mode, "auto") {
+		t.Fatalf("loaded: %+v mode %q", p.rules, p.mode)
+	}
+	p.key(m, tea.KeyPressMsg{}, "a")
+	for _, r := range "Bash(ls:*)" {
+		p.key(m, tea.KeyPressMsg{Text: string(r)}, string(r))
+	}
+	p.key(m, tea.KeyPressMsg{}, "enter") // into the project's just-for-you file
+	local, _ := os.ReadFile(filepath.Join(cwd, ".claude", "settings.local.json"))
+	if !strings.Contains(string(local), "Bash(ls:*)") || len(p.rules[0]) != 2 {
+		t.Fatalf("added: %s %+v", local, p.rules[0])
+	}
+	p.cur[0] = 0
+	p.key(m, tea.KeyPressMsg{}, "x")
+	if len(p.rules[0]) != 2 {
+		t.Fatal("the first x only asks")
+	}
+	p.key(m, tea.KeyPressMsg{}, "x")
+	b, _ := os.ReadFile(user)
+	if strings.Contains(string(b), `"Read"`) || !strings.Contains(string(b), `"model": "opus"`) || !strings.Contains(string(b), "auto") {
+		t.Fatalf("took out:\n%s", b)
+	}
+	hs := parseHooks([]byte(`{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo hi"}]}]}`), settingsFile{"yours", user})
+	if len(hs) != 1 || hs[0].matcher != "Bash" || hs[0].command != "echo hi" {
+		t.Fatalf("hooks: %+v", hs)
+	}
+}

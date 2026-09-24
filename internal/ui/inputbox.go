@@ -31,6 +31,7 @@ type box struct {
 	holder  string // shown faint while the box is empty
 	lead    string // before the text on its first line, e.g. ❯
 	maxRows int
+	idle    bool // focused but not being typed in: the edge and fill stay, the cursor doesn't
 }
 
 // lines draws the box: a top edge carrying its labels, the text wrapped
@@ -157,7 +158,7 @@ func (b box) content(w int) []string {
 	lw := b.leadW()
 	if len(b.text) == 0 {
 		cur := ""
-		if b.focused {
+		if b.focused && !b.idle {
 			cur = reverse(" ")
 		}
 		return []string{b.lead + cur + faint(ansi.Truncate(b.holder, max(1, w-lw-1), "…"))}

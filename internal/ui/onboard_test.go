@@ -46,30 +46,33 @@ func TestTipsShowOnce(t *testing.T) {
 	}
 }
 
-func TestTour(t *testing.T) {
+func TestHashPickerOverGettingStarted(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	m, _ := benchModel(150, 40)
-	m.onboard = true
-	m.startTour()
-	for i := range tourSteps {
-		if !strings.Contains(ansi.Strip(m.render()), tourSteps[i].title) {
-			t.Fatalf("stop %d doesn't say %q", i+1, tourSteps[i].title)
-		}
-		if i == 1 {
-			m.tourKey("left")
-			if m.tour != 1 {
-				t.Fatal("← doesn't go back")
-			}
-			m.tourKey("enter")
-		}
-		m.tourKey("enter")
+	m.onboard, m.paneFocus = true, false
+	m.render()
+	_, _, bodyH := m.layout()
+	m.input = []rune("#")
+	m.render() // the card was shown, so the picker goes over it
+	frame := ansi.Strip(m.render())
+	if _, _, got := m.layout(); got != bodyH {
+		t.Fatalf("the list went from %d to %d rows with the picker over the card", bodyH, got)
 	}
-	if m.tour != 0 || !m.store.Config.Onboarding.Toured {
-		t.Fatal("the tour doesn't end, or doesn't remember it has shown")
+	if !strings.Contains(frame, "#done") || strings.Contains(frame, "Try zen") {
+		t.Fatal("the # picker isn't over Getting started\n" + frame)
 	}
-	m.startTour()
-	m.tourKey("esc")
-	if m.tour != 0 {
-		t.Fatal("esc doesn't skip the tour")
+	m.input = m.input[:0]
+	if !strings.Contains(ansi.Strip(m.render()), "#tips off") {
+		t.Fatal("Getting started doesn't say how # works\n" + ansi.Strip(m.render()))
+	}
+}
+
+func TestRoundMove(t *testing.T) {
+	for _, c := range []struct{ cur, d, n, want int }{
+		{0, -1, 5, 4}, {4, 1, 5, 0}, {2, 1, 5, 3}, {0, -1, 0, 0}, {0, 1, 1, 0},
+	} {
+		if got := roundMove(c.cur, c.d, c.n); got != c.want {
+			t.Errorf("roundMove(%d, %d, %d) = %d, want %d", c.cur, c.d, c.n, got, c.want)
+		}
 	}
 }

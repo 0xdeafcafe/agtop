@@ -268,6 +268,16 @@ func TestTypedImages(t *testing.T) {
 	if got := shortImages("see [image: " + p + "] ok"); got != "see ▣ shot one.png ok" {
 		t.Fatalf("shortImages = %q", got)
 	}
+	// Typed into the new-session box, the path becomes a chip at the space.
+	m, _ := benchModel(120, 40)
+	m.paneFocus = false
+	for _, r := range "look " + strings.ReplaceAll(p, " ", `\ `) {
+		m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	if string(m.input) != "look " || len(m.images) != 1 {
+		t.Fatalf("typed path: input %q images %v", string(m.input), m.images)
+	}
 }
 
 func TestPasteTaggedRoundTrip(t *testing.T) {

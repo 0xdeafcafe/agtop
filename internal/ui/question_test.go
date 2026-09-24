@@ -2,6 +2,7 @@ package ui
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -90,7 +91,7 @@ func TestAnswerQuestions(t *testing.T) {
 // A message that starts with y, a, n or a digit must never answer a card:
 // only ↑ onto the card, or an alt chord, does.
 func TestCardsNeedFocus(t *testing.T) {
-	m := &Model{}
+	m := &Model{snap: &fleet.Snapshot{}}
 	c := &hostConn{sess: convo.New()}
 	c.sess.Apply(host.Sent{Text: "go"}, time.Now())
 	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}}}, time.Now())
@@ -159,7 +160,7 @@ func TestSlashQueueTasks(t *testing.T) {
 		}
 		return
 	}
-	if got := names(); len(got) != 3 || got[0] != "compact" {
+	if got := names(); len(got) != 4 || got[0] != "config" || got[1] != "compact" {
 		t.Fatalf("matches for /co: %v", got)
 	}
 	c.input = []rune("/clea")
@@ -208,6 +209,70 @@ func TestSlashQueueTasks(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("tasks view missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestClaudeScreensAndFork(t *testing.T) {
+	a := &fleet.Agent{Key: "k", ID: "abc", DisplayName: "fixer", Cwd: "/tmp"}
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}}
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+
+	// Screens headless Claude Code can't show open Claude Code's own, or
+	// agtop's take on them.
+	for _, cmd := range []string{"/hooks", "/mcp"} {
+		if run, ok := m.runAgtopCommand(c, cmd); !ok || run == nil {
+			t.Errorf("%s should open Claude Code's screen", cmd)
+		}
+	}
+	for _, cmd := range []string{"/plugins", "/plugin"} {
+		m.sheet = nil
+		if _, ok := m.runAgtopCommand(c, cmd); !ok {
+			t.Errorf("%s should be agtop's", cmd)
+		}
+		if _, is := m.sheet.(*pluginSheet); !is {
+			t.Errorf("%s should open the plugins sheet, got %T", cmd, m.sheet)
+		}
+	}
+	m.sheet = nil
+	if _, ok := m.runAgtopCommand(c, "/statusline"); !ok {
+		t.Fatal("/statusline should be agtop's")
+	}
+	if _, is := m.sheet.(*statusSheet); !is {
+		t.Fatalf("/statusline should open the builder, got %T", m.sheet)
+	}
+	m.sheet = nil
+	// With arguments, /mcp and /config are Claude's to run.
+	if _, ok := m.runAgtopCommand(c, "/mcp enable x"); ok {
+		t.Error("/mcp with arguments should go to Claude")
+	}
+	c.input = []rune("/plug")
+	if got := slashMatches(c); len(got) != 1 || got[0].Name != "plugin" {
+		t.Fatalf("the picker should offer /plugin: %v", got)
+	}
+
+	// Nothing to fork before the first turn.
+	if _, ok := m.runAgtopCommand(c, "/fork"); !ok || m.sheet != nil || m.status == "" {
+		t.Fatalf("/fork with no turns: ok=%v status=%q", ok, m.status)
+	}
+	c.sess.Turns = append(c.sess.Turns, &convo.Turn{N: 1, Prompt: "first"}, &convo.Turn{N: 2, Prompt: "second"}, &convo.Turn{N: 3, Prompt: "third"})
+	c.sess.Info.SessionID = "0123456789abcdef"
+	if _, ok := m.runAgtopCommand(c, "/fork try another way"); !ok {
+		t.Fatal("/fork should be agtop's")
+	}
+	f, is := m.sheet.(*forkSheet)
+	if !is || string(f.name) != "try another way" {
+		t.Fatalf("/fork should open its sheet, named: %T", m.sheet)
+	}
+	// ↓ to Remembers, ← goes back to the oldest choice: up to turn 1.
+	f.key(m, tea.KeyPressMsg{}, "down")
+	f.key(m, tea.KeyPressMsg{}, "left")
+	body := ansi.Strip(strings.Join(f.body(m, 100, 40), "\n"))
+	if !strings.Contains(body, "up to turn 1") || !strings.Contains(body, "forgets 2–3") {
+		t.Fatalf("fork sheet:\n%s", body)
+	}
+	f.key(m, tea.KeyPressMsg{}, "esc")
+	if m.sheet != nil {
+		t.Fatal("esc closes the sheet")
 	}
 }
 
@@ -261,6 +326,30 @@ func TestLocalQueue(t *testing.T) {
 	}
 }
 
+// shift+↑↓ merges the picked message into the one above or below, in
+// order; [ and ] move it.
+func TestQueueMergeUpDown(t *testing.T) {
+	m := &Model{snap: &fleet.Snapshot{}}
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	for _, x := range []string{"a", "b", "c", "d"} {
+		m.queueLocal("k", x)
+	}
+	c.sel = "q:1"
+	m.queueKey(c, "shift+up")
+	if got := m.localQ["k"].items; strings.Join(got, "|") != "a\n\nb|c|d" || c.sel != "q:0" {
+		t.Fatalf("merge up: %q, picked %s", got, c.sel)
+	}
+	c.sel = "q:1"
+	m.queueKey(c, "shift+down")
+	if got := m.localQ["k"].items; strings.Join(got, "|") != "a\n\nb|c\n\nd" || c.sel != "q:1" {
+		t.Fatalf("merge down: %q, picked %s", got, c.sel)
+	}
+	m.queueKey(c, "[")
+	if got := m.localQ["k"].items; got[0] != "c\n\nd" || c.sel != "q:0" {
+		t.Fatalf("move: %q, picked %s", got, c.sel)
+	}
+}
+
 func TestArgPicker(t *testing.T) {
 	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
 	c.sess.Info.Model = "claude-sonnet-5"
@@ -304,7 +393,7 @@ func TestArtifacts(t *testing.T) {
 func TestLocalQueueSends(t *testing.T) {
 	a := &fleet.Agent{Key: "k"}
 	a.State = "working"
-	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}}
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}}
 	m.queueLocal("k", "hi")
 	if m.flushLocalQueues() != nil {
 		t.Fatal("sent straight away while it works; should gather for a moment")
@@ -497,7 +586,7 @@ func TestJobGoneMovesToAgtop(t *testing.T) {
 func TestQueueKeys(t *testing.T) {
 	a := &fleet.Agent{Key: "k"}
 	a.State = "working"
-	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}}
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}}
 	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
 	m.host = c
 	for _, s := range []string{"a", "b", "c", "d"} {
@@ -521,8 +610,8 @@ func TestQueueKeys(t *testing.T) {
 	key("up")
 	key("up")
 	key("up")
-	key("shift+down")
-	key("shift+down")
+	key("]")
+	key("]")
 	if items() != "b,c,a,d" || c.sel != "q:2" {
 		t.Fatalf("moved to %s, sel %s", items(), c.sel)
 	}
@@ -567,5 +656,54 @@ func TestQueueViewKeepsLines(t *testing.T) {
 	}
 	if h := ansi.Strip(queueHint(m.queueOf(c), 200)); strings.Contains(h, "alt") {
 		t.Errorf("the queue's keys shouldn't need alt: %s", h)
+	}
+}
+
+// ↓ from the box goes nowhere; ↑ goes up through what's above it, nearest
+// first: the attachments, then the queue. ⌫ on a picked attachment takes
+// it off, the pick moving on to the next.
+func TestUpFromTheBox(t *testing.T) {
+	a := &fleet.Agent{Key: "k"}
+	a.State = "working"
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}, paneFocus: true}
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}, images: []string{"/a.png", "/b.png"}}
+	m.host = c
+	m.queueLocal("k", "one")
+	key := func(s string) { m.paneKey(tea.KeyPressMsg{}, s) }
+	key("down")
+	if c.sel != "" {
+		t.Fatalf("↓ from the box picked %q", c.sel)
+	}
+	for _, want := range []string{"img:1", "img:0", "q:0"} {
+		key("up")
+		if c.sel != want {
+			t.Fatalf("↑: on %q, want %q", c.sel, want)
+		}
+	}
+	key("down")
+	key("backspace")
+	if len(c.images) != 1 || c.images[0] != "/b.png" || c.sel != "img:0" {
+		t.Fatalf("⌫ on a picked attachment: %q, on %q", c.images, c.sel)
+	}
+	if l := ansi.Strip(chips(c.images, 80, 0, true)); !strings.Contains(l, "▍▣") {
+		t.Errorf("the picked chip isn't marked: %s", l)
+	}
+	key("backspace")
+	if len(c.images) != 0 || c.sel != "" {
+		t.Fatalf("the last one gone: %q, on %q", c.images, c.sel)
+	}
+}
+
+// The picked attachment stays in view however many there are.
+func TestChipsKeepPickInView(t *testing.T) {
+	var imgs []string
+	for i := range 12 {
+		imgs = append(imgs, "/tmp/screenshot-"+strconv.Itoa(i)+".png")
+	}
+	for _, pick := range []int{0, 5, 11} {
+		l := ansi.Strip(chips(imgs, 90, pick, true))
+		if !strings.Contains(l, "▍▣ ") {
+			t.Errorf("pick %d not in view: %s", pick, l)
+		}
 	}
 }

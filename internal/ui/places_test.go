@@ -57,6 +57,15 @@ func TestPlacesAndFocus(t *testing.T) {
 	if m.view != 0 || m.mode != modeList {
 		t.Fatal("esc should come back to Agents")
 	}
+	m.input = nil
+	m.key(tea.KeyPressMsg{Code: '.', Text: "."})
+	if m.view != 1 {
+		t.Fatal(". should go to Machine, as > does, without shift")
+	}
+	m.key(tea.KeyPressMsg{Code: ',', Text: ","})
+	if m.view != 0 {
+		t.Fatal(", should come back to Agents, as < does")
+	}
 	m.key(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	m.key(places)
 	if m.view != 0 || string(m.host.input) != "a>" {

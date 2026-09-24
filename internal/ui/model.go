@@ -15,11 +15,13 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
 	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/agtop/internal/statusline"
 )
 
 type mode int
@@ -49,6 +51,10 @@ type confirmation struct {
 	onYes    func() tea.Cmd
 	onBang   func() tea.Cmd
 	bangText string
+	// A question between two choices rather than yes or cancel: y and n
+	// each do something, labelled yesText and noText; esc still cancels.
+	yesText, noText string
+	onNo            func() tea.Cmd
 }
 
 type Model struct {
@@ -73,6 +79,7 @@ type Model struct {
 	resumedAt  time.Time // when sessions a limit stopped were last told to carry on
 
 	sel          string
+	shown        string // the agent last picked, still shown while a folded section is
 	order        []*fleet.Agent
 	lines        []listLine
 	scroll       int
@@ -84,7 +91,6 @@ type Model struct {
 	liveFailed   string
 	liveFailedAt time.Time
 	hover        string
-	hoverAt      time.Time
 	rowKeys      []string
 	listTop      int
 	lastClick    time.Time
@@ -109,11 +115,9 @@ type Model struct {
 	// claudeView is a Claude Code agent's Session view: 0 its live screen,
 	// 1 the summary.
 	claudeView int
-	zen        bool     // the Zen view: only the agent that needs you
-	zenList    bool     // Zen with its list of who's waiting beside the agent
-	railW      int      // the recent-changes rail's width, 0 when there isn't room
-	rail       []string // its lines for the frame being drawn
-	frameLen   int      // bytes in the last frame, to size the next
+	zen        bool // the Zen view: only the agent that needs you
+	zenList    bool // Zen with its list of who's waiting beside the agent
+	frameLen   int  // bytes in the last frame, to size the next
 	lastKeyAt  time.Time
 	paneTop    int // screen row of the pane's first line, for clicks
 	// host is the connection to the agtop-mode session the pane shows.
@@ -129,6 +133,12 @@ type Model struct {
 	confirm   *confirmation
 	dialog    *dialog
 	picker    *picker
+	sheet     sheet // /fork, /rewind, /plugins, /statusline, /skills: see sheet.go
+	// rewound holds the message /rewind put back, by agent, for the box
+	// once the pane reconnects.
+	rewound   map[string]string
+	bars      statusline.Bars  // agtop's own status lines: see bars.go
+	barDrops  map[int][]string // segments each of their lines last left out for room
 	embedded  bool
 	promptFor string
 	listW     int
@@ -142,6 +152,7 @@ type Model struct {
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
 	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
+	pointer      string                 // the pointer's shape last asked of the terminal
 	hibernated   map[string]bool
 	offline      bool // never ask Anthropic for usage (--soak)
 	armedAt      time.Time
@@ -150,9 +161,8 @@ type Model struct {
 	machinePage  int  // the Machine place's page: Processes or Cleanup
 	settingsPage int  // the Settings place's page: a tab of the dialog
 	helpPage     int  // the guide's tab: helpPages
-	onboard      bool // teaching: Getting started, tips and the tour
-	tour         int  // the tour's stop, from 1; 0 when it isn't showing
-	promptTop    int  // the row the prompt starts on, for the tour
+	onboard      bool // teaching: Getting started and tips
+	cardShown    bool // Getting started was under the list last frame
 
 	procCursor int
 	procPID    int // the process the cursor is on, followed as the list reorders
@@ -210,22 +220,20 @@ func New(store *state.Store, version string) *Model {
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
 		lastState: map[string]string{}, cwdMove: true,
 		hibernated: map[string]bool{},
+		bars:       statusline.LoadBars(),
 	}
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
 	}
 	applyColors(store.Config.ColorBlind)
+	convo.SetShowWhitespace(store.Config.ShowWhitespace)
 	m.snap = m.loader.Load(true)
 	m.rebuild()
 	m.onboard = true
-	if !store.Config.Onboarding.Toured {
-		m.startTour()
-	}
 	return m
 }
 
 type tickMsg time.Time
-type hoverMsg struct{}
 type usageMsg struct {
 	dir string
 	u   claude.Usage
@@ -353,7 +361,7 @@ func (m *Model) targets() []fleet.Target {
 
 func (m *Model) rowAt(x, y int) string {
 	i := y - m.listTop
-	if m.mode != modeList || m.dialog != nil || m.picker != nil || x >= m.listW || i < 0 || i >= len(m.rowKeys) {
+	if m.mode != modeList || m.dialog != nil || m.picker != nil || m.sheet != nil || x >= m.listW || i < 0 || i >= len(m.rowKeys) {
 		return ""
 	}
 	return m.rowKeys[i]
@@ -361,13 +369,18 @@ func (m *Model) rowAt(x, y int) string {
 
 func (m *Model) mouseMove(x, y int) tea.Cmd {
 	k := m.rowAt(x, y)
-	if k != m.hover {
-		m.hover, m.hoverAt = k, time.Now()
-		if k != "" && !strings.HasPrefix(k, "§") {
-			return tea.Tick(400*time.Millisecond, func(time.Time) tea.Msg { return hoverMsg{} })
-		}
+	if k == m.hover {
+		return nil
 	}
-	return nil
+	m.hover = k
+	// The row under the mouse is selected, as a click would, so moving
+	// over to its Session doesn't take it back. A name being typed stays
+	// with its agent.
+	if k == "" || k == m.sel || strings.HasPrefix(k, "§") || m.inKind == inRename || m.inKind == inGroup {
+		return nil
+	}
+	m.sel, m.armed = k, ""
+	return m.loadPreview()
 }
 
 func (m *Model) mouseClick(x, y int) tea.Cmd {
@@ -537,6 +550,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		mm, cmd := m.update(msg.started)
 		return mm, tea.Batch(cmd, carry)
+	case screenDoneMsg:
+		return m, m.onScreenDone(msg)
+	case sheetMsg:
+		return m, msg.apply(m)
+	case rewoundMsg:
+		return m, m.onRewound(msg)
 	case hostStartedMsg:
 		// Select the new session and give it the keys.
 		m.refresh()
@@ -579,6 +598,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.dialog != nil {
 			m.loadDialog()
 		}
+		if m.host != nil {
+			m.host.mem = nil
+		}
 		if msg.err != nil {
 			m.flash(msg.err.Error(), true)
 		}
@@ -595,15 +617,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onAddedLogin(msg)
 	case fxTickMsg:
 		return m, m.onFXTick()
-	case hoverMsg:
-		// A row the mouse has rested on is selected, as a click would, so
-		// moving over to its Session doesn't take it back.
-		if m.hover == "" || m.hover == m.sel || time.Since(m.hoverAt) < 350*time.Millisecond ||
-			m.mode != modeList || m.dialog != nil || m.picker != nil {
-			return m, nil
+	case subHoverMsg:
+		// Redraw only if the run rested on is still the one under the pointer.
+		if c := m.host; c == nil || !strings.HasPrefix(c.subHover, "sub:") || time.Since(c.subHoverAt) < subPeekAfter {
+			m.sameFrame = true
 		}
-		m.sel, m.armed = m.hover, ""
-		return m, m.loadPreview()
+		return m, nil
 	case previewMsg:
 		m.previews[msg.key] = msg.e
 		return m, nil
@@ -639,6 +658,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.flash("couldn't send the queue: "+msg.err.Error()+" · trying again in 30s", true)
+		return m, nil
+	case sendFailedMsg:
+		m.sendFailed(msg)
+		m.refresh()
 		return m, nil
 	case doneMsg:
 		if msg.err != nil {
@@ -702,6 +725,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.embedPaste(msg.Content)
 			return m, nil
 		}
+		if m.editingDoc() {
+			m.host.memEd.insertText(msg.Content)
+			return m, nil
+		}
 		// A paste with no text is what some terminals send when the
 		// clipboard holds only an image: read the image itself.
 		if strings.TrimSpace(msg.Content) == "" {
@@ -759,30 +786,36 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.dragging {
 			if msg.Button == tea.MouseLeft {
-				m.setSideWidth(msg.X)
+				m.dragSplit(msg.X)
 				return m, nil
 			}
 			m.dragging = false
 			_ = m.store.SaveConfig()
 		}
 		on := m.listW > 0 && m.mode == modeList && (msg.X == m.listW || msg.X == m.listW+1)
-		var shape tea.Cmd
-		if on != m.divHover {
-			// OSC 22 sets the pointer's shape in terminals that support it
-			// (kitty, ghostty, wezterm, foot); others ignore it.
-			shape = tea.Raw("\x1b]22;default\x1b\\")
-			if on {
-				shape = tea.Raw("\x1b]22;ew-resize\x1b\\")
-			}
-		}
 		hover := m.hover
 		changed := on != m.divHover
 		m.divHover = on
 		cmd := m.mouseMove(msg.X, msg.Y)
-		if !changed && m.hover == hover {
+		subChanged, subCmd := m.subMouseMove(msg.X, msg.Y)
+		if !changed && !subChanged && m.hover == hover {
 			m.sameFrame = true // nothing moved that shows: keep the last frame
 		}
-		return m, tea.Batch(shape, cmd)
+		// OSC 22 sets the pointer's shape in terminals that support it
+		// (kitty, ghostty, wezterm, foot); others ignore it.
+		want := "default"
+		switch {
+		case on:
+			want = "ew-resize"
+		case m.host != nil && m.host.subHover != "":
+			want = "pointer" // a run to open, or the banner to go back
+		}
+		var shape tea.Cmd
+		if want != m.pointer && (want != "default" || m.pointer != "") {
+			shape = tea.Raw("\x1b]22;" + want + "\x1b\\")
+		}
+		m.pointer = want
+		return m, tea.Batch(shape, cmd, subCmd)
 	case tea.MouseReleaseMsg:
 		if c := m.host; c != nil && c.txt.drag {
 			m.endTextSel(c)
@@ -814,6 +847,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil // a click on the text is one once it's released
 			}
 			m.clickRow(m.host, msg.Y)
+			return m, nil
+		}
+		// Right-clicking a link in the Session asks what to do with it:
+		// open it, in Preview, Quick Look, reveal or copy it.
+		if msg.Button == tea.MouseRight && m.host != nil && (m.listW == 0 || msg.X > m.listW+1) && m.mode == modeList && m.dialog == nil && m.picker == nil && !m.embedded {
+			m.linkMenu(m.host, msg.X, msg.Y)
 			return m, nil
 		}
 		if msg.Button == tea.MouseLeft {
@@ -858,7 +897,7 @@ var machinePages = []string{"Processes", "Cleanup"}
 // setView switches the whole screen to a place, on the page it was last on.
 func (m *Model) setView(v int) {
 	m.view = (v + len(viewNames)) % len(viewNames)
-	m.dialog, m.mode, m.picker = nil, modeList, nil
+	m.dialog, m.mode, m.picker, m.sheet = nil, modeList, nil, nil
 	m.input, m.inKind = m.input[:0], inPrompt
 	m.zen = false
 	switch m.view {
@@ -909,8 +948,12 @@ func (m *Model) zenFull() bool { return m.zen && !m.zenList }
 // wide is when the preview gets its own half of the screen.
 func (m *Model) wide() bool { return m.w >= 170 }
 
+// autoSplit is when the Session shows beside the list without being asked:
+// a wide screen you haven't pushed to the list alone.
+func (m *Model) autoSplit() bool { return m.wide() && !m.store.Config.ListOnly }
+
 func (m *Model) acceptsText() bool {
-	return m.confirm == nil && (m.dialog == nil || m.dialog.asking != "") && (m.mode == modeList || m.mode == modeCwd)
+	return m.confirm == nil && m.sheet == nil && (m.dialog == nil || m.dialog.asking != "") && (m.mode == modeList || m.mode == modeCwd)
 }
 
 func (m *Model) refresh() {
@@ -1006,16 +1049,24 @@ func (m *Model) move(d int) {
 		}
 	}
 	i = min(max(i+d, 0), len(items)-1)
+	if m.sel != "" && !strings.HasPrefix(m.sel, "§") {
+		m.shown = m.sel
+	}
 	m.sel = items[i]
 	m.armed, m.hover = "", ""
 }
 
-// items are the selectable rows in display order: sections and agents.
+// items are the rows ↑↓ stop on, in display order: the agents, and the
+// sections folded shut, whose agents can't be reached otherwise. An open
+// section's heading is passed over; a click still folds it.
 func (m *Model) items() []string {
 	var out []string
 	for _, l := range m.lines {
 		switch l.kind {
 		case lineSection:
+			if !m.folded(l.title) {
+				continue
+			}
 			out = append(out, sectionKey(l.title))
 		case lineAgent:
 			out = append(out, l.agent.Key)
@@ -1038,12 +1089,33 @@ func (m *Model) toggleFold(title string) {
 	m.store.Config.Folds[title] = !m.folded(title)
 	_ = m.store.SaveConfig()
 	m.rebuild()
+	// Opened from its heading, the pick goes onto its first agent: ↑↓
+	// don't stop on an open section's heading.
+	if m.sel == sectionKey(title) && !m.folded(title) {
+		in := false
+		for _, l := range m.lines {
+			switch {
+			case l.kind == lineSection:
+				in = l.title == title
+			case in && l.kind == lineAgent:
+				m.sel = l.agent.Key
+				return
+			}
+		}
+	}
 }
 
-// focused is the agent whose card is open: the selection.
+// focused is the agent whose card is open: the selection, or on a folded
+// section the agent picked before it, so the Session beside the list
+// doesn't come and go as ↑↓ pass a heading.
 func (m *Model) focused() *fleet.Agent {
+	key := m.sel
+	if strings.HasPrefix(key, "§") {
+		key = m.shown
+	}
 	for _, a := range m.order {
-		if a.Key == m.sel {
+		if a.Key == key {
+			m.shown = a.Key
 			return a
 		}
 	}
@@ -1123,7 +1195,11 @@ func (m *Model) rebuild() {
 		return list[i].recent.After(list[j].recent)
 	})
 	for _, g := range list {
-		sort.SliceStable(g.agents, func(i, j int) bool { return m.sortLess(g.agents[i], g.agents[j]) })
+		less := m.sortLess
+		if g.name == "Done" {
+			less = m.doneLess
+		}
+		sort.SliceStable(g.agents, func(i, j int) bool { return less(g.agents[i], g.agents[j]) })
 	}
 	m.order = m.order[:0]
 	m.lines = m.lines[:0]
@@ -1176,8 +1252,8 @@ func (m *Model) rebuild() {
 		m.lines = append(m.lines, listLine{kind: lineBlank})
 	}
 	valid := false
-	for _, k := range m.items() {
-		valid = valid || k == m.sel
+	for _, l := range m.lines {
+		valid = valid || l.kind == lineSection && sectionKey(l.title) == m.sel || l.kind == lineAgent && l.agent.Key == m.sel
 	}
 	if !valid {
 		if m.inKind == inReply && m.sel != "" {
@@ -1229,6 +1305,21 @@ func (m *Model) sortLess(a, b *fleet.Agent) bool {
 		return x > y
 	}
 	return byName()
+}
+
+// doneLess orders Done by when each was last touched, newest first: put
+// away, or used since.
+func (m *Model) doneLess(a, b *fleet.Agent) bool {
+	last := func(a *fleet.Agent) time.Time {
+		if t := m.store.Overlay.Done[a.Key]; t.After(a.UpdatedAt) {
+			return t
+		}
+		return a.UpdatedAt
+	}
+	if x, y := last(a), last(b); !x.Equal(y) {
+		return x.After(y)
+	}
+	return a.Key < b.Key
 }
 
 func (m *Model) setSort(mode string) {
@@ -1312,13 +1403,16 @@ func (m *Model) togglePin(a *fleet.Agent) tea.Cmd {
 
 func (m *Model) toggleDone(a *fleet.Agent) {
 	// The selection stays in the group the agent leaves: the row below it,
-	// or above if it was the last.
+	// or above if it was the last. One whose process markDone is stopping
+	// leaves when that exits, so it's counted as gone already, else the
+	// selection would follow it down into Done.
 	next, from := "", m.sectionOf(a.Key)
 	if m.sel == a.Key {
 		next = m.neighbour(a.Key)
 	}
+	stopping := !a.Done && a.PID != 0 && !a.Interactive && !a.Pinned
 	defer func() {
-		if next != "" && m.sectionOf(a.Key) != from && m.sectionOf(next) == from {
+		if next != "" && (stopping || m.sectionOf(a.Key) != from) && m.sectionOf(next) == from {
 			m.sel = next
 		}
 	}()

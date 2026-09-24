@@ -178,6 +178,7 @@ func (m *Model) markDone(a *fleet.Agent) tea.Cmd {
 		m.flash("select an agent first", true)
 		return nil
 	}
+	m.didStep("done")
 	if a.Done {
 		m.toggleDone(a)
 		return nil

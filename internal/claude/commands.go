@@ -17,6 +17,9 @@ type Command struct {
 	Description  string
 	ArgumentHint string
 	Skill        bool
+	Path         string // its SKILL.md or command file
+	Source       string // yours, project, claude.ai, or the plugin's name
+	Size         int64  // of the file: roughly what using it adds
 }
 
 var (
@@ -48,26 +51,30 @@ func Commands(configDir, cwd string) []Command {
 			out = append(out, c)
 		}
 	}
-	scan := func(root, prefix string) {
+	scan := func(root, prefix, source string) {
 		for _, c := range readSkills(filepath.Join(root, "skills"), prefix) {
+			c.Source = source
 			add(c)
 		}
 		for _, c := range readCommands(filepath.Join(root, "commands"), prefix) {
+			c.Source = source
 			add(c)
 		}
 	}
 	for d := cwd; d != "" && d != "/" && d != "."; d = filepath.Dir(d) {
-		scan(filepath.Join(d, ".claude"), "")
+		scan(filepath.Join(d, ".claude"), "", "project")
 	}
-	scan(configDir, "")
+	scan(configDir, "", "yours")
 	synced, _ := filepath.Glob(filepath.Join(configDir, "skills", "synced", "*"))
 	for _, d := range synced {
 		for _, c := range readSkills(d, "") {
+			c.Source = "claude.ai"
 			add(c)
 		}
 	}
 	for _, root := range pluginRoots(configDir, cwd) {
-		scan(root, pluginName(root)+":")
+		name := pluginName(root)
+		scan(root, name+":", name)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	cmdCache[key] = cmdEntry{at: time.Now(), cmds: out}
@@ -124,7 +131,7 @@ func readSkills(dir, prefix string) []Command {
 	for _, f := range files {
 		fm := frontmatter(f)
 		name := firstOf(fm["name"], filepath.Base(filepath.Dir(f)))
-		out = append(out, Command{Name: prefix + name, Description: fm["description"], ArgumentHint: fm["argument-hint"], Skill: true})
+		out = append(out, Command{Name: prefix + name, Description: fm["description"], ArgumentHint: fm["argument-hint"], Skill: true, Path: f, Size: fileSize(f)})
 	}
 	return out
 }
@@ -140,7 +147,7 @@ func readCommands(dir, prefix string) []Command {
 		rel, _ := filepath.Rel(dir, strings.TrimSuffix(p, ".md"))
 		fm := frontmatter(p)
 		out = append(out, Command{Name: prefix + strings.ReplaceAll(rel, string(filepath.Separator), ":"),
-			Description: firstOf(fm["description"], fm[""]), ArgumentHint: fm["argument-hint"]})
+			Description: firstOf(fm["description"], fm[""]), ArgumentHint: fm["argument-hint"], Path: p, Size: fileSize(p)})
 		return nil
 	})
 	return out
@@ -188,4 +195,11 @@ func firstOf(xs ...string) string {
 		}
 	}
 	return ""
+}
+
+func fileSize(p string) int64 {
+	if st, err := os.Stat(p); err == nil {
+		return st.Size()
+	}
+	return 0
 }

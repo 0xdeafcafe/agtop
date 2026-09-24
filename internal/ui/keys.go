@@ -22,6 +22,9 @@ import (
 func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	s := k.String()
 	m.hover = "" // the keyboard takes over from the mouse
+	if m.host != nil {
+		m.host.subHover = ""
+	}
 	m.lastKeyAt = time.Now()
 	if cmd, ok := m.barToggle(s); ok {
 		return cmd
@@ -33,15 +36,30 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.embedKey(k)
 	}
 	if s == "ctrl+q" {
+		if c := m.host; c != nil && c.memEd != nil && c.memEd.dirty() && m.confirm == nil {
+			m.confirm = &confirmation{
+				question: "Quit with unsaved changes to " + tildify(c.memEd.path) + "?",
+				detail:   "they're lost",
+				onYes: func() tea.Cmd {
+					m.scanner.Flush()
+					return tea.Quit
+				},
+			}
+			return nil
+		}
 		m.scanner.Flush()
 		return tea.Quit
 	}
-	if m.tour > 0 {
-		m.tourKey(s)
-		return nil
-	}
 	if m.confirm != nil {
 		return m.confirmKey(s)
+	}
+	if m.sheet != nil {
+		return m.sheet.key(m, k, s)
+	}
+	// A file being edited in the memory view takes every key, < > tab and
+	// ctrl+z included; esc hands them back.
+	if m.editingDoc() {
+		return m.paneKey(k, s)
 	}
 	// A Session filling a narrow screen has the only box there is, so the
 	// keys are its: never typing into a Prompt that isn't drawn.
@@ -51,7 +69,8 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if m.picker != nil {
 		return m.pickerKey(s)
 	}
-	// < and > with nothing typed go to the previous and next place (ctrl+\
+	// , and . (or < and >) with nothing typed go to the previous and next
+	// place (ctrl+\
 	// still goes to the next), ctrl+z turns Zen on and off, from anywhere
 	// but a question being asked.
 	if d := m.placeStep(s); d != 0 {
@@ -101,6 +120,13 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	}
 	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s != "tab" {
 		return m.paneKey(k, s)
+	}
+	// Renaming, tab and ↑↓ save the name and go on to rename the next
+	// agent, as in the Finder.
+	if m.inKind == inRename && m.mode == modeList && m.dialog == nil {
+		if d := map[string]int{"tab": 1, "down": 1, "shift+tab": -1, "up": -1}[s]; d != 0 {
+			return m.renameStep(d)
+		}
 	}
 	// In Agents tab goes between the list and the Session, unless a
 	// command is being typed: then it completes it.
@@ -178,11 +204,12 @@ func (m *Model) editKey(k tea.KeyPressMsg, s string) bool {
 	return true
 }
 
-// placeStep is which way a key moves between places: -1 for <, +1 for >
-// and ctrl+\, 0 when it doesn't. < and > only move with nothing typed in
-// the box that has the keys, so they can still be typed.
+// placeStep is which way a key moves between places: -1 for , and <, +1
+// for . > and ctrl+\, 0 when it doesn't. , and . move without shift; they
+// and < > only move with nothing typed in the box that has the keys, so
+// they can still be typed.
 func (m *Model) placeStep(s string) int {
-	d := map[string]int{"<": -1, ">": 1, "ctrl+\\": 1}[s]
+	d := map[string]int{",": -1, "<": -1, ".": 1, ">": 1, "ctrl+\\": 1}[s]
 	if d == 0 || m.mode == modeCwd || m.dialog != nil && m.dialog.asking != "" {
 		return 0
 	}
@@ -287,7 +314,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				return nil
 			}
 			// On a narrow screen the preview is already full width.
-			if (m.preview || m.wide()) && m.w >= 120 {
+			if (m.preview || m.autoSplit()) && m.w >= 120 {
 				m.preview, m.full = true, true
 			} else {
 				m.preview = true
@@ -325,20 +352,34 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.toggleFold(t)
 			return nil
 		}
-		// Enter on an agent opens its Session with the keys in its message
-		// box, whatever kind of session it is.
+		// Enter on an agent renames it, as in the Finder, or opens it, as
+		// you chose the first time; ⌘↓, → and tab always open it.
 		if empty && a != nil && m.inKind == inPrompt {
-			return m.focusPane(a)
+			switch m.store.Config.EnterOn {
+			case "open":
+				return m.focusPane(a)
+			case "rename":
+				m.startRename(a)
+			default:
+				m.askEnter(a)
+			}
+			return nil
 		}
 		return m.submit()
-	case "f2":
+	case "ctrl+r":
 		switch {
 		case a == nil:
 			m.flash("select an agent first", true)
 		case !empty && m.inKind == inPrompt:
 			m.flash("finish or clear the draft first (esc)", true)
 		default:
-			m.inKind, m.input, m.back, m.promptFor = inRename, []rune(a.DisplayName), 0, a.Key
+			m.startRename(a)
+		}
+		return nil
+	case "super+down":
+		// ⌘↓ opens, as in the Finder: into the agent's Session message box.
+		if empty && a != nil && !strings.HasPrefix(m.sel, "§") {
+			return m.focusPane(a)
 		}
 		return nil
 	case "ctrl+l":
@@ -397,18 +438,16 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 	case "ctrl+n":
 		return m.nextNeedingYou()
-	case "alt+left", "alt+right":
-		if empty && m.listW > 0 {
-			d := 2
-			if s == "alt+left" {
-				d = -2
+	case "shift+left", "shift+right", "alt+left", "alt+right":
+		if empty {
+			if cmd, ok := m.stepSplit(strings.HasSuffix(s, "right")); ok {
+				return cmd
 			}
-			m.setSideWidth(m.sideWidth() + d)
-			return nil
 		}
 	case "?":
 		if empty {
 			m.mode = modeHelp
+			m.didStep("keys")
 			return nil
 		}
 	}
@@ -424,8 +463,57 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	before := string(m.input)
 	m.editInput(k, s)
+	if s == "space" && (m.inKind == inPrompt || m.inKind == inReply) && m.anchor == 0 {
+		// A path to an image, typed or dropped in as keys, becomes an
+		// attachment once it's done.
+		if in, imgs := pullImages(m.input, m.images); len(imgs) > len(m.images) {
+			m.input, m.images = in, imgs
+			m.setCursor(len(in))
+		}
+	}
 	if string(m.input) != before {
 		m.slashSel = 0
+	}
+	return nil
+}
+
+// startRename puts the agent's name in the box, all of it selected so
+// typing replaces it.
+func (m *Model) startRename(a *fleet.Agent) {
+	m.didStep("rename")
+	name := []rune(a.DisplayName)
+	m.inKind, m.input, m.back, m.promptFor = inRename, name, 0, a.Key
+	m.anchor = 0
+	if len(name) > 0 {
+		m.anchor = 1 // from the start to the cursor at the end
+	}
+}
+
+// renameStep saves the name being typed and renames the agent d rows on,
+// skipping section headers; past either end it stays on the last one.
+func (m *Model) renameStep(d int) tea.Cmd {
+	from := m.promptFor
+	m.submit()
+	m.anchor = 0
+	items := m.items()
+	i := -1
+	for j, k := range items {
+		if k == from {
+			i = j
+		}
+	}
+	if i < 0 {
+		return nil
+	}
+	for j := i + d; j >= 0 && j < len(items); j += d {
+		if strings.HasPrefix(items[j], "§") {
+			continue
+		}
+		m.sel, m.armed = items[j], ""
+		if a := m.selected(); a != nil {
+			m.startRename(a)
+		}
+		return m.loadPreview()
 	}
 	return nil
 }
@@ -519,7 +607,6 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 func (m *Model) submit() tea.Cmd {
 	text := strings.TrimSpace(m.pastes.expand(string(m.input), false))
 	tagged := strings.TrimSpace(m.pastes.expand(string(m.input), true)) // for agtop sessions
-	m.pastes = pastes{}
 	kind := m.inKind
 	a := m.selected()
 	if kind == inRename || kind == inGroup {
@@ -529,6 +616,12 @@ func (m *Model) submit() tea.Cmd {
 		m.flash("pick the agent to reply to first (↑↓)", true)
 		return nil
 	}
+	// The open pane is what knows the conversation's cache; the box is
+	// left as it is while you're asked.
+	if kind == inReply && text != "" && m.host != nil && m.host.key == a.Key && m.askCold(m.host, text, m.submit) {
+		return nil
+	}
+	m.pastes = pastes{}
 	m.input, m.inKind = m.input[:0], inPrompt
 	switch kind {
 	case inRename:
@@ -618,6 +711,10 @@ func (m *Model) submit() tea.Cmd {
 func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	f := strings.Fields(text)
 	name, arg := strings.ToLower(strings.TrimLeft(f[0], "#/")), strings.TrimSpace(strings.TrimPrefix(text, f[0]))
+	// #view:list is #view list.
+	if n, r, ok := strings.Cut(name, ":"); ok && arg == "" {
+		name, arg = n, r
+	}
 	if n := fleetAliases[name]; n != "" {
 		name = n
 	}
@@ -630,15 +727,17 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	}
 	m.didStep("hash")
 	switch name {
-	case "tour":
+	case "tips":
+		o := &m.store.Config.Onboarding
 		if strings.TrimSpace(arg) == "off" {
-			m.store.Config.Onboarding.Hidden = true
+			o.Hidden = true
 			_ = m.store.SaveConfig()
-			m.flash("Getting started put away · #tour shows the tour and brings it back", false)
+			m.flash("Getting started put away · #tips brings it back", false)
 			return nil
 		}
-		m.store.Config.Onboarding.Hidden = false
-		m.startTour()
+		o.Hidden, o.Steps, o.Tips = false, nil, nil
+		_ = m.store.SaveConfig()
+		m.flash("Getting started and tips from the top", false)
 	case "done":
 		return m.markDone(a)
 	case "clean":
@@ -709,6 +808,10 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		m.flash("group by one of: "+strings.Join(groupModes, ", "), true)
 	case "rename":
 		if need() {
+			if arg == "" {
+				m.startRename(a)
+				return nil
+			}
 			m.inKind, m.input, m.promptFor = inRename, []rune(arg), a.Key
 			return m.submit()
 		}
@@ -722,6 +825,17 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		m.flash("sort by one of: "+strings.Join(sortModes, ", "), true)
 	case "native":
 		return m.nativeView()
+	case "view":
+		switch arg {
+		case "split":
+			return m.splitAgain()
+		case "agent", "chat", "session":
+			return m.sessionOnly()
+		case "list", "agents", "orchestrator":
+			m.listOnly()
+		default:
+			m.flash("view one of: split, agent, list", true)
+		}
 	case "width":
 		var pct float64
 		if _, err := fmt.Sscanf(strings.TrimSuffix(arg, "%"), "%g", &pct); err != nil || pct <= 0 {
@@ -747,11 +861,13 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "help":
 		m.mode = modeHelp
+		m.didStep("keys")
 	case "quit":
 		m.scanner.Flush()
 		return tea.Quit
 	case "pin":
 		if need() {
+			m.didStep("pin")
 			return m.togglePin(a)
 		}
 	case "pr":
@@ -768,6 +884,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "folder":
 		m.openDirPicker()
+	case "statusline":
+		m.openTopBar(a)
 	case "dock":
 		var n int
 		if _, err := fmt.Sscanf(arg, "%d", &n); err != nil {
@@ -832,7 +950,12 @@ func (m *Model) confirmKey(s string) tea.Cmd {
 		if c.onBang != nil {
 			return c.onBang()
 		}
-	case "n", "esc", "ctrl+c":
+	case "n":
+		m.confirm = nil
+		if c.onNo != nil {
+			return c.onNo()
+		}
+	case "esc", "ctrl+c":
 		m.confirm = nil
 	}
 	return nil

@@ -11,8 +11,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
@@ -93,7 +95,7 @@ func queueHint(q queued, w int) string {
 	if q.held {
 		hold = "let go"
 	}
-	pairs := []string{"enter", "edit", "shift+↑↓", "move", "s", "send this now", "⌫", "drop", "h", hold, "m", "merge with next"}
+	pairs := []string{"enter", "edit", "shift+↑↓", "merge up/down", "[ ]", "move", "s", "send this now", "⌫", "drop", "h", hold}
 	if !q.local {
 		how := "one per turn"
 		if q.separate {
@@ -170,9 +172,19 @@ func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
 			cmd = m.holdQueue(c, true)
 		}
 		return cmd, true
-	case "shift+up", "shift+down", "alt+up", "alt+down":
+	case "shift+up":
+		// Into the one above: it comes first, so the order holds.
+		if i == 0 {
+			m.flash("nothing before it to merge with", true)
+			return nil, true
+		}
+		c.sel, c.selMoved = fmt.Sprintf("q:%d", i-1), true
+		return m.queueEdit(c, "merge", i-1, 0), true
+	case "shift+down":
+		return m.queueEdit(c, "merge", i, 0), true
+	case "[", "]", "alt+up", "alt+down":
 		to := i - 1
-		if strings.HasSuffix(s, "down") {
+		if s == "]" || s == "alt+down" {
 			to = i + 1
 		}
 		if to < 0 || to >= len(q.items) {
@@ -376,8 +388,45 @@ func (m *Model) taskLines(c *hostConn, o convo.Options) []convo.Line {
 // fleetCommands).
 var agtopCommands = []headless.Command{
 	{Name: "clear", Description: "start a fresh session in the same folder (this one stays in the list)"},
+	{Name: "fork", Description: "carry on in a copy of this conversation, as a new agent (this one stays as it is)", ArgumentHint: "[name]"},
+	{Name: "rewind", Description: "go back to before one of your messages and try again; the path you leave is kept as a branch"},
 	{Name: "model", Description: "switch model for the next turn: /model opus, sonnet, haiku, fable", ArgumentHint: "<model>"},
 	{Name: "effort", Description: "change effort (applies from the next start): low, medium, high, xhigh, max", ArgumentHint: "<level>"},
+}
+
+// claudeScreens are Claude Code's own screens, which headless Claude Code
+// can't show ("isn't available in this environment"). agtop hands the
+// terminal to Claude Code on that screen, and comes back when you leave it.
+// Given arguments, /mcp and /config go to Claude as usual.
+var claudeScreens = []headless.Command{
+	{Name: "skills", Description: "the skills and / commands Claude can use: search, use, edit"},
+	{Name: "plugin", Description: "installed plugins on/off, discover and install, marketplaces"},
+	{Name: "mcp", Description: "MCP servers: connect, sign in, tools"},
+	{Name: "hooks", Description: "the hooks that run around tools, prompts and sessions"},
+	{Name: "permissions", Description: "allow and deny rules for tools"},
+	{Name: "memory", Description: "memory, CLAUDE.md and the other files Claude reads (the memory view)"},
+	{Name: "config", Description: "Claude Code's settings (Settings › Claude)"},
+	{Name: "status", Description: "version, account, model and connections"},
+	{Name: "statusline", Description: "build status lines: this header, agtop's top bar, and Claude Code's"},
+	{Name: "privacy-settings", Description: "privacy settings"},
+	{Name: "install-github-app", Description: "set up Claude on GitHub Actions for a repo"},
+	{Name: "release-notes", Description: "what's new in Claude Code"},
+	{Name: "feedback", Description: "send feedback about Claude Code"},
+}
+
+// agtopScreens are the ones agtop draws itself (agtopScreen).
+var agtopScreens = map[string]bool{"plugin": true, "skills": true, "memory": true, "config": true, "statusline": true, "permissions": true, "hooks": true}
+
+// screenAliases are other names Claude Code takes for the same screens.
+var screenAliases = map[string]string{"plugins": "plugin", "bug": "feedback", "settings": "config"}
+
+// claudeScreen is the Claude Code screen a command opens, if it's one.
+func claudeScreen(name string) (string, bool) {
+	if n, ok := screenAliases[name]; ok {
+		name = n
+	}
+	ok := slices.ContainsFunc(claudeScreens, func(c headless.Command) bool { return c.Name == name })
+	return name, ok
 }
 
 // slashWord finds the /word being typed at the cursor, at the start of the
@@ -412,10 +461,18 @@ func slashMatches(c *hostConn) []headless.Command {
 	}
 	lists := [][]headless.Command{c.sess.Commands, c.local}
 	if start == 0 {
-		lists = append([][]headless.Command{agtopCommands}, lists...)
+		lists = append([][]headless.Command{agtopCommands, claudeScreens}, lists...)
 	}
 	var out []headless.Command
 	seen := map[string]bool{}
+	// Another name for one of Claude Code's screens (/plugins, /bug) finds
+	// it first.
+	if name, ok := screenAliases[q]; ok && start == 0 {
+		if i := slices.IndexFunc(claudeScreens, func(c headless.Command) bool { return c.Name == name }); i >= 0 {
+			seen[name] = true
+			out = append(out, claudeScreens[i])
+		}
+	}
 	for _, list := range lists {
 		for _, cmd := range list {
 			if seen[cmd.Name] {
@@ -427,11 +484,18 @@ func slashMatches(c *hostConn) []headless.Command {
 			}
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		pi := strings.HasPrefix(strings.ToLower(out[i].Name), q)
-		pj := strings.HasPrefix(strings.ToLower(out[j].Name), q)
-		return pi && !pj
-	})
+	// What you typed exactly, then names starting with it, then the rest.
+	rank := func(c headless.Command) int {
+		n := strings.ToLower(c.Name)
+		switch {
+		case n == q || screenAliases[q] == c.Name:
+			return 0
+		case strings.HasPrefix(n, q):
+			return 1
+		}
+		return 2
+	}
+	sort.SliceStable(out, func(i, j int) bool { return rank(out[i]) < rank(out[j]) })
 	return out
 }
 
@@ -516,17 +580,22 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 		return nil
 	}
 	c.slashSel = max(0, min(c.slashSel, len(cmds)-1))
+	st, _, _, _ := slashWord(c)
 	tag := func(name string) string {
 		switch {
 		case slices.ContainsFunc(agtopCommands, func(a headless.Command) bool { return a.Name == name }):
 			return paint(cOrange, " agtop")
+		case st == 0 && agtopScreens[name]:
+			return paint(cOrange, " agtop")
+		case st == 0 && slices.ContainsFunc(claudeScreens, func(a headless.Command) bool { return a.Name == name }):
+			return paint(cSub, " claude code ↗")
 		case c.skills[name]:
 			return paint(cBlue, " skill")
 		}
 		return ""
 	}
 	how := "↑↓ choose · tab completes · enter runs"
-	if st, _, _, _ := slashWord(c); st > 0 {
+	if st > 0 {
 		how = "↑↓ choose · tab or enter completes"
 	}
 	return pickerRows(cmds, c.slashSel, w, "/", tag, how)
@@ -629,7 +698,20 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 	a := m.agentByKey(c.key)
 	switch name {
 	case "done":
-		return m.markDone(a), true
+		// Putting it away closes its conversation rather than showing the
+		// next agent's; on a narrow screen the list comes back. Zen goes
+		// on to the next agent that needs you.
+		if a == nil || a.Done || m.zen {
+			return m.markDone(a), true
+		}
+		cmd := m.markDone(a)
+		if m.confirm != nil && m.confirm.onYes != nil {
+			yes := m.confirm.onYes
+			m.confirm.onYes = func() tea.Cmd { m.leavePane(); return yes() }
+			return cmd, true
+		}
+		m.leavePane()
+		return cmd, true
 	case "clean":
 		m.askClean(a)
 		return nil, true
@@ -643,6 +725,17 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.startHosted("", a.Cwd), true
+	case "fork", "branch":
+		if a == nil {
+			return nil, true
+		}
+		m.openFork(c, a, arg)
+		return nil, true
+	case "rewind", "checkpoint", "undo":
+		if a == nil {
+			return nil, true
+		}
+		return m.openRewind(c, a), true
 	case "model":
 		if c.client == nil {
 			m.flash("/model works in agtop-mode sessions · /agtop moves this one over", true)
@@ -658,5 +751,85 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		m.flash("effort: "+firstNonEmpty(arg, "default")+" from the next start", false)
 		return hostCmd(func() error { return c.client.SetEffort(arg) }), true
 	}
+	if screen, ok := claudeScreen(name); ok && (arg == "" || screen != "mcp" && screen != "config") && a != nil {
+		if cmd, ok := m.agtopScreen(c, a, screen); ok {
+			return cmd, true
+		}
+		return m.openScreen(c, a, screen), true
+	}
 	return nil, false
+}
+
+// agtopScreen is agtop's own take on one of Claude Code's screens, where it
+// has one; the rest open Claude Code's.
+func (m *Model) agtopScreen(c *hostConn, a *fleet.Agent, screen string) (tea.Cmd, bool) {
+	switch screen {
+	case "plugin":
+		return m.openPlugins(c, a), true
+	case "memory":
+		if m.showView(c, "memory") {
+			return nil, true
+		}
+	case "config":
+		m.openDialog(tabClaude)
+		return nil, true
+	case "statusline":
+		m.openStatusLine(c, a)
+		return nil, true
+	case "skills":
+		m.openSkills(c, a)
+		return nil, true
+	case "permissions":
+		m.openPermissions(c, a)
+		return nil, true
+	case "hooks":
+		return m.openHooks(c, a), true
+	}
+	return nil, false
+}
+
+// showView switches the Session to one of its views by name.
+func (m *Model) showView(c *hostConn, name string) bool {
+	for i, v := range m.views(c) {
+		if v == name {
+			c.view = i
+			return true
+		}
+	}
+	return false
+}
+
+// openScreen hands the terminal to Claude Code on one of its own screens,
+// for the agent's account and folder. Leaving it (esc, or ctrl+c twice)
+// brings agtop back; a hosted session reloads its plugins after /plugin.
+func (m *Model) openScreen(c *hostConn, a *fleet.Agent, screen string) tea.Cmd {
+	key := c.key
+	hint := "\033[2m  agtop · Claude Code's /" + screen + " · when you're done: esc, then ctrl+c twice to come back\033[0m"
+	cmd := actions.Screen(a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd), screen, hint)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg { return screenDoneMsg{key: key, screen: screen, err: err} })
+}
+
+type screenDoneMsg struct {
+	key, screen string
+	err         error
+}
+
+// onScreenDone is agtop coming back from a Claude Code screen.
+func (m *Model) onScreenDone(msg screenDoneMsg) tea.Cmd {
+	if msg.err != nil {
+		m.flash("Claude Code's /"+msg.screen+": "+msg.err.Error(), true)
+		return nil
+	}
+	c := m.host
+	if msg.screen != "plugin" || c == nil || c.key != msg.key || c.client == nil {
+		return nil
+	}
+	// A running session only sees newly enabled plugins once it reloads
+	// them; mid-turn, that's left to you.
+	if c.sess.Info.State == "working" {
+		m.flash("plugins change for "+c.sess.Info.Name+" after /reload-plugins, once this turn ends", false)
+		return nil
+	}
+	cl := c.client
+	return hostCmd(func() error { return cl.Send("/reload-plugins") })
 }

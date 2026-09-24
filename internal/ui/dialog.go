@@ -17,6 +17,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -385,12 +386,26 @@ func (m *Model) generalSettings() []setting {
 	if c.ColorBlind {
 		colours = "colour-blind"
 	}
+	spaces := "hidden"
+	if c.ShowWhitespace {
+		spaces = "shown"
+	}
 	sortBy := c.SortBy
 	if sortBy == "" {
 		sortBy = "name"
 	}
+	enter := c.EnterOn
+	if enter == "" {
+		enter = "ask"
+	}
 	return []setting{
 		{"Group by", c.GroupBy, groupModes, func(v string) { c.GroupBy = v }},
+		{"Enter on an agent", enter, []string{"rename", "open", "ask"}, func(v string) {
+			c.EnterOn = v
+			if v == "ask" {
+				c.EnterOn = ""
+			}
+		}},
 		{"Sort rows by", sortBy, sortModes, func(v string) { c.SortBy = v }},
 		{"Hibernate finished agents", hib, []string{"off", "15m", "30m", "60m"}, func(v string) {
 			c.Hibernate.AfterMinutes = 0
@@ -406,6 +421,10 @@ func (m *Model) generalSettings() []setting {
 		{"Colours", colours, []string{"standard", "colour-blind"}, func(v string) {
 			c.ColorBlind = v == "colour-blind"
 			applyColors(c.ColorBlind)
+		}},
+		{"Spaces and tabs in diffs", spaces, []string{"hidden", "shown"}, func(v string) {
+			c.ShowWhitespace = v == "shown"
+			convo.SetShowWhitespace(c.ShowWhitespace)
 		}},
 		{"Earlier section", earlier, []string{"folded", "open"}, func(v string) {
 			if c.Folds == nil {
