@@ -2,7 +2,7 @@ package menubar
 
 import (
 	"crypto/sha256"
-	_ "embed"
+	"embed"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -20,6 +20,12 @@ import (
 
 //go:embed app.swift
 var source string
+
+// icons are clanker, drawn by the ui package's TestIcons: the app's icon,
+// which its notifications carry, and the menu bar's.
+//
+//go:embed icons/clanker-*.png icons/*.icns
+var icons embed.FS
 
 // BundleID is the app's identity: macOS keeps its notification settings
 // under it.
@@ -101,8 +107,15 @@ func Stop() {
 // runs changes; the stamp inside says which it was built from.
 func buildApp() (rebuilt bool, err error) {
 	app, bin := AppPath(), exe()
-	sum := sha256.Sum256([]byte(source + "\x00" + bin))
-	stamp := hex.EncodeToString(sum[:8])
+	h := sha256.New()
+	full := tiles()
+	h.Write([]byte(source + "\x00" + bin + "\x00" + strconv.FormatBool(full)))
+	res, _ := icons.ReadDir("icons")
+	for _, e := range res {
+		b, _ := icons.ReadFile("icons/" + e.Name())
+		h.Write(append([]byte("\x00"+e.Name()+"\x00"), b...))
+	}
+	stamp := hex.EncodeToString(h.Sum(nil)[:8])
 	stampPath := app + ".stamp" // beside it: inside would break its signature
 	if _, err := os.Stat(app); err == nil {
 		if b, _ := os.ReadFile(stampPath); string(b) == stamp {
@@ -131,6 +144,19 @@ func buildApp() (rebuilt bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("building the menu bar app: %v\n%s", err, out)
 	}
+	for _, e := range res {
+		name := e.Name()
+		switch {
+		case name == "AppIcon.icns" && full, name == "AppIcon-full.icns" && !full:
+			continue
+		case name == "AppIcon-full.icns":
+			name = "AppIcon.icns"
+		}
+		b, _ := icons.ReadFile("icons/" + e.Name())
+		if err := os.WriteFile(filepath.Join(app, "Contents", "Resources", name), b, 0o644); err != nil {
+			return false, err
+		}
+	}
 	if err := os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte(fmt.Sprintf(plist, BundleID, xmlEscape(bin))), 0o644); err != nil {
 		return false, err
 	}
@@ -140,6 +166,14 @@ func buildApp() (rebuilt bool, err error) {
 		return false, fmt.Errorf("signing the menu bar app: %v\n%s", err, out)
 	}
 	return true, os.WriteFile(stampPath, []byte(stamp), 0o644)
+}
+
+// tiles says whether macOS draws app icons' tiles itself, as it does from
+// 26 on; before, an icon brings its own.
+func tiles() bool {
+	out, _ := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
+	major, _ := strconv.Atoi(strings.SplitN(strings.TrimSpace(string(out)), ".", 2)[0])
+	return major >= 26
 }
 
 // Forget stops the app opening at login.
@@ -160,6 +194,7 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 	<key>CFBundleName</key><string>agtop</string>
 	<key>CFBundleDisplayName</key><string>agtop</string>
 	<key>CFBundleExecutable</key><string>agtop-menubar</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0</string>
 	<key>CFBundleVersion</key><string>1</string>

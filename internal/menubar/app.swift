@@ -121,6 +121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         draw()
         startFeed()
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            if (self?.state.working?.count ?? 0) > 0 { self?.draw() }
+        }
     }
 
     func applicationWillTerminate(_ n: Notification) {
@@ -196,14 +199,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         guard let b = item.button else { return }
         let waiting = state.waiting?.count ?? 0
         let working = state.working?.count ?? 0
-        let name = problem != nil ? "exclamationmark.triangle" : working > 0 ? "square.stack.3d.up.fill" : "square.stack.3d.up"
-        var img = NSImage(systemSymbolName: name, accessibilityDescription: "agtop")
+        // He's clanker, as in agtop's header: working he steps from one
+        // pose to the other every other second, and needing you he holds
+        // his arms up by a !, in orange.
         if waiting > 0 {
-            img = img?.withSymbolConfiguration(.init(paletteColors: [.systemOrange]))
+            b.image = clanker("needs").map { tinted($0, .systemOrange) }
         } else {
-            img?.isTemplate = true
+            b.image = clanker(working > 0 && Int(Date().timeIntervalSince1970) / 2 % 2 == 1 ? "working" : "idle")
         }
-        b.image = img
+        b.appearsDisabled = problem != nil
         b.imagePosition = .imageLeading
         b.attributedTitle = waiting > 0
             ? NSAttributedString(string: " \(waiting)", attributes: [
@@ -212,6 +216,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             ])
             : NSAttributedString(string: "")
         b.toolTip = waiting > 0 ? "\(waiting) waiting on you" : "agtop"
+    }
+
+    func clanker(_ pose: String) -> NSImage? {
+        let i = Bundle.main.image(forResource: "clanker-\(pose)Template")
+        i?.isTemplate = true
+        i?.accessibilityDescription = "agtop"
+        return i
+    }
+
+    func tinted(_ i: NSImage, _ c: NSColor) -> NSImage {
+        let t = NSImage(size: i.size, flipped: false) { r in
+            i.draw(in: r)
+            c.set()
+            r.fill(using: .sourceAtop)
+            return true
+        }
+        t.accessibilityDescription = i.accessibilityDescription
+        return t
     }
 
     // MARK: menu
