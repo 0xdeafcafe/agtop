@@ -1456,6 +1456,11 @@ func firstLine(s string) string {
 }
 
 // alive reports whether pid is a running process.
+// Alive is whether a session's host process (Info.HostPID) is running. A
+// host publishes "stopped" just before it exits, so the state alone can say
+// stopped while the process is still there.
+func Alive(pid int) bool { return alive(pid) }
+
 func alive(pid int) bool {
 	if pid <= 0 {
 		return false
