@@ -335,7 +335,7 @@ func TestQuestionCardDraws(t *testing.T) {
 	c := &hostConn{cardFocus: true}
 	draw := func(w int) string {
 		var sb strings.Builder
-		for _, l := range m.questionCard(c, req, w) {
+		for _, l := range m.questionCard(c, req, w, 0) {
 			if cellw.String(l) > w {
 				t.Fatalf("row wider than %d: %q", w, ansi.Strip(l))
 			}
@@ -344,7 +344,7 @@ func TestQuestionCardDraws(t *testing.T) {
 		return sb.String()
 	}
 	wide := draw(120)
-	for _, want := range []string{"● Layout", "○ Theme", "○ send", "0 of 2 answered", "Split  recommended", "╭─ Split ─", "│ A  │ S      │", "←→ questions"} {
+	for _, want := range []string{" Layout ", "○ Theme", "○ send", "0 of 2 answered", "1  Split  ★ recommended", "╭─ Split ─", "│ A  │ S      │", "←→ questions"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide card missing %q:\n%s", want, wide)
 		}
@@ -352,7 +352,7 @@ func TestQuestionCardDraws(t *testing.T) {
 	// Side by side: the option and the preview share a row.
 	sideBySide := false
 	for _, l := range strings.Split(wide, "\n") {
-		if strings.Contains(l, "Split  recommended") && strings.Contains(l, "╭─ Split") {
+		if strings.Contains(l, "Split  ★ recommended") && strings.Contains(l, "╭─ Split") {
 			sideBySide = true
 		}
 	}
@@ -368,10 +368,46 @@ func TestQuestionCardDraws(t *testing.T) {
 	m.questionKey(c, req, "1", true)
 	m.questionKey(c, req, "2", true)
 	review := draw(120)
-	for _, want := range []string{"✓ Layout Split", "● send", "Layout   Split", "Theme    light", "sends your answers"} {
+	for _, want := range []string{"✓ Layout Split", " send ", "Send these answers?", "Layout   ✓ Split", "Theme    ✓ light", "sends your answers"} {
 		if !strings.Contains(review, want) {
 			t.Fatalf("review missing %q:\n%s", want, review)
 		}
+	}
+}
+
+// A question that explains first and asks last shows the ask apart.
+func TestSplitAsk(t *testing.T) {
+	for _, tc := range []struct{ in, lead, ask string }{
+		{"Which layout?", "", "Which layout?"},
+		{"The check blocked this. Proceed?", "The check blocked this.", "Proceed?"},
+		{"Context here.\n\nWhich one, e.g. this?", "Context here.", "Which one, e.g. this?"},
+		{"Use e.g. foo?", "", "Use e.g. foo?"},
+		{"Pick one. Done.", "", "Pick one. Done."},
+	} {
+		if lead, ask := splitAsk(tc.in); lead != tc.lead || ask != tc.ask {
+			t.Errorf("%q: got %q / %q", tc.in, lead, ask)
+		}
+	}
+}
+
+// A long question keeps to its height by folding what isn't under the
+// cursor, and a description is never cut while there's room.
+func TestQuestionCardFolds(t *testing.T) {
+	long := strings.Repeat("a reason that goes on ", 20)
+	in := map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{
+		{"label": "one", "description": long}, {"label": "two", "description": long}, {"label": "three", "description": long},
+	}}}}
+	b, _ := json.Marshal(in)
+	req := &headless.PermissionRequest{ID: "q5", Tool: "AskUserQuestion", Input: b}
+	m := &Model{}
+	c := &hostConn{cardFocus: true}
+	full := m.questionCard(c, req, 100, 0)
+	if s := ansi.Strip(strings.Join(full, "\n")); strings.Contains(s, "…") {
+		t.Fatalf("cut with room to spare:\n%s", s)
+	}
+	folded := m.questionCard(c, req, 100, 16)
+	if len(folded) > 16 || len(folded) >= len(full) {
+		t.Fatalf("folded to %d rows of %d", len(folded), len(full))
 	}
 }
 
