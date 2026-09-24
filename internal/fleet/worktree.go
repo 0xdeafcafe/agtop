@@ -169,6 +169,9 @@ func (w *Worktree) Check() {
 // the main checkout; its branch stays. Unless force is set, git refuses one
 // with uncommitted changes, and this refuses one with unpushed commits.
 func RemoveWorktree(w Worktree, force bool) error {
+	if err := linkedWorktree(w); err != nil {
+		return err
+	}
 	if !force {
 		c := w
 		c.Check()
@@ -236,4 +239,24 @@ func mainCheckout(dir string, seen map[string]string) string {
 		seen[d] = main
 	}
 	return main
+}
+
+// linkedWorktree refuses anything that isn't a linked worktree: a repo's
+// own checkout (its .git is a folder), a folder holding the repo, or one
+// whose .git doesn't point back into the repo's worktrees. Only a linked
+// worktree is ever removed, forced or not.
+func linkedWorktree(w Worktree) error {
+	path, repo := filepath.Clean(w.Path), filepath.Clean(w.Repo)
+	if path == repo || strings.HasPrefix(repo+"/", path+"/") || path == "/" || repo == "" {
+		return fmt.Errorf("%s is the repository itself, not a worktree; it's never removed", path)
+	}
+	st, err := os.Lstat(filepath.Join(path, ".git"))
+	if err != nil || st.IsDir() {
+		return fmt.Errorf("%s isn't a linked worktree; it's never removed", path)
+	}
+	b, err := os.ReadFile(filepath.Join(path, ".git"))
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(string(b), "gitdir:")), filepath.Join(repo, ".git", "worktrees")+"/") {
+		return fmt.Errorf("%s doesn't belong to %s as a worktree; it's never removed", path, repo)
+	}
+	return nil
 }

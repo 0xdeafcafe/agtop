@@ -146,8 +146,9 @@ type Model struct {
 	cwdFor     string
 
 	lastState map[string]string
-	measuring bool    // temp work is being measured in the background
-	clean     cleanup // the Cleanup view's worktrees, and the tidy-up
+	measuring bool         // temp work is being measured in the background
+	clean     cleanup      // the Cleanup view's worktrees, and the tidy-up
+	reaper    fleet.Reaper // ends what agents leave running when they stop
 }
 
 type previewEntry struct {
@@ -793,6 +794,7 @@ func (m *Model) refresh() {
 	m.snap = m.loader.Load(true)
 	m.notify()
 	m.hibernate()
+	m.reap()
 	m.rebuild()
 }
 

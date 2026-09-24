@@ -535,3 +535,37 @@ func (m *Model) onRemoved(msg removedMsg) {
 	}
 	m.flash("removed "+name+" · freed "+disk(msg.freed), false)
 }
+
+// reap ends what agents left running when they stopped: a dev server, a
+// watcher, a shell still in a loop. It says what it ended.
+func (m *Model) reap() {
+	left := m.reaper.Watch(m.snap.Table, m.snap.Agents)
+	if len(left) == 0 {
+		return
+	}
+	n := 0
+	for _, l := range left {
+		n += max(1, l.Procs)
+		go l.End(3 * time.Second)
+	}
+	l := left[0]
+	what := trimCmd(orphanWhat(l.Cmd), 60)
+	msg := fmt.Sprintf("ended what %s left running: %s", oneLine(l.Agent), what)
+	if n > 1 {
+		msg += fmt.Sprintf(" (%d processes)", n)
+	}
+	m.flash(msg, false)
+}
+
+// orphanWhat is the command a Bash-tool shell was running, without Claude
+// Code's wrapper around it.
+func orphanWhat(cmd string) string {
+	if i := strings.Index(cmd, "eval '"); i >= 0 {
+		rest := strings.ReplaceAll(cmd[i+6:], `'"'"'`, "'")
+		if j := strings.Index(rest, "' "); j >= 0 {
+			rest = rest[:j]
+		}
+		return strings.TrimSuffix(rest, "'")
+	}
+	return cmd
+}

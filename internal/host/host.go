@@ -29,6 +29,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -702,6 +703,16 @@ func (s *server) armIdle() {
 	}
 	sess := s.sess
 	s.idle = time.AfterFunc(time.Duration(s.cfg.IdleStop), func() {
+		// Work Claude left running in the background (a test run, a build)
+		// would be cut off, and never reported back: rest once it's done.
+		if sess != nil && runsShells(sess.PID()) {
+			s.mu.Lock()
+			if s.sess == sess && s.info.State == "idle" {
+				s.armIdle()
+			}
+			s.mu.Unlock()
+			return
+		}
 		s.mu.Lock()
 		stop := sess != nil && s.sess == sess && s.info.State == "idle"
 		if stop {
@@ -1135,4 +1146,16 @@ func alive(pid int) bool {
 	}
 	err := syscall.Kill(pid, 0)
 	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// runsShells reports whether Claude Code (pid) has a Bash-tool shell still
+// running under it, which is how its background work runs.
+func runsShells(pid int) bool {
+	tab := proc.Snapshot(nil)
+	for _, c := range tab.Descendants(pid) {
+		if c != pid && strings.Contains(proc.CommandLine(c), "shell-snapshots") {
+			return true
+		}
+	}
+	return false
 }

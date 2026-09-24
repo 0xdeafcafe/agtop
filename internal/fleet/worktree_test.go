@@ -101,6 +101,15 @@ func TestWorktreeForce(t *testing.T) {
 	if ws[0].Safe() || !ws[0].NoRemote {
 		t.Fatalf("no remote should never be safe: %+v", ws[0])
 	}
+	// Never the repository itself, nor a folder holding it, even forced.
+	for _, bad := range []Worktree{{Path: repo, Repo: repo}, {Path: root, Repo: repo}, {Path: wt, Repo: root}} {
+		if err := RemoveWorktree(bad, true); err == nil {
+			t.Fatalf("removed %s", bad.Path)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, "a.txt")); err != nil {
+		t.Fatal("the repository was touched")
+	}
 	if err := RemoveWorktree(ws[0], true); err != nil {
 		t.Fatal(err)
 	}
