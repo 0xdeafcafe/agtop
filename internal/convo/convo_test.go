@@ -123,7 +123,6 @@ func TestRender(t *testing.T) {
 	s := session()
 	out := plain(s.Render(Options{Width: 110, Now: at(40)}))
 	if os.Getenv("CONVO_SHOW") != "" {
-		t.Log("\n" + out)
 	}
 	want := []string{
 		"▾ ✓ you  the ux right now is totally broken when i attach",
@@ -282,7 +281,6 @@ func TestOverview(t *testing.T) {
 	}
 	out := plain(s.Overview(Options{Width: 110, Now: at(3720)}))
 	if os.Getenv("CONVO_SHOW") != "" {
-		t.Log("\n" + out)
 	}
 	for _, w := range []string{
 		"now  opus 5.5 · 1M · effort high · permissions auto",

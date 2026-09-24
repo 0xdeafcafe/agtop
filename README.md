@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/agents.png" alt="agtop: the agent list beside a Session">
+  <img src="docs/screenshots/agents.webp" alt="agtop: the agent list beside a Session">
 </p>
 
 <table>
@@ -79,27 +79,27 @@ An agent run in agtop mode (Claude Code headless, hosted by agtop) opens in a Se
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/screenshots/session.png" alt="The conversation"><br>
+      <img src="docs/screenshots/session.webp" alt="The conversation"><br>
       <b>Conversation</b>. Clean steps fold to one row; a failed one shows the line that says what went wrong. Shell commands say what they do, and code is highlighted.
     </td>
     <td width="50%" valign="top">
-      <img src="docs/screenshots/session-code.png" alt="A failed step opened, its script and error"><br>
+      <img src="docs/screenshots/session-code.webp" alt="A failed step opened, its script and error"><br>
       <b>A step, opened</b>. The script it ran and the error it hit. Drag to select and copy; <code>alt+c</code> copies Claude's answer as written.
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <img src="docs/screenshots/overview.png" alt="The overview"><br>
+      <img src="docs/screenshots/overview.webp" alt="The overview"><br>
       <b>Overview</b>. Spend, tokens and requests, cost per turn in each model's colour, where the model and effort changed.
     </td>
     <td valign="top">
-      <img src="docs/screenshots/changes.png" alt="Changes, with a new file's diff"><br>
+      <img src="docs/screenshots/changes.webp" alt="Changes, with a new file's diff"><br>
       <b>Changes</b>. Every file the session changed, with its diff, and the rest of the working tree beside it.
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <img src="docs/screenshots/subagents.png" alt="The subagents view"><br>
+      <img src="docs/screenshots/subagents.webp" alt="The subagents view"><br>
       <b>Subagents</b>. Every run, with its steps, tokens, cost and last words. <code>enter</code> watches one.
     </td>
     <td valign="top">
@@ -118,11 +118,11 @@ An agent run in agtop mode (Claude Code headless, hosted by agtop) opens in a Se
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/screenshots/command-bar.png" alt="The command bar"><br>
+      <img src="docs/screenshots/command-bar.webp" alt="The command bar"><br>
       <b>The command bar</b>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/screenshots/command-bar-search.png" alt="The command bar searching agents and transcripts"><br>
+      <img src="docs/screenshots/command-bar-search.webp" alt="The command bar searching agents and transcripts"><br>
       <b>Searching every transcript</b>
     </td>
   </tr>
@@ -139,11 +139,11 @@ Settings › Coding agents sets the model, effort and permissions new sessions s
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/screenshots/accounts.png" alt="Accounts, with each sign-in's usage"><br>
+      <img src="docs/screenshots/accounts.webp" alt="Accounts, with each sign-in's usage"><br>
       <b>Accounts</b>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/screenshots/coding-agents.png" alt="Coding agents"><br>
+      <img src="docs/screenshots/coding-agents.webp" alt="Coding agents"><br>
       <b>Coding agents</b>
     </td>
   </tr>
@@ -154,11 +154,11 @@ Settings › Coding agents sets the model, effort and permissions new sessions s
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/screenshots/processes.png" alt="Processes"><br>
+      <img src="docs/screenshots/processes.webp" alt="Processes"><br>
       <b>Processes</b>. Every agent's process tree, busiest first. What a finished session left running (a dev server, a watcher) is listed first: <code>x</code> ends one, <code>X</code> all of them.
     </td>
     <td width="50%" valign="top">
-      <img src="docs/screenshots/cleanup.png" alt="Cleanup"><br>
+      <img src="docs/screenshots/cleanup.webp" alt="Cleanup"><br>
       <b>Cleanup</b>. Every worktree with its size and whether removing it would lose anything, and every agent's temp work. <code>A</code> removes everything that loses nothing.
     </td>
   </tr>
