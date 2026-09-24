@@ -22,6 +22,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/menubar"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
+	"github.com/0xdeafcafe/agtop/internal/update"
 )
 
 type mode int
@@ -155,6 +156,10 @@ type Model struct {
 	pointer      string                 // the pointer's shape last asked of the terminal
 	hibernated   map[string]bool
 	offline      bool // never ask Anthropic for usage (--soak)
+	// newer is the agtop that's out when it's newer than this one; #update
+	// installs it.
+	newer        update.Info
+	updating     bool
 	armedAt      time.Time
 	attached     string
 	view         int
@@ -261,7 +266,7 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar())
+	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar(), m.checkUpdate())
 }
 
 // startMenuBar opens the menu bar icon when it's on and not running,
@@ -662,6 +667,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sendFailedMsg:
 		m.sendFailed(msg)
 		m.refresh()
+		return m, nil
+	case updateMsg:
+		m.newer = msg.newer
+		m.flash("agtop "+msg.newer.Short()+" is out · #update installs it", false)
+		return m, nil
+	case updatedMsg:
+		m.updating = false
+		if msg.err != nil {
+			m.flash("update: "+msg.err.Error(), true)
+		} else {
+			m.newer = update.Info{}
+			m.flash("agtop "+msg.to.Short()+" installed · reopen agtop to use it", false)
+		}
 		return m, nil
 	case doneMsg:
 		if msg.err != nil {

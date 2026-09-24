@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,9 +18,17 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
 	"github.com/0xdeafcafe/agtop/internal/ui"
+	"github.com/0xdeafcafe/agtop/internal/update"
 )
 
 var version = "0.1.0"
+
+// A go install'd agtop knows which one it is.
+func init() {
+	if i, ok := update.Current(); ok {
+		version = i.Short()
+	}
+}
 
 const usage = `agtop — a lighter agents view for Claude Code
 
@@ -27,6 +36,7 @@ const usage = `agtop — a lighter agents view for Claude Code
   agtop on          make "claude agents" open this view (adds one line to your shell rc)
   agtop off         give "claude agents" back to Claude Code (instant, no shell reload)
   agtop status      show whether it is on
+  agtop update      install the newest agtop, with go install
   agtop menubar     put agtop in the menu bar: usage, what's working, and
                     questions you can answer from their notification
   agtop menubar off take it out again
@@ -76,6 +86,9 @@ func main() {
 			// Claude Code's statusLine command, set up by /statusline in a
 			// Session: the session's JSON in, one line out.
 			exitIf(statusline.Run(os.Stdin, os.Stdout))
+			return
+		case "update":
+			exitIf(selfUpdate())
 			return
 		case "on":
 			exitIf(turnOn())
@@ -265,4 +278,25 @@ func menuBar(args []string) error {
 	st.Config.MenuBar = true
 	fmt.Println("on — agtop is in your menu bar. Its menu can open it at login.")
 	return st.SaveConfig()
+}
+
+// selfUpdate is agtop update: the newest agtop over this one, when there is
+// a newer one.
+func selfUpdate() error {
+	ctx := context.Background()
+	l, err := update.Latest(ctx)
+	if err != nil {
+		return err
+	}
+	if cur, ok := update.Current(); ok && !update.Newer(ctx, cur, l) {
+		fmt.Println("agtop", cur.Short(), "is the newest")
+		return nil
+	}
+	fmt.Println("installing agtop", l.Short()+"…")
+	to, err := update.Install(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Println("agtop", to.Short(), "installed · reopen agtop to use it")
+	return nil
 }

@@ -44,6 +44,7 @@ var fleetCommands = []headless.Command{
 	{Name: "dock", Description: "how many lines the agent's card under the list shows", ArgumentHint: "<lines>"},
 	{Name: "native", Description: "open Claude Code's own agents view"},
 	{Name: "help", Description: "a short guide to agtop"},
+	{Name: "update", Description: "install the newest agtop, with go install; reopen agtop to use it"},
 	{Name: "tips", Description: "Getting started and tips from the top; off puts them away", ArgumentHint: "[off]"},
 	{Name: "quit", Description: "leave agtop"},
 }

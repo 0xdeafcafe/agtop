@@ -859,6 +859,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		} else {
 			m.flash("hibernation off", false)
 		}
+	case "update":
+		return m.installUpdate()
 	case "help":
 		m.mode = modeHelp
 		m.didStep("keys")

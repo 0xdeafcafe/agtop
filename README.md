@@ -55,7 +55,10 @@ agtop            # open it
 agtop on         # make `claude agents` open agtop (adds one line to ~/.zshrc)
 agtop off        # give `claude agents` back to Claude Code
 agtop menubar    # put agtop in the macOS menu bar (`agtop menubar off` takes it out)
+agtop update     # install the newest agtop
 ```
+
+agtop checks for a newer version now and then and says so at the foot of the list; `#update` installs it from inside, the same as `agtop update`. Reopen agtop to use it.
 
 Getting started sits at the foot of the list until you've tried the basics, ticking each off as you go. `#tips` brings it back, `#tips off` puts it away, and `?` is a guide to the keys.
 
