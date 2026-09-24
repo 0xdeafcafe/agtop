@@ -143,3 +143,19 @@ func TestBoxDrawsTheSame(t *testing.T) {
 		}
 	}
 }
+
+// A paste chip in a box is marked rune for rune, and nothing else is.
+func TestChipMask(t *testing.T) {
+	text := []rune("héllo [Pasted text #1 +30 lines] bye")
+	m := chipMask(text)
+	start := len([]rune("héllo "))
+	for i := range text {
+		want := i >= start && i < start+len("[Pasted text #1 +30 lines]")
+		if m[i] != want {
+			t.Fatalf("mask[%d] (%q) = %v, want %v", i, text[i], m[i], want)
+		}
+	}
+	if chipMask([]rune("no chips here")) != nil {
+		t.Fatal("a box without chips has no mask")
+	}
+}

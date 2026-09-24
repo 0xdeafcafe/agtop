@@ -491,7 +491,8 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 }
 
 func (m *Model) submit() tea.Cmd {
-	text := strings.TrimSpace(m.pastes.expand(string(m.input)))
+	text := strings.TrimSpace(m.pastes.expand(string(m.input), false))
+	tagged := strings.TrimSpace(m.pastes.expand(string(m.input), true)) // for agtop sessions
 	m.pastes = pastes{}
 	kind := m.inKind
 	a := m.selected()
@@ -543,7 +544,7 @@ func (m *Model) submit() tea.Cmd {
 		m.loader.Nudge(a.Key)
 		m.refresh()
 		if a.Agtop {
-			return sendHosted(a, text)
+			return sendHosted(a, tagged)
 		}
 		text = withImages(text, m.images)
 		m.images = nil
@@ -563,7 +564,7 @@ func (m *Model) submit() tea.Cmd {
 	// The Prompt only starts new sessions; replies go through a Session's
 	// own message box.
 	if d := m.store.Config.Dispatch; d.RunIn != "daemon" && (d.Agent == "" || d.Agent == "claude") {
-		return m.startHosted(text, m.startDir())
+		return m.startHosted(tagged, m.startDir())
 	}
 	acct := m.store.Config.ActiveAccount()
 	dir := m.startDir()

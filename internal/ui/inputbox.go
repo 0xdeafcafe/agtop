@@ -13,6 +13,7 @@ import (
 var (
 	bgInput = "\x1b[48;2;40;36;32m"
 	bgMark  = "\x1b[48;2;74;64;54m" // selected text
+	bgChip  = "\x1b[48;2;56;62;72m" // a paste folded into a chip, an image
 	cEdge   = rgb(79, 73, 67)
 )
 
@@ -163,6 +164,7 @@ func (b box) content(w int) []string {
 	}
 	segs := wrapSegs(b.text, w-lw)
 	start, end := b.window(segs)
+	inChip := chipMask(b.text)
 	from, to := -1, -1
 	if b.anchor >= 0 && b.anchor != b.cursor {
 		from, to = min(b.anchor, b.cursor), max(b.anchor, b.cursor)
@@ -177,8 +179,9 @@ func (b box) content(w int) []string {
 			lead = b.lead
 		}
 		sb.WriteString(lead)
-		// The text colour is set once per run rather than per character.
-		inText := false
+		// The colour is set once per run rather than per character.
+		const plain, text, chip = 0, 1, 2
+		style := plain
 		for p := sg.from; p < sg.to; p++ {
 			switch {
 			case b.focused && p == b.cursor:
@@ -189,11 +192,20 @@ func (b box) content(w int) []string {
 				sb.WriteString(bgMark + cText)
 				sb.WriteRune(b.text[p])
 				sb.WriteString(reset + bgInput)
-				inText = false
+				style = plain
+			case inChip != nil && inChip[p]:
+				if style != chip {
+					sb.WriteString(bgChip + cBlue)
+					style = chip
+				}
+				sb.WriteRune(b.text[p])
 			default:
-				if !inText {
+				if style == chip {
+					sb.WriteString(reset + bgInput)
+				}
+				if style != text {
 					sb.WriteString(cText)
-					inText = true
+					style = text
 				}
 				sb.WriteRune(b.text[p])
 			}
@@ -207,6 +219,23 @@ func (b box) content(w int) []string {
 		rows = append(rows, sb.String())
 	}
 	return rows
+}
+
+// chipMask marks the runes of each paste chip in text, nil when it has none,
+// so a chip reads as one thing rather than words you typed.
+func chipMask(text []rune) []bool {
+	s := string(text)
+	if !strings.Contains(s, "[Pasted text #") {
+		return nil
+	}
+	mask := make([]bool, len(text))
+	for _, loc := range pasteRe.FindAllStringIndex(s, -1) {
+		from := len([]rune(s[:loc[0]]))
+		for i := from; i < from+len([]rune(s[loc[0]:loc[1]])); i++ {
+			mask[i] = true
+		}
+	}
+	return mask
 }
 
 func reverse(s string) string { return "\x1b[7m" + s + "\x1b[27m" }

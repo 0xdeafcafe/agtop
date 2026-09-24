@@ -162,7 +162,8 @@ func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
 	case "enter", "e":
 		// Edit it in the box; enter there saves it back in place. The
 		// queue holds meanwhile, so it doesn't go half edited.
-		c.input, c.back, c.editQ, c.editWas = []rune(q.items[i]), 0, i+1, q.items[i]
+		c.pastes = pastes{}
+		c.input, c.back, c.editQ, c.editWas = c.pastes.unfold(q.items[i]), 0, i+1, q.items[i]
 		c.sel = ""
 		var cmd tea.Cmd
 		if c.editHeld = !q.held; c.editHeld {

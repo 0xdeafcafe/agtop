@@ -234,7 +234,7 @@ func TestPasteChips(t *testing.T) {
 		t.Fatalf("chip = %q", chip)
 	}
 	draft := []rune("look at " + chip + " please")
-	if got := p.expand(string(draft)); got != "look at "+long+" please" {
+	if got := p.expand(string(draft), false); got != "look at "+long+" please" {
 		t.Fatalf("expand = %q", got)
 	}
 	end := len([]rune("look at " + chip))
@@ -267,5 +267,20 @@ func TestTypedImages(t *testing.T) {
 	}
 	if got := shortImages("see [image: " + p + "] ok"); got != "see ▣ shot one.png ok" {
 		t.Fatalf("shortImages = %q", got)
+	}
+}
+
+func TestPasteTaggedRoundTrip(t *testing.T) {
+	var p pastes
+	long := "a\nb\nc\nd"
+	draft := "look at " + p.add(long) + " please"
+	sent := p.expand(draft, true)
+	if !strings.Contains(sent, "<pasted_content id=") || !strings.Contains(sent, "\na\nb\nc\nd\n</pasted_content id=") {
+		t.Fatalf("tagged = %q", sent)
+	}
+	var q pastes
+	back := string(q.unfold(sent))
+	if back != "look at [Pasted text #1 +4 lines] please" || q.expand(back, false) != "look at a\nb\nc\nd please" {
+		t.Fatalf("unfold = %q", back)
 	}
 }

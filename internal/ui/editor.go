@@ -10,6 +10,8 @@ import (
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/0xdeafcafe/agtop/internal/convo"
 )
 
 // edit applies one text-editing key to buf with the cursor at pos, and says
@@ -317,6 +319,7 @@ var imageTag = regexp.MustCompile(`\[image: ([^\]]+)\]`)
 
 // shortImages shows the image paths a message carries as their names.
 func shortImages(s string) string {
+	s = convo.FoldPastes(s)
 	return imageTag.ReplaceAllStringFunc(s, func(m string) string {
 		return "▣ " + filepath.Base(imageTag.FindStringSubmatch(m)[1])
 	})
@@ -403,7 +406,7 @@ func chips(images []string, w int) string {
 	}
 	var parts []string
 	for _, p := range images {
-		parts = append(parts, paint(cBlue, "▣ ")+paint(cText, filepath.Base(p)))
+		parts = append(parts, bgChip+cBlue+" ▣ "+cText+filepath.Base(p)+" "+reset)
 	}
-	return fit("  "+strings.Join(parts, "   ")+dim("   backspace on an empty box removes the last"), w)
+	return fit("  "+strings.Join(parts, " ")+dim("   backspace on an empty box removes the last"), w)
 }

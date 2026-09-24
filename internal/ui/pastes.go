@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"regexp"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/0xdeafcafe/agtop/internal/convo"
 )
 
 // pastes keeps the long pastes a box shows as chips; the text goes out in
@@ -37,18 +40,30 @@ func (p *pastes) add(text string) string {
 	return chipFor(p.n, text)
 }
 
-// expand puts the pasted text back in place of each chip.
-func (p *pastes) expand(s string) string {
+// expand puts the pasted text back in place of each chip. Tagged, each
+// goes between <pasted_content> tags as Claude Code sends a paste: Claude
+// knows the words were pasted, and the conversation shows it as its chip.
+func (p *pastes) expand(s string, tagged bool) string {
 	if len(p.text) == 0 {
 		return s
 	}
 	return pasteRe.ReplaceAllStringFunc(s, func(chip string) string {
 		id, _ := strconv.Atoi(pasteRe.FindStringSubmatch(chip)[1])
-		if t, ok := p.text[id]; ok {
-			return t
+		t, ok := p.text[id]
+		if !ok {
+			return chip
 		}
-		return chip
+		if tagged {
+			tag := fmt.Sprintf(`id="%04x"`, rand.IntN(0x10000))
+			return "\n\n<pasted_content " + tag + ">\n" + strings.TrimRight(t, "\n") + "\n</pasted_content " + tag + ">\n"
+		}
+		return t
 	})
+}
+
+// unfold is a sent message back in a box: each tagged paste a chip again.
+func (p *pastes) unfold(s string) []rune {
+	return []rune(strings.TrimSpace(convo.EachPaste(s, p.add)))
 }
 
 // lastIn is the id of the last chip in the draft, 0 if there is none.

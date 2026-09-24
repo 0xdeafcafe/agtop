@@ -1728,7 +1728,8 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		c.back = 0
 		return nil
 	}
-	text = strings.TrimSpace(c.pastes.expand(text))
+	// Claude Code sessions are typed into, where tags would show as typed.
+	text = strings.TrimSpace(c.pastes.expand(text, c.client != nil || m.agentByKey(c.key) == nil || m.agentByKey(c.key).Agtop))
 	c.pastes = pastes{}
 	if c.editQ > 0 {
 		i, was := c.editQ-1, c.editWas
@@ -1956,7 +1957,7 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 		images, text = append(images, imgs...), rest
 	}
 	m.images = nil
-	name := sessionName(text)
+	name := sessionName(convo.FoldPastes(text))
 	if name == "" && len(images) > 0 {
 		name = "about " + filepath.Base(images[0])
 	}
