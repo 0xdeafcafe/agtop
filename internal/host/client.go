@@ -344,7 +344,11 @@ func (c *Client) Deny(id, message string, interrupt bool) error {
 	return c.do(op{Op: "deny", ID: id, Message: message, Interrupt: interrupt})
 }
 
-func (c *Client) Interrupt() error                 { return c.do(op{Op: "interrupt"}) }
+func (c *Client) Interrupt() error { return c.do(op{Op: "interrupt"}) }
+
+// StopTask stops one subagent or background shell by its task id, and
+// nothing else.
+func (c *Client) StopTask(id string) error         { return c.do(op{Op: "stop_task", ID: id}) }
 func (c *Client) SetPermissionMode(m string) error { return c.do(op{Op: "mode", Mode: m}) }
 func (c *Client) SetModel(m string) error          { return c.do(op{Op: "model", Model: m}) }
 

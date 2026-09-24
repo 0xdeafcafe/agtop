@@ -545,7 +545,8 @@ func TestSubagentNumbers(t *testing.T) {
 		t.Fatalf("span = %v", s.Last.Sub(s.First))
 	}
 	s.noteTask(raw("<task-notification><task-id>abc</task-id><status>killed</status></task-notification>"))
-	if s.TaskStatus["abc"] != "killed" {
+	// Claude Code's killed is one you stopped.
+	if s.TaskStatus["abc"] != "stopped" {
 		t.Fatalf("status = %q", s.TaskStatus["abc"])
 	}
 }

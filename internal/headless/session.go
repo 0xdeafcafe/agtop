@@ -359,8 +359,12 @@ func (s *Session) control(req map[string]any) (string, error) {
 // answer is a ControlReply for the returned id (read it with Commands). It
 // also registers the MCP servers the host runs in-process, whose messages
 // then arrive as MCPRequests; send it before the first message.
+//
+// It says agtop stops background tasks one at a time (StopTask), so an
+// interrupt stops only the turn and leaves running subagents be; without
+// that, Claude Code kills them all with the turn.
 func (s *Session) Initialize(servers ...string) (string, error) {
-	req := map[string]any{"subtype": "initialize"}
+	req := map[string]any{"subtype": "initialize", "perTaskStopAffordance": true}
 	if len(servers) > 0 {
 		req["sdkMcpServers"] = servers
 	}
@@ -375,6 +379,13 @@ func (s *Session) ReplyMCP(id string, reply json.RawMessage) error {
 // Interrupt stops the current turn, as esc does.
 func (s *Session) Interrupt() error {
 	_, err := s.control(map[string]any{"subtype": "interrupt", "reason": "interrupt"})
+	return err
+}
+
+// StopTask stops one background task, a subagent or a background shell,
+// by its id; the turn and the other tasks carry on.
+func (s *Session) StopTask(id string) error {
+	_, err := s.control(map[string]any{"subtype": "stop_task", "task_id": id})
 	return err
 }
 

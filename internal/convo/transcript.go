@@ -349,7 +349,7 @@ func Injected(s string) (from, text string, ok bool) {
 	t := strings.TrimSpace(s)
 	switch {
 	case strings.HasPrefix(t, "<task-notification>"):
-		status := between(t, "<status>", "</status>")
+		status := taskStatus(between(t, "<status>", "</status>"))
 		sum := between(t, "<summary>", "</summary>")
 		from = "background task"
 		if status != "" {
@@ -370,6 +370,15 @@ func Injected(s string) (from, text string, ok bool) {
 		return "Claude Code", firstLine(stripTags(t)), true
 	}
 	return "", s, false
+}
+
+// taskStatus is a background task's status as agtop says it: one you
+// stopped is stopped, though Claude Code calls it killed.
+func taskStatus(s string) string {
+	if s == "killed" {
+		return "stopped"
+	}
+	return s
 }
 
 func attr(s, name string) string {
@@ -402,7 +411,7 @@ func (s *Session) noteTask(raw json.RawMessage) {
 		}
 	}
 	if id := between(t, "<task-id>", "</task-id>"); id != "" {
-		s.TaskStatus[id] = firstNonEmpty(between(t, "<status>", "</status>"), "completed")
+		s.TaskStatus[id] = firstNonEmpty(taskStatus(between(t, "<status>", "</status>")), "completed")
 	}
 }
 

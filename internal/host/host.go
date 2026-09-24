@@ -1039,6 +1039,8 @@ func (s *server) do(o op) error {
 	switch o.Op {
 	case "interrupt":
 		return sess.Interrupt()
+	case "stop_task":
+		return sess.StopTask(o.ID)
 	case "mode":
 		return sess.SetPermissionMode(o.Mode)
 	case "model":
