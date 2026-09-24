@@ -46,7 +46,7 @@ func (m *Model) queueOf(c *hostConn) queued {
 }
 
 // canQueue is whether agtop can hold messages for this agent.
-func canQueue(a *fleet.Agent) bool { return a != nil && !a.Agtop && !a.Interactive }
+func canQueue(a *fleet.Agent) bool { return a != nil && !a.Agtop && !a.Interactive && !a.Past }
 
 // reply sends a message to a Claude Code background job. A job the daemon
 // has let go of (ENOJOB) still has its conversation on disk: it carries on

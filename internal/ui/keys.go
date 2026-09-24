@@ -591,6 +591,10 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 	if a == nil {
 		return nil
 	}
+	if a.Past {
+		m.flash(a.DisplayName+" is a past conversation: nothing runs to stop, and its transcript is kept", false)
+		return nil
+	}
 	if a.Interactive {
 		pid := a.PID
 		m.confirm = &confirmation{
@@ -679,6 +683,9 @@ func (m *Model) submit() tea.Cmd {
 		}
 		text = withImages(text, m.images)
 		m.images = nil
+		if a.Past {
+			return m.moveToAgtopWith(a, text)
+		}
 		if q := m.localQ[a.Key]; busy(a) || q != nil && len(q.items) > 0 {
 			m.queueLocal(a.Key, text)
 			m.flash(fmt.Sprintf("queued for %s · goes within 15s", a.DisplayName), false)
@@ -760,9 +767,15 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "stop":
 		if need() {
+			if a.Past {
+				return m.stopOrRemove(a)
+			}
 			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID, a.PID) })
 		}
 	case "rm":
+		if need() && a.Past {
+			return m.stopOrRemove(a)
+		}
 		if need() {
 			m.confirm = &confirmation{
 				question: "Delete " + a.DisplayName + "?",
@@ -890,7 +903,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "full":
 		if need() {
-			if a.Agtop || a.Interactive {
+			if a.Agtop || a.Interactive || a.Past {
 				m.flash("only a Claude Code agent in the background opens full screen", true)
 				return nil
 			}

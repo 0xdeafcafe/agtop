@@ -19,6 +19,9 @@ type Target struct {
 	// checked every run. Others are only looked at when their own
 	// transcript or subagents folder changes.
 	Live bool
+	// Past is a conversation nothing has open: its row is read again only
+	// every pastEvery, and so are its files.
+	Past bool
 }
 
 // Scanner owns the cost cache; only its goroutine touches it.
@@ -37,6 +40,7 @@ type seenTarget struct {
 	main   int64     // its transcript's size
 	subDir time.Time // its subagents folder's time, which changes as runs start
 	subs   []string  // the subagents' transcripts
+	at     time.Time // when they were looked at
 }
 
 func NewScanner() *Scanner {
@@ -46,6 +50,9 @@ func NewScanner() *Scanner {
 // files lists a target's transcripts, and reports false when nothing about
 // a target that isn't live has changed since the last scan.
 func (s *Scanner) files(t Target) ([]string, bool) {
+	if prev, ok := s.seen[t.Path]; ok && t.Past && !t.Live && time.Since(prev.at) < pastEvery {
+		return nil, false
+	}
 	var main int64
 	if st, err := os.Stat(t.Path); err == nil {
 		main = st.Size()
@@ -56,13 +63,15 @@ func (s *Scanner) files(t Target) ([]string, bool) {
 	}
 	prev, ok := s.seen[t.Path]
 	if ok && !t.Live && prev.main == main && prev.subDir.Equal(subDir) {
+		prev.at = time.Now()
+		s.seen[t.Path] = prev
 		return nil, false
 	}
 	subs := prev.subs
 	if !ok || !prev.subDir.Equal(subDir) {
 		subs = claude.SubagentTranscripts(t.Path)
 	}
-	s.seen[t.Path] = seenTarget{main: main, subDir: subDir, subs: subs}
+	s.seen[t.Path] = seenTarget{main: main, subDir: subDir, subs: subs, at: time.Now()}
 	return append([]string{t.Path}, subs...), true
 }
 

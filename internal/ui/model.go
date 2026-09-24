@@ -330,7 +330,7 @@ func (m *Model) startDirs() []string {
 		if len(out) >= 12 {
 			break
 		}
-		if a.Interactive && strings.Contains(a.Cwd, "/var/folders/") {
+		if (a.Interactive || a.Past) && strings.Contains(a.Cwd, "/var/folders/") {
 			continue
 		}
 		add(a.Cwd)
@@ -360,7 +360,7 @@ func (m *Model) targets() []fleet.Target {
 	var targets []fleet.Target
 	for _, a := range m.snap.Agents {
 		if a.TranscriptPath != "" {
-			targets = append(targets, fleet.Target{Key: a.Key, Path: a.TranscriptPath, Live: a.Live() || a.PID != 0})
+			targets = append(targets, fleet.Target{Key: a.Key, Path: a.TranscriptPath, Live: a.Live() || a.PID != 0, Past: a.Past})
 		}
 	}
 	return targets
@@ -1409,6 +1409,10 @@ func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 	m.markSeen(a)
 	if a.Interactive {
 		m.flash(fmt.Sprintf("%s is open in another terminal (pid %d)", a.DisplayName, a.PID), false)
+		return nil
+	}
+	if a.Past {
+		m.flash(a.DisplayName+" is a past conversation · a message resumes it in agtop mode", false)
 		return nil
 	}
 	// One attach at a time from here: the preview's would fight the full

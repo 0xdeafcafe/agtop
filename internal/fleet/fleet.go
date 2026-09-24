@@ -44,6 +44,9 @@ type Agent struct {
 	// Agtop is a session agtop runs itself, headless, through a host
 	// process; its pane is the conversation rather than Claude Code's screen.
 	Agtop bool
+	// Past is a conversation nothing has open, known from its transcript
+	// alone: a message resumes it in agtop mode.
+	Past bool
 	// Temp is how much disk its temp work takes, as last measured.
 	Temp int64
 }
@@ -194,9 +197,14 @@ type Loader struct {
 	subs    map[string]subsEntry
 	fetched map[string]claude.Usage
 	files   map[string]fileMemo
+	past    map[string]pastListing // by projects folder
 	hosts   host.Lister
 	print   map[int]printEntry
 	Temp    *TempSizes
+	// pastRows are past conversations' rows as last made, and spendVer
+	// counts each agent's spend updates, so an unchanged row is reused.
+	pastRows map[string]pastRow
+	spendVer map[string]int
 }
 
 // printEntry remembers whether a pid runs claude -p, by its start time.
@@ -308,7 +316,7 @@ func NewLoader(s *state.Store) *Loader {
 		store: s, jobs: map[string]claude.Job{}, mtimes: map[string]time.Time{},
 		args: map[int]argsEntry{}, git: map[string]gitInfo{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
-		files: map[string]fileMemo{}, print: map[int]printEntry{}, checked: map[string]time.Time{},
+		files: map[string]fileMemo{}, past: map[string]pastListing{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{}, checked: map[string]time.Time{},
 		Temp: LoadTempSizes(),
 	}
 }
@@ -317,6 +325,7 @@ func NewLoader(s *state.Store) *Loader {
 func (l *Loader) SetSpend(m map[string]Spend) {
 	for k, v := range m {
 		l.spend[k] = v
+		l.spendVer[k]++
 	}
 }
 
@@ -344,6 +353,12 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			oursPID[info.ClaudePID] = true
 		}
 	}
+	// Conversations a row already stands for: the rest are past ones.
+	claimed := map[string]bool{}
+	for id := range ours {
+		claimed[id] = true
+	}
+	l.branches(hosted, claimed)
 	for _, acct := range cfg.AllAccounts() {
 		roster := l.memo(acct.RosterPath(), func() any { return claude.ReadRoster(acct) }).(claude.Roster)
 		prs := l.memo(acct.PRCachePath(), func() any { return claude.ReadPRCache(acct) }).(map[string]claude.PR)
@@ -359,6 +374,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		sessions := l.sessions(acct)
 		byJob := map[string]claude.Session{}
 		for _, ss := range sessions {
+			claimed[ss.SessionID] = true
 			if ss.JobID != "" {
 				byJob[ss.JobID] = ss
 			}
@@ -370,6 +386,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			if !ok {
 				continue
 			}
+			claimed[j.SessionID] = true
 			a := &Agent{Job: j, Key: key, Acct: acct, DisplayName: j.Name}
 			if ss, ok := byJob[id]; ok {
 				a.applyStatus(ss)
@@ -493,6 +510,12 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			if a.Live() {
 				av.Live++
 			}
+			av.Agents++
+			av.Spend += a.Spend.Cost
+			av.Today += a.Spend.Today
+			snap.Agents = append(snap.Agents, a)
+		}
+		for _, a := range l.pastAgents(acct, claimed, seen, now) {
 			av.Agents++
 			av.Spend += a.Spend.Cost
 			av.Today += a.Spend.Today

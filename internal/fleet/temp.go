@@ -31,7 +31,7 @@ func (a *Agent) TempDirs() []TempDir {
 	switch {
 	case a.Agtop:
 		out = append(out, TempDir{Path: host.TempDir(a.ID), Keep: true})
-	case !a.Interactive && a.ID != "":
+	case !a.Interactive && !a.Past && a.ID != "":
 		out = append(out, TempDir{Path: filepath.Join(a.Acct.JobsDir(), a.ID, "tmp"), Keep: true})
 	}
 	if a.SessionID != "" && a.Cwd != "" {

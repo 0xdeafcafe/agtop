@@ -1294,6 +1294,8 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 		switch {
 		case a.Agtop:
 			conn = dim("stopped · a message resumes it")
+		case a.Past:
+			conn = dim("past conversation · a message resumes it in agtop mode")
 		case a.Headless:
 			conn = dim("Claude Code · " + a.Where())
 		case a.Interactive:
@@ -1481,6 +1483,8 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		top = dim("agtop command for ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(" · enter runs it")
 	case c.client == nil && a.Interactive:
 		top += dim(" · " + a.Where() + ", so it can't take messages here")
+	case c.client == nil && a.Past:
+		top += dim(" · ") + paint(cOrange, "enter resumes it") + dim(" in agtop mode with your message")
 	case c.client == nil && a.Agtop:
 		top += dim(" · stopped; ") + paint(cOrange, "enter resumes it") + dim(" with your message")
 	case c.client == nil && busy(a):
@@ -2338,6 +2342,8 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool)
 	case a.Interactive:
 		m.flash(a.DisplayName+" is "+a.Where()+"; agtop can't send to it", true)
 		return nil
+	case a.Past:
+		return m.moveToAgtopWith(a, withImages(text, images))
 	case a.Agtop:
 		cfg, err := host.ReadConfig(a.ID)
 		if err != nil {
