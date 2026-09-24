@@ -98,6 +98,32 @@ var (
 // headH is the header's height: clanker's.
 const headH = 4
 
+// pages are the pages of the place you're in, the one showing bright; tab
+// goes through them. In Agents it says whether Zen is on.
+func (m *Model) pages() string {
+	var names []string
+	cur := 0
+	switch {
+	case m.dialog != nil:
+		names, cur = tabNames, m.dialog.tab
+	case m.mode == modeProcs || m.mode == modeCleanup:
+		names, cur = machinePages, m.machinePage
+	case m.zen:
+		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
+	default:
+		return faint("   ctrl+z zen")
+	}
+	out := make([]string, len(names))
+	for i, n := range names {
+		if i == cur {
+			out[i] = paint(cText+bold, n)
+		} else {
+			out[i] = dim(n)
+		}
+	}
+	return "   " + strings.Join(out, dim(" · ")) + faint("  tab")
+}
+
 func (m *Model) header() []string {
 	t := m.tally()
 	robot := clanker(m.mood(t), m.tick)
@@ -154,7 +180,7 @@ func (m *Model) header() []string {
 			tabs = append(tabs, tabOff+" "+v+" "+reset)
 		}
 	}
-	out[3] = "  " + robot[3] + "   " + strings.Join(tabs, " ") + faint("   tab ⇥")
+	out[3] = "  " + robot[3] + "   " + strings.Join(tabs, " ") + m.pages() + faint("   < >")
 	return out
 }
 
@@ -255,9 +281,9 @@ func (m *Model) render() string {
 	case modeHelp:
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 124))
 	case modeProcs:
-		return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "enter", "go to the agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "tab", "next view", "esc", "back"))
+		return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "enter", "go to the agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "tab", "Cleanup", "esc", "back"))
 	case modeCleanup:
-		return m.frame(m.cleanupBody(), keysFit(m.w-4, "↑↓", "move", "x", "remove", "A", "remove all that's safe", "r", "check again", "tab", "next view", "esc", "back"))
+		return m.frame(m.cleanupBody(), keysFit(m.w-4, "↑↓", "move", "x", "remove", "A", "remove all that's safe", "r", "check again", "tab", "Processes", "esc", "back"))
 	case modeCwd:
 		return m.frame(m.cwdBody(), keysFit(m.w-4, "enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
 	}
@@ -356,7 +382,7 @@ func keys(pairs ...string) string {
 func (m *Model) layout() (listW, paneW, bodyH int) {
 	listW = m.w
 	showing := m.full || m.preview || m.wide()
-	if m.zen {
+	if m.zenFull() {
 		listW, paneW = 0, m.w // zen is the one agent, full width
 		showing = false
 	}
@@ -375,7 +401,7 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 	}
 	// Room past the Session's widest becomes the recent-changes rail.
 	m.railW = 0
-	if listW > 0 && paneW > maxPane+minRail && m.host != nil && !m.zen {
+	if listW > 0 && paneW > maxPane+minRail && m.host != nil && !m.zenFull() {
 		m.railW = paneW - maxPane - 1
 	}
 	bodyH = max(3, m.h-headH-1-m.promptH(m.promptW(listW, paneW)))
@@ -1242,7 +1268,7 @@ func (m *Model) badges(a *fleet.Agent) string {
 // box, and a Session filling a narrow screen has its own box too, so there
 // are never two boxes on screen at once.
 func (m *Model) noPrompt() bool {
-	return m.zen || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList)
+	return m.zenFull() || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList)
 }
 
 // promptBoxAt is the Prompt's box at width w, before its labels.
@@ -1320,9 +1346,9 @@ func (m *Model) promptLines(w int) []string {
 	case len(m.input) > 0:
 		hint = keysFit(w-4, "enter", "start it", "ctrl+l", "folder", "esc", "clear", "?", "all keys")
 	case a != nil && a.Agtop:
-		hint = keysFit(w-4, "enter", "talk to it", "ctrl+n", "next needing you", "tab", "views", "?", "all keys")
+		hint = keysFit(w-4, "enter", "talk to it", "ctrl+n", "next needing you", "tab", "its Session", "?", "all keys")
 	default:
-		hint = keysFit(w-4, "enter", "open", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "views", "?", "all keys")
+		hint = keysFit(w-4, "enter", "open", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session", "?", "all keys")
 	}
 	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil {
 		hint = strings.TrimRight(m.statusOr(""), " ") // it pads to the screen, not this box
@@ -1665,7 +1691,9 @@ func (m *Model) helpBody() []string {
 		{"ctrl+g", "edit the last paste, or the draft, in $EDITOR"},
 	}}
 	everywhere := group{"Everywhere", [][2]string{
-		{"tab", "next tab"},
+		{"tab", "the list ⇄ the Session · a place's pages"},
+		{"< >", "Agents · Machine · Settings, with nothing typed"},
+		{"ctrl+z", "zen: only the agent that needs you"},
 		{"ctrl+n", "next agent needing you"},
 		{"esc esc", "quit"},
 	}}

@@ -12,7 +12,7 @@ It keeps the native layout and keys, and adds what the native view doesn't show.
 
 - **Cost, tokens and time** for every agent, estimated from its transcript at list prices (subagents included), and today's spend per account.
 - **CPU and RAM for everything an agent started**, not just the agent itself, plus a whole-machine view: the daemon, pre-warmed spares, and leftover processes from sessions that have ended.
-- **Preview** (`tab`): the agent's own screen, live, for background sessions the daemon hosts; otherwise what it is doing now, its last message, spend, and its process tree. Type into the prompt to reply without opening it.
+- **Preview** (`tab` or `→`): the agent's own screen, live, for background sessions the daemon hosts; otherwise what it is doing now, its last message, spend, and its process tree. Type into the prompt to reply without opening it.
 - **Instant open** (`enter`): connects to the running session through the daemon the way the native view does. `←` inside the session, or `ctrl+]`, comes back.
 - **Done** (`alt+d`) moves an agent out of the way, and stops its process if it's idle so finished work doesn't hold memory (a message resumes it). Nothing is merged or deleted.
 - **Temp work**: what each agent left in its scratch folders (Claude Code's job `tmp`, its per-session scratch, an agtop session's own `tmp`) shows on its row once it has finished, totalled in its section and the header. `clean` deletes a stopped agent's; `clean all` does every finished one. Conversations, files and worktrees are never touched.
@@ -44,10 +44,10 @@ agtop off        # give `claude agents` back to Claude Code, instantly
 | `ctrl+r` `ctrl+t` `ctrl+e` | rename, pin, set group |
 | `ctrl+x` | stop; on a stopped agent, press twice to delete |
 | `ctrl+s` | group by status → repository → account → your groups |
-| `tab` | preview |
+| `tab` | the list ⇄ the agent's Session; in Machine and Settings, their pages |
+| `ctrl+z` | Zen: only the agent that needs you, the next one when it's answered |
+| `<` `>` (nothing typed) | previous and next place: Agents · Machine (Processes, Cleanup) · Settings (Accounts, Coding agents, General, Claude) |
 | `alt+d` | Done: to Done, its idle process stops |
-| `ctrl+p` | processes (`tab` switches between the agent and the whole machine) |
-| `ctrl+a` | accounts |
 | `ctrl+l` | change repo |
 | `#` | agtop's commands, on the selected agent (or, in a Session's box, that agent): `#done #stop #rm #kill #clean #cd #add-dir #pin #pr #sort #by #account #hibernate #native` |
 | `/` | Claude's commands and skills: in the list's box it starts a session with one |

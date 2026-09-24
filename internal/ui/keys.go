@@ -39,12 +39,23 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if m.picker != nil {
 		return m.pickerKey(s)
 	}
+	// < and > with nothing typed go to the previous and next place (ctrl+\
+	// still goes to the next), ctrl+z turns Zen on and off, from anywhere
+	// but a question being asked.
+	if d := m.placeStep(s); d != 0 {
+		m.setView(m.view + d)
+		return m.loadPreview()
+	}
+	if s == "ctrl+z" && m.mode != modeCwd && (m.dialog == nil || m.dialog.asking == "") {
+		m.setZen(!m.zen)
+		return m.loadPreview()
+	}
 	// In zen, while the next agent connects (or when nothing needs you),
 	// keys wait rather than land in some box you can't see; ctrl+n still
 	// moves on.
-	if m.zen && (m.host == nil || len(m.zenQueue()) == 0) {
+	if m.zenFull() && (m.host == nil || len(m.zenQueue()) == 0) {
 		switch s {
-		case "tab", "shift+tab", "ctrl+q", "ctrl+c", "?":
+		case "tab", "ctrl+q", "ctrl+c", "?":
 		case "ctrl+n":
 			m.zenSkip()
 			return nil
@@ -79,13 +90,28 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s != "tab" {
 		return m.paneKey(k, s)
 	}
-	if (s == "tab" || s == "shift+tab") && m.mode != modeCwd && (m.dialog == nil || m.dialog.asking == "") {
-		if s == "tab" {
-			m.setView(m.view + 1)
-		} else {
-			m.setView(m.view - 1)
+	// In Agents tab goes between the list and the Session, unless a
+	// command is being typed in the Session: then it completes it.
+	if s == "tab" && m.mode == modeList && m.dialog == nil {
+		if c := m.host; m.paneFocus && c != nil && !c.searching {
+			if cmd, used := m.slashKey(c, s); used {
+				return cmd
+			}
 		}
-		return m.loadPreview()
+		return m.switchFocus()
+	}
+	// In Machine and Settings tab goes through the place's pages.
+	if (s == "tab" || s == "shift+tab") && (m.mode == modeProcs || m.mode == modeCleanup || (m.dialog != nil && m.dialog.asking == "")) {
+		d := 1
+		if s == "shift+tab" {
+			d = -1
+		}
+		if m.dialog != nil {
+			m.setSettingsPage(m.dialog.tab + d)
+		} else {
+			m.setMachinePage(m.machinePage + d)
+		}
+		return nil
 	}
 	if m.dialog != nil {
 		return m.dialogKey(k, s)
@@ -127,6 +153,60 @@ func (m *Model) editKey(k tea.KeyPressMsg, s string) bool {
 		return false
 	}
 	return true
+}
+
+// placeStep is which way a key moves between places: -1 for <, +1 for >
+// and ctrl+\, 0 when it doesn't. < and > only move with nothing typed in
+// the box that has the keys, so they can still be typed.
+func (m *Model) placeStep(s string) int {
+	d := map[string]int{"<": -1, ">": 1, "ctrl+\\": 1}[s]
+	if d == 0 || m.mode == modeCwd || m.dialog != nil && m.dialog.asking != "" {
+		return 0
+	}
+	if s == "ctrl+\\" || m.mode != modeList || m.dialog != nil {
+		return d
+	}
+	if c := m.host; m.paneFocus && c != nil {
+		// A Claude Code agent's screen takes what's typed itself.
+		if m.viewName(c) == "screen" && m.canEmbed() || len(c.input) > 0 || c.editQ > 0 {
+			return 0
+		}
+		return d
+	}
+	if len(m.input) > 0 || m.inKind != inPrompt {
+		return 0
+	}
+	return d
+}
+
+// switchFocus is tab in Agents: from the list into the selected agent's
+// Session, and back. In Zen the list is only the agents waiting on you.
+func (m *Model) switchFocus() tea.Cmd {
+	if m.paneFocus && m.host != nil {
+		if m.zen {
+			m.paneFocus, m.preview, m.zenList = false, true, true // the waiting list beside it
+			return nil
+		}
+		m.leavePane()
+		return nil
+	}
+	if m.zen && m.zenList {
+		m.zenList, m.paneFocus = false, true
+		return m.loadPreview()
+	}
+	a := m.selected()
+	if a == nil || strings.HasPrefix(m.sel, "§") {
+		return nil
+	}
+	if a.Agtop {
+		return m.focusPane(a)
+	}
+	if m.canEmbed() {
+		m.embedded = true
+		return nil
+	}
+	m.preview = true
+	return m.loadPreview()
 }
 
 func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
@@ -548,7 +628,8 @@ func (m *Model) command(text string) tea.Cmd {
 		}
 	case "/account":
 		if arg == "" {
-			m.setView(3) // Accounts
+			m.setView(2)
+			m.setSettingsPage(tabAccounts)
 			return nil
 		}
 		return m.useAccount(arg)

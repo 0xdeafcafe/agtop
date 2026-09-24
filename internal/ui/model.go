@@ -103,6 +103,7 @@ type Model struct {
 	// 1 the summary.
 	claudeView int
 	zen        bool     // the Zen view: only the agent that needs you
+	zenList    bool     // Zen with its list of who's waiting beside the agent
 	railW      int      // the recent-changes rail's width, 0 when there isn't room
 	rail       []string // its lines for the frame being drawn
 	frameLen   int      // bytes in the last frame, to size the next
@@ -139,6 +140,8 @@ type Model struct {
 	armedAt      time.Time
 	attached     string
 	view         int
+	machinePage  int // the Machine place's page: Processes or Cleanup
+	settingsPage int // the Settings place's page: a tab of the dialog
 
 	procCursor int
 	cwdMove    bool
@@ -763,9 +766,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-var viewNames = []string{"Agents", "Zen", "Processes", "Accounts", "Coding agents", "Settings", "Claude", "Cleanup"}
+// viewNames are the places at the top: < and > move between them, and tab
+// moves within one (the list and its Session, or a place's pages).
+var viewNames = []string{"Agents", "Machine", "Settings"}
 
-// setView switches the whole screen; tab and shift+tab cycle through them.
+// machinePages and the Settings dialog's tabNames are the pages of the
+// Machine and Settings places.
+var machinePages = []string{"Processes", "Cleanup"}
+
+// setView switches the whole screen to a place, on the page it was last on.
 func (m *Model) setView(v int) {
 	m.view = (v + len(viewNames)) % len(viewNames)
 	m.dialog, m.mode, m.picker = nil, modeList, nil
@@ -773,19 +782,48 @@ func (m *Model) setView(v int) {
 	m.zen = false
 	switch m.view {
 	case 1:
-		m.zen = true
-		// Straight to the oldest agent waiting, whatever was selected.
-		if q := m.zenQueue(); len(q) > 0 {
-			m.sel, m.paneFocus = q[0].Key, true
-		}
+		m.setMachinePage(m.machinePage)
 	case 2:
+		m.openDialog(m.settingsPage)
+	}
+}
+
+// setMachinePage shows Processes (0) or Cleanup (1).
+func (m *Model) setMachinePage(p int) {
+	m.machinePage = (p + len(machinePages)) % len(machinePages)
+	if m.machinePage == 0 {
 		m.mode, m.procCursor = modeProcs, 0
-	case 3, 4, 5, 6:
-		m.openDialog(m.view - 3)
-	case 7:
+	} else {
 		m.mode = modeCleanup
 	}
 }
+
+// setSettingsPage shows one of the Settings dialog's tabs.
+func (m *Model) setSettingsPage(p int) {
+	m.settingsPage = (p + len(tabNames)) % len(tabNames)
+	m.openDialog(m.settingsPage)
+}
+
+// setZen turns Zen on or off. Zen is Agents with only the agent that needs
+// you on screen, the oldest first; the list comes back when it's off.
+func (m *Model) setZen(on bool) {
+	if on && m.view != 0 {
+		m.setView(0)
+	}
+	m.zen, m.zenList = on, false
+	defer m.rebuild()
+	if !on {
+		return
+	}
+	m.embedded, m.full, m.paneFocus = false, false, true
+	if q := m.zenQueue(); len(q) > 0 {
+		m.sel = q[0].Key
+	}
+}
+
+// zenFull is Zen showing only the agent, the whole screen. tab brings the
+// list back beside it (zenList), holding only who's waiting.
+func (m *Model) zenFull() bool { return m.zen && !m.zenList }
 
 // wide is when the preview gets its own half of the screen.
 func (m *Model) wide() bool { return m.w >= 170 }
@@ -940,6 +978,9 @@ func (m *Model) rebuild() {
 		}
 	}
 	for _, a := range m.snap.Agents {
+		if m.zen && !a.NeedsYou() && !a.Waiting() {
+			continue // Zen's list is only the agents waiting on you
+		}
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
 		case a.NeedsYou():

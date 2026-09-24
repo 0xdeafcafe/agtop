@@ -27,7 +27,7 @@ const (
 	tabClaude
 )
 
-var tabNames = []string{"Accounts", "Coding agents", "Settings", "Claude"}
+var tabNames = []string{"Accounts", "Coding agents", "General", "Claude"}
 
 type dialog struct {
 	tab      int
@@ -772,7 +772,7 @@ func (m *Model) dialogBody(w int) []string {
 			out = append(out, m.settingRow(i, st, st.value, 32, 18, w)...)
 		}
 		out = append(out, m.about(w)...)
-		out = append(out, "", keysFit(w, "←→", "change", "tab", "next view", "esc", "back to agents"))
+		out = append(out, "", keysFit(w, "←→", "change", "tab", "next page", "esc", "back to agents"))
 	case tabClaude:
 		out = append(out, m.claudeBody(w)...)
 	}

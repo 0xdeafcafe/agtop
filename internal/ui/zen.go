@@ -34,8 +34,8 @@ func (m *Model) zenQueue() []*fleet.Agent {
 // zenPick keeps the selection on an agent that still needs you, moving on
 // to the oldest one when the current one is answered.
 func (m *Model) zenPick() {
-	if !m.zen {
-		return
+	if !m.zenFull() {
+		return // on zen's list you pick; nothing moves under you
 	}
 	q := m.zenQueue()
 	for _, a := range q {
@@ -84,7 +84,7 @@ func (m *Model) zenQuiet(w, h int) []string {
 	}
 	counts = append(counts, dim(fmt.Sprintf("%d finished", t.done)))
 	out = append(out, center(strings.Join(counts, dim(" · "))), "")
-	out = append(out, center(faint("the moment an agent asks for something it appears here · tab leaves zen")))
+	out = append(out, center(faint("the moment an agent asks for something it appears here · ctrl+z leaves zen")))
 	return out
 }
 
@@ -135,5 +135,5 @@ func (m *Model) zenBody(a *fleet.Agent, c *hostConn, w int) []convo.Line {
 	if a.Needs != "" && c != nil && len(c.sess.Pending()) == 0 {
 		lines = append(lines, convo.Line{Text: ""}, convo.Line{Text: "    " + dim("it needs  ") + paint(cYellow, oneLine(a.Needs))})
 	}
-	return append(lines, convo.Line{Text: ""}, convo.Line{Text: "  " + dim("ctrl+n skips to the next · tab leaves zen")})
+	return append(lines, convo.Line{Text: ""}, convo.Line{Text: "  " + dim("ctrl+n skips to the next · ctrl+z leaves zen")})
 }

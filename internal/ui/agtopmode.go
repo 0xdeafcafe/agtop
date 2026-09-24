@@ -1370,7 +1370,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		case c.sel != "":
 			c.sel = "" // first esc drops the step selection
 		case m.zen:
-			// Zen keeps the keys on the agent; tab leaves zen.
+			// Zen keeps the keys on the agent; tab or ctrl+z leaves zen.
 		default:
 			m.leavePane()
 		}
@@ -1466,7 +1466,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			case c.sel != "":
 				c.sel = ""
 			case m.zen:
-				// Zen keeps the keys on the agent; tab leaves zen.
+				// Zen keeps the keys on the agent; tab or ctrl+z leaves zen.
 			default:
 				m.leavePane()
 			}
@@ -1616,7 +1616,7 @@ func (m *Model) clickBox(x, y int) bool {
 		}
 	}
 	b := m.promptBox
-	if m.zen || b.w == 0 {
+	if m.zenFull() || b.w == 0 {
 		return false
 	}
 	rows := len(b.lines()) - 2
