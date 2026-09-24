@@ -737,6 +737,11 @@ type hostConn struct {
 		ref, view   string
 		off, scroll int
 	}
+	// A report (the overview, changes, a list) opens at its top rather
+	// than its end, and stays there until you scroll. pinFor is the view
+	// it was opened for.
+	pinTop   bool
+	pinFor   string
 	bodyRefs []string // every selectable row of the current view, in order
 	// Text dragged over with the mouse. rowBody is which row of shown each
 	// drawn row of the pane is (-1 for the header, pill and dock), and
@@ -1147,6 +1152,14 @@ func (m *Model) agtopPane(w, h int) []string {
 		}
 		prev = l.Ref
 	}
+	if at := view + "/" + c.subOpen; at != c.pinFor {
+		c.pinFor, c.pinTop = at, readsFromTop(view, c)
+	} else if c.selMoved || c.scroll != c.top.scroll {
+		c.pinTop = false // you've scrolled, or picked something to show
+	}
+	if c.pinTop {
+		c.scroll = len(body) // clamped to the top below
+	}
 	// Scrolled up and not moved since the last draw: keep the same row at
 	// the top, whatever was added below or above it.
 	if t := c.top; c.scroll > 0 && c.scroll == t.scroll && t.view == view && t.ref != "" && !c.selMoved {
@@ -1166,15 +1179,20 @@ func (m *Model) agtopPane(w, h int) []string {
 			}
 			end := len(body) - c.scroll
 			switch {
-			case i < end-bodyH:
-				c.scroll = len(body) - (i + bodyH)
+			case i < end-(bodyH-1): // scrolled up, the pill takes a row
+				c.scroll = len(body) - (i + bodyH - 1)
 			case i >= end:
 				c.scroll = len(body) - (i + 1)
 			}
 			break // the first row of a selection is the one to show
 		}
 	}
-	c.scroll = max(0, min(c.scroll, len(body)-bodyH))
+	// Scrolled up, the pill takes a row, so the top is a row further up
+	// than the body's height alone says.
+	c.scroll = max(0, min(c.scroll, len(body)-bodyH+1))
+	if len(body) <= bodyH {
+		c.scroll = 0
+	}
 	// Scrolled up, the "more below" pill takes a row of its own rather
 	// than covering the last one (which may be the selected one).
 	rows := bodyH
@@ -1253,6 +1271,18 @@ func (m *Model) agtopPane(w, h int) []string {
 	m.btwOverlay(c, out, len(head), h-len(dock)-len(head), w)
 	c.boxY = m.paneTop + len(out) + c.boxIdx
 	return append(out, dock...)
+}
+
+// readsFromTop is whether a view opens at its top: a report or a list does,
+// a conversation (the main one or a subagent's) or a screen at its end.
+func readsFromTop(view string, c *hostConn) bool {
+	switch view {
+	case "overview", "changes", "tasks", "memory", "artifacts":
+		return true
+	case "subagents":
+		return c.subOpen == ""
+	}
+	return false
 }
 
 // headingStart is the first row of the turn heading that row i is part of.
