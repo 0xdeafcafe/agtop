@@ -17,7 +17,7 @@ It keeps the native layout and keys, and adds what the native view doesn't show.
 - **Done** (`alt+d`) moves an agent out of the way, and stops its process if it's idle so finished work doesn't hold memory (a message resumes it). Nothing is merged or deleted.
 - **Temp work**: what each agent left in its scratch folders (Claude Code's job `tmp`, its per-session scratch, an agtop session's own `tmp`) shows on its row once it has finished, totalled in its section and the header. `clean` deletes a stopped agent's; `clean all` does every finished one. Conversations, files and worktrees are never touched.
 - **Kill** (`ctrl+x`, or `ctrl+p` then `!`): stop gracefully, or SIGKILL the whole process tree.
-- **Accounts** (`ctrl+a`): each account is its own Claude config folder (`CLAUDE_CONFIG_DIR`). You get usage per account, you choose which one new sessions start on, and you can move a conversation to another account.
+- **Accounts** (`ctrl+a`): the Claude accounts `~/.claude` can be signed in as, with each one's 5-hour and weekly usage. Every session shares `~/.claude` (settings, transcripts, history); only the sign-in changes. `a` signs in to another account, `enter` switches to one. When the account in use reaches 95% of its 5-hour or weekly usage, or an agtop session is stopped by a limit, agtop switches to the account with the most room left: idle agtop sessions pick it up with their next message, and those the limit stopped carry on straight away. `s` keeps agtop on the account you're on. Older `~/.claude-*` folders stay listed for the sessions they hold, and their sign-ins are added as accounts.
 - **Change repo** (`ctrl+l`): move a conversation to another folder or worktree, or grant it access to another folder.
 - **Groups** (`ctrl+s`): group by status, repository, account, or your own groups (`ctrl+e`). Pins (`ctrl+t`) are shared with the native view.
 - Notifications when an agent starts waiting on you, and optional hibernation (`/hibernate 30`) to stop finished agents still held in memory.
@@ -55,7 +55,7 @@ agtop off        # give `claude agents` back to Claude Code, instantly
 
 ## How it works
 
-agtop only reads Claude Code's files: `jobs/*/state.json`, `daemon/roster.json`, `jobs/pins.json`, the transcripts, and the cached plan usage. It makes changes only through Claude Code: the daemon's control socket, with the `claude` CLI as a fallback. Its own state (Done, names, groups, accounts) lives in `~/.config/agtop`, and a cost cache lives in `~/Library/Caches/agtop`.
+agtop only reads Claude Code's files: `jobs/*/state.json`, `daemon/roster.json`, `jobs/pins.json`, the transcripts, and the cached plan usage. It makes changes only through Claude Code (the daemon's control socket, with the `claude` CLI as a fallback), apart from one thing: switching account writes the other account's sign-in into Claude Code's keychain item and its `oauthAccount` into `~/.claude.json`. Each account's sign-in is kept in your login keychain as `agtop-login`, and the one in use is saved there again before every switch. Its own state (Done, names, groups, accounts, but not their sign-ins) lives in `~/.config/agtop`, and a cost cache lives in `~/Library/Caches/agtop`.
 
 The control socket and the files are undocumented Claude Code internals, verified against v2.1.280. If a Claude Code update changes them, the affected column shows `–`, and opening an agent falls back to `claude attach`.
 

@@ -64,6 +64,13 @@ type Model struct {
 	scanning bool
 	loaded   bool
 
+	// switching is set while ~/.claude is being signed in as another
+	// login; switchedAt is when it last was.
+	switching  bool
+	switchedAt time.Time
+	keepFailed bool      // said once until it works again
+	resumedAt  time.Time // when sessions a limit stopped were last told to carry on
+
 	sel          string
 	order        []*fleet.Agent
 	lines        []listLine
@@ -222,7 +229,9 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m *Model) Init() tea.Cmd { return tea.Batch(tick(), m.scan(), m.fetchUsage()) }
+func (m *Model) Init() tea.Cmd {
+	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins())
+}
 
 // fetchUsage refreshes every account's plan usage from Anthropic. Readings
 // are shared with every other agtop through a file, so an account is asked
@@ -238,7 +247,7 @@ func (m *Model) fetchUsage() tea.Cmd {
 			return usageMsg{dir: acct.ConfigDir, u: claude.RefreshUsage(path, acct, offline)}
 		})
 	}
-	return tea.Batch(cmds...)
+	return tea.Batch(append(cmds, m.fetchLoginUsage()...)...)
 }
 
 func (m *Model) scan() tea.Cmd {
@@ -507,7 +516,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.scan())
 		}
 		if m.tick%60 == 0 {
-			cmds = append(cmds, m.fetchUsage())
+			cmds = append(cmds, m.fetchUsage(), m.findLogins())
 		}
 		cmds = append(cmds, m.loadPreview())
 		if m.tick%2 == 0 {
@@ -531,7 +540,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case usageMsg:
 		m.loader.SetFetched(msg.dir, msg.u)
 		m.refresh()
-		return m, nil
+		return m, m.autoSwitch()
+	case loginsMsg:
+		return m, m.onLogins(msg)
+	case switchedMsg:
+		return m, m.onSwitched(msg)
+	case addedLoginMsg:
+		return m, m.onAddedLogin(msg)
 	case hoverMsg:
 		return m, m.loadPreview()
 	case previewMsg:

@@ -728,6 +728,36 @@ func (s *server) armIdle() {
 	})
 }
 
+// relogin follows ~/.claude being signed in as another account. A running
+// Claude Code keeps the account it started with, so one that's idle rests
+// now (your next message starts it on the new one) unless work it left
+// running would be cut off, and one a usage limit stopped carries on now
+// instead of waiting for the reset. A turn under way is left to finish.
+// Called with mu held; returns with it released.
+func (s *server) relogin(sess *headless.Session) {
+	limited := s.info.Limit != nil
+	if s.info.State != "idle" || (sess == nil && !limited) || (!limited && runsShells(sess.PID())) {
+		s.mu.Unlock()
+		return
+	}
+	if sess != nil {
+		s.detach()
+		s.publish()
+		s.mu.Unlock()
+		_ = sess.Stop(10 * time.Second)
+		s.mu.Lock()
+	}
+	if limited && s.sess == nil {
+		s.info.Limit = nil
+		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+			s.sendQueue()
+		} else {
+			_ = s.sendLocked("continue")
+		}
+	}
+	s.mu.Unlock()
+}
+
 // publish writes info.json and sends the new info to clients. Called with
 // mu held.
 func (s *server) publish() {
@@ -923,6 +953,9 @@ func (s *server) do(o op) error {
 			s.publish()
 		}
 		s.mu.Unlock()
+		return nil
+	case "relogin":
+		s.relogin(sess)
 		return nil
 	case "queue_hold", "queue_separate":
 		if o.Op == "queue_hold" {

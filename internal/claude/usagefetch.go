@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"time"
 )
@@ -37,10 +36,21 @@ func (a Account) keychainService() string {
 // FetchUsage asks Anthropic for an account's plan usage with the account's
 // own sign-in. The token is read for this request only and never kept.
 func FetchUsage(ctx context.Context, a Account) (Usage, error) {
-	raw, err := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", a.keychainService(), "-w").Output()
+	who := SignedInAs(a)
+	raw, err := readCreds(a)
 	if err != nil {
 		return Usage{}, ErrNotSignedIn
 	}
+	u, err := FetchUsageWith(ctx, raw)
+	// Whose reading this is: ~/.claude may be signed in as another account
+	// by the time it's looked at.
+	u.AccountID = who
+	return u, err
+}
+
+// FetchUsageWith is FetchUsage with a sign-in already in hand: a login's
+// that isn't the one in use.
+func FetchUsageWith(ctx context.Context, raw []byte) (Usage, error) {
 	var cred struct {
 		OAuth struct {
 			Token     string `json:"accessToken"`

@@ -5,8 +5,10 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,13 +27,24 @@ func Dir() string {
 func Key(account, id string) string { return account + "/" + id }
 
 type Config struct {
-	Accounts  []claude.Account `json:"accounts"`
-	Active    string           `json:"active"`
-	GroupBy   string           `json:"groupBy"`
-	Folds     map[string]bool  `json:"folds,omitempty"`
-	Dispatch  Dispatch         `json:"dispatch"`
-	Quiet     bool             `json:"quiet,omitempty"`
-	DockLines int              `json:"dockLines,omitempty"`
+	// Accounts are Claude config folders sessions live in: ~/.claude, and
+	// any older ~/.claude-* kept for the sessions it holds. New sessions
+	// all start in ~/.claude.
+	Accounts []claude.Account `json:"accounts"`
+	// Active named the folder new sessions started in, before accounts
+	// became logins; cleared once logins are found.
+	Active string `json:"active,omitempty"`
+	// Logins are the Claude accounts ~/.claude can be signed in as; their
+	// sign-ins are in the vault, not here.
+	Logins []claude.Login `json:"logins,omitempty"`
+	// StayOnAccount keeps agtop from switching ~/.claude to another login
+	// when the one in use is nearly out of its 5-hour or weekly usage.
+	StayOnAccount bool            `json:"stayOnAccount,omitempty"`
+	GroupBy       string          `json:"groupBy"`
+	Folds         map[string]bool `json:"folds,omitempty"`
+	Dispatch      Dispatch        `json:"dispatch"`
+	Quiet         bool            `json:"quiet,omitempty"`
+	DockLines     int             `json:"dockLines,omitempty"`
 	// SideWidth is the agent list's share of a split screen, 0.25 to 0.5;
 	// zero means agtop's own choice.
 	SideWidth float64 `json:"sideWidth,omitempty"`
@@ -125,14 +138,61 @@ func (c Config) AllAccounts() []claude.Account {
 	return out
 }
 
-func (c Config) ActiveAccount() claude.Account {
-	all := c.AllAccounts()
-	for _, a := range all {
-		if a.Name == c.Active {
-			return a
+// ActiveAccount is the folder new sessions start in: always ~/.claude,
+// signed in as whichever login is in use.
+func (c Config) ActiveAccount() claude.Account { return c.AllAccounts()[0] }
+
+// Vault is where agtop keeps the sign-ins of the logins not in use.
+func Vault() claude.Vault { return claude.Vault{Dir: filepath.Join(Dir(), "logins")} }
+
+// SwitchAt is how full, in percent, the login in use may get before agtop
+// switches to another.
+const SwitchAt = 95.0
+
+// Login is the saved login with id.
+func (c Config) Login(id string) (claude.Login, bool) {
+	for _, l := range c.Logins {
+		if l.ID == id {
+			return l, true
 		}
 	}
-	return all[0]
+	return claude.Login{}, false
+}
+
+// NoteLogin records who a login is, adding it named after name (or its
+// email) when it's new; it reports whether anything changed.
+func (c *Config) NoteLogin(l claude.Login, name string) bool {
+	for i, old := range c.Logins {
+		if old.ID == l.ID {
+			if old.Email == l.Email && old.Org == l.Org && string(old.Profile) == string(l.Profile) {
+				return false
+			}
+			l.Name = old.Name
+			c.Logins[i] = l
+			return true
+		}
+	}
+	if name == "" {
+		name, _, _ = strings.Cut(l.Email, "@")
+	}
+	if name == "" {
+		name = "account"
+	}
+	l.Name = name
+	for n := 2; c.loginNamed(l.Name); n++ {
+		l.Name = fmt.Sprintf("%s-%d", name, n)
+	}
+	c.Logins = append(c.Logins, l)
+	return true
+}
+
+func (c Config) loginNamed(name string) bool {
+	for _, l := range c.Logins {
+		if l.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 type Overlay struct {

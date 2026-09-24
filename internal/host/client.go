@@ -348,6 +348,9 @@ func (c *Client) Interrupt() error                 { return c.do(op{Op: "interru
 func (c *Client) SetPermissionMode(m string) error { return c.do(op{Op: "mode", Mode: m}) }
 func (c *Client) SetModel(m string) error          { return c.do(op{Op: "model", Model: m}) }
 
+// Relogin tells the session ~/.claude is now signed in as another account.
+func (c *Client) Relogin() error { return c.do(op{Op: "relogin"}) }
+
 // ContinueAtReset says whether a session stopped by a usage limit carries
 // on when the limit resets.
 func (c *Client) ContinueAtReset(yes bool) error { return c.do(op{Op: "limit", Now: yes}) }

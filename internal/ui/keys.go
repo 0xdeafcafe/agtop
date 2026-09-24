@@ -634,7 +634,7 @@ func (m *Model) command(text string) tea.Cmd {
 			m.setSettingsPage(tabAccounts)
 			return nil
 		}
-		return m.useAccount(arg)
+		return m.useLogin(arg)
 	case "/group":
 		if need() {
 			m.inKind, m.input, m.promptFor = inGroup, []rune(arg), a.Key
@@ -1022,20 +1022,6 @@ func trimCmd(s string, n int) string {
 	home, _ := os.UserHomeDir()
 	s = strings.ReplaceAll(s, home, "~")
 	return ansi.Truncate(s, n, "…")
-}
-
-func (m *Model) useAccount(name string) tea.Cmd {
-	for _, a := range m.store.Config.AllAccounts() {
-		if a.Name == name {
-			m.store.Config.Active = name
-			_ = m.store.SaveConfig()
-			m.flash("new sessions start on "+name, false)
-			m.refresh()
-			return nil
-		}
-	}
-	m.flash("no account named "+name, true)
-	return nil
 }
 
 func (m *Model) openCwd(a *fleet.Agent) {

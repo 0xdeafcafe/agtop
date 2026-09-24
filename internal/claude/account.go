@@ -71,6 +71,7 @@ type Window struct {
 }
 
 type Usage struct {
+	AccountID string // the signed-in account's uuid
 	Email     string
 	Org       string
 	Plan      string
@@ -83,6 +84,18 @@ type Usage struct {
 	Billing   string
 	OrgType   string
 	Extra     bool
+}
+
+// Used is the fuller of the two windows, in percent: how close the account
+// is to being stopped.
+func (u Usage) Used() float64 {
+	var p float64
+	for _, w := range []Window{u.FiveHour, u.SevenDay} {
+		if w.Present {
+			p = max(p, w.Percent)
+		}
+	}
+	return p
 }
 
 // Since drops the windows that have reset since the reading was made:
@@ -98,6 +111,7 @@ func (u Usage) Since(now time.Time) Usage {
 
 type usageFile struct {
 	OAuthAccount *struct {
+		AccountUUID      string `json:"accountUuid"`
 		EmailAddress     string `json:"emailAddress"`
 		OrganizationName string `json:"organizationName"`
 		OrganizationRole string `json:"organizationRole"`
@@ -142,7 +156,7 @@ func ReadUsage(a Account) (Usage, error) {
 	}
 	var u Usage
 	if o := f.OAuthAccount; o != nil {
-		u.Email, u.Org = o.EmailAddress, o.OrganizationName
+		u.AccountID, u.Email, u.Org = o.AccountUUID, o.EmailAddress, o.OrganizationName
 		u.Role, u.Billing, u.OrgType, u.Extra = o.OrganizationRole, o.BillingType, o.OrganizationType, o.ExtraUsage
 		for _, v := range []string{o.UserRateLimit, o.SeatTier, o.OrganizationName, o.BillingType} {
 			if v != "" {

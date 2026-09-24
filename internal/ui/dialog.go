@@ -18,6 +18,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 const (
@@ -401,7 +402,7 @@ func (m *Model) dialogLen() int {
 	d := m.dialog
 	switch d.tab {
 	case tabAccounts:
-		return len(d.accounts)
+		return len(m.snap.Logins) + len(d.accounts)
 	case tabAgents:
 		return len(m.agentSettings()) + len(d.agents)
 	case tabClaude:
@@ -499,24 +500,33 @@ func (m *Model) ask(what, prefill string) {
 
 func (m *Model) accountsKey(s string) tea.Cmd {
 	d := m.dialog
-	if d.cursor >= len(d.accounts) {
-		if s == "a" {
-			m.ask("account name", "")
-		}
+	if s == "a" {
+		m.ask("login name", "")
 		return nil
 	}
-	row := d.accounts[d.cursor]
+	if s == "s" {
+		m.store.Config.StayOnAccount = !m.store.Config.StayOnAccount
+		_ = m.store.SaveConfig()
+		if m.store.Config.StayOnAccount {
+			m.flash("agtop stays on this account, even when it's nearly out", false)
+		} else {
+			m.flash(fmt.Sprintf("agtop switches account at %.0f%% of 5h or 7d", state.SwitchAt), false)
+		}
+		return m.autoSwitch()
+	}
+	if d.cursor < len(m.snap.Logins) {
+		return m.loginKey(m.snap.Logins[d.cursor], s)
+	}
+	i := d.cursor - len(m.snap.Logins)
+	if i >= len(d.accounts) {
+		return nil
+	}
+	row := d.accounts[i]
 	switch s {
 	case "enter":
 		if row.found {
 			m.addAccount(row.Name, row.ConfigDir, false)
 		}
-		m.store.Config.Active = row.Name
-		_ = m.store.SaveConfig()
-		m.flash("new sessions start on "+row.Name, false)
-		m.loadDialog()
-	case "a":
-		m.ask("account name", "")
 	case "r":
 		if !row.found {
 			m.ask("rename "+row.Name, row.Name)
@@ -538,6 +548,43 @@ func (m *Model) accountsKey(s string) tea.Cmd {
 			m.store.Config.Accounts = keep
 			_ = m.store.SaveConfig()
 			m.loadDialog()
+			return nil
+		}
+	}
+	return nil
+}
+
+// loginKey handles a key on one of the logins in Accounts.
+func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
+	switch s {
+	case "enter":
+		if lv.Current {
+			m.flash("already on "+lv.Name, false)
+			return nil
+		}
+		return m.switchLogin(lv.Login, "")
+	case "r":
+		m.ask("rename login "+lv.Name, lv.Name)
+	case "l":
+		return m.addLogin(lv.Name)
+	case "d", "x":
+		if lv.Current {
+			m.flash("switch to another account before forgetting "+lv.Name, true)
+			return nil
+		}
+		m.dialog.confirm = fmt.Sprintf("Forget %s (%s)? agtop drops its saved sign-in; sessions already on it keep going.", lv.Name, lv.Email)
+		m.dialog.onYes = func() tea.Cmd {
+			var keep []claude.Login
+			for _, l := range m.store.Config.Logins {
+				if l.ID != lv.ID {
+					keep = append(keep, l)
+				}
+			}
+			m.store.Config.Logins = keep
+			_ = state.Vault().Forget(lv.ID)
+			_ = m.store.SaveConfig()
+			m.refresh()
+			m.dialog.cursor = max(0, m.dialog.cursor-1)
 			return nil
 		}
 	}
@@ -614,12 +661,17 @@ func (m *Model) answer(what, v string) tea.Cmd {
 		return nil
 	}
 	switch {
-	case what == "account name":
-		d.draft = v
-		home, _ := os.UserHomeDir()
-		m.ask("folder for "+v, "~/"+filepath.Base(filepath.Join(home, ".claude-"+v)))
-	case strings.HasPrefix(what, "folder for "):
-		return m.addAccount(d.draft, expand(v), true)
+	case what == "login name":
+		return m.addLogin(v)
+	case strings.HasPrefix(what, "rename login "):
+		old := strings.TrimPrefix(what, "rename login ")
+		for i, l := range m.store.Config.Logins {
+			if l.Name == old {
+				m.store.Config.Logins[i].Name = v
+			}
+		}
+		_ = m.store.SaveConfig()
+		m.refresh()
 	case strings.HasPrefix(what, "rename "):
 		old := strings.TrimPrefix(what, "rename ")
 		for i, a := range m.store.Config.Accounts {
@@ -695,21 +747,49 @@ func (m *Model) dialogBody(w int) []string {
 			}
 			return fit(v, cols[i])
 		}
-		meter := func(win claude.Window, problem string) string {
-			if !win.Present {
-				if problem != "" {
-					return paint(cYellow, problem)
-				}
+		meter := func(u claude.Usage, win claude.Window) string {
+			switch {
+			case !win.Present && u.FetchedAt.IsZero():
 				return faint("fetching…")
+			case !win.Present:
+				return faint("no reading")
+			case time.Since(u.FetchedAt) > 3*claude.UsageEvery:
+				return faint(fmt.Sprintf("%s %3.0f%%", strings.Repeat("▱", 10), win.Percent))
 			}
 			return bar(win.Percent) + " " + paint(cText, fmt.Sprintf("%3.0f%%", win.Percent))
 		}
+		usage := func(u claude.Usage) string {
+			if !u.FiveHour.Present && !u.SevenDay.Present && u.Problem != "" {
+				return fit(paint(cYellow, u.Problem), cols[3]+cols[4])
+			}
+			return fit(meter(u, u.FiveHour), cols[3]) + fit(meter(u, u.SevenDay), cols[4])
+		}
+		// Logins: the accounts ~/.claude can be signed in as.
+		stay := fmt.Sprintf("switches at %.0f%% of 5h or 7d to the account with the most room", state.SwitchAt)
+		if m.store.Config.StayOnAccount {
+			stay = "stays on this account, even when it's nearly out"
+		}
+		out = append(out, dim("Signed in as")+"  "+faint("new sessions run on ● · agtop "+stay))
+		lcols := []int{16, 32, 18, 18}
+		out = append(out, "   "+faint(fit("NAME", lcols[0])+fit("EMAIL", lcols[1])+fit("5-HOUR", lcols[2])+fit("7-DAY", lcols[3])))
+		for i, lv := range m.snap.Logins {
+			mark := faint("○")
+			if lv.Current {
+				mark = paint(cOrange, "●")
+			}
+			line := paint(cText, fit(lv.Name, lcols[0])) + dim(fit(lv.Email, lcols[1])) + usage(lv.Usage)
+			out = append(out, row(i, mark+" "+line))
+		}
+		if len(m.snap.Logins) == 0 {
+			out = append(out, "   "+faint("none yet · a signs in to one"))
+		}
+		out = append(out, "", dim("Folders")+"  "+faint("where sessions live: new ones start in ~/.claude"))
+		off := len(m.snap.Logins)
 		head := "   " + faint(cell(0, "NAME", false)+cell(1, "FOLDER", false)+cell(2, "EMAIL", false)+cell(3, "5-HOUR", false)+cell(4, "7-DAY", false)+cell(5, "AGENTS", true)+cell(6, "TODAY", true)+cell(7, "ALL", true))
 		out = append(out, head)
-		active := m.store.Config.ActiveAccount()
 		for i, a := range d.accounts {
 			mark := faint("○")
-			if a.ConfigDir == active.ConfigDir {
+			if a.IsDefault() {
 				mark = paint(cOrange, "●")
 			}
 			av, ok := views[a.ConfigDir]
@@ -728,19 +808,19 @@ func (m *Model) dialogBody(w int) []string {
 					email = "not signed in"
 				}
 				line = name + folder + dim(cell(2, email, false)) +
-					fit(meter(u.FiveHour, u.Problem), cols[3]) + fit(meter(u.SevenDay, ""), cols[4]) +
+					usage(u) +
 					paint(cSub, cell(5, fmt.Sprintf("%d/%d", av.Live, av.Agents), true)) +
 					paint(cText, cell(6, money(av.Today), true)) + dim(cell(7, money(av.Spend), true))
 			}
-			out = append(out, row(i, mark+" "+line))
+			out = append(out, row(off+i, mark+" "+line))
 		}
-		if len(d.accounts) > 0 {
-			if d.cursor < len(d.accounts) {
-				out = append(out, "", rule(d.accounts[d.cursor].Name, "", w))
-				out = append(out, m.accountDetail(d.accounts[d.cursor], views[d.accounts[d.cursor].ConfigDir], w)...)
-			}
+		if c := d.cursor - off; c >= 0 && c < len(d.accounts) {
+			out = append(out, "", rule(d.accounts[c].Name, "", w))
+			out = append(out, m.accountDetail(d.accounts[c], views[d.accounts[c].ConfigDir], w)...)
+			out = append(out, "", keysFit(w, "a", "add account", "r", "rename", "l", "sign in", "d", "remove", "s", "stay/switch"))
+		} else {
+			out = append(out, "", keysFit(w, "enter", "switch to", "a", "add account", "r", "rename", "l", "sign in again", "d", "forget", "s", "stay/switch"))
 		}
-		out = append(out, "", keysFit(w, "enter", "use for new sessions", "a", "add", "r", "rename", "l", "sign in", "d", "remove"))
 	case tabAgents:
 		out = append(out, dim("New sessions start with"))
 		settings := m.agentSettings()

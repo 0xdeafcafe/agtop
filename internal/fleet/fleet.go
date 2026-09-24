@@ -174,6 +174,7 @@ type Snapshot struct {
 	At       time.Time
 	Agents   []*Agent
 	Accounts []AccountView
+	Logins   []LoginView
 	Machine  Machine
 	Table    *proc.Table
 }
@@ -499,6 +500,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		}
 		snap.Accounts = append(snap.Accounts, av)
 	}
+	if len(snap.Accounts) > 0 {
+		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
+	}
 	for k := range l.jobs {
 		if !seen[k] {
 			delete(l.jobs, k)
@@ -619,12 +623,17 @@ func (l *Loader) freshest(acct claude.Account, cached claude.Usage) claude.Usage
 	if !ok {
 		return cached.Since(time.Now())
 	}
-	if f.FetchedAt.After(cached.FetchedAt) {
-		f.Email, f.Org, f.Plan = cached.Email, cached.Org, cached.Plan
+	// A reading made before the folder was signed in as another account is
+	// that account's, not this one's.
+	other := f.AccountID != "" && cached.AccountID != "" && f.AccountID != cached.AccountID
+	if f.FetchedAt.After(cached.FetchedAt) && !other {
+		f.AccountID, f.Email, f.Org, f.Plan = cached.AccountID, cached.Email, cached.Org, cached.Plan
 		f.Role, f.Billing, f.OrgType, f.Extra = cached.Role, cached.Billing, cached.OrgType, cached.Extra
 		return f.Since(time.Now())
 	}
-	cached.Problem = f.Problem
+	if !other {
+		cached.Problem = f.Problem
+	}
 	return cached.Since(time.Now())
 }
 
