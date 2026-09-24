@@ -56,7 +56,11 @@ type tally struct {
 
 func (m *Model) tally() tally {
 	var t tally
-	for _, a := range m.snap.Agents {
+	agents := m.snap.Agents
+	if m.solo != "" {
+		agents = m.fleetAgents
+	}
+	for _, a := range agents {
 		switch {
 		case a.NeedsYou():
 			t.blocked++
@@ -105,7 +109,7 @@ func (m *Model) headH() int {
 // topH is the rows above the body: the header and the row under it. Zen
 // has none; it's only what needs you.
 func (m *Model) topH() int {
-	if m.zen || m.solo != "" {
+	if m.zen {
 		return 0
 	}
 	return m.headH() + 1
@@ -169,7 +173,11 @@ func (m *Model) header() []string {
 	// Text sits level with the head and face; the view strip on the legs.
 	out[1] = line(robot[1], left1, right1)
 	out[2] = line(robot[2], left2, right2)
-	out[3] = "  " + robot[3] + "   " + strings.Join(m.tabs(), " ") + m.pages() + faint("   , .")
+	places := faint("   , .")
+	if m.solo != "" {
+		places = faint("   ctrl+\\") // , and . stay text in solo
+	}
+	out[3] = "  " + robot[3] + "   " + strings.Join(m.tabs(), " ") + m.pages() + places
 	return out
 }
 
@@ -187,6 +195,8 @@ func (m *Model) pages() string {
 		names, cur = effPages, m.eff.page
 	case m.zen:
 		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
+	case m.solo != "":
+		return "" // no zen in solo
 	default:
 		return faint("   ctrl+z zen")
 	}
@@ -722,7 +732,7 @@ func (m *Model) paneH() int {
 
 func (m *Model) listView() string {
 	var head []string
-	if !m.zen && m.solo == "" {
+	if !m.zen {
 		head = append(m.header(), "")
 	}
 	listW, paneW, bodyH := m.layout()

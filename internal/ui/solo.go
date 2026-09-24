@@ -8,9 +8,10 @@ import (
 )
 
 // NewSolo is the view of one agtop-mode session alone, for embedding in
-// another app: its Session at full width, no Agents list, no header or
-// places, and no keys that lead anywhere else. id is the session's agtop
-// id. esc at the Session's top level and ctrl+q quit; the session's host
+// another app: agtop's header, then its Session at the whole width, with no
+// Agents list and no keys that lead to another agent. Efficiency, Machine
+// and Settings open with ctrl+\, and Agents is this session. id is the
+// session's agtop id. esc at the Session's top level and ctrl+q quit; the session's host
 // keeps running.
 func NewSolo(store *state.Store, version, id string) *Model {
 	m := New(store, version)
@@ -29,6 +30,7 @@ func (m *Model) loadSnap() *fleet.Snapshot {
 	if m.solo == "" {
 		return snap
 	}
+	m.fleetAgents = snap.Agents
 	s := *snap
 	s.Agents = nil
 	for _, a := range snap.Agents {
@@ -42,30 +44,41 @@ func (m *Model) loadSnap() *fleet.Snapshot {
 }
 
 // pinSolo keeps the solo view on its session, whatever a key or message
-// did to the selection.
+// did to the selection. Efficiency, Machine and Settings open as usual;
+// Agents is the one session.
 func (m *Model) pinSolo() {
 	if m.solo == "" {
+		return
+	}
+	m.zen, m.peekFrom = false, ""
+	if m.view != placeAgents {
 		return
 	}
 	if m.soloKey != "" {
 		m.sel, m.shown = m.soloKey, m.soloKey
 	}
 	m.preview, m.full, m.paneFocus = true, true, true
-	m.zen, m.peekFrom, m.view = false, "", placeAgents
 }
 
 // soloKeyGuard drops the keys that would leave the one session in solo:
-// places, zen, the command bar, tab between list and Session, ctrl+n to the
-// next agent. It says whether it took the key.
+// zen, the command bar, tab between list and Session, ctrl+n to the next
+// agent, and , . < > between places, which stay text. ctrl+\ still goes
+// to the next place. It says whether it took the key.
 func (m *Model) soloKeyGuard(s string) (tea.Cmd, bool) {
 	if m.solo == "" {
 		return nil, false
 	}
 	switch s {
-	case "ctrl+q":
+	case "ctrl+q", "ctrl+\\":
 		return nil, false
 	case "ctrl+z", "ctrl+n":
 		return nil, true
+	}
+	if m.placeStep(s) != 0 {
+		return nil, true
+	}
+	if m.view != placeAgents {
+		return nil, false // the place's own keys, tab through its pages included
 	}
 	if m.host == nil {
 		// Still opening: nothing to type into yet but the way out.
@@ -74,9 +87,6 @@ func (m *Model) soloKeyGuard(s string) (tea.Cmd, bool) {
 			return tea.Quit, true
 		}
 		return nil, s != "ctrl+c"
-	}
-	if m.placeStep(s) != 0 {
-		return nil, true
 	}
 	if s == "tab" {
 		if c := m.host; c != nil {

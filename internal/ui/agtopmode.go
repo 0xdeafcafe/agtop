@@ -1097,7 +1097,7 @@ func (m *Model) agtopPane(w, h int) []string {
 	bodyH := max(3, h-len(head)-len(dock))
 
 	o := convo.Options{Width: w, Now: time.Now(), Tick: m.tick, Open: c.open, Verbose: c.verbose,
-		Selected: c.sel, Focused: m.paneFocus}
+		Selected: c.sel, Focused: m.paneFocus, Wide: m.solo != ""}
 	var body []convo.Line
 	view := m.viewName(c)
 	if m.zen {
@@ -1335,7 +1335,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	// the right lines up with the conversation's own right edge.
 	alone := m.paneAlone()
 	hw := w
-	if alone {
+	if alone && m.solo == "" {
 		hw = min(w, maxPane-3)
 	}
 	title := faint("SESSION  ")

@@ -48,7 +48,7 @@
 go install github.com/0xdeafcafe/agtop/cmd/agtop@latest
 ```
 
-This needs Go 1.27.1 or newer. It puts `agtop` in `$(go env GOPATH)/bin`, so make sure that folder is on your `PATH`.
+This needs Go 1.27.1 or newer. It puts `agtop` in `$(go env GOPATH)/bin`, so make sure that folder is on your `PATH`. On Apple Silicon, check that `go env GOARCH` says `arm64`: an amd64 Go builds an x86_64 agtop that runs under Rosetta. From a checkout, `GOARCH=arm64 go build -o "$(go env GOPATH)/bin/agtop" ./cmd/agtop` builds it natively.
 
 ```sh
 agtop            # open it
@@ -212,7 +212,7 @@ agtop session list --json [--meta k=v]...
 
 A plugin can also arrange the Agents list for an embedding app: with the `sidebar` capability it sends sections and a name for each agent, keyed by Claude Code session id, and the list offers them as a group-by mode (`ctrl+s`, or `/by plugin:<name>`). The [`kanban`](plugins/examples/kanban) example shows the kanban-code board this way.
 
-`agtop open <id> --solo` is the view of that one session alone, at full width: no Agents list, no header or places, and the keys that lead to other agents or places (`, . < > ctrl+\ ctrl+z ctrl+n ctrl+k tab`) do nothing. The message box has the keys from the start. `esc` at the top level and `ctrl+q` close the view; the session keeps running. A stopped session shows its conversation and resumes with the first message.
+`agtop open <id> --solo` is the view of that one session alone, under agtop's header, with the Session at the terminal's whole width and no Agents list. `ctrl+\` opens Efficiency, Machine and Settings as usual, and Agents is the session again. The keys that lead to other agents or open the list (`, . < > ctrl+z ctrl+n ctrl+k tab`) do nothing. The message box has the keys from the start. `esc` at the top level and `ctrl+q` close the view; the session keeps running. A stopped session shows its conversation and resumes with the first message.
 
 ## And
 

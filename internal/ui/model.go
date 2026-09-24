@@ -204,6 +204,8 @@ type Model struct {
 	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
 	// its agent's key once the snapshot has it.
 	solo, soloKey string
+	// fleetAgents are every agent, which solo's header still counts.
+	fleetAgents []*fleet.Agent
 	// sidebars are the plugins' arrangements of the list, read from
 	// sidebarFiles; renamed holds the names an arrangement replaced.
 	sidebars     []plugin.Sidebar

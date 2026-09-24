@@ -86,6 +86,8 @@ Every method and event: [protocol](skills/write-agtop-plugin/references/protocol
 
 ## Examples
 
+On Apple Silicon, build with `GOARCH=arm64` if `go env GOARCH` says `amd64`: an x86_64 plugin can't start in the sandbox, which blocks Rosetta.
+
 - [`neighbours`](examples/neighbours) is the smallest useful plugin, and the one to read first: one tool that tells Claude which other agents are working in the same repository, and on which branch, so it doesn't trip over them. About 100 lines of Go, with only the `list` capability.
 
   ```sh

@@ -916,3 +916,21 @@ func TestNewestStepOpensAndWraps(t *testing.T) {
 		t.Fatalf("StepOpen(%q) disagrees with the drawing", ref)
 	}
 }
+
+// Wide lets a row's numbers run to the right edge of a wide pane instead of
+// stopping at capRow.
+func TestRenderWide(t *testing.T) {
+	widest := func(o Options) int {
+		w := 0
+		for _, l := range strings.Split(plain(session().Render(o)), "\n") {
+			w = max(w, cellw.String(strings.TrimRight(l, " ")))
+		}
+		return w
+	}
+	if w := widest(Options{Width: 200, Now: at(40)}); w > capRow {
+		t.Fatalf("rows ran to %d, past %d", w, capRow)
+	}
+	if w := widest(Options{Width: 200, Now: at(40), Wide: true}); w <= capRow || w > 200 {
+		t.Fatalf("wide rows ran to %d of 200", w)
+	}
+}

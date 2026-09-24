@@ -193,7 +193,7 @@ func snippet(text string, words []string) string {
 
 // SearchView draws the hits as rows, with the first word lit.
 func (s *Session) SearchView(q string, o Options) []Line {
-	w := min(o.Width, capRow)
+	w := min(o.Width, o.rowCap())
 	// The same query over an unchanged session gives the same hits.
 	key := fmt.Sprint(q, "\x00", s.stepVer, len(s.Turns), s.Last.UnixNano())
 	if s.searchKey != key {

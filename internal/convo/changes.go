@@ -217,7 +217,7 @@ var realPaths = struct {
 // ChangesView draws the session's own edits, then the working tree as git
 // sees it, with the files this session didn't touch marked as such.
 func (s *Session) ChangesView(o Options) []Line {
-	w := min(o.Width, capRow)
+	w := min(o.Width, o.rowCap())
 	d := drawer{s: s, t: &Turn{}, o: o, cw: w}
 	var out []Line
 	add := func(ref, left, right string) {
