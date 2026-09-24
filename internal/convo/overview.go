@@ -551,6 +551,23 @@ func (s *Session) Cost() float64 {
 }
 
 // LastWords is the first line of the latest thing the session said.
+// LastAnswer is Claude's n-th latest answer in full (1 is the last): the
+// last words of that turn.
+func (s *Session) LastAnswer(n int) string {
+	for i := len(s.Turns) - 1; i >= 0; i-- {
+		items := s.Turns[i].Items
+		for j := len(items) - 1; j >= 0; j-- {
+			if items[j].Kind == KText && strings.TrimSpace(items[j].Text) != "" {
+				if n--; n <= 0 {
+					return strings.TrimSpace(items[j].Text)
+				}
+				break
+			}
+		}
+	}
+	return ""
+}
+
 func (s *Session) LastWords() string {
 	for i := len(s.Turns) - 1; i >= 0; i-- {
 		items := s.Turns[i].Items

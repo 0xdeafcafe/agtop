@@ -823,6 +823,14 @@ func (d *drawer) answer(s string) {
 	}
 }
 
+// Answer draws text the way a turn's final words are drawn (headings,
+// lists, code and tables), w wide, for showing it outside the conversation.
+func (s *Session) Answer(text string, w int) []Line {
+	d := drawer{s: s, t: &Turn{}, o: Options{Width: w}, cw: min(w, capRow)}
+	d.answer(text)
+	return d.lines
+}
+
 // code draws a fenced code block highlighted in the language its fence
 // names (```go); a diff block colours its added and removed lines. A block
 // is drawn once and kept while it's in view.

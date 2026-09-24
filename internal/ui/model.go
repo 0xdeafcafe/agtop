@@ -88,6 +88,7 @@ type Model struct {
 	preview      bool
 	full         bool
 	previews     map[string]previewEntry
+	btws         map[string]*btwThread // agents' side threads (/btw), by key
 	live         *live
 	liveOpening  string
 	liveFailed   string
@@ -871,6 +872,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.embedded = true
 			}
 			m.host.txt.on = false // a click elsewhere drops what was dragged over
+			if m.clickBtw(m.host, msg.X, msg.Y) {
+				return m, nil
+			}
 			if !m.embedded && m.startTextSel(m.host, msg.X, msg.Y) {
 				return m, nil // a click on the text is one once it's released
 			}

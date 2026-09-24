@@ -160,7 +160,9 @@ func TestSlashQueueTasks(t *testing.T) {
 		}
 		return
 	}
-	if got := names(); len(got) != 4 || got[0] != "config" || got[1] != "compact" {
+	// agtop's and Claude Code's screens first, then the session's, then
+	// claude: ones that only have it inside.
+	if got := names(); len(got) < 5 || got[0] != "copy" || got[1] != "context" || got[2] != "config" || got[3] != "compact" || !strings.HasPrefix(got[len(got)-1], "claude:") {
 		t.Fatalf("matches for /co: %v", got)
 	}
 	c.input = []rune("/clea")
@@ -246,7 +248,7 @@ func TestClaudeScreensAndFork(t *testing.T) {
 		t.Error("/mcp with arguments should go to Claude")
 	}
 	c.input = []rune("/plug")
-	if got := slashMatches(c); len(got) != 1 || got[0].Name != "plugin" {
+	if got := slashMatches(c); len(got) == 0 || got[0].Name != "plugin" {
 		t.Fatalf("the picker should offer /plugin: %v", got)
 	}
 

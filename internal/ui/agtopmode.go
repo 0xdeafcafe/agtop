@@ -685,10 +685,13 @@ type hostConn struct {
 	box      box      // the message box as last drawn, and where
 	boxIdx   int
 	boxY     int
-	editQ    int    // queued message being edited in the box, +1; 0 when none
-	editWas  string // its text before editing
-	editHeld bool   // editing held the queue, to let go once it's saved
-	slashSel int    // the slash-command picker's selection
+	editQ    int                                         // queued message being edited in the box, +1; 0 when none
+	editWas  string                                      // its text before editing
+	editHeld bool                                        // editing held the queue, to let go once it's saved
+	slashSel int                                         // the slash-command picker's selection
+	sendRaw  bool                                        // send a / command agtop doesn't know as it is
+	asks     map[string]func(*Model, host.Reply) tea.Cmd // control requests out (askClaude)
+	askN     int
 	pastes   pastes // long pastes shown as chips
 	arts     []*artifact
 	marks    map[string]bool // files marked reviewed in the changes view
@@ -990,6 +993,7 @@ func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
 		return nil
 	}
 	now := time.Now()
+	var cmds []tea.Cmd
 	for _, l := range msg.lines {
 		ev, err := host.Decode(l)
 		if err != nil || ev == nil {
@@ -997,6 +1001,12 @@ func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
 		}
 		if st, ok := ev.(host.Stamp); ok {
 			now = st.At
+			continue
+		}
+		if r, ok := ev.(host.Reply); ok {
+			if cmd := m.onReply(c, r); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 			continue
 		}
 		c.sess.Apply(ev, now)
@@ -1008,9 +1018,9 @@ func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
 	if msg.closed {
 		_ = c.client.Close()
 		m.host = nil
-		return nil
+		return tea.Batch(cmds...)
 	}
-	return c.next()
+	return tea.Batch(append(cmds, c.next())...)
 }
 
 // --- drawing ---
@@ -1221,6 +1231,7 @@ func (m *Model) agtopPane(w, h int) []string {
 	for len(out) < h-len(dock) {
 		out = append(out, "")
 	}
+	m.btwOverlay(c, out, len(head), h-len(dock)-len(head), w)
 	c.boxY = m.paneTop + len(out) + c.boxIdx
 	return append(out, dock...)
 }
@@ -1506,8 +1517,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	default:
 		top += dim(" · enter sends")
 	}
-	typing := m.paneFocus && c.sel == "" && !c.cardFocus
+	bt := m.btwFor(c.key)
+	btwOn := bt != nil && bt.focused
+	typing := m.paneFocus && c.sel == "" && !c.cardFocus && !btwOn
 	switch {
+	case m.paneFocus && btwOn:
+		top = dim("asking on the side, above · esc returns here")
 	case m.paneFocus && c.cardFocus:
 		top = dim("answering the card above · esc returns here")
 	case m.paneFocus && c.memEdit:
@@ -1660,6 +1675,10 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if c == nil {
 		m.paneFocus = false
 		return nil
+	}
+	// The side thread (/btw) takes the keys while it has them.
+	if cmd, used := m.btwKey(c, k, s); used {
+		return cmd
 	}
 	empty := len(c.input) == 0
 	if s == "alt+c" && empty {
@@ -2115,6 +2134,13 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		if cmd, ok := m.runAgtopCommand(c, text); ok {
 			c.input, c.back = c.input[:0], 0
 			return cmd
+		}
+		if !c.sendRaw && m.askUnknown(c, text, func() tea.Cmd {
+			c.sendRaw = true
+			defer func() { c.sendRaw = false }()
+			return m.sendPane(c, now)
+		}) {
+			return nil
 		}
 	}
 	if m.askCold(c, text, func() tea.Cmd { return m.sendPane(c, now) }) {

@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -385,20 +387,43 @@ func (m *Model) taskLines(c *hostConn, o convo.Options) []convo.Line {
 
 // agtopCommands are handled by agtop itself rather than sent to Claude.
 // They keep Claude Code's / names; agtop's other commands take # (see
-// fleetCommands).
+// fleetCommands). Claude Code's that agtop already does its own way run
+// agtop's (/diff opens the changes view, /cd moves the agent, …).
 var agtopCommands = []headless.Command{
 	{Name: "clear", Description: "start a fresh session in the same folder (this one stays in the list)"},
 	{Name: "fork", Description: "carry on in a copy of this conversation, as a new agent (this one stays as it is)", ArgumentHint: "[name]"},
 	{Name: "rewind", Description: "go back to before one of your messages and try again; the path you leave is kept as a branch"},
 	{Name: "model", Description: "switch model for the next turn: /model opus, sonnet, haiku, fable", ArgumentHint: "<model>"},
 	{Name: "effort", Description: "change effort (applies from the next start): low, medium, high, xhigh, max", ArgumentHint: "<level>"},
+	{Name: "plan", Description: "plan mode on, or off again: Claude plans and asks before it changes anything"},
+	{Name: "diff", Description: "what changed: this session's edits and the working tree (the changes view)"},
+	{Name: "tasks", Description: "what's running in the background: subagents and their runs"},
+	{Name: "copy", Description: "copy Claude's last answer; /copy 2 the one before", ArgumentHint: "[n]"},
+	{Name: "rename", Description: "rename the agent, or type the new name", ArgumentHint: "[name]"},
+	{Name: "cd", Description: "move the agent to another folder, conversation intact", ArgumentHint: "[path]"},
+	{Name: "add-dir", Description: "give the agent another folder to work in (it restarts, conversation intact)", ArgumentHint: "<path>"},
+	{Name: "stop", Description: "stop the agent; its conversation stays, and a message wakes it"},
+	{Name: "background", Description: "leave it running in the background and go back to Agents"},
+	{Name: "resume", Description: "past conversations: they're in Agents, and a message carries one on"},
+	{Name: "help", Description: "a short guide to agtop"},
+	{Name: "btw", Description: "a side question in a panel over the chat (ctrl+b): not added to the conversation; ctrl+f makes it a chat of its own", ArgumentHint: "[question]"},
+	{Name: "export", Description: "the conversation as text: copy it, or save it to a file", ArgumentHint: "[file]"},
+	{Name: "subtask", Description: "send a subagent off with the task; Claude carries on, and reports back when it's done", ArgumentHint: "<task>"},
 }
 
-// claudeScreens are Claude Code's own screens, which headless Claude Code
-// can't show ("isn't available in this environment"). agtop hands the
-// terminal to Claude Code on that screen, and comes back when you leave it.
-// Given arguments, /mcp and /config go to Claude as usual.
+// agtopAliases are Claude Code's other names for commands agtop does.
+var agtopAliases = map[string]string{"bashes": "tasks", "bg": "background", "continue": "resume", "name": "rename",
+	"branch": "fork", "checkpoint": "rewind", "undo": "rewind", "reset": "clear", "new": "clear"}
+
+// claudeScreens are Claude Code's own screens. agtop draws most of them
+// itself (agtopScreens); the rest hand the terminal to Claude Code on that
+// screen, and come back when you leave it. Given arguments, /mcp and
+// /config go to Claude as usual.
 var claudeScreens = []headless.Command{
+	{Name: "status", Description: "this agent, its account, Claude Code's version and MCP servers"},
+	{Name: "context", Description: "what fills the context window, by category"},
+	{Name: "usage", Description: "the plan's 5-hour and weekly limits, and what's been spent"},
+	{Name: "stats", Description: "your history: activity by day, tokens by model, busiest hours"},
 	{Name: "skills", Description: "the skills and / commands Claude can use: search, use, edit"},
 	{Name: "plugin", Description: "installed plugins on/off, discover and install, marketplaces"},
 	{Name: "mcp", Description: "MCP servers: connect, sign in, tools"},
@@ -406,19 +431,88 @@ var claudeScreens = []headless.Command{
 	{Name: "permissions", Description: "allow and deny rules for tools"},
 	{Name: "memory", Description: "memory, CLAUDE.md and the other files Claude reads (the memory view)"},
 	{Name: "config", Description: "Claude Code's settings (Settings › Claude)"},
-	{Name: "status", Description: "version, account, model and connections"},
 	{Name: "statusline", Description: "build status lines: this header, agtop's top bar, and Claude Code's"},
-	{Name: "privacy-settings", Description: "privacy settings"},
-	{Name: "install-github-app", Description: "set up Claude on GitHub Actions for a repo"},
-	{Name: "release-notes", Description: "what's new in Claude Code"},
-	{Name: "feedback", Description: "send feedback about Claude Code"},
 }
 
 // agtopScreens are the ones agtop draws itself (agtopScreen).
-var agtopScreens = map[string]bool{"plugin": true, "skills": true, "memory": true, "config": true, "statusline": true, "permissions": true, "hooks": true}
+var agtopScreens = map[string]bool{"status": true, "context": true, "usage": true, "stats": true, "plugin": true, "skills": true,
+	"memory": true, "config": true, "statusline": true, "permissions": true, "hooks": true}
 
 // screenAliases are other names Claude Code takes for the same screens.
-var screenAliases = map[string]string{"plugins": "plugin", "bug": "feedback", "settings": "config"}
+var screenAliases = map[string]string{"plugins": "plugin", "marketplace": "plugin", "settings": "config", "cost": "usage",
+	"allowed-tools": "permissions", "version": "status"}
+
+// claudeCloud are Claude Code's screens for your account and Claude's
+// cloud, which agtop leaves to Claude Code: named claude:<name> in the
+// picker, they open a real Claude Code after saying so (claudeSheet).
+var claudeCloud = []headless.Command{
+	{Name: "login", Description: "sign in to an Anthropic account"},
+	{Name: "logout", Description: "sign out"},
+	{Name: "upgrade", Description: "upgrade the plan for higher limits"},
+	{Name: "usage-credits", Description: "usage credits past the limits, or ask your admin for them"},
+	{Name: "rate-limit-options", Description: "what to do when a limit is reached"},
+	{Name: "privacy-settings", Description: "privacy settings"},
+	{Name: "setup-bedrock", Description: "Amazon Bedrock sign-in, region and models"},
+	{Name: "setup-vertex", Description: "Google Vertex AI sign-in, project, region and models"},
+	{Name: "teleport", Description: "send a session to the cloud, or bring one back from claude.ai"},
+	{Name: "remote-control", Description: "drive a session from claude.ai or the app"},
+	{Name: "session", Description: "a cloud session's URL and QR code"},
+	{Name: "remote-env", Description: "the default environment for cloud agents"},
+	{Name: "web-setup", Description: "cloud sessions with your GitHub account"},
+	{Name: "cloud-plugins", Description: "whether cloud sessions use this machine's plugins"},
+	{Name: "desktop", Description: "carry on in Claude Desktop"},
+	{Name: "mobile", Description: "a QR code for the Claude app"},
+	{Name: "ultraplan", Description: "plan in the cloud"},
+	{Name: "ultrareview", Description: "a deep multi-agent review in the cloud"},
+	{Name: "autofix-pr", Description: "watch a pull request and fix what fails"},
+	{Name: "install-github-app", Description: "Claude on GitHub Actions for a repo"},
+	{Name: "install-slack-app", Description: "the Claude Slack app"},
+	{Name: "design-login", Description: "design-system access for /design-sync"},
+	{Name: "design-consent", Description: "let Claude reach your Design projects"},
+	{Name: "design-revoke", Description: "take that back"},
+	{Name: "artifacts", Description: "browse your published and shared artifacts"},
+	{Name: "workflows", Description: "browse running and completed workflows"},
+	{Name: "daemon", Description: "Claude Code's background services and routines"},
+}
+
+// cloudAliases are Claude Code's other names for claudeCloud's.
+var cloudAliases = map[string]string{"extra-usage": "usage-credits", "tp": "teleport", "rc": "remote-control", "remote": "session",
+	"app": "desktop", "ios": "mobile", "android": "mobile"}
+
+// claudeCloudName is the claudeCloud command name is, by any of its names
+// (login, claude:login, tp).
+func claudeCloudName(name string) (string, bool) {
+	name = strings.TrimPrefix(name, "claude:")
+	if n, ok := cloudAliases[name]; ok {
+		name = n
+	}
+	return name, slices.ContainsFunc(claudeCloud, func(c headless.Command) bool { return c.Name == name })
+}
+
+// claudeCloudPicks is claudeCloud as the picker offers it: claude:login.
+var claudeCloudPicks = func() []headless.Command {
+	var out []headless.Command
+	for _, c := range claudeCloud {
+		c.Name = "claude:" + c.Name
+		out = append(out, c)
+	}
+	return out
+}()
+
+// offCommands are Claude Code's that do nothing in agtop, and why: its own
+// terminal's, the odds and ends, and the ones agtop hasn't done yet. They
+// stay out of the picker, and say so when typed.
+var offCommands = func() map[string]string {
+	out := map[string]string{}
+	for _, n := range strings.Fields("theme color tui scroll-speed focus brief terminal-setup voice keybindings ide chrome exit quit vim") {
+		out[n] = "it's for Claude Code's own terminal"
+	}
+	for _, n := range strings.Fields("release-notes feedback bug share update install import powerup wellbeing breaks break-reminder downtime stickers radio heapdump passes agents plugin-types workflow-launch-exec") {
+		out[n] = "agtop leaves it out"
+	}
+	out["loops"] = "Claude Code has it switched off; ask Claude to /loop instead"
+	return out
+}()
 
 // claudeScreen is the Claude Code screen a command opens, if it's one.
 func claudeScreen(name string) (string, bool) {
@@ -462,6 +556,7 @@ func slashMatches(c *hostConn) []headless.Command {
 	lists := [][]headless.Command{c.sess.Commands, c.local}
 	if start == 0 {
 		lists = append([][]headless.Command{agtopCommands, claudeScreens}, lists...)
+		lists = append(lists, claudeCloudPicks)
 	}
 	var out []headless.Command
 	seen := map[string]bool{}
@@ -475,10 +570,18 @@ func slashMatches(c *hostConn) []headless.Command {
 	}
 	for _, list := range lists {
 		for _, cmd := range list {
-			if seen[cmd.Name] {
+			// What agtop leaves out or leaves to Claude Code isn't offered
+			// under Claude Code's own name.
+			_, cloud := claudeCloudName(cmd.Name)
+			if seen[cmd.Name] || offCommands[cmd.Name] != "" || cloud && !strings.HasPrefix(cmd.Name, "claude:") {
 				continue
 			}
-			if strings.Contains(strings.ToLower(cmd.Name), q) {
+			// claude:login is found by login, or by claude: itself.
+			name := strings.ToLower(cmd.Name)
+			if !strings.HasPrefix(q, "claude:") {
+				name = strings.TrimPrefix(name, "claude:")
+			}
+			if strings.Contains(name, q) {
 				seen[cmd.Name] = true
 				out = append(out, cmd)
 			}
@@ -486,7 +589,7 @@ func slashMatches(c *hostConn) []headless.Command {
 	}
 	// What you typed exactly, then names starting with it, then the rest.
 	rank := func(c headless.Command) int {
-		n := strings.ToLower(c.Name)
+		n := strings.TrimPrefix(strings.ToLower(c.Name), "claude:")
 		switch {
 		case n == q || screenAliases[q] == c.Name:
 			return 0
@@ -587,7 +690,7 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 			return paint(cOrange, " agtop")
 		case st == 0 && agtopScreens[name]:
 			return paint(cOrange, " agtop")
-		case st == 0 && slices.ContainsFunc(claudeScreens, func(a headless.Command) bool { return a.Name == name }):
+		case st == 0 && (strings.HasPrefix(name, "claude:") || slices.ContainsFunc(claudeScreens, func(a headless.Command) bool { return a.Name == name })):
 			return paint(cSub, " claude code ↗")
 		case c.skills[name]:
 			return paint(cBlue, " skill")
@@ -696,6 +799,17 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 	name, arg, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(text), "/"), " ")
 	arg = strings.TrimSpace(arg)
 	a := m.agentByKey(c.key)
+	if n, ok := agtopAliases[name]; ok {
+		name = n
+	}
+	if why := offCommands[name]; why != "" {
+		m.flash("/"+name+" isn't in agtop: "+why, true)
+		return nil, true
+	}
+	if cloud, ok := claudeCloudName(name); ok && a != nil {
+		m.sheet = &claudeSheet{conn: c.key, line: strings.TrimSpace(cloud + " " + arg)}
+		return nil, true
+	}
 	switch name {
 	case "done":
 		// Putting it away closes its conversation rather than showing the
@@ -725,17 +839,89 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.startHosted("", a.Cwd), true
-	case "fork", "branch":
+	case "fork":
 		if a == nil {
 			return nil, true
 		}
 		m.openFork(c, a, arg)
 		return nil, true
-	case "rewind", "checkpoint", "undo":
+	case "rewind":
 		if a == nil {
 			return nil, true
 		}
 		return m.openRewind(c, a), true
+	case "plan":
+		if c.client == nil {
+			m.flash("/plan works in agtop-mode sessions · /agtop moves this one over", true)
+			return nil, true
+		}
+		mode := "plan"
+		if c.sess.Info.PermissionMode == "plan" || arg == "off" {
+			mode = "default"
+		}
+		c.sess.Info.PermissionMode = mode
+		m.flash("permissions: "+mode, false)
+		cl := c.client
+		return hostCmd(func() error { return cl.SetPermissionMode(mode) }), true
+	case "diff":
+		if !m.showView(c, "changes") {
+			m.flash("no changes view for this agent", true)
+		}
+		return nil, true
+	case "tasks":
+		if !m.showView(c, "subagents") && !m.showView(c, "tasks") {
+			m.flash("nothing running in the background", false)
+		}
+		return nil, true
+	case "copy":
+		n := 1
+		if v, err := strconv.Atoi(arg); err == nil && v > 0 {
+			n = v
+		}
+		t := c.sess.LastAnswer(n)
+		if t == "" {
+			m.flash("no answer to copy yet", true)
+			return nil, true
+		}
+		m.copyText(t)
+		m.flash(fmt.Sprintf("copied Claude's answer · %d lines", strings.Count(t, "\n")+1), false)
+		return nil, true
+	case "rename", "stop", "add-dir", "help":
+		if a == nil {
+			return nil, true
+		}
+		return m.command(a, strings.TrimSpace("#"+name+" "+arg)), true
+	case "cd":
+		if a == nil {
+			return nil, true
+		}
+		if arg == "" {
+			m.openCwd(a)
+			return nil, true
+		}
+		return m.command(a, "#cd "+arg), true
+	case "btw":
+		return m.openBtw(c, arg), true
+	case "export":
+		dir := c.sess.Info.Cwd
+		if a != nil {
+			dir = firstNonEmpty(dir, a.Cwd)
+		}
+		return m.openExport(c, dir, arg), true
+	case "subtask":
+		if arg == "" {
+			m.flash("what's the task? /subtask <task>", true)
+			return nil, true
+		}
+		return m.sendAs(c, subtaskPrompt(arg)), true
+	case "background":
+		m.leavePane()
+		m.flash("it carries on in the background · it's in Agents", false)
+		return nil, true
+	case "resume":
+		m.leavePane()
+		m.flash("past conversations are in Agents: pick one, and a message carries it on", false)
+		return nil, true
 	case "model":
 		if c.client == nil {
 			m.flash("/model works in agtop-mode sessions · /agtop moves this one over", true)
@@ -758,6 +944,39 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		return m.openScreen(c, a, screen), true
 	}
 	return nil, false
+}
+
+// cmdName is a / command's name as Claude Code takes it: not a path.
+var cmdName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_:.-]*$`)
+
+// askUnknown asks what to do with a / command that neither agtop nor this
+// session knows, which headless Claude Code would only answer with "isn't
+// available in this environment": most likely it's one of Claude Code's
+// own screens. y opens Claude Code on it (esc, then ctrl+c twice, comes
+// back); n sends it to Claude as a message, by send.
+func (m *Model) askUnknown(c *hostConn, text string, send func() tea.Cmd) bool {
+	a := m.agentByKey(c.key)
+	// Claude Code sessions are typed into, and know their own commands;
+	// until the session has said which it has, there's nothing to go by.
+	if a == nil || c.client == nil || len(c.sess.Commands) == 0 {
+		return false
+	}
+	line := strings.TrimSpace(strings.TrimPrefix(text, "/"))
+	name, _, _ := strings.Cut(line, " ")
+	if strings.Contains(line, "\n") || !cmdName.MatchString(name) {
+		return false
+	}
+	m.loadLocal(c)
+	if _, ok := claudeCloudName(name); ok || offCommands[name] != "" || agtopAliases[name] != "" || screenAliases[name] != "" {
+		return false
+	}
+	for _, list := range [][]headless.Command{agtopCommands, claudeScreens, c.sess.Commands, c.local} {
+		if slices.ContainsFunc(list, func(k headless.Command) bool { return strings.EqualFold(k.Name, name) }) {
+			return false
+		}
+	}
+	m.sheet = &unknownSheet{conn: c.key, line: line, send: send}
+	return true
 }
 
 // agtopScreen is agtop's own take on one of Claude Code's screens, where it
@@ -784,6 +1003,18 @@ func (m *Model) agtopScreen(c *hostConn, a *fleet.Agent, screen string) (tea.Cmd
 		return nil, true
 	case "hooks":
 		return m.openHooks(c, a), true
+	case "status":
+		m.openInfo(c, infoStatus)
+		return nil, true
+	case "context":
+		m.openInfo(c, infoContext)
+		return nil, true
+	case "usage":
+		m.openInfo(c, infoUsage)
+		return nil, true
+	case "stats":
+		m.openInfo(c, infoHistory)
+		return nil, true
 	}
 	return nil, false
 }
