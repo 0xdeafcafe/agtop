@@ -125,8 +125,10 @@ func main() {
 		debug.SetMemoryLimit(128 << 20)
 	}
 	p := tea.NewProgram(ui.New(state.Load(), version), tea.WithFPS(120))
+	here := menubar.Here() // so the menu bar app comes back to this terminal
 	var err error
 	profiled(func() { _, err = p.Run() })
+	here()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "agtop:", err)
 		os.Exit(1)
@@ -273,7 +275,7 @@ func menuBar(args []string) error {
 	case len(args) > 0 && args[0] == "feed":
 		return menubar.Feed(os.Stdin, os.Stdout)
 	case len(args) > 0 && args[0] == "off":
-		st.Config.MenuBar = false
+		st.Config.MenuBar, st.Config.MenuBarAsked = false, true
 		menubar.Stop()
 		menubar.Forget()
 		fmt.Println("off — the menu bar icon is gone")
@@ -285,7 +287,7 @@ func menuBar(args []string) error {
 	if err := menubar.Start(); err != nil {
 		return err
 	}
-	st.Config.MenuBar = true
+	st.Config.MenuBar, st.Config.MenuBarAsked = true, true
 	fmt.Println("on — agtop is in your menu bar. Its menu can open it at login.")
 	return st.SaveConfig()
 }

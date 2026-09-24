@@ -11,6 +11,8 @@ func TestBuildApp(t *testing.T) {
 		t.Skip("set AGTOP_BUILD_APP=1 to build the Swift app")
 	}
 	t.Setenv("AGTOP_HOME", t.TempDir())
+	// Building registers the app; this one mustn't stand in for the real one.
+	t.Cleanup(func() { _ = exec.Command(lsregister, "-u", AppPath()).Run() })
 	if rebuilt, err := buildApp(); err != nil || !rebuilt {
 		t.Fatal(rebuilt, err)
 	}

@@ -284,13 +284,15 @@ func (m *Model) startView() tea.Cmd {
 		m.askView()
 		return nil
 	}
-	return m.openView()
+	cmd := m.openView()
+	m.askMenuBar()
+	return cmd
 }
 
-// startMenuBar opens the menu bar icon when it's on and not running,
-// building it first if agtop changed since.
+// startMenuBar opens the menu bar icon when it's on, building it first if
+// agtop changed since; one left running by an older agtop is replaced.
 func (m *Model) startMenuBar() tea.Cmd {
-	if !m.store.Config.MenuBar || m.offline || menubar.Running() {
+	if !m.store.Config.MenuBar || m.offline {
 		return nil
 	}
 	return hostCmd(menubar.Start)
@@ -609,6 +611,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.fetchUsage(), m.findLogins())
 		}
 		m.clkBeat(m.mood(m.tally()))
+		if k := menubar.Goto(); k != "" && m.agentByKey(k) != nil {
+			m.sel = k // a notification or the menu bar's menu was clicked
+			m.rebuild()
+		}
 		cmds = append(cmds, m.loadPreview())
 		if m.tick%2 == 0 {
 			cmds = append(cmds, m.loadLivePreviews())

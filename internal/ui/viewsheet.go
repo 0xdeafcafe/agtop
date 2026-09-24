@@ -54,7 +54,9 @@ func (v *viewSheet) pick(m *Model) tea.Cmd {
 	m.sheet = nil
 	m.store.Config.SetView(viewChoices[v.cur].key)
 	_ = m.store.SaveConfig()
-	return m.openView()
+	cmd := m.openView()
+	m.askMenuBar()
+	return cmd
 }
 
 // openView puts the kept layout on screen as agtop opens: the Session

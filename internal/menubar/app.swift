@@ -270,7 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             menu.addItem(.sectionHeader(title: "Needs You"))
             for w in waiting {
                 menu.addItem(view(RowView(title: w.name, detail: w.text ?? w.needs, trailing: ago(w.since),
-                                          dot: .systemOrange, action: { [weak self] in self?.openAgtop() })))
+                                          dot: .systemOrange, action: { [weak self] in self?.show(w.key) })))
                 for (label, op) in actions(w) {
                     let i = NSMenuItem(title: label, action: #selector(answerFromMenu(_:)), keyEquivalent: "")
                     i.target = self
@@ -285,7 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             menu.addItem(.sectionHeader(title: "Working"))
             for w in working {
                 menu.addItem(view(RowView(title: w.name, detail: w.doing, trailing: ago(w.since),
-                                          dot: .systemGreen, action: { [weak self] in self?.openAgtop() })))
+                                          dot: .systemGreen, action: { [weak self] in self?.show(w.key) })))
             }
             if let more = state.more, more > 0 { menu.addItem(view(RowView(title: "", detail: "and \(more) more"))) }
         }
@@ -352,7 +352,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         send(op)
     }
 
-    @objc func openAgtop() {
+    @objc func openAgtop() { show(nil) }
+
+    /// show brings agtop forward, on the agent key: the feed finds the
+    /// terminal it's open in, or opens it in the one it last was.
+    func show(_ key: String?) {
+        if input != nil {
+            send(["op": "show", "key": key ?? ""])
+            return
+        }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         p.arguments = [bin]
@@ -446,7 +454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         DispatchQueue.main.async { [self] in
             defer { done() }
             if action == UNNotificationDefaultActionIdentifier {
-                openAgtop()
+                show(key)
                 return
             }
             // The buttons were made from the wait as it was; answer it only

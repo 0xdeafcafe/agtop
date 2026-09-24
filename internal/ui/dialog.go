@@ -432,7 +432,7 @@ func (m *Model) generalSettings() []setting {
 		}},
 		{"Notify when an agent needs you", notify, []string{"on", "off"}, func(v string) { c.Quiet = v == "off" }},
 		{"Menu bar icon", menuBar, []string{"on", "off"}, func(v string) {
-			c.MenuBar = v == "on"
+			c.MenuBar, c.MenuBarAsked = v == "on", true
 			if !c.MenuBar {
 				menubar.Stop()
 			}

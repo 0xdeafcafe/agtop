@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"runtime"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -124,6 +125,7 @@ func TestViewKept(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
+	m.store.Config.MenuBarAsked = true
 	for _, want := range []string{"agent", "list", "split"} {
 		m.command(a, "#view "+want)
 		saved := state.Load()
@@ -141,6 +143,7 @@ func TestViewAsked(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
+	m.store.Config.MenuBarAsked = true
 	m.startView()
 	if _, ok := m.sheet.(*viewSheet); !ok {
 		t.Fatalf("the first time should ask which layout")
@@ -152,7 +155,7 @@ func TestViewAsked(t *testing.T) {
 	}
 
 	old := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
-	old.store.Config.ListOnly = true
+	old.store.Config.ListOnly, old.store.Config.MenuBarAsked = true, true
 	old.startView()
 	if old.sheet != nil || old.viewNow() != "list" {
 		t.Fatalf("Agents alone kept from before shouldn't ask: %s", old.viewNow())
@@ -201,5 +204,28 @@ func TestPeekFromSession(t *testing.T) {
 	m.key(esc)
 	if m.peeking() {
 		t.Fatalf("closing a split Session isn't a peek")
+	}
+}
+
+// On a Mac, once the layout's picked, agtop offers the menu bar icon, once.
+func TestMenuBarAsked(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the menu bar is macOS only")
+	}
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	a := &fleet.Agent{Key: "a"}
+	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
+	m.startView()
+	m.key(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if _, ok := m.sheet.(*menuBarSheet); !ok {
+		t.Fatalf("after the layout it should offer the menu bar")
+	}
+	m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.sheet != nil || m.store.Config.MenuBar || !state.Load().Config.MenuBarAsked {
+		t.Fatalf("not now should keep it off and not ask again: %+v", m.store.Config)
+	}
+	m.startView()
+	if m.sheet != nil {
+		t.Fatalf("it asks only once")
 	}
 }

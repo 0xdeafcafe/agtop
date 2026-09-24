@@ -164,7 +164,7 @@ func buildApp() (rebuilt bool, err error) {
 			return false, err
 		}
 	}
-	if err := os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte(fmt.Sprintf(plist, BundleID, xmlEscape(bin))), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte(fmt.Sprintf(plist, BundleID, time.Now().Unix(), xmlEscape(bin))), 0o644); err != nil {
 		return false, err
 	}
 	// Notifications need a signed app; an ad-hoc signature is enough on
@@ -172,6 +172,10 @@ func buildApp() (rebuilt bool, err error) {
 	if out, err := exec.Command("/usr/bin/codesign", "--force", "--sign", "-", app).CombinedOutput(); err != nil {
 		return false, fmt.Errorf("signing the menu bar app: %v\n%s", err, out)
 	}
+	// Launch Services and Notification Center keep an app's icon by its
+	// path and version; a new version, registered again, has them take
+	// this build's (an older build may have had none).
+	_ = exec.Command(lsregister, "-f", app).Run()
 	return true, os.WriteFile(stampPath, []byte(stamp), 0o644)
 }
 
@@ -182,6 +186,8 @@ func tiles() bool {
 	major, _ := strconv.Atoi(strings.SplitN(strings.TrimSpace(string(out)), ".", 2)[0])
 	return major >= 26
 }
+
+const lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 // Forget stops the app opening at login.
 func Forget() {
@@ -204,7 +210,7 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 	<key>CFBundleIconFile</key><string>AppIcon</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0</string>
-	<key>CFBundleVersion</key><string>1</string>
+	<key>CFBundleVersion</key><string>%d</string>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>LSUIElement</key><true/>
 	<key>AgtopBinary</key><string>%s</string>

@@ -79,6 +79,8 @@ type Config struct {
 	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitempty"`
+	// MenuBarAsked is set once agtop has offered the menu bar icon.
+	MenuBarAsked bool `json:"menuBarAsked,omitempty"`
 	// Onboarding is how far a new user has got: the Getting started steps
 	// they've done, which one-time tips have shown, and whether they've put
 	// Getting started away.

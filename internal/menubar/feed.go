@@ -81,7 +81,7 @@ type Waiting struct {
 
 // Op is something the app asks the feed to do.
 type Op struct {
-	Op     string `json:"op"` // answer, allow, deny, limit
+	Op     string `json:"op"` // answer, allow, deny, limit, show
 	Key    string `json:"key"`
 	Req    string `json:"req,omitempty"`
 	Answer string `json:"answer,omitempty"` // an option's label or your own words
@@ -122,6 +122,12 @@ func Feed(in io.Reader, out io.Writer) error {
 		for sc.Scan() {
 			var o Op
 			if json.Unmarshal(sc.Bytes(), &o) != nil {
+				continue
+			}
+			if o.Op == "show" {
+				if err := Show(o.Key); err != nil {
+					errs <- "opening agtop: " + err.Error()
+				}
 				continue
 			}
 			mu.Lock()
