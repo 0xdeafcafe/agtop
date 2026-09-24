@@ -693,6 +693,7 @@ type hostConn struct {
 	asks     map[string]func(*Model, host.Reply) tea.Cmd // control requests out (askClaude)
 	askN     int
 	pastes   pastes // long pastes shown as chips
+	undo     undoStack
 	arts     []*artifact
 	marks    map[string]bool // files marked reviewed in the changes view
 	bodyBuf  []convo.Line    // the conversation\'s lines, reused frame to frame
@@ -1531,7 +1532,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		top = dim("typing returns here · ↓ past the last row or esc")
 	}
 	b := box{w: w, focused: typing, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back), anchor: c.anchor - 1,
-		lead: paint(cOrange, "❯ "), holder: "a message for this agent", maxRows: 6}
+		lead: paint(cOrange, "❯ "), holder: "a message for this agent · ctrl+r for past drafts", maxRows: 6}
 	if mode := s.Info.PermissionMode; mode != "" {
 		b.topR = paint(cOrange, mode)
 	}
@@ -1750,7 +1751,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "esc":
 		switch {
 		case !empty:
-			c.input, c.back = c.input[:0], 0
+			m.wipeBox(c)
 		case c.txt.on:
 			c.txt = textSel{} // first esc drops the dragged-over text
 		case c.sel != "":
@@ -1773,7 +1774,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.copyText(selectedText(c.shown, c.txt.a, c.txt.b, c.paneW))
 			return nil
 		case !empty:
-			c.input, c.back, c.anchor = c.input[:0], 0, 0
+			m.wipeBox(c)
 			return nil
 		default:
 			return m.quitKey()
@@ -1859,6 +1860,16 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.moveSel(c, map[string]int{"up": -1, "down": 1}[s])
 			return nil
 		}
+		m.boxVert(c, map[string]int{"up": -1, "down": 1}[s], false)
+		return nil
+	case "shift+up", "shift+down":
+		if !empty {
+			m.boxVert(c, map[string]int{"shift+up": -1, "shift+down": 1}[s], true)
+			return nil
+		}
+	case "ctrl+r":
+		m.openDrafts(c)
+		return nil
 	case "space":
 		if empty && c.sel != "" {
 			c.open[c.sel] = !m.isOpen(c, c.sel)
@@ -1978,13 +1989,23 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if s == "ctrl+g" {
 		return editDraft(&c.pastes, c.input, true)
 	}
+	if m.undoKey(c, s) {
+		return nil
+	}
 	if (s == "backspace" || s == "ctrl+h") && c.anchor == 0 {
 		if buf, pos, ok := dropChip(c.input, len(c.input)-c.back); ok {
+			c.undo.save(c.input, c.back, false)
 			c.input, c.back = buf, len(buf)-pos
 			return nil
 		}
 	}
+	was, wasBack := c.input, c.back
 	buf, pos, anchor, copied, _ := editSel(c.input, max(0, len(c.input)-c.back), c.anchor-1, k, s)
+	if !slices.Equal(was, buf) {
+		// A run of letters typed is one step to undo; a space, a delete or
+		// anything else starts the next.
+		c.undo.save(was, wasBack, k.Text != "" && k.Text != " " && anchor < 0 && c.anchor == 0)
+	}
 	c.input, c.back, c.anchor = buf, len(buf)-pos, anchor+1
 	if s == "space" || s == "enter" {
 		// A path you typed to an image becomes an attachment once it's done.
@@ -2151,7 +2172,9 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	if rest, imgs := extractImages(text); imgs != nil {
 		images, text = append(images, imgs...), rest
 	}
-	c.input, c.back, c.images = c.input[:0], 0, nil
+	m.keepSent(c, text)
+	c.input, c.back, c.images = nil, 0, nil
+	c.undo = undoStack{}
 	if strings.HasPrefix(c.sel, "img:") {
 		c.sel = ""
 	}

@@ -18,8 +18,8 @@ import (
 // edit applies one text-editing key to buf with the cursor at pos, and says
 // whether the key was an editing key. It gives every input the same keys:
 // words with ctrl or alt and the arrows or backspace, the line with
-// cmd+backspace or ctrl+u and ctrl+k, and new lines with shift+enter,
-// alt+enter or ctrl+j.
+// cmd+backspace or ctrl+u and ctrl+k, its ends with cmd+← →, the whole
+// text's with cmd+↑ ↓, and new lines with shift+enter, alt+enter or ctrl+j.
 func edit(buf []rune, pos int, k tea.KeyPressMsg, s string) ([]rune, int, bool) {
 	pos = max(0, min(pos, len(buf)))
 	switch s {
@@ -35,6 +35,10 @@ func edit(buf []rune, pos int, k tea.KeyPressMsg, s string) ([]rune, int, bool) 
 		return buf, lineStart(buf, pos), true
 	case "end", "ctrl+e", "super+right":
 		return buf, lineEnd(buf, pos), true
+	case "super+up", "ctrl+home":
+		return buf, 0, true
+	case "super+down", "ctrl+end":
+		return buf, len(buf), true
 	case "backspace", "ctrl+h", "shift+backspace":
 		if pos == 0 {
 			return buf, pos, true
@@ -164,7 +168,7 @@ func editSel(buf []rune, pos, anchor int, k tea.KeyPressMsg, s string) (nbuf []r
 	if strings.HasPrefix(s, "shift+") || strings.HasPrefix(s, "ctrl+shift+") || strings.HasPrefix(s, "alt+shift+") {
 		move := strings.NewReplacer("shift+", "").Replace(s)
 		switch move {
-		case "left", "right", "home", "end", "ctrl+left", "ctrl+right", "alt+left", "alt+right", "super+left", "super+right":
+		case "left", "right", "home", "end", "ctrl+left", "ctrl+right", "alt+left", "alt+right", "super+left", "super+right", "super+up", "super+down":
 			if anchor < 0 {
 				anchor = pos
 			}

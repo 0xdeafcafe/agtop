@@ -20,7 +20,9 @@ import (
 )
 
 func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
-	s := k.String()
+	// cmd arrives as super from terminals speaking the kitty protocol, and
+	// as meta from those sending xterm's modifiers: both are cmd here.
+	s := strings.ReplaceAll(k.String(), "meta+", "super+")
 	m.hover = "" // the keyboard takes over from the mouse
 	if m.host != nil {
 		m.host.subHover = ""
@@ -103,7 +105,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		if len(m.input) > 0 {
-			m.input, m.back, m.anchor = m.input[:0], 0, 0
+			m.clearPrompt()
 			return nil
 		}
 		return m.quitKey()
@@ -341,7 +343,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "esc":
 		switch {
 		case !empty:
-			m.input = m.input[:0]
+			m.clearPrompt()
 			if m.inKind != inReply {
 				m.inKind = inPrompt
 			}
@@ -746,6 +748,12 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	}
 	m.didStep("hash")
 	switch name {
+	case "drafts":
+		var c *hostConn
+		if m.paneFocus {
+			c = m.host
+		}
+		m.openDrafts(c)
 	case "tips":
 		o := &m.store.Config.Onboarding
 		if strings.TrimSpace(arg) == "off" {

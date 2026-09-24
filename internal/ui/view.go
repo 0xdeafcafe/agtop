@@ -2019,6 +2019,8 @@ var helpPages = []struct {
 		{"ctrl+l", "pick its folder"},
 		{"#", "agtop commands"},
 		{"/", "Claude commands"},
+		{"⌘z · ctrl+/", "undo in a box, a cleared one too"},
+		{"#drafts", "what you typed before · ctrl+r in a Session"},
 	}},
 	{"▤ Agents", [][2]string{
 		{"↑↓", "pick one"},

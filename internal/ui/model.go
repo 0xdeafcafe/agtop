@@ -781,6 +781,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				text = c.pastes.add(text)
 			}
 			pos := max(0, len(c.input)-c.back)
+			c.undo.save(c.input, c.back, false)
 			c.input = insert(c.input, pos, []rune(text))
 			return m, nil
 		}
