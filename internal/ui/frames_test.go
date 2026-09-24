@@ -28,7 +28,7 @@ func TestDumpFrames(t *testing.T) {
 		frame(name, m)
 		m.paneFocus = false
 		frame(name+" list focus", m)
-		m.input = []rune("/re")
+		m.input = []rune("#re")
 		frame(name+" command", m)
 		m.input = []rune(strings.Repeat("a long message that wraps ", 30))
 		frame(name+" long input", m)

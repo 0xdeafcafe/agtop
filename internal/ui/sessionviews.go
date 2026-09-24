@@ -372,11 +372,12 @@ func (m *Model) taskLines(c *hostConn, o convo.Options) []convo.Line {
 // --- slash commands ---
 
 // agtopCommands are handled by agtop itself rather than sent to Claude.
+// They keep Claude Code's / names; agtop's other commands take # (see
+// fleetCommands).
 var agtopCommands = []headless.Command{
 	{Name: "clear", Description: "start a fresh session in the same folder (this one stays in the list)"},
 	{Name: "model", Description: "switch model for the next turn: /model opus, sonnet, haiku, fable", ArgumentHint: "<model>"},
 	{Name: "effort", Description: "change effort (applies from the next start): low, medium, high, xhigh, max", ArgumentHint: "<level>"},
-	{Name: "agtop", Description: "move this Claude Code session into agtop mode (a terminal one is copied, not stopped)"},
 }
 
 // slashWord finds the /word being typed at the cursor, at the start of the
@@ -499,6 +500,10 @@ func argMatches(c *hostConn) []headless.Command {
 
 // slashLines draws the picker above the message box.
 func (m *Model) slashLines(c *hostConn, w int) []string {
+	if cmds := m.hashMatches(c.input, c.back); len(cmds) > 0 {
+		c.slashSel = max(0, min(c.slashSel, len(cmds)-1))
+		return pickerRows(cmds, c.slashSel, w, "#", func(string) string { return "" }, "agtop's, for this agent · ↑↓ · tab completes · enter runs")
+	}
 	cmds := argMatches(c)
 	if cmds == nil {
 		if _, _, _, ok := slashWord(c); !ok {
@@ -511,7 +516,26 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 		return nil
 	}
 	c.slashSel = max(0, min(c.slashSel, len(cmds)-1))
-	start := max(0, c.slashSel-5)
+	tag := func(name string) string {
+		switch {
+		case slices.ContainsFunc(agtopCommands, func(a headless.Command) bool { return a.Name == name }):
+			return paint(cOrange, " agtop")
+		case c.skills[name]:
+			return paint(cBlue, " skill")
+		}
+		return ""
+	}
+	how := "↑↓ choose · tab completes · enter runs"
+	if st, _, _, _ := slashWord(c); st > 0 {
+		how = "↑↓ choose · tab or enter completes"
+	}
+	return pickerRows(cmds, c.slashSel, w, "/", tag, how)
+}
+
+// pickerRows draws a command picker: up to six commands around the
+// selected one, then a row saying how to use it.
+func pickerRows(cmds []headless.Command, sel, w int, lead string, tag func(string) string, how string) []string {
+	start := max(0, sel-5)
 	end := min(len(cmds), start+6)
 	nameW := 0
 	for _, cmd := range cmds[start:end] {
@@ -521,17 +545,11 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 	var out []string
 	for i := start; i < end; i++ {
 		cmd := cmds[i]
-		tag := ""
-		switch {
-		case slices.ContainsFunc(agtopCommands, func(a headless.Command) bool { return a.Name == cmd.Name }):
-			tag = paint(cOrange, " agtop")
-		case c.skills[cmd.Name]:
-			tag = paint(cBlue, " skill")
-		}
-		name := paint(cBright+bold, fit("/"+cmd.Name, nameW+1))
-		desc := dim(ansi.Truncate(oneLine(cmd.Description), max(10, w-nameW-16), "…"))
-		row := "   " + name + "  " + desc + tag
-		if i == c.slashSel {
+		name := paint(cBright+bold, fit(lead+cmd.Name, nameW+1))
+		t := tag(cmd.Name)
+		desc := dim(ansi.Truncate(oneLine(cmd.Description), max(10, w-nameW-7-ansi.StringWidth(t)), "…"))
+		row := "   " + name + "  " + desc + t
+		if i == sel {
 			out = append(out, onBg(selBG, paint(cOrange, " ▸ ")+strings.TrimPrefix(row, "   "), w))
 		} else {
 			out = append(out, onBg(bgChrome, row, w))
@@ -539,18 +557,16 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 	}
 	more := ""
 	if len(cmds) > end-start {
-		more = fmt.Sprintf("%d of %d · ", c.slashSel+1, len(cmds))
+		more = fmt.Sprintf("%d of %d · ", sel+1, len(cmds))
 	}
-	how := "↑↓ choose · tab completes · enter runs"
-	if st, _, _, _ := slashWord(c); st > 0 {
-		how = "↑↓ choose · tab or enter completes"
-	}
-	out = append(out, onBg(bgChrome, "   "+dim(more+how), w))
-	return out
+	return append(out, onBg(bgChrome, "   "+dim(more+how), w))
 }
 
 // slashKey drives the picker while a command is being typed.
 func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
+	if cmd, used := m.paneHashKey(c, s); used {
+		return cmd, true
+	}
 	if args := argMatches(c); len(args) > 0 {
 		c.slashSel = max(0, min(c.slashSel, len(args)-1))
 		switch s {
@@ -612,6 +628,11 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 	arg = strings.TrimSpace(arg)
 	a := m.agentByKey(c.key)
 	switch name {
+	case "done":
+		return m.markDone(a), true
+	case "clean":
+		m.askClean(a)
+		return nil, true
 	case "agtop":
 		if a == nil {
 			return nil, true

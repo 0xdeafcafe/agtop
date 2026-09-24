@@ -162,9 +162,9 @@ func TestSlashQueueTasks(t *testing.T) {
 	if got := names(); len(got) != 3 || got[0] != "compact" {
 		t.Fatalf("matches for /co: %v", got)
 	}
-	c.input = []rune("/cle")
+	c.input = []rune("/clea")
 	if got := names(); len(got) != 1 || got[0] != "clear" {
-		t.Fatalf("agtop's /clear should match: %v", got)
+		t.Fatalf("agtop's /clear should match, and #clean shouldn't: %v", got)
 	}
 	c.input = []rune("/compact now")
 	if len(slashMatches(c)) != 0 {
@@ -430,6 +430,54 @@ func TestAnswersCarryPreview(t *testing.T) {
 	}
 	if got.Annotations["Which?"]["preview"] != "A!" || got.Annotations["And?"] != nil {
 		t.Fatalf("annotations: %+v", got.Annotations)
+	}
+}
+
+// agtop's commands take #: the Prompt's picker offers them as they're
+// typed, then a command's choices after a space; enter runs one or
+// completes it. A heading or an issue number is still a message.
+func TestFleetSlash(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	m.paneFocus = false
+	m.input = []rune("#so")
+	got, lead := m.promptPicker()
+	if lead != "#" || len(got) == 0 || got[0].Name != "sort" {
+		t.Fatalf("#so offers %v", got)
+	}
+	if _, ok := m.fleetSlashKey("enter"); !ok || string(m.input) != "#sort " {
+		t.Fatalf("enter on #sort, which needs an argument, left %q", string(m.input))
+	}
+	m.input = []rune("#sort c")
+	if got, _ := m.promptPicker(); len(got) != 2 || got[0].Name != "sort cost" || got[1].Name != "sort cpu" {
+		t.Fatalf("#sort c offers %v", got)
+	}
+	m.fleetSlashKey("down")
+	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if string(m.input) != "#sort cpu" {
+		t.Fatalf("tab left %q", string(m.input))
+	}
+	for _, in := range []string{"#nothing", "# Plan", "#123 is broken", "hello #so"} {
+		m.input = []rune(in)
+		if got, _ := m.promptPicker(); got != nil {
+			t.Fatalf("%q offers %v", in, got)
+		}
+	}
+	if isHashCmd("# Plan") || isHashCmd("#123") || !isHashCmd("#stop") {
+		t.Fatal("a # command is # and a letter")
+	}
+	m.input, m.paneFocus = []rune("#so"), true
+	if got, _ := m.promptPicker(); got != nil {
+		t.Fatal("no Prompt picker while the Session has the keys")
+	}
+
+	// In the Session's box # offers the same commands, for its agent.
+	c := m.host
+	c.input, c.back = []rune("#pi"), 0
+	if got := m.hashMatches(c.input, c.back); len(got) != 1 || got[0].Name != "pin" {
+		t.Fatalf("the Session's #pi offers %v", got)
+	}
+	if l := m.slashLines(c, 80); len(l) != 2 || !strings.Contains(ansi.Strip(l[0]), "#pin") {
+		t.Fatalf("the Session's picker draws %q", l)
 	}
 }
 

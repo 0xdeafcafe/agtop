@@ -1304,6 +1304,9 @@ func (m *Model) promptH(w int) int {
 	if len(m.images) > 0 && w > 0 {
 		n++ // the chips
 	}
+	if cmds, _ := m.promptPicker(); len(cmds) > 0 {
+		n += min(len(cmds), 6) + 1 // the picker
+	}
 	return n
 }
 
@@ -1327,8 +1330,8 @@ func (m *Model) promptLines(w int) []string {
 	case m.inKind == inReply && a != nil && !a.Agtop:
 		b.topL = dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…")) + dim(" · enter sends")
 		b.holder = "a message for this agent · esc leaves reply mode"
-	case strings.HasPrefix(text, "/"):
-		b.topL = dim("command · enter runs it")
+	case typingHash(text):
+		b.topL = dim("agtop command · enter runs it")
 	default:
 		dirs := m.startDirs()
 		b.topL = dim("new session in ") + m.dirLabel(pickDir(dirs, m.dirIdx)) + dim(" · enter starts it")
@@ -1344,7 +1347,7 @@ func (m *Model) promptLines(w int) []string {
 			b.holder = "ctrl+] or click here to come back"
 		}
 	}
-	var out []string
+	out := m.fleetSlashLines(w)
 	if l := chips(m.images, w); l != "" {
 		out = append(out, l)
 	}
@@ -1357,6 +1360,8 @@ func (m *Model) promptLines(w int) []string {
 		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", "?", "all keys")
 	case m.inKind != inPrompt:
 		hint = keysFit(w-4, "enter", "save", "esc", "cancel")
+	case typingHash(text):
+		hint = keysFit(w-4, "enter", "run it", "esc", "clear", "?", "guide")
 	case len(m.input) > 0:
 		hint = keysFit(w-4, "enter", "start it", "ctrl+l", "folder", "esc", "clear", "?", "all keys")
 	case a != nil && a.Agtop:

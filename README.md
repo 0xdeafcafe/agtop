@@ -52,7 +52,7 @@ The menu bar icon shows every account's 5-hour and weekly usage, the agents work
 | `<` `>` (nothing typed) | previous and next place: Agents · Machine (Processes, Cleanup) · Settings (Accounts, Coding agents, General, Claude) |
 | `alt+d` | Done: to Done, its idle process stops |
 | `ctrl+l` | change repo |
-| `#` | agtop's commands, on the selected agent (or, in a Session's box, that agent): `#done #stop #rm #kill #clean #cd #add-dir #pin #pr #sort #by #account #hibernate #native` |
+| `#` | agtop's commands, on the selected agent (or, in a Session's box, that agent): `#done #stop #restart #rm #kill #clean #cd #add-dir #pin #pr #sort #by #account #hibernate #native` |
 | `/` | Claude's commands and skills: in the list's box it starts a session with one |
 | `?` | all shortcuts |
 

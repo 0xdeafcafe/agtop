@@ -99,6 +99,7 @@ type Model struct {
 	promptBoxIdx int
 	promptBoxY   int
 	inKind       inputKind
+	slashSel     int // the Prompt's command picker's selection
 	// paneFocus sends keys to an agtop-mode session's pane instead of the
 	// list and its prompt.
 	paneFocus bool

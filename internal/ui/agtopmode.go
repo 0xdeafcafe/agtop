@@ -1291,6 +1291,8 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
 	switch {
+	case typingHash(string(c.input)):
+		top = dim("agtop command for ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(" · enter runs it")
 	case c.client == nil && a.Interactive:
 		top += dim(" · " + a.Where() + ", so it can't take messages here")
 	case c.client == nil && a.Agtop:
@@ -1853,6 +1855,10 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 			}
 			return err
 		})
+	}
+	if isHashCmd(text) {
+		c.input, c.back = c.input[:0], 0
+		return m.command(m.agentByKey(c.key), text)
 	}
 	if strings.HasPrefix(text, "/") {
 		if cmd, ok := m.runAgtopCommand(c, text); ok {

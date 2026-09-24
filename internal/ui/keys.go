@@ -93,12 +93,14 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.paneKey(k, s)
 	}
 	// In Agents tab goes between the list and the Session, unless a
-	// command is being typed in the Session: then it completes it.
+	// command is being typed: then it completes it.
 	if s == "tab" && m.mode == modeList && m.dialog == nil {
 		if c := m.host; m.paneFocus && c != nil && !c.searching {
 			if cmd, used := m.slashKey(c, s); used {
 				return cmd
 			}
+		} else if cmd, used := m.fleetSlashKey(s); used {
+			return cmd
 		}
 		return m.switchFocus()
 	}
@@ -221,6 +223,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if s == "ctrl+v" && m.acceptsText() && m.dialog == nil {
 		return pasteClipImage()
 	}
+	if cmd, used := m.fleetSlashKey(s); used {
+		return cmd
+	}
 	if s == "enter" && empty && len(m.images) > 0 && m.inKind == inPrompt {
 		return m.startHosted("", m.startDir())
 	}
@@ -320,7 +325,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "ctrl+l":
 		// Drafting a new session, or nothing selected: choose where it
 		// starts. Otherwise: move the selected agent.
-		drafting := !empty && m.inKind == inPrompt && !strings.HasPrefix(string(m.input), "/")
+		drafting := !empty && m.inKind == inPrompt && !isHashCmd(string(m.input))
 		if drafting || a == nil {
 			m.openDirPicker()
 			return nil
@@ -401,7 +406,11 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	}
+	before := string(m.input)
 	m.editInput(k, s)
+	if string(m.input) != before {
+		m.slashSel = 0
+	}
 	return nil
 }
 
@@ -558,8 +567,13 @@ func (m *Model) submit() tea.Cmd {
 	if text == "" {
 		return m.attach(a)
 	}
+	if isHashCmd(text) {
+		return m.command(a, text)
+	}
 	if strings.HasPrefix(text, "/") {
-		return m.command(text)
+		if cmd, ok := m.legacyCommand(text); ok {
+			return cmd
+		}
 	}
 	// The Prompt only starts new sessions; replies go through a Session's
 	// own message box.
@@ -579,10 +593,14 @@ func (m *Model) submit() tea.Cmd {
 	}
 }
 
-func (m *Model) command(text string) tea.Cmd {
+// command runs one of agtop's # commands on agent a: the selected one from
+// the Prompt, the Session's own from its box.
+func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	f := strings.Fields(text)
-	name, arg := f[0], strings.TrimSpace(strings.TrimPrefix(text, f[0]))
-	a := m.selected()
+	name, arg := strings.ToLower(strings.TrimLeft(f[0], "#/")), strings.TrimSpace(strings.TrimPrefix(text, f[0]))
+	if n := fleetAliases[name]; n != "" {
+		name = n
+	}
 	need := func() bool {
 		if a == nil {
 			m.flash("select an agent first", true)
@@ -591,15 +609,19 @@ func (m *Model) command(text string) tea.Cmd {
 		return true
 	}
 	switch name {
-	case "/done", "/undone":
-		if need() {
-			m.toggleDone(a)
+	case "done":
+		return m.markDone(a)
+	case "clean":
+		if strings.TrimSpace(arg) == "all" {
+			m.askCleanAll()
+		} else if need() {
+			m.askClean(a)
 		}
-	case "/stop":
+	case "stop":
 		if need() {
 			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID, a.PID) })
 		}
-	case "/rm", "/delete":
+	case "rm":
 		if need() {
 			m.confirm = &confirmation{
 				question: "Delete " + a.DisplayName + "?",
@@ -609,11 +631,15 @@ func (m *Model) command(text string) tea.Cmd {
 				},
 			}
 		}
-	case "/kill":
+	case "kill":
 		if need() {
 			m.askKillTree(a)
 		}
-	case "/cd", "/move":
+	case "restart":
+		if need() {
+			return m.restart(a, arg)
+		}
+	case "cd":
 		if need() {
 			if expand(arg) == "" {
 				m.flash("which folder? /cd <path>", true)
@@ -621,7 +647,7 @@ func (m *Model) command(text string) tea.Cmd {
 			}
 			return m.relaunch(a, expand(arg), nil, a.Acct)
 		}
-	case "/add-dir":
+	case "add-dir":
 		if need() {
 			if expand(arg) == "" {
 				m.flash("which folder? /add-dir <path>", true)
@@ -629,19 +655,19 @@ func (m *Model) command(text string) tea.Cmd {
 			}
 			return m.relaunch(a, "", []string{expand(arg)}, a.Acct)
 		}
-	case "/account":
+	case "account":
 		if arg == "" {
 			m.setView(2)
 			m.setSettingsPage(tabAccounts)
 			return nil
 		}
 		return m.useLogin(arg)
-	case "/group":
+	case "group":
 		if need() {
 			m.inKind, m.input, m.promptFor = inGroup, []rune(arg), a.Key
 			return m.submit()
 		}
-	case "/by":
+	case "by":
 		for _, g := range groupModes {
 			if g == arg {
 				m.store.Config.GroupBy = g
@@ -651,12 +677,12 @@ func (m *Model) command(text string) tea.Cmd {
 			}
 		}
 		m.flash("group by one of: "+strings.Join(groupModes, ", "), true)
-	case "/rename":
+	case "rename":
 		if need() {
 			m.inKind, m.input, m.promptFor = inRename, []rune(arg), a.Key
 			return m.submit()
 		}
-	case "/sort":
+	case "sort":
 		for _, mode := range sortModes {
 			if mode == arg {
 				m.setSort(mode)
@@ -664,9 +690,9 @@ func (m *Model) command(text string) tea.Cmd {
 			}
 		}
 		m.flash("sort by one of: "+strings.Join(sortModes, ", "), true)
-	case "/native":
+	case "native":
 		return m.nativeView()
-	case "/width":
+	case "width":
 		var pct float64
 		if _, err := fmt.Sscanf(strings.TrimSuffix(arg, "%"), "%g", &pct); err != nil || pct <= 0 {
 			m.store.Config.SideWidth = 0
@@ -675,11 +701,11 @@ func (m *Model) command(text string) tea.Cmd {
 			return nil
 		}
 		m.setSideWidth(int(pct / 100 * float64(m.w)))
-	case "/agtop":
+	case "agtop":
 		if need() {
 			return m.moveToAgtop(a)
 		}
-	case "/hibernate":
+	case "hibernate":
 		var n int
 		fmt.Sscanf(arg, "%d", &n)
 		m.store.Config.Hibernate.AfterMinutes = n
@@ -689,13 +715,39 @@ func (m *Model) command(text string) tea.Cmd {
 		} else {
 			m.flash("hibernation off", false)
 		}
-	case "/help":
+	case "help":
 		m.mode = modeHelp
-	case "/quit", "/exit":
+	case "quit":
 		m.scanner.Flush()
 		return tea.Quit
+	case "pin":
+		if need() {
+			return m.togglePin(a)
+		}
+	case "pr":
+		if need() {
+			return m.openPR(a)
+		}
+	case "full":
+		if need() {
+			if a.Agtop || a.Interactive {
+				m.flash("only a Claude Code agent in the background opens full screen", true)
+				return nil
+			}
+			return m.attach(a)
+		}
+	case "folder":
+		m.openDirPicker()
+	case "dock":
+		var n int
+		if _, err := fmt.Sscanf(arg, "%d", &n); err != nil {
+			m.flash("how many lines? #dock 6", true)
+			return nil
+		}
+		m.store.Config.DockLines = min(max(n, 1), 15)
+		_ = m.store.SaveConfig()
 	default:
-		m.flash("unknown command "+name+" — ? lists them", true)
+		m.flash("unknown command #"+name+" · # lists agtop's", true)
 	}
 	return nil
 }
