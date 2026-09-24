@@ -58,6 +58,7 @@ type cached struct {
 // width, its folds, the selection inside it, and for a live turn the clock.
 type cacheKey struct {
 	width, ver int
+	pal        int // the palette it was drawn in
 	open, verb bool
 	folds, sel string
 	focused    bool
@@ -147,7 +148,7 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string)
 }
 
 func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[string]string) cacheKey {
-	k := cacheKey{width: o.Width, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref]}
+	k := cacheKey{width: o.Width, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref], pal: palette}
 	if o.Selected == ref || strings.HasPrefix(o.Selected, ref) && strings.HasPrefix(o.Selected[len(ref):], ":") {
 		k.sel, k.focused = o.Selected, o.Focused
 	}
@@ -741,7 +742,7 @@ func (d *drawer) answer(s string) {
 // names (```go); a diff block colours its added and removed lines. A block
 // is drawn once and kept while it's in view.
 func (d *drawer) code(lines []string, tag, pad string) {
-	k := memoKey{text: strings.Join(lines, "\n"), style: "code:" + tag, spine: d.spine(), width: d.o.Width, cw: d.cw}
+	k := memoKey{text: strings.Join(lines, "\n"), style: "code:" + tag, spine: d.spine(), width: d.o.Width, cw: d.cw, n: palette}
 	if ls, ok := d.s.memoGet(k); ok {
 		d.lines = append(d.lines, ls...)
 		return

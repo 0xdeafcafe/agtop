@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -27,6 +28,17 @@ var (
 	cRed    = rgb(224, 104, 92)
 	cBlue   = rgb(143, 179, 217)
 )
+
+// applyColors sets agtop's good and bad colours, green and red or, for
+// colour blindness, sky blue and amber, here and in the conversation view.
+func applyColors(colorBlind bool) {
+	if colorBlind {
+		cGreen, cRed = rgb(86, 180, 233), rgb(230, 159, 0)
+	} else {
+		cGreen, cRed = rgb(127, 191, 138), rgb(224, 104, 92)
+	}
+	convo.SetColorBlind(colorBlind)
+}
 
 func paint(c, s string) string {
 	if s == "" {

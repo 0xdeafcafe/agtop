@@ -197,6 +197,7 @@ func New(store *state.Store, version string) *Model {
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
 	}
+	applyColors(store.Config.ColorBlind)
 	m.snap = m.loader.Load(true)
 	m.rebuild()
 	return m

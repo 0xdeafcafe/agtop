@@ -49,6 +49,30 @@ var (
 	bgDelHi = bg(0x62, 0x24, 0x1e)
 )
 
+// palette is how many times the colours have changed, so a cached drawing
+// in the old ones isn't used.
+var palette int
+
+// SetColorBlind swaps green and red, what agtop uses for added and
+// removed, done and failed, for sky blue and amber (from the Okabe-Ito
+// palette), which stay apart for every common kind of colour blindness.
+func SetColorBlind(on bool) {
+	if on {
+		cGreen, cRed, cOKq = fg(86, 180, 233), fg(230, 159, 0), fg(80, 140, 180)
+		bgAdd, bgDel = bg(0x10, 0x2a, 0x3c), bg(0x30, 0x24, 0x0e)
+		bgAddHi, bgDelHi = bg(0x1a, 0x46, 0x64), bg(0x52, 0x3a, 0x10)
+		bgErr = bg(0x30, 0x24, 0x10)
+		spineErr = paint(cRed, "▏")
+	} else {
+		cGreen, cRed, cOKq = fg(127, 191, 138), fg(224, 104, 92), fg(95, 138, 104)
+		bgAdd, bgDel = bg(0x16, 0x30, 0x1a), bg(0x3a, 0x17, 0x14)
+		bgAddHi, bgDelHi = bg(0x22, 0x52, 0x2b), bg(0x62, 0x24, 0x1e)
+		bgErr = bg(0x2a, 0x17, 0x15)
+		spineErr = paint(cRed, "▏")
+	}
+	palette++
+}
+
 func paint(c, s string) string {
 	if s == "" {
 		return ""

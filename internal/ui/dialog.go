@@ -214,6 +214,12 @@ func settingHelp(label, value string) (what, now string) {
 		} else {
 			now = "after " + value + ": an agent that finished and has been idle that long is stopped automatically."
 		}
+	case "Colours":
+		what = "How agtop tells good from bad: added and removed lines in a diff, done and failed steps and agents."
+		now = map[string]string{
+			"standard":     "standard: green and red.",
+			"colour-blind": "colour-blind: sky blue and amber, which stay apart for red-green and blue-yellow colour blindness alike; + and − still mark every diff line.",
+		}[value]
 	case "Notify when an agent needs you":
 		what = "A macOS notification when an agent starts waiting on you (a question or a permission), not when you have already seen it."
 		now = map[string]string{"on": "on: you are notified once per new question.", "off": "off: the Needs you section is the only signal."}[value]
@@ -375,6 +381,10 @@ func (m *Model) generalSettings() []setting {
 	if c.MenuBar {
 		menuBar = "on"
 	}
+	colours := "standard"
+	if c.ColorBlind {
+		colours = "colour-blind"
+	}
 	sortBy := c.SortBy
 	if sortBy == "" {
 		sortBy = "name"
@@ -392,6 +402,10 @@ func (m *Model) generalSettings() []setting {
 			if !c.MenuBar {
 				menubar.Stop()
 			}
+		}},
+		{"Colours", colours, []string{"standard", "colour-blind"}, func(v string) {
+			c.ColorBlind = v == "colour-blind"
+			applyColors(c.ColorBlind)
 		}},
 		{"Earlier section", earlier, []string{"folded", "open"}, func(v string) {
 			if c.Folds == nil {

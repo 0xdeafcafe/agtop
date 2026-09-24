@@ -58,6 +58,9 @@ type Config struct {
 	CleanupHours int `json:"cleanupHours,omitempty"`
 	// KeepTranscriptsPlain turns off storing idle transcripts compressed.
 	KeepTranscriptsPlain bool `json:"keepTranscriptsPlain,omitempty"`
+	// ColorBlind draws added and removed, done and failed in sky blue and
+	// amber instead of green and red.
+	ColorBlind bool `json:"colorBlind,omitempty"`
 	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitempty"`
