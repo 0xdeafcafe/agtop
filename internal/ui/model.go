@@ -18,6 +18,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/menubar"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -230,7 +231,16 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins())
+	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar())
+}
+
+// startMenuBar opens the menu bar icon when it's on and not running,
+// building it first if agtop changed since.
+func (m *Model) startMenuBar() tea.Cmd {
+	if !m.store.Config.MenuBar || m.offline || menubar.Running() {
+		return nil
+	}
+	return hostCmd(menubar.Start)
 }
 
 // fetchUsage refreshes every account's plan usage from Anthropic. Readings
@@ -853,7 +863,8 @@ func (m *Model) notify() {
 		m.lastState[a.Key] = a.State
 		// Not for the agent you're looking at while agtop has focus.
 		watching := !m.blurred && m.paneFocus && m.host != nil && m.host.key == a.Key
-		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.NeedsYou() && !watching {
+		// The menu bar icon, when it runs, notifies instead, with buttons.
+		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.NeedsYou() && !watching && !menubar.Running() {
 			body := a.Needs
 			if body == "" {
 				body = oneLine(a.Detail)

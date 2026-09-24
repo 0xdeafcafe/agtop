@@ -1,0 +1,171 @@
+package menubar
+
+import (
+	"crypto/sha256"
+	_ "embed"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/state"
+)
+
+//go:embed app.swift
+var source string
+
+// BundleID is the app's identity: macOS keeps its notification settings
+// under it.
+const BundleID = "dev.agtop.menubar"
+
+func dir() string      { return filepath.Join(state.Dir(), "menubar") }
+func lockPath() string { return filepath.Join(dir(), "feed.lock") }
+
+// AppPath is where the built app lives.
+func AppPath() string { return filepath.Join(dir(), "agtop.app") }
+
+// hold marks the feed as running for as long as it runs, with the app's
+// pid, so agtop leaves notifications to it and can quit it.
+func hold() func() {
+	_ = os.MkdirAll(dir(), 0o700)
+	f, err := os.OpenFile(lockPath(), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return func() {}
+	}
+	if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		f.Close()
+		return func() {}
+	}
+	_ = f.Truncate(0)
+	_, _ = f.WriteAt([]byte(os.Getenv("AGTOP_MENUBAR_PID")), 0)
+	return func() {
+		_ = f.Truncate(0)
+		f.Close()
+	}
+}
+
+// Running says whether the menu bar app is up, so agtop's own
+// notifications would only repeat its.
+func Running() bool {
+	f, err := os.Open(lockPath())
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB) != nil {
+		return true
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
+}
+
+// Start builds the app if agtop changed since it was last built, and opens
+// it; one already running is left alone unless it was just rebuilt.
+func Start() error {
+	if runtime.GOOS != "darwin" {
+		return errors.New("the menu bar icon is macOS only")
+	}
+	rebuilt, err := buildApp()
+	if err != nil {
+		return err
+	}
+	if Running() {
+		if !rebuilt {
+			return nil
+		}
+		Stop()
+		for i := 0; i < 50 && Running(); i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	return exec.Command("/usr/bin/open", AppPath()).Run()
+}
+
+// Stop quits the app, and with it the feed.
+func Stop() {
+	b, _ := os.ReadFile(lockPath())
+	if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 1 && Running() {
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+	}
+}
+
+// build compiles the app with the Swift compiler that comes with Xcode's
+// command line tools. It's rebuilt only when the source or the agtop it
+// runs changes; the stamp inside says which it was built from.
+func buildApp() (rebuilt bool, err error) {
+	app, bin := AppPath(), exe()
+	sum := sha256.Sum256([]byte(source + "\x00" + bin))
+	stamp := hex.EncodeToString(sum[:8])
+	stampPath := app + ".stamp" // beside it: inside would break its signature
+	if _, err := os.Stat(app); err == nil {
+		if b, _ := os.ReadFile(stampPath); string(b) == stamp {
+			return false, nil
+		}
+	}
+	if _, err := exec.LookPath("swiftc"); err != nil {
+		return false, errors.New("building the menu bar app needs the Swift compiler: xcode-select --install")
+	}
+	tmp, err := os.MkdirTemp("", "agtop-menubar")
+	if err != nil {
+		return false, err
+	}
+	defer os.RemoveAll(tmp)
+	src := filepath.Join(tmp, "main.swift")
+	if err := os.WriteFile(src, []byte(source), 0o600); err != nil {
+		return false, err
+	}
+	_ = os.RemoveAll(app)
+	for _, d := range []string{"MacOS", "Resources"} {
+		if err := os.MkdirAll(filepath.Join(app, "Contents", d), 0o755); err != nil {
+			return false, err
+		}
+	}
+	out, err := exec.Command("swiftc", "-O", "-swift-version", "5", "-parse-as-library", "-o", filepath.Join(app, "Contents", "MacOS", "agtop-menubar"), src).CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("building the menu bar app: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte(fmt.Sprintf(plist, BundleID, xmlEscape(bin))), 0o644); err != nil {
+		return false, err
+	}
+	// Notifications need a signed app; an ad-hoc signature is enough on
+	// the Mac that built it.
+	if out, err := exec.Command("/usr/bin/codesign", "--force", "--sign", "-", app).CombinedOutput(); err != nil {
+		return false, fmt.Errorf("signing the menu bar app: %v\n%s", err, out)
+	}
+	return true, os.WriteFile(stampPath, []byte(stamp), 0o644)
+}
+
+// Forget stops the app opening at login.
+func Forget() {
+	home, _ := os.UserHomeDir()
+	_ = os.Remove(filepath.Join(home, "Library", "LaunchAgents", BundleID+".plist"))
+}
+
+func xmlEscape(s string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
+}
+
+const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key><string>%s</string>
+	<key>CFBundleName</key><string>agtop</string>
+	<key>CFBundleDisplayName</key><string>agtop</string>
+	<key>CFBundleExecutable</key><string>agtop-menubar</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>1.0</string>
+	<key>CFBundleVersion</key><string>1</string>
+	<key>LSMinimumSystemVersion</key><string>14.0</string>
+	<key>LSUIElement</key><true/>
+	<key>AgtopBinary</key><string>%s</string>
+</dict>
+</plist>
+`

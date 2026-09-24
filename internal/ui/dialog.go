@@ -18,6 +18,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/menubar"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -216,6 +217,9 @@ func settingHelp(label, value string) (what, now string) {
 	case "Notify when an agent needs you":
 		what = "A macOS notification when an agent starts waiting on you (a question or a permission), not when you have already seen it."
 		now = map[string]string{"on": "on: you are notified once per new question.", "off": "off: the Needs you section is the only signal."}[value]
+	case "Menu bar icon":
+		what = "agtop in the menu bar: every account's usage, what's working, and who needs you, with a badge. A question with a few answers can be answered from its notification's buttons, a permission allowed or denied. The first time, it's built with Xcode's Swift compiler (a few seconds)."
+		now = map[string]string{"on": "on: it opens with agtop, and its menu can open it at login; agtop's own notifications give way to its.", "off": "off: no menu bar icon."}[value]
 	case "Earlier section":
 		what = "Agents that finished more than a day ago. Folded, it is one line with a count and a peek at the names."
 		now = map[string]string{"folded": "folded: open it with enter or → when you need it.", "open": "open: every older agent is listed."}[value]
@@ -367,6 +371,10 @@ func (m *Model) generalSettings() []setting {
 	if !m.folded("Earlier") {
 		earlier = "open"
 	}
+	menuBar := "off"
+	if c.MenuBar {
+		menuBar = "on"
+	}
 	sortBy := c.SortBy
 	if sortBy == "" {
 		sortBy = "name"
@@ -379,6 +387,12 @@ func (m *Model) generalSettings() []setting {
 			fmt.Sscanf(v, "%dm", &c.Hibernate.AfterMinutes)
 		}},
 		{"Notify when an agent needs you", notify, []string{"on", "off"}, func(v string) { c.Quiet = v == "off" }},
+		{"Menu bar icon", menuBar, []string{"on", "off"}, func(v string) {
+			c.MenuBar = v == "on"
+			if !c.MenuBar {
+				menubar.Stop()
+			}
+		}},
 		{"Earlier section", earlier, []string{"folded", "open"}, func(v string) {
 			if c.Folds == nil {
 				c.Folds = map[string]bool{}
@@ -473,6 +487,7 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			}
 			_ = m.store.SaveConfig()
 			m.rebuild()
+			return m.startMenuBar()
 		}
 	}
 	return nil

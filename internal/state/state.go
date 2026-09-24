@@ -58,6 +58,9 @@ type Config struct {
 	CleanupHours int `json:"cleanupHours,omitempty"`
 	// KeepTranscriptsPlain turns off storing idle transcripts compressed.
 	KeepTranscriptsPlain bool `json:"keepTranscriptsPlain,omitempty"`
+	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
+	// and questions you can answer from their notification.
+	MenuBar bool `json:"menuBar,omitempty"`
 }
 
 // DefaultCleanup is how long done work waits before it's cleaned up.

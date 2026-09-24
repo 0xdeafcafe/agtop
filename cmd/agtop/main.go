@@ -13,6 +13,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/menubar"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/ui"
 )
@@ -25,6 +26,9 @@ const usage = `agtop — a lighter agents view for Claude Code
   agtop on          make "claude agents" open this view (adds one line to your shell rc)
   agtop off         give "claude agents" back to Claude Code (instant, no shell reload)
   agtop status      show whether it is on
+  agtop menubar     put agtop in the menu bar: usage, what's working, and
+                    questions you can answer from their notification
+  agtop menubar off take it out again
   agtop --dump      print what the view sees, for debugging
 `
 
@@ -63,6 +67,9 @@ func main() {
 			var err error
 			profiled(func() { err = host.Run(args[2]) })
 			exitIf(err)
+			return
+		case "menubar":
+			exitIf(menuBar(args[1:]))
 			return
 		case "on":
 			exitIf(turnOn())
@@ -228,4 +235,28 @@ func render(args []string) {
 		}
 	}
 	fmt.Println(ui.New(state.Load(), version).Frame(w, h, keys...))
+}
+
+// menuBar runs the menu bar icon, or its feed (which the icon runs).
+func menuBar(args []string) error {
+	st := state.Load()
+	switch {
+	case len(args) > 0 && args[0] == "feed":
+		return menubar.Feed(os.Stdin, os.Stdout)
+	case len(args) > 0 && args[0] == "off":
+		st.Config.MenuBar = false
+		menubar.Stop()
+		menubar.Forget()
+		fmt.Println("off — the menu bar icon is gone")
+		return st.SaveConfig()
+	case len(args) > 0:
+		return fmt.Errorf("usage: agtop menubar [off]")
+	}
+	fmt.Println("starting the menu bar icon (the first time builds it, a few seconds)…")
+	if err := menubar.Start(); err != nil {
+		return err
+	}
+	st.Config.MenuBar = true
+	fmt.Println("on — agtop is in your menu bar. Its menu can open it at login.")
+	return st.SaveConfig()
 }

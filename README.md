@@ -33,7 +33,10 @@ go install github.com/0xdeafcafe/agtop/cmd/agtop@latest
 agtop            # open it
 agtop on         # make `claude agents` open it (adds one line to ~/.zshrc)
 agtop off        # give `claude agents` back to Claude Code, instantly
+agtop menubar    # put agtop in the macOS menu bar (agtop menubar off takes it out)
 ```
+
+The menu bar icon shows every account's 5-hour and weekly usage, the agents working and what each is doing, and a badge for each waiting on you. A new question gets a notification: an agtop session's question with a few answers can be answered from its buttons (or typed as a reply), and a permission allowed or denied; the menu does the same. It's a small Swift app built on your Mac the first time (it needs Xcode's command line tools), and Settings › General › Menu bar icon turns it on and off.
 
 ## Keys
 

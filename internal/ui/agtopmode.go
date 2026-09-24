@@ -2055,29 +2055,13 @@ func limitText(l *host.Limit) string {
 
 // --- Claude's questions (the AskUserQuestion tool) ---
 
-type question struct {
-	Question    string `json:"question"`
-	Header      string `json:"header"`
-	MultiSelect bool   `json:"multiSelect"`
-	Options     []struct {
-		Label       string `json:"label"`
-		Description string `json:"description"`
-		Preview     string `json:"preview"`
-	} `json:"options"`
-}
+type question = headless.Question
 
 func isQuestion(p []*convo.Step) bool {
 	return len(p) > 0 && p[0].Approval != nil && p[0].Approval.Tool == "AskUserQuestion"
 }
 
-func questions(req *headless.PermissionRequest) (title string, qs []question) {
-	var in struct {
-		Title     string     `json:"title"`
-		Questions []question `json:"questions"`
-	}
-	_ = json.Unmarshal(req.Input, &in)
-	return in.Title, in.Questions
-}
+func questions(req *headless.PermissionRequest) (title string, qs []question) { return req.Questions() }
 
 // syncQuestion resets the answering state when a new question arrives.
 func (c *hostConn) syncQuestion(req *headless.PermissionRequest) {
@@ -2510,22 +2494,7 @@ func (m *Model) sendAnswers(c *hostConn, req *headless.PermissionRequest, qs []q
 
 // answerInput is the tool input that answers req.
 func answerInput(req *headless.PermissionRequest, qs []question, answers map[string]string) json.RawMessage {
-	in := map[string]any{}
-	_ = json.Unmarshal(req.Input, &in)
-	in["answers"] = answers
-	notes := map[string]any{}
-	for _, q := range qs {
-		for _, o := range q.Options {
-			if o.Preview != "" && answers[q.Question] == o.Label {
-				notes[q.Question] = map[string]string{"preview": o.Preview}
-			}
-		}
-	}
-	if len(notes) > 0 {
-		in["annotations"] = notes
-	}
-	b, _ := json.Marshal(in)
-	return b
+	return req.AnswerInput(qs, answers)
 }
 
 // shownAnswer is an answer as the card shows it.
