@@ -258,15 +258,23 @@ func (m *Model) activeUsage() string {
 			continue
 		}
 		u := av.Usage
-		if !u.FiveHour.Present {
+		var parts []string
+		if u.FiveHour.Present {
+			parts = append(parts, usageMeter("5h", u.FiveHour.Percent, u.FiveHour.ResetsAt, 5*time.Hour, m.snap.At))
+		}
+		if u.SevenDay.Present {
+			parts = append(parts, usageMeter("7d", u.SevenDay.Percent, u.SevenDay.ResetsAt, 7*24*time.Hour, m.snap.At))
+		}
+		if len(parts) == 0 {
 			return ""
 		}
-		s := usageMeter("5h", u.FiveHour.Percent, u.FiveHour.ResetsAt, 5*time.Hour, m.snap.At)
-		if u.SevenDay.Present {
-			s += "   " + usageMeter("7d", u.SevenDay.Percent, u.SevenDay.ResetsAt, 7*24*time.Hour, m.snap.At)
-		}
-		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > time.Hour {
-			s += faint(" as of " + u.FetchedAt.Local().Format("15:04"))
+		s := strings.Join(parts, "   ")
+		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > 3*claude.UsageEvery {
+			when := u.FetchedAt.Local().Format("15:04")
+			if m.snap.At.Sub(u.FetchedAt) > 20*time.Hour {
+				when = u.FetchedAt.Local().Format("Mon 15:04")
+			}
+			s += faint(" as of " + when)
 		}
 		if len(m.snap.Accounts) > 1 {
 			s = dim(av.Name+" ") + s

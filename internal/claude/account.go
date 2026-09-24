@@ -85,6 +85,17 @@ type Usage struct {
 	Extra     bool
 }
 
+// Since drops the windows that have reset since the reading was made:
+// their numbers say nothing about now.
+func (u Usage) Since(now time.Time) Usage {
+	for _, w := range []*Window{&u.FiveHour, &u.SevenDay} {
+		if w.Present && !w.ResetsAt.IsZero() && now.After(w.ResetsAt) {
+			*w = Window{}
+		}
+	}
+	return u
+}
+
 type usageFile struct {
 	OAuthAccount *struct {
 		EmailAddress     string `json:"emailAddress"`

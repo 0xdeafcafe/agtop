@@ -3,8 +3,6 @@
 package ui
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -136,7 +134,7 @@ type Model struct {
 	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
 	hibernated   map[string]bool
-	usageWait    map[string]time.Time
+	offline      bool // never ask Anthropic for usage (--soak)
 	armedAt      time.Time
 	attached     string
 	view         int
@@ -186,7 +184,7 @@ func New(store *state.Store, version string) *Model {
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
 		lastState: map[string]string{}, cwdMove: true,
-		hibernated: map[string]bool{}, usageWait: map[string]time.Time{},
+		hibernated: map[string]bool{},
 	}
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
@@ -226,27 +224,18 @@ func tick() tea.Cmd {
 
 func (m *Model) Init() tea.Cmd { return tea.Batch(tick(), m.scan(), m.fetchUsage()) }
 
-// fetchUsage refreshes every account's plan usage from Anthropic, skipping
-// accounts that were rate-limited until they may ask again.
+// fetchUsage refreshes every account's plan usage from Anthropic. Readings
+// are shared with every other agtop through a file, so an account is asked
+// only when its last reading is older than claude.UsageEvery and Anthropic
+// hasn't said to wait; offline (--soak) never asks.
 func (m *Model) fetchUsage() tea.Cmd {
+	path := filepath.Join(state.Dir(), "usage.json")
+	offline := m.offline
 	var cmds []tea.Cmd
 	for _, acct := range m.store.Config.AllAccounts() {
-		if time.Now().Before(m.usageWait[acct.ConfigDir]) {
-			continue
-		}
 		acct := acct
 		cmds = append(cmds, func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-			u, err := claude.FetchUsage(ctx, acct)
-			if err != nil {
-				u = claude.Usage{Problem: err.Error()}
-				var rl *claude.ErrRateLimited
-				if errors.As(err, &rl) {
-					u.Problem = "rate-limited until " + rl.Until.Local().Format("15:04")
-				}
-			}
-			return usageMsg{dir: acct.ConfigDir, u: u}
+			return usageMsg{dir: acct.ConfigDir, u: claude.RefreshUsage(path, acct, offline)}
 		})
 	}
 	return tea.Batch(cmds...)
@@ -517,7 +506,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}
-		if m.tick%300 == 0 {
+		if m.tick%60 == 0 {
 			cmds = append(cmds, m.fetchUsage())
 		}
 		cmds = append(cmds, m.loadPreview())
@@ -540,9 +529,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case usageMsg:
-		if strings.HasPrefix(msg.u.Problem, "rate-limited") {
-			m.usageWait[msg.dir] = time.Now().Add(15 * time.Minute)
-		}
 		m.loader.SetFetched(msg.dir, msg.u)
 		m.refresh()
 		return m, nil

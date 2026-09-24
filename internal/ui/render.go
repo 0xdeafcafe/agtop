@@ -47,6 +47,10 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 	return m.render()
 }
 
+// Offline keeps the view from asking Anthropic for plan usage; it shows
+// the readings other agtops made. For --soak, run many times in a row.
+func (m *Model) Offline() { m.offline = true }
+
 // Select picks the first agent whose name contains part and shows its
 // Session, for --soak.
 func (m *Model) Select(part string) {

@@ -52,6 +52,7 @@ func soak(args []string) {
 		fmt.Sscanf(args[1], "%dx%d", &w, &h)
 	}
 	m := ui.New(state.Load(), version)
+	m.Offline()
 	if want := os.Getenv("AGTOP_RENDER_SELECT"); want != "" {
 		m.Select(want)
 	}

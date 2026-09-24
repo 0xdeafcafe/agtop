@@ -613,18 +613,19 @@ func (l *Loader) readUsage(acct claude.Account) claude.Usage {
 }
 
 // freshest prefers agtop's own fetch when it is newer than Claude Code's cache.
+// Windows that have reset since either reading are dropped.
 func (l *Loader) freshest(acct claude.Account, cached claude.Usage) claude.Usage {
 	f, ok := l.fetched[acct.ConfigDir]
 	if !ok {
-		return cached
+		return cached.Since(time.Now())
 	}
 	if f.FetchedAt.After(cached.FetchedAt) {
 		f.Email, f.Org, f.Plan = cached.Email, cached.Org, cached.Plan
 		f.Role, f.Billing, f.OrgType, f.Extra = cached.Role, cached.Billing, cached.OrgType, cached.Extra
-		return f
+		return f.Since(time.Now())
 	}
 	cached.Problem = f.Problem
-	return cached
+	return cached.Since(time.Now())
 }
 
 // gitFor finds the repository and branch for a folder by reading .git
