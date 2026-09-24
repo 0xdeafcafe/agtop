@@ -80,6 +80,9 @@ type Config struct {
 	// Meta is what whoever started it tagged it with (a plugin's card or
 	// ticket id, say), handed back wherever the session is listed.
 	Meta map[string]string `json:"meta,omitempty"`
+	// Env is added to Claude Code's environment (KEY=value), on every start
+	// of it: idle restarts and resumes too.
+	Env []string `json:"env,omitempty"`
 }
 
 // Branch is a path of the conversation that /rewind left: its own
@@ -353,6 +356,7 @@ func (s *server) start() error {
 	// Checkpoints, as Claude Code keeps them in a terminal, so /rewind can
 	// put the files back too.
 	o.Env = append(o.Env, headless.CheckpointEnv)
+	o.Env = append(o.Env, s.cfg.Env...)
 	if s.began {
 		o.Resume = s.cfg.SessionID
 		if s.cfg.Fork {
