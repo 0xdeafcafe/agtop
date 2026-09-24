@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -603,6 +604,15 @@ type hostConn struct {
 	selMoved bool
 	rowRefs  []string
 	bodyRefs []string // every selectable row of the current view, in order
+	// Text dragged over with the mouse. rowBody is which row of shown each
+	// drawn row of the pane is (-1 for the header, pill and dock), and
+	// bodyTop and bodyRows where the body sits among them.
+	txt      textSel
+	shown    []convo.Line
+	rowBody  []int
+	bodyTop  int
+	bodyRows int
+	paneW    int
 
 	// Subagents: every run found beside the transcript, and the one opened.
 	path       string
@@ -996,9 +1006,18 @@ func (m *Model) agtopPane(w, h int) []string {
 	}
 	out := append([]string{}, head...)
 	c.rowRefs = make([]string, len(head), h)
-	for _, l := range body[start:end] {
+	c.rowBody = c.rowBody[:0]
+	for range head {
+		c.rowBody = append(c.rowBody, -1)
+	}
+	for i, l := range body[start:end] {
 		out = append(out, l.Text)
 		c.rowRefs = append(c.rowRefs, l.Ref)
+		c.rowBody = append(c.rowBody, start+i)
+	}
+	c.shown, c.bodyTop, c.bodyRows, c.paneW = body, len(head), end-start, w
+	if c.txt.view != view && !c.txt.drag {
+		c.txt = textSel{} // made in another view, whose rows these aren't
 	}
 	// Scrolled into a turn whose heading is off the top: pin the heading
 	// there, so you always know whose turn you're reading.
@@ -1010,6 +1029,7 @@ func (m *Model) agtopPane(w, h int) []string {
 					f := headingStart(body, i)
 					out[len(head)] = body[f].Text
 					c.rowRefs[len(head)] = r
+					c.rowBody[len(head)] = f
 				}
 				break
 			}
@@ -1020,6 +1040,7 @@ func (m *Model) agtopPane(w, h int) []string {
 		out = append(out, spread("", pill, w))
 		c.rowRefs = append(c.rowRefs, "")
 	}
+	c.paintSel(out)
 	for len(out) < h-len(dock) {
 		out = append(out, "")
 	}
@@ -1455,6 +1476,17 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				return nil
 			}
 		}
+		// On a turn, it copies Claude's answer as written, markdown and all.
+		if t, _, _ := strings.Cut(c.sel, ":"); isTurnRef(t) {
+			for _, turn := range c.sess.Turns {
+				if "t"+strconv.Itoa(turn.N) == t {
+					if a := turn.Answer(); a != "" {
+						m.copyText(strings.TrimSpace(a))
+						return nil
+					}
+				}
+			}
+		}
 	}
 	if cmd, used := m.slashKey(c, s); used {
 		return cmd
@@ -1481,6 +1513,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		switch {
 		case !empty:
 			c.input, c.back = c.input[:0], 0
+		case c.txt.on:
+			c.txt = textSel{} // first esc drops the dragged-over text
 		case c.sel != "":
 			c.sel = "" // first esc drops the step selection
 		case m.zen:
@@ -1493,6 +1527,11 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		switch {
 		case c.anchor > 0 && c.anchor-1 != len(c.input)-c.back:
 			// a selection: copy it (handled by the editor below)
+		case empty && c.txt.on:
+			// Text dragged over in the conversation: copy it again, as a
+			// terminal would, rather than quitting.
+			m.copyText(selectedText(c.shown, c.txt.a, c.txt.b, c.paneW))
+			return nil
 		case !empty:
 			c.input, c.back, c.anchor = c.input[:0], 0, 0
 			return nil

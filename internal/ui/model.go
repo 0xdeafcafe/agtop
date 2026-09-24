@@ -700,6 +700,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
 	case tea.MouseMotionMsg:
+		if c := m.host; c != nil && c.txt.drag {
+			if msg.Button == tea.MouseLeft {
+				m.dragTextSel(c, msg.X, msg.Y)
+				return m, nil
+			}
+			m.endTextSel(c)
+		}
 		if m.boxDrag != 0 {
 			if msg.Button == tea.MouseLeft {
 				m.dragBox(msg.X, msg.Y)
@@ -734,6 +741,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(shape, cmd)
 	case tea.MouseReleaseMsg:
+		if c := m.host; c != nil && c.txt.drag {
+			m.endTextSel(c)
+		}
 		if m.boxDrag != 0 {
 			m.endBoxDrag()
 		}
@@ -755,6 +765,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paneFocus = true // clicking the Session gives it the keys
 			if m.viewName(m.host) == "screen" && m.canEmbed() {
 				m.embedded = true
+			}
+			m.host.txt.on = false // a click elsewhere drops what was dragged over
+			if !m.embedded && m.startTextSel(m.host, msg.X, msg.Y) {
+				return m, nil // a click on the text is one once it's released
 			}
 			m.clickRow(m.host, msg.Y)
 			return m, nil

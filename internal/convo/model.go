@@ -132,6 +132,16 @@ func (t *Turn) Outcome() string {
 	return ""
 }
 
+// Answer is the turn's final words as Claude wrote them, markdown and all.
+func (t *Turn) Answer() string {
+	for i := len(t.Items) - 1; i >= 0; i-- {
+		if it := t.Items[i]; it.Kind == KText && it.Answer {
+			return it.Text
+		}
+	}
+	return ""
+}
+
 // Steps counts every tool call in the turn, subagents' included.
 func (t *Turn) Steps() int { return len(t.steps) }
 
