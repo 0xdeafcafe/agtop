@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -775,36 +777,124 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 	}
 }
 
-// procRows are the rows the process screen shows, in order.
-// procRows lists every agent's process tree, alphabetically, each under a
-// heading row, then the Claude processes that belong to no agent.
+// procRows are the rows the process screen shows, in order: orphans, then
+// every agent busiest first with what it is running under it, then the
+// Claude processes that belong to no agent.
 func (m *Model) procRows() []procRow {
 	tab := m.snap.Table
 	if tab == nil {
 		return nil
 	}
 	var out []procRow
-	agents := append([]*fleet.Agent(nil), m.snap.Agents...)
-	sort.SliceStable(agents, func(i, j int) bool {
-		return strings.ToLower(agents[i].DisplayName) < strings.ToLower(agents[j].DisplayName)
-	})
-	for _, a := range agents {
+	// Orphans first: nothing else will ever stop them, so they wait on you.
+	// Under each, the few processes holding most of its memory.
+	for _, r := range m.snap.Machine.Rows {
+		if r.Role != fleet.RoleOrphan {
+			continue
+		}
+		out = append(out, procRow{pid: r.PID, label: r.Label, cmd: r.Cmd, mem: r.Mem, cpu: r.CPU, n: r.Procs, start: r.Start, role: r.Role, other: true})
+		kids := tab.Tree(r.PID)[1:]
+		sort.SliceStable(kids, func(i, j int) bool { return kids[i].Footprint > kids[j].Footprint })
+		for _, n := range kids[:min(3, len(kids))] {
+			if n.Footprint >= 32<<20 {
+				out = append(out, procRow{pid: n.PID, depth: 1, cmd: m.shortCmd(n.PID, n.Comm), mem: n.Footprint, cpu: n.CPU, n: 1, start: n.Start, role: fleet.RoleOrphan})
+			}
+		}
+	}
+	type agentRows struct {
+		a     *fleet.Agent
+		tools []procRow
+	}
+	var agents []agentRows
+	for _, a := range m.snap.Agents {
 		if a.PID == 0 || tab.Procs[a.PID] == nil {
 			continue
 		}
-		out = append(out, procRow{pid: a.PID, label: oneLine(a.DisplayName), cmd: m.context(a), mem: a.Mem, cpu: a.CPU,
-			n: a.Procs, start: tab.Procs[a.PID].Start, key: a.Key, heading: true})
-		for _, n := range tab.Tree(a.PID) {
-			out = append(out, procRow{pid: n.PID, depth: n.Depth + 1, cmd: m.shortCmd(n.PID, n.Comm), mem: n.Footprint, cpu: n.CPU, n: 1, start: n.Start, key: a.Key})
+		agents = append(agents, agentRows{a, m.toolRows(a)})
+	}
+	// Agents running something come first, busiest first; the idle rest
+	// keep still, alphabetically, so the list doesn't shuffle under you.
+	busy := func(x agentRows) bool { return len(x.tools) > 0 || x.a.CPU >= 5 }
+	sort.SliceStable(agents, func(i, j int) bool {
+		if bi, bj := busy(agents[i]), busy(agents[j]); bi != bj {
+			return bi
+		} else if bi && agents[i].a.CPU != agents[j].a.CPU {
+			return agents[i].a.CPU > agents[j].a.CPU
 		}
+		return strings.ToLower(agents[i].a.DisplayName) < strings.ToLower(agents[j].a.DisplayName)
+	})
+	for _, x := range agents {
+		a := x.a
+		out = append(out, procRow{pid: a.PID, label: oneLine(a.DisplayName), cmd: m.context(a), mem: a.Mem, cpu: a.CPU,
+			n: a.Procs, start: tab.Procs[a.PID].Start, key: a.Key, heading: true, busy: busy(x)})
+		out = append(out, x.tools...)
 	}
 	for _, r := range m.snap.Machine.Rows {
-		if r.Role == fleet.RoleWorker {
+		if r.Role == fleet.RoleWorker || r.Role == fleet.RoleOrphan {
 			continue
 		}
 		out = append(out, procRow{pid: r.PID, label: r.Label, cmd: r.Cmd, mem: r.Mem, cpu: r.CPU, n: r.Procs, start: r.Start, role: r.Role, other: true})
 	}
 	return out
+}
+
+// toolRows are what an agent is running: its process tree without the
+// agent's own processes (agtop's host, Claude Code, its pty host), which its
+// heading row stands for, and with each Bash-tool shell shown as the command
+// it was asked to run rather than the snapshot-sourcing wrapper around it.
+func (m *Model) toolRows(a *fleet.Agent) []procRow {
+	tab := m.snap.Table
+	var out []procRow
+	depth := map[int]int{}    // the depth a process's children are drawn at
+	shown := map[int]string{} // what a drawn process was drawn as
+	for _, n := range tab.Tree(a.PID) {
+		d := depth[n.PPID]
+		if n.PID == a.PID {
+			d = 0
+		}
+		depth[n.PID] = d
+		if own(n.Comm) {
+			continue
+		}
+		cmd := m.shortCmd(n.PID, n.Comm)
+		if full := strings.Join(proc.Args(n.PID), " "); strings.Contains(full, "eval '") {
+			if c := fleet.ShellCmd(full); c != full {
+				cmd = "$ " + trimCmd(oneLine(c), 200)
+			}
+		}
+		// A shell's only job is often the one thing it was asked to run.
+		if p, ok := shown[n.PPID]; ok && (p == cmd || p == "$ "+cmd) {
+			shown[n.PID] = cmd
+			continue
+		}
+		shown[n.PID] = cmd
+		depth[n.PID] = d + 1
+		out = append(out, procRow{pid: n.PID, depth: d, cmd: cmd, mem: n.Footprint, cpu: n.CPU, n: 1, start: n.Start, key: a.Key})
+	}
+	return out
+}
+
+// own reports whether a process is part of the agent itself rather than
+// something it runs.
+func own(comm string) bool {
+	switch filepath.Base(comm) {
+	case "claude", "agtop":
+		return true
+	}
+	return false
+}
+
+// procIndex is where the cursor is: on the process it was on, wherever the
+// list has moved it.
+func (m *Model) procIndex(rows []procRow) int {
+	if m.procPID != 0 {
+		for i, r := range rows {
+			if r.pid == m.procPID {
+				return i
+			}
+		}
+	}
+	return max(0, min(m.procCursor, len(rows)-1))
 }
 
 type procRow struct {
@@ -816,11 +906,18 @@ type procRow struct {
 	role          fleet.Role
 	key           string
 	heading       bool // an agent's own row above its tree
+	busy          bool // a heading whose agent is running something
 	other         bool // a Claude process that belongs to no agent
 }
 
 func (m *Model) procKey(s string) tea.Cmd {
 	rows := m.procRows()
+	m.procCursor = m.procIndex(rows)
+	defer func() {
+		if m.procCursor < len(rows) {
+			m.procPID = rows[m.procCursor].pid
+		}
+	}()
 	switch s {
 	case "esc", "q", "ctrl+p", "left":
 		m.setView(0)
@@ -837,8 +934,31 @@ func (m *Model) procKey(s string) tea.Cmd {
 			m.sel = rows[m.procCursor].key
 			m.setView(0)
 		}
+	case "X":
+		if mc := m.snap.Machine; mc.Orphans > 0 {
+			var ends []procRow
+			for _, r := range rows {
+				if r.role == fleet.RoleOrphan && r.other {
+					ends = append(ends, r)
+				}
+			}
+			m.confirm = &confirmation{
+				question: fmt.Sprintf("End all %d orphaned process trees and free about %s?", len(ends), mem(mc.OrphanMem)),
+				detail:   "SIGTERM, then SIGKILL after 3s",
+				onYes:    func() tea.Cmd { return endOrphans(ends) },
+			}
+		}
 	case "ctrl+x", "x":
-		if m.procCursor < len(rows) {
+		if m.procCursor < len(rows) && rows[m.procCursor].role == fleet.RoleOrphan && rows[m.procCursor].other {
+			r := rows[m.procCursor]
+			m.confirm = &confirmation{
+				question: fmt.Sprintf("End %s and everything under it, freeing about %s?", trimCmd(r.cmd, 40), mem(r.mem)),
+				detail:   "SIGTERM, then SIGKILL after 3s",
+				onYes:    func() tea.Cmd { return endOrphans([]procRow{r}) },
+				bangText: "SIGKILL it now",
+				onBang:   killTree(r.pid, r.start),
+			}
+		} else if m.procCursor < len(rows) {
 			r := rows[m.procCursor]
 			m.confirm = &confirmation{
 				question: fmt.Sprintf("Send SIGTERM to %d?", r.pid),
@@ -861,6 +981,29 @@ func (m *Model) procKey(s string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// endOrphans ends each orphaned tree, gently then firmly, and says what it
+// freed.
+func endOrphans(rows []procRow) tea.Cmd {
+	return func() tea.Msg {
+		var n int
+		var freed uint64
+		var errs []string
+		for _, r := range rows {
+			k, err := actions.EndTree(r.pid, r.start, 3*time.Second)
+			if err != nil {
+				errs = append(errs, err.Error())
+				continue
+			}
+			n += k
+			freed += r.mem
+		}
+		if n == 0 && len(errs) > 0 {
+			return doneMsg{err: errors.New(strings.Join(errs, "; "))}
+		}
+		return doneMsg{text: fmt.Sprintf("ended %d processes · freed about %s", n, mem(freed))}
+	}
 }
 
 func killTree(pid int, start time.Time) func() tea.Cmd {

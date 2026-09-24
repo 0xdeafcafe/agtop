@@ -144,6 +144,7 @@ type Model struct {
 	settingsPage int // the Settings place's page: a tab of the dialog
 
 	procCursor int
+	procPID    int // the process the cursor is on, followed as the list reorders
 	cwdMove    bool
 	cwdCursor  int
 	cwdFor     string
@@ -792,7 +793,7 @@ func (m *Model) setView(v int) {
 func (m *Model) setMachinePage(p int) {
 	m.machinePage = (p + len(machinePages)) % len(machinePages)
 	if m.machinePage == 0 {
-		m.mode, m.procCursor = modeProcs, 0
+		m.mode, m.procCursor, m.procPID = modeProcs, 0, 0
 	} else {
 		m.mode = modeCleanup
 	}

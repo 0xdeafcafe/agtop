@@ -164,6 +164,10 @@ type Machine struct {
 	TotalCPU float64
 	Spares   int
 	SpareMem uint64
+	// Orphans are processes whose session has ended; they run until the
+	// user keeps or kills them.
+	Orphans   int
+	OrphanMem uint64
 }
 
 type Snapshot struct {
@@ -678,9 +682,13 @@ func (l *Loader) cmdline(p *proc.Proc) string {
 func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 	var m Machine
 	workerOf := map[int]*Agent{}
+	agentOf := map[int]*Agent{} // every agent's own root process
 	for _, a := range snap.Agents {
 		if a.Worker != nil {
 			workerOf[a.Worker.PID] = a
+		}
+		if a.PID != 0 && tab.Procs[a.PID] != nil {
+			agentOf[a.PID] = a
 		}
 	}
 	for pid := range l.args {
@@ -696,6 +704,10 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 	for pid, p := range tab.Procs {
 		var row ProcRow
 		switch {
+		case agentOf[pid] != nil && workerOf[pid] == nil:
+			// An agtop session's host, or a claude in a terminal: the agent.
+			a := agentOf[pid]
+			row = ProcRow{PID: pid, Cmd: l.cmdline(p), Start: p.Start, Role: RoleWorker, Label: a.DisplayName, Key: a.Key}
 		case p.Comm == "claude" || strings.HasSuffix(p.Comm, "/claude"):
 			cmd := l.cmdline(p)
 			row = ProcRow{PID: pid, Cmd: cmd, Start: p.Start}
@@ -713,7 +725,7 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 			case strings.HasSuffix(strings.TrimSpace(cmd), " agents") || strings.Contains(cmd, " agents "):
 				row.Role, row.Label = RoleView, "claude agents (native view)"
 			default:
-				if hasClaudeAncestor(tab, p) || !strings.HasSuffix(strings.Fields(cmd + " x")[0], "claude") {
+				if hasClaudeAncestor(tab, p) || underAgent(tab, p, agentOf) || !strings.HasSuffix(strings.Fields(cmd + " x")[0], "claude") {
 					continue
 				}
 				row.Role, row.Label = RoleOther, "claude (interactive)"
@@ -723,7 +735,7 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 			if !strings.Contains(cmd, "/.claude/") {
 				continue
 			}
-			row = ProcRow{PID: pid, Role: RoleOrphan, Cmd: cmd, Start: p.Start, Label: orphanLabel(cmd)}
+			row = ProcRow{PID: pid, Role: RoleOrphan, Cmd: ShellCmd(cmd), Start: p.Start, Label: orphanLabel(cmd)}
 		default:
 			continue
 		}
@@ -742,6 +754,10 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 		if r.Role == RoleSpare {
 			m.Spares++
 			m.SpareMem += r.Mem
+		}
+		if r.Role == RoleOrphan {
+			m.Orphans++
+			m.OrphanMem += r.Mem
 		}
 	}
 	sort.Slice(m.Rows, func(i, j int) bool {
@@ -772,12 +788,51 @@ func hasClaudeAncestor(tab *proc.Table, p *proc.Proc) bool {
 	return false
 }
 
+// underAgent reports whether p runs inside one of the agents' trees.
+func underAgent(tab *proc.Table, p *proc.Proc, agentOf map[int]*Agent) bool {
+	for i, pid := 0, p.PPID; i < 64 && pid > 1; i++ {
+		if agentOf[pid] != nil {
+			return true
+		}
+		q := tab.Procs[pid]
+		if q == nil {
+			return false
+		}
+		pid = q.PPID
+	}
+	return false
+}
+
 func orphanLabel(cmd string) string {
 	i := strings.Index(cmd, "/.claude/jobs/")
 	if i >= 0 && len(cmd) >= i+22 {
-		return "left by job " + cmd[i+14:i+22]
+		return "job " + cmd[i+14:i+22]
 	}
-	return "left by a finished session"
+	return "ended session"
+}
+
+// ShellCmd is what a Bash-tool shell was asked to run: the command inside
+// Claude Code's eval '…' wrapper, without the snapshot sourcing around it.
+func ShellCmd(cmd string) string {
+	i := strings.Index(cmd, "eval '")
+	if i < 0 {
+		return cmd
+	}
+	rest := cmd[i+6:]
+	var b strings.Builder
+	for len(rest) > 0 {
+		if strings.HasPrefix(rest, `'"'"'`) {
+			b.WriteByte('\'')
+			rest = rest[5:]
+			continue
+		}
+		if rest[0] == '\'' {
+			return b.String()
+		}
+		b.WriteByte(rest[0])
+		rest = rest[1:]
+	}
+	return cmd
 }
 
 // isPrint reports whether a claude command line runs it non-interactively.

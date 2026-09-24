@@ -138,6 +138,9 @@ func (m *Model) header() []string {
 		counts = append(counts, paint(cSub, fmt.Sprintf("◌ %d in background", t.busy)))
 	}
 	counts = append(counts, dim(fmt.Sprintf("%d finished", t.done)))
+	if mc := m.snap.Machine; mc.Orphans > 0 {
+		counts = append(counts, paint(cYellow, fmt.Sprintf("%d orphaned · %s", mc.Orphans, mem(mc.OrphanMem)))+dim(" · > Machine to end"))
+	}
 	left1 := paint(cText+bold, "agtop") + "   " + strings.Join(counts, "   ")
 
 	acct := m.store.Config.ActiveAccount()
@@ -281,6 +284,9 @@ func (m *Model) render() string {
 	case modeHelp:
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 124))
 	case modeProcs:
+		if m.snap.Machine.Orphans > 0 {
+			return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "X", "end all orphans", "x", "end / SIGTERM", "!", "SIGKILL tree", "enter", "go to the agent", "tab", "Cleanup", "esc", "back"))
+		}
 		return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "enter", "go to the agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "tab", "Cleanup", "esc", "back"))
 	case modeCleanup:
 		return m.frame(m.cleanupBody(), keysFit(m.w-4, "↑↓", "move", "x", "remove", "A", "remove all that's safe", "r", "check again", "tab", "Processes", "esc", "back"))
@@ -1548,44 +1554,79 @@ func nonEmpty(xs ...string) []string {
 
 func (m *Model) procBody() []string {
 	rows := m.procRows()
-	w := m.w - 4
+	cur := m.procIndex(rows)
+	// Past this the eye can't follow a row from its name to its numbers.
+	w := min(m.w-4, 170)
 	mc := m.snap.Machine
-	out := []string{paint(cText+bold, "Processes") + dim(fmt.Sprintf("  ·  every agent's processes, then the rest of Claude  ·  %s · %.0f%% cpu in total", mem(mc.TotalMem), mc.TotalCPU)), ""}
-	num := func(r procRow) string {
-		return cpuColor(r.cpu, right(fmt.Sprintf("%.1f%%", r.cpu), 8)) + memColor(r.mem, right(mem(r.mem), 8))
+	// Every row ends in the same three columns; the rest is the left.
+	const cpuW, memW, procW = 9, 8, 8
+	left := max(20, w-2-cpuW-memW-procW)
+	cols := func(r procRow, procs bool) string {
+		p := ""
+		if procs && r.n > 1 {
+			p = fmt.Sprintf("%d", r.n)
+		}
+		return cpuColor(r.cpu, right(fmt.Sprintf("%.1f%%", r.cpu), cpuW)) + memColor(r.mem, right(mem(r.mem), memW)) + dim(right(p, procW))
 	}
-	cmdW := max(10, w-30)
-	lastRole, other := fleet.Role(-1), false
+	var procs int
+	for _, r := range rows {
+		if r.heading || r.other {
+			procs += r.n
+		}
+	}
+	out := []string{
+		paint(cText+bold, "Processes") + dim(fmt.Sprintf("  ·  %s ram · %.0f%% cpu · %d processes", mem(mc.TotalMem), mc.TotalCPU, procs)),
+		"",
+		"  " + faint(fit("agent", left-2)+right("cpu", cpuW)+right("mem", memW)+right("procs", procW)),
+	}
+	nameW := min(48, left*3/5)
+	lastRole, other, wasBusy := fleet.Role(-1), false, false
 	for i, r := range rows {
 		var line string
 		switch {
 		case r.heading:
-			out = append(out, "")
-			procs := fmt.Sprintf("%d procs", r.n)
-			line = "  " + paint(cText+bold, fit(r.label, cmdW-26)) + " " + faint(fit(r.cmd, 24)) + num(r) + dim(right(procs, 10))
+			// A busy agent stands apart with what it runs; the idle ones
+			// sit together as a table.
+			if r.busy || wasBusy {
+				out = append(out, "")
+			}
+			wasBusy = r.busy
+			name := paint(cText, fit(r.label, nameW))
+			if r.busy {
+				name = paint(cText+bold, fit(r.label, nameW))
+			}
+			line = "  " + name + "  " + faint(fit(r.cmd, left-nameW-4)) + cols(r, true)
+		case r.other && r.role == fleet.RoleOrphan:
+			if lastRole != fleet.RoleOrphan {
+				lastRole = fleet.RoleOrphan
+				head := paint(cYellow+bold, fmt.Sprintf("%d orphaned", mc.Orphans)) + paint(cYellow, fmt.Sprintf(" · holding %s", mem(mc.OrphanMem)))
+				out = append(out, "", head+" "+faint(strings.Repeat("─", max(0, w-2-cellw.String(head)-1))),
+					dim("  The sessions that started these have ended; they'll run until you end them. ")+paint(cOrange, "x")+dim(" ends one, ")+paint(cOrange, "X")+dim(" ends them all."))
+			}
+			lbl := fit(r.label+" · "+age(m.snap.At.Sub(r.start))+" old", 30)
+			line = "  " + paint(cYellow, lbl) + paint(cText, fit(trimCmd(r.cmd, left-32), left-32)) + cols(r, true)
 		case r.other:
 			if !other {
 				other = true
-				out = append(out, "", rule("Other Claude processes", "", w-2))
+				out = append(out, "", "", rule("Not agents", "", w-2))
 			}
 			if r.role != lastRole {
 				lastRole = r.role
 				out = append(out, dim("  "+roleName(r.role)))
 			}
-			lbl := paint(cSub, fit(r.label, 30))
-			if r.role == fleet.RoleOrphan {
-				lbl = paint(cYellow, fit(r.label, 30))
-			}
-			procs := ""
-			if r.n > 1 {
-				procs = fmt.Sprintf("%d procs", r.n)
-			}
-			line = "    " + lbl + faint(fit(trimCmd(r.cmd, cmdW-34), cmdW-34)) + num(r) + dim(right(procs, 10))
+			line = "    " + paint(cSub, fit(r.label, 30)) + faint(fit(trimCmd(r.cmd, left-34), left-34)) + cols(r, true)
+		case r.role == fleet.RoleOrphan:
+			line = "  " + strings.Repeat(" ", 30) + faint("└ "+fit(trimCmd(r.cmd, left-34), left-34)) + cols(r, false)
 		default:
 			tree := strings.Repeat("  ", min(r.depth, 8))
-			line = "  " + faint(fit(fmt.Sprintf("%d", r.pid), 7)) + dim(fit(tree+trimCmd(r.cmd, cmdW), cmdW-5)) + num(r)
+			pid := faint(right(fmt.Sprintf("%d", r.pid), 7))
+			c := paint(cSub, r.cmd)
+			if r.cpu >= 1 || r.mem >= 256<<20 {
+				c = paint(cText, r.cmd)
+			}
+			line = "  " + pid + "  " + faint(tree) + fit(c, left-11-len(tree)) + cols(r, false)
 		}
-		if i == m.procCursor {
+		if i == cur {
 			line = highlight(paint(cOrange, "▍")+line[1:], w)
 		}
 		out = append(out, line)
@@ -1607,9 +1648,9 @@ func roleName(r fleet.Role) string {
 	case fleet.RoleSpare:
 		return "Spares — pre-warmed, ready for the next session"
 	case fleet.RoleOrphan:
-		return "Leftovers — the session that started these has ended"
+		return "Orphaned — the session that started these has ended"
 	default:
-		return "Other Claude processes"
+		return "Other Claude Code"
 	}
 }
 
