@@ -1,6 +1,9 @@
 package host
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -431,5 +434,52 @@ func TestRewindByRestart(t *testing.T) {
 	if c, err := Dial(cfg.ID); err == nil {
 		c.Stop()
 		c.Close()
+	}
+}
+
+func TestRingTrimsWholeTurns(t *testing.T) {
+	setup(t)
+	if err := os.MkdirAll(dir("tr"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &server{cfg: Config{ID: "tr"}, clients: map[*conn]struct{}{}}
+	big := []byte(`{"type":"assistant","message":{"content":"` + strings.Repeat("x", 1<<20) + `"}}`)
+	for turn := range 5 {
+		echo, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": fmt.Sprint("turn ", turn)}, "agtop_sent": true})
+		s.record(echo)
+		for range 3 {
+			s.record(append([]byte(nil), big...))
+		}
+	}
+	if s.ringN > ringMax {
+		t.Fatalf("ring holds %d bytes, over %d", s.ringN, ringMax)
+	}
+	from, ok := turnStart(s.ring[0], s.ring[1])
+	if !ok {
+		t.Fatalf("the ring should start at a turn, starts with %.60s", s.ring[0])
+	}
+	if !s.info.ReplayFrom.Equal(from) {
+		t.Fatalf("ReplayFrom is %v, the ring starts at %v", s.info.ReplayFrom, from)
+	}
+	if !bytes.Contains(s.ring[1], []byte("turn 3")) {
+		t.Fatalf("the ring should keep the last two turns, starts with %.80s", s.ring[1])
+	}
+
+	// A turn bigger than the ring keeps its latest part and still says
+	// when it began.
+	var last time.Time
+	for i := range s.ring[:len(s.ring)-1] {
+		if t, ok := turnStart(s.ring[i], s.ring[i+1]); ok {
+			last = t
+		}
+	}
+	for range 10 {
+		s.record(append([]byte(nil), big...))
+	}
+	if s.ringN > ringMax {
+		t.Fatalf("ring holds %d bytes, over %d", s.ringN, ringMax)
+	}
+	if !s.info.ReplayFrom.Equal(last) {
+		t.Fatalf("ReplayFrom is %v, the last turn began at %v", s.info.ReplayFrom, last)
 	}
 }

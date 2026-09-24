@@ -132,6 +132,10 @@ type Info struct {
 	// RewoundAt is when /rewind last switched it to an earlier point of
 	// the conversation: everything before it is in the transcript.
 	RewoundAt time.Time `json:"rewoundAt,omitempty"`
+	// ReplayFrom is set once the replay no longer reaches back to the
+	// start: the turn it now begins with started then, and everything
+	// before it is in the transcript.
+	ReplayFrom time.Time `json:"replayFrom,omitempty"`
 	// Proto is what the host can do, so a newer agtop can tell a host from
 	// an older one (0) that needs restarting to do it: see Proto.
 	Proto int `json:"proto,omitempty"`
@@ -401,7 +405,8 @@ func (s *server) tap(line []byte) {
 func (s *server) record(line []byte) {
 	// A time mark before output that follows a pause, so a client replaying
 	// the ring knows when things happened, not just in what order.
-	if now := time.Now(); now.Sub(s.stamped) >= 500*time.Millisecond {
+	// A turn's first line always gets one: a trimmed ring starts there.
+	if now := time.Now(); now.Sub(s.stamped) >= 500*time.Millisecond || isEcho(line) {
 		s.stamped = now
 		b, _ := json.Marshal(map[string]any{"type": typeTime, "t": now.UnixMilli()})
 		s.ring = append(s.ring, b)
@@ -423,13 +428,70 @@ func (s *server) record(line []byte) {
 	}
 	s.ring = append(s.ring, line)
 	s.ringN += len(line)
-	for s.ringN > ringMax && len(s.ring) > 1 {
-		s.ringN -= len(s.ring[0])
-		s.ring = s.ring[1:]
-	}
+	s.trim()
 	for c := range s.clients {
 		c.push(line)
 	}
+}
+
+// trim drops the oldest of the ring once it outgrows ringMax: whole turns
+// where it can, so a client takes the turns before the replay from the
+// transcript, whole. Only a turn bigger than the ring itself loses its
+// start. Called with mu held.
+func (s *server) trim() {
+	if s.ringN <= ringMax {
+		return
+	}
+	n, cut, from := s.ringN, -1, s.info.ReplayFrom
+	fallback, fallbackFrom := -1, from
+	for i, l := range s.ring[:len(s.ring)-1] {
+		if t, ok := turnStart(l, s.ring[i+1]); ok {
+			from = t
+			if n <= ringMax {
+				cut = i
+				break
+			}
+		}
+		if fallback < 0 && n <= ringMax*3/4 {
+			fallback, fallbackFrom = i, from
+		}
+		n -= len(l)
+	}
+	if cut < 0 {
+		// One turn is all of it: keep its latest part, with room to grow.
+		cut, from = fallback, fallbackFrom
+		if cut < 0 {
+			cut = len(s.ring) - 1
+		}
+	}
+	for _, l := range s.ring[:cut] {
+		s.ringN -= len(l)
+	}
+	s.ring = slices.Clone(s.ring[cut:])
+	if !from.Equal(s.info.ReplayFrom) {
+		s.info.ReplayFrom = from
+		s.publish()
+	}
+}
+
+// turnStart reports whether l is the time mark before a turn's first line,
+// next, and when that was.
+func turnStart(l, next []byte) (time.Time, bool) {
+	if !bytes.HasPrefix(l, []byte(`{"t":`)) || !isEcho(next) {
+		return time.Time{}, false
+	}
+	var m struct {
+		T int64 `json:"t"`
+	}
+	if json.Unmarshal(l, &m) != nil {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(m.T), true
+}
+
+// isEcho is the host's echo of a message sent: the start of a turn.
+func isEcho(line []byte) bool {
+	return bytes.HasPrefix(line, []byte(`{"agtop_`)) && bytes.Contains(line, []byte(`"agtop_sent":true`))
 }
 
 // ownTraffic is a control request for agtop's own tools: an MCP message, or
@@ -1138,7 +1200,7 @@ func (s *server) rewind(sessionID string, resume bool, left *Branch) error {
 	s.began = resume
 	s.saveConfig()
 	s.ring, s.ringN, s.stamped = nil, 0, time.Time{}
-	s.info.SessionID, s.info.RewoundAt = sessionID, time.Now()
+	s.info.SessionID, s.info.RewoundAt, s.info.ReplayFrom = sessionID, time.Now(), time.Time{}
 	s.info.Error, s.info.Retry, s.info.Needs = "", nil, ""
 	if s.info.State != "stopped" {
 		s.info.State = "idle"

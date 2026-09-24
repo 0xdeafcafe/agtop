@@ -786,21 +786,24 @@ func openHost(a *fleet.Agent) tea.Cmd {
 		if err != nil {
 			return hostOpenMsg{key: key, err: err}
 		}
-		// A session that took over an existing conversation shows it: the
-		// transcript up to when the host started (or was last rewound),
-		// then the host's replay.
+		// The transcript up to where the host's replay begins, then the
+		// replay: a session that took over an existing conversation shows
+		// it, and a long one whose replay was trimmed shows all of it.
 		sess := convo.New()
 		info, infoErr := host.ReadInfo(id)
 		if infoErr == nil && info.SessionID != "" && info.Cwd != "" {
 			// The list may not have caught up with a rewind yet.
 			path = acct.TranscriptPath(info.Cwd, info.SessionID)
 		}
-		if cfg, err := host.ReadConfig(id); err == nil && cfg.Resume {
+		trimmed := infoErr == nil && !info.ReplayFrom.IsZero()
+		if cfg, err := host.ReadConfig(id); err == nil && (cfg.Resume || trimmed) {
 			started := time.Now()
 			if infoErr == nil && !info.StartedAt.IsZero() {
 				started = info.StartedAt
-				if info.RewoundAt.After(started) {
-					started = info.RewoundAt
+				for _, t := range []time.Time{info.RewoundAt, info.ReplayFrom} {
+					if t.After(started) {
+						started = t
+					}
 				}
 			}
 			sess = convo.History(path, started)
