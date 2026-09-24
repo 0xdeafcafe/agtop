@@ -1,8 +1,8 @@
 <h1 align="center">agtop</h1>
 
 <p align="center">
-  A small, fast replacement for Claude Code's agents view, written in Go.<br>
-  The same layout and keys, and what the native view doesn't show you.
+  A replacement for the whole Claude Code interface, written in Go and built to be very fast.<br>
+  It keeps what makes Claude Code great, and adds what it's missing.
 </p>
 
 <p align="center">
@@ -48,6 +48,8 @@
 go install github.com/0xdeafcafe/agtop/cmd/agtop@latest
 ```
 
+This needs Go 1.27.1 or newer. It puts `agtop` in `$(go env GOPATH)/bin`, so make sure that folder is on your `PATH`.
+
 ```sh
 agtop            # open it
 agtop on         # make `claude agents` open agtop (adds one line to ~/.zshrc)
@@ -55,7 +57,7 @@ agtop off        # give `claude agents` back to Claude Code
 agtop menubar    # put agtop in the macOS menu bar (`agtop menubar off` takes it out)
 ```
 
-The first time it opens, a short tour points out each part of the screen. `#tour` shows it again, and `?` is a guide to the keys.
+Getting started sits at the foot of the list until you've tried the basics, ticking each off as you go. `#tips` brings it back, `#tips off` puts it away, and `?` is a guide to the keys.
 
 ## Agents
 
@@ -66,6 +68,7 @@ The list is every agent you have, with what it's doing right now: "running pnpm 
 - **Preview** (`tab`): the agent's own screen, live, or what it's doing, its last message and its process tree. Type to reply without opening it.
 - **Open** (`enter`) connects to the running session through the daemon, like the native view. `ctrl+]` comes back.
 - **Done** (`alt+d`) moves an agent out of the way and stops its process if it's idle. A message resumes it. Nothing is merged or deleted.
+- **Cold cache warning**: sending to a session idle past its prompt cache's hour asks first, since it re-reads the whole context uncached.
 - **Groups** (`ctrl+s`) by status, repository, account or your own (`ctrl+e`). Pins (`ctrl+t`) are shared with the native view.
 - **Change repo** (`ctrl+l`) moves a conversation to another folder or worktree.
 
@@ -100,7 +103,7 @@ An agent run in agtop mode (Claude Code headless, hosted by agtop) opens in a Se
       <b>Subagents</b>. Every run, with its steps, tokens, cost and last words. <code>enter</code> watches one.
     </td>
     <td valign="top">
-      <b>Queue</b>. Messages sent while the agent works wait here. <code>enter</code> edits one, <code>shift+↑↓</code> moves it, <code>s</code> sends it now, <code>m</code> merges it with the next, <code>ctrl+s</code> sends everything.<br><br>
+      <b>Queue</b>. Messages sent while the agent works wait here. <code>enter</code> edits one, <code>shift+↑↓</code> merges it into the one above or below, <code>[</code> <code>]</code> move it, <code>s</code> sends it now, <code>ctrl+s</code> sends everything.<br><br>
       Claude's questions arrive as one form, with a preview beside each option. Long pastes stay a chip.
     </td>
   </tr>
@@ -110,7 +113,7 @@ An agent run in agtop mode (Claude Code headless, hosted by agtop) opens in a Se
 
 `ctrl+k` opens the command bar: a place, an agent, a Session's view, a turn (`#12`), `Back` to where you jumped from, or a new agent with what you typed. Words search the open conversation and every agent's transcript, and `in:name`, `is:failed`, `file:x` and `turn:10-13` narrow it. `ctrl+f` is the same bar, starting where you are.
 
-`#` runs agtop's own commands on the selected agent: `#done` `#stop` `#restart` `#rm` `#kill` `#clean` `#cd` `#add-dir` `#pin` `#pr` `#full` `#sort` `#by` `#account` `#hibernate` `#native` `#tour`. `/` is left to Claude.
+`#` runs agtop's own commands on the selected agent: `#done` `#stop` `#restart` `#rm` `#kill` `#clean` `#cd` `#add-dir` `#pin` `#pr` `#full` `#sort` `#by` `#account` `#hibernate` `#native` `#tips`. `/` is left to Claude.
 
 <table>
   <tr>
@@ -172,12 +175,13 @@ Settings › Coding agents sets the model, effort and permissions new sessions s
 
 | Key | |
 | --- | --- |
-| `↑` `↓` `enter` | move, open the agent |
+| `↑` `↓` `⌘↓` | move, open the agent (or `→`) |
+| `enter` | rename it; `tab` or `↑` `↓` saves and renames the next |
 | type, `enter` | start a session, or reply to the agent in the preview |
 | `tab` | the list ⇄ the agent's Session |
 | `ctrl+k` | go anywhere, search everything |
 | `ctrl+f` | find, starting where you are |
-| `<` `>` | Agents · Machine · Settings |
+| `,` `.` | Agents · Machine · Settings |
 | `ctrl+r` `ctrl+t` `ctrl+e` | rename, pin, set group |
 | `ctrl+s` | group by status, repository, account, your groups |
 | `alt+d` | done |

@@ -17,7 +17,7 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 - Surfaces over rules, visible elevation, and a bordered input box that is obviously where you type.
 
 **Layout and focus**
-- The list (**Agents**) keeps ≥25% width (≥30 columns). There's no split when the pane would be under 84 columns. The user can resize (alt+←/→, drag the divider, `/width 30%`).
+- The list (**Agents**) keeps ≥25% width (≥30 columns). There's no split when the pane would be under 84 columns. The user can resize (shift+←/→ or alt+←/→ with nothing typed, drag the divider, `/width 30%`). `#view split|agent|list` picks the layout outright. Stepping or dragging past either end leaves one side alone: past 75% is Agents alone (`Config.ListOnly`, kept across restarts; past 25% is the Session alone (`m.full`); the opposite step brings the split back. From Agents alone, a Session opens as you last had one (`Config.ChatFull`, see `chatAlone()`): push it alone and later ones open alone, split it and they open beside the list. Closing (esc, ←) goes back to Agents alone; hiding (past 75%, `#view list`) is what sets it.
 - Names for the parts:
   - **Agents** (left list)
   - **Session** (right side), with views **conversation · overview · changes · subagents** (· screen for live Claude Code agents, which the user wants removed, see below)
@@ -30,7 +30,7 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
 
 **Keys**
 - Letters always type. Remap applied:
-  - F2 renames
+  - ctrl+r renames (or #rename)
   - `/done` and `/group`
   - ctrl+l: folder picker while drafting, else move the agent
   - ctrl+n: next agent needing you
@@ -141,8 +141,11 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
   - Enter sends `/cmd args` as the message; headless Claude Code runs slash commands it supports in stream-json (check which ones: `/compact` should work).
   - `/clear` needs agtop to handle it: start a fresh conversation in the same folder. That means spawning a new host session and selecting it, while the old one stays in the list.
   - agtop's own commands (`/agtop`, `/width`, `/done`, `/rename`, …) should appear in the same picker, marked as agtop's.
+  - Added 2026-09-24: Claude Code's interactive screens, done agtop's way as **sheets** (`ui/sheet.go`: `m.sheet` takes every key and draws over the screen; async work comes back as `sheetMsg`). `/fork [name]` (`forksheet.go`): name, how much it remembers (up to any turn), model, effort, permissions, same folder or a new worktree (`actions.NewWorktree`, `.claude/worktrees/<name>`), first message; the whole conversation in place is `--fork-session`, anything else copies the transcript cut at a turn (`convo.TurnStarts`, `claude.CopyTranscript`, plus checkpoints) and resumes the copy. `/plugins` (`pluginsheet.go`, via `claude plugin … --json`): Installed (on/off, update, remove, parts and always-on tokens), Discover (search, install), Marketplaces (add, update, remove); a hosted idle session gets `/reload-plugins` after changes. `/statusline` (`statuslinesheet.go`, `internal/statusline`): up to three lines of segments with a live preview; saving points settings.json's statusLine at `agtop statusline`, and a status line command of your own is kept as the "Your own line" segment. `/skills` (`skillsheet.go`), `/permissions` and `/hooks` (`rulesheet.go`) likewise. `/memory` opens the memory view, `/config` Settings › Claude. The rest (`/mcp`, `/status`, …) still hand the terminal to `claude /<cmd>` (`actions.Screen`). Session-bound `/rewind` is the rewind session's (`rewindsheet.go`).
+  - Added 2026-09-24: agtop's own status lines. The top bar (top right of the window) and the agent header (the two lines at the top of a Session) are layouts like Claude Code's status line, kept in `bars.json` (`statusline.Bars`) and drawn by agtop from its own data (`ui/bars.go`: `topSegs`, `agentSegs`). `/statusline` (and `#statusline` from the list, opening on Top bar) has three tabs: Agent header, Top bar, Claude Code. Edits on the agtop tabs show live on the real header; esc drops them; enter saves, and touches settings.json only if the Claude Code tab changed. When space runs out, the segments last on a line go first, whole. Not configurable: clanker and the counts, an agent's name, state and connection, the tab row and its alerts (✗ failed).
+  - Added 2026-09-24: `/rewind` (aliases `/checkpoint`, `/undo`; `ui/rewindsheet.go`) takes an agtop-mode agent back to before one of your messages, in place: same agent, same host. agtop cuts a copy of the transcript at that message (`convo.TurnStarts` + `claude.CopyTranscript`, checkpoints linked over with `Account.CopyCheckpoints`), and the host's `rewind` op switches to it, clears its replay and drops clients so they redraw. The path left is kept in `host.Config.Branches` and listed in the same sheet to go back down. Code stays as it is by default (you keep the fix, lose the context); `c` puts files back via Claude Code's own `rewind_files` control request, previewed with a dry run. For that, hosts now run Claude Code with `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING=1`, so only turns from after that change have checkpoints. `n` brings back a note: before cutting, a throwaway `claude -p --resume --fork-session --no-session-persistence` (`headless.Recap`) writes what the dropped turns learned, and it's put in the box above your old message.
 
-- [x] **Queue view** (built: the queue view lists queued messages; enter edits one in the box and saves it back in place, shift+↑↓ moves, alt+m merges, ctrl+s sends now, ctrl+x drops, alt+h holds, alt+o switches one-message/separately; the host now sends the whole queue as one message by default). Was: edit in place, reorder (shift+↑↓), merge, drop, send now, **hold**. Needs a `hold` op in the host, plus queue item ids. The client already has `EditQueued/MoveQueued/MergeQueued/SendQueued/RemoveQueued`; nothing calls them yet.
+- [x] **Queue view** (built: the queue view lists queued messages; enter edits one in the box and saves it back in place, [ ] moves, shift+↑↓ merges up or down, ctrl+s sends now, ctrl+x drops, alt+h holds, alt+o switches one-message/separately; the host now sends the whole queue as one message by default). Was: edit in place, reorder (shift+↑↓), merge, drop, send now, **hold**. Needs a `hold` op in the host, plus queue item ids. The client already has `EditQueued/MoveQueued/MergeQueued/SendQueued/RemoveQueued`; nothing calls them yet.
 - [x] **Tasks view** (built: Now / Next / Done). Was: the full list (now / next / done), including subagents' tasks. Data is in `convo.Session.Tasks` (TodoWrite, TaskCreate, TaskUpdate).
 - [x] **Subagents view redesign** (rows done in `0a2a077`: running/done/stopped/failed from each run's own transcript plus task notifications, real duration, steps, tokens, cost, model, latest words; note: Claude Code sometimes logs a response's usage mid-stream, so output tokens can read low). Still to do: master–detail, the runs list with the selected run's conversation beside it on wide panes. Richer rows: status, type, task, model, steps, tokens, duration, first line of its result. **Done (0a2a077 rows, 8ac2753 master–detail, c106f4f alt+↑↓ switcher).**
 - [ ] **Overview redesign** (the user: "most of it sucks"): a dashboard.
@@ -164,11 +167,11 @@ Agents that Claude Code's own daemon runs are drawn by the **same renderer, from
   - net diff per file
   - per-turn attribution
   - jump from a hunk into the conversation
-- [x] **Recent changes rail** (built after the handover). On wide screens, room past the Session's 128 columns becomes a rail of the latest edits as diff blocks. The Session never takes more than 128 columns; if the rail doesn't fit, the room goes to Agents. `layout()` sets `m.railW`; the rail comes from `convo.Session.RecentEdits`. The user's own list width wins, so a wide saved `/width` means no rail.
+- [x] **Recent changes rail**: built after the handover (latest edits as diff blocks beside the Session on wide screens, resizable, `/rail`), then removed on 2026-09-24 at the user's request. The Session and Agents share the width again; the changes view has the edits.
 
 ### 3. Nice to have / later
 
-- [x] A right-hand side panel at ≥164-column panes (tasks, queue, shells), from the design. **Done (e03f1e9: 'now' section at the top of the rail).**
+- [x] A right-hand side panel at ≥164-column panes (tasks, queue, shells), from the design. **Done (e03f1e9: 'now' section at the top of the rail); gone with the rail on 2026-09-24.**
 - [ ] A Changes view built from git with per-turn attribution for the working tree (currently only marks this session vs not).
 - [x] Desktop notifications (OSC 9) and a title counter while agtop is unfocused. **Done (adbcece: title counter, no notification for the agent you're watching).**
 - [ ] A compaction divider and a context meter in the conversation.
