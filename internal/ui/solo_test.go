@@ -79,7 +79,7 @@ func TestSoloShowsOneSession(t *testing.T) {
 
 	c := &hostConn{key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
 	m.host = c
-	for _, k := range []string{"tab", "ctrl+n", ",", ".", "<", ">", "ctrl+z", "left", "ctrl+k"} {
+	for _, k := range []string{"tab", "ctrl+n", "ctrl+z", "left", "ctrl+k"} {
 		soloPress(m, k)
 		if m.sel != m.soloKey || m.view != placeAgents || m.zen || m.mode != modeList || !m.paneFocus || !m.full || m.bar != nil {
 			t.Fatalf("after %s: sel %q view %d zen %v mode %d focus %v bar %v", k, m.sel, m.view, m.zen, m.mode, m.paneFocus, m.bar != nil)
@@ -88,11 +88,12 @@ func TestSoloShowsOneSession(t *testing.T) {
 	if out := m.render(); strings.Contains(out, "another session") {
 		t.Fatalf("solo frame after keys:\n%s", out)
 	}
-	// , typed after text is text.
-	soloPress(m, "a")
-	soloPress(m, ",")
-	if got := string(c.input); got != "a," {
-		t.Fatalf("typed %q, want a,", got)
+	// , . < > are text, first or not.
+	for _, k := range []string{">", ",", ".", "<", "a"} {
+		soloPress(m, k)
+	}
+	if got := string(c.input); got != ">,.<a" || m.view != placeAgents {
+		t.Fatalf("typed %q in view %d, want >,.<a", got, m.view)
 	}
 	soloPress(m, "esc") // clears the box
 	if len(c.input) != 0 {

@@ -233,9 +233,9 @@ func (m *Model) editKey(k tea.KeyPressMsg, s string) bool {
 }
 
 // placeStep is which way a key moves between places: -1 for , and <, +1
-// for . > and ctrl+\, 0 when it doesn't. , and . move without shift; they
-// and < > only move with nothing typed in the box that has the keys, so
-// they can still be typed.
+// for . > and ctrl+\, 0 when it doesn't. , . < > move only from the list
+// with nothing typed in its box, and never while a Session's box has the
+// keys, so they can always be typed there.
 func (m *Model) placeStep(s string) int {
 	d := map[string]int{",": -1, "<": -1, ".": 1, ">": 1, "ctrl+\\": 1}[s]
 	if d == 0 || m.mode == modeCwd || m.dialog != nil && m.dialog.asking != "" || m.mode == modeEff && m.eff.typing() {
@@ -244,12 +244,10 @@ func (m *Model) placeStep(s string) int {
 	if s == "ctrl+\\" || m.mode != modeList || m.dialog != nil {
 		return d
 	}
-	if c := m.host; m.paneFocus && c != nil {
-		// A Claude Code agent's screen takes what's typed itself.
-		if m.viewName(c) == "screen" && m.canEmbed() || len(c.input) > 0 || c.editQ > 0 {
-			return 0
-		}
-		return d
+	if m.paneFocus && m.host != nil {
+		// A Session's box types them, first character or not: a message
+		// may start with a > quote. ctrl+\ still moves.
+		return 0
 	}
 	if len(m.input) > 0 || m.inKind != inPrompt {
 		return 0

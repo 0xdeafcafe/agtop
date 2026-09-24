@@ -174,8 +174,8 @@ func (m *Model) header() []string {
 	out[1] = line(robot[1], left1, right1)
 	out[2] = line(robot[2], left2, right2)
 	places := faint("   , .")
-	if m.solo != "" {
-		places = faint("   ctrl+\\") // , and . stay text in solo
+	if m.solo != "" || m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil {
+		places = faint("   ctrl+\\") // , and . are text in a Session's box
 	}
 	out[3] = "  " + robot[3] + "   " + strings.Join(m.tabs(), " ") + m.pages() + places
 	return out
@@ -2086,7 +2086,7 @@ var helpPages = []struct {
 	}},
 	{"◈ Around", [][2]string{
 		{"ctrl+z", "zen"},
-		{", .", "Agents · Efficiency · Machine · Settings"},
+		{", . · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
 		{"shift+← →", "resize · past the end, one side alone"},
 		{"#tips", "Getting started again"},
 		{"esc esc", "quit"},
