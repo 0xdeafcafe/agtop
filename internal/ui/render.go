@@ -12,7 +12,7 @@ import (
 func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	m.Update(scanMsg(m.scanner.Run(m.targets())))
-	m.snap = m.loader.Load(true)
+	m.snap = m.loadSnap()
 	time.Sleep(500 * time.Millisecond)
 	m.refresh()
 	// AGTOP_RENDER_SELECT picks an agent by name, for checking one pane.

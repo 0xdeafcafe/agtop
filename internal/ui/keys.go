@@ -28,7 +28,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.host.subHover = ""
 	}
 	m.lastKeyAt = time.Now()
-	if cmd, ok := m.barToggle(s); ok {
+	if cmd, ok := m.soloKeyGuard(s); ok {
+		return cmd
+	}
+	if m.solo != "" {
+		// No command bar: it reaches every agent and place.
+	} else if cmd, ok := m.barToggle(s); ok {
 		return cmd
 	}
 	if m.bar != nil && s != "ctrl+q" {

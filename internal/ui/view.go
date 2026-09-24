@@ -105,7 +105,7 @@ func (m *Model) headH() int {
 // topH is the rows above the body: the header and the row under it. Zen
 // has none; it's only what needs you.
 func (m *Model) topH() int {
-	if m.zen {
+	if m.zen || m.solo != "" {
 		return 0
 	}
 	return m.headH() + 1
@@ -514,6 +514,9 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 // the height, which needs the prompt drawn and so the picker, and #view's
 // picker asks which layout is on.
 func (m *Model) widths() (listW, paneW int) {
+	if m.solo != "" {
+		return 0, m.w // the one session, full width
+	}
 	listW = m.w
 	showing := m.full || m.preview || m.autoSplit()
 	if m.zenFull() {
@@ -572,7 +575,7 @@ func (m *Model) setSideWidth(cols int) {
 // list alone. It says whether it took the key.
 func (m *Model) stepSplit(grow bool) (tea.Cmd, bool) {
 	floor := max((m.w+3)/4, 30)
-	if m.w-floor-1 < minPane || m.zenFull() {
+	if m.w-floor-1 < minPane || m.zenFull() || m.solo != "" {
 		return nil, false // too narrow for a split to step through
 	}
 	ceil := min(m.w*3/4, m.w-1-minPane)
@@ -641,7 +644,7 @@ func (m *Model) canSplit() bool { return m.w-max((m.w+3)/4, 30)-1 >= minPane }
 // splitHint is the key back to the split, for the hint row, while one side
 // has the screen and there's room for both.
 func (m *Model) splitHint(back string) []string {
-	if m.zen || !m.canSplit() {
+	if m.zen || m.solo != "" || !m.canSplit() {
 		return nil
 	}
 	return []string{back + " · #view split", "back to side by side"}
@@ -719,7 +722,7 @@ func (m *Model) paneH() int {
 
 func (m *Model) listView() string {
 	var head []string
-	if !m.zen {
+	if !m.zen && m.solo == "" {
 		head = append(m.header(), "")
 	}
 	listW, paneW, bodyH := m.layout()
@@ -1587,7 +1590,7 @@ func (m *Model) badges(a *fleet.Agent) string {
 // box, and a Session filling a narrow screen has its own box too, so there
 // are never two boxes on screen at once.
 func (m *Model) noPrompt() bool {
-	return m.zenFull() || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList)
+	return m.zenFull() || m.solo != "" || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList)
 }
 
 // promptBoxAt is the Prompt's box at width w, before its labels.

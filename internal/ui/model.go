@@ -200,6 +200,9 @@ type Model struct {
 	jump    *barJump // a jump into a conversation that's still opening
 	// groupOf is the list section each agent is in, folded or not.
 	groupOf map[string]string
+	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
+	// its agent's key once the snapshot has it.
+	solo, soloKey string
 }
 
 type previewEntry struct {
@@ -274,6 +277,10 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) Init() tea.Cmd {
+	if m.solo != "" {
+		// Only the one session: nothing about the app as a whole.
+		return tea.Batch(tick(), m.scan(), m.loadPreview())
+	}
 	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar(), m.startView(), m.checkUpdate())
 }
 
@@ -494,6 +501,7 @@ func (m *Model) flash(s string, err bool) {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := m.update(msg)
+	m.pinSolo()
 	m.applyJump()
 	_, isTick := msg.(tickMsg)
 	m.noteProgress(isTick)
@@ -586,6 +594,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case rewoundMsg:
 		return m, m.onRewound(msg)
 	case hostStartedMsg:
+		if m.solo != "" {
+			// It's in Agents; the solo view stays on its own session.
+			m.flash("started "+msg.name+" · it's in agtop's Agents", false)
+			return m, nil
+		}
 		// Select the new session and give it the keys.
 		m.refresh()
 		m.sel = state.Key(msg.acct, "a:"+msg.id)
@@ -603,7 +616,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.followTail()
-		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues(), m.movePending(), m.measureTemp(), m.tidy(), m.squeezeTranscripts()}
+		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues()}
+		if m.solo == "" {
+			cmds = append(cmds, m.movePending(), m.measureTemp(), m.tidy(), m.squeezeTranscripts())
+		}
 		if m.mode == modeEff && !m.eff.loading && time.Since(m.eff.loaded) > 30*time.Second {
 			cmds = append(cmds, m.effLoad(true)) // new transcript lines, every 30s while it's open
 		}
@@ -613,11 +629,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}
-		if m.tick%60 == 0 {
+		if m.tick%60 == 0 && m.solo == "" {
 			cmds = append(cmds, m.fetchUsage(), m.findLogins())
 		}
 		m.clkBeat(m.mood(m.tally()))
-		if k := menubar.Goto(); k != "" && m.agentByKey(k) != nil {
+		if m.solo != "" {
+			// A notification's jump is for a view that shows every agent.
+		} else if k := menubar.Goto(); k != "" && m.agentByKey(k) != nil {
 			m.sel = k // a notification or the menu bar's menu was clicked
 			m.rebuild()
 		}
@@ -1054,10 +1072,12 @@ func (m *Model) acceptsText() bool {
 }
 
 func (m *Model) refresh() {
-	m.snap = m.loader.Load(true)
+	m.snap = m.loadSnap()
 	m.notify()
-	m.hibernate()
-	m.reap()
+	if m.solo == "" {
+		m.hibernate()
+		m.reap()
+	}
 	m.rebuild()
 }
 

@@ -191,6 +191,27 @@ To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe
 
 [plugins/](plugins) has everything else: using and writing them, the examples, the skill, and how it works.
 
+## Embedding agtop
+
+Another app can run agtop-mode sessions without the view and show one of them in a terminal of its own.
+
+```sh
+agtop session start --cwd DIR [--session-id UUID] [--resume] [--name N] \
+  [--prompt-file F] [--image PATH]... [--env K=V]... [--meta k=v]... \
+  [--binary PATH] [--model M] [--effort E] [--permission-mode M] --json
+echo 'the next message' | agtop session send <id> [--now] [--image PATH]...
+agtop session interrupt <id>
+agtop session stop <id>
+agtop session info <id> --json
+agtop session list --json [--meta k=v]...
+```
+
+`start` uses the model, effort, permission mode and limit settings from Settings unless a flag gives them, and prints the session's info with `"alive"` added. With `--session-id` it is idempotent: a session already running is printed, not started again. A stopped one needs `--resume`, which brings the same conversation back. `--env` values reach Claude Code on every start of it, idle restarts and resumes included. `--meta` tags the session; `list --meta` filters on the tags.
+
+`send` reads the message from stdin. If the session is stopped it resumes with the message, as sending from the view does. `info` exits 1 with `{"error":"not found"}` for an id with no session. `alive` is whether the session's host is running; a host whose Claude Code is resting while idle counts as alive.
+
+`agtop open <id> --solo` is the view of that one session alone, at full width: no Agents list, no header or places, and the keys that lead to other agents or places (`, . < > ctrl+\ ctrl+z ctrl+n ctrl+k tab`) do nothing. The message box has the keys from the start. `esc` at the top level and `ctrl+q` close the view; the session keeps running. A stopped session shows its conversation and resumes with the first message.
+
 ## And
 
 - **Menu bar**: every account's usage, the agents working, and a badge for each waiting on you. Questions arrive as notifications you can answer from; clicking one brings back the terminal agtop is open in (Warp, iTerm, Ghostty…) on that agent. agtop offers it the first time it opens on a Mac. It's a small Swift app built on your Mac the first time (it needs Xcode's command line tools).

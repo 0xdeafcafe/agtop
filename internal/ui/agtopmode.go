@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
@@ -934,10 +935,12 @@ func freeSoon() {
 // openTail reads a Claude Code session's transcript in the background the
 // first time; after that a watch takes in what is new as it is written.
 func openTail(a *fleet.Agent) tea.Cmd {
-	key, id, path := a.Key, a.ID, a.TranscriptPath
+	key, id, path, agtop := a.Key, a.ID, a.TranscriptPath, a.Agtop
 	return func() tea.Msg {
 		t := convo.NewTail(path)
-		if _, err := t.Read(); err != nil {
+		// A stopped agtop session that never got a message has no
+		// transcript yet: it opens empty, and a message resumes it.
+		if _, err := t.Read(); err != nil && !(agtop && errors.Is(err, fs.ErrNotExist)) {
 			return hostOpenMsg{key: key, err: err}
 		}
 		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true, path: path}}
@@ -1396,7 +1399,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	if c.verbose {
 		chips += paint(cOrange, "ctrl+o all shown") + "  "
 	}
-	if alone {
+	if alone && m.solo == "" {
 		// Nothing says the list is behind it but this.
 		chips += paint(cText, "esc") + dim(" back to the list") + " "
 	}
@@ -1637,7 +1640,10 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
 	pairs := []string{"enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list"}
-	if m.store.Config.View == "agent" && m.chatAlone() && !m.zen {
+	switch {
+	case m.solo != "":
+		pairs[4], pairs[5] = "esc", "close"
+	case m.store.Config.View == "agent" && m.chatAlone() && !m.zen:
 		pairs[5] = "peek at Agents"
 	}
 	if l, _ := m.widths(); l == 0 {
@@ -1647,7 +1653,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	hint := keysFit(w-4, append(pairs, "↑", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")...)
 	if m.watchingSub(c) {
 		back := "back to the list"
-		if c.subBack {
+		if c.subBack || m.solo != "" {
 			back = "back to the conversation"
 		}
 		hint = keysFit(w-4, "enter", "send to the main session", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat", "ctrl+o", "show all")
@@ -1855,6 +1861,11 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.closeSub(c)
 		case m.zen:
 			// Zen keeps the keys on the agent; tab or ctrl+z leaves zen.
+		case m.solo != "":
+			// Alone, there's nothing behind it: esc closes the view and
+			// the session carries on.
+			m.scanner.Flush()
+			return tea.Quit
 		default:
 			m.leavePane()
 		}
@@ -2469,6 +2480,9 @@ func (m *Model) clickRow(c *hostConn, y int) {
 // leavePane gives the keys back to the list. On a narrow screen, where the
 // conversation filled it, the list comes back too.
 func (m *Model) leavePane() {
+	if m.solo != "" {
+		return // there's no list to go back to
+	}
 	m.paneFocus = false
 	if m.listW == 0 {
 		m.leaveChat()
