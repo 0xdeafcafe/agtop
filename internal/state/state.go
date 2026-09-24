@@ -76,6 +76,9 @@ type Config struct {
 	ColorBlind bool `json:"colorBlind,omitempty"`
 	// ShowWhitespace marks spaces and tabs in diffs, as · and →.
 	ShowWhitespace bool `json:"showWhitespace,omitempty"`
+	// SearchTranscriptsOnKey keeps ctrl+k to agent names and commands while
+	// you type; ctrl+enter (or ctrl+j) then searches the transcripts.
+	SearchTranscriptsOnKey bool `json:"searchTranscriptsOnKey,omitempty"`
 	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitempty"`

@@ -101,8 +101,10 @@ func TestBarFindsAnAgentAndATurn(t *testing.T) {
 	}
 }
 
-func TestBarSearchesTranscripts(t *testing.T) {
-	m, _ := benchModel(120, 40)
+// barTranscriptsFixture gives five agents transcripts, one of them with
+// "zebracorn" in it, the third.
+func barTranscriptsFixture(t *testing.T, m *Model) {
+	t.Helper()
 	dir := t.TempDir()
 	line := `{"type":"user","timestamp":"2026-09-23T20:00:00Z","cwd":"/work","message":{"role":"user","content":"rotate the zebracorn keys"},"origin":{"kind":"human"}}`
 	for i, a := range m.snap.Agents[1:6] {
@@ -116,32 +118,88 @@ func TestBarSearchesTranscripts(t *testing.T) {
 		}
 		a.TranscriptPath = p
 	}
-	m.Update(ctrlK())
-	typeBar(m, "zebracorn")
-	cmd, _ := m.barMsg(barPauseMsg(m.bar.gen))
-	cmd = cmd().(tea.BatchMsg)[0] // the search; the other is the frame's glint
+}
+
+// runSearch runs a transcript search started by cmd (the search batched with
+// the frame's glint) to the end.
+func runSearch(m *Model, cmd tea.Cmd) {
+	cmd = cmd().(tea.BatchMsg)[0]
 	for cmd != nil {
 		cmd, _ = m.barMsg(cmd())
 	}
+}
+
+func barHit(m *Model) *barItem {
+	for i, it := range m.bar.items {
+		if it.section == "Transcripts" {
+			return &m.bar.items[i]
+		}
+	}
+	return nil
+}
+
+func TestBarSearchesTranscripts(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	barTranscriptsFixture(t, m)
+	m.Update(ctrlK())
+	typeBar(m, "zebracorn")
+	cmd, _ := m.barMsg(barPauseMsg(m.bar.gen))
+	runSearch(m, cmd)
 	if !m.bar.done || m.bar.searched != 5 {
 		t.Fatalf("searched %d of %d, done %v", m.bar.searched, m.bar.toSearch, m.bar.done)
 	}
-	var hit *barItem
-	for i, it := range m.bar.items {
-		if it.section == "Transcripts" {
-			hit = &m.bar.items[i]
-		}
-	}
+	hit := barHit(m)
 	if hit == nil || !strings.Contains(hit.title, "zebracorn") {
 		t.Fatalf("no transcript hit: %+v", m.bar.items)
 	}
-	if !strings.Contains(m.View().Content, "zebracorn") {
-		t.Fatal("the hit isn't drawn")
+	if out := m.View().Content; !strings.Contains(out, "zebracorn") || strings.Contains(out, "search transcripts") {
+		t.Fatal("the hit isn't drawn, or the on-demand hint is")
 	}
 	// Going there selects the agent and waits for its conversation.
 	hit.run(m)
 	if m.sel != m.snap.Agents[3].Key || m.jump == nil {
 		t.Fatalf("went to %q, jump %v", m.sel, m.jump)
+	}
+}
+
+// With SearchTranscriptsOnKey, typing matches names and commands only, and
+// ctrl+enter (ctrl+j where the terminal can't tell it from enter) searches
+// the transcripts.
+func TestBarSearchesTranscriptsOnKey(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{{Code: tea.KeyEnter, Mod: tea.ModCtrl}, {Code: 'j', Mod: tea.ModCtrl}} {
+		m, _ := benchModel(120, 40)
+		m.store.Config.SearchTranscriptsOnKey = true
+		barTranscriptsFixture(t, m)
+		m.Update(ctrlK())
+		typeBar(m, "zebracorn")
+		if cmd := m.barChanged(); cmd != nil {
+			t.Fatal("typing scheduled a transcript search")
+		}
+		if m.bar.search != nil || barHit(m) != nil {
+			t.Fatal("the transcripts were searched while typing")
+		}
+		out := ansi.Strip(m.View().Content)
+		if !strings.Contains(out, "ctrl+j search transcripts") || m.barStatus() != "" {
+			t.Fatalf("no hint for the key, or a pending search shown:\n%s", out)
+		}
+		m.Update(tea.KeyboardEnhancementsMsg{Flags: 1})
+		if out := ansi.Strip(m.View().Content); !strings.Contains(out, "ctrl+enter search transcripts") {
+			t.Fatalf("a terminal that tells ctrl+enter apart should be offered it:\n%s", out)
+		}
+		if key.String() != "ctrl+enter" && key.String() != "ctrl+j" {
+			t.Fatalf("key reads as %q", key.String())
+		}
+		cmd := m.key(key)
+		if cmd == nil || m.bar.search == nil {
+			t.Fatalf("%s didn't search", key.String())
+		}
+		runSearch(m, cmd)
+		if hit := barHit(m); !m.bar.done || m.bar.searched != 5 || hit == nil || !strings.Contains(hit.title, "zebracorn") {
+			t.Fatalf("%s: searched %d, hit %v", key.String(), m.bar.searched, hit)
+		}
+		if strings.Contains(ansi.Strip(m.View().Content), "search transcripts") {
+			t.Fatal("the hint stays once the search ran")
+		}
 	}
 }
 
@@ -290,5 +348,26 @@ func TestBarStartsAnAgent(t *testing.T) {
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.bar != nil || m.paneFocus || m.view != 0 || m.inKind != inPrompt {
 		t.Fatalf("Start an agent didn't put the keys in the Prompt: paneFocus %v view %d", m.paneFocus, m.view)
+	}
+}
+
+// Settings › General switches how ctrl+k searches the transcripts.
+func TestBarSearchSetting(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	find := func() setting {
+		for _, s := range m.generalSettings() {
+			if s.label == "ctrl+k searches transcripts" {
+				return s
+			}
+		}
+		t.Fatal("no setting for it")
+		return setting{}
+	}
+	if s := find(); s.value != "as you type" || m.store.Config.SearchTranscriptsOnKey {
+		t.Fatalf("default = %q", s.value)
+	}
+	cycle(find(), 1)
+	if s := find(); s.value != "on ctrl+enter" || !m.store.Config.SearchTranscriptsOnKey {
+		t.Fatalf("after a change = %q", s.value)
 	}
 }

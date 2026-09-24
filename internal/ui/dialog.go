@@ -394,6 +394,10 @@ func (m *Model) generalSettings() []setting {
 	if c.ColorBlind {
 		colours = "colour-blind"
 	}
+	barSearch := "as you type"
+	if c.SearchTranscriptsOnKey {
+		barSearch = "on ctrl+enter"
+	}
 	spaces := "hidden"
 	if c.ShowWhitespace {
 		spaces = "shown"
@@ -444,6 +448,9 @@ func (m *Model) generalSettings() []setting {
 		{"Spaces and tabs in diffs", spaces, []string{"hidden", "shown"}, func(v string) {
 			c.ShowWhitespace = v == "shown"
 			convo.SetShowWhitespace(c.ShowWhitespace)
+		}},
+		{"ctrl+k searches transcripts", barSearch, []string{"as you type", "on ctrl+enter"}, func(v string) {
+			c.SearchTranscriptsOnKey = v == "on ctrl+enter"
 		}},
 		{"Earlier section", earlier, []string{"folded", "open"}, func(v string) {
 			if c.Folds == nil {

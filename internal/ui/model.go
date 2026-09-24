@@ -204,6 +204,9 @@ type Model struct {
 	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
 	// its agent's key once the snapshot has it.
 	solo, soloKey string
+	// keysDisambiguated is when the terminal said it tells ctrl+enter
+	// from enter.
+	keysDisambiguated bool
 	// fleetAgents are every agent, which solo's header still counts.
 	fleetAgents []*fleet.Agent
 	// sidebars are the plugins' arrangements of the list, read from
@@ -850,6 +853,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = insert(m.input, m.cursorPos(), []rune(text))
 			}
 		}
+		return m, nil
+	case tea.KeyboardEnhancementsMsg:
+		m.keysDisambiguated = msg.SupportsKeyDisambiguation()
 		return m, nil
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
