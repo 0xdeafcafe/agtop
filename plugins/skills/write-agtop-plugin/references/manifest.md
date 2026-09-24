@@ -9,7 +9,7 @@ The manifest lives at `<plugins>/<name>/plugin.json`. Unknown fields are an erro
 | `version` | string | | Shown at approval; sent as the MCP server version. |
 | `command` | string[] | required | The program and its arguments. The program is a path inside the plugin folder (no `..`), or absolute (an interpreter). It is run from the plugin folder. |
 | `protocol` | `"agtop"` \| `"mcp"` | `"agtop"` | `mcp` means an MCP stdio server. It can't have `sessions`. |
-| `env` | object | | Extra environment. `${DATA}` expands to the data folder and `${PLUGIN}` to the plugin folder. It can't override `PATH`, `HOME`, `TMPDIR`, `AGTOP_*`, or (with `network`) the proxy variables. |
+| `env` | object | | Extra environment. `${DATA}` expands to the data folder and `${PLUGIN}` to the plugin folder, and a leading `~/` to the user's home (the plugin's own `HOME` is its data folder), so it can find the files it was given in `read` or `write`. It can't override `PATH`, `HOME`, `TMPDIR`, `AGTOP_*`, or (with `network`) the proxy variables. |
 | `tools` | bool | false | Offer its tools to every agtop-mode session. Always on for `mcp`. |
 | `sessions` | string[] | | Any of `list`, `start`, `read`, `send`, `control`, `queue`. See `protocol.md`. |
 | `workspaces` | string[] | | Absolute paths or `~/…`, not `/`. Required with `start` and `queue`. |

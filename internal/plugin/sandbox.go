@@ -24,7 +24,9 @@ func (l Launch) Env() []string {
 	env := map[string]string{}
 	expand := strings.NewReplacer("${DATA}", data, "${PLUGIN}", l.Plugin.Dir)
 	for k, v := range m.Env {
-		env[k] = expand.Replace(v)
+		// ~ is yours, not the plugin's HOME: how it learns where another
+		// tool's files, given it in read or write, are.
+		env[k] = expandHome(expand.Replace(v))
 	}
 	for _, k := range []string{"LANG", "LC_ALL", "TZ"} {
 		if v := os.Getenv(k); v != "" {

@@ -114,7 +114,7 @@ What was said is never included.
 | `session.changed` | a session, as in the list | one appeared, or anything about it changed |
 | `session.gone` | `{"id": "…"}` | its host's files were removed (a stopped session stays, as `"state": "stopped"`) |
 
-Watching again replaces the old watch. `sessions.unwatch` ends it. It also ends when the plugin restarts.
+Call it once `initialize` has been answered (before then it fails; ask again). Watching again replaces the old watch. `sessions.unwatch` ends it. It also ends when the plugin restarts.
 
 ### `sessions.start` — needs `start`
 

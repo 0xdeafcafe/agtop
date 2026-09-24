@@ -2,6 +2,7 @@ package plugind
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,7 +22,10 @@ const watchEvery = 2 * time.Second
 func (r *runner) watchList() (any, error) {
 	now := map[string]Session{}
 	out := []Session{}
-	for _, i := range host.List() {
+	// One lister for the watch, so each look reads only the info files that
+	// changed.
+	l := new(host.Lister)
+	for _, i := range l.List() {
 		s := sessionOf(i)
 		now[s.ID] = s
 		out = append(out, s)
@@ -35,8 +39,9 @@ func (r *runner) watchList() (any, error) {
 	conn := r.conn
 	r.mu.Unlock()
 	if conn == nil {
+		// Asked for during initialize: the plugin asks again once it's up.
 		cancel()
-		return out, nil
+		return nil, errors.New("not ready: watch once initialize has been answered")
 	}
 	go func() {
 		t := time.NewTicker(watchEvery)
@@ -50,7 +55,7 @@ func (r *runner) watchList() (any, error) {
 			case <-t.C:
 			}
 			seen := map[string]bool{}
-			for _, i := range host.List() {
+			for _, i := range l.List() {
 				s := sessionOf(i)
 				seen[s.ID] = true
 				if was, ok := now[s.ID]; !ok || !same(was, s) {
