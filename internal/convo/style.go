@@ -30,6 +30,8 @@ var (
 	cYellow = fg(229, 181, 103)
 	cRed    = fg(224, 104, 92)
 	cBlue   = fg(143, 179, 217)
+	cOut    = fg(119, 113, 106) // what tools print: under faint text, over faint rules
+	cOKq    = fg(95, 138, 104)  // a finished step's tick, quiet like its row
 )
 
 // Surfaces. The ground is the terminal's own background, so nothing here
@@ -42,6 +44,9 @@ var (
 	bgSelU = bg(0x1f, 0x1d, 0x1a) // selection on the other side
 	bgAdd  = bg(0x16, 0x30, 0x1a)
 	bgDel  = bg(0x3a, 0x17, 0x14)
+	// A diff line's changed words, a step brighter than the line.
+	bgAddHi = bg(0x22, 0x52, 0x2b)
+	bgDelHi = bg(0x62, 0x24, 0x1e)
 )
 
 func paint(c, s string) string {

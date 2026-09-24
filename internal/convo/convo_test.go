@@ -129,12 +129,12 @@ func TestRender(t *testing.T) {
 		"▾ ✓ you  the ux right now is totally broken when i attach",
 		"#1  4 steps   10s   $0.52",
 		"Looking at how attach restores the terminal modes.", // narration
-		"✓ 3 steps   ◧ 1   ⌕ 1   $ 1",                        // clean run folded
+		"▸ 3 steps: read, search, go build · all ok",         // clean run folded
 		"✓ ✎ internal/daemon/attach.go",                      // an edit never folds
 		"+2 −1",
 		"   Fixed the alt screen.", // answer on the conversation axis, markdown stripped
 		"▾ ✻ you  add modern key stuff to input too",
-		"✗ $  in internal/ui  go vet ./... 2>&1 | head -50", // cd becomes a chip
+		"✗ $ in internal/ui · go vet ./...", // cd leads, quieter
 		"exit 1",
 		"▸ internal/ui/editor.go:41:2: unreachable code", // failure opened itself
 		"✎ internal/ui/editor.go",
@@ -478,7 +478,7 @@ func TestShellTurnsAndStyling(t *testing.T) {
 	for _, l := range raw {
 		joined += l.Text
 	}
-	for _, want := range []string{cWhite + bold + "/design:design-critique", cWhite + bold + "@internal/ui/view.go", "\x1b]8;;https://example.com", "▣ Image #1"} {
+	for _, want := range []string{cWhite + bold + "/design:design-critique", cWhite + bold + "@internal/ui/view.go", "\x1b]8;;https://example.com", cText + "Image #1"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing styled %q", want)
 		}
@@ -785,5 +785,47 @@ func TestShowDrawsAFigure(t *testing.T) {
 		if cellw.String(l) > 90 {
 			t.Fatalf("row wider than the pane: %q", l)
 		}
+	}
+}
+
+func TestPastesAndImagesFold(t *testing.T) {
+	in := "look at this:\n\n<pasted_content id=\"54b6\">\nline1\nline2\nline3\nline4\n</pasted_content id=\"54b6\">\n and fix it"
+	if got := FoldPastes(in); got != "look at this: [Pasted text #1 +4 lines] and fix it" {
+		t.Fatalf("FoldPastes = %q", got)
+	}
+	var got []string
+	EachPaste(in, func(s string) string { got = append(got, s); return "" })
+	if len(got) != 1 || got[0] != "line1\nline2\nline3\nline4" {
+		t.Fatalf("EachPaste = %q", got)
+	}
+	s := New()
+	at := func(sec int) time.Time { return time.Unix(int64(sec), 0) }
+	s.Apply(host.Sent{Text: in + "\n[image: /tmp/agtop-images/shot.png]"}, at(0))
+	s.Apply(headless.Result{Subtype: "success"}, at(1))
+	s.Apply(host.Sent{Images: []string{"image", "image"}}, at(2))
+	out := plain(s.Render(Options{Width: 120, Now: at(3)}))
+	for _, want := range []string{"▤ Pasted text #1 +4 lines", "▣ shot.png", "▣ Image #1   ▣ Image #2"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "line3") || strings.Contains(out, "pasted_content") {
+		t.Errorf("paste shown whole:\n%s", out)
+	}
+}
+
+// A subagent's row names the agent Claude Code says ran, which it resolves
+// when the call left subagent_type out.
+func TestAgentNameFromResult(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "look around"}, at(0))
+	s.Apply(toolUse("a1", "Agent", map[string]any{"description": "find the pane"}), at(1))
+	if out := plain(s.Render(Options{Width: 100, Now: at(2)})); !strings.Contains(out, "⇉ subagent  find the pane") {
+		t.Fatalf("before its result:\n%s", out)
+	}
+	s.Apply(toolResult("a1", "done", false, map[string]any{"status": "completed", "agentType": "Explore"}), at(3))
+	s.Apply(headless.Result{Subtype: "success"}, at(4))
+	if out := plain(s.Render(Options{Width: 100, Now: at(4)})); !strings.Contains(out, "⇉ Explore  find the pane") {
+		t.Fatalf("after its result:\n%s", out)
 	}
 }

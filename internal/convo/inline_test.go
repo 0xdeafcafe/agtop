@@ -18,7 +18,11 @@ var (
 func TestInlineMatchesRegexp(t *testing.T) {
 	old := func(s, base string) string {
 		s = boldRe.ReplaceAllString(s, bold+"$1"+reset+base)
-		s = codeRe.ReplaceAllString(s, cWhite+"$1"+reset+base)
+		code := cWhite // a shade above narration, white in the answer
+		if base == cSub || base == cDim {
+			code = cText
+		}
+		s = codeRe.ReplaceAllString(s, code+"$1"+reset+base)
 		return urlRe.ReplaceAllStringFunc(s, func(u string) string { return reset + link(u) + base })
 	}
 	pieces := []string{"**", "*", "`", "a", "bc", " ", "\n", "\t", "\v", "http", "https", "://", "s", ":", "/", "x.com", ")", ">", "]", "\"", "'",

@@ -238,85 +238,118 @@ func (s *Session) Overview(o Options) []Line {
 		dim("   in ")+text(tokens(t.In+t.CacheRead+t.CacheOut))+dim(" · out ")+text(tokens(t.Out))+dim(fmt.Sprintf(" · %d requests", t.Requests)), "")
 	for _, st := range s.byID {
 		if (st.Tool == "Task" || st.Tool == "Agent") && st.Status == Running {
-			add("  "+paint(cOrange, "⇉ ")+text(readInput(st.Input).str("subagent_type"))+dim("   "+oneLine(readInput(st.Input).str("description"))),
+			add("  "+paint(cOrange, "⇉ ")+text(agentName(st))+dim("   "+oneLine(readInput(st.Input).str("description"))),
 				paint(cOrange, dur(o.Now.Sub(st.Start))))
 		}
 	}
 
-	// --- per turn: cost as bars, then model and effort as a strip ---
+	// --- per turn: cost as bars in the model's colour, then where the
+	// model and effort changed, in words ---
 	if len(s.Turns) > 1 {
-		cols := min(len(s.Turns), w-12)
-		turns := s.Turns[len(s.Turns)-cols:]
 		costs := s.turnCosts()
-		most := 0.0
-		for _, tn := range turns {
-			most = max(most, costs[tn])
+		// A turn that asked nothing (a stop, a slash command) has no model
+		// of its own: it goes with the one before it.
+		models, efforts := make([]string, len(s.Turns)), make([]string, len(s.Turns))
+		for i, tn := range s.Turns {
+			if tn.Model != "" && !strings.HasPrefix(tn.Model, "<") { // not <synthetic>
+				models[i], efforts[i] = PrettyModel(tn.Model), firstNonEmpty(tn.Effort, "default")
+			}
+			if models[i] == "" && i > 0 {
+				models[i], efforts[i] = models[i-1], efforts[i-1]
+			}
 		}
-		section("Per turn", fmt.Sprintf("last %d · cost, and model and effort", cols))
+		for i := len(s.Turns) - 2; i >= 0; i-- {
+			if models[i] == "" {
+				models[i], efforts[i] = models[i+1], efforts[i+1]
+			}
+		}
+		n := len(s.Turns)
+		avail := w - 12
+		colW := max(1, min(4, avail/n)) // a bar and its gap
+		cols := min(n, avail/colW)
+		from := n - cols
+		most, top := 0.0, s.Turns[from]
+		for _, tn := range s.Turns[from:] {
+			if c := costs[tn]; c > most {
+				most, top = c, tn
+			}
+		}
+		meta := plural(n, "turn")
+		if cols < n {
+			meta = fmt.Sprintf("last %d of %d turns", cols, n)
+		}
 		if most > 0 {
+			meta += fmt.Sprintf(" · most %s, on #%d", money(most), top.N)
+		}
+		section("Per turn", meta)
+		if most > 0 {
+			const height = 3 // rows, eight steps each
 			levels := []rune(" ▁▂▃▄▅▆▇█")
-			var hi, lo strings.Builder
-			for _, tn := range turns {
-				// Two rows, so small turns still show a sliver.
-				v := int(costs[tn] / most * 16)
-				if costs[tn] > 0 {
-					v = max(v, 1)
+			bw := colW
+			if colW > 1 {
+				bw = colW - 1
+			}
+			for r := height - 1; r >= 0; r-- {
+				var b strings.Builder
+				for i := from; i < n; i++ {
+					v := int(costs[s.Turns[i]]/most*height*8 + 0.5)
+					if costs[s.Turns[i]] > 0 {
+						v = max(v, 1) // a cheap turn still shows
+					}
+					g := string(levels[max(0, min(8, v-r*8))])
+					b.WriteString(paint(modelColour(models[i]), strings.Repeat(g, bw)))
+					if colW > 1 {
+						b.WriteByte(' ')
+					}
 				}
-				hi.WriteRune(levels[max(0, min(8, v-8))])
-				lo.WriteRune(levels[max(0, min(8, v))])
+				add("    "+b.String(), "")
 			}
-			add("    "+paint(cOrange, hi.String()), dim(money(most)+" top"))
-			add("    "+paint(cOrange, lo.String()), "")
-		}
-		// One cell per turn in the model's colour; effort as its shade.
-		var strip strings.Builder
-		seen := map[string]string{}
-		var legend []string
-		for _, tn := range turns {
-			m := PrettyModel(tn.Model)
-			col := modelColour(m)
-			if _, ok := seen[m]; !ok && m != "" {
-				seen[m] = col
-				legend = append(legend, paint(col, "■ ")+sub(m))
+			span := cols*colW - (colW - bw)
+			first, last := fmt.Sprintf("#%d", s.Turns[from].N), fmt.Sprintf("#%d", s.Turns[n-1].N)
+			axis := first
+			if gap := span - len(first) - len(last); gap > 0 {
+				axis += blanks(gap) + last
 			}
-			glyph := "▆"
-			switch tn.Effort {
-			case "low":
-				glyph = "▂"
-			case "medium":
-				glyph = "▄"
-			case "xhigh", "max":
-				glyph = "█"
+			add("    "+dim(axis), "")
+		}
+		// Runs of the same value, as "medium #1–4 · default #5–13".
+		runs := func(vals []string, show func(string) string) string {
+			type run struct {
+				v        string
+				from, to int
 			}
-			strip.WriteString(paint(col, glyph))
-		}
-		add("    "+strip.String(), "")
-		add("    "+strings.Join(legend, "   ")+dim("   · taller is more effort"), "")
-		// Where it changed, in words.
-		type span struct {
-			from, to      int
-			model, effort string
-		}
-		var spans []span
-		for _, tn := range s.Turns {
-			m, e := PrettyModel(tn.Model), firstNonEmpty(tn.Effort, "default")
-			if n := len(spans); n > 0 && spans[n-1].model == m && spans[n-1].effort == e {
-				spans[n-1].to = tn.N
-				continue
-			}
-			spans = append(spans, span{tn.N, tn.N, m, e})
-		}
-		if len(spans) > 1 {
-			for _, sp := range spans {
-				r := fmt.Sprintf("#%d", sp.from)
-				if sp.to != sp.from {
-					r = fmt.Sprintf("#%d–#%d", sp.from, sp.to)
+			var rs []run
+			for i, v := range vals {
+				if k := len(rs); k > 0 && rs[k-1].v == v {
+					rs[k-1].to = s.Turns[i].N
+					continue
 				}
-				add("    "+dim(fmt.Sprintf("%-11s", r))+text(sp.model)+dim(" · effort ")+text(sp.effort), "")
+				rs = append(rs, run{v, s.Turns[i].N, s.Turns[i].N})
 			}
+			if len(rs) == 1 {
+				return show(rs[0].v)
+			}
+			var parts []string
+			for i, r := range rs {
+				if i == 5 && len(rs) > 6 && !o.Verbose {
+					parts = append(parts, dim(fmt.Sprintf("%d more changes", len(rs)-5)))
+					break
+				}
+				at := fmt.Sprintf("#%d", r.from)
+				if r.to != r.from {
+					at = fmt.Sprintf("#%d–%d", r.from, r.to)
+				}
+				parts = append(parts, show(r.v)+" "+dim(at))
+			}
+			return strings.Join(parts, dim(" · "))
 		}
-		first, last := turns[0].N, turns[len(turns)-1].N
-		add("    "+dim(fitTo(fmt.Sprintf("#%d", first), cols-len(fmt.Sprint(last))-1)+fmt.Sprintf("#%d", last)), "")
+		add(label("model")+runs(models, func(m string) string {
+			if m == "" {
+				return dim("unknown")
+			}
+			return paint(modelColour(m), "■ ") + text(m)
+		}), "")
+		add(label("effort")+runs(efforts, text), "")
 	}
 
 	// --- tools ---
@@ -429,10 +462,7 @@ func (s *Session) Overview(o Options) []Line {
 		if st.Tool != "Task" && st.Tool != "Agent" {
 			continue
 		}
-		kind := readInput(st.Input).str("subagent_type")
-		if kind == "" {
-			kind = "subagent"
-		}
+		kind := agentName(st)
 		a := subs[kind]
 		if a == nil {
 			a = &agg{}

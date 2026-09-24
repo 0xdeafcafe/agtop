@@ -1,0 +1,357 @@
+package convo
+
+import (
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+// shape is what a shell command amounts to when it is really a read, a
+// search, a write or a script: the glyph and words its row shows in place
+// of the command, and a result the output can't give.
+type shape struct {
+	kind  string // "read", "search", "write", "script", "commit"; "" for none
+	glyph string
+	what  string
+	res   string
+	in    string // the folder a leading cd moves to, when it isn't the session's
+	ctx   bool   // a search that prints lines around each match
+	n     int    // the most lines a read prints, when that's known
+}
+
+var sedLines = regexp.MustCompile(`^(\d+)(?:,(\d+))?p$`)
+
+// shellShape reads what cmd does. Chains (&&, ;, ||) have no shape, nor
+// does a heredoc with more commands after it; a read or a search may pipe
+// through filters such as head or grep -v.
+func (d *drawer) shellShape(cmd string) shape {
+	cmd = strings.TrimSpace(cmd)
+	var sh shape
+	if m := cdRe.FindStringSubmatch(cmd); m != nil {
+		dir := strings.Trim(m[1], `"'`)
+		cmd = cmd[len(m[0]):]
+		if dir != d.s.Info.Cwd && dir != "." {
+			sh.in = d.rel(dir)
+		}
+	}
+	lines := strings.Split(cmd, "\n")
+	body := 0 // a heredoc's lines, without the one that ends it
+	if len(lines) > 1 {
+		body = len(lines) - 2
+	}
+	var toks []string
+	for _, t := range shellTokens(lines[0]) {
+		if strings.TrimSpace(t) != "" {
+			toks = append(toks, t)
+		}
+	}
+	// The first command of a pipeline, and whether anything chains after.
+	var args []string
+	chained, piped := false, false
+	for _, t := range toks {
+		switch t {
+		case "&&", "||", ";", "&":
+			chained = true
+		case "|":
+			piped = true
+		}
+		if chained || piped {
+			break
+		}
+		args = append(args, t)
+	}
+	if len(args) == 0 {
+		return sh
+	}
+	heredoc, end := false, ""
+	var into string // the file a > sends output to
+	var plain []string
+	for i := 1; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case strings.HasPrefix(a, "<<"):
+			heredoc = true
+			end = strings.TrimLeft(a, "<-")
+			if end == "" && i+1 < len(args) {
+				i++ // the delimiter word
+				end = args[i]
+			}
+			end = unquote(end)
+		case a == ">" || a == ">>":
+			if i+1 < len(args) {
+				into = unquote(args[i+1])
+				i++
+			}
+		case strings.HasPrefix(a, ">"):
+			into = unquote(strings.TrimLeft(a, ">"))
+		case a == "2>&1" || strings.HasPrefix(a, "2>"):
+		default:
+			plain = append(plain, a)
+		}
+	}
+	prog := filepath.Base(args[0])
+	if chained || heredoc && strings.TrimSpace(lines[len(lines)-1]) != end {
+		return sh
+	}
+	files := func(xs []string) string {
+		var out []string
+		for _, x := range xs {
+			out = append(out, d.rel(unquote(x)))
+		}
+		return strings.Join(out, ", ")
+	}
+	switch prog {
+	case "cat", "tee":
+		target := into
+		if prog == "tee" && len(nonFlags(plain)) > 0 {
+			target = unquote(nonFlags(plain)[0])
+		}
+		switch {
+		case heredoc && target != "":
+			sh.kind, sh.glyph, sh.what = "write", "✎", d.rel(target)
+			sh.res = plural(body, "line")
+		case prog == "cat" && into == "" && len(nonFlags(plain)) > 0:
+			sh.kind, sh.glyph, sh.what = "read", "◧", files(nonFlags(plain))
+		}
+	case "sed":
+		// sed -n 'A,Bp' file: a read of lines A to B.
+		if len(plain) >= 3 && plain[0] == "-n" && into == "" {
+			sh.kind, sh.glyph, sh.what = "read", "◧", files(plain[2:])
+			if m := sedLines.FindStringSubmatch(unquote(plain[1])); m != nil {
+				if m[2] == "" {
+					sh.res, sh.n = "line "+m[1], 1
+				} else {
+					sh.res = "lines " + m[1] + "–" + m[2]
+					var a, b int
+					fmt.Sscan(m[1], &a)
+					fmt.Sscan(m[2], &b)
+					sh.n = max(0, b-a+1)
+				}
+			}
+		}
+	case "head", "tail":
+		if f := nonFlags(plain); len(f) > 0 && into == "" && !strings.HasPrefix(f[len(f)-1], "-") {
+			last := f[len(f)-1]
+			if _, err := fmt.Sscan(last, new(int)); err != nil {
+				sh.kind, sh.glyph, sh.what = "read", "◧", d.rel(unquote(last))
+				for i, a := range plain {
+					switch {
+					case a == "-n" && i+1 < len(plain):
+						fmt.Sscan(plain[i+1], &sh.n)
+					case len(a) > 1 && a[0] == '-' && a[1] >= '0' && a[1] <= '9':
+						fmt.Sscan(a[1:], &sh.n)
+					}
+				}
+			}
+		}
+	case "grep", "egrep", "rg":
+		if pat, paths := grepArgs(plain); pat != "" && into == "" {
+			sh.kind, sh.glyph, sh.what = "search", "⌕", pat
+			for _, a := range plain {
+				if len(a) >= 2 && a[0] == '-' && strings.ContainsAny(a[1:2], "ABC") {
+					sh.ctx = true
+				}
+			}
+			if len(paths) > 0 {
+				sh.what += " in " + files(paths)
+			}
+		}
+	case "python", "python3", "node", "bun", "deno", "ruby", "perl", "bash", "sh", "zsh":
+		script := heredoc
+		for _, a := range plain {
+			if a == "-" || a == "-c" || a == "-e" {
+				script = true
+			}
+		}
+		if script {
+			sh.kind, sh.glyph, sh.what = "script", "$", prog+" "+scriptGist(lines[1:max(1, len(lines)-1)], heredoc)
+			if heredoc {
+				sh.res = plural(body, "line")
+			}
+		}
+	case "git":
+		if len(plain) > 0 && plain[0] == "commit" {
+			sh.kind, sh.glyph, sh.what = "commit", "$", "git commit"
+			for i, a := range plain {
+				if (a == "-m" || a == "-am") && i+1 < len(plain) {
+					sh.res = "“" + oneLine(unquote(plain[i+1])) + "”"
+					break
+				}
+			}
+		}
+	}
+	return sh
+}
+
+// span is a stretch of a chain's output: n lines of it (0 for the rest)
+// in language lg.
+type span struct {
+	lg *lang
+	n  int
+}
+
+// silent commands print nothing, so a chain's output has no part of theirs.
+var silent = map[string]bool{"cd": true, "export": true, "set": true, "unset": true, "mkdir": true, "touch": true, "true": true, ":": true}
+
+// chainSpans is the language of each part of a chain that reads files one
+// after another (sed -n 1,200p a.go; cat b.json; git log): a read of known
+// length covers that many lines, an echo one, a silent command none, and a
+// part of unknown length the rest. Nil when no part is a read.
+func (d *drawer) chainSpans(cmd string) []span {
+	cmd = strings.TrimSpace(cmd)
+	if strings.Contains(cmd, "\n") {
+		return nil
+	}
+	var spans []span
+	var seg []string
+	reads := false
+	flush := func() {
+		s := strings.TrimSpace(strings.Join(seg, ""))
+		seg = nil
+		if s == "" {
+			return
+		}
+		prog := filepath.Base(strings.Fields(s)[0])
+		if silent[prog] {
+			return
+		}
+		sh := d.shellShape(s)
+		sp := span{n: sh.n}
+		switch {
+		case sh.kind == "read":
+			sp.lg = langFor(sh.what)
+			reads = reads || sp.lg != nil
+		case prog == "echo":
+			sp.n = 1
+		}
+		spans = append(spans, sp)
+	}
+	for _, t := range shellTokens(cmd) {
+		switch t {
+		case "&&", "||", ";":
+			flush()
+		default:
+			seg = append(seg, t)
+		}
+	}
+	flush()
+	if !reads || len(spans) < 2 {
+		return nil
+	}
+	return spans
+}
+
+// grepArgs splits grep's arguments into its pattern and the paths it looks
+// in, skipping flags and the values some of them take.
+func grepArgs(args []string) (string, []string) {
+	takesValue := map[string]bool{"-e": true, "-A": true, "-B": true, "-C": true, "-m": true, "-g": true, "-t": true, "-f": true, "--glob": true, "--type": true}
+	pat := ""
+	var paths []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-e" && i+1 < len(args):
+			pat = unquote(args[i+1])
+			i++
+		case takesValue[a]:
+			i++
+		case strings.HasPrefix(a, "-"):
+		case pat == "":
+			pat = unquote(a)
+		default:
+			paths = append(paths, a)
+		}
+	}
+	return pat, paths
+}
+
+func nonFlags(xs []string) []string {
+	var out []string
+	for _, x := range xs {
+		if !strings.HasPrefix(x, "-") {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+func unquote(s string) string {
+	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
+// quietTint draws a command in the log's own quiet voice: the programs a
+// shade up so its shape still shows, everything else faint.
+func quietTint(cmd string) string {
+	var b strings.Builder
+	head := true
+	for _, tok := range shellTokens(cmd) {
+		switch {
+		case strings.TrimSpace(tok) == "":
+			b.WriteString(tok)
+		case shOps[tok]:
+			b.WriteString(faint(tok))
+			head = true
+		case head && !strings.Contains(tok, "="):
+			b.WriteString(paint(cOut, tok))
+			head = false
+		default:
+			b.WriteString(faint(tok))
+		}
+	}
+	return b.String()
+}
+
+var (
+	commitRe   = regexp.MustCompile(`(?m)^\[[^\]]*?([0-9a-f]{7,40})\]`)
+	goFailName = regexp.MustCompile(`(?m)^\s*--- FAIL: (\S+)`)
+	blockedRe  = regexp.MustCompile(`(?s)<tool_use_error>\s*Blocked:?\s*(.*?)(?:</tool_use_error>|$)`)
+	toolErrTag = strings.NewReplacer("<tool_use_error>", "", "</tool_use_error>", "")
+)
+
+// blocked is whether a step never ran because the harness refused it.
+func blocked(st *Step) bool {
+	return st.Status == Failed && blockedRe.MatchString(st.Output)
+}
+
+// scriptPath is a quoted path in a script: a/b.go, "x.txt".
+var scriptPath = regexp.MustCompile(`["']([\w./~-]+\.[A-Za-z]{1,5})["']`)
+
+// scriptGist says what a heredoc script is for: the files it edits or
+// reads, else its first line of code.
+func scriptGist(body []string, heredoc bool) string {
+	if !heredoc {
+		return "script"
+	}
+	src := strings.Join(body, "\n")
+	var paths []string
+	seen := map[string]bool{}
+	for _, m := range scriptPath.FindAllStringSubmatch(src, -1) {
+		// .py alone is an extension; .oxlintrc.json is a file.
+		if !seen[m[1]] && (!strings.HasPrefix(m[1], ".") || strings.Count(m[1], ".") > 1) {
+			seen[m[1]] = true
+			paths = append(paths, m[1])
+		}
+	}
+	if len(paths) > 0 {
+		verb := "reads "
+		if strings.Contains(src, ".write(") || strings.Contains(src, "write_text(") || strings.Contains(src, "writeFileSync(") {
+			verb = "edits "
+		}
+		if len(paths) > 2 {
+			paths = append(paths[:2], fmt.Sprintf("+%d", len(paths)-2))
+		}
+		return "· " + verb + strings.Join(paths, ", ")
+	}
+	for _, l := range body {
+		l = strings.TrimSpace(l)
+		if l == "" || strings.HasPrefix(l, "#") || strings.HasPrefix(l, "//") || strings.HasPrefix(l, "import ") || strings.HasPrefix(l, "from ") || strings.HasPrefix(l, "use ") || strings.HasPrefix(l, "require") {
+			continue
+		}
+		return "· " + oneLine(l)
+	}
+	return "script"
+}

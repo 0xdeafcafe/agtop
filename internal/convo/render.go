@@ -1,10 +1,14 @@
 package convo
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/charmbracelet/x/ansi"
+	"net/url"
+	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -22,6 +26,9 @@ import (
 type Line struct {
 	Text string
 	Ref  string
+	// Wrap is set on a row that carries on the line above it, where the
+	// text was wrapped to fit rather than broken, so copying it joins them.
+	Wrap bool
 }
 
 // Options say how to draw.
@@ -39,7 +46,7 @@ type Options struct {
 const (
 	capRow   = 124 // numbers never drift further right than this
 	capProse = 100 // prose wraps here however wide the pane
-	gutter   = 8   // the work axis: narration, step labels, output
+	gutter   = 4   // where narration, steps and the answer all start
 )
 
 type cached struct {
@@ -174,6 +181,19 @@ type drawer struct {
 	ref   string
 	cw    int
 	lines []Line
+	// worked is whether a step has been drawn yet, so the answer after
+	// them stands further apart.
+	worked bool
+	// marks are what the command being drawn echoes between parts of its
+	// output, drawn as headings.
+	marks map[string]bool
+	// lg is the language of the output being drawn, when it's code read
+	// from a file; byPath has each line say its own file (grep's a.go:12:).
+	lg     *lang
+	byPath bool
+	hs     hlState
+	// spans are the languages of a chain's output, part by part.
+	spans []span
 }
 
 var (
@@ -204,6 +224,9 @@ func (d *drawer) add(ref, b, left, right string) {
 	}
 	d.lines = append(d.lines, Line{Text: row(b, left, right, d.o.Width, d.cw), Ref: ref})
 }
+
+// wrapped marks the row just added as carrying on the one before it.
+func (d *drawer) wrapped() { d.lines[len(d.lines)-1].Wrap = true }
 
 func (d *drawer) blank() {
 	d.lines = append(d.lines, Line{Text: row("", d.spine(), "", d.o.Width, d.cw)})
@@ -241,10 +264,28 @@ func (d *drawer) meta() string {
 	return strings.Join(parts, "   ")
 }
 
+// imageNames names a turn's images: their files, or Image #1, #2 for the
+// ones a transcript only knows were there.
+func imageNames(images []string) []string {
+	out := make([]string, len(images))
+	for i, im := range images {
+		out[i] = im
+		if im == "image" || im == "" {
+			out[i] = fmt.Sprintf("Image #%d", i+1)
+		} else {
+			out[i] = filepath.Base(im)
+		}
+	}
+	return out
+}
+
 // folded is one row: your ask, then how it came out.
 func (d *drawer) folded() {
 	t := d.t
-	ask := oneLine(t.Prompt)
+	ask := oneLine(FoldPastes(t.Prompt))
+	if ask == "" && len(t.Images) > 0 {
+		ask = strings.Join(imageNames(t.Images), " ")
+	}
 	if ask == "" {
 		ask = "picked up on its own"
 	}
@@ -289,17 +330,27 @@ func (d *drawer) open() {
 			right += "  " + dim(m)
 		}
 	}
-	ask := strings.TrimSpace(t.Prompt)
-	if ask == "" && len(t.Images) > 0 {
-		ask = "(images)"
+	// Images show as the box showed them, unless the words already place
+	// them ([Image #1]).
+	imgs := ""
+	if len(t.Images) > 0 && !strings.Contains(t.Prompt, "[Image #") {
+		var chips []string
+		for _, im := range imageNames(t.Images) {
+			chips = append(chips, paint(cBlue, "▣ ")+paint(cText, im))
+		}
+		imgs = strings.Join(chips, "   ")
 	}
+	ask := FoldPastes(t.Prompt)
 	if ask == "" {
 		ask = "picked up on its own"
 	}
 	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
 	styled, label := styledAsk(oneLine(ask), cText+bold), dim("you")
-	if strings.TrimSpace(t.Prompt) == "" && t.From == "" && len(t.Images) == 0 {
+	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
 		styled, label = dim("picked up on its own"), dim("◌")
+		if imgs != "" {
+			styled, label, imgs = imgs, dim("you"), ""
+		}
 	}
 	if t.From != "" {
 		styled, label = sub(oneLine(ask)), dim("◌ "+t.From)
@@ -313,14 +364,11 @@ func (d *drawer) open() {
 			d.add(d.ref, band, d.spine()+" "+faint("▾")+" "+d.mark()+" "+label+"  "+r, right)
 		} else {
 			d.add(d.ref, band, d.spine()+"          "+r, "")
+			d.wrapped()
 		}
 	}
-	if len(t.Images) > 0 {
-		var chips []string
-		for _, im := range t.Images {
-			chips = append(chips, paint(cBlue, "▣ ")+sub(im))
-		}
-		d.add(d.ref, band, d.spine()+"          "+strings.Join(chips, "   "), "")
+	if imgs != "" {
+		d.add(d.ref, band, d.spine()+"          "+imgs, "")
 	}
 	d.blank()
 
@@ -345,14 +393,14 @@ func (d *drawer) open() {
 	}
 	for i := 0; i < len(items); i++ {
 		it := items[i]
-		// A run of three or more clean steps folds to one row; a failure
+		// A run of two or more clean steps folds to one row; a failure
 		// never folds.
 		if !d.o.Verbose && it.Kind == KStep && i < keep {
 			j := i
 			for j < keep && j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) {
 				j++
 			}
-			if j-i >= 3 {
+			if j-i >= 2 {
 				runRef := fmt.Sprintf("%s:run:%d", d.ref, i)
 				if !d.o.Open[runRef] {
 					d.run(runRef, items[i:j])
@@ -361,7 +409,7 @@ func (d *drawer) open() {
 				}
 				// Opened: every step of the run, under a row that folds it
 				// back, and nothing after it refolds.
-				d.add(runRef, "", d.spine()+"   "+faint("▾")+" "+dim(plural(j-i, "step")), "")
+				d.add(runRef, "", d.spine()+blanks(gutter-1)+faint("▾ "+plural(j-i, "step")), "")
 				for _, x := range items[i:j] {
 					d.step(x.Step, 0)
 				}
@@ -374,7 +422,11 @@ func (d *drawer) open() {
 			if it.Answer {
 				d.answer(it.Text)
 			} else {
+				// Narration is the thread you read: set apart from the
+				// steps around it, which stay close together.
+				d.gap()
 				d.prose(it.Text, gutter, cSub)
+				d.gap()
 			}
 		case KThinking:
 			// Thinking shows while it happens; afterwards only in verbose.
@@ -402,6 +454,9 @@ func (d *drawer) open() {
 					lead = "  "
 				}
 				d.add("", "", d.spine()+"   "+lead+paint(col, r), "")
+				if k > 0 {
+					d.wrapped()
+				}
 			}
 		case KInterject:
 			for k, r := range wrap(text(oneLine(it.Text)), min(d.cw-10, capProse)) {
@@ -410,6 +465,9 @@ func (d *drawer) open() {
 					lead = "     "
 				}
 				d.add("", "", d.spine()+"   "+lead+r, "")
+				if k > 0 {
+					d.wrapped()
+				}
 			}
 		case KStep:
 			d.step(it.Step, 0)
@@ -492,12 +550,53 @@ func (d *drawer) liveLine() {
 	d.add("", "", d.spine()+"   "+line, "")
 }
 
+// verb is a step in a word or two, for a folded run: the program a command
+// ran, or what a tool did.
+func (d *drawer) verb(st *Step) string {
+	switch st.Tool {
+	case "Bash":
+		cmd := readInput(st.Input).str("command")
+		switch sh := d.shellShape(cmd); sh.kind {
+		case "read", "search", "write":
+			return sh.kind
+		case "commit":
+			return "git commit"
+		case "":
+			if _, ps := d.phrases(cmd); len(ps) > 0 {
+				return ps[0].verb
+			}
+			return "shell"
+		default:
+			return strings.Fields(cdRe.ReplaceAllString(strings.TrimSpace(cmd), ""))[0]
+		}
+	case "Read":
+		return "read"
+	case "Grep", "Glob":
+		return "search"
+	case "WebFetch":
+		return "fetch"
+	case "WebSearch":
+		return "web search"
+	case "Task", "Agent":
+		return agentName(st)
+	case "Skill", "SlashCommand":
+		in := readInput(st.Input)
+		return firstNonEmpty(in.str("skill"), in.str("command"), "skill")
+	}
+	if strings.HasPrefix(st.Tool, "mcp__") {
+		if parts := strings.SplitN(strings.TrimPrefix(st.Tool, "mcp__"), "__", 2); len(parts) == 2 {
+			return parts[1]
+		}
+	}
+	return st.Tool
+}
+
 func (d *drawer) run(ref string, items []*Item) {
 	counts := map[string]int{}
 	var order []string
 	var first, last time.Time
 	for _, it := range items {
-		g := glyphFor(it.Step.Tool)
+		g := d.verb(it.Step)
 		if counts[g] == 0 {
 			order = append(order, g)
 		}
@@ -509,15 +608,37 @@ func (d *drawer) run(ref string, items []*Item) {
 			last = it.Step.End
 		}
 	}
-	left := d.spine() + "   " + paint(cGreen, "✓") + " " + dim(plural(len(items), "step"))
-	for _, g := range order {
-		left += "   " + glyphColor(g) + " " + dim(fmt.Sprint(counts[g]))
+	// What the steps were, by name: "sed ×2, grep, go build".
+	var names []string
+	for i, g := range order {
+		if i == 4 {
+			names = append(names, fmt.Sprintf("+%d more", len(order)-4))
+			break
+		}
+		if counts[g] > 1 {
+			g += fmt.Sprintf(" ×%d", counts[g])
+		}
+		names = append(names, g)
 	}
-	right := dim("all ok")
-	if !first.IsZero() && !last.IsZero() {
-		right += "   " + dim(dur(last.Sub(first)))
+	left := d.spine() + blanks(gutter-1) + faint("▸ "+plural(len(items), "step")+": ") + dim(strings.Join(names, ", "))
+	left += faint(" · all ok")
+	if !first.IsZero() && !last.IsZero() && last.Sub(first) >= 100*time.Millisecond {
+		left += faint(" · " + dur(last.Sub(first)))
 	}
-	d.add(ref, "", left, right)
+	d.worked = true
+	d.add(ref, "", left, "")
+}
+
+// gap is a blank row, unless the last row already is one or there is none.
+func (d *drawer) gap() {
+	if n := len(d.lines); n > 0 && !d.isBlank(n-1) {
+		d.blank()
+	}
+}
+
+func (d *drawer) isBlank(i int) bool {
+	l := d.lines[i]
+	return l.Ref == "" && strings.TrimSpace(stripANSI(l.Text)) == strings.TrimSpace(stripANSI(d.spine()))
 }
 
 // prose is Claude's narration: the work axis, secondary colour.
@@ -534,8 +655,11 @@ func (d *drawer) prose(s string, indent int, c string) {
 			continue
 		}
 		from := len(d.lines)
-		for _, r := range wrap(paint(c, inline(para, c)), min(d.cw-indent-1, capProse)) {
+		for k, r := range wrap(paint(c, inline(para, c)), min(d.cw-indent-1, capProse)) {
 			d.add("", "", d.spine()+blanks(indent-1)+r, "")
+			if k > 0 {
+				d.wrapped()
+			}
 		}
 		d.s.memoPut(k, d.lines[from:])
 	}
@@ -544,16 +668,17 @@ func (d *drawer) prose(s string, indent int, c string) {
 // answer is the turn's final words: the conversation axis, full text colour,
 // with light markdown.
 func (d *drawer) answer(s string) {
-	if n := len(d.lines); n > 0 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) != strings.TrimSpace(stripANSI(d.spine())) {
+	// After work, the answer stands two rows clear of it.
+	d.gap()
+	if d.worked {
 		d.blank()
 	}
 	w := min(d.cw-5, capProse)
-	inFence := false
 	lines := strings.Split(strings.TrimRight(s, " \t\n"), "\n")
 	for li := 0; li < len(lines); li++ {
 		ln := lines[li]
 		trim := strings.TrimSpace(ln)
-		if !inFence && strings.HasPrefix(trim, "|") {
+		if strings.HasPrefix(trim, "|") {
 			// A markdown table: every row up to the first that isn't one.
 			end := li
 			for end < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[end]), "|") {
@@ -565,15 +690,18 @@ func (d *drawer) answer(s string) {
 				continue
 			}
 		}
+		pad := d.spine() + "   "
 		if strings.HasPrefix(trim, "```") {
-			inFence = !inFence
+			// A code block: every line to the fence that closes it.
+			end := li + 1
+			for end < len(lines) && !strings.HasPrefix(strings.TrimSpace(lines[end]), "```") {
+				end++
+			}
+			d.code(lines[li+1:end], strings.TrimSpace(strings.TrimPrefix(trim, "```")), pad)
+			li = end
 			continue
 		}
-		pad := d.spine() + "   "
 		switch {
-		case inFence:
-			d.add("", bgWell, pad+" "+sub(ln), "")
-			continue
 		case trim == "":
 			d.blank()
 			continue
@@ -601,9 +729,45 @@ func (d *drawer) answer(s string) {
 				r = lead + r
 			}
 			d.add("", "", pad+r, "")
+			if k > 0 {
+				d.wrapped()
+			}
 		}
 		d.s.memoPut(k, d.lines[from:])
 	}
+}
+
+// code draws a fenced code block highlighted in the language its fence
+// names (```go); a diff block colours its added and removed lines. A block
+// is drawn once and kept while it's in view.
+func (d *drawer) code(lines []string, tag, pad string) {
+	k := memoKey{text: strings.Join(lines, "\n"), style: "code:" + tag, spine: d.spine(), width: d.o.Width, cw: d.cw}
+	if ls, ok := d.s.memoGet(k); ok {
+		d.lines = append(d.lines, ls...)
+		return
+	}
+	from := len(d.lines)
+	w := min(d.cw-7, capRow)
+	lg := langFor(tag)
+	if f := strings.Fields(tag); lg == nil && len(f) > 0 {
+		lg = langFor(f[0]) // ```go title="x.go"
+	}
+	isDiff := tag == "diff" || tag == "patch"
+	var st hlState
+	for _, l := range lines {
+		l = truncateCells(expandTabs(l), w)
+		switch {
+		case isDiff && strings.HasPrefix(l, "+") && !strings.HasPrefix(l, "+++"):
+			d.add("", bgAdd, pad+" "+paint(cGreen, "+")+text(l[1:]), "")
+		case isDiff && strings.HasPrefix(l, "-") && !strings.HasPrefix(l, "---"):
+			d.add("", bgDel, pad+" "+paint(cRed, "−")+text(l[1:]), "")
+		case isDiff && strings.HasPrefix(l, "@@"):
+			d.add("", bgWell, pad+" "+paint(cBlue, l), "")
+		default:
+			d.add("", bgWell, pad+" "+highlight(lg, &st, l, cSub, nil), "")
+		}
+	}
+	d.s.memoPut(k, d.lines[from:])
 }
 
 var tableSep = regexp.MustCompile(`^:?-{2,}:?$`)
@@ -700,6 +864,7 @@ type memoKey struct {
 // the rest goes.
 func (s *Session) memoTurn() {
 	s.memoOld, s.memo = s.memo, make(map[memoKey][]Line, len(s.memo))
+	s.chainsOld, s.chains = s.chains, make(map[string]string, len(s.chains))
 }
 
 func (s *Session) memoGet(k memoKey) ([]Line, bool) {
@@ -741,10 +906,12 @@ func styledAsk(s, base string) string {
 	}
 	s = specialRe.ReplaceAllStringFunc(s, func(m string) string {
 		switch {
+		case strings.HasPrefix(m, "[image: "):
+			return reset + paint(cBlue, "▣ ") + paint(cText, filepath.Base(strings.TrimSuffix(m[len("[image: "):], "]"))) + base
 		case strings.HasPrefix(m, "[Image"):
-			return reset + paint(cBlue, "▣ "+strings.Trim(m, "[]")) + base
+			return reset + paint(cBlue, "▣ ") + paint(cText, strings.Trim(m, "[]")) + base
 		case strings.HasPrefix(m, "[Pasted"):
-			return reset + paint(cBlue, "▤ "+strings.Trim(m, "[]")) + base
+			return reset + paint(cBlue, "▤ ") + paint(cText, strings.Trim(m, "[]")) + base
 		case strings.HasPrefix(m, "http"):
 			return reset + link(m) + base
 		}
@@ -753,7 +920,29 @@ func styledAsk(s, base string) string {
 	return paint(base, inline(s, base))
 }
 
-var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[Pasted text #\d+[^\]]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*(?:$|[\s.,;:!?)])|@[\w./-]+`)
+var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[image: [^\]]+\]|\[Pasted text #\d+[^\]]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*(?:$|[\s.,;:!?)])|@[\w./-]+`)
+
+var pastedRe = regexp.MustCompile(`(?s)\s*<pasted_content id="[^"]*">\n?(.*?)\n?</pasted_content(?: id="[^"]*")?>\s*`)
+
+// EachPaste replaces each paste Claude Code marks in a message, the text
+// between <pasted_content> tags, with what f makes of it.
+func EachPaste(s string, f func(text string) string) string {
+	if !strings.Contains(s, "<pasted_content") {
+		return s
+	}
+	return pastedRe.ReplaceAllStringFunc(s, func(m string) string {
+		return " " + f(pastedRe.FindStringSubmatch(m)[1]) + " "
+	})
+}
+
+// FoldPastes shows each paste in a message as the chip it was in the box.
+func FoldPastes(s string) string {
+	n := 0
+	return strings.TrimSpace(EachPaste(s, func(text string) string {
+		n++
+		return fmt.Sprintf("[Pasted text #%d +%d lines]", n, strings.Count(strings.TrimRight(text, "\n"), "\n")+1)
+	}))
+}
 
 // link underlines a URL and makes it clickable in terminals that support
 // OSC 8 hyperlinks.
@@ -761,18 +950,116 @@ func link(url string) string {
 	return "\x1b]8;;" + url + "\x1b\\" + paint(cBlue+"\x1b[4m", url) + "\x1b]8;;\x1b\\"
 }
 
+// Inline styles **bold** and `code` in s and links its URLs, returning to
+// base colour after each.
+func Inline(s, base string) string { return inline(s, base) }
+
 var numbered = regexp.MustCompile(`^(\d+\.)\s+(.*)$`)
 
 // inline styles **bold** and `code`, returning to base colour after each,
-// and links URLs. Byte scans, the same as replacing \*\*([^*]+)\*\*,
-// `([^`]+)` and https?://[^\s)>\]"'`]+ in turn.
+// draws markdown images and links, and links URLs. Byte scans, the same as
+// replacing \*\*([^*]+)\*\*, `([^`]+)` and https?://[^\s)>\]"'`]+ in turn.
 func inline(s, base string) string {
-	if !strings.ContainsAny(s, "*`h") {
+	if !strings.ContainsAny(s, "*`h[") {
 		return s
 	}
 	s = pairs(s, "**", bold, reset+base)
-	s = pairs(s, "`", cWhite, reset+base)
-	return links(s, base)
+	// Code stands one shade above its words: white in the answer, text
+	// colour in quieter narration, so it never outshines the answer.
+	code := cWhite
+	if base == cSub || base == cDim {
+		code = cText
+	}
+	s = pairs(s, "`", code, reset+base)
+	return mdLinks(s, base)
+}
+
+// mdLinks draws each markdown image, ![alt](src), as a chip naming it and
+// each [text](url) as its text, both opening what they point at when
+// clicked, and links the bare URLs between them.
+func mdLinks(s, base string) string {
+	if !strings.Contains(s, "](") {
+		return links(s, base)
+	}
+	var b strings.Builder
+	last := 0
+	for p := 0; ; {
+		i := strings.Index(s[p:], "](")
+		if i < 0 {
+			break
+		}
+		mid := p + i
+		open := strings.LastIndexByte(s[last:mid], '[')
+		end := strings.IndexByte(s[mid+2:], ')')
+		if open < 0 || end < 0 {
+			p = mid + 2
+			continue
+		}
+		open += last
+		end += mid + 2
+		label, target := s[open+1:mid], strings.TrimSpace(s[mid+2:end])
+		if strings.ContainsAny(label, "[]") || target == "" || strings.ContainsAny(target, " \t") {
+			p = mid + 2
+			continue
+		}
+		image := open > last && s[open-1] == '!'
+		start := open
+		if image {
+			start--
+		}
+		b.WriteString(links(s[last:start], base))
+		b.WriteString(reset)
+		if image {
+			b.WriteString(imageChip(label, target))
+		} else if u := linkTarget(target); u != "" {
+			b.WriteString("\x1b]8;;" + u + "\x1b\\" + paint(cBlue+"\x1b[4m", label) + "\x1b]8;;\x1b\\")
+		} else {
+			b.WriteString(paint(cBlue, label))
+		}
+		b.WriteString(base)
+		last, p = end+1, end+1
+	}
+	if last == 0 {
+		return links(s, base)
+	}
+	b.WriteString(links(s[last:], base))
+	return b.String()
+}
+
+// imageChip draws an image Claude points at as the prompt draws one sent
+// with it, ▣ and its name, with its file after, opening it when clicked.
+func imageChip(alt, src string) string {
+	name := path.Base(src)
+	if alt == "" {
+		alt = name
+	}
+	chip := paint(cBlue, "▣ ") + paint(cText, alt)
+	if name != alt {
+		chip += paint(cDim, " "+name)
+	}
+	if u := linkTarget(src); u != "" {
+		return "\x1b]8;;" + u + "\x1b\\" + chip + "\x1b]8;;\x1b\\"
+	}
+	return chip
+}
+
+// linkTarget is the URL a markdown link or image opens: web addresses as
+// they are, absolute paths and ~ as file URLs, nothing for the rest.
+func linkTarget(t string) string {
+	switch {
+	case strings.HasPrefix(t, "http://"), strings.HasPrefix(t, "https://"), strings.HasPrefix(t, "file://"):
+		return t
+	case strings.HasPrefix(t, "~/"):
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		t = filepath.Join(home, t[2:])
+	}
+	if !filepath.IsAbs(t) {
+		return ""
+	}
+	return (&url.URL{Scheme: "file", Path: t}).String()
 }
 
 // pairs wraps text between two delimiters in open and close, dropping the
@@ -932,7 +1219,7 @@ func (d *drawer) statusMark(st *Step) string {
 	case Running:
 		return paint(cOrange, spinner[(d.o.Tick+len(st.ID))%len(spinner)])
 	case OK:
-		return paint(cGreen, "✓")
+		return paint(cOKq, "✓")
 	case Failed:
 		return paint(cRed, "✗")
 	case Waiting:
@@ -953,14 +1240,26 @@ func (d *drawer) step(st *Step, depth int) {
 	if st.Tool == agtools.Show && st.Status != Failed && d.figure(st, ref, indent) {
 		return
 	}
-	left := d.spine() + strings.Repeat(" ", indent-1) + d.statusMark(st) + " " + d.label(st)
+	// How it came out follows the label, so the eye never has to cross the
+	// pane for it; the label gives way first when the row is too long.
+	lead := d.spine() + strings.Repeat(" ", indent-1) + d.statusMark(st) + " "
+	label, cells := d.label(st), d.cells(st)
+	if cells != "" {
+		cells = faint("  · ") + cells
+		room := min(d.cw, capRow) - cellw.String(lead) - cellw.String(cells) - 1
+		if room >= 12 && cellw.String(label) > room {
+			label = ansi.Truncate(label, room, "…")
+		}
+	}
+	left := lead + label + cells
+	d.worked = true
 	open := d.o.Verbose
 	if v, ok := d.o.Open[ref]; ok {
 		open = v
 	}
 	// A failure shows just its error until you open it for everything.
 	brief := st.Status == Failed && !open
-	d.add(ref, "", left, d.cells(st))
+	d.add(ref, "", left, "")
 	switch {
 	case open:
 		d.body(st, indent+4)
@@ -980,18 +1279,15 @@ func (d *drawer) cells(st *Step) string {
 	if st.Status == Waiting {
 		wait := ""
 		if !st.Start.IsZero() {
-			wait = "  " + dim(dur(d.o.Now.Sub(st.Start)))
+			wait = faint(" · ") + dim(dur(d.o.Now.Sub(st.Start)))
 		}
 		return paint(cYellow, "waiting on you") + wait
 	}
+	if blocked(st) {
+		return paint(cRed, "blocked by the harness")
+	}
 	if s := d.summary(st); s != "" {
 		parts = append(parts, s)
-	}
-	switch {
-	case st.Status == Running && !st.Start.IsZero():
-		parts = append(parts, paint(cOrange, dur(d.o.Now.Sub(st.Start))))
-	case !st.End.IsZero() && !st.Start.IsZero() && st.End.Sub(st.Start) >= 100*time.Millisecond:
-		parts = append(parts, dim(dur(st.End.Sub(st.Start))))
 	}
 	if st.Tool == "Bash" && st.Exit > 0 {
 		switch st.Exit {
@@ -1003,7 +1299,13 @@ func (d *drawer) cells(st *Step) string {
 			parts = append(parts, paint(cRed, fmt.Sprintf("exit %d", st.Exit)))
 		}
 	}
-	return strings.Join(parts, "   ")
+	switch {
+	case st.Status == Running && !st.Start.IsZero():
+		parts = append(parts, paint(cOrange, dur(d.o.Now.Sub(st.Start))))
+	case !st.End.IsZero() && !st.Start.IsZero() && st.End.Sub(st.Start) >= 100*time.Millisecond:
+		parts = append(parts, faint(dur(st.End.Sub(st.Start))))
+	}
+	return strings.Join(parts, faint(" · "))
 }
 
 // --- labels ---
@@ -1019,6 +1321,19 @@ func readInput(raw json.RawMessage) input {
 	var m input
 	_ = json.Unmarshal(raw, &m)
 	return m
+}
+
+// agentName is who a Task or Agent call ran: the agent Claude Code reports
+// in its result (it resolves an omitted or aliased subagent_type), else the
+// one asked for, else just "subagent".
+func agentName(st *Step) string {
+	var r struct {
+		AgentType string `json:"agentType"`
+	}
+	if len(st.Result) > 0 && json.Unmarshal(st.Result, &r) == nil && r.AgentType != "" {
+		return r.AgentType
+	}
+	return firstNonEmpty(readInput(st.Input).str("subagent_type"), "subagent")
 }
 
 func glyphFor(tool string) string {
@@ -1045,14 +1360,9 @@ func glyphFor(tool string) string {
 	return "•"
 }
 
+// glyphColor is a step's glyph: faint, like the row it leads.
 func glyphColor(g string) string {
-	switch g {
-	case "$":
-		return paint(cWhite, g)
-	case "✎", "⇉", "◆", "↗", "◇":
-		return paint(cBlue, g)
-	}
-	return sub(g)
+	return faint(g)
 }
 
 // rel shortens a path to the session's folder when it's inside it, looking
@@ -1069,43 +1379,60 @@ func (d *drawer) rel(p string) string {
 func (d *drawer) label(st *Step) string {
 	in := readInput(st.Input)
 	g := glyphColor(glyphFor(st.Tool))
+	// A step is the log's quiet voice; one still going, waiting or failed
+	// reads a shade up.
+	base := cDim
+	if st.Status != OK {
+		base = cSub
+	}
+	lbl := func(s string) string { return paint(base, s) }
 	switch st.Tool {
 	case "Bash":
+		cmd := in.str("command")
 		// What the command is for reads faster than the command; the command
 		// itself follows, quieter, and shows whole when the row is opened.
 		if desc := oneLine(in.str("description")); desc != "" {
-			return g + " " + text(desc) + "  " + faint(program(in.str("command")))
+			return g + " " + lbl(desc) + "  " + faint(program(cmd))
 		}
-		return g + " " + d.command(in.str("command"))
+		// A read, a search or a write says so, as the tool it stands in for.
+		if sh := d.shellShape(cmd); sh.kind != "" {
+			l := glyphColor(sh.glyph) + " "
+			if sh.in != "" {
+				l += faint("in " + sh.in + " · ")
+			}
+			return l + lbl(sh.what)
+		}
+		// A chain, or a command too long to read at a glance, says what
+		// each of its commands does.
+		if l := d.chain(cmd, base); l != "" {
+			return l
+		}
+		return g + " " + d.command(cmd, base)
 	case "Edit", "MultiEdit", "Write", "NotebookEdit":
 		p := in.str("file_path")
 		if p == "" {
 			p = in.str("notebook_path")
 		}
-		return g + " " + text(d.rel(p))
+		return g + " " + lbl(d.rel(p))
 	case "Read":
-		return g + " " + text(d.rel(in.str("file_path")))
+		return g + " " + lbl(d.rel(in.str("file_path")))
 	case "Grep":
-		l := g + " " + text(in.str("pattern"))
+		l := g + " " + lbl(in.str("pattern"))
 		if p := in.str("path"); p != "" {
-			l += dim(" in ") + text(d.rel(p))
+			l += faint(" in ") + lbl(d.rel(p))
 		}
 		return l
 	case "Glob":
-		return g + " " + text(in.str("pattern"))
+		return g + " " + lbl(in.str("pattern"))
 	case "Task", "Agent":
-		kind := in.str("subagent_type")
-		if kind == "" {
-			kind = "subagent"
-		}
-		return g + " " + text(kind) + "  " + sub(oneLine(in.str("description")))
+		return g + " " + lbl(agentName(st)) + "  " + faint(oneLine(in.str("description")))
 	case "WebFetch":
-		return g + " " + text(in.str("url"))
+		return g + " " + lbl(in.str("url"))
 	case "WebSearch":
-		return g + " " + text(in.str("query"))
+		return g + " " + lbl(in.str("query"))
 	case "Skill", "SlashCommand":
 		name := firstNonEmpty(in.str("skill"), in.str("command"), in.str("name"))
-		return paint(cWhite, "✦") + " " + paint(cWhite+bold, name) + "  " + dim(oneLine(in.str("args")))
+		return g + " " + lbl(name) + "  " + faint(oneLine(in.str("args")))
 	case "AskUserQuestion":
 		q := ""
 		if qs, ok := in["questions"].([]any); ok && len(qs) > 0 {
@@ -1115,22 +1442,22 @@ func (d *drawer) label(st *Step) string {
 		}
 		return paint(cYellow, "?") + " " + text(oneLine(q))
 	case agtools.Show:
-		return g + " " + text(firstNonEmpty(oneLine(in.str("title")), "drawing"))
+		return g + " " + lbl(firstNonEmpty(oneLine(in.str("title")), "drawing"))
 	case "Artifact":
 		t := in.str("title")
 		if t == "" {
 			t = filepath.Base(in.str("file_path"))
 		}
-		return g + " " + text(t)
+		return g + " " + lbl(t)
 	}
 	name := st.Tool
 	if strings.HasPrefix(name, "mcp__") {
 		parts := strings.SplitN(strings.TrimPrefix(name, "mcp__"), "__", 2)
 		if len(parts) == 2 {
-			name = parts[1] + dim(" · "+parts[0])
+			name = parts[1] + faint(" · "+parts[0])
 		}
 	}
-	return g + " " + text(name) + "  " + sub(firstValue(in))
+	return g + " " + lbl(name) + "  " + faint(firstValue(in))
 }
 
 func firstValue(in input) string {
@@ -1144,9 +1471,9 @@ func firstValue(in input) string {
 
 var cdRe = regexp.MustCompile(`^cd\s+("[^"]+"|'[^']+'|\S+)\s*&&\s*`)
 
-// command tints a shell command so its shape shows: the program bright,
-// flags quieter, strings green, variables blue, operators orange.
-func (d *drawer) command(cmd string) string {
+// command is a shell command's first line in the row's colour c: a cd into
+// another folder leads, quieter, and a longer command says how much more.
+func (d *drawer) command(cmd, c string) string {
 	cmd = strings.TrimSpace(cmd)
 	// Paths inside the session's folder read better relative to it.
 	for _, base := range d.s.bases() {
@@ -1154,17 +1481,17 @@ func (d *drawer) command(cmd string) string {
 	}
 	lines := strings.Split(cmd, "\n")
 	first := lines[0]
-	chip := ""
+	lead := ""
 	if m := cdRe.FindStringSubmatch(first); m != nil {
 		dir := strings.Trim(m[1], `"'`)
 		first = first[len(m[0]):]
 		if dir != d.s.Info.Cwd && dir != "." {
-			chip = bgSel + dim(" in ") + sub(d.rel(dir)+" ") + reset + " "
+			lead = faint("in " + d.rel(dir) + " · ")
 		}
 	}
-	out := chip + tint(first)
+	out := lead + paint(c, first)
 	if n := len(lines) - 1; n > 0 {
-		out += "  " + bgSel + dim(fmt.Sprintf(" +%d lines ", n)) + reset
+		out += faint(fmt.Sprintf("  +%d lines", n))
 	}
 	return out
 }
@@ -1379,21 +1706,55 @@ func (d *drawer) summary(st *Step) string {
 	case "Bash":
 		out := bashOut(st)
 		if n := len(goFail.FindAllString(out, -1)); n > 0 {
-			return paint(cRed, fmt.Sprintf("%d failed", n))
+			s := fmt.Sprintf("%d failed", n)
+			var names []string
+			for _, m := range goFailName.FindAllStringSubmatch(out, 3) {
+				names = append(names, m[1])
+			}
+			if len(names) > 0 {
+				s += ": " + strings.Join(names, ", ")
+			}
+			return paint(cRed, s)
 		}
 		if m := jsSum.FindStringSubmatch(out); m != nil {
 			if m[1] != "" && m[1] != "0" {
-				return paint(cRed, m[1]+" failed") + dim(" · "+m[2]+" passed")
+				return paint(cRed, m[1]+" failed") + faint(" · "+m[2]+" passed")
 			}
-			return sub(m[2] + " passed")
+			return faint(m[2] + " passed")
 		}
 		if n := len(goOK.FindAllString(out, -1)); n > 0 {
-			return sub(fmt.Sprintf("%d ok", n))
-		}
-		if st.Status == OK {
-			if n := countLines(out); n > 1 {
-				return dim(fmt.Sprintf("%d lines", n))
+			if n == 1 {
+				return faint("ok")
 			}
+			return faint(fmt.Sprintf("%d ok", n))
+		}
+		if st.Status != OK {
+			return ""
+		}
+		sh := d.shellShape(readInput(st.Input).str("command"))
+		n := countLines(out)
+		switch {
+		case sh.kind == "commit":
+			res := sh.res
+			if m := commitRe.FindStringSubmatch(out); m != nil {
+				res = strings.TrimSpace(res + " " + m[1])
+			}
+			return faint(res)
+		case sh.kind == "search" && sh.ctx && n > 0:
+			return faint(plural(n, "line"))
+		case sh.kind == "search" && n > 0:
+			if n == 1 {
+				return faint("1 match")
+			}
+			return faint(fmt.Sprintf("%d matches", n))
+		case sh.kind == "search":
+			return faint("no matches")
+		case sh.res != "":
+			return faint(sh.res)
+		case n == 0:
+			return faint("no output")
+		case n > 1:
+			return faint(fmt.Sprintf("%d lines", n))
 		}
 	case "Edit", "MultiEdit", "Write":
 		var r struct {
@@ -1429,9 +1790,9 @@ func (d *drawer) summary(st *Step) string {
 		if json.Unmarshal(st.Result, &r) == nil && r.File.NumLines > 0 {
 			f := r.File
 			if f.NumLines < f.TotalLines {
-				return dim(fmt.Sprintf("lines %d–%d", f.StartLine, f.StartLine+f.NumLines-1))
+				return faint(fmt.Sprintf("lines %d–%d", f.StartLine, f.StartLine+f.NumLines-1))
 			}
-			return dim(fmt.Sprintf("%d lines", f.TotalLines))
+			return faint(fmt.Sprintf("%d lines", f.TotalLines))
 		}
 	case "Grep", "Glob":
 		if st.Status == OK {
@@ -1443,11 +1804,11 @@ func (d *drawer) summary(st *Step) string {
 			if st.Tool == "Glob" {
 				noun = "files"
 			}
-			return dim(fmt.Sprintf("%d %s", n, noun))
+			return faint(fmt.Sprintf("%d %s", n, noun))
 		}
 	case "Task", "Agent":
 		if n := len(st.Children); n > 0 {
-			return dim(plural(n, "step"))
+			return faint(plural(n, "step"))
 		}
 	}
 	return ""
@@ -1475,31 +1836,38 @@ func countLines(s string) int {
 // --- bodies ---
 
 func (d *drawer) body(st *Step, indent int) {
+	// Code read from files shows highlighted.
+	d.lg, d.byPath, d.hs = nil, false, hlState{}
+	defer func() { d.lg, d.byPath, d.spans = nil, false, nil }()
+	in := readInput(st.Input)
+	switch st.Tool {
+	case "Read":
+		d.lg = langFor(in.str("file_path"))
+	case "Grep":
+		d.byPath = true
+	case "Bash":
+		switch sh := d.shellShape(in.str("command")); sh.kind {
+		case "read":
+			d.lg = langFor(sh.what)
+		case "search":
+			d.byPath = true
+			if _, p, ok := strings.Cut(sh.what, " in "); ok {
+				d.lg = langFor(strings.Split(p, ", ")[0])
+			}
+		case "":
+			d.spans = d.chainSpans(in.str("command"))
+		}
+	}
 	switch st.Tool {
 	case "Edit", "MultiEdit", "Write":
 		if d.diff(st, indent) {
 			return
 		}
 	case "Bash":
-		if cmd := readInput(st.Input).str("command"); cmd != "" && readInput(st.Input).str("description") != "" {
-			pad := d.spine() + strings.Repeat(" ", indent-1)
-			for i, l := range shellLines(strings.TrimSpace(cmd)) {
-				lead := faint("$ ") // the command, not each line of a heredoc
-				if i > 0 {
-					lead = "  "
-				}
-				hang := strings.Repeat(" ", l.depth*2)
-				colored := tint(expandTabs(l.text))
-				if l.verbatim {
-					colored = text(expandTabs(l.text))
-				}
-				for j, r := range wrap(colored, d.cw-indent-4-len(hang)) {
-					if j > 0 {
-						lead, r = "  ", "  "+r // a wrapped line hangs under its own start
-					}
-					d.add("", bgWell, pad+lead+hang+r, "")
-				}
-			}
+		if cmd := strings.TrimSpace(readInput(st.Input).str("command")); cmd != "" {
+			d.shellBody(cmd, indent)
+			d.marks = echoMarks(cmd)
+			defer func() { d.marks = nil }()
 		}
 		var r struct {
 			Stdout string `json:"stdout"`
@@ -1507,18 +1875,99 @@ func (d *drawer) body(st *Step, indent int) {
 		}
 		if json.Unmarshal(st.Result, &r) == nil && (r.Stdout != "" || r.Stderr != "") {
 			d.output(r.Stdout, indent, st.Status == Failed && r.Stderr == "")
+			d.spans = nil
 			if strings.TrimSpace(r.Stderr) != "" {
-				d.add("", "", d.spine()+strings.Repeat(" ", indent-1)+dim(fmt.Sprintf("stderr · %d lines", countLines(r.Stderr))), "")
+				if strings.TrimSpace(r.Stdout) != "" {
+					d.add("", "", d.spine()+strings.Repeat(" ", indent-1)+faint(fmt.Sprintf("stderr · %d lines", countLines(r.Stderr))), "")
+				}
 				d.output(r.Stderr, indent, st.Exit != 0)
 			}
 			return
 		}
+		if st.Status == OK && strings.TrimSpace(st.Output) == "" {
+			d.add("", "", d.spine()+strings.Repeat(" ", indent-1)+faint("no output"), "")
+			return
+		}
 	}
-	d.output(strings.TrimLeft(exitRe.ReplaceAllString(st.Output, ""), "\n"), indent, st.Status == Failed)
+	d.output(strings.TrimLeft(exitRe.ReplaceAllString(toolErrTag.Replace(st.Output), ""), "\n"), indent, st.Status == Failed)
+}
+
+// shellBody is an opened shell step's command: on one line when it fits,
+// else laid out a command a line; a heredoc's body shows its first lines.
+func (d *drawer) shellBody(cmd string, indent int) {
+	pad := d.spine() + strings.Repeat(" ", indent-1)
+	room := d.cw - indent - 4
+	if !strings.Contains(cmd, "\n") && cellw.String(cmd) <= room {
+		d.add("", bgWell, pad+faint("$ ")+quietTint(expandTabs(cmd)), "")
+		return
+	}
+	body, bodyShown := 0, 0
+	// A pipe or && carries on its command's line while that still fits;
+	// separate commands keep lines of their own.
+	var lines []shLine
+	for _, l := range shellLines(cmd) {
+		cont := strings.HasPrefix(l.text, "| ") || strings.HasPrefix(l.text, "&& ") || strings.HasPrefix(l.text, "|| ")
+		if n := len(lines); n > 0 && cont && !lines[n-1].verbatim && cellw.String(lines[n-1].text)+1+cellw.String(l.text)+lines[n-1].depth*2 <= room {
+			lines[n-1].text += " " + l.text
+			continue
+		}
+		lines = append(lines, l)
+	}
+	for _, l := range lines {
+		if l.verbatim {
+			body++
+		}
+	}
+	var lg *lang
+	var hs hlState
+	for i, l := range lines {
+		lead := faint("$ ") // the command, not each line of a heredoc
+		if i > 0 {
+			lead = "  "
+		}
+		if !l.verbatim && strings.Contains(l.text, "<<") {
+			lg, hs = heredocLang(l.text), hlState{}
+		}
+		if l.verbatim {
+			bodyShown++
+			switch {
+			case d.o.Verbose || body <= 8 || bodyShown <= 6:
+			case bodyShown == 7:
+				d.add("", bgWell, pad+lead+faint(fmt.Sprintf("… %d lines · ctrl+o shows all", body-7)), "")
+				continue
+			case bodyShown < body:
+				continue // the last line, the heredoc's end word, still shows
+			}
+		}
+		hang := strings.Repeat(" ", l.depth*2)
+		colored := quietTint(expandTabs(l.text))
+		if l.verbatim {
+			colored = highlight(lg, &hs, expandTabs(l.text), cOut, nil)
+			if bodyShown == body {
+				colored = faint(l.text) // the word that ends it
+			}
+		}
+		for j, r := range wrap(colored, room-len(hang)) {
+			if j > 0 {
+				lead, r = "  ", "  "+r // a wrapped line hangs under its own start
+			}
+			d.add("", bgWell, pad+lead+hang+r, "")
+			if j > 0 {
+				d.wrapped()
+			}
+		}
+	}
 }
 
 // errRe finds the line of a failure's output that says what went wrong.
 var errRe = regexp.MustCompile(`(?i)(error|fatal|panic|exception|traceback|failed|\bfail\b|not found|no such|denied|cannot|can't|undefined|unexpected|invalid|refused|timed out)`)
+
+var (
+	// tallyRe is a test runner's verdict line, which says only that it failed.
+	tallyRe = regexp.MustCompile(`^(FAIL|ok|PASS)(\s+\S+(\s+[\d.]+s|\s+\[[^\]]+\])?)?$|^exit status \d+$`)
+	// fileLineRe is a message placed at a file and line: path.go:12: or :12:3:.
+	fileLineRe = regexp.MustCompile(`^\S+\.\w+:\d+(:\d+)?: \S`)
+)
 
 // errorLine is a failure in brief: the line of its output that says what
 // went wrong (the last one that reads like an error, else the last line),
@@ -1532,16 +1981,29 @@ func (d *drawer) errorLine(st *Step, indent int, ref string) {
 	if st.Tool == "Bash" && json.Unmarshal(st.Result, &r) == nil && r.Stdout+r.Stderr != "" {
 		text = r.Stdout + "\n" + r.Stderr
 	}
-	var last, hit string
+	// The harness's refusal says why in its own words; its tags don't.
+	if m := blockedRe.FindStringSubmatch(st.Output); m != nil && st.Status == Failed {
+		text = m[1]
+	}
+	text = toolErrTag.Replace(text)
+	var last, hit, at string
 	for _, l := range strings.Split(stripANSI(collapseCR(text)), "\n") {
 		l = strings.TrimSpace(expandTabs(l))
-		if l == "" || exitRe.MatchString(l) && errRe.FindString(l) == "" {
+		if l == "" || exitRe.MatchString(l) && errRe.FindString(l) == "" || tallyRe.MatchString(l) {
 			continue
 		}
 		last = l
 		if errRe.MatchString(l) {
 			hit = l
 		}
+		// The first file:line: message is where it went wrong: a compiler's
+		// first error, a failing test's own words.
+		if at == "" && fileLineRe.MatchString(l) {
+			at = l
+		}
+	}
+	if at != "" {
+		hit = at
 	}
 	if hit == "" {
 		hit = last
@@ -1566,6 +2028,14 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	if strings.TrimSpace(s) == "" {
 		return
 	}
+	// JSON a tool printed (an API's answer, a --json flag, an MCP result)
+	// is laid out and coloured, however it came.
+	isJSON := false
+	if !failed && d.lg == nil && !d.byPath {
+		if p, ok := prettyJSON(s); ok {
+			s, isJSON, d.hs = p, true, hlState{}
+		}
+	}
 	lines := strings.Split(s, "\n")
 	b, edge := bgWell, faint("▏")
 	if failed {
@@ -1573,28 +2043,118 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	}
 	pad := d.spine() + strings.Repeat(" ", indent-1)
 	w := d.cw - indent - 2
-	emit := func(l string) {
+	// What a tool printed is quieter than anything Claude says, and plain
+	// text: a heading or a list in a file never passes for Claude's own.
+	// A failure's error lines stay red.
+	// A chain's parts each have their own language, in the order it ran them.
+	spanOf := make([]*lang, 0, len(d.spans))
+	if d.spans != nil {
+		for _, sp := range d.spans {
+			for k := 0; (sp.n == 0 || k < sp.n) && len(spanOf) < len(lines); k++ {
+				spanOf = append(spanOf, sp.lg)
+			}
+		}
+	}
+	var last *lang
+	emit := func(i int, l string) {
 		// A tool's own escape codes (colours, cursor moves, titles) would
 		// reach the terminal or throw widths off; agtop does the colour.
-		d.add("", b, pad+edge+sub(truncateCells(expandTabs(cleanOutput(l)), w)), "")
-	}
-	if !d.o.Verbose && len(lines) > 15 {
-		for _, l := range lines[:3] {
-			emit(l)
+		l = truncateCells(expandTabs(cleanOutput(l)), w)
+		if d.marks[strings.TrimSpace(l)] {
+			d.add("", b, pad+edge+markHeading(strings.TrimSpace(l), w), "")
+			return
 		}
-		d.add("", b, pad+edge+dim(fmt.Sprintf("… %d lines · ctrl+o shows all", len(lines)-15)), "")
-		for _, l := range lines[len(lines)-12:] {
-			emit(l)
+		if isJSON {
+			d.add("", b, pad+edge+highlight(langJSON, &d.hs, l, cOut, nil), "")
+			return
+		}
+		if i < len(spanOf) && !failed {
+			if lg := spanOf[i]; lg != last {
+				d.hs, last = hlState{}, lg
+			}
+			if last != nil {
+				d.add("", b, pad+edge+highlight(last, &d.hs, l, cOut, nil), "")
+				return
+			}
+		}
+		if (d.lg != nil || d.byPath) && !failed {
+			n, path := codePrefix(l)
+			lg := d.lg
+			if d.byPath && path != "" {
+				lg = langFor(path)
+			}
+			if lg != nil {
+				d.add("", b, pad+edge+faint(l[:n])+highlight(lg, &d.hs, l[n:], cOut, nil), "")
+				return
+			}
+		}
+		c := cOut
+		if failed && errRe.MatchString(l) {
+			c = cRed
+		}
+		d.add("", b, pad+edge+paint(c, l), "")
+	}
+	more := func(n int) {
+		d.add("", b, pad+edge+faint(fmt.Sprintf("… %d lines · ctrl+o shows all", n)), "")
+	}
+	if !d.o.Verbose && len(lines) > 8 {
+		// The top and the end, where results and errors land; a failure
+		// also keeps the error lines from the middle.
+		for i, l := range lines[:3] {
+			emit(i, l)
+		}
+		mid := lines[3 : len(lines)-5]
+		cut := 0
+		kept := 0
+		for i, l := range mid {
+			if failed && kept < 3 && errRe.MatchString(l) || d.marks[strings.TrimSpace(l)] {
+				if cut > 0 {
+					more(cut)
+					cut = 0
+				}
+				emit(3+i, l)
+				kept++
+				continue
+			}
+			cut++
+		}
+		if cut > 0 {
+			more(cut)
+		}
+		for i, l := range lines[len(lines)-5:] {
+			emit(len(lines)-5+i, l)
 		}
 		return
 	}
 	for i, l := range lines {
 		if i >= 2000 {
-			d.add("", b, pad+edge+dim(fmt.Sprintf("… %d more lines", len(lines)-i)), "")
+			d.add("", b, pad+edge+faint(fmt.Sprintf("… %d more lines", len(lines)-i)), "")
 			break
 		}
-		emit(l)
+		emit(i, l)
 	}
+}
+
+// prettyJSON is s indented two spaces a level when it's one JSON object or
+// array, as is when it's JSON lines; ok is false for anything else.
+func prettyJSON(s string) (string, bool) {
+	t := strings.TrimSpace(s)
+	if len(t) < 2 || len(t) > 4<<20 || t[0] != '{' && t[0] != '[' {
+		return "", false
+	}
+	if json.Valid([]byte(t)) {
+		var buf bytes.Buffer
+		if json.Indent(&buf, []byte(t), "", "  ") != nil {
+			return "", false
+		}
+		return buf.String(), true
+	}
+	for _, l := range strings.Split(t, "\n") {
+		if l = strings.TrimSpace(l); l != "" && (l[0] != '{' && l[0] != '[' || !json.Valid([]byte(l))) {
+			return "", false
+		}
+	}
+	return t, true
 }
 
 func (d *drawer) diff(st *Step, indent int) bool {
@@ -1603,16 +2163,20 @@ func (d *drawer) diff(st *Step, indent int) bool {
 		Content string `json:"content"`
 	}
 	_ = json.Unmarshal(st.Result, &r)
+	in := readInput(st.Input)
+	lg := langFor(firstNonEmpty(in.str("file_path"), in.str("notebook_path")))
 	pad := d.spine() + strings.Repeat(" ", indent-1)
 	w := d.cw - indent - 9
 	if r.Type == "create" {
+		// A new file is a diff where every line is added.
+		var hs hlState
 		lines := strings.Split(strings.TrimRight(r.Content, "\n"), "\n")
 		for i, l := range lines {
-			if i >= 20 && !d.o.Verbose {
-				d.add("", bgWell, pad+paint(cGreen, "▏")+dim(fmt.Sprintf("… %d more lines", len(lines)-i)), "")
+			if i >= 30 && !d.o.Verbose {
+				d.add("", bgWell, pad+faint(fmt.Sprintf("  … %d more lines · ctrl+o shows the rest", len(lines)-i)), "")
 				break
 			}
-			d.add("", bgWell, pad+paint(cGreen, "▏")+dim(fmt.Sprintf("%5d ", i+1))+sub(truncateCells(expandTabs(l), w)), "")
+			d.diffLine(pad, w, lg, &hs, '+', i+1, l, "", false)
 		}
 		return true
 	}
@@ -1623,34 +2187,95 @@ func (d *drawer) diff(st *Step, indent int) bool {
 	shown := 0
 	for pi, p := range patches {
 		if pi > 0 {
-			d.add("", bgWell, pad+dim("  ..."), "")
+			d.add("", bgWell, pad+faint("  ⋯"), "")
 		}
+		// The old and the new side each carry their own strings and
+		// comments from line to line.
+		var oldSt, newSt hlState
 		oldN, newN := p.OldStart, p.NewStart
-		for _, l := range p.Lines {
+		ls := p.Lines
+		for i := 0; i < len(ls); i++ {
+			// A run of removed lines and the added lines after it pair up
+			// in order, so each pair can show the words that changed.
+			if l := ls[i]; l != "" && l[0] == '-' {
+				j := i
+				for j < len(ls) && ls[j] != "" && ls[j][0] == '-' {
+					j++
+				}
+				k := j
+				for k < len(ls) && ls[k] != "" && ls[k][0] == '+' {
+					k++
+				}
+				dels, adds := ls[i:j], ls[j:k]
+				for n, l := range dels {
+					if shown >= 30 && !d.o.Verbose {
+						d.add("", bgWell, pad+faint("  … ctrl+o shows the rest"), "")
+						return true
+					}
+					shown++
+					var pair string
+					if n < len(adds) {
+						pair = adds[n][1:]
+					}
+					d.diffLine(pad, w, lg, &oldSt, '-', oldN, l[1:], pair, n < len(adds))
+					oldN++
+				}
+				for n, l := range adds {
+					if shown >= 30 && !d.o.Verbose {
+						d.add("", bgWell, pad+faint("  … ctrl+o shows the rest"), "")
+						return true
+					}
+					shown++
+					var pair string
+					if n < len(dels) {
+						pair = dels[n][1:]
+					}
+					d.diffLine(pad, w, lg, &newSt, '+', newN, l[1:], pair, n < len(dels))
+					newN++
+				}
+				i = k - 1
+				continue
+			}
 			if shown >= 30 && !d.o.Verbose {
-				d.add("", bgWell, pad+dim("  … ctrl+o shows the rest"), "")
+				d.add("", bgWell, pad+faint("  … ctrl+o shows the rest"), "")
 				return true
 			}
 			shown++
+			l := ls[i]
 			if l == "" {
 				l = " "
 			}
-			body := truncateCells(expandTabs(l[1:]), w)
-			switch l[0] {
-			case '+':
-				d.add("", bgAdd, pad+dim(fmt.Sprintf("%5d ", newN))+paint(cGreen, "+")+" "+text(body), "")
+			if l[0] == '+' {
+				d.diffLine(pad, w, lg, &newSt, '+', newN, l[1:], "", false)
 				newN++
-			case '-':
-				d.add("", bgDel, pad+dim(fmt.Sprintf("%5d ", oldN))+paint(cRed, "−")+" "+text(body), "")
-				oldN++
-			default:
-				d.add("", bgWell, pad+dim(fmt.Sprintf("%5d ", newN))+"  "+sub(body), "")
-				oldN++
-				newN++
+				continue
 			}
+			body := truncateCells(expandTabs(l[1:]), w)
+			d.add("", bgWell, pad+faint(fmt.Sprintf("%5d ", newN))+"  "+highlight(lg, &newSt, body, cSub, nil), "")
+			oldSt = newSt // a line both sides share leaves them alike
+			oldN++
+			newN++
 		}
 	}
 	return true
+}
+
+// diffLine is one added (+) or removed (-) line at number n, its code
+// highlighted on the line's colour and, when it pairs with a line on the
+// other side, the words that changed a step brighter.
+func (d *drawer) diffLine(pad string, w int, lg *lang, st *hlState, sign byte, n int, code, pair string, paired bool) {
+	body := truncateCells(expandTabs(code), w)
+	row, hi, mark := bgAdd, bgAddHi, paint(cGreen, "+")
+	if sign == '-' {
+		row, hi, mark = bgDel, bgDelHi, paint(cRed, "−")
+	}
+	var em *emph
+	if paired {
+		if from, to, ok := changed(body, truncateCells(expandTabs(pair), w)); ok {
+			em = &emph{from: from, to: to, on: hi, off: row}
+		}
+	}
+	d.add("", row, pad+faint(fmt.Sprintf("%5d ", n))+mark+" "+highlight(lg, st, body, cText, em), "")
 }
 
 // collapseCR keeps only the last state of lines redrawn with carriage

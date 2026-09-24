@@ -179,6 +179,8 @@ type Session struct {
 	cache      map[*Turn]cached
 	memo       map[memoKey][]Line
 	memoOld    map[memoKey][]Line
+	chains     map[string]string // chain labels drawn this render, by colour and command
+	chainsOld  map[string]string
 	stepVer    int           // bumped whenever a step is added or changes
 	changes    []*FileChange // Changes, as of changesVer
 	parts      [][]Line      // RenderInto's scratch, one entry per turn
@@ -607,10 +609,7 @@ func isRejection(text string) bool {
 func (s *Session) request(m headless.Message, parent *Step, now time.Time) {
 	agent := ""
 	if parent != nil {
-		agent = readInput(parent.Input).str("subagent_type")
-		if agent == "" {
-			agent = "subagent"
-		}
+		agent = agentName(parent)
 	}
 	if m.Model == "<synthetic>" {
 		return // Claude Code's own placeholder, not a model call
