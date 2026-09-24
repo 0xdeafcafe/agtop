@@ -194,7 +194,7 @@ To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe
 ## And
 
 - **Menu bar**: every account's usage, the agents working, and a badge for each waiting on you. Questions arrive as notifications you can answer from; clicking one brings back the terminal agtop is open in (Warp, iTerm, Ghostty…) on that agent. agtop offers it the first time it opens on a Mac. It's a small Swift app built on your Mac the first time (it needs Xcode's command line tools).
-- **Zen** (`ctrl+z`): only the agent that needs you and its box, then the next one. `ctrl+n` skips.
+- **Zen** (`ctrl+z`): only the agent that needs you and its box, then the next one. A bar across the top says where you are in the queue; `ctrl+n` skips, holding `tab` peeks at what's working, `ctrl+z` again leaves.
 - **Colour-blind palette**, in Settings › General.
 - **Light**: about 40 MB with a session open, 56 MB for a 38-hour session with 342 subagent runs. Idle, it does almost nothing: the kernel says when a transcript changed, and only that file is read again. `agtop --soak 30s 200x50` measures it against your own agents.
 

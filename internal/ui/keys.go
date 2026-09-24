@@ -83,6 +83,15 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.setZen(!m.zen)
 		return m.loadPreview()
 	}
+	// In zen, tab held down peeks at what's working; letting go (or,
+	// tapped, any key) comes back.
+	if m.peek.on {
+		return m.peekKey(s)
+	}
+	if s == "tab" && m.zenFull() {
+		m.peek = zenPeek{on: true, at: time.Now()}
+		return nil
+	}
 	// In zen, while the next agent connects (or when nothing needs you),
 	// keys wait rather than land in some box you can't see; ctrl+n still
 	// moves on.
@@ -244,19 +253,11 @@ func (m *Model) placeStep(s string) int {
 }
 
 // switchFocus is tab in Agents: from the list into the selected agent's
-// Session, and back. In Zen the list is only the agents waiting on you.
+// Session, and back.
 func (m *Model) switchFocus() tea.Cmd {
 	if m.paneFocus && m.host != nil {
-		if m.zen {
-			m.paneFocus, m.preview, m.zenList = false, true, true // the waiting list beside it
-			return nil
-		}
 		m.leavePane()
 		return nil
-	}
-	if m.zen && m.zenList {
-		m.zenList, m.paneFocus = false, true
-		return m.loadPreview()
 	}
 	a := m.selected()
 	if a == nil || strings.HasPrefix(m.sel, "§") {

@@ -91,22 +91,6 @@ func TestPlacesAndFocus(t *testing.T) {
 		t.Fatal("ctrl+z again should leave zen")
 	}
 	m.setZen(true)
-	m.key(tab)
-	if !m.zen || m.paneFocus || m.noPrompt() {
-		t.Fatal("tab in zen should give the list the keys, and its Prompt back")
-	}
-	for _, a := range m.order {
-		if a != nil && !a.NeedsYou() && !a.Waiting() {
-			t.Fatalf("zen's list should hold only agents waiting on you, has %s", a.DisplayName)
-		}
-	}
-	if len(m.order) == 0 {
-		t.Fatal("zen's list is empty")
-	}
-	m.key(tab)
-	if !m.zenFull() {
-		t.Fatal("tab from zen's list goes back into the agent")
-	}
 	m.key(zen)
 	if len(m.order) < 30 {
 		t.Fatalf("leaving zen should bring every agent back, have %d rows", len(m.order))

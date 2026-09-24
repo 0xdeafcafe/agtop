@@ -120,8 +120,8 @@ type Model struct {
 	// 1 the summary.
 	claudeView int
 	zen        bool // the Zen view: only the agent that needs you
-	zenList    bool // Zen with its list of who's waiting beside the agent
-	frameLen   int  // bytes in the last frame, to size the next
+	peek       zenPeek
+	frameLen   int // bytes in the last frame, to size the next
 	lastKeyAt  time.Time
 	paneTop    int // screen row of the pane's first line, for clicks
 	// host is the connection to the agtop-mode session the pane shows.
@@ -592,6 +592,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 		return m, nil
+	case peekCheckMsg:
+		return m, m.peekCheck()
 	case tickMsg:
 		m.tick++
 		m.refresh()
@@ -994,7 +996,7 @@ func (m *Model) setZen(on bool) {
 	if on && m.view != placeAgents {
 		m.setView(placeAgents)
 	}
-	m.zen, m.zenList = on, false
+	m.zen, m.peek = on, zenPeek{}
 	defer m.rebuild()
 	if !on {
 		return
@@ -1005,9 +1007,8 @@ func (m *Model) setZen(on bool) {
 	}
 }
 
-// zenFull is Zen showing only the agent, the whole screen. tab brings the
-// list back beside it (zenList), holding only who's waiting.
-func (m *Model) zenFull() bool { return m.zen && !m.zenList }
+// zenFull is Zen showing only the agent, the whole screen.
+func (m *Model) zenFull() bool { return m.zen }
 
 // wide is when the preview gets its own half of the screen.
 func (m *Model) wide() bool { return m.w >= 170 }

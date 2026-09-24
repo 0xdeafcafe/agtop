@@ -781,7 +781,9 @@ func (m *Model) listView() string {
 	var pane []string
 	if paneW > 0 {
 		sw := paneW - 3
-		if m.zen && len(m.zenQueue()) == 0 {
+		if m.peek.on {
+			pane = m.zenPeekLines(paneW-3, paneH)
+		} else if m.zen && len(m.zenQueue()) == 0 {
 			pane = m.zenQuiet(paneW-3, paneH)
 		} else if pane = m.agtopPane(sw, paneH); pane == nil {
 			// A Claude Code agent's Session: its live screen or a summary,
@@ -794,6 +796,9 @@ func (m *Model) listView() string {
 				body = m.previewLines(paneW-3, paneH-1)
 			}
 			pane = append([]string{m.claudeStrip(paneW - 3)}, body...)
+			if f := m.focused(); m.zenFull() && f != nil {
+				pane = append([]string{m.zenBar(f, paneW-3)}, pane...)
+			}
 		}
 	}
 	var b strings.Builder

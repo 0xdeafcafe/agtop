@@ -6,16 +6,18 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
 // Zen shows nothing until an agent needs you, then only that agent: what it
 // last said and what it needs, answered in its dock. Answer it and the next
-// one takes its place. No header, strip or key hints: ctrl+n skips, ctrl+z
-// leaves, and ? says so.
+// one takes its place. No header or strip: one bar with where you are in
+// the queue and the keys to skip (ctrl+n) or leave (ctrl+z).
 
 // zenQueue is every agent waiting on you, oldest first.
 func (m *Model) zenQueue() []*fleet.Agent {
@@ -35,8 +37,8 @@ func (m *Model) zenQueue() []*fleet.Agent {
 // zenPick keeps the selection on an agent that still needs you, moving on
 // to the oldest one when the current one is answered.
 func (m *Model) zenPick() {
-	if !m.zenFull() {
-		return // on zen's list you pick; nothing moves under you
+	if !m.zen {
+		return
 	}
 	q := m.zenQueue()
 	for _, a := range q {
@@ -84,14 +86,17 @@ func (m *Model) zenQuiet(w, h int) []string {
 		counts = append(counts, dim(fmt.Sprintf("◌ %d in background", t.busy)))
 	}
 	counts = append(counts, dim(fmt.Sprintf("%d finished", t.done)))
-	return append(out, center(strings.Join(counts, dim(" · "))))
+	out = append(out, center(strings.Join(counts, dim(" · "))), "", "")
+	return append(out, center(paint(cYellow, "◇ zen")+dim(" shows an agent here when one needs you")),
+		"", center(keys("hold tab", "what's working", "ctrl+z", "leave zen")))
 }
 
 func stripAnsi(s string) string { return ansi.Strip(s) }
 
-// zenBody is the middle of zen's Session: which of the waiting agents this
-// is, then the last thing it said.
-func (m *Model) zenBody(a *fleet.Agent, c *hostConn, w int) []convo.Line {
+// zenBar is the row pinned above zen's agent: that it's zen, which of the
+// waiting agents this is and where, and the keys to move on or leave, so a
+// long reply never scrolls them away.
+func (m *Model) zenBar(a *fleet.Agent, w int) string {
 	q := m.zenQueue()
 	pos := 0
 	for i, x := range q {
@@ -99,17 +104,35 @@ func (m *Model) zenBody(a *fleet.Agent, c *hostConn, w int) []convo.Line {
 			pos = i + 1
 		}
 	}
-	waited := dur(time.Since(a.UpdatedAt).Round(time.Second))
-	head := paint(cYellow+bold, "● needs you") + "  " + paint(cSub, fmt.Sprintf("%d of %d", pos, len(q))) +
-		"   " + dim(tildify(a.Cwd))
+	left := paint(cYellow+bold, "◇ zen") + "   "
 	if pos == 0 {
 		// Answered, or never waiting: say so rather than "needs you".
-		head = paint(cGreen, "✓ answered") + "  " + dim(fmt.Sprintf("%d waiting", len(q))) + "   " + dim(tildify(a.Cwd))
+		left += paint(cGreen, "✓ answered") + "  " + dim(fmt.Sprintf("%d waiting", len(q)))
+	} else {
+		left += paint(cYellow+bold, "● needs you") + "  " + paint(cSub, fmt.Sprintf("%d of %d", pos, len(q)))
+		if !a.UpdatedAt.IsZero() {
+			left += dim(" · waiting " + dur(time.Since(a.UpdatedAt).Round(time.Second)))
+		}
 	}
+	where := tildify(a.Cwd)
 	if a.Branch != "" {
-		head += dim(" · " + a.Branch)
+		where += " · " + a.Branch
 	}
-	lines := []convo.Line{{Text: fit("  "+spread(head, dim("waiting "+waited)+"  ", w-2), w)}, {Text: ""}}
+	pairs := []string{"ctrl+z", "leave zen"}
+	if len(q) > 1 || pos == 0 && len(q) > 0 {
+		pairs = append([]string{"ctrl+n", "next"}, pairs...)
+	}
+	pairs = append([]string{"hold tab", "what's working"}, pairs...)
+	right := keysFit(max(20, w-cellw.String(left)-4), pairs...)
+	if room := w - cellw.String(left) - cellw.String(right) - 6; room > 12 {
+		left += "   " + dim(fit(where, min(room, cellw.String(where))))
+	}
+	return spread(left, right, w)
+}
+
+// zenBody is the middle of zen's Session: the last thing the agent said,
+// drawn as it is in the conversation, then what it needs.
+func (m *Model) zenBody(a *fleet.Agent, c *hostConn, w int) []convo.Line {
 	said := ""
 	if c != nil {
 		for i := len(c.sess.Turns) - 1; i >= 0 && said == ""; i-- {
@@ -125,9 +148,11 @@ func (m *Model) zenBody(a *fleet.Agent, c *hostConn, w int) []convo.Line {
 	if said == "" {
 		said = firstNonEmpty(a.Needs, a.Detail)
 	}
-	lines = append(lines, convo.Line{Text: "    " + dim("it said")})
-	for _, para := range strings.Split(strings.TrimSpace(said), "\n") {
-		for _, l := range wrap(para, min(w-8, 100)) {
+	lines := []convo.Line{{Text: ""}, {Text: "    " + dim("it said")}}
+	if c != nil {
+		lines = append(lines, c.sess.Answer(said, w)...)
+	} else {
+		for _, l := range wrap(said, min(w-8, 100)) {
 			lines = append(lines, convo.Line{Text: "    " + paint(cText, l)})
 		}
 	}
@@ -135,4 +160,98 @@ func (m *Model) zenBody(a *fleet.Agent, c *hostConn, w int) []convo.Line {
 		lines = append(lines, convo.Line{Text: ""}, convo.Line{Text: "    " + dim("it needs  ") + paint(cYellow, oneLine(a.Needs))})
 	}
 	return lines
+}
+
+// zenPeek is a look at what's working, for as long as tab is held.
+// Terminals don't say when a key is let go, so a hold is known by its
+// repeats: once they stop coming, tab is up. A tap with no repeats keeps
+// the peek until the next key.
+type zenPeek struct {
+	on   bool
+	held bool          // repeats have come: it ends when they stop
+	at   time.Time     // the last tab
+	gap  time.Duration // between the last two repeats
+}
+
+type peekCheckMsg struct{}
+
+// peekLet is how long after the last repeat tab counts as let go.
+func (p zenPeek) peekLet() time.Duration {
+	if p.gap == 0 {
+		return 300 * time.Millisecond
+	}
+	return min(600*time.Millisecond, max(150*time.Millisecond, 3*p.gap))
+}
+
+// peekKey takes the keys while peeking. Repeats of tab keep it open; any
+// other key, or tab pressed afresh, closes it, and goes no further: the
+// agent's box isn't on screen to type into.
+func (m *Model) peekKey(s string) tea.Cmd {
+	p := &m.peek
+	since := time.Since(p.at)
+	// The first repeat comes after the keyboard's repeat delay; the rest
+	// much quicker.
+	repeat := s == "tab" && (p.held && since < p.peekLet() || !p.held && since < time.Second)
+	if !repeat {
+		m.peek = zenPeek{}
+		return nil
+	}
+	first := !p.held
+	if p.held {
+		p.gap = since
+	}
+	p.held, p.at = true, time.Now()
+	if first {
+		return m.peekTick()
+	}
+	return nil
+}
+
+func (m *Model) peekTick() tea.Cmd {
+	return tea.Tick(m.peek.peekLet(), func(time.Time) tea.Msg { return peekCheckMsg{} })
+}
+
+// peekCheck ends a held peek once the repeats have stopped.
+func (m *Model) peekCheck() tea.Cmd {
+	if !m.peek.on || !m.peek.held {
+		return nil
+	}
+	if time.Since(m.peek.at) >= m.peek.peekLet() {
+		m.peek = zenPeek{}
+		return nil
+	}
+	return m.peekTick()
+}
+
+// zenPeekLines is what's working, row by row as in Agents, the busiest
+// first.
+func (m *Model) zenPeekLines(w, h int) []string {
+	var busy []*fleet.Agent
+	for _, a := range m.snap.Agents {
+		if !a.NeedsYou() && (a.Live() || a.Busy()) {
+			busy = append(busy, a)
+		}
+	}
+	sort.SliceStable(busy, func(i, j int) bool {
+		if li, lj := busy[i].Live(), busy[j].Live(); li != lj {
+			return li
+		}
+		return busy[i].UpdatedAt.After(busy[j].UpdatedAt)
+	})
+	back := keys("tab", "again to go back")
+	if m.peek.held {
+		back = faint("let go of tab to go back")
+	}
+	out := []string{spread(paint(cYellow+bold, "◇ zen")+"   "+paint(cText+bold, "what's working"), back, w), ""}
+	if len(busy) == 0 {
+		return append(out, "", "   "+dim("nothing is working right now"))
+	}
+	nameCol := m.nameColumn(w)
+	for _, a := range busy {
+		if len(out) >= h {
+			break
+		}
+		out = append(out, m.agentLine(a, w, false, nameCol, false))
+	}
+	return out
 }

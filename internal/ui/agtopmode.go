@@ -1061,8 +1061,10 @@ func (m *Model) agtopPane(w, h int) []string {
 	}
 	s := c.sess
 	var head []string
-	if !m.zenFull() {
-		head = m.paneHeader(a, c, w) // zen is only the agent and its box
+	if m.zenFull() {
+		head = []string{m.zenBar(a, w)} // zen is only the agent and its box
+	} else {
+		head = m.paneHeader(a, c, w)
 	}
 	if l := m.subBanner(c, w); l != "" {
 		head = append(head, l)
