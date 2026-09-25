@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -255,4 +256,54 @@ func writeFile(t *testing.T, dir, name, body string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// send --image puts each image after the text's [Image #N] for it; an image
+// the text doesn't name goes with it as before.
+func TestSendImagesAtTheirMarkers(t *testing.T) {
+	bin := setup(t)
+	dir := filepath.Dir(bin)
+	startJSON(t, "--cwd", dir, "--session-id", sid, "--binary", bin)
+	a := writeFile(t, dir, "a.png", "\x89PNG\r\n\x1a\nA")
+	b := writeFile(t, dir, "b.png", "\x89PNG\r\n\x1a\nB")
+	if out, code := run(t, "compare [Image #2] with [Image #1] please", "send", "11111111", "--image", a, "--image", b); code != 0 {
+		t.Fatalf("send: exit %d: %s", code, out)
+	}
+	sent := filepath.Join(dir, "sent.log")
+	var line string
+	waitFor(t, "the message", func() bool {
+		body, _ := os.ReadFile(sent)
+		for _, l := range strings.Split(string(body), "\n") {
+			if strings.Contains(l, "compare") {
+				line = l
+			}
+		}
+		return line != ""
+	})
+	var msg struct {
+		Message struct {
+			Content []struct {
+				Type   string `json:"type"`
+				Text   string `json:"text"`
+				Source struct {
+					Data string `json:"data"`
+				} `json:"source"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+		t.Fatalf("%v: %s", err, line)
+	}
+	var got []string
+	for _, bl := range msg.Message.Content {
+		if bl.Type == "text" {
+			got = append(got, bl.Text)
+			continue
+		}
+		raw, _ := base64.StdEncoding.DecodeString(bl.Source.Data)
+		got = append(got, "img"+string(raw[len(raw)-1]))
+	}
+	if strings.Join(got, "|") != "compare [Image #2]|imgB| with [Image #1]|imgA| please" {
+		t.Fatalf("content = %q", got)
+	}
 }

@@ -661,14 +661,13 @@ func TestQueueViewKeepsLines(t *testing.T) {
 	}
 }
 
-// ↓ from the box goes nowhere; ↑ goes up through what's above it, nearest
-// first: the attachments, then the queue. ⌫ on a picked attachment takes
-// it off, the pick moving on to the next.
+// ↓ from the box goes nowhere; ↑ goes up through what's above it: the
+// queue.
 func TestUpFromTheBox(t *testing.T) {
 	a := &fleet.Agent{Key: "k"}
 	a.State = "working"
 	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}, paneFocus: true}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}, images: []string{"/a.png", "/b.png"}}
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
 	m.host = c
 	m.queueLocal("k", "one")
 	key := func(s string) { m.paneKey(tea.KeyPressMsg{}, s) }
@@ -676,23 +675,9 @@ func TestUpFromTheBox(t *testing.T) {
 	if c.sel != "" {
 		t.Fatalf("↓ from the box picked %q", c.sel)
 	}
-	for _, want := range []string{"img:1", "img:0", "q:0"} {
-		key("up")
-		if c.sel != want {
-			t.Fatalf("↑: on %q, want %q", c.sel, want)
-		}
-	}
-	key("down")
-	key("backspace")
-	if len(c.images) != 1 || c.images[0] != "/b.png" || c.sel != "img:0" {
-		t.Fatalf("⌫ on a picked attachment: %q, on %q", c.images, c.sel)
-	}
-	if l := ansi.Strip(chips(c.images, 80, 0, true)); !strings.Contains(l, "▍▣") {
-		t.Errorf("the picked chip isn't marked: %s", l)
-	}
-	key("backspace")
-	if len(c.images) != 0 || c.sel != "" {
-		t.Fatalf("the last one gone: %q, on %q", c.images, c.sel)
+	key("up")
+	if c.sel != "q:0" {
+		t.Fatalf("↑: on %q, want q:0", c.sel)
 	}
 }
 

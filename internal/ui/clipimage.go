@@ -78,12 +78,27 @@ func clipImage() (string, error) {
 	return out, nil
 }
 
-// attachImages adds image files to whichever box has focus.
+// attachImages adds image files to whichever box has focus: in a
+// Session's box as [Image #N] at the cursor, in the Prompt as chips.
 func (m *Model) attachImages(imgs []string) {
 	if c := m.host; c != nil && m.paneFocus {
-		c.images = append(c.images, imgs...)
-	} else {
-		m.images = append(m.images, imgs...)
+		// Each goes in the text as its marker, at the cursor.
+		var marks []string
+		for _, p := range imgs {
+			marks = append(marks, c.imgs.add(p))
+		}
+		pos := max(0, len(c.input)-c.back)
+		c.undo.save(c.input, c.back, false)
+		ins := strings.Join(marks, " ")
+		if pos > 0 && c.input[pos-1] != ' ' && c.input[pos-1] != '\n' {
+			ins = " " + ins
+		}
+		if pos < len(c.input) && c.input[pos] != ' ' {
+			ins += " "
+		}
+		c.input = insert(c.input, pos, []rune(ins))
+		return
 	}
+	m.images = append(m.images, imgs...)
 	m.flash(fmt.Sprintf("attached %d image(s)", len(imgs)), false)
 }

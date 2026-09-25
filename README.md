@@ -208,11 +208,11 @@ agtop session list --json [--meta k=v]...
 
 `start` uses the model, effort, permission mode and limit settings from Settings unless a flag gives them, and prints the session's info with `"alive"` added. With `--session-id` it is idempotent: a session already running is printed, not started again. A stopped one needs `--resume`, which brings the same conversation back. `--env` values reach Claude Code on every start of it, idle restarts and resumes included. `--meta` tags the session; `list --meta` filters on the tags.
 
-`send` reads the message from stdin. If the session is stopped it resumes with the message, as sending from the view does. `info` exits 1 with `{"error":"not found"}` for an id with no session. `alive` is whether the session's host is running; a host whose Claude Code is resting while idle counts as alive.
+`send` reads the message from stdin. An image the text names as `[Image #N]` (the Nth `--image`) goes right after that marker; the others go with the message as before. If the session is stopped it resumes with the message, as sending from the view does. `info` exits 1 with `{"error":"not found"}` for an id with no session. `alive` is whether the session's host is running; a host whose Claude Code is resting while idle counts as alive.
 
 A plugin can also arrange the Agents list for an embedding app: with the `sidebar` capability it sends sections and a name for each agent, keyed by Claude Code session id, and the list offers them as a group-by mode (`ctrl+s`, or `/by plugin:<name>`). The [`kanban`](plugins/examples/kanban) example shows the kanban-code board this way.
 
-`agtop open <id> --solo` is the view of that one session alone, under agtop's header, with the Session at the terminal's whole width and no Agents list. `ctrl+\` opens Efficiency, Machine and Settings as usual, and Agents is the session again. The keys that lead to other agents or open the list (`ctrl+z ctrl+n ctrl+k tab`) do nothing, and `, . < >` are typed into the box. `ctrl+6` (sent as `ctrl+^` by most terminals) shows Agents beside the session, to pick and answer another agent; `ctrl+6` again, or `esc` from the list, hides it and the view is back on the solo session. Outside solo, `ctrl+6` hides or shows Agents beside an open Session for the moment, while `#view` keeps the layout you chose. The message box has the keys from the start. `esc` at the top level and `ctrl+q` close the view; the session keeps running. A stopped session shows its conversation and resumes with the first message.
+`agtop open <id> --solo` is the view of that one session alone, under agtop's header, with the Session at the terminal's whole width and no Agents list. `ctrl+\` opens Efficiency, Machine and Settings as usual, and Agents is the session again. The keys that lead to other agents or open the list (`ctrl+z ctrl+n tab`) do nothing, and `, . < >` are typed into the box. `ctrl+k` searches every agent and place; going to another agent from it shows the list beside it, as `ctrl+6` does. `ctrl+6` (sent as `ctrl+^` by most terminals) shows Agents beside the session, to pick and answer another agent; `ctrl+6` again, or `esc` from the list, hides it and the view is back on the solo session. Outside solo, `ctrl+6` hides or shows Agents beside an open Session for the moment, while `#view` keeps the layout you chose. The message box has the keys from the start. `esc` at the top level and `ctrl+q` close the view; the session keeps running. A stopped session shows its conversation and resumes with the first message.
 
 ## And
 
@@ -231,6 +231,7 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `tab` | the list ⇄ the agent's Session |
 | `ctrl+k` | go anywhere, search everything |
 | `ctrl+f` | find, starting where you are |
+| `ctrl+v` | paste an image; in a Session's box it goes in the text as `[Image #1]`, deleted as one |
 | `,` `.` · `ctrl+\` | Agents · Efficiency · Machine · Settings; in a Session's box `,` `.` `<` `>` are typed, so `ctrl+\` |
 | `ctrl+r` `ctrl+t` `ctrl+e` | rename, pin, set group |
 | `ctrl+s` | group by status, repository, account, your groups |

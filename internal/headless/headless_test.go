@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -254,5 +255,37 @@ func TestLineReader(t *testing.T) {
 	l = NewLineReader(strings.NewReader(strings.Repeat("y", maxLine+10)))
 	if _, ok := l.Next(); ok || l.err == nil {
 		t.Error("a line over the limit should stop the reader with an error")
+	}
+}
+
+// A message's images go where its text names them, each right after its
+// marker; the ones it doesn't name come at the end, and a text naming none
+// keeps the images first.
+func TestContentPlacesImagesAtTheirMarkers(t *testing.T) {
+	a, b, c := Image{MediaType: "image/png", Data: []byte("a")}, Image{MediaType: "image/png", Data: []byte("b")}, Image{MediaType: "image/png", Data: []byte("c")}
+	kinds := func(blocks []map[string]any) string {
+		var out []string
+		for _, bl := range blocks {
+			if bl["type"] == "text" {
+				out = append(out, "text:"+bl["text"].(string))
+				continue
+			}
+			data := bl["source"].(map[string]any)["data"].(string)
+			raw, _ := base64.StdEncoding.DecodeString(data)
+			out = append(out, "image:"+string(raw))
+		}
+		return strings.Join(out, " | ")
+	}
+	got := kinds(Content("see [Image #2] then [Image #1] ok", []Image{a, b, c}))
+	want := "text:see [Image #2] | image:b | text: then [Image #1] | image:a | text: ok | image:c"
+	if got != want {
+		t.Fatalf("interleaved:\n got %s\nwant %s", got, want)
+	}
+	if got := kinds(Content("no markers here", []Image{a, b})); got != "image:a | image:b | text:no markers here" {
+		t.Fatalf("no markers: %s", got)
+	}
+	// A marker for an image that isn't there stays text.
+	if got := kinds(Content("[Image #5] and [Image #1]", []Image{a})); got != "text:[Image #5] and [Image #1] | image:a" {
+		t.Fatalf("unknown marker: %s", got)
 	}
 }

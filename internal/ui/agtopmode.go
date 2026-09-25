@@ -710,7 +710,7 @@ type hostConn struct {
 	input    []rune
 	back     int
 	anchor   int      // selection start + 1; 0 when nothing is selected
-	images   []string // image files attached to the next message
+	imgs     imageRefs // images in the box, each [Image #N] in its text
 	box      box      // the message box as last drawn, and where
 	boxIdx   int
 	boxY     int
@@ -1599,13 +1599,6 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		out = append(out, dockCard(bgQueue, cQueue, rows, w+1)...)
 	}
-	pick := -1
-	if i, ok := imageSel(c); ok {
-		pick = i
-	}
-	if l := chips(c.images, w, pick, m.paneFocus); l != "" {
-		line(l)
-	}
 	cards()
 	if blocks > 0 {
 		line("") // and one before the box
@@ -1700,9 +1693,6 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		if _, live, ok := m.pickedSub(c); ok && live && strings.HasPrefix(c.sel, "sub:") {
 			hint = keysFit(w-4, "enter", "watch it", "x", "stop it", "↑↓", "pick", "esc", "done picking")
-		}
-		if strings.HasPrefix(c.sel, "img:") {
-			hint = keysFit(w-4, "⌫", "take it off the message", "↑↓", "pick", "esc", "done picking")
 		}
 		if strings.HasPrefix(c.sel, "mem:") {
 			hint = keysFit(w-4, "enter", "edit it here", "ctrl+g", "open in $EDITOR", "x", "delete", "↑↓", "pick", "esc", "done picking")
@@ -1850,9 +1840,6 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if cmd, used := m.queueKey(c, s); used {
 		return cmd
 	}
-	if m.imageKey(c, s) {
-		return nil
-	}
 	// ctrl+x on a subagent, picked or watched, stops that one alone; x
 	// does too on its row.
 	if s == "ctrl+x" || s == "x" && empty && !m.watchingSub(c) {
@@ -1869,10 +1856,6 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	if cmd, used := m.cardKey(c, s, empty); used {
 		return cmd
-	}
-	if (s == "backspace" || s == "ctrl+h") && empty && len(c.images) > 0 {
-		c.images = c.images[:len(c.images)-1]
-		return nil
 	}
 	if s == "ctrl+v" {
 		return pasteClipImage()
@@ -1972,9 +1955,6 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.embedded = true // keys go to Claude Code's own screen
 			return nil
 		}
-		if empty && len(c.images) > 0 {
-			return m.sendPane(c, false)
-		}
 		if empty {
 			if c.sel != "" {
 				c.open[c.sel] = !m.isOpen(c, c.sel)
@@ -1984,7 +1964,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return m.sendPane(c, false)
 	case "ctrl+s":
 		// Now, whatever's waiting: the queue, then what's in the box.
-		if !empty || len(c.images) > 0 {
+		if !empty {
 			return m.sendPane(c, true)
 		}
 		if len(m.queueOf(c).items) > 0 {
@@ -2134,6 +2114,13 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	}
+	if s == "delete" && c.anchor == 0 {
+		if buf, ok := dropChipAfter(c.input, len(c.input)-c.back); ok {
+			c.undo.save(c.input, c.back, false)
+			c.input, c.back = buf, c.back-(len(c.input)-len(buf))
+			return nil
+		}
+	}
 	was, wasBack := c.input, c.back
 	buf, pos, anchor, copied, _ := editSel(c.input, max(0, len(c.input)-c.back), c.anchor-1, k, s)
 	if !slices.Equal(was, buf) {
@@ -2143,9 +2130,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	c.input, c.back, c.anchor = buf, len(buf)-pos, anchor+1
 	if s == "space" || s == "enter" {
-		// A path you typed to an image becomes an attachment once it's done.
-		c.input, c.images = pullImages(c.input, c.images)
-		c.back = min(c.back, len(c.input))
+		// A path you typed to an image becomes the image once it's done,
+		// where it was typed.
+		if t, ok := c.imgs.inline(string(c.input)); ok {
+			c.input = []rune(t)
+			c.back = min(c.back, len(c.input))
+		}
 	}
 	if copied != "" {
 		m.copyText(copied)
@@ -2302,17 +2292,15 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	if m.askCold(c, text, func() tea.Cmd { return m.sendPane(c, now) }) {
 		return nil
 	}
-	images := c.images
-	// Paths typed or dropped without a paste become attachments too.
+	// Each [Image #N] is its image, numbered again in the order they
+	// appear; paths typed without a pause become images too, at the end.
+	text, images := c.imgs.resolve(text)
 	if rest, imgs := extractImages(text); imgs != nil {
 		images, text = append(images, imgs...), rest
 	}
 	m.keepSent(c, text)
-	c.input, c.back, c.images = nil, 0, nil
+	c.input, c.back, c.imgs = nil, 0, imageRefs{}
 	c.undo = undoStack{}
-	if strings.HasPrefix(c.sel, "img:") {
-		c.sel = ""
-	}
 	c.scroll = 0
 	c.lastSend = time.Now()
 	if a := m.focused(); a != nil {
@@ -2413,41 +2401,9 @@ func (m *Model) dockRefs(c *hostConn) []string {
 			refs = append(refs, fmt.Sprintf("q:%d", i))
 		}
 	}
-	for i := range c.images {
-		refs = append(refs, fmt.Sprintf("img:%d", i))
-	}
 	return refs
 }
 
-// imageSel is the attachment picked, if one is.
-func imageSel(c *hostConn) (int, bool) {
-	var i int
-	if _, err := fmt.Sscanf(c.sel, "img:%d", &i); err != nil || i < 0 || i >= len(c.images) {
-		return 0, false
-	}
-	return i, true
-}
-
-// imageKey acts on a picked attachment: ⌫ takes it off the message. It
-// reports whether it used the key.
-func (m *Model) imageKey(c *hostConn, s string) bool {
-	i, ok := imageSel(c)
-	if !ok {
-		return false
-	}
-	switch s {
-	case "backspace", "delete", "ctrl+h", "x":
-		c.images = slices.Delete(c.images, i, i+1)
-		// The pick stays where it was, on the next one; none left, it's
-		// back to typing.
-		c.sel = ""
-		if len(c.images) > 0 {
-			c.sel = fmt.Sprintf("img:%d", min(i, len(c.images)-1))
-		}
-		return true
-	}
-	return false
-}
 
 // moveSel moves the selection over rows you can act on: turns and steps,
 // then what's between them and the box. ↑ from the box goes up through

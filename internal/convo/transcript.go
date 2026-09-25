@@ -259,7 +259,23 @@ func prompt(raw json.RawMessage) (string, []string, bool) {
 			return "", nil, false // a tool result
 		}
 	}
-	return cleanPrompt(strings.Join(texts, "\n")), images, true
+	return cleanPrompt(joinTexts(texts)), images, true
+}
+
+var endsWithImage = regexp.MustCompile(`\[Image #\d+\]$`)
+
+// joinTexts puts a message's text blocks back together. Text split around
+// an image at its [Image #N] marker was one text: its pieces join as they
+// were. Other blocks are separate paragraphs.
+func joinTexts(texts []string) string {
+	var b strings.Builder
+	for i, t := range texts {
+		if i > 0 && !endsWithImage.MatchString(texts[i-1]) {
+			b.WriteByte('\n')
+		}
+		b.WriteString(t)
+	}
+	return b.String()
 }
 
 // cleanPrompt drops the markup Claude Code wraps around slash commands and

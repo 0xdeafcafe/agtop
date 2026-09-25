@@ -821,8 +821,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, pasteClipImage()
 		}
 		// Image files dropped onto the terminal arrive as a paste of their
-		// paths; they become attachments on whichever box has focus.
-		if rest, imgs := extractImages(msg.Content); imgs != nil && m.dialog == nil {
+		// paths. In a Session's box each becomes [Image #N] where it was
+		// dropped; in the Prompt, an attachment.
+		if c := m.host; c != nil && m.paneFocus && m.dialog == nil {
+			if t, ok := c.imgs.inline(msg.Content); ok {
+				msg.Content = t
+			}
+		} else if rest, imgs := extractImages(msg.Content); imgs != nil && m.dialog == nil {
 			m.attachImages(imgs)
 			if rest == "" {
 				return m, nil

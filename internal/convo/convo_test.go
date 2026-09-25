@@ -934,3 +934,16 @@ func TestRenderWide(t *testing.T) {
 		t.Fatalf("wide rows ran to %d of 200", w)
 	}
 }
+
+// A message split around its images at their markers reads back as the
+// text that was typed.
+func TestPromptJoinsTextAroundImages(t *testing.T) {
+	raw := json.RawMessage(`[{"type":"text","text":"see [Image #1]"},{"type":"image"},{"type":"text","text":" and [Image #2]"},{"type":"image"},{"type":"text","text":" ok"}]`)
+	text, images, ok := prompt(raw)
+	if !ok || text != "see [Image #1] and [Image #2] ok" || len(images) != 2 {
+		t.Fatalf("prompt = %q %v %v", text, images, ok)
+	}
+	if text, _, _ := prompt(json.RawMessage(`[{"type":"text","text":"one"},{"type":"text","text":"two"}]`)); text != "one\ntwo" {
+		t.Fatalf("separate blocks = %q", text)
+	}
+}

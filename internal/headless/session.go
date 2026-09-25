@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -296,20 +298,64 @@ type Image struct {
 func (s *Session) SendWith(text string, images []Image) error {
 	var content any = text
 	if len(images) > 0 {
-		blocks := []map[string]any{}
-		for _, im := range images {
-			blocks = append(blocks, map[string]any{"type": "image", "source": map[string]any{
-				"type": "base64", "media_type": im.MediaType, "data": base64.StdEncoding.EncodeToString(im.Data)}})
-		}
-		if strings.TrimSpace(text) != "" {
-			blocks = append(blocks, map[string]any{"type": "text", "text": text})
-		}
-		content = blocks
+		content = Content(text, images)
 	}
 	return s.write(map[string]any{
 		"type":    "user",
 		"message": map[string]any{"role": "user", "content": content},
 	})
+}
+
+// ImageMarker is how a message's text names its Nth image (from 1), as
+// Claude Code writes a pasted one.
+func ImageMarker(n int) string { return fmt.Sprintf("[Image #%d]", n) }
+
+var markerRe = regexp.MustCompile(`\[Image #(\d+)\]`)
+
+// Content is a message's content blocks. Where the text names an image by
+// its marker, [Image #2] say, the text up to and including the marker
+// comes first and that image right after it, so Claude sees each picture
+// where it was put. Images the text doesn't name follow at the end; a text
+// that names none keeps the order Claude Code's own attachments have had
+// here, the images before the text.
+func Content(text string, images []Image) []map[string]any {
+	img := func(im Image) map[string]any {
+		return map[string]any{"type": "image", "source": map[string]any{
+			"type": "base64", "media_type": im.MediaType, "data": base64.StdEncoding.EncodeToString(im.Data)}}
+	}
+	txt := func(t string) map[string]any { return map[string]any{"type": "text", "text": t} }
+	var blocks []map[string]any
+	used := make([]bool, len(images))
+	last := 0
+	for _, m := range markerRe.FindAllStringSubmatchIndex(text, -1) {
+		n, _ := strconv.Atoi(text[m[2]:m[3]])
+		if n < 1 || n > len(images) || used[n-1] {
+			continue
+		}
+		if chunk := text[last:m[1]]; strings.TrimSpace(chunk) != "" {
+			blocks = append(blocks, txt(chunk))
+		}
+		blocks = append(blocks, img(images[n-1]))
+		used[n-1], last = true, m[1]
+	}
+	if last == 0 {
+		for _, im := range images {
+			blocks = append(blocks, img(im))
+		}
+		if strings.TrimSpace(text) != "" {
+			blocks = append(blocks, txt(text))
+		}
+		return blocks
+	}
+	if rest := text[last:]; strings.TrimSpace(rest) != "" {
+		blocks = append(blocks, txt(rest))
+	}
+	for i, im := range images {
+		if !used[i] {
+			blocks = append(blocks, img(im))
+		}
+	}
+	return blocks
 }
 
 // Allow lets a requested tool run. input is the tool input to use, usually
