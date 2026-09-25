@@ -2,6 +2,7 @@ package ui
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -222,5 +223,60 @@ func TestStopOneSubagent(t *testing.T) {
 	c.sess.TaskStatus["a1"] = "stopped"
 	if _, live, _ := m.pickedSub(c); live {
 		t.Fatal("stopped, it still counts as running")
+	}
+}
+
+// The dock's running subagents are in the order they started, latest
+// first, however they write; a few show at a time, scrolling to keep the
+// pick in sight; and when the picked one finishes, the pick stays in its
+// place, on the run now there.
+func TestSubagentDockOrder(t *testing.T) {
+	now := time.Now()
+	var subs []convo.Subagent
+	for i := range 7 {
+		// Written to oldest-born last, so by writes they'd be backwards.
+		subs = append(subs, convo.Subagent{ID: fmt.Sprintf("a%d", i), Type: "Explore", Description: fmt.Sprintf("run %d", i),
+			Born: now.Add(time.Duration(i) * time.Second).UnixNano(), Mod: now.Add(-time.Duration(i) * time.Second).UnixNano()})
+	}
+	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}, subs: subs, subTails: map[string]*convo.Tail{}}
+	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
+
+	var ids []string
+	for _, sa := range c.runningSubs() {
+		ids = append(ids, sa.ID)
+	}
+	if got := strings.Join(ids, " "); got != "a6 a5 a4 a3 a2 a1 a0" {
+		t.Fatalf("order %s", got)
+	}
+	out := ansi.Strip(strings.Join(m.runningPreview(c, c.runningSubs(), 100), "\n"))
+	if !strings.Contains(out, "run 2") || strings.Contains(out, "run 1") || !strings.Contains(out, "+ 2 older") {
+		t.Fatalf("first five:\n%s", out)
+	}
+	// ↑ from the box lands on the oldest; the window follows it down.
+	m.moveSel(c, -1)
+	if c.sel != "run:a0" {
+		t.Fatalf("↑ picked %q", c.sel)
+	}
+	out = ansi.Strip(strings.Join(m.runningPreview(c, c.runningSubs(), 100), "\n"))
+	if !strings.Contains(out, "run 0") || strings.Contains(out, "run 5") || !strings.Contains(out, "… 2 newer") {
+		t.Fatalf("scrolled:\n%s", out)
+	}
+	m.moveSel(c, -1)
+	m.moveSel(c, -1)
+	if c.sel != "run:a2" {
+		t.Fatalf("↑↑ picked %q", c.sel)
+	}
+	// It finishes: the pick takes the run in its place.
+	c.sess.TaskStatus["a2"] = "completed"
+	m.runningPreview(c, c.runningSubs(), 100)
+	if c.sel != "run:a1" {
+		t.Fatalf("after it finished, picked %q", c.sel)
+	}
+	// Another writing (and a new one starting) doesn't move the pick.
+	c.subs[4].Mod = time.Now().UnixNano()
+	c.subs = append(c.subs, convo.Subagent{ID: "a7", Type: "Explore", Born: now.Add(time.Minute).UnixNano(), Mod: now.UnixNano()})
+	m.runningPreview(c, c.runningSubs(), 100)
+	if c.sel != "run:a1" {
+		t.Fatalf("after a reshuffle, picked %q", c.sel)
 	}
 }

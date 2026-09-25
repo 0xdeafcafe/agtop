@@ -18,6 +18,7 @@ type Subagent struct {
 	Model       string `json:"model"`
 	ToolUseID   string `json:"toolUseId"`
 	Path        string // its own transcript
+	Born        int64  // when it started: its meta file's time as first seen
 	Mod         int64  // when it last wrote, for ordering
 	Size        int64  // its transcript's size, to skip reading one that hasn't grown
 }
@@ -71,7 +72,12 @@ func (l *Subagents) List(transcript string) []Subagent {
 				continue
 			}
 			if !seen || !m.mod.Equal(st.ModTime()) || m.size != st.Size() {
+				born := m.sa.Born // a rewrite doesn't make it any younger
 				m = subMeta{mod: st.ModTime(), size: st.Size()}
+				m.sa.Born = born
+				if born == 0 {
+					m.sa.Born = st.ModTime().UnixNano()
+				}
 				if b, err := os.ReadFile(meta); err == nil && json.Unmarshal(b, &m.sa) == nil {
 					m.ok = true
 					m.sa.ID = strings.TrimSuffix(strings.TrimPrefix(filepath.Base(meta), "agent-"), ".meta.json")

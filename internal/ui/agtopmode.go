@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -241,7 +242,8 @@ func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
 	return status, live
 }
 
-// runningSubs are the subagent runs still working, newest first.
+// runningSubs are the subagent runs still working, the latest started
+// first: one writing doesn't move it, so the dock's rows stay put.
 func (c *hostConn) runningSubs() []convo.Subagent {
 	var out []convo.Subagent
 	for i := len(c.subs) - 1; i >= 0; i-- {
@@ -249,6 +251,7 @@ func (c *hostConn) runningSubs() []convo.Subagent {
 			out = append(out, c.subs[i])
 		}
 	}
+	slices.SortStableFunc(out, func(a, b convo.Subagent) int { return cmp.Compare(b.Born, a.Born) })
 	return out
 }
 
@@ -588,23 +591,44 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 	return lines
 }
 
-// dockRuns are the running subagents the dock shows, each one a row ↑ from
-// the box can pick.
-func (c *hostConn) dockRuns() []convo.Subagent {
-	run := c.runningSubs()
-	return run[:min(len(run), 3)]
+// dockRunsShown is how many running subagents the dock shows at once; ↑↓
+// scroll through the rest.
+const dockRunsShown = 5
+
+// keepRunPick keeps the pick on the dock's running subagents where it was:
+// on the same run while it's working, and when it finishes, on whichever
+// run now sits in its place.
+func (c *hostConn) keepRunPick(run []convo.Subagent) {
+	id, ok := strings.CutPrefix(c.sel, "run:")
+	if !ok {
+		return
+	}
+	if i := slices.IndexFunc(run, func(sa convo.Subagent) bool { return sa.ID == id }); i >= 0 {
+		c.runPick = i
+		return
+	}
+	c.sel = ""
+	if len(run) > 0 {
+		c.sel = "run:" + run[min(c.runPick, len(run)-1)].ID
+	}
 }
 
 // runningPreview is what the conversation shows of the subagents still
-// working: a heading, then two lines each (three runs at most): what it was
-// asked, and what it's doing right now after what it just did.
+// working: a heading, then two lines each (a few runs at a time, keeping
+// the picked one in sight): what it was asked, and what it's doing right
+// now after what it just did.
 func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []string {
 	what := "subagent working"
 	if len(run) > 1 {
 		what = "subagents working"
 	}
-	shown := c.dockRuns()
+	c.keepRunPick(run)
 	picked := strings.HasPrefix(c.sel, "run:")
+	start := 0
+	if picked && c.runPick >= dockRunsShown {
+		start = c.runPick - dockRunsShown + 1
+	}
+	shown := run[start:min(len(run), start+dockRunsShown)]
 	hint := ""
 	switch {
 	case picked:
@@ -613,6 +637,9 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 		hint = keys("↑", "pick one to watch")
 	}
 	out := []string{spread(" "+paint(cBlue, "⇉ ")+paint(cBlue+bold, fmt.Sprintf("%d %s", len(run), what)), hint+"  ", w)}
+	if start > 0 {
+		out = append(out, dim(fmt.Sprintf("  … %d newer", start)))
+	}
 	now := time.Now()
 	for i, sa := range shown {
 		var doing, trail string
@@ -652,8 +679,8 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 		}
 		out = append(out, top, act)
 	}
-	if rest := len(run) - len(shown); rest > 0 {
-		out = append(out, dim(fmt.Sprintf("  + %d more in the subagents view", rest)))
+	if rest := len(run) - start - len(shown); rest > 0 {
+		out = append(out, dim(fmt.Sprintf("  + %d older", rest)))
 	}
 	return out
 }
@@ -767,6 +794,7 @@ type hostConn struct {
 	subList    convo.Subagents // finds the runs, reading each one's meta once
 	subSel     string          // selection inside the opened subagent
 	subHover   string          // the run under the pointer, or "subback" for the banner
+	runPick    int             // where the pick last was among the dock's running subagents
 	subHoverAt time.Time
 }
 
@@ -2377,7 +2405,7 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 func (m *Model) dockRefs(c *hostConn) []string {
 	var refs []string
 	if m.viewName(c) == "conversation" {
-		for _, sa := range c.dockRuns() {
+		for _, sa := range c.runningSubs() {
 			refs = append(refs, "run:"+sa.ID)
 		}
 		for i := range m.queueOf(c).items {
@@ -2424,6 +2452,7 @@ func (m *Model) imageKey(c *hostConn, s string) bool {
 // then what's between them and the box. ↑ from the box goes up through
 // them nearest first; ↓ from it has nowhere to go.
 func (m *Model) moveSel(c *hostConn, d int) {
+	c.keepRunPick(c.runningSubs())
 	refs := append(slices.Clip(c.bodyRefs), m.dockRefs(c)...)
 	if len(refs) == 0 {
 		return
@@ -2452,6 +2481,7 @@ func (m *Model) moveSel(c *hostConn, d int) {
 	}
 	c.sel = refs[i]
 	c.selMoved = true
+	c.keepRunPick(c.runningSubs())
 }
 
 // clickRow selects the row under a click in the pane; clicking the selected
