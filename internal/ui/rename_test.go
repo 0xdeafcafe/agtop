@@ -40,9 +40,8 @@ func TestEnterRenames(t *testing.T) {
 	}
 }
 
-// The row under the mouse is selected at once, not after it rests there,
-// but not while a name is being typed.
-func TestHoverSelects(t *testing.T) {
+// The row under the mouse is lit, but only a click selects it.
+func TestHoverDoesNotSelect(t *testing.T) {
 	a := &fleet.Agent{Key: "a", DisplayName: "one"}
 	b := &fleet.Agent{Key: "b", DisplayName: "two"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, sel: "a", listW: 80, listTop: 2}
@@ -50,13 +49,12 @@ func TestHoverSelects(t *testing.T) {
 	m.rowKeys = []string{"a", "b"}
 
 	m.mouseMove(5, 3)
-	if m.sel != "b" {
-		t.Fatalf("hovering b should select it: %q", m.sel)
+	if m.sel != "a" || m.hover != "b" {
+		t.Fatalf("hovering b should light it, not select it: sel %q hover %q", m.sel, m.hover)
 	}
-	m.inKind, m.promptFor = inRename, "b"
-	m.mouseMove(5, 2)
+	m.mouseClick(5, 3)
 	if m.sel != "b" {
-		t.Fatalf("hovering while renaming shouldn't move the selection: %q", m.sel)
+		t.Fatalf("clicking b should select it: %q", m.sel)
 	}
 }
 

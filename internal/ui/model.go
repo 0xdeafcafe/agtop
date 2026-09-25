@@ -417,20 +417,11 @@ func (m *Model) rowAt(x, y int) string {
 	return m.rowKeys[i]
 }
 
+// mouseMove only lights the row under the mouse; it takes a click to
+// select it.
 func (m *Model) mouseMove(x, y int) tea.Cmd {
-	k := m.rowAt(x, y)
-	if k == m.hover {
-		return nil
-	}
-	m.hover = k
-	// The row under the mouse is selected, as a click would, so moving
-	// over to its Session doesn't take it back. A name being typed stays
-	// with its agent.
-	if k == "" || k == m.sel || strings.HasPrefix(k, "§") || m.inKind == inRename || m.inKind == inGroup {
-		return nil
-	}
-	m.sel, m.armed = k, ""
-	return m.loadPreview()
+	m.hover = m.rowAt(x, y)
+	return nil
 }
 
 func (m *Model) mouseClick(x, y int) tea.Cmd {
