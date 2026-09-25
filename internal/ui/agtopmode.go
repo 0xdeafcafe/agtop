@@ -709,9 +709,9 @@ type hostConn struct {
 
 	input    []rune
 	back     int
-	anchor   int      // selection start + 1; 0 when nothing is selected
+	anchor   int       // selection start + 1; 0 when nothing is selected
 	imgs     imageRefs // images in the box, each [Image #N] in its text
-	box      box      // the message box as last drawn, and where
+	box      box       // the message box as last drawn, and where
 	boxIdx   int
 	boxY     int
 	editQ    int                                         // queued message being edited in the box, +1; 0 when none
@@ -2403,7 +2403,6 @@ func (m *Model) dockRefs(c *hostConn) []string {
 	}
 	return refs
 }
-
 
 // moveSel moves the selection over rows you can act on: turns and steps,
 // then what's between them and the box. ↑ from the box goes up through
