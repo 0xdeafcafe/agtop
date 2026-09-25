@@ -249,26 +249,48 @@ func extractImages(text string) (string, []string) {
 
 // imagePath is tok as an image file that exists, or "".
 func imagePath(tok string) string {
+	p := filePath(tok)
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+	default:
+		return ""
+	}
+	if st, err := os.Stat(p); err != nil || st.IsDir() {
+		return ""
+	}
+	return p
+}
+
+// filePath is tok as a path on disk: a file URL unescaped, ~ expanded.
+func filePath(tok string) string {
 	if rest, ok := strings.CutPrefix(tok, "file://"); ok {
 		// Some apps drop a file URL rather than a path.
 		if p, err := url.PathUnescape(strings.TrimPrefix(rest, "localhost")); err == nil {
 			tok = p
 		}
 	}
-	switch strings.ToLower(filepath.Ext(tok)) {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
-	default:
-		return ""
-	}
 	if strings.HasPrefix(tok, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			tok = filepath.Join(home, tok[2:])
 		}
 	}
-	if st, err := os.Stat(tok); err != nil || st.IsDir() {
-		return ""
-	}
 	return tok
+}
+
+// isDrop is whether a paste is files dropped onto the terminal: nothing but
+// paths that exist.
+func isDrop(text string) bool {
+	spans := pathSpans(text)
+	for _, sp := range spans {
+		p := filePath(sp.tok)
+		if !filepath.IsAbs(p) {
+			return false
+		}
+		if _, err := os.Stat(p); err != nil {
+			return false
+		}
+	}
+	return len(spans) > 0
 }
 
 type span struct {

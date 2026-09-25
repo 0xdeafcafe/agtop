@@ -7,6 +7,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
 // press types s as keys: "ctrl+left", or plain text wrapped in quotes.
@@ -292,5 +296,32 @@ func TestPasteTaggedRoundTrip(t *testing.T) {
 	back := string(q.unfold(sent))
 	if back != "look at [Pasted text #1 +4 lines] please" || q.expand(back, false) != "look at a\nb\nc\nd please" {
 		t.Fatalf("unfold = %q", back)
+	}
+}
+
+// Files dropped onto the terminal go to the box under the mouse, whichever
+// has the keys; text pasted goes where the keys are.
+func TestDropGoesWhereItFalls(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !isDrop(f+" ") || !isDrop("file://"+f) || isDrop("hello "+f) || isDrop("") || isDrop("notes.txt") {
+		t.Fatal("isDrop doesn't tell a drop from a paste")
+	}
+	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
+	m := &Model{snap: &fleet.Snapshot{}, host: c, listW: 40, mode: modeList}
+	m.focusAt(60, 10)
+	if !m.paneFocus {
+		t.Fatal("a drop on the Session didn't give it the keys")
+	}
+	m.focusAt(10, 10)
+	if m.paneFocus {
+		t.Fatal("a drop on Agents left the keys with the Session")
+	}
+	m.focusAt(40, 10) // the edge between them
+	if m.paneFocus {
+		t.Fatal("a drop on the edge moved the keys")
 	}
 }

@@ -160,8 +160,10 @@ type Model struct {
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
 	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
-	pointer      string                 // the pointer's shape last asked of the terminal
-	sheetAt      [2]int                 // where the open sheet's body was drawn: x, y
+	ptrX, ptrY   int                    // where the mouse was last seen
+	ptrSeen      bool
+	pointer      string // the pointer's shape last asked of the terminal
+	sheetAt      [2]int // where the open sheet's body was drawn: x, y
 	hibernated   map[string]bool
 	offline      bool // never ask Anthropic for usage (--soak)
 	// newer is the agtop that's out when it's newer than this one; #update
@@ -807,6 +809,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.embedded {
 			msg.Content = cleanPaste(msg.Content)
 		}
+		// Files dropped onto the terminal go to the box they were dropped
+		// on, not the one that has the keys.
+		if m.ptrSeen && isDrop(msg.Content) {
+			m.focusAt(m.ptrX, m.ptrY)
+		}
 		if m.embedded {
 			m.embedPaste(msg.Content)
 			return m, nil
@@ -860,6 +867,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
 	case tea.MouseMotionMsg:
+		m.ptrX, m.ptrY, m.ptrSeen = msg.X, msg.Y, true
 		// An open sheet has the mouse, as it has the keys.
 		if m.sheet != nil {
 			if msg.Button != tea.MouseLeft {
@@ -923,6 +931,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.MouseClickMsg:
+		m.ptrX, m.ptrY, m.ptrSeen = msg.X, msg.Y, true
 		if m.sheet != nil {
 			if msg.Button == tea.MouseLeft {
 				return m, m.sheetMouse(mousePress, msg.X, msg.Y)
@@ -1081,6 +1090,20 @@ func (m *Model) wide() bool { return m.w >= 170 }
 // autoSplit is when the Session shows beside the list without being asked:
 // a wide screen you haven't pushed to the list alone.
 func (m *Model) autoSplit() bool { return m.wide() && !m.store.Config.ListOnly }
+
+// focusAt gives the keys to the box at (x, y), as a click there would: the
+// Session's or the Agents'. Anywhere else leaves them where they are.
+func (m *Model) focusAt(x, y int) {
+	if m.host == nil || m.mode != modeList || m.dialog != nil || m.sheet != nil || m.listW == 0 {
+		return
+	}
+	switch {
+	case x > m.listW+1 && !m.paneFocus:
+		m.paneFocus = true
+	case x < m.listW && (m.paneFocus || m.embedded):
+		m.paneFocus, m.embedded = false, false
+	}
+}
 
 func (m *Model) acceptsText() bool {
 	return m.confirm == nil && m.sheet == nil && (m.dialog == nil || m.dialog.asking != "") && (m.mode == modeList || m.mode == modeCwd)
