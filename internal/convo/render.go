@@ -2040,14 +2040,18 @@ func (d *drawer) shellBody(cmd string, indent int) {
 		return
 	}
 	body, bodyShown := 0, 0
-	// A pipe or && carries on its command's line while that still fits;
-	// separate commands keep lines of their own.
+	// A pipe carries on its command's line while that still fits; each
+	// command of a chain keeps a line of its own, the && or || that joins it
+	// out in the margin so the commands line up.
 	var lines []shLine
+	gutter := 2
 	for _, l := range shellLines(cmd) {
-		cont := strings.HasPrefix(l.text, "| ") || strings.HasPrefix(l.text, "&& ") || strings.HasPrefix(l.text, "|| ")
-		if n := len(lines); n > 0 && cont && !lines[n-1].verbatim && cellw.String(lines[n-1].text)+1+cellw.String(l.text)+lines[n-1].depth*2 <= room {
+		if n := len(lines); n > 0 && strings.HasPrefix(l.text, "| ") && !lines[n-1].verbatim && cellw.String(lines[n-1].text)+1+cellw.String(l.text)+lines[n-1].depth*2 <= room {
 			lines[n-1].text += " " + l.text
 			continue
+		}
+		if !l.verbatim && (strings.HasPrefix(l.text, "&& ") || strings.HasPrefix(l.text, "|| ")) {
+			gutter = 3
 		}
 		lines = append(lines, l)
 	}
@@ -2056,12 +2060,16 @@ func (d *drawer) shellBody(cmd string, indent int) {
 			body++
 		}
 	}
+	blank := strings.Repeat(" ", gutter)
 	var lg *lang
 	var hs hlState
 	for i, l := range lines {
-		lead := faint("$ ") // the command, not each line of a heredoc
+		lead := faint("$") + blank[1:] // the command, not each line of a heredoc
 		if i > 0 {
-			lead = "  "
+			lead = blank
+		}
+		if op := l.text[:min(3, len(l.text))]; !l.verbatim && (op == "&& " || op == "|| ") {
+			lead, l.text = paint(cOrange, op[:2])+" ", l.text[3:]
 		}
 		if !l.verbatim && strings.Contains(l.text, "<<") {
 			lg, hs = heredocLang(l.text), hlState{}
@@ -2087,7 +2095,7 @@ func (d *drawer) shellBody(cmd string, indent int) {
 		}
 		for j, r := range wrap(colored, room-len(hang)) {
 			if j > 0 {
-				lead, r = "  ", "  "+r // a wrapped line hangs under its own start
+				lead, r = blank, "  "+r // a wrapped line hangs under its own start
 			}
 			d.add("", bgWell, pad+lead+hang+r, "")
 			if j > 0 {

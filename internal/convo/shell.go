@@ -414,27 +414,43 @@ func unquote(s string) string {
 	return s
 }
 
-// quietTint draws a command in the log's own quiet voice: the programs a
-// shade up so its shape still shows, everything else faint.
+// quietTint draws a command in an opened step's well: the programs bright
+// so its shape shows, their arguments a shade down, flags, operators and
+// redirections quieter still, and quoted text and $vars in their own colours
+// so they read as one piece.
 func quietTint(cmd string) string {
 	var b strings.Builder
-	head := true
+	head, prev := true, ""
 	for _, tok := range shellTokens(cmd) {
+		// shellTokens splits 2>&1 at its &; the pieces stay one redirect.
+		redir := strings.HasSuffix(prev, ">") && tok == "&" || prev == "&" && strings.Trim(tok, "0123456789") == "" && tok != ""
+		prev = tok
 		switch {
 		case strings.TrimSpace(tok) == "":
 			b.WriteString(tok)
+		case redir:
+			b.WriteString(paint(cDim, tok))
 		case shOps[tok]:
-			b.WriteString(faint(tok))
+			b.WriteString(paint(cOrange, tok))
 			head = true
 		case head && !strings.Contains(tok, "="):
-			b.WriteString(paint(cOut, tok))
+			b.WriteString(paint(cWhite, tok))
 			head = false
+		case strings.HasPrefix(tok, `"`) || strings.HasPrefix(tok, `'`):
+			b.WriteString(paint(cGreen, tok))
+		case strings.HasPrefix(tok, "$"):
+			b.WriteString(paint(cBlue, tok))
+		case strings.HasPrefix(tok, "-"), redirTok.MatchString(tok):
+			b.WriteString(paint(cDim, tok))
 		default:
-			b.WriteString(faint(tok))
+			b.WriteString(sub(tok))
 		}
 	}
 	return b.String()
 }
+
+// redirTok is a redirection: 2>/dev/null, >out.txt, 2>&1, <in.
+var redirTok = regexp.MustCompile(`^\d*(>>?|<)(&\d+)?`)
 
 var (
 	commitRe   = regexp.MustCompile(`(?m)^\[[^\]]*?([0-9a-f]{7,40})\]`)
