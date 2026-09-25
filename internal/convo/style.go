@@ -32,6 +32,12 @@ var (
 	cBlue   = fg(143, 179, 217)
 	cOut    = fg(119, 113, 106) // what tools print: under faint text, over faint rules
 	cOKq    = fg(95, 138, 104)  // a finished step's tick, quiet like its row
+	// A card's frame says what its command did: made something (cOKq),
+	// rewrote or set something aside (cWarnQ), threw something away or
+	// failed (cLostQ); cLost is that last one's glyph.
+	cWarnQ = fg(168, 136, 82)
+	cLost  = fg(224, 104, 92)
+	cLostQ = fg(170, 86, 76)
 )
 
 // Surfaces. The ground is the terminal's own background, so nothing here
@@ -59,12 +65,15 @@ var palette int
 func SetColorBlind(on bool) {
 	if on {
 		cGreen, cRed, cOKq = fg(86, 180, 233), fg(230, 159, 0), fg(80, 140, 180)
+		// Amber is taken by failed; lost is vermillion, clear of warn.
+		cLost, cLostQ = fg(213, 94, 0), fg(160, 74, 12)
 		bgAdd, bgDel = bg(0x10, 0x2a, 0x3c), bg(0x30, 0x24, 0x0e)
 		bgAddHi, bgDelHi = bg(0x1a, 0x46, 0x64), bg(0x52, 0x3a, 0x10)
 		bgErr = bg(0x30, 0x24, 0x10)
 		spineErr = paint(cRed, "▏")
 	} else {
 		cGreen, cRed, cOKq = fg(127, 191, 138), fg(224, 104, 92), fg(95, 138, 104)
+		cLost, cLostQ = fg(224, 104, 92), fg(170, 86, 76)
 		bgAdd, bgDel = bg(0x16, 0x30, 0x1a), bg(0x3a, 0x17, 0x14)
 		bgAddHi, bgDelHi = bg(0x22, 0x52, 0x2b), bg(0x62, 0x24, 0x1e)
 		bgErr = bg(0x2a, 0x17, 0x15)

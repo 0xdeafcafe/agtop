@@ -202,7 +202,9 @@ type Session struct {
 	chainsOld  map[string]string
 	rows       map[stepKey]string // steps' labels and summaries drawn this render
 	rowsOld    map[stepKey]string
-	rowsFor    string        // the folders rows were drawn against
+	rowsFor    string             // the folders rows were drawn against
+	cards      map[stepKey][]card // steps' cards drawn this render
+	cardsOld   map[stepKey][]card
 	stepVer    int           // bumped whenever a step is added or changes
 	changes    []*FileChange // Changes, as of changesVer
 	parts      [][]Line      // RenderInto's scratch, one entry per turn

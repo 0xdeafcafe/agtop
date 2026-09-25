@@ -493,13 +493,17 @@ func (d *drawer) open() {
 		// never folds.
 		if !d.o.Verbose && it.Kind == KStep && i < keep {
 			j := i
-			for j < keep && j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) && items[j].Step != d.latest {
+			for j < keep && j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) && !d.testsFailed(items[j].Step) && items[j].Step != d.latest {
 				j++
 			}
 			if j-i >= 2 {
 				runRef := fmt.Sprintf("%s:run:%d", d.ref, i)
 				if !d.o.Open[runRef] {
 					d.run(runRef, items[i:j])
+					// What the run did that you'd want to see stays out.
+					for _, x := range items[i:j] {
+						d.cards(x.Step, gutter+2)
+					}
 					i = j - 1
 					continue
 				}
@@ -655,6 +659,10 @@ func (d *drawer) liveLine() {
 func (d *drawer) verb(st *Step) string {
 	switch st.Tool {
 	case "Bash":
+		// A chain that committed or pushed is named for that, not its git add.
+		if cs := d.stepCards(st); len(cs) > 0 {
+			return cs[0].verb()
+		}
 		cmd := readInput(st.Input).str("command")
 		switch sh := d.shellShape(cmd); sh.kind {
 		case "read", "search", "write":
@@ -977,6 +985,7 @@ func (s *Session) memoTurn() {
 		s.rows, s.rowsFor = nil, f // paths read relative to other folders now
 	}
 	s.rowsOld, s.rows = s.rows, make(map[stepKey]string, len(s.rows))
+	s.cardsOld, s.cards = s.cards, make(map[stepKey][]card, len(s.cards))
 }
 
 // stepKey names a step's label, summary or verb as drawn: they read only
@@ -1358,6 +1367,9 @@ func (d *drawer) statusMark(st *Step) string {
 	case Running:
 		return paint(cOrange, spinner[(d.o.Tick+len(st.ID))%len(spinner)])
 	case OK:
+		if d.testsFailed(st) {
+			return paint(cRed, "✗")
+		}
 		return paint(cOKq, "✓")
 	case Failed:
 		return paint(cRed, "✗")
@@ -1397,13 +1409,20 @@ func (d *drawer) step(st *Step, depth int) {
 		open = v
 	}
 	// A failure shows just its error until you open it for everything.
+	// It and its row share a red surface, so the two read as one.
 	brief := st.Status == Failed && !open
-	d.add(ref, "", left, "")
-	switch {
-	case open:
+	if brief {
+		d.add(ref, bgErr, left, "")
+		// A card says what went wrong better than a line of the output.
+		if len(d.stepCards(st)) == 0 {
+			d.errorLine(st, indent+4, ref)
+		}
+	} else {
+		d.add(ref, "", left, "")
+	}
+	d.cards(st, indent+2)
+	if open {
 		d.body(st, indent+4)
-	case brief:
-		d.errorLine(st, indent+4, ref)
 	}
 	// A subagent shows its own steps while it works, or when opened.
 	if len(st.Children) > 0 && (st.Status == Running || open) {
@@ -1425,7 +1444,8 @@ func (d *drawer) cells(st *Step) string {
 	if blocked(st) {
 		return paint(cRed, "blocked by the harness")
 	}
-	if s := d.stepMemo(st, 's', d.summary); s != "" {
+	// A card under the row says it better.
+	if s := d.stepMemo(st, 's', d.summary); s != "" && len(d.stepCards(st)) == 0 {
 		parts = append(parts, s)
 	}
 	if st.Tool == "Bash" && st.Exit > 0 {
@@ -2119,7 +2139,7 @@ var (
 
 // errorLine is a failure in brief: the line of its output that says what
 // went wrong (the last one that reads like an error, else the last line),
-// in red, with the way to see the rest.
+// in red on the failure's surface, with the way to see the rest.
 func (d *drawer) errorLine(st *Step, indent int, ref string) {
 	text := st.Output
 	var r struct {
@@ -2166,7 +2186,7 @@ func (d *drawer) errorLine(st *Step, indent int, ref string) {
 		right = dim("enter shows all")
 	}
 	w := d.cw - indent - 20
-	d.add(ref, "", pad+faint("▸ ")+paint(cRed, truncateCells(hit, max(20, w))), right)
+	d.add(ref, bgErr, pad+faint("▸ ")+paint(cRed, truncateCells(hit, max(20, w))), right)
 }
 
 // output draws text in a well: head and tail when it's long, all of it in
