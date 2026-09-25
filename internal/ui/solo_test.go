@@ -53,7 +53,7 @@ func soloPress(m *Model, s string) tea.Cmd {
 // Solo shows the one session at the whole width under agtop's header: no
 // list, and the keys that go to other agents do nothing.
 func TestSoloShowsOneSession(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	draftHome(t)
 	writeSession(t, "aaaa1111", "the solo session")
 	writeSession(t, "bbbb2222", "another session")
 
@@ -99,9 +99,57 @@ func TestSoloShowsOneSession(t *testing.T) {
 	if len(c.input) != 0 {
 		t.Fatalf("esc left %q", string(c.input))
 	}
-	cmd := m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if cmd == nil || !isQuit(cmd) {
-		t.Fatal("esc at the top level should quit")
+	// esc never quits solo: it takes the keys off the box, and with no
+	// turn running esc again does nothing.
+	for i := 0; i < 3; i++ {
+		if cmd := soloPress(m, "esc"); cmd != nil && isQuit(cmd) {
+			t.Fatalf("esc %d quit solo", i+1)
+		}
+		if m.paneFocus || !m.soloAway || m.view != placeAgents {
+			t.Fatalf("esc %d: focus %v away %v view %d", i+1, m.paneFocus, m.soloAway, m.view)
+		}
+	}
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "enter · → type here") || strings.Contains(out, "stop the turn") {
+		t.Fatalf("hint away from the box:\n%s", out)
+	}
+	// Typing goes back to the box, the key with it.
+	soloPress(m, "b")
+	if !m.paneFocus || m.soloAway || string(c.input) != "b" {
+		t.Fatalf("typing after esc: focus %v away %v box %q", m.paneFocus, m.soloAway, string(c.input))
+	}
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "esc leave the box") || strings.Contains(out, "esc close") {
+		t.Fatalf("solo hint:\n%s", out)
+	}
+}
+
+// In solo, esc and esc again with a turn running stops it, as ctrl+x
+// does, and agtop keeps running; only ctrl+q quits.
+func TestSoloEscStopsTheTurn(t *testing.T) {
+	draftHome(t)
+	writeSession(t, "cccc3333", "a working session")
+	m := NewSolo(state.Load(), "test", "cccc3333")
+	m.Frame(160, 45)
+	c := &hostConn{key: m.soloKey, sess: convo.New(), open: map[string]bool{}, client: &host.Client{}}
+	c.sess.Apply(host.Sent{Text: "do the work"}, time.Now())
+	if c.sess.Live() == nil {
+		t.Fatal("no live turn")
+	}
+	m.host = c
+	if cmd := soloPress(m, "esc"); cmd != nil && isQuit(cmd) || m.paneFocus {
+		t.Fatalf("first esc: quit or kept the box (focus %v)", m.paneFocus)
+	}
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "esc stop the turn") {
+		t.Fatalf("hint:\n%s", out)
+	}
+	// The interrupt goes to the host (not run here: there's none).
+	if cmd := soloPress(m, "esc"); cmd == nil || c.stopArmed.IsZero() || m.status != "stopping the turn" {
+		t.Fatalf("second esc: cmd %v, stop armed %v, status %q", cmd != nil, c.stopArmed, m.status)
+	}
+	if m.paneFocus || m.view != placeAgents || m.solo == "" {
+		t.Fatalf("after stopping: focus %v view %d", m.paneFocus, m.view)
+	}
+	if cmd := m.key(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl}); cmd == nil || !isQuit(cmd) {
+		t.Fatal("ctrl+q should quit")
 	}
 }
 

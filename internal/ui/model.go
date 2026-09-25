@@ -208,6 +208,9 @@ type Model struct {
 	solo, soloKey string
 	// soloList is solo with Agents shown beside the session (ctrl+6).
 	soloList bool
+	// soloAway is solo with the keys off the message box, after esc: esc
+	// again stops the turn, and anything else goes back to the box.
+	soloAway bool
 	// keysDisambiguated is when the terminal said it tells ctrl+enter
 	// from enter.
 	keysDisambiguated bool

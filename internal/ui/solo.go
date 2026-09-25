@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -11,8 +13,8 @@ import (
 // another app: agtop's header, then its Session at the whole width, with no
 // Agents list and no keys that lead to another agent. Efficiency, Machine
 // and Settings open with ctrl+\, and Agents is this session. id is the
-// session's agtop id. esc at the Session's top level and ctrl+q quit; the session's host
-// keeps running.
+// session's agtop id. Only ctrl+q quits: esc leaves the message box, then
+// stops the turn. The session's host keeps running.
 func NewSolo(store *state.Store, version, id string) *Model {
 	m := New(store, version)
 	m.solo = id
@@ -142,7 +144,35 @@ func (m *Model) pinSolo() {
 	if m.soloKey != "" {
 		m.sel, m.shown = m.soloKey, m.soloKey
 	}
-	m.preview, m.full, m.paneFocus = true, true, true
+	m.preview, m.full = true, true
+	if m.soloAway && m.paneFocus {
+		m.soloAway = false // something gave the box the keys again
+	}
+	if !m.soloAway {
+		m.paneFocus = true
+	}
+}
+
+// soloAwayKey is a key in solo while the message box doesn't have the
+// keys: esc stops the turn if one is running and does nothing else, enter
+// or → give the box the keys back, and any other key goes back to the box
+// and on to it.
+func (m *Model) soloAwayKey(s string) (tea.Cmd, bool) {
+	switch s {
+	case "esc":
+		c := m.host
+		if c.client != nil && c.sess.Live() != nil {
+			c.stopArmed = time.Now()
+			m.flash("stopping the turn", false)
+			return hostCmd(func() error { return c.client.Interrupt() }), true
+		}
+		return nil, true
+	case "enter", "right":
+		m.paneFocus, m.soloAway = true, false
+		return nil, true
+	}
+	m.paneFocus, m.soloAway = true, false
+	return nil, false
 }
 
 // soloKeyGuard drops the keys that would leave the one session in solo:
@@ -175,12 +205,11 @@ func (m *Model) soloKeyGuard(s string) (tea.Cmd, bool) {
 		return nil, false // the place's own keys, tab through its pages included
 	}
 	if m.host == nil {
-		// Still opening: nothing to type into yet but the way out.
-		if s == "esc" {
-			m.scanner.Flush()
-			return tea.Quit, true
-		}
+		// Still opening: nothing to type into yet.
 		return nil, s != "ctrl+c"
+	}
+	if m.soloAway && !m.paneFocus {
+		return m.soloAwayKey(s)
 	}
 	if s == "tab" {
 		if c := m.host; c != nil {
