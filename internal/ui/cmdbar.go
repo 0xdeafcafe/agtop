@@ -198,6 +198,10 @@ func (m *Model) barKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "tab", "shift+tab":
 		b.cursor = b.nextSection(map[string]int{"tab": 1, "shift+tab": -1}[s])
 		return nil
+	case "ctrl+enter", "ctrl+j":
+		// ctrl+j is the same key where the terminal can't tell ctrl+enter
+		// from enter.
+		return m.searchNow()
 	case "enter":
 		if b.cursor >= len(b.items) {
 			return nil
@@ -259,11 +263,34 @@ func (m *Model) barChanged() tea.Cmd {
 	b.gen++
 	b.found, b.searched, b.toSearch, b.done = nil, 0, 0, false
 	m.barRebuild()
-	if !searchable(string(b.query)) || !b.scope().transcripts() {
+	if !searchable(string(b.query)) || !b.scope().transcripts() || m.store.Config.SearchTranscriptsOnKey {
 		return nil
 	}
 	gen := b.gen
 	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg { return barPauseMsg(gen) })
+}
+
+// searchNow searches the transcripts for what's typed, at once: how they
+// are searched at all when SearchTranscriptsOnKey keeps typing to names.
+func (m *Model) searchNow() tea.Cmd {
+	b := m.bar
+	if b.search != nil || !b.scope().transcripts() {
+		return nil
+	}
+	if !searchable(string(b.query)) {
+		m.flash("type at least 3 letters to search the transcripts", false)
+		return nil
+	}
+	return tea.Batch(m.searchTranscripts(), glintTick(b.gen))
+}
+
+// searchKey is the key that searches the transcripts on demand, as this
+// terminal can send it: ctrl+j where ctrl+enter arrives as enter.
+func (m *Model) searchKey() string {
+	if m.keysDisambiguated {
+		return "ctrl+enter"
+	}
+	return "ctrl+j"
 }
 
 // searchable is a query with enough to it to be worth reading every
@@ -1074,6 +1101,9 @@ func (m *Model) barBox(w, h int) []string {
 	if sc.kind != "" {
 		head = barChip + paint(cOrange, " ⌕ ") + barChip + paint(cText+bold, sc.label+" ") + reset + " " + head
 	}
+	if m.store.Config.SearchTranscriptsOnKey && sc.transcripts() && b.search == nil {
+		head = spread(head, keys(m.searchKey(), "search transcripts"), inner)
+	}
 	out := []string{head, faint(strings.Repeat("─", inner))}
 
 	// Rows, with a heading where each section starts.
@@ -1163,7 +1193,7 @@ func (m *Model) barHint(w int) string {
 func (m *Model) barStatus() string {
 	b := m.bar
 	switch {
-	case b.search == nil && searchable(string(b.query)):
+	case b.search == nil && searchable(string(b.query)) && !m.store.Config.SearchTranscriptsOnKey:
 		return dim(" … ")
 	case b.search == nil:
 		return ""

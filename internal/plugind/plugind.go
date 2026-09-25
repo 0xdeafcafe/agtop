@@ -136,6 +136,8 @@ func (b *broker) reload() {
 	}
 	empty := len(b.plugins) == 0
 	b.mu.Unlock()
+	// A revoked plugin's arrangement of the list goes with it.
+	plugin.PruneSidebars(approved)
 	for _, r := range stopping {
 		b.log.Printf("%s: stopping (approval changed)", r.name)
 		r.shutdown()

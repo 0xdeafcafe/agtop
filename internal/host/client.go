@@ -87,6 +87,10 @@ func Spawn(cfg Config) (Config, error) {
 	return cfg, fmt.Errorf("host for %s (pid %d) did not start listening", cfg.ID, pid)
 }
 
+// ShortID is the id a new session started on sessionID gets: its folder,
+// socket and the name agtop lists it by.
+func ShortID(sessionID string) string { return shortOf(sessionID) }
+
 func shortOf(sessionID string) string {
 	var out []rune
 	for _, r := range sessionID {

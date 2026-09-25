@@ -165,6 +165,9 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params json.RawM
 		text := "[from the agtop plugin " + p.Name + "]\n" + in.Text
 		return withHost(in.ID, func(c *host.Client) error { return c.Send(text) })
 
+	case "sidebar.set":
+		return r.setSidebar(p, params)
+
 	case "exec":
 		return r.exec(ctx, p, in.Name, in.Args, in.Stdin, in.Cwd)
 
@@ -218,6 +221,22 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params json.RawM
 		return map[string]any{}, nil
 	}
 	return nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: "method not found: " + method}
+}
+
+// setSidebar keeps how the plugin arranges agtop's agent list, once it is
+// checked and cleaned, where the UI reads it and the plugin can't write.
+func (r *runner) setSidebar(p plugin.Plugin, params json.RawMessage) (any, error) {
+	if !p.Sidebar {
+		return nil, plugin.Denied(`sidebar.set needs "sidebar" in the manifest`)
+	}
+	s, err := plugin.ParseSidebar(p.Name, params)
+	if err != nil {
+		return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: err.Error()}
+	}
+	if err := plugin.SaveSidebar(s); err != nil {
+		return nil, err
+	}
+	return map[string]any{}, nil
 }
 
 // idRE is a session id as agtop makes them. An id becomes a path, so

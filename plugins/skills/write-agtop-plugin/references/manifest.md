@@ -19,6 +19,7 @@ The manifest lives at `<plugins>/<name>/plugin.json`. Unknown fields are an erro
 | `exec` | object | | Programs agtop runs for it **outside the sandbox, as the user**, by name (`^[a-z][a-z0-9-]{0,40}$`): each a command line whose program is an absolute path or `~/…`. The plugin adds arguments with the `exec` call. Not for `mcp` plugins. |
 | `memoryMB` | int | 256 | 1–8192. The broker kills it above this footprint. |
 | `agents` | object | | Subagents for every agtop-mode session, keyed by name (`^[a-z][a-z0-9-]{0,40}$`), each as Claude Code's `--agents` takes them. `description` and `prompt` are required; optional `tools`, `model`. They appear as `<plugin>:<name>`. 64 KB in all. |
+| `sidebar` | bool | false | May arrange agtop's agent list with `sidebar.set`: its own sections, and a name for each agent. The list offers it as a group-by mode named after the plugin. Not for `mcp` plugins. |
 | `prompt` | string | | Added to every agtop-mode session's system prompt under a heading naming the plugin. 16 KB at most. |
 
 Agents, prompt text and tools reach sessions **as approved**. Editing `plugin.json` changes nothing until the user approves again, and until then the plugin doesn't run.
@@ -100,6 +101,7 @@ These values are fixed; the manifest can't change them:
   "name": "kanban",
   "command": ["kanban"],
   "tools": true,
+  "sidebar": true,
   "sessions": ["list", "start", "read", "queue"],
   "workspaces": ["~/Source"],
   "read": ["~/.kanban-code"],

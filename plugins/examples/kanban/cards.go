@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,6 +24,7 @@ type card struct {
 	ParentCardID     string `json:"parentCardId"`
 	PromptBody       string `json:"promptBody"`
 	LastActivity     string `json:"lastActivity"`
+	SortOrder        *int   `json:"sortOrder"`
 	UpdatedAt        string `json:"updatedAt"`
 	SessionLink      *struct {
 		SessionID string `json:"sessionId"`
@@ -72,9 +74,9 @@ func (p pr) failing() []string {
 
 // columns in board order, as kanban-code names and shows them.
 var columns = []struct{ id, title string }{
-	{"in_progress", "In progress"},
+	{"in_progress", "In Progress"},
 	{"requires_attention", "Waiting"},
-	{"in_review", "In review"},
+	{"in_review", "In Review"},
 	{"backlog", "Backlog"},
 	{"done", "Done"},
 }
@@ -98,23 +100,48 @@ func kanbanHome() string {
 // readCards reads the board: every card that's on it, not archived, and
 // not a subagent of another.
 func readCards() ([]card, error) {
-	b, err := os.ReadFile(filepath.Join(kanbanHome(), "links.json"))
+	f, err := os.Open(filepath.Join(kanbanHome(), "links.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("no kanban-code board at %s: is kanban-code installed, and KANBAN_CODE_HOME right in plugin.json?", kanbanHome())
 		}
 		return nil, err
 	}
-	var file struct {
-		Links []card `json:"links"`
+	defer f.Close()
+	// A card at a time: the file holds every conversation kanban-code has
+	// seen, and can be tens of megabytes, most of it cards left off here.
+	dec := json.NewDecoder(bufio.NewReaderSize(f, 64<<10))
+	var out []card
+	fail := func(err error) ([]card, error) { return nil, fmt.Errorf("reading links.json: %w", err) }
+	if _, err := dec.Token(); err != nil { // {
+		return fail(err)
 	}
-	if err := json.Unmarshal(b, &file); err != nil {
-		return nil, fmt.Errorf("reading links.json: %w", err)
-	}
-	out := file.Links[:0]
-	for _, c := range file.Links {
-		if !c.ManuallyArchived && c.ParentCardID == "" && c.Column != "all_sessions" {
-			out = append(out, c)
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return fail(err)
+		}
+		if key != "links" {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return fail(err)
+			}
+			continue
+		}
+		if _, err := dec.Token(); err != nil { // [
+			return fail(err)
+		}
+		for dec.More() {
+			var c card
+			if err := dec.Decode(&c); err != nil {
+				return fail(err)
+			}
+			if !c.ManuallyArchived && c.ParentCardID == "" && c.Column != "all_sessions" {
+				out = append(out, c)
+			}
+		}
+		if _, err := dec.Token(); err != nil { // ]
+			return fail(err)
 		}
 	}
 	return out, nil
@@ -278,9 +305,7 @@ func board(cards []card, column string) string {
 		if len(in) == 0 {
 			continue
 		}
-		sort.SliceStable(in, func(i, j int) bool {
-			return or(in[i].LastActivity, in[i].UpdatedAt) > or(in[j].LastActivity, in[j].UpdatedAt)
-		})
+		sortColumn(in)
 		fmt.Fprintf(&b, "## %s\n", col.title)
 		for _, c := range in {
 			fmt.Fprintf(&b, "- %s  %s", c.ID, c.title())
@@ -298,6 +323,24 @@ func board(cards []card, column string) string {
 		return "The board is empty."
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// sortColumn puts a column's cards in the order kanban-code shows them:
+// those given a place first, by it, then the most recently active.
+func sortColumn(cards []card) {
+	sort.SliceStable(cards, func(i, j int) bool {
+		a, b := cards[i], cards[j]
+		switch {
+		case a.SortOrder != nil && b.SortOrder != nil:
+			return *a.SortOrder < *b.SortOrder
+		case a.SortOrder != nil || b.SortOrder != nil:
+			return a.SortOrder != nil
+		}
+		if ta, tb := or(a.LastActivity, a.UpdatedAt), or(b.LastActivity, b.UpdatedAt); ta != tb {
+			return ta > tb
+		}
+		return a.ID < b.ID
+	})
 }
 
 func or(a, b string) string {

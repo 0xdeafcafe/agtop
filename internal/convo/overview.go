@@ -173,7 +173,7 @@ func bar(frac float64, w int, c string) string {
 // Overview draws the session's numbers as sections: what's running now,
 // totals, model and effort over time, tools, the cache, and subagents.
 func (s *Session) Overview(o Options) []Line {
-	w := min(o.Width, capRow)
+	w := min(o.Width, o.rowCap())
 	var out []Line
 	add := func(left, right string) {
 		out = append(out, Line{Text: row("", left, right, o.Width, w)})

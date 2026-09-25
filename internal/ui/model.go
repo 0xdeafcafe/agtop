@@ -23,6 +23,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
+	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
 	"github.com/0xdeafcafe/agtop/internal/update"
@@ -200,6 +201,19 @@ type Model struct {
 	jump    *barJump // a jump into a conversation that's still opening
 	// groupOf is the list section each agent is in, folded or not.
 	groupOf map[string]string
+	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
+	// its agent's key once the snapshot has it.
+	solo, soloKey string
+	// keysDisambiguated is when the terminal said it tells ctrl+enter
+	// from enter.
+	keysDisambiguated bool
+	// fleetAgents are every agent, which solo's header still counts.
+	fleetAgents []*fleet.Agent
+	// sidebars are the plugins' arrangements of the list, read from
+	// sidebarFiles; renamed holds the names an arrangement replaced.
+	sidebars     []plugin.Sidebar
+	sidebarFiles plugin.Sidebars
+	renamed      map[*fleet.Agent]string
 }
 
 type previewEntry struct {
@@ -241,6 +255,7 @@ func New(store *state.Store, version string) *Model {
 	applyColors(store.Config.ColorBlind)
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
 	m.snap = m.loader.Load(true)
+	m.loadSidebars()
 	m.rebuild()
 	m.onboard = true
 	return m
@@ -274,6 +289,10 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) Init() tea.Cmd {
+	if m.solo != "" {
+		// Only the one session: nothing about the app as a whole.
+		return tea.Batch(tick(), m.scan(), m.loadPreview())
+	}
 	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar(), m.startView(), m.checkUpdate())
 }
 
@@ -494,6 +513,7 @@ func (m *Model) flash(s string, err bool) {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := m.update(msg)
+	m.pinSolo()
 	m.applyJump()
 	_, isTick := msg.(tickMsg)
 	m.noteProgress(isTick)
@@ -586,6 +606,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case rewoundMsg:
 		return m, m.onRewound(msg)
 	case hostStartedMsg:
+		if m.solo != "" {
+			// It's in Agents; the solo view stays on its own session.
+			m.flash("started "+msg.name+" · it's in agtop's Agents", false)
+			return m, nil
+		}
 		// Select the new session and give it the keys.
 		m.refresh()
 		m.sel = state.Key(msg.acct, "a:"+msg.id)
@@ -603,7 +628,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.followTail()
-		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues(), m.movePending(), m.measureTemp(), m.tidy(), m.squeezeTranscripts()}
+		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues()}
+		if m.solo == "" {
+			cmds = append(cmds, m.movePending(), m.measureTemp(), m.tidy(), m.squeezeTranscripts())
+		}
 		if m.mode == modeEff && !m.eff.loading && time.Since(m.eff.loaded) > 30*time.Second {
 			cmds = append(cmds, m.effLoad(true)) // new transcript lines, every 30s while it's open
 		}
@@ -613,11 +641,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}
-		if m.tick%60 == 0 {
+		if m.tick%60 == 0 && m.solo == "" {
 			cmds = append(cmds, m.fetchUsage(), m.findLogins())
 		}
 		m.clkBeat(m.mood(m.tally()))
-		if k := menubar.Goto(); k != "" && m.agentByKey(k) != nil {
+		if m.solo != "" {
+			// A notification's jump is for a view that shows every agent.
+		} else if k := menubar.Goto(); k != "" && m.agentByKey(k) != nil {
 			m.sel = k // a notification or the menu bar's menu was clicked
 			m.rebuild()
 		}
@@ -823,6 +853,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = insert(m.input, m.cursorPos(), []rune(text))
 			}
 		}
+		return m, nil
+	case tea.KeyboardEnhancementsMsg:
+		m.keysDisambiguated = msg.SupportsKeyDisambiguation()
 		return m, nil
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
@@ -1054,10 +1087,13 @@ func (m *Model) acceptsText() bool {
 }
 
 func (m *Model) refresh() {
-	m.snap = m.loader.Load(true)
+	m.snap = m.loadSnap()
 	m.notify()
-	m.hibernate()
-	m.reap()
+	if m.solo == "" {
+		m.hibernate()
+		m.reap()
+	}
+	m.loadSidebars()
 	m.rebuild()
 }
 
@@ -1172,7 +1208,7 @@ func (m *Model) folded(title string) bool {
 	if v, ok := m.store.Config.Folds[title]; ok {
 		return v
 	}
-	return title == "Earlier"
+	return title == "Earlier" || title == otherSection && m.activeSidebar() != nil
 }
 
 func (m *Model) toggleFold(title string) {
@@ -1206,12 +1242,15 @@ func (m *Model) focused() *fleet.Agent {
 func (m *Model) rebuild() {
 	by := m.store.Config.GroupBy
 	now := m.snap.At
+	sb := m.activeSidebar()
+	m.nameAgents(sb)
 	type group struct {
 		name   string
 		agents []*fleet.Agent
 		rank   int
 		recent time.Time
 	}
+	order := map[*fleet.Agent]int{} // places under a plugin's arrangement
 	groups := map[string]*group{}
 	add := func(name string, rank int, a *fleet.Agent) {
 		g := groups[name]
@@ -1227,6 +1266,14 @@ func (m *Model) rebuild() {
 	for _, a := range m.snap.Agents {
 		if m.zen && !a.NeedsYou() && !a.Waiting() {
 			continue // Zen's list is only the agents waiting on you
+		}
+		if sb != nil {
+			// The plugin's sections replace agtop's; each row still shows
+			// its agent's state.
+			name, rank, at := sidebarPlace(sb, a)
+			order[a] = at
+			add(name, rank, a)
+			continue
 		}
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
@@ -1275,7 +1322,15 @@ func (m *Model) rebuild() {
 	})
 	for _, g := range list {
 		less := m.sortLess
-		if g.name == "Done" {
+		switch {
+		case sb != nil && g.rank < len(sb.Sections):
+			less = func(a, b *fleet.Agent) bool {
+				if order[a] != order[b] {
+					return order[a] < order[b]
+				}
+				return m.sortLess(a, b)
+			}
+		case sb == nil && g.name == "Done":
 			less = m.doneLess
 		}
 		sort.SliceStable(g.agents, func(i, j int) bool { return less(g.agents[i], g.agents[j]) })
@@ -1299,8 +1354,9 @@ func (m *Model) rebuild() {
 		meta := sectionMeta(len(g.agents), cost)
 		// One extra figure at most, and only one you can act on: temp work
 		// where /clean all reaches it, memory where agents rest.
-		switch g.name {
-		case "Done", "Earlier":
+		switch name := g.name; {
+		case sb != nil:
+		case name == "Done", name == "Earlier":
 			var temp int64
 			for _, a := range g.agents {
 				if a.PID == 0 {
@@ -1310,7 +1366,7 @@ func (m *Model) rebuild() {
 			if temp >= tempShown {
 				meta += " · " + disk(temp) + " tmp"
 			}
-		case "Idle":
+		case name == "Idle":
 			var held uint64
 			for _, a := range g.agents {
 				held += a.Mem

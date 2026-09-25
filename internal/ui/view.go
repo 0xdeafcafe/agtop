@@ -56,7 +56,11 @@ type tally struct {
 
 func (m *Model) tally() tally {
 	var t tally
-	for _, a := range m.snap.Agents {
+	agents := m.snap.Agents
+	if m.solo != "" {
+		agents = m.fleetAgents
+	}
+	for _, a := range agents {
 		switch {
 		case a.NeedsYou():
 			t.blocked++
@@ -169,7 +173,11 @@ func (m *Model) header() []string {
 	// Text sits level with the head and face; the view strip on the legs.
 	out[1] = line(robot[1], left1, right1)
 	out[2] = line(robot[2], left2, right2)
-	out[3] = "  " + robot[3] + "   " + strings.Join(m.tabs(), " ") + m.pages() + faint("   , .")
+	places := faint("   , .")
+	if m.solo != "" || m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil {
+		places = faint("   ctrl+\\") // , and . are text in a Session's box
+	}
+	out[3] = "  " + robot[3] + "   " + strings.Join(m.tabs(), " ") + m.pages() + places
 	return out
 }
 
@@ -187,6 +195,8 @@ func (m *Model) pages() string {
 		names, cur = effPages, m.eff.page
 	case m.zen:
 		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
+	case m.solo != "":
+		return "" // no zen in solo
 	default:
 		return faint("   ctrl+z zen")
 	}
@@ -514,6 +524,9 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 // the height, which needs the prompt drawn and so the picker, and #view's
 // picker asks which layout is on.
 func (m *Model) widths() (listW, paneW int) {
+	if m.solo != "" {
+		return 0, m.w // the one session, full width
+	}
 	listW = m.w
 	showing := m.full || m.preview || m.autoSplit()
 	if m.zenFull() {
@@ -572,7 +585,7 @@ func (m *Model) setSideWidth(cols int) {
 // list alone. It says whether it took the key.
 func (m *Model) stepSplit(grow bool) (tea.Cmd, bool) {
 	floor := max((m.w+3)/4, 30)
-	if m.w-floor-1 < minPane || m.zenFull() {
+	if m.w-floor-1 < minPane || m.zenFull() || m.solo != "" {
 		return nil, false // too narrow for a split to step through
 	}
 	ceil := min(m.w*3/4, m.w-1-minPane)
@@ -641,7 +654,7 @@ func (m *Model) canSplit() bool { return m.w-max((m.w+3)/4, 30)-1 >= minPane }
 // splitHint is the key back to the split, for the hint row, while one side
 // has the screen and there's room for both.
 func (m *Model) splitHint(back string) []string {
-	if m.zen || !m.canSplit() {
+	if m.zen || m.solo != "" || !m.canSplit() {
 		return nil
 	}
 	return []string{back + " · #view split", "back to side by side"}
@@ -1587,7 +1600,7 @@ func (m *Model) badges(a *fleet.Agent) string {
 // box, and a Session filling a narrow screen has its own box too, so there
 // are never two boxes on screen at once.
 func (m *Model) noPrompt() bool {
-	return m.zenFull() || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList)
+	return m.zenFull() || m.solo != "" || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList)
 }
 
 // promptBoxAt is the Prompt's box at width w, before its labels.
@@ -2073,7 +2086,7 @@ var helpPages = []struct {
 	}},
 	{"◈ Around", [][2]string{
 		{"ctrl+z", "zen"},
-		{", .", "Agents · Efficiency · Machine · Settings"},
+		{", . · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
 		{"shift+← →", "resize · past the end, one side alone"},
 		{"#tips", "Getting started again"},
 		{"esc esc", "quit"},

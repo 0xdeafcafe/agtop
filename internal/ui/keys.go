@@ -28,7 +28,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.host.subHover = ""
 	}
 	m.lastKeyAt = time.Now()
-	if cmd, ok := m.barToggle(s); ok {
+	if cmd, ok := m.soloKeyGuard(s); ok {
+		return cmd
+	}
+	if m.solo != "" {
+		// No command bar: it reaches every agent and place.
+	} else if cmd, ok := m.barToggle(s); ok {
 		return cmd
 	}
 	if m.bar != nil && s != "ctrl+q" {
@@ -228,9 +233,9 @@ func (m *Model) editKey(k tea.KeyPressMsg, s string) bool {
 }
 
 // placeStep is which way a key moves between places: -1 for , and <, +1
-// for . > and ctrl+\, 0 when it doesn't. , and . move without shift; they
-// and < > only move with nothing typed in the box that has the keys, so
-// they can still be typed.
+// for . > and ctrl+\, 0 when it doesn't. , . < > move only from the list
+// with nothing typed in its box, and never while a Session's box has the
+// keys, so they can always be typed there.
 func (m *Model) placeStep(s string) int {
 	d := map[string]int{",": -1, "<": -1, ".": 1, ">": 1, "ctrl+\\": 1}[s]
 	if d == 0 || m.mode == modeCwd || m.dialog != nil && m.dialog.asking != "" || m.mode == modeEff && m.eff.typing() {
@@ -239,12 +244,10 @@ func (m *Model) placeStep(s string) int {
 	if s == "ctrl+\\" || m.mode != modeList || m.dialog != nil {
 		return d
 	}
-	if c := m.host; m.paneFocus && c != nil {
-		// A Claude Code agent's screen takes what's typed itself.
-		if m.viewName(c) == "screen" && m.canEmbed() || len(c.input) > 0 || c.editQ > 0 {
-			return 0
-		}
-		return d
+	if m.paneFocus && m.host != nil {
+		// A Session's box types them, first character or not: a message
+		// may start with a > quote. ctrl+\ still moves.
+		return 0
 	}
 	if len(m.input) > 0 || m.inKind != inPrompt {
 		return 0
@@ -588,15 +591,16 @@ func (m *Model) sectionOf(key string) string {
 
 func (m *Model) cycleGroupBy() {
 	cur := m.store.Config.GroupBy
-	next := groupModes[0]
-	for i, g := range groupModes {
+	modes := m.groupModes()
+	next := modes[0]
+	for i, g := range modes {
 		if g == cur {
-			next = groupModes[(i+1)%len(groupModes)]
+			next = modes[(i+1)%len(modes)]
 		}
 	}
 	m.store.Config.GroupBy = next
 	_ = m.store.SaveConfig()
-	m.flash("grouped by "+next, false)
+	m.flash("grouped by "+m.groupLabel(next), false)
 	m.rebuild()
 }
 
@@ -841,7 +845,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			return m.submit()
 		}
 	case "by":
-		for _, g := range groupModes {
+		for _, g := range m.groupModes() {
 			if g == arg {
 				m.store.Config.GroupBy = g
 				_ = m.store.SaveConfig()
@@ -849,7 +853,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 				return nil
 			}
 		}
-		m.flash("group by one of: "+strings.Join(groupModes, ", "), true)
+		m.flash("group by one of: "+strings.Join(m.groupModes(), ", "), true)
 	case "rename":
 		if need() {
 			if arg == "" {

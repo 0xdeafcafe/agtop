@@ -122,6 +122,9 @@ type Manifest struct {
 	Agents map[string]json.RawMessage `json:"agents,omitempty"`
 	// Prompt is added to every agtop-mode session's system prompt.
 	Prompt string `json:"prompt,omitempty"`
+	// Sidebar lets it arrange agtop's agent list with sidebar.set: its own
+	// sections, and a name for each agent. See Sidebar.
+	Sidebar bool `json:"sidebar,omitempty"`
 }
 
 // DefaultMemoryMB is the memory limit a manifest doesn't set.
@@ -256,6 +259,9 @@ func (m Manifest) Validate(dir string) error {
 	}
 	if m.MemoryMB < 0 || m.MemoryMB > 8192 {
 		return fmt.Errorf("memoryMB %d: use 1 to 8192", m.MemoryMB)
+	}
+	if m.Sidebar && m.Proto() != ProtoAgtop {
+		return errors.New("an MCP plugin cannot be given the sidebar: it has no way to set it")
 	}
 	if len(m.Prompt) > maxPrompt {
 		return fmt.Errorf("prompt is over %d bytes", maxPrompt)
@@ -457,7 +463,10 @@ func Revoke(name string) error {
 		return fmt.Errorf("%s is not approved", name)
 	}
 	delete(a, name)
-	return saveApprovals(a)
+	if err := saveApprovals(a); err != nil {
+		return err
+	}
+	return RemoveSidebar(name)
 }
 
 // Verify says whether the plugin on disk is the one approved, returning the

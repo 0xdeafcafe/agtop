@@ -40,6 +40,7 @@ Plugins run under `agtop plugind`, one small process agtop starts once a plugin 
 - **Programs.** It can't start any. It can ask agtop to run the ones its manifest names under `exec`, which run outside the sandbox, as you. Approval lists each.
 - **Your environment.** It gets a clean one: none of your tokens or Claude Code settings.
 - **Your agents.** It may list and watch them, and see their folder, branch, state, cost and context use, never what was said. It may message, follow and stop only agents it started. Those run in folders you approved (in a new worktree, if it asks), never in a mode that skips asking you, with at most 4 at once and 30 an hour. With `queue` it may also queue a message, marked as its own, to other agents in those folders that still ask you before acting.
+- **Your agent list.** With `sidebar` it may arrange it: its own sections, and a name for each agent it knows by Claude Code session id. The list offers that as a group-by mode, and your own renames win. It sees nothing more by it.
 - **Your machine's time.** It runs at utility QoS, and is ended if it grows past its memory limit (256 MB by default).
 
 The full list is in [the sandbox reference](skills/write-agtop-plugin/references/sandbox.md), and how each rule is enforced is in [ARCHITECTURE.md](ARCHITECTURE.md#the-boundaries).
@@ -64,13 +65,14 @@ Then ask: *"write me an agtop plugin that …"*.
 3. Put it in `~/.config/agtop/plugins/<name>/`, run `agtop plugin check <name>`, then `agtop plugin approve <name>`.
 4. Call its tools without a session: `python3 skills/write-agtop-plugin/scripts/call.py <name> list`, then `… call <tool> '{"arg": "value"}'`.
 
-In short, it talks to agtop on **fd 3**, one end of a socket pair agtop made for it. Each message is JSON-RPC 2.0 behind a 4-byte big-endian length. agtop calls `initialize`, `tools.list` and `tools.call`; the plugin can call `sessions.list`, `sessions.watch`, `sessions.start`, `sessions.send`, `sessions.queue`, `sessions.subscribe`, `sessions.stop` and `exec`, if its manifest asks for them. A manifest with `"protocol": "mcp"` makes it an ordinary MCP server on stdin and stdout instead.
+In short, it talks to agtop on **fd 3**, one end of a socket pair agtop made for it. Each message is JSON-RPC 2.0 behind a 4-byte big-endian length. agtop calls `initialize`, `tools.list` and `tools.call`; the plugin can call `sessions.list`, `sessions.watch`, `sessions.start`, `sessions.send`, `sessions.queue`, `sessions.subscribe`, `sessions.stop`, `exec` and `sidebar.set`, if its manifest asks for them. A manifest with `"protocol": "mcp"` makes it an ordinary MCP server on stdin and stdout instead.
 
 ```jsonc
 {
   "name": "delegate",                 // lowercase, digits, dashes; the folder's name
   "command": ["delegate"],            // a path in the folder, or absolute (an interpreter)
   "tools": true,                      // offer its tools to sessions (always, for "mcp")
+  "sidebar": true,                    // may arrange agtop's agent list
   "sessions": ["list", "start", "read", "send", "control"],
   "workspaces": ["~/Source"],         // where it may start agents
   "network": ["api.example.com:443"], // what it may reach
@@ -83,6 +85,8 @@ In short, it talks to agtop on **fd 3**, one end of a socket pair agtop made for
 Every method and event: [protocol](skills/write-agtop-plugin/references/protocol.md). Every field: [manifest](skills/write-agtop-plugin/references/manifest.md). When something won't start: [sandbox § troubleshooting](skills/write-agtop-plugin/references/sandbox.md#troubleshooting).
 
 ## Examples
+
+On Apple Silicon, build with `GOARCH=arm64` if `go env GOARCH` says `amd64`: an x86_64 plugin can't start in the sandbox, which blocks Rosetta.
 
 - [`neighbours`](examples/neighbours) is the smallest useful plugin, and the one to read first: one tool that tells Claude which other agents are working in the same repository, and on which branch, so it doesn't trip over them. About 100 lines of Go, with only the `list` capability.
 
@@ -97,6 +101,7 @@ Every method and event: [protocol](skills/write-agtop-plugin/references/protocol
   - Claude can read the board, and the card it's working on, with the issue, the PR, failing checks and unresolved review threads.
   - Claude can start an agent on a card, in the card's worktree or a new one, tagged with the card. The plugin then has kanban-code link the card to the agent's conversation (`kanban relink`), so the card follows it across the board.
   - When a card's PR fails a check or gets a new review thread, the agent working on it is sent a message when its turn ends.
+  - agtop's agent list can show the board: `ctrl+s` (or `/by plugin:kanban`) groups agents by column, In Progress, Waiting, In Review, Backlog and Done, in board order, under their cards' names. Agents with no card go to Other, folded. The plugin reads `links.json` every 2 seconds and sends `sidebar.set` when the board changed.
 
   It needs kanban-code's app running for the link, and its CLI at `~/.local/bin/kanban`, where the app installs it. Change `workspaces` in `plugin.json` to where your projects are.
 

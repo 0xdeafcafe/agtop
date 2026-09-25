@@ -48,7 +48,7 @@
 go install github.com/0xdeafcafe/agtop/cmd/agtop@latest
 ```
 
-This needs Go 1.27.1 or newer. It puts `agtop` in `$(go env GOPATH)/bin`, so make sure that folder is on your `PATH`.
+This needs Go 1.27.1 or newer. It puts `agtop` in `$(go env GOPATH)/bin`, so make sure that folder is on your `PATH`. On Apple Silicon, check that `go env GOARCH` says `arm64`: an amd64 Go builds an x86_64 agtop that runs under Rosetta. From a checkout, `GOARCH=arm64 go build -o "$(go env GOPATH)/bin/agtop" ./cmd/agtop` builds it natively.
 
 ```sh
 agtop            # open it
@@ -114,7 +114,7 @@ An agent run in agtop mode (Claude Code headless, hosted by agtop) opens in a Se
 
 ## Go anywhere
 
-`ctrl+k` opens the command bar: a place, an agent, a Session's view, a turn (`#12`), `Back` to where you jumped from, or a new agent with what you typed. Words search the open conversation and every agent's transcript, and `in:name`, `is:failed`, `file:x` and `turn:10-13` narrow it. `ctrl+f` is the same bar, starting where you are.
+`ctrl+k` opens the command bar: a place, an agent, a Session's view, a turn (`#12`), `Back` to where you jumped from, or a new agent with what you typed. Words search the open conversation and every agent's transcript, and `in:name`, `is:failed`, `file:x` and `turn:10-13` narrow it. `ctrl+f` is the same bar, starting where you are. With many long transcripts, Settings › General › *ctrl+k searches transcripts* › *on ctrl+enter* keeps typing to names and commands; `ctrl+enter` then searches the transcripts (`ctrl+j` in terminals that send `ctrl+enter` as `enter`).
 
 `#` runs agtop's own commands on the selected agent: `#done` `#stop` `#restart` `#rm` `#kill` `#clean` `#cd` `#add-dir` `#pin` `#pr` `#full` `#sort` `#by` `#account` `#hibernate` `#native` `#tips`. `/` is left to Claude.
 
@@ -191,6 +191,29 @@ To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe
 
 [plugins/](plugins) has everything else: using and writing them, the examples, the skill, and how it works.
 
+## Embedding agtop
+
+Another app can run agtop-mode sessions without the view and show one of them in a terminal of its own.
+
+```sh
+agtop session start --cwd DIR [--session-id UUID] [--resume] [--name N] \
+  [--prompt-file F] [--image PATH]... [--env K=V]... [--meta k=v]... \
+  [--binary PATH] [--model M] [--effort E] [--permission-mode M] --json
+echo 'the next message' | agtop session send <id> [--now] [--image PATH]...
+agtop session interrupt <id>
+agtop session stop <id>
+agtop session info <id> --json
+agtop session list --json [--meta k=v]...
+```
+
+`start` uses the model, effort, permission mode and limit settings from Settings unless a flag gives them, and prints the session's info with `"alive"` added. With `--session-id` it is idempotent: a session already running is printed, not started again. A stopped one needs `--resume`, which brings the same conversation back. `--env` values reach Claude Code on every start of it, idle restarts and resumes included. `--meta` tags the session; `list --meta` filters on the tags.
+
+`send` reads the message from stdin. If the session is stopped it resumes with the message, as sending from the view does. `info` exits 1 with `{"error":"not found"}` for an id with no session. `alive` is whether the session's host is running; a host whose Claude Code is resting while idle counts as alive.
+
+A plugin can also arrange the Agents list for an embedding app: with the `sidebar` capability it sends sections and a name for each agent, keyed by Claude Code session id, and the list offers them as a group-by mode (`ctrl+s`, or `/by plugin:<name>`). The [`kanban`](plugins/examples/kanban) example shows the kanban-code board this way.
+
+`agtop open <id> --solo` is the view of that one session alone, under agtop's header, with the Session at the terminal's whole width and no Agents list. `ctrl+\` opens Efficiency, Machine and Settings as usual, and Agents is the session again. The keys that lead to other agents or open the list (`ctrl+z ctrl+n ctrl+k tab`) do nothing, and `, . < >` are typed into the box. The message box has the keys from the start. `esc` at the top level and `ctrl+q` close the view; the session keeps running. A stopped session shows its conversation and resumes with the first message.
+
 ## And
 
 - **Menu bar**: every account's usage, the agents working, and a badge for each waiting on you. Questions arrive as notifications you can answer from; clicking one brings back the terminal agtop is open in (Warp, iTerm, Ghostty…) on that agent. agtop offers it the first time it opens on a Mac. It's a small Swift app built on your Mac the first time (it needs Xcode's command line tools).
@@ -208,7 +231,7 @@ To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe
 | `tab` | the list ⇄ the agent's Session |
 | `ctrl+k` | go anywhere, search everything |
 | `ctrl+f` | find, starting where you are |
-| `,` `.` | Agents · Efficiency · Machine · Settings |
+| `,` `.` · `ctrl+\` | Agents · Efficiency · Machine · Settings; in a Session's box `,` `.` `<` `>` are typed, so `ctrl+\` |
 | `ctrl+r` `ctrl+t` `ctrl+e` | rename, pin, set group |
 | `ctrl+s` | group by status, repository, account, your groups |
 | `alt+d` | done |

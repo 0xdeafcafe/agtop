@@ -34,7 +34,7 @@ var fleetCommands = []headless.Command{
 	{Name: "full", Description: "open a Claude Code agent full screen, in Claude Code"},
 	{Name: "agtop", Description: "move the agent into agtop mode (a terminal one is copied, not stopped)"},
 	{Name: "sort", Description: "sort agents by " + strings.Join(sortModes, ", "), ArgumentHint: "<by>"},
-	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", "), ArgumentHint: "<group>"},
+	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", ") + ", or plugin:<name> for a plugin's sections", ArgumentHint: "<group>"},
 	{Name: "folder", Description: "choose the folder new sessions start in"},
 	{Name: "efficiency", Description: "where tokens go, and the savers that cut them (#eff, #savers)", ArgumentHint: "[timeline|savers|findings]"},
 	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
@@ -84,7 +84,7 @@ func (m *Model) fleetArgs(name string) (opts []string, now string) {
 	case "sort":
 		return sortModes, m.store.Config.SortBy
 	case "by":
-		return groupModes, m.store.Config.GroupBy
+		return m.groupModes(), m.store.Config.GroupBy
 	case "account":
 		for _, a := range m.store.Config.AllAccounts() {
 			opts = append(opts, a.Name)

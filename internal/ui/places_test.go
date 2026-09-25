@@ -27,6 +27,24 @@ func TestPlacesAndFocus(t *testing.T) {
 	if !m.paneFocus || m.view != 0 {
 		t.Fatal("tab in the list should go into the agent's Session")
 	}
+	// The Session's box types them, empty or not: a message may start
+	// with a > quote. ctrl+\ still moves.
+	for _, k := range []tea.KeyPressMsg{places, back, {Code: ',', Text: ","}, {Code: '.', Text: "."}} {
+		m.key(k)
+	}
+	if m.view != 0 || string(m.host.input) != "><,." {
+		t.Fatalf("in the Session's box: view %d, box %q", m.view, string(m.host.input))
+	}
+	m.host.input = m.host.input[:0]
+	m.key(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
+	if m.view != placeEff {
+		t.Fatalf("ctrl+\\ from the Session's box: view %d", m.view)
+	}
+	m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m.key(tab) // the list has the keys
+	if m.paneFocus {
+		t.Fatal("tab should give the list the keys")
+	}
 
 	m.key(places)
 	if m.view != placeEff || m.mode != modeEff || m.eff.page != effOverview {
@@ -77,10 +95,10 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 	m.key(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	m.key(places)
-	if m.view != 0 || string(m.host.input) != "a>" {
-		t.Fatalf("> with something typed should be typed, got view %d box %q", m.view, string(m.host.input))
+	if m.view != 0 || string(m.input) != "a>" {
+		t.Fatalf("> with something typed should be typed, got view %d box %q", m.view, string(m.input))
 	}
-	m.host.input = m.host.input[:0]
+	m.input = m.input[:0]
 
 	m.key(zen)
 	if !m.zen || !m.paneFocus || m.selected() == nil || !m.selected().NeedsYou() && !m.selected().Waiting() {
@@ -96,7 +114,7 @@ func TestPlacesAndFocus(t *testing.T) {
 		t.Fatalf("leaving zen should bring every agent back, have %d rows", len(m.order))
 	}
 	m.setZen(true)
-	m.key(places)
+	m.key(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl}) // zen's box has the keys: > is text there
 	if m.zen || m.view != placeEff {
 		t.Fatal("going to another place leaves zen")
 	}

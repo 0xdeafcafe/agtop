@@ -41,6 +41,17 @@ type Options struct {
 	Selected string
 	Focused  bool
 	Marks    map[string]bool // files you've marked reviewed in the changes view
+	// Wide lets rows run the whole width, past capRow: for a session shown
+	// alone on a wide screen, where the right edge is the screen's.
+	Wide bool
+}
+
+// rowCap is how wide a row's numbers and rules may run.
+func (o Options) rowCap() int {
+	if o.Wide {
+		return max(o.Width, capRow)
+	}
+	return capRow
 }
 
 const (
@@ -58,6 +69,7 @@ type cached struct {
 // width, its folds, the selection inside it, and for a live turn the clock.
 type cacheKey struct {
 	width, ver int
+	wide       bool
 	pal        int // the palette it was drawn in
 	open, verb bool
 	folds, sel string
@@ -164,7 +176,7 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	if v, ok := o.Open[ref]; ok {
 		open = v
 	}
-	d := drawer{s: s, t: t, o: o, ref: ref, cw: min(o.Width, capRow)}
+	d := drawer{s: s, t: t, o: o, ref: ref, cw: min(o.Width, o.rowCap())}
 	for _, it := range t.Items {
 		if latest != nil && it.Step == latest {
 			d.latest = latest
@@ -192,7 +204,7 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 }
 
 func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[string]string) cacheKey {
-	k := cacheKey{width: o.Width, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref], pal: palette}
+	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref], pal: palette}
 	if o.Selected == ref || strings.HasPrefix(o.Selected, ref) && strings.HasPrefix(o.Selected[len(ref):], ":") {
 		k.sel, k.focused = o.Selected, o.Focused
 	}
@@ -596,7 +608,7 @@ func (d *drawer) compacted(it *Item) {
 	if len(facts) > 0 {
 		left += dim("  " + strings.Join(facts, " · "))
 	}
-	left += " " + faint(strings.Repeat("─", max(0, min(d.cw, capRow)-cellw.String(stripANSI(left))-2)))
+	left += " " + faint(strings.Repeat("─", max(0, d.cw-cellw.String(stripANSI(left))-2)))
 	d.add("", "", left, "")
 	if d.o.Verbose && it.Text != "" {
 		d.prose(it.Text, 6, cDim)
@@ -771,7 +783,7 @@ func (d *drawer) answer(s string) {
 				end++
 			}
 			if end-li >= 2 {
-				d.table(lines[li:end], d.spine()+"   ", min(d.cw-5, capRow))
+				d.table(lines[li:end], d.spine()+"   ", min(d.cw-5, d.o.rowCap()))
 				li = end - 1
 				continue
 			}
@@ -841,7 +853,7 @@ func (d *drawer) code(lines []string, tag, pad string) {
 		return
 	}
 	from := len(d.lines)
-	w := min(d.cw-7, capRow)
+	w := min(d.cw-7, d.o.rowCap())
 	lg := langFor(tag)
 	if f := strings.Fields(tag); lg == nil && len(f) > 0 {
 		lg = langFor(f[0]) // ```go title="x.go"
@@ -1371,7 +1383,7 @@ func (d *drawer) step(st *Step, depth int) {
 	label, cells := d.stepMemo(st, 'l', d.label), d.cells(st)
 	if cells != "" {
 		cells = faint("  · ") + cells
-		room := min(d.cw, capRow) - cellw.String(lead) - cellw.String(cells) - 1
+		room := d.cw - cellw.String(lead) - cellw.String(cells) - 1
 		if room >= 12 && cellw.String(label) > room {
 			label = ansi.Truncate(label, room, "…")
 		}
