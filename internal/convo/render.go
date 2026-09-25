@@ -2079,7 +2079,7 @@ func (d *drawer) shellBody(cmd string, indent int) {
 			switch {
 			case d.o.Verbose || body <= 8 || bodyShown <= 6:
 			case bodyShown == 7:
-				d.add("", bgWell, pad+lead+faint(fmt.Sprintf("… %d lines · ctrl+o shows all", body-7)), "")
+				d.add("", bgWell, pad+lead+folded(body-7), "")
 				continue
 			case bodyShown < body:
 				continue // the last line, the heredoc's end word, still shows
@@ -2311,7 +2311,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	}
 	more := func(n int) {
 		d.resetHL() // what follows the gap doesn't go on from what came before it
-		d.add("", b, pad+edge+faint(fmt.Sprintf("… %d lines · ctrl+o shows all", n)), "")
+		d.add("", b, pad+edge+folded(n), "")
 	}
 	if !d.o.Verbose && len(lines) > 8 {
 		// The top and the end, where results and errors land; a failure

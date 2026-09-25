@@ -85,6 +85,13 @@ func sub(s string) string   { return paint(cSub, s) }
 func dim(s string) string   { return paint(cDim, s) }
 func faint(s string) string { return paint(cFaint, s) }
 
+// folded says n lines are folded away: the count in bold and the key that
+// unfolds them in orange, so the gap reads as something you can open.
+func folded(n int) string {
+	return dim("… ") + paint(cText+bold, fmt.Sprint(n)) + dim(" lines ") + faint("·") + " " +
+		paint(cOrange+bold, "ctrl+o") + dim(" shows all")
+}
+
 var spinner = []string{"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"}
 
 // row lays left and right out across width cells on background b ("" for
