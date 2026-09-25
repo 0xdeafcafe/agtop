@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -991,5 +993,40 @@ func TestAnswerNestedListWraps(t *testing.T) {
 		if !strings.HasPrefix(l, "        ") || strings.HasPrefix(l, "         ") {
 			t.Fatalf("not under the item's text: %q\n%s", l, strings.Join(lines, "\n"))
 		}
+	}
+}
+
+// An open turn shows the whole message you sent, however long: a URL
+// pasted three times over, one unbroken word, is broken across rows, and
+// the words after it are all there.
+func TestOpenTurnShowsTheWholeMessage(t *testing.T) {
+	url := "https://github.com/0xdeafcafe/agtop/pull/2/files#diff-4f1c0d7e3a9b2c8d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0"
+	tail := "this one keeps opening the wrong file when I click it, and the one after it too, " +
+		"so please look at how the links are resolved and fix both of them before the release"
+	s := New()
+	s.Apply(host.Sent{Text: url + url + url + " " + tail + "\n\nand a second paragraph"}, at(0))
+	s.Apply(say("On it."), at(1))
+	s.Apply(headless.Result{Subtype: "success"}, at(2))
+	const width = 100
+	lines := s.Render(Options{Width: width, Now: at(3), Open: map[string]bool{"t1": true}})
+	var body strings.Builder
+	for _, l := range lines {
+		txt := stripANSI(l.Text)
+		if w := ansi.StringWidth(txt); w > width {
+			t.Fatalf("row %d wide: %q", w, txt)
+		}
+		if strings.Contains(txt, "On it.") {
+			break
+		}
+		body.WriteString(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(txt), "▾")))
+	}
+	got := strings.ReplaceAll(body.String(), " ", "")
+	for _, want := range []string{url + url + url, strings.ReplaceAll(tail, " ", ""), "asecondparagraph"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in\n%s", want, plain(lines))
+		}
+	}
+	if strings.Contains(plain(lines), "…") {
+		t.Fatalf("cut short:\n%s", plain(lines))
 	}
 }
