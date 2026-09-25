@@ -158,7 +158,9 @@ type gitCall struct{ verb, args string }
 
 func gitCalls(cmd string) []gitCall {
 	var out []gitCall
-	for _, loc := range gitVerb.FindAllStringSubmatchIndex(cmd, -1) {
+	// A heredoc is what a command is fed, not what it runs: a script that
+	// mentions git commit doesn't commit.
+	for _, loc := range gitVerb.FindAllStringSubmatchIndex(blankHeredocs(cmd), -1) {
 		args := cmd[loc[1]:]
 		if i := strings.IndexAny(args, ";&|\n"); i >= 0 {
 			args = args[:i]
@@ -182,10 +184,10 @@ func cardsOf(st *Step) []card {
 	for _, c := range calls {
 		verbs = append(verbs, c.verb)
 	}
-	for _, m := range ghVerb.FindAllStringSubmatch(cmd, -1) {
+	for _, m := range ghVerb.FindAllStringSubmatch(blankHeredocs(cmd), -1) {
 		verbs = append(verbs, "pr "+m[1])
 	}
-	tests := testVerb.MatchString(cmd)
+	tests := testVerb.MatchString(blankHeredocs(cmd))
 	if len(verbs) == 0 && !tests {
 		return nil
 	}
@@ -304,7 +306,7 @@ type commitMsg struct {
 // heredoc.
 func commitMessages(cmd string) []commitMsg {
 	var out []commitMsg
-	locs := gitVerb.FindAllStringSubmatchIndex(cmd, -1)
+	locs := gitVerb.FindAllStringSubmatchIndex(blankHeredocs(cmd), -1)
 	for i, loc := range locs {
 		end := len(cmd)
 		if i+1 < len(locs) {
@@ -369,12 +371,41 @@ func messageBody(msg string) (body, with []string) {
 // fed through $(cat <<'EOF' … EOF), a quoted string or a bare word.
 func flagValues(s string, flag *regexp.Regexp) []string {
 	var out []string
-	for _, loc := range flag.FindAllStringIndex(s, -1) {
+	// A heredoc's lines are what's fed in, not flags: a message that
+	// mentions -m isn't given one.
+	for _, loc := range flag.FindAllStringIndex(blankHeredocs(s), -1) {
 		if v, ok := argValue(s[loc[1]:]); ok {
 			out = append(out, v)
 		}
 	}
 	return out
+}
+
+// blankHeredocs is s with each heredoc's lines blanked out, byte for byte,
+// so what's found in it is where it is in s.
+func blankHeredocs(s string) string {
+	b := []byte(s)
+	for _, m := range stdinDoc.FindAllStringSubmatchIndex(s, -1) {
+		nl := strings.IndexByte(s[m[1]:], '\n')
+		if nl < 0 {
+			continue
+		}
+		tag := s[m[2]:m[3]]
+		for i := m[1] + nl + 1; i < len(s); {
+			j := strings.IndexByte(s[i:], '\n')
+			if j < 0 {
+				j = len(s) - i
+			}
+			if strings.TrimSpace(s[i:i+j]) == tag {
+				break
+			}
+			for k := i; k < i+j; k++ {
+				b[k] = ' '
+			}
+			i += j + 1
+		}
+	}
+	return string(b)
 }
 
 func argValue(s string) (string, bool) {
