@@ -572,6 +572,14 @@ func openSolo(args []string) error {
 	}
 	viewGC()
 	p := tea.NewProgram(ui.NewSolo(state.Load(), version, id), tea.WithFPS(120))
+	// The app it's embedded in may end it at any moment, closing the view:
+	// what's in the box is kept first.
+	stop := ui.EndOnSignals(p.Kill)
 	_, err = p.Run()
+	stop()
+	ui.FlushDrafts()
+	if errors.Is(err, tea.ErrProgramKilled) {
+		return nil
+	}
 	return err
 }

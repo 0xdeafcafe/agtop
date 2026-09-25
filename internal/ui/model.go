@@ -520,7 +520,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.fxKick {
 		fxCmd, m.fxKick = fxTick(), false
 	}
-	return m, tea.Batch(cmd, copyCmd, fxCmd, m.syncLive(), m.syncHost(), m.syncWatch())
+	return m, tea.Batch(cmd, copyCmd, fxCmd, m.syncLive(), m.syncHost(), m.syncWatch(), m.noteDraft())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -858,6 +858,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = insert(m.input, m.cursorPos(), []rune(text))
 			}
 		}
+		return m, nil
+	case draftSaveMsg:
+		m.draftSave(msg)
 		return m, nil
 	case tea.KeyboardEnhancementsMsg:
 		m.keysDisambiguated = msg.SupportsKeyDisambiguation()

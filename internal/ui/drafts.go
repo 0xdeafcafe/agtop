@@ -1,8 +1,12 @@
 package ui
 
 import (
+	"os"
+	"os/signal"
 	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -308,4 +312,145 @@ func (m *Model) clearPrompt() {
 		return
 	}
 	m.input, m.back, m.anchor = m.input[:0], 0, 0
+}
+
+// --- the box kept on disk ---
+
+// A session's box is kept on disk as you write in it (state.BoxDraft), and
+// comes back when its box opens again, in this agtop or the next one. It's
+// written a moment after typing stops, never per key and never while
+// drawing, and at once when agtop quits or is told to end.
+
+// draftDelay is how long typing must pause before the box is written.
+const draftDelay = 300 * time.Millisecond
+
+// boxMark is the box as last noted: kept once its session is open, and
+// which change a pending write is for.
+type boxMark struct {
+	on             bool
+	text           []rune
+	back           int
+	pasteN, imageN int
+	gen            int
+}
+
+// pendingDrafts are boxes changed and not yet written, by agent key.
+var (
+	pendingDrafts sync.Map // string -> state.BoxDraft
+	draftWrite    sync.Mutex
+)
+
+type draftSaveMsg struct {
+	key string
+	gen int
+}
+
+// boxDraft is what the box holds now.
+func (c *hostConn) boxDraft() state.BoxDraft {
+	d := state.BoxDraft{Text: string(c.input), Back: c.back, PasteN: c.pastes.n, ImageN: c.imgs.N, At: time.Now()}
+	if len(c.pastes.text) > 0 {
+		d.Pastes = make(map[int]string, len(c.pastes.text))
+		for k, v := range c.pastes.text {
+			d.Pastes[k] = v
+		}
+	}
+	d.Images = c.imgs.clone().Path
+	return d
+}
+
+// restoreBox puts a kept draft back in the box.
+func (c *hostConn) restoreBox(d state.BoxDraft) {
+	c.input = []rune(d.Text)
+	c.back = max(0, min(d.Back, len(c.input)))
+	c.pastes = pastes{n: d.PasteN, text: d.Pastes}
+	c.imgs = imageRefs{N: d.ImageN, Path: d.Images}
+}
+
+// openDraft brings back the box's draft when its session opens, unless
+// something is already in it, and from then on keeps it.
+func (m *Model) openDraft(c *hostConn) {
+	if len(c.input) == 0 {
+		if d, ok := state.ReadBoxDraft(c.key); ok {
+			c.restoreBox(d)
+			m.paneFocus = true
+		}
+	}
+	c.draft.on = true
+	c.markDraft()
+}
+
+// markDraft notes the box as it is now.
+func (c *hostConn) markDraft() {
+	c.draft.text = append(c.draft.text[:0], c.input...)
+	c.draft.back, c.draft.pasteN, c.draft.imageN = c.back, c.pastes.n, c.imgs.N
+}
+
+// draftChanged says whether the box differs from when it was last noted.
+func (c *hostConn) draftChanged() bool {
+	return !slices.Equal(c.input, c.draft.text) || c.back != c.draft.back ||
+		c.pastes.n != c.draft.pasteN || c.imgs.N != c.draft.imageN
+}
+
+// noteDraft runs after each update: a box that changed is kept in memory at
+// once and written once typing pauses. A queued message being edited in
+// the box isn't a draft; the box is noted again once that's done.
+func (m *Model) noteDraft() tea.Cmd {
+	c := m.host
+	if c == nil || !c.draft.on || c.editQ > 0 || !c.draftChanged() {
+		return nil
+	}
+	c.markDraft()
+	c.draft.gen++
+	pendingDrafts.Store(c.key, c.boxDraft())
+	key, gen := c.key, c.draft.gen
+	return tea.Tick(draftDelay, func(time.Time) tea.Msg { return draftSaveMsg{key: key, gen: gen} })
+}
+
+// draftSave writes a draft once typing has paused: the box hasn't changed
+// since, or its session is no longer open.
+func (m *Model) draftSave(msg draftSaveMsg) {
+	if c := m.host; c != nil && c.key == msg.key && c.draft.gen != msg.gen {
+		return // still typing; a later tick writes it
+	}
+	go writeDraft(msg.key)
+}
+
+// writeDraft writes the pending draft for key, if there is one. Writes
+// are one at a time, so the last change is the one that stays.
+func writeDraft(key string) {
+	draftWrite.Lock()
+	defer draftWrite.Unlock()
+	if v, ok := pendingDrafts.LoadAndDelete(key); ok {
+		_ = state.SaveBoxDraft(key, v.(state.BoxDraft))
+	}
+}
+
+// FlushDrafts writes every draft not yet written. agtop calls it as it
+// quits, and when it is told to end.
+func FlushDrafts() {
+	pendingDrafts.Range(func(k, _ any) bool {
+		writeDraft(k.(string))
+		return true
+	})
+}
+
+// EndOnSignals writes the drafts and ends the program when agtop is told
+// to end (SIGTERM) or loses its terminal (SIGHUP), as when the app it's
+// embedded in closes the view. The returned func stops watching.
+func EndOnSignals(kill func()) func() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGTERM, syscall.SIGHUP)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ch:
+			FlushDrafts()
+			kill()
+		case <-done:
+		}
+	}()
+	return func() {
+		signal.Stop(ch)
+		close(done)
+	}
 }

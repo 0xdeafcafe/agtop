@@ -711,6 +711,7 @@ type hostConn struct {
 	back     int
 	anchor   int       // selection start + 1; 0 when nothing is selected
 	imgs     imageRefs // images in the box, each [Image #N] in its text
+	draft    boxMark   // the box as last kept on disk (drafts.go)
 	box      box       // the message box as last drawn, and where
 	boxIdx   int
 	boxY     int
@@ -934,6 +935,9 @@ func (m *Model) syncHost() tea.Cmd {
 func (m *Model) dropHost() {
 	if m.host != nil {
 		m.host.unwatch()
+		if m.host.draft.on {
+			go writeDraft(m.host.key) // what was typed there is kept now
+		}
 	}
 	if m.host != nil && m.host.client != nil {
 		_ = m.host.client.Close()
@@ -1014,6 +1018,7 @@ func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 		return nil
 	}
 	m.host = msg.c
+	m.openDraft(m.host)
 	if d, ok := m.rewound[msg.key]; ok && m.host.client != nil {
 		delete(m.rewound, msg.key)
 		m.host.input, m.host.back = []rune(d), 0

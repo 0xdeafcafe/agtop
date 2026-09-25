@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -134,10 +135,13 @@ func main() {
 	viewGC()
 	p := tea.NewProgram(ui.New(state.Load(), version), tea.WithFPS(120))
 	here := menubar.Here() // so the menu bar app comes back to this terminal
+	stop := ui.EndOnSignals(p.Kill)
 	var err error
 	profiled(func() { _, err = p.Run() })
+	stop()
+	ui.FlushDrafts()
 	here()
-	if err != nil {
+	if err != nil && !errors.Is(err, tea.ErrProgramKilled) {
 		fmt.Fprintln(os.Stderr, "agtop:", err)
 		os.Exit(1)
 	}
