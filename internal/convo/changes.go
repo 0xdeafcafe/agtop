@@ -295,14 +295,16 @@ func (s *Session) ChangesView(o Options) []Line {
 			turn, _, _ := strings.Cut(from, ":")
 			add("jump:"+from, pad+paint(cBlue, "@ ")+dim(what)+"  "+sub("#"+strings.TrimPrefix(turn, "t")), dim("enter goes to the step"))
 		}
+		lg := langFor(fc.Path)
 		if fc.New {
 			hunk(fc.NewFrom, "created")
+			var st hlState
 			for i, l := range strings.Split(strings.TrimRight(fc.Content, "\n"), "\n") {
 				if i >= 40 && !o.Verbose {
 					add("", pad+dim("… ctrl+o shows the rest"), "")
 					break
 				}
-				add("", pad+paint(cGreen, "▏")+dim(fmt.Sprintf("%5d ", i+1))+diffText(nil, nil, l, cSub, bw), "")
+				add("", pad+paint(cGreen, "▏")+dim(fmt.Sprintf("%5d ", i+1))+diffText(lg, &st, l, cSub, bw), "")
 			}
 			// Edits made after it was created follow.
 		}
@@ -313,6 +315,7 @@ func (s *Session) ChangesView(o Options) []Line {
 			}
 			hunk(from, fmt.Sprintf("line %d", p.NewStart))
 			oldN, newN := p.OldStart, p.NewStart
+			var oldSt, newSt hlState
 			for _, l := range p.Lines {
 				if l == "" {
 					l = " "
@@ -322,13 +325,14 @@ func (s *Session) ChangesView(o Options) []Line {
 				}
 				switch l[0] {
 				case '+':
-					out = append(out, Line{Text: row(bgAdd, pad+dim(fmt.Sprintf("%5d ", newN))+paint(cGreen, "+")+" "+diffText(nil, nil, l[1:], cText, bw), "", o.Width, w)})
+					out = append(out, Line{Text: row(bgAdd, pad+dim(fmt.Sprintf("%5d ", newN))+plusSign()+" "+diffText(lg, &newSt, l[1:], cText, bw), "", o.Width, w)})
 					newN++
 				case '-':
-					out = append(out, Line{Text: row(bgDel, pad+dim(fmt.Sprintf("%5d ", oldN))+paint(cRed, "−")+" "+diffText(nil, nil, l[1:], cText, bw), "", o.Width, w)})
+					out = append(out, Line{Text: row(bgDel, pad+dim(fmt.Sprintf("%5d ", oldN))+minusSign()+" "+diffText(lg, &oldSt, l[1:], cText, bw), "", o.Width, w)})
 					oldN++
 				default:
-					out = append(out, Line{Text: row(bgWell, pad+dim(fmt.Sprintf("%5d ", newN))+"  "+diffText(nil, nil, l[1:], cSub, bw), "", o.Width, w)})
+					out = append(out, Line{Text: row(bgWell, pad+dim(fmt.Sprintf("%5d ", newN))+"  "+diffText(lg, &newSt, l[1:], cSub, bw), "", o.Width, w)})
+					oldSt = newSt
 					oldN++
 					newN++
 				}
@@ -385,18 +389,28 @@ func (s *Session) ChangesView(o Options) []Line {
 		}
 		add(tref, "  "+arrow+" "+mark+" "+text(d.rel(f.Path)), counts+"   "+who)
 		if o.Open[tref] {
+			lg := langFor(f.Path)
+			var oldSt, newSt hlState
 			for _, l := range treeDiff(tree, f) {
-				b := bgWell
+				b, sign, st := bgWell, " ", &newSt
 				switch {
-				case strings.HasPrefix(l, "+"):
-					b = bgAdd
-				case strings.HasPrefix(l, "-"):
-					b = bgDel
 				case strings.HasPrefix(l, "@@"):
 					out = append(out, Line{Text: row("", "       "+paint(cBlue, truncateCells(l, w-10)), "", o.Width, w)})
+					oldSt, newSt = hlState{}, hlState{}
 					continue
+				case strings.HasPrefix(l, "+"):
+					b, sign = bgAdd, plusSign()
+				case strings.HasPrefix(l, "-"):
+					b, sign, st = bgDel, minusSign(), &oldSt
 				}
-				out = append(out, Line{Text: row(b, "       "+diffText(nil, nil, cleanOutput(l), cText, w-10), "", o.Width, w)})
+				body := cleanOutput(l)
+				if len(body) > 0 && strings.ContainsRune("+- ", rune(body[0])) {
+					body = body[1:]
+				}
+				out = append(out, Line{Text: row(b, "       "+sign+" "+diffText(lg, st, body, cText, w-12), "", o.Width, w)})
+				if b == bgWell {
+					oldSt = newSt
+				}
 			}
 		}
 	}

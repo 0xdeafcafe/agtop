@@ -89,6 +89,10 @@ func paint(c, s string) string {
 	return c + s + reset
 }
 
+// plusSign and minusSign mark a diff's added and removed lines.
+func plusSign() string  { return paint(cGreen+bold, "+") }
+func minusSign() string { return paint(cRed+bold, "−") }
+
 func text(s string) string  { return paint(cText, s) }
 func sub(s string) string   { return paint(cSub, s) }
 func dim(s string) string   { return paint(cDim, s) }

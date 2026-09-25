@@ -874,9 +874,9 @@ func (d *drawer) code(lines []string, tag, pad string) {
 		l = truncateCells(expandTabs(l), w)
 		switch {
 		case isDiff && strings.HasPrefix(l, "+") && !strings.HasPrefix(l, "+++"):
-			d.add("", bgAdd, pad+" "+paint(cGreen, "+")+text(l[1:]), "")
+			d.add("", bgAdd, pad+" "+plusSign()+text(l[1:]), "")
 		case isDiff && strings.HasPrefix(l, "-") && !strings.HasPrefix(l, "---"):
-			d.add("", bgDel, pad+" "+paint(cRed, "−")+text(l[1:]), "")
+			d.add("", bgDel, pad+" "+minusSign()+text(l[1:]), "")
 		case isDiff && strings.HasPrefix(l, "@@"):
 			d.add("", bgWell, pad+" "+paint(cBlue, l), "")
 		default:
@@ -2253,9 +2253,9 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			d.resetHL()
 			d.add("", b, pad+edge+paint(cBlue, l), "")
 		case strings.HasPrefix(l, "+"):
-			d.add("", bgAdd, pad+edge+paint(cGreen, "+")+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
+			d.add("", bgAdd, pad+edge+plusSign()+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
 		case strings.HasPrefix(l, "-"):
-			d.add("", bgDel, pad+edge+paint(cRed, "−")+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
+			d.add("", bgDel, pad+edge+minusSign()+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
 		case d.spans[spanOf[i]].git != "":
 			d.add("", b, pad+edge+d.gitLine(d.spans[spanOf[i]].git, l), "")
 		default:
@@ -2550,9 +2550,9 @@ func (d *drawer) diffLine(pad string, w int, lg *lang, st *hlState, sign byte, n
 	if showSpace {
 		body, other = stripANSI(code), stripANSI(pair) // tabs drawn as →
 	}
-	row, hi, mark := bgAdd, bgAddHi, paint(cGreen, "+")
+	row, hi, mark := bgAdd, bgAddHi, plusSign()
 	if sign == '-' {
-		row, hi, mark = bgDel, bgDelHi, paint(cRed, "−")
+		row, hi, mark = bgDel, bgDelHi, minusSign()
 	}
 	var em *emph
 	if paired {
