@@ -254,6 +254,8 @@ type drawer struct {
 	hsN    int
 	// spans are the languages of a chain's output, part by part.
 	spans []span
+	// subject is whether the next line of a git log's message is its title.
+	subject bool
 	// latest is the session's newest step when it's in this turn: it
 	// shows opened, and never folds into a run.
 	latest *Step
@@ -2234,6 +2236,8 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			d.add("", bgAdd, pad+edge+paint(cGreen, "+")+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
 		case strings.HasPrefix(l, "-"):
 			d.add("", bgDel, pad+edge+paint(cRed, "−")+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
+		case d.spans[spanOf[i]].git != "":
+			d.add("", b, pad+edge+d.gitLine(d.spans[spanOf[i]].git, l), "")
 		default:
 			d.add("", b, pad+edge+highlight(diffLg, &d.hs, l, cOut, nil), "")
 		}
@@ -2299,6 +2303,10 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			return
 		}
 		l = truncateCells(l, w)
+		if i < len(spanOf) && !failed && d.spans[spanOf[i]].git != "" {
+			d.add("", b, pad+edge+d.gitLine(d.spans[spanOf[i]].git, l), "")
+			return
+		}
 		if isJSON {
 			d.add("", b, pad+edge+highlight(langJSON, &d.hs, l, cOut, nil), "")
 			return

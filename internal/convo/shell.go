@@ -185,13 +185,15 @@ func (d *drawer) shellShape(cmd string) shape {
 }
 
 // span is a stretch of a chain's output: n lines of it (0 for the rest)
-// in language lg, or a search's, whose lines each say their own file, or a
-// diff's, whose added and removed lines are coloured.
+// in language lg, or a search's, whose lines each say their own file, a
+// diff's, whose added and removed lines are coloured, or git's log or
+// status.
 type span struct {
 	lg     *lang
 	n      int
 	byPath bool
 	diff   bool
+	git    string
 }
 
 // starts is whether l looks like the first line of sp's output, so that a
@@ -203,6 +205,8 @@ func (sp span) starts(l string) bool {
 	case sp.byPath:
 		n, _ := codePrefix(l)
 		return n > 0
+	case sp.git != "":
+		return gitStarts(sp.git, l)
 	}
 	return false
 }
@@ -319,6 +323,10 @@ func (d *drawer) chainSpans(cmd string) []span {
 			}
 		case prog == "echo":
 			sp.n = 1
+		case gitOut(s) != "":
+			sp.git, reads = gitOut(s), true
+			// git log -p shows each commit's diff under it.
+			sp.diff = sp.git == "log" && (strings.Contains(s, " -p") || strings.Contains(s, " --patch"))
 		case isDiff(s):
 			sp.diff, reads = true, true
 			f := strings.Fields(strings.Split(s, "|")[0])[1:]
@@ -342,7 +350,7 @@ func (d *drawer) chainSpans(cmd string) []span {
 		}
 	}
 	flush()
-	if !reads || len(spans) < 2 && !spans[0].diff {
+	if !reads || len(spans) < 2 && !spans[0].diff && spans[0].git == "" {
 		return nil
 	}
 	// A search of unknown length runs to the end, over what the parts
