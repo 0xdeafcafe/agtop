@@ -1116,7 +1116,7 @@ func (d *drawer) card(c card, indent int) {
 			foot = paint(cLostQ, "git can't bring this back")
 		}
 	}
-	d.box(indent, headL, headR, rows, foot, room, frame)
+	d.box("", indent, headL, headR, rows, foot, room, frame)
 }
 
 // failRows is each failure's name, and under it what it said: the first
@@ -1219,8 +1219,8 @@ func cardText(title string, body []string, w int) []string {
 }
 
 // box draws a card's frame in colour frame, inner cells inside: head on the top edge, left
-// and right, rows inside, foot on the bottom edge.
-func (d *drawer) box(indent int, headL, headR string, rows []string, foot string, inner int, frame string) {
+// and right, rows inside, foot on the bottom edge. The top edge is row ref.
+func (d *drawer) box(ref string, indent int, headL, headR string, rows []string, foot string, inner int, frame string) {
 	line := func(s string) string { return paint(frame, s) }
 	pad := d.spine() + blanks(indent-1)
 	edge := func(l, r, left, right string) string {
@@ -1242,7 +1242,7 @@ func (d *drawer) box(indent int, headL, headR string, rows []string, foot string
 		fill := w - cellw.String(head) - cellw.String(tail)
 		return pad + line(l) + head + line(strings.Repeat("─", max(0, fill))) + tail + line(r)
 	}
-	d.add("", "", edge("╭", "╮", headL, headR), "")
+	d.add(ref, "", edge("╭", "╮", headL, headR), "")
 	for _, r := range rows {
 		if cellw.String(r) > inner {
 			r = ansi.Truncate(r, inner-1, "") + faint("…")

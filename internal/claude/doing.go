@@ -79,6 +79,16 @@ func Doing(tool string, input json.RawMessage) string {
 		return "looking up tools"
 	case "ScheduleWakeup", "Monitor":
 		return "waiting"
+	case "SendMessage":
+		return with("messaging", str("summary"))
+	case "SubagentHandback":
+		return "reporting back"
+	case "ListAgents":
+		return "listing agents"
+	case "PushNotification":
+		return "notifying you"
+	case "EnterWorktree":
+		return "entering a worktree"
 	}
 	if server, name, ok := strings.Cut(strings.TrimPrefix(tool, "mcp__"), "__"); ok && strings.HasPrefix(tool, "mcp__") {
 		return strings.ReplaceAll(name, "_", " ") + " · " + strings.TrimPrefix(server, "claude_ai_")

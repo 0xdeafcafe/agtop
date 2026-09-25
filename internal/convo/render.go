@@ -160,7 +160,8 @@ func (s *Session) StepOpen(ref string, verbose bool) bool {
 	for _, t := range s.Turns {
 		for _, it := range t.Items {
 			if it.Step == st {
-				return ref == "t"+strconv.Itoa(t.N)+":s:"+st.ID
+				// A message shows its start until you open it, newest or not.
+				return ref == "t"+strconv.Itoa(t.N)+":s:"+st.ID && !messageTool(st.Tool)
 			}
 		}
 	}
@@ -1350,7 +1351,7 @@ func foldable(st *Step) bool {
 	case "✎", "⇉", "◆", "◇":
 		return false
 	}
-	return true
+	return !messageTool(st.Tool)
 }
 
 // hidden steps are bookkeeping the task line already shows.
@@ -1389,6 +1390,10 @@ func (d *drawer) step(st *Step, depth int) {
 	ref := d.ref + ":s:" + st.ID
 	indent := 4 + depth*4
 	if st.Tool == agtools.Show && st.Status != Failed && d.figure(st, ref, indent) {
+		return
+	}
+	if messageTool(st.Tool) {
+		d.message(st, ref, indent)
 		return
 	}
 	// How it came out follows the label, so the eye never has to cross the
@@ -1610,6 +1615,9 @@ func (d *drawer) label(st *Step) string {
 			t = filepath.Base(in.str("file_path"))
 		}
 		return g + " " + lbl(t)
+	}
+	if l, ok := d.toolLabel(st, lbl); ok {
+		return l
 	}
 	name := st.Tool
 	if strings.HasPrefix(name, "mcp__") {
@@ -1972,7 +1980,7 @@ func (d *drawer) summary(st *Step) string {
 			return faint(plural(n, "step"))
 		}
 	}
-	return ""
+	return toolSummary(st)
 }
 
 func bashOut(st *Step) string {
