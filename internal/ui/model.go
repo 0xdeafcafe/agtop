@@ -206,6 +206,8 @@ type Model struct {
 	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
 	// its agent's key once the snapshot has it.
 	solo, soloKey string
+	// soloList is solo with Agents shown beside the session (ctrl+6).
+	soloList bool
 	// keysDisambiguated is when the terminal said it tells ctrl+enter
 	// from enter.
 	keysDisambiguated bool

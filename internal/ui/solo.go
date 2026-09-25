@@ -23,24 +23,78 @@ func NewSolo(store *state.Store, version, id string) *Model {
 	return m
 }
 
-// loadSnap is a fresh snapshot of every agent; in solo only the one
-// session is in it, so nothing else is listed, counted or acted on.
+// loadSnap is a fresh snapshot of every agent; in solo, unless its list is
+// shown, only the one session is in it, so nothing else is listed, counted
+// or acted on.
 func (m *Model) loadSnap() *fleet.Snapshot {
 	snap := m.loader.Load(true)
 	if m.solo == "" {
 		return snap
 	}
 	m.fleetAgents = snap.Agents
-	s := *snap
-	s.Agents = nil
+	var mine *fleet.Agent
 	for _, a := range snap.Agents {
 		if a.Agtop && a.ID == m.solo {
-			s.Agents = append(s.Agents, a)
+			mine = a
 			m.soloKey = a.Key
 			break
 		}
 	}
+	if m.soloList {
+		return snap
+	}
+	s := *snap
+	s.Agents = nil
+	if mine != nil {
+		s.Agents = append(s.Agents, mine)
+	}
 	return &s
+}
+
+// soloAlone is solo showing its one session, the list hidden.
+func (m *Model) soloAlone() bool { return m.solo != "" && !m.soloList }
+
+// listKey is the key that shows and hides the list beside a Session:
+// ctrl+6, which terminals send as ctrl+^ unless they speak the kitty
+// keyboard protocol.
+func listKey(s string) bool { return s == "ctrl+6" || s == "ctrl+^" || s == "ctrl+shift+6" }
+
+// toggleList shows or hides Agents beside the open Session. In solo the
+// list comes with every agent, to pick and answer; hidden again, the view
+// is back on solo's own session with solo's limits. Elsewhere it moves
+// between the split and the Session alone, for now only: #view keeps the
+// layout you chose.
+func (m *Model) toggleList() tea.Cmd {
+	if m.solo != "" {
+		m.soloList = !m.soloList
+		if m.soloList {
+			m.full, m.preview, m.paneFocus = false, true, false
+			m.flash("Agents beside the session · ctrl+6 or esc hides them", false)
+		} else {
+			m.bar, m.picker, m.inKind = nil, nil, inPrompt
+		}
+		m.refresh()
+		m.pinSolo()
+		return m.loadPreview()
+	}
+	if m.selected() == nil {
+		return nil
+	}
+	if m.listW > 0 && m.chatOpen() {
+		m.full, m.paneFocus = true, true
+		return m.loadPreview()
+	}
+	m.full, m.peekFrom = false, ""
+	if !m.chatOpen() {
+		m.preview = true
+	}
+	if l, _ := m.widths(); l == 0 {
+		// No room for both, or the Session alone is your layout: the list
+		// takes the screen.
+		m.leaveChat()
+	}
+	m.paneFocus = false
+	return m.loadPreview()
 }
 
 // pinSolo keeps the solo view on its session, whatever a key or message
@@ -51,7 +105,7 @@ func (m *Model) pinSolo() {
 		return
 	}
 	m.zen, m.peekFrom = false, ""
-	if m.view != placeAgents {
+	if m.view != placeAgents || m.soloList {
 		return
 	}
 	if m.soloKey != "" {
@@ -66,6 +120,15 @@ func (m *Model) pinSolo() {
 // to the next place. It says whether it took the key.
 func (m *Model) soloKeyGuard(s string) (tea.Cmd, bool) {
 	if m.solo == "" {
+		return nil, false
+	}
+	if m.soloList {
+		switch {
+		case s == "ctrl+z":
+			return nil, true
+		case s == "esc" && !m.paneFocus && m.mode == modeList && m.dialog == nil && m.picker == nil:
+			return m.toggleList(), true // esc from the list hides it
+		}
 		return nil, false
 	}
 	switch s {

@@ -43,7 +43,7 @@ func (m *Model) groupLabel(mode string) string {
 // Solo shows one session and is never arranged.
 func (m *Model) activeSidebar() *plugin.Sidebar {
 	name, ok := strings.CutPrefix(m.store.Config.GroupBy, pluginGroupPrefix)
-	if !ok || m.solo != "" {
+	if !ok || m.soloAlone() {
 		return nil
 	}
 	for i := range m.sidebars {
@@ -57,7 +57,7 @@ func (m *Model) activeSidebar() *plugin.Sidebar {
 // loadSidebars reads the plugins' arrangements again where their files
 // changed.
 func (m *Model) loadSidebars() {
-	if m.solo != "" {
+	if m.soloAlone() {
 		m.sidebars = nil
 		return
 	}

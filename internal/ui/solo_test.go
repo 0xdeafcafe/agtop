@@ -43,7 +43,7 @@ func soloPress(m *Model, s string) tea.Cmd {
 		k = tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "left":
 		k = tea.KeyPressMsg{Code: tea.KeyLeft}
-	case "ctrl+n", "ctrl+z", "ctrl+\\", "ctrl+k":
+	case "ctrl+n", "ctrl+z", "ctrl+\\", "ctrl+k", "ctrl+6":
 		k = tea.KeyPressMsg{Code: rune(s[5]), Mod: tea.ModCtrl}
 	}
 	_, cmd := m.Update(k)
@@ -166,6 +166,74 @@ func TestSoloFillsTheWidth(t *testing.T) {
 	}
 	if l, p, _ := m.layout(); l != 0 || p != 208 {
 		t.Fatalf("layout: list %d pane %d", l, p)
+	}
+}
+
+// ctrl+6 shows the list beside solo's session: every agent, to pick and
+// read. Again, or esc from the list, and the view is solo's own session.
+func TestSoloListToggle(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	writeSession(t, "aaaa1111", "the solo session")
+	writeSession(t, "bbbb2222", "another session")
+	m := NewSolo(state.Load(), "test", "aaaa1111")
+	m.Frame(200, 45)
+	m.host = &hostConn{key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
+	if out := m.render(); strings.Contains(out, "another session") || !strings.Contains(out, "ctrl+6") {
+		t.Fatalf("solo alone shows the list, or not the key:\n%s", out)
+	}
+	for _, key := range []tea.KeyPressMsg{{Code: '6', Mod: tea.ModCtrl}, {Code: '^', Mod: tea.ModCtrl}} {
+		if !listKey(key.String()) {
+			t.Fatalf("%q isn't the list key", key.String())
+		}
+		m.Update(key)
+		out := m.Frame(200, 45)
+		if !m.soloList || m.listW == 0 || m.paneFocus {
+			t.Fatalf("%s: list %v width %d focus %v", key.String(), m.soloList, m.listW, m.paneFocus)
+		}
+		if !strings.Contains(out, "another session") || !strings.Contains(out, "the solo session") || !strings.Contains(out, "ctrl+6") {
+			t.Fatalf("the list isn't shown:\n%s", out)
+		}
+		// Another agent can be picked, and stays picked.
+		other := m.keyOf(sid("bbbb2222"))
+		m.sel = other
+		m.Update(tickMsg(time.Now()))
+		if m.sel != other || m.focused() == nil || m.focused().Key != other {
+			t.Fatalf("picking another agent: sel %q", m.sel)
+		}
+		m.Update(key)
+		if m.soloList || m.sel != m.soloKey || !m.paneFocus || len(m.snap.Agents) != 1 {
+			t.Fatalf("hidden again: list %v sel %q focus %v agents %d", m.soloList, m.sel, m.paneFocus, len(m.snap.Agents))
+		}
+		if out := m.Frame(200, 45); strings.Contains(out, "another session") {
+			t.Fatalf("the list stayed:\n%s", out)
+		}
+	}
+	// esc from the list hides it too.
+	soloPress(m, "ctrl+6")
+	soloPress(m, "esc")
+	if m.soloList || m.sel != m.soloKey {
+		t.Fatalf("esc from the list: list %v sel %q", m.soloList, m.sel)
+	}
+}
+
+// Outside solo, ctrl+6 hides the list beside an open Session, and shows it
+// again.
+func TestListToggle(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	m.View()
+	if m.listW == 0 {
+		t.Fatal("the bench model should open split")
+	}
+	key := tea.KeyPressMsg{Code: '6', Mod: tea.ModCtrl}
+	m.Update(key)
+	m.View()
+	if m.listW != 0 || !m.paneFocus {
+		t.Fatalf("hiding: list %d focus %v", m.listW, m.paneFocus)
+	}
+	m.Update(key)
+	m.View()
+	if m.listW == 0 || m.paneFocus {
+		t.Fatalf("showing: list %d focus %v", m.listW, m.paneFocus)
 	}
 }
 
