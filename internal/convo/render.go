@@ -1404,7 +1404,8 @@ func (d *drawer) step(st *Step, depth int) {
 	}
 	left := lead + label + cells
 	d.worked = true
-	open := d.o.Verbose || st == d.latest
+	// The latest step shows what it ran, unless a card says what it did.
+	open := d.o.Verbose || st == d.latest && len(d.stepCards(st)) == 0
 	if v, ok := d.o.Open[ref]; ok {
 		open = v
 	}
@@ -1420,10 +1421,11 @@ func (d *drawer) step(st *Step, depth int) {
 	} else {
 		d.add(ref, "", left, "")
 	}
-	d.cards(st, indent+2)
+	// What it did comes after what it ran, when that's open.
 	if open {
 		d.body(st, indent+4)
 	}
+	d.cards(st, indent+2)
 	// A subagent shows its own steps while it works, or when opened.
 	if len(st.Children) > 0 && (st.Status == Running || open) {
 		for _, c := range st.Children {
