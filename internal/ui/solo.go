@@ -51,6 +51,37 @@ func (m *Model) loadSnap() *fleet.Snapshot {
 	return &s
 }
 
+// allAgents is every agent, solo's hidden ones included: what the command
+// bar searches and goes to.
+func (m *Model) allAgents() []*fleet.Agent {
+	if m.solo != "" && m.fleetAgents != nil {
+		return m.fleetAgents
+	}
+	return m.snap.Agents
+}
+
+// anyAgent is an agent by key among allAgents.
+func (m *Model) anyAgent(key string) *fleet.Agent {
+	for _, a := range m.allAgents() {
+		if a.Key == key {
+			return a
+		}
+	}
+	return nil
+}
+
+// soloShow is solo going to another agent than its own, from the command
+// bar: the list comes beside it, as ctrl+6 shows it, and ctrl+6 or esc
+// from the list is the way back.
+func (m *Model) soloShow(key string) {
+	if m.solo == "" || m.soloList || key == m.soloKey {
+		return
+	}
+	m.soloList = true
+	m.full, m.preview = false, true
+	m.refresh()
+}
+
 // soloAlone is solo showing its one session, the list hidden.
 func (m *Model) soloAlone() bool { return m.solo != "" && !m.soloList }
 
@@ -119,8 +150,8 @@ func (m *Model) pinSolo() {
 // agent, and , . < > between places, which stay text. ctrl+\ still goes
 // to the next place. It says whether it took the key.
 func (m *Model) soloKeyGuard(s string) (tea.Cmd, bool) {
-	if m.solo == "" {
-		return nil, false
+	if m.solo == "" || m.bar != nil {
+		return nil, false // the command bar has the keys it needs
 	}
 	if m.soloList {
 		switch {
@@ -132,7 +163,7 @@ func (m *Model) soloKeyGuard(s string) (tea.Cmd, bool) {
 		return nil, false
 	}
 	switch s {
-	case "ctrl+q", "ctrl+\\":
+	case "ctrl+q", "ctrl+\\", "ctrl+k", "super+k":
 		return nil, false
 	case "ctrl+z", "ctrl+n":
 		return nil, true
