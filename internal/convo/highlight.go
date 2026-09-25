@@ -18,9 +18,12 @@ var (
 	hlStr     = fg(163, 190, 140) // strings
 	hlNum     = fg(222, 165, 132) // numbers and constants
 	hlComment = fg(122, 116, 108)
-	hlFn      = fg(137, 180, 222) // a call, a key, a variable
-	hlType    = fg(120, 190, 175)
-	hlSpace   = fg(92, 88, 82) // · and → marking spaces and tabs
+	// hlOutComment is a comment in what a tool printed, which is already
+	// as quiet as hlComment: it goes a step further under.
+	hlOutComment = fg(92, 87, 80)
+	hlFn         = fg(137, 180, 222) // a call, a key, a variable
+	hlType       = fg(120, 190, 175)
+	hlSpace      = fg(92, 88, 82) // · and → marking spaces and tabs
 )
 
 // showSpace marks spaces and tabs in diffs, as · and →, the way an editor
@@ -188,6 +191,9 @@ func paintCode(l *lang, st *hlState, s, base string, em *emph, marked bool) stri
 	// out writes s[i:j] in colour c, switching the background where the
 	// emphasis starts and ends inside it.
 	out := func(i, j int, c string) {
+		if c == hlComment && base == cOut {
+			c = hlOutComment
+		}
 		for i < j {
 			k := j
 			if em != nil {

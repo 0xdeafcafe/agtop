@@ -192,3 +192,17 @@ func TestPrettyJSON(t *testing.T) {
 		}
 	}
 }
+
+// A comment in what a tool printed stands apart from the code around it,
+// which is already drawn as quietly as a comment in Claude's own code.
+func TestCommentUnderToolOutput(t *testing.T) {
+	var st hlState
+	got := highlight(langGo, &st, `m.hover = "" // the keyboard`, cOut, nil)
+	if !strings.Contains(got, hlOutComment+"// the keyboard") {
+		t.Fatalf("comment in tool output should be under it: %q", got)
+	}
+	st = hlState{}
+	if got := highlight(langGo, &st, "x // y", cText, nil); !strings.Contains(got, hlComment+"// y") {
+		t.Fatalf("comment in Claude's code keeps its colour: %q", got)
+	}
+}
