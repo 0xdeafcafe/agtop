@@ -149,6 +149,7 @@ var (
 	stdinMsg   = regexp.MustCompile(`(?:^|\s)(?:-F\s*|--file[=\s])-(?:\s|$)`)
 	stdinDoc   = regexp.MustCompile(`<<-?\s*['"]?(\w+)['"]?`)
 	quietFlag  = regexp.MustCompile(`(?:^|\s)(?:-q|--quiet)(?:\s|$)|>\s*/dev/null`)
+	shellSub   = regexp.MustCompile("\\$[A-Za-z_{(0-9@*#?]|`")
 	logOneline = regexp.MustCompile(`^([0-9a-f]{7,40}) (?:\([^)]*\) )?(.*)$`)
 )
 
@@ -172,8 +173,8 @@ func gitCalls(cmd string) []gitCall {
 
 // cardsOf reads the cards out of a finished command: git and gh report
 // what they did, and the command holds what git doesn't echo, like a
-// commit's body. Nothing is asked of git itself; the session may be on
-// another machine.
+// commit's body. That's a reading of text: gitCommits asks git what was
+// really committed, when the session's folder is on this machine.
 func cardsOf(st *Step) []card {
 	if st.Tool != "Bash" || st.Status == Running || st.Status == Waiting {
 		return nil
@@ -323,8 +324,12 @@ func commitMessages(cmd string) []commitMsg {
 			flags = flags[:k]
 		}
 		var parts []string
-		for _, f := range flagValues(args, msgFlag) {
-			parts = append(parts, strings.TrimSpace(f))
+		opaque := false
+		for _, loc := range msgFlag.FindAllStringIndex(blankHeredocs(args), -1) {
+			if v, ok := argValue(args[loc[1]:]); ok {
+				parts = append(parts, strings.TrimSpace(v))
+				opaque = opaque || expands(args[loc[1]:], v)
+			}
 		}
 		if len(parts) == 0 && stdinMsg.MatchString(flags) {
 			if m := stdinDoc.FindStringSubmatch(first); m != nil {
@@ -333,11 +338,29 @@ func commitMessages(cmd string) []commitMsg {
 				}
 			}
 		}
+		// "$msg" is a message only the shell knew.
+		if opaque {
+			continue
+		}
 		if len(parts) > 0 {
 			out = append(out, commitMsg{text: strings.Join(parts, "\n\n"), quiet: quietFlag.MatchString(first), amend: strings.Contains(flags, "--amend")})
 		}
 	}
 	return out
+}
+
+// expands is whether the shell put something into v, an argument given
+// as raw: a variable, a command's output. Single quotes and a quoted
+// heredoc tag keep it as written.
+func expands(raw, v string) bool {
+	if strings.HasPrefix(raw, "'") {
+		return false
+	}
+	if m := heredocArg.FindStringSubmatch(raw); m != nil {
+		tag, _, _ := strings.Cut(raw, "\n")
+		return !strings.ContainsAny(tag[strings.Index(tag, "<<"):], `'"`) && shellSub.MatchString(v)
+	}
+	return shellSub.MatchString(v)
 }
 
 // messageBody is a message's body, without its subject or trailers, and
@@ -930,13 +953,16 @@ func (d *drawer) stepCards(st *Step) []card {
 		return nil
 	}
 	s := d.s
-	k := stepKey{st: st, what: 'c', status: st.Status, out: len(st.Output), res: len(st.Result)}
+	k := stepKey{st: st, what: 'c', status: st.Status, out: len(st.Output), res: len(st.Result), gen: commitsGen.Load()}
 	if v, ok := s.cards[k]; ok {
 		return v
 	}
 	v, ok := s.cardsOld[k]
 	if !ok {
 		v = cardsOf(st)
+		if cs, ok := d.gitCommits(st); ok {
+			v = withCommits(v, cs)
+		}
 	}
 	if s.cards != nil {
 		s.cards[k] = v

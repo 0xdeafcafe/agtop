@@ -76,6 +76,7 @@ type cacheKey struct {
 	focused    bool
 	tick       int
 	now        int64
+	gen        int64 // git lookups finished: a commit card may read differently
 	clock      bool
 	latest     string // the session's newest step, when it's in this turn
 }
@@ -205,7 +206,7 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 }
 
 func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[string]string) cacheKey {
-	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref], pal: palette}
+	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref], pal: palette, gen: commitsGen.Load()}
 	if o.Selected == ref || strings.HasPrefix(o.Selected, ref) && strings.HasPrefix(o.Selected[len(ref):], ":") {
 		k.sel, k.focused = o.Selected, o.Focused
 	}
@@ -998,6 +999,7 @@ type stepKey struct {
 	what                byte
 	status              Status
 	out, res, kids, pal int
+	gen                 int64 // a card's: the git lookups finished when drawn
 }
 
 func (d *drawer) stepMemo(st *Step, what byte, f func(*Step) string) string {
