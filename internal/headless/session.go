@@ -88,6 +88,7 @@ type Session struct {
 	done    chan struct{}
 	err     error
 	stderr  tail
+	guard   *guard
 }
 
 // Start launches Claude Code for o.
@@ -117,6 +118,7 @@ func Start(o Options) (*Session, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	s.guard = startGuard(cmd.Process.Pid)
 	go s.read(stdout, events, o.Tap, o.Skip)
 	go s.writer()
 	return s, nil
@@ -195,6 +197,7 @@ func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte), skip 
 		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
 	}
 	err := s.cmd.Wait()
+	s.guard.end()
 	if lines.Err() != nil {
 		err = fmt.Errorf("reading Claude Code's output: %w", lines.Err())
 	}
