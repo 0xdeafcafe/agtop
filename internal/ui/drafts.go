@@ -104,7 +104,7 @@ func (m *Model) keepDraft(c *hostConn, sent bool) {
 	if a := m.agentByKey(c.key); a != nil {
 		d.Name = a.DisplayName
 	}
-	go func() { _ = state.AddDraft(d) }()
+	addDraftSoon(d)
 }
 
 // wipeBox clears the Session's box, keeping what was in it to undo and in
@@ -128,7 +128,7 @@ func (m *Model) wipePrompt() {
 	}
 	if text := strings.TrimSpace(m.pastes.expand(string(m.input), true)); text != "" {
 		d := state.Draft{Text: text, At: time.Now()}
-		go func() { _ = state.AddDraft(d) }()
+		addDraftSoon(d)
 	}
 	m.input, m.back, m.anchor = nil, 0, 0
 	m.flash("cleared · #drafts brings it back", false)
@@ -301,7 +301,7 @@ func (m *Model) keepSent(c *hostConn, text string) {
 	if a := m.agentByKey(c.key); a != nil {
 		d.Name = a.DisplayName
 	}
-	go func() { _ = state.AddDraft(d) }()
+	addDraftSoon(d)
 }
 
 // clearPrompt empties the Prompt under Agents; a message being written
@@ -331,6 +331,7 @@ type boxMark struct {
 	text           []rune
 	back           int
 	pasteN, imageN int
+	stash          *state.BoxDraft
 	gen            int
 }
 
@@ -338,6 +339,7 @@ type boxMark struct {
 var (
 	pendingDrafts sync.Map // string -> state.BoxDraft
 	draftWrite    sync.Mutex
+	draftWrites   sync.WaitGroup // writes under way off the UI goroutine
 )
 
 type draftSaveMsg struct {
@@ -345,8 +347,15 @@ type draftSaveMsg struct {
 	gen int
 }
 
-// boxDraft is what the box holds now.
+// boxDraft is what the box holds now, and what's stashed.
 func (c *hostConn) boxDraft() state.BoxDraft {
+	d := c.boxOnly()
+	d.Stash = c.stash
+	return d
+}
+
+// boxOnly is what the box holds now.
+func (c *hostConn) boxOnly() state.BoxDraft {
 	d := state.BoxDraft{Text: string(c.input), Back: c.back, PasteN: c.pastes.n, ImageN: c.imgs.N, At: time.Now()}
 	if len(c.pastes.text) > 0 {
 		d.Pastes = make(map[int]string, len(c.pastes.text))
@@ -364,15 +373,19 @@ func (c *hostConn) restoreBox(d state.BoxDraft) {
 	c.back = max(0, min(d.Back, len(c.input)))
 	c.pastes = pastes{n: d.PasteN, text: d.Pastes}
 	c.imgs = imageRefs{N: d.ImageN, Path: d.Images}
+	c.anchor = 0
 }
 
 // openDraft brings back the box's draft when its session opens, unless
 // something is already in it, and from then on keeps it.
 func (m *Model) openDraft(c *hostConn) {
-	if len(c.input) == 0 {
+	if len(c.input) == 0 && c.stash == nil {
 		if d, ok := state.ReadBoxDraft(c.key); ok {
 			c.restoreBox(d)
-			m.paneFocus = true
+			c.stash = d.Stash
+			if len(c.input) > 0 {
+				m.paneFocus = true
+			}
 		}
 	}
 	c.draft.on = true
@@ -382,13 +395,13 @@ func (m *Model) openDraft(c *hostConn) {
 // markDraft notes the box as it is now.
 func (c *hostConn) markDraft() {
 	c.draft.text = append(c.draft.text[:0], c.input...)
-	c.draft.back, c.draft.pasteN, c.draft.imageN = c.back, c.pastes.n, c.imgs.N
+	c.draft.back, c.draft.pasteN, c.draft.imageN, c.draft.stash = c.back, c.pastes.n, c.imgs.N, c.stash
 }
 
 // draftChanged says whether the box differs from when it was last noted.
 func (c *hostConn) draftChanged() bool {
 	return !slices.Equal(c.input, c.draft.text) || c.back != c.draft.back ||
-		c.pastes.n != c.draft.pasteN || c.imgs.N != c.draft.imageN
+		c.pastes.n != c.draft.pasteN || c.imgs.N != c.draft.imageN || c.stash != c.draft.stash
 }
 
 // noteDraft runs after each update: a box that changed is kept in memory at
@@ -412,7 +425,25 @@ func (m *Model) draftSave(msg draftSaveMsg) {
 	if c := m.host; c != nil && c.key == msg.key && c.draft.gen != msg.gen {
 		return // still typing; a later tick writes it
 	}
-	go writeDraft(msg.key)
+	writeDraftSoon(msg.key)
+}
+
+// addDraftSoon keeps d with the past drafts, off the UI goroutine.
+func addDraftSoon(d state.Draft) {
+	draftWrites.Add(1)
+	go func() {
+		defer draftWrites.Done()
+		_ = state.AddDraft(d)
+	}()
+}
+
+// writeDraftSoon writes key's pending draft off the UI goroutine.
+func writeDraftSoon(key string) {
+	draftWrites.Add(1)
+	go func() {
+		defer draftWrites.Done()
+		writeDraft(key)
+	}()
 }
 
 // writeDraft writes the pending draft for key, if there is one. Writes
@@ -425,13 +456,15 @@ func writeDraft(key string) {
 	}
 }
 
-// FlushDrafts writes every draft not yet written. agtop calls it as it
-// quits, and when it is told to end.
+// FlushDrafts writes every draft not yet written, and waits for writes
+// already under way. agtop calls it as it quits, and when it is told to
+// end.
 func FlushDrafts() {
 	pendingDrafts.Range(func(k, _ any) bool {
 		writeDraft(k.(string))
 		return true
 	})
+	draftWrites.Wait()
 }
 
 // EndOnSignals writes the drafts and ends the program when agtop is told
@@ -453,4 +486,54 @@ func EndOnSignals(kill func()) func() {
 		signal.Stop(ch)
 		close(done)
 	}
+}
+
+// --- the stash ---
+
+// boxKeys are the keys that send the box now, steering the turn, and that
+// stash it. ctrl+s is one of them, as the settings say; alt+s the other.
+func (m *Model) boxKeys() (send, stash string) {
+	if m.store != nil && m.store.Config.CtrlSInBox == "stash" {
+		return "alt+s", "ctrl+s"
+	}
+	return "ctrl+s", "alt+s"
+}
+
+// stashBox puts the box's message aside, as Claude Code's ctrl+s does: the
+// box empties for another, and the stashed one comes back once that is
+// sent. On an empty box it brings the stashed one back now; with both, the
+// two change places.
+func (m *Model) stashBox(c *hostConn) {
+	_, key := m.boxKeys()
+	if c.editQ > 0 {
+		m.flash("editing a queued message · enter saves it, esc cancels", false)
+		return
+	}
+	if strings.TrimSpace(string(c.input)) == "" {
+		if c.stash == nil {
+			m.flash("nothing to stash · "+key+" puts a message aside to write another", false)
+			return
+		}
+		c.restoreBox(*c.stash)
+		c.stash, c.undo = nil, undoStack{}
+		return
+	}
+	cur := c.boxOnly()
+	if c.stash != nil {
+		c.restoreBox(*c.stash)
+	} else {
+		c.restoreBox(state.BoxDraft{})
+	}
+	c.stash, c.undo = &cur, undoStack{}
+	m.flash("stashed · it comes back once you send, or "+key+" on an empty box", false)
+}
+
+// unstash brings a stashed message back into the box once the one written
+// over it has gone.
+func (c *hostConn) unstash() {
+	if c.stash == nil || len(c.input) > 0 {
+		return
+	}
+	c.restoreBox(*c.stash)
+	c.stash = nil
 }

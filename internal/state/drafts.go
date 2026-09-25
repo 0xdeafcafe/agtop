@@ -82,11 +82,14 @@ type BoxDraft struct {
 	Pastes map[int]string `json:"pastes,omitempty"`
 	ImageN int            `json:"imageN,omitempty"`
 	Images map[int]string `json:"images,omitempty"`
-	At     time.Time      `json:"at"`
+	// Stash is a message put aside to write another; it comes back once
+	// that one is sent.
+	Stash *BoxDraft `json:"stash,omitempty"`
+	At    time.Time `json:"at"`
 }
 
 // Empty says there's nothing in it to keep.
-func (d BoxDraft) Empty() bool { return strings.TrimSpace(d.Text) == "" }
+func (d BoxDraft) Empty() bool { return strings.TrimSpace(d.Text) == "" && d.Stash == nil }
 
 var boxDraftMu sync.Mutex
 

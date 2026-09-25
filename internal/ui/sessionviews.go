@@ -25,8 +25,8 @@ import (
 // The queue's keys never need alt, which a Mac's option key doesn't send
 // unless the terminal is told to. ↑ from the empty box picks the last
 // queued message, in the dock or here; a picked message takes plain keys
-// (anything else goes back to typing), and ctrl+s always sends everything
-// waiting, now.
+// (anything else goes back to typing), and the send-now key (ctrl+s, or
+// alt+s when ctrl+s stashes) always sends everything waiting, now.
 
 // queueLines lists the messages waiting for the agent, each as you wrote
 // it, line breaks kept; a picked one shows whole.

@@ -2077,6 +2077,13 @@ func (m *Model) cwdBody() []string {
 	return out
 }
 
+// The keys for sending now and stashing depend on the settings; the guide
+// names them where these stand.
+const (
+	keySendNow = "\x00send"
+	keyStash   = "\x00stash"
+)
+
 // helpPages are the guide's tabs: a key and what it does.
 var helpPages = []struct {
 	name string
@@ -2089,6 +2096,8 @@ var helpPages = []struct {
 		{"/", "Claude commands"},
 		{"⌘z · ctrl+/", "undo in a box, a cleared one too"},
 		{"#drafts", "what you typed before · ctrl+r in a Session"},
+		{keySendNow, "send now, steering the turn"},
+		{keyStash, "stash the message · again on an empty box brings it back"},
 	}},
 	{"▤ Agents", [][2]string{
 		{"↑↓", "pick one"},
@@ -2121,7 +2130,18 @@ func (m *Model) helpBody() []string {
 	}
 	out := []string{strings.Join(tabs, " "), ""}
 	page := helpPages[m.helpPage]
-	for _, r := range keyRows(page.rows) {
+	send, stash := m.boxKeys()
+	rows := make([][2]string, len(page.rows))
+	for i, r := range page.rows {
+		switch r[0] {
+		case keySendNow:
+			r[0] = send
+		case keyStash:
+			r[0] = stash
+		}
+		rows[i] = r
+	}
+	for _, r := range keyRows(rows) {
 		out = append(out, r, "")
 	}
 	// Every tab as tall as the tallest, so the box stays put.

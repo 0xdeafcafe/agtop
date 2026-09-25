@@ -79,6 +79,10 @@ type Config struct {
 	// SearchTranscriptsOnKey keeps ctrl+k to agent names and commands while
 	// you type; ctrl+enter (or ctrl+j) then searches the transcripts.
 	SearchTranscriptsOnKey bool `json:"searchTranscriptsOnKey,omitempty"`
+	// CtrlSInBox is what ctrl+s does in a Session's box: "" sends the
+	// message now, steering the turn, and alt+s stashes it; "stash" puts
+	// the message aside, as Claude Code does, and alt+s sends now.
+	CtrlSInBox string `json:"ctrlSInBox,omitempty"`
 	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitempty"`

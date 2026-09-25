@@ -106,7 +106,7 @@ An agent run in agtop mode (Claude Code headless, hosted by agtop) opens in a Se
       <b>Subagents</b>. Every run, with its steps, tokens, cost and last words. <code>enter</code> watches one.
     </td>
     <td valign="top">
-      <b>Queue</b>. Messages sent while the agent works wait here. <code>enter</code> edits one, <code>shift+↑↓</code> merges it into the one above or below, <code>[</code> <code>]</code> move it, <code>s</code> sends it now, <code>ctrl+s</code> sends everything.<br><br>
+      <b>Queue</b>. Messages sent while the agent works wait here. <code>enter</code> edits one, <code>shift+↑↓</code> merges it into the one above or below, <code>[</code> <code>]</code> move it, <code>s</code> sends it now, <code>ctrl+s</code> (<code>alt+s</code> when ctrl+s stashes) sends everything.<br><br>
       Claude's questions arrive as one form, with a preview beside each option. Long pastes stay a chip.
     </td>
   </tr>
@@ -235,6 +235,7 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `,` `.` · `ctrl+\` | Agents · Efficiency · Machine · Settings; in a Session's box `,` `.` `<` `>` are typed, so `ctrl+\` |
 | `ctrl+r` `ctrl+t` `ctrl+e` | rename, pin, set group |
 | `ctrl+s` | group by status, repository, account, your groups |
+| `ctrl+s` `alt+s` in a Session's box | send now, steering the turn; stash the message for later, back after the next send or on the key again in an empty box. Settings › General › *ctrl+s in the box* › *stash (like Claude Code)* swaps them |
 | `alt+d` | done |
 | `ctrl+x` | stop; twice on a stopped agent deletes it |
 | `ctrl+l` | change repo |

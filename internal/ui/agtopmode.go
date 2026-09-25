@@ -24,6 +24,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fswait"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // Pane views, cycled with [ and ]: every session has a conversation and an
@@ -709,10 +710,11 @@ type hostConn struct {
 
 	input    []rune
 	back     int
-	anchor   int       // selection start + 1; 0 when nothing is selected
-	imgs     imageRefs // images in the box, each [Image #N] in its text
-	draft    boxMark   // the box as last kept on disk (drafts.go)
-	box      box       // the message box as last drawn, and where
+	anchor   int             // selection start + 1; 0 when nothing is selected
+	imgs     imageRefs       // images in the box, each [Image #N] in its text
+	draft    boxMark         // the box as last kept on disk (drafts.go)
+	stash    *state.BoxDraft // a message put aside, back once the next is sent
+	box      box             // the message box as last drawn, and where
 	boxIdx   int
 	boxY     int
 	editQ    int                                         // queued message being edited in the box, +1; 0 when none
@@ -936,7 +938,7 @@ func (m *Model) dropHost() {
 	if m.host != nil {
 		m.host.unwatch()
 		if m.host.draft.on {
-			go writeDraft(m.host.key) // what was typed there is kept now
+			writeDraftSoon(m.host.key) // what was typed there is kept now
 		}
 	}
 	if m.host != nil && m.host.client != nil {
@@ -1462,6 +1464,7 @@ func firstNonEmpty(xs ...string) string {
 // the subagents working, the queue, a card waiting, and the input box.
 func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	s := c.sess
+	sendKey, stashKey := m.boxKeys()
 	// A card answered from the card hands the keys on to the next one
 	// (the review after a question, the plan to approve after it) as long
 	// as nothing's been typed or picked since.
@@ -1573,13 +1576,13 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		if qs.held {
 			// Never silently stuck: say it's held and how it goes.
-			when = paint(cYellow, " · held") + dim(" · ctrl+s sends it now")
+			when = paint(cYellow, " · held") + dim(" · "+sendKey+" sends it now")
 		}
 		inView := m.viewName(c) == "queue"
 		pick, picked := queueSel(c, len(q))
 		var how string
 		if m.paneFocus && !picked && len(c.input) == 0 && !inView {
-			how = keys("↑", "edit or reorder", "ctrl+s", "send now") + "  "
+			how = keys("↑", "edit or reorder", sendKey, "send now") + "  "
 		}
 		line(spread(" "+paint(cQueue, "⋯ ")+paint(cQueue+bold, fmt.Sprintf("queue %d", len(q)))+when, how, w))
 		if !inView {
@@ -1625,7 +1628,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	case c.client == nil && busy(a):
 		top += dim(" · working, so ") + paint(cOrange, "enter queues")
 		if len(c.input) > 0 {
-			top += dim(" · ctrl+s sends it now")
+			top += dim(" · " + sendKey + " sends it now")
 		}
 	case c.client == nil:
 		top += dim(" · enter replies through Claude Code")
@@ -1636,7 +1639,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	case s.Live() != nil:
 		top += dim(" · working, so ") + paint(cOrange, "enter queues")
 		if len(c.input) > 0 {
-			top += dim(" · ctrl+s sends it now")
+			top += dim(" · " + sendKey + " sends it now")
 		}
 	default:
 		top += dim(" · enter sends")
@@ -1663,15 +1666,30 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	if c.editQ > 0 {
 		b.topL = paint(cOrange, fmt.Sprintf("editing queued message %d", c.editQ)) + dim(" · enter saves it back · esc cancels")
 	}
+	if c.stash != nil {
+		// Something is put aside: say so, and how it comes back.
+		if len(c.input) == 0 {
+			b.footL = paint(cQueue, "stashed") + dim(" · "+stashKey+" to restore")
+		} else {
+			b.footL = paint(cQueue, "stashed") + dim(" · back after you send")
+		}
+	}
 	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
 	pairs := []string{"enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list"}
 	switch {
+	case len(c.input) > 0 && c.editQ == 0:
+		pairs = append(pairs[:2:2], append([]string{stashKey, "stash"}, pairs[2:]...)...)
+	case c.stash != nil:
+		pairs = append(pairs[:2:2], append([]string{stashKey, "restore stashed"}, pairs[2:]...)...)
+	}
+	switch {
 	case m.soloAlone():
-		pairs[4], pairs[5] = "esc", "close"
-		pairs = append(pairs[:6:6], append([]string{"ctrl+6", "Agents"}, pairs[6:]...)...)
+		i := slices.Index(pairs, "esc · ←")
+		pairs[i], pairs[i+1] = "esc", "close"
+		pairs = append(pairs[:i+2:i+2], append([]string{"ctrl+6", "Agents"}, pairs[i+2:]...)...)
 	case m.store.Config.View == "agent" && m.chatAlone() && !m.zen:
-		pairs[5] = "peek at Agents"
+		pairs[slices.Index(pairs, "esc · ←")+1] = "peek at Agents"
 	}
 	if l, _ := m.widths(); l == 0 {
 		// The Session alone: how to have Agents beside it is kept in view.
@@ -1712,7 +1730,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if _, ok := queueSel(c, len(qs.items)); ok {
 			hint = queueHint(qs, w-4)
 		} else if m.viewName(c) == "queue" && len(c.input) == 0 {
-			hint = keysFit(w-4, "↑↓", "pick a message", "ctrl+s", "send it all now", "[ ]", "views")
+			hint = keysFit(w-4, "↑↓", "pick a message", sendKey, "send it all now", "[ ]", "views")
 		}
 	}
 	if !m.paneFocus {
@@ -1865,6 +1883,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if s == "ctrl+v" {
 		return pasteClipImage()
 	}
+	sendKey, stashKey := m.boxKeys()
 	switch s {
 	case "esc":
 		switch {
@@ -1967,7 +1986,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 		return m.sendPane(c, false)
-	case "ctrl+s":
+	case sendKey:
 		// Now, whatever's waiting: the queue, then what's in the box.
 		if !empty {
 			return m.sendPane(c, true)
@@ -1975,6 +1994,10 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		if len(m.queueOf(c).items) > 0 {
 			return m.sendQueueNow(c, "")
 		}
+		return nil
+	case stashKey:
+		m.stashBox(c)
+		return nil
 	case "up", "down":
 		if empty {
 			m.moveSel(c, map[string]int{"up": -1, "down": 1}[s])
@@ -2279,11 +2302,13 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	}
 	if isHashCmd(text) {
 		c.input, c.back = c.input[:0], 0
+		c.unstash()
 		return m.command(m.agentByKey(c.key), text)
 	}
 	if strings.HasPrefix(text, "/") {
 		if cmd, ok := m.runAgtopCommand(c, text); ok {
 			c.input, c.back = c.input[:0], 0
+			c.unstash()
 			return cmd
 		}
 		if !c.sendRaw && m.askUnknown(c, text, func() tea.Cmd {
@@ -2306,6 +2331,7 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	m.keepSent(c, text)
 	c.input, c.back, c.imgs = nil, 0, imageRefs{}
 	c.undo = undoStack{}
+	c.unstash()
 	c.scroll = 0
 	c.lastSend = time.Now()
 	if a := m.focused(); a != nil {
