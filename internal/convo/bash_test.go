@@ -57,3 +57,21 @@ func TestChainFlagValues(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// A chain's parts line up their own lines: grep's long path prefix doesn't
+// push sed's code or ls's names out to meet it.
+func TestChainOutputAlignsEachPart(t *testing.T) {
+	s := New()
+	s.Info.Cwd = "/work"
+	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 120, Open: map[string]bool{}, Verbose: true}, cw: 120}
+	d.spans = d.chainSpans(`sed -n 1,3p internal/convo/render.go; grep -rn "Cwd" internal/convo/model.go | head; ls internal`)
+	d.output("}\n\nfunc bashOut(st *Step) string {\ninternal/convo/model.go:12:\tCwd string\ninternal/convo/model.go:40:\ts.Cwd = cwd\nsqueeze\nstate", 8, false)
+	var got []string
+	for _, l := range d.lines {
+		got = append(got, strings.TrimRight(strings.SplitN(stripANSI(l.Text), "▏", 2)[1], " "))
+	}
+	want := []string{"}", "", "func bashOut(st *Step) string {", "internal/convo/model.go:12:Cwd string", "internal/convo/model.go:40:s.Cwd = cwd", "squeeze", "state"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("chain output\n got %q\nwant %q", got, want)
+	}
+}

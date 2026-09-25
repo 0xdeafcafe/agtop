@@ -2260,17 +2260,33 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		return n, path, lg
 	}
 	// Code lines start in one column after their prefixes, less the
-	// indentation they all share.
-	prefixW, shared := 0, -1
+	// indentation they all share: a chain's parts each line up their own,
+	// and lines with no prefix aren't pushed along to meet the others.
+	group := func(i, n int) int {
+		g := 0
+		if i < len(spanOf) {
+			g = spanOf[i] + 1
+		}
+		if n > 0 {
+			return g*2 + 1
+		}
+		return g * 2
+	}
+	prefixW, shared := make([]int, 2*len(d.spans)+2), make([]int, 2*len(d.spans)+2)
+	for g := range shared {
+		shared[g] = -1
+	}
 	for i, l := range lines {
 		l = expandTabs(cleanOutput(l))
 		n, _, lg := code(i, l)
 		if lg == nil || strings.TrimSpace(l[n:]) == "" {
 			continue
 		}
-		prefixW = max(prefixW, cellw.String(l[:n]))
-		if ind := len(l[n:]) - len(strings.TrimLeft(l[n:], " ")); shared < 0 || ind < shared {
-			shared = ind
+		g := group(i, n)
+		prefixW[g] = max(prefixW[g], cellw.String(l[:n]))
+		ind := len(l[n:]) - len(strings.TrimLeft(l[n:], " "))
+		if shared[g] < 0 || ind < shared[g] {
+			shared[g] = ind
 		}
 	}
 	last := -1
@@ -2293,10 +2309,11 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		}
 		if n, path, lg := code(i, l); lg != nil {
 			d.carry(path, l[:n])
-			pre := l[:n] + strings.Repeat(" ", max(0, prefixW-cellw.String(l[:n])))
+			g := group(i, n)
+			pre := l[:n] + strings.Repeat(" ", max(0, prefixW[g]-cellw.String(l[:n])))
 			body := l[n:]
-			if len(body)-len(strings.TrimLeft(body, " ")) >= shared && shared > 0 {
-				body = body[shared:]
+			if sh := shared[g]; sh > 0 && len(body)-len(strings.TrimLeft(body, " ")) >= sh {
+				body = body[sh:]
 			}
 			body = truncateCells(body, max(4, w-cellw.String(pre)))
 			d.add("", b, pad+edge+faint(pre)+highlight(lg, &d.hs, body, cOut, nil), "")
