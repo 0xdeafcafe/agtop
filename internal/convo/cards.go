@@ -146,6 +146,10 @@ var (
 	msgFlag    = regexp.MustCompile(`(?:^|\s)(?:-a?m|--message)(?:=|\s*)`)
 	trailer    = regexp.MustCompile(`(?i)^(co-authored-by|signed-off-by):\s*(.*?)\s*(?:<[^>]*>)?\s*$`)
 	heredocArg = regexp.MustCompile(`^"?\$\(cat\s*<<-?\s*['"]?(\w+)['"]?`)
+	stdinMsg   = regexp.MustCompile(`(?:^|\s)(?:-F\s*|--file[=\s])-(?:\s|$)`)
+	stdinDoc   = regexp.MustCompile(`<<-?\s*['"]?(\w+)['"]?`)
+	quietFlag  = regexp.MustCompile(`(?:^|\s)(?:-q|--quiet)(?:\s|$)|>\s*/dev/null`)
+	logOneline = regexp.MustCompile(`^([0-9a-f]{7,40}) (?:\([^)]*\) )?(.*)$`)
 )
 
 // gitCall is one git command of a chain: what it was, and its arguments up
@@ -205,7 +209,7 @@ func cardsOf(st *Step) []card {
 		}
 	}
 	if has("commit", "cherry-pick", "revert") {
-		cs = append(cs, commitCards(lines, cmd)...)
+		cs = append(cs, commitCards(lines, cmd, st.Status == OK)...)
 	}
 	if has("push") {
 		if c, ok := pushCard(lines); ok {
@@ -232,8 +236,10 @@ func cardsOf(st *Step) []card {
 }
 
 // commitCards reads each commit git reported: "[main 3225847] subject" and
-// the " 2 files changed, …" under it.
-func commitCards(lines []string, cmd string) []card {
+// the " 2 files changed, …" under it. A commit told to be quiet reports
+// nothing, so one that went through is read from its message instead, and
+// its hash from a git log --oneline after it, when there's one.
+func commitCards(lines []string, cmd string, ok bool) []card {
 	var cs []card
 	msgs := commitMessages(cmd)
 	for i, l := range lines {
@@ -258,8 +264,26 @@ func commitCards(lines []string, cmd string) []card {
 			}
 		}
 		for _, msg := range msgs {
-			if subj, _, _ := strings.Cut(msg, "\n"); strings.TrimSpace(subj) == strings.TrimSpace(c.subject) {
-				c.body, c.with = messageBody(msg)
+			if subj, _, _ := strings.Cut(msg.text, "\n"); strings.TrimSpace(subj) == strings.TrimSpace(c.subject) {
+				c.body, c.with = messageBody(msg.text)
+				break
+			}
+		}
+		cs = append(cs, c)
+	}
+	if !ok {
+		return cs
+	}
+	for _, msg := range msgs {
+		if !msg.quiet {
+			continue
+		}
+		subj, _, _ := strings.Cut(msg.text, "\n")
+		c := card{kind: "commit", subject: strings.TrimSpace(subj), amend: msg.amend}
+		c.body, c.with = messageBody(msg.text)
+		for _, l := range lines {
+			if m := logOneline.FindStringSubmatch(strings.TrimSpace(l)); m != nil && strings.TrimSpace(m[2]) == c.subject {
+				c.sha = m[1]
 				break
 			}
 		}
@@ -268,10 +292,18 @@ func commitCards(lines []string, cmd string) []card {
 	return cs
 }
 
+// commitMsg is the message a git commit was given, and whether it was
+// told to keep quiet about it.
+type commitMsg struct {
+	text         string
+	quiet, amend bool
+}
+
 // commitMessages is the message each git commit in cmd was given with -m,
-// its -m's joined as git joins them, into paragraphs.
-func commitMessages(cmd string) []string {
-	var out []string
+// its -m's joined as git joins them, into paragraphs, or with -F - from a
+// heredoc.
+func commitMessages(cmd string) []commitMsg {
+	var out []commitMsg
 	locs := gitVerb.FindAllStringSubmatchIndex(cmd, -1)
 	for i, loc := range locs {
 		end := len(cmd)
@@ -281,12 +313,26 @@ func commitMessages(cmd string) []string {
 		if v := cmd[loc[2]:loc[3]]; v != "commit" {
 			continue
 		}
+		args := cmd[loc[1]:end]
+		first, _, _ := strings.Cut(args, "\n")
+		// What's past the command's own line is a heredoc's, not its flags.
+		flags := first
+		if k := strings.IndexAny(flags, ";&|"); k >= 0 {
+			flags = flags[:k]
+		}
 		var parts []string
-		for _, f := range flagValues(cmd[loc[1]:end], msgFlag) {
+		for _, f := range flagValues(args, msgFlag) {
 			parts = append(parts, strings.TrimSpace(f))
 		}
+		if len(parts) == 0 && stdinMsg.MatchString(flags) {
+			if m := stdinDoc.FindStringSubmatch(first); m != nil {
+				if v, ok := argValue("$(cat <<'" + m[1] + "'" + args[len(first):]); ok {
+					parts = append(parts, strings.TrimSpace(v))
+				}
+			}
+		}
 		if len(parts) > 0 {
-			out = append(out, strings.Join(parts, "\n\n"))
+			out = append(out, commitMsg{text: strings.Join(parts, "\n\n"), quiet: quietFlag.MatchString(first), amend: strings.Contains(flags, "--amend")})
 		}
 	}
 	return out
@@ -897,6 +943,9 @@ func (d *drawer) card(c card, indent int) {
 	switch c.kind {
 	case "commit":
 		headL = glyph("●") + paint(cYellow, shortSHA(c.sha))
+		if c.sha == "" {
+			headL = glyph("●") + dim("committed")
+		}
 		if c.branch != "" {
 			headL += faint(" · ") + paint(cBlue, c.branch)
 		}

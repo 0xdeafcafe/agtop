@@ -34,6 +34,11 @@ func TestCommitCards(t *testing.T) {
 		{"two commits in a chain", `git commit -m "a" a.go && git commit -m "b" b.go`,
 			"[main 1111111] a\n 1 file changed, 1 deletion(-)\n[main 2222222] b\n 1 file changed, 1 insertion(+)\n",
 			[]card{{kind: "commit", branch: "main", sha: "1111111", subject: "a", files: 1, del: 1}, {kind: "commit", branch: "main", sha: "2222222", subject: "b", files: 1, add: 1}}},
+		{"quiet, -F - from a heredoc, log after", "git add a.go && git commit -q -F - <<'EOF'\nfix(ui): hovering lights a row\n\nOnly a click selects it.\nEOF\ngit add b.go && git commit --quiet -m \"feat: b\" >/dev/null\ngit log --oneline -3",
+			"ca5fad6 (HEAD -> main) feat: b\nd01e709 fix(ui): hovering lights a row\n4d467c4 feat(convo): older\n",
+			[]card{{kind: "commit", sha: "d01e709", subject: "fix(ui): hovering lights a row", body: []string{"Only a click selects it."}},
+				{kind: "commit", sha: "ca5fad6", subject: "feat: b"}}},
+		{"quiet, no log", `git commit -q -m "x"`, "", []card{{kind: "commit", subject: "x"}}},
 		{"nothing to commit", `git commit -m "x"`, "On branch main\nnothing to commit, working tree clean\n", nil},
 		{"not a commit", "cat notes.txt", "[main 3225847] looks like one\n", nil},
 	} {
