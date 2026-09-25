@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -58,7 +59,28 @@ func setup(t *testing.T) (bin string) {
 				c.Close()
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		// A stopped session's host stays up for the next message; the test
+		// binary standing in for agtop must not outlive the test. Only this
+		// test's home is looked at.
+		if os.Getenv("AGTOP_HOME") != home {
+			os.RemoveAll(home)
+			return
+		}
+		for _, i := range host.List() {
+			if i.HostPID > 0 {
+				_ = syscall.Kill(i.HostPID, syscall.SIGTERM)
+			}
+		}
+		for _, i := range host.List() {
+			for deadline := time.Now().Add(3 * time.Second); i.HostPID > 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+				if syscall.Kill(i.HostPID, 0) != nil {
+					break
+				}
+			}
+			if i.HostPID > 0 {
+				_ = syscall.Kill(i.HostPID, syscall.SIGKILL)
+			}
+		}
 		os.RemoveAll(home)
 	})
 	return bin

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -56,6 +57,19 @@ func setup(t *testing.T) (bin string) {
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
 	t.Setenv("AGTOP_HOME", home)
+	// Registered after Setenv, so it runs before AGTOP_HOME is restored:
+	// the hosts the test started, and any a restart left, must not outlive
+	// it, and only this test's home is looked at.
+	t.Cleanup(func() {
+		if os.Getenv("AGTOP_HOME") != home {
+			return
+		}
+		for _, i := range List() {
+			if i.HostPID > 0 && i.HostPID != os.Getpid() {
+				_ = syscall.Kill(i.HostPID, syscall.SIGKILL)
+			}
+		}
+	})
 	bin = filepath.Join(home, "claude")
 	if err := os.WriteFile(bin, []byte(fakeClaude), 0o755); err != nil {
 		t.Fatal(err)
