@@ -93,6 +93,10 @@ type ImageData struct {
 	Path      string // where agtop keeps a copy, when it does
 }
 
+// CallUpdated is a tool call already sent, as it now reads: agents that
+// announce a call before its input is known fill it in later.
+type CallUpdated struct{ Call tool.Call }
+
 // Approval asks whether a tool call may run. Options are the answers the
 // agent takes; the host answers with one of their IDs.
 type Approval struct {
@@ -120,7 +124,8 @@ type Option struct {
 	Kind  OptionKind
 }
 
-// ApprovalCancelled withdraws an Approval, e.g. after an interrupt.
+// ApprovalCancelled withdraws an Approval or a Question, e.g. after an
+// interrupt.
 type ApprovalCancelled struct{ ID string }
 
 // Denied reports a tool call refused without asking.
@@ -258,6 +263,7 @@ func (MessageStart) event()      {}
 func (PartStart) event()         {}
 func (Delta) event()             {}
 func (Message) event()           {}
+func (CallUpdated) event()       {}
 func (Approval) event()          {}
 func (ApprovalCancelled) event() {}
 func (Denied) event()            {}
