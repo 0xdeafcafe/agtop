@@ -519,8 +519,12 @@ func (m *Model) flash(s string, err bool) {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	logged := m.logInput(msg)
 	_, cmd := m.update(msg)
 	m.pinSolo()
+	if logged != nil {
+		logged(cmd)
+	}
 	m.applyJump()
 	_, isTick := msg.(tickMsg)
 	m.noteProgress(isTick)
