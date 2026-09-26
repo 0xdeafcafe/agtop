@@ -124,3 +124,19 @@ loop:
 		}
 	}
 }
+
+func TestAccounts(t *testing.T) {
+	a := Adapter{Config: func() state.Config {
+		return state.Config{Logins: []claude.Login{{Name: "work", ID: "u-1", Email: "me@x"}}}
+	}}
+	accts := a.Accounts()
+	if len(accts) != 1 || accts[0].Key != "claude:login:u-1" || accts[0].Email != "me@x" {
+		t.Fatalf("Accounts = %+v", accts)
+	}
+	if l, ok := a.login(accts[0]); !ok || l.ID != "u-1" {
+		t.Errorf("login(%+v) = %+v, %v", accts[0], l, ok)
+	}
+	if err := a.Switch(agent.Profile{Dir: t.TempDir()}, agent.Account{Key: "claude:login:nobody"}); err == nil {
+		t.Error("switched to a login agtop doesn't have")
+	}
+}
