@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
 // Totals is what one transcript file has cost so far. It is small and
@@ -80,26 +82,9 @@ func (t *Totals) DaySpend(day string) float64 {
 	return c
 }
 
-// Preview is the tail of a transcript: what the agent is doing right now.
-type Preview struct {
-	Text     string
-	Tool     string
-	ToolArg  string
-	Doing    string // the tool call in words: "running pnpm test"
-	At       time.Time
-	Model    string
-	LastUser string
-	Context  int64 // tokens the last request sent: how full the context window is
-	Recent   []Event
-	First    Event // the message that started the conversation
-}
+type Preview = agent.Preview
 
-// Event is one step of the conversation tail: a prompt, a reply or a tool call.
-type Event struct {
-	Role string // user, assistant, tool
-	Text string
-	At   time.Time
-}
+type Event = agent.Line
 
 // ContextWindow is the model's window; everything current but Haiku has 1M.
 func ContextWindow(model string) int64 {
@@ -392,13 +377,11 @@ func recentEvents(lines [][]byte, n int) []Event {
 	return out
 }
 
-// SubagentStats counts a session's subagents from their metadata files:
-// how many it ever spawned, and how many are running (written in the last
-// 90s) directly and at any depth.
-type SubagentStats struct {
-	Spawned, Direct, Nested int
-}
+type SubagentStats = agent.SubagentStats
 
+// ReadSubagentStats counts a session's subagents from their metadata
+// files: how many it ever spawned, and how many are running (written in
+// the last 90s) directly and at any depth.
 func ReadSubagentStats(mainPath string, now time.Time) SubagentStats {
 	var st SubagentStats
 	dir := filepath.Join(strings.TrimSuffix(mainPath, ".jsonl"), "subagents")

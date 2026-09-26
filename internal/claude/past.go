@@ -9,18 +9,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
-// Convo is what the list shows of a conversation nothing has open, read
-// from its transcript alone.
-type Convo struct {
-	SessionID string
-	Cwd       string
-	// Title is its /rename, or else the title Claude Code gave it, or else
-	// its first prompt.
-	Title   string
-	Started time.Time
-}
+type Convo = agent.Convo
 
 // convoBufs are ReadConvo's read buffers: the list reads every transcript
 // at start, and a fresh 192 KB each would be most of what it allocates.

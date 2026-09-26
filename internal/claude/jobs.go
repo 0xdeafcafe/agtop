@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
 // Job is one background session as Claude Code records it under jobs/<short>.
@@ -42,17 +44,9 @@ type Job struct {
 
 func (j Job) Live() bool { return j.State == "working" || j.State == "blocked" }
 
-type Todo struct {
-	Label         string
-	Done, Started bool
-}
+type Todo = agent.Todo
 
-// Task is something an agent started that runs beside it.
-type Task struct {
-	Kind      string // agent, shell, monitor
-	Label     string
-	StartedAt time.Time
-}
+type Task = agent.Task
 
 // Busy is a finished turn whose background work is still running.
 func (j Job) Busy() bool { return !j.Live() && j.InFlight > 0 && len(j.Background) > 0 }

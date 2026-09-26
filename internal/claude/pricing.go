@@ -1,6 +1,10 @@
 package claude
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+)
 
 // Price is dollars per million tokens. CacheRead of zero means 0.1x input.
 type Price struct {
@@ -39,21 +43,7 @@ func PriceFor(model string) (Price, bool) {
 	return best, bestLen >= 0
 }
 
-type TokenUsage struct {
-	Input, Output, CacheRead, CacheWrite5m, CacheWrite1h int64
-}
-
-func (u *TokenUsage) Add(o TokenUsage) {
-	u.Input += o.Input
-	u.Output += o.Output
-	u.CacheRead += o.CacheRead
-	u.CacheWrite5m += o.CacheWrite5m
-	u.CacheWrite1h += o.CacheWrite1h
-}
-
-func (u TokenUsage) Total() int64 {
-	return u.Input + u.Output + u.CacheRead + u.CacheWrite5m + u.CacheWrite1h
-}
+type TokenUsage = usage.TokenUsage
 
 // Cost estimates dollars; fast mode is billed at twice the standard rate.
 func Cost(model string, u TokenUsage, fast bool) float64 {

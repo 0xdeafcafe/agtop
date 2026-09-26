@@ -9,18 +9,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
-// Command is a slash command or skill a session can run.
-type Command struct {
-	Name         string
-	Description  string
-	ArgumentHint string
-	Skill        bool
-	Path         string // its SKILL.md or command file
-	Source       string // yours, project, claude.ai, or the plugin's name
-	Size         int64  // of the file: roughly what using it adds
-}
+type Command = agent.Command
 
 var (
 	cmdMu    sync.Mutex

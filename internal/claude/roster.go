@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
 // Worker is a live background session as the daemon tracks it.
@@ -59,18 +61,7 @@ func ReadRoster(a Account) Roster {
 	return r
 }
 
-type PR struct {
-	URL    string `json:"-"`
-	Title  string `json:"title"`
-	Number int    `json:"number"`
-	State  string `json:"state"`
-	Review string `json:"review"`
-	Checks struct {
-		Passed  int `json:"passed"`
-		Failed  int `json:"failed"`
-		Pending int `json:"pending"`
-	} `json:"checks"`
-}
+type PR = agent.PR
 
 // ReadPRCache reuses Claude Code's own GitHub status cache; agtop makes no GitHub calls.
 func ReadPRCache(a Account) map[string]PR {
