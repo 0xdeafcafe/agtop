@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -133,7 +134,9 @@ type Spend struct {
 
 type AccountView struct {
 	claude.Account
-	Usage   claude.Usage
+	Usage claude.Usage // who it's signed in as, and its plan
+	// Quota is the plan's limits, as Usage read them.
+	Quota   usage.Quota
 	Daemon  bool
 	Live    int
 	Agents  int
@@ -400,6 +403,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		}).(map[string]int)
 		av := AccountView{Account: acct, Daemon: daemon.Client{Account: acct}.Running(), Current: acct.Name == active.Name}
 		av.Usage = l.readUsage(acct)
+		av.Quota = av.Usage.Quota(claude.UsageKey(acct, av.Usage))
 		sessions := l.sessions(acct)
 		byJob := map[string]claude.Session{}
 		for _, ss := range sessions {

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -14,7 +15,9 @@ import (
 // LoginView is one login with its plan usage.
 type LoginView struct {
 	claude.Login
-	Usage   claude.Usage
+	Usage claude.Usage // who it is, and its plan
+	// Quota is the plan's limits, as Usage read them.
+	Quota   usage.Quota
 	Current bool // the one ~/.claude is signed in as
 }
 
@@ -37,6 +40,7 @@ func (l *Loader) logins(cfg state.Config, root AccountView, now time.Time) []Log
 			v.Usage.Plan, v.Usage.Role, v.Usage.Billing, v.Usage.OrgType, v.Usage.Extra = root.Usage.Plan, root.Usage.Role, root.Usage.Billing, root.Usage.OrgType, root.Usage.Extra
 		}
 		v.Usage = v.Usage.Since(now)
+		v.Quota = v.Usage.Quota(lg.UsageKey())
 		out = append(out, v)
 	}
 	return out
@@ -158,10 +162,10 @@ func NextLogin(logins []LoginView, stopped bool) (LoginView, bool) {
 	var cur *LoginView
 	var others []LoginView
 	for i := range logins {
-		switch u := logins[i].Usage; {
+		switch q := logins[i].Quota; {
 		case logins[i].Current:
 			cur = &logins[i]
-		case time.Since(u.FetchedAt) < otherFor && (u.FiveHour.Present || u.SevenDay.Present):
+		case time.Since(q.FetchedAt) < otherFor && len(q.Windows) > 0:
 			// Only a login with a reading: one agtop can't read (signed
 			// out, expired) would look empty. A login not in use only
 			// empties, so an older reading of it still holds.
@@ -171,15 +175,15 @@ func NextLogin(logins []LoginView, stopped bool) (LoginView, bool) {
 	if cur == nil || len(others) == 0 {
 		return LoginView{}, false
 	}
-	used := cur.Usage.Used()
-	fresh := time.Since(cur.Usage.FetchedAt) < 3*claude.UsageEvery
+	used := cur.Quota.Used("")
+	fresh := time.Since(cur.Quota.FetchedAt) < 3*claude.UsageEvery
 	if !stopped && !(fresh && used >= state.SwitchAt) {
 		return LoginView{}, false
 	}
-	sort.SliceStable(others, func(i, j int) bool { return others[i].Usage.Used() < others[j].Usage.Used() })
+	sort.SliceStable(others, func(i, j int) bool { return others[i].Quota.Used("") < others[j].Quota.Used("") })
 	best := others[0]
 	out := stopped || used >= 100
-	switch b := best.Usage.Used(); {
+	switch b := best.Quota.Used(""); {
 	case b >= 100, !out && (b >= state.SwitchAt || b >= used):
 		return LoginView{}, false
 	}

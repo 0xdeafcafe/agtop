@@ -13,11 +13,11 @@ func loginAt(id string, current bool, fiveHour, sevenDay float64) LoginView {
 	return LoginView{
 		Login:   claude.Login{ID: id, Name: id},
 		Current: current,
-		Usage: claude.Usage{
+		Quota: claude.Usage{
 			FetchedAt: time.Now(),
 			FiveHour:  claude.Window{Present: true, Percent: fiveHour},
 			SevenDay:  claude.Window{Present: true, Percent: sevenDay},
-		},
+		}.Quota(id),
 	}
 }
 
@@ -57,9 +57,9 @@ func TestNextLogin(t *testing.T) {
 func TestNextLoginSkipsLoginsWithoutReading(t *testing.T) {
 	unread := LoginView{Login: claude.Login{ID: "b"}}
 	stale := loginAt("c", false, 0, 0)
-	stale.Usage.FetchedAt = time.Now().Add(-2 * time.Hour)
+	stale.Quota.FetchedAt = time.Now().Add(-2 * time.Hour)
 	older := loginAt("e", false, 0, 0)
-	older.Usage.FetchedAt = time.Now().Add(-40 * time.Minute)
+	older.Quota.FetchedAt = time.Now().Add(-40 * time.Minute)
 	if got, ok := NextLogin([]LoginView{loginAt("a", true, 100, 55), older}, false); !ok || got.ID != "e" {
 		t.Fatalf("got %q (%v), want e: a login not in use only empties", got.ID, ok)
 	}
@@ -71,7 +71,7 @@ func TestNextLoginSkipsLoginsWithoutReading(t *testing.T) {
 
 func TestNextLoginIgnoresStaleReading(t *testing.T) {
 	cur := loginAt("a", true, 99, 40)
-	cur.Usage.FetchedAt = time.Now().Add(-time.Hour)
+	cur.Quota.FetchedAt = time.Now().Add(-time.Hour)
 	if _, ok := NextLogin([]LoginView{cur, loginAt("b", false, 0, 0)}, false); ok {
 		t.Fatal("switched on an hour-old reading")
 	}

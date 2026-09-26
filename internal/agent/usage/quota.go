@@ -10,7 +10,8 @@ import (
 // requests.
 type Window struct {
 	ID    string        // the provider's name for it: "five_hour", "seven_day_opus", "primary"
-	Label string        // how it reads: "5h", "week", "Opus week", "premium requests"
+	Label string        // short, for a meter: "5h", "7d", "Opus 7d", "month"
+	Name  string        // in words: "5-hour", "weekly", "Opus weekly", "premium requests"
 	Span  time.Duration // how long it runs; zero when the provider doesn't say
 	// Percent is how much of it is used, 0–100. It is always set, from
 	// Used and Limit when the provider counts instead.

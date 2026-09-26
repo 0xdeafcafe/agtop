@@ -219,7 +219,7 @@ func (m *Model) autoSwitch() tea.Cmd {
 	why := "a session hit a usage limit"
 	for _, l := range m.snap.Logins {
 		if l.Current && !stopped {
-			why = fmt.Sprintf("%s was at %.0f%%", l.Name, l.Usage.Used())
+			why = fmt.Sprintf("%s was at %.0f%%", l.Name, l.Quota.Used(""))
 		}
 	}
 	return m.switchLogin(to.Login, why)
@@ -246,7 +246,7 @@ func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 func (m *Model) hasRoom() bool {
 	for _, l := range m.snap.Logins {
 		if l.Current {
-			return time.Since(l.Usage.FetchedAt) < 3*claude.UsageEvery && l.Usage.Used() < state.SwitchAt
+			return time.Since(l.Quota.FetchedAt) < 3*claude.UsageEvery && l.Quota.Used("") < state.SwitchAt
 		}
 	}
 	return false

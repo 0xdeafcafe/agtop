@@ -206,17 +206,12 @@ var Segments = []Segment{
 	}},
 	{"usage", "Plan usage", "the 5-hour and weekly limits, as agtop last read them", func(_ Input, x *extra) (string, string) {
 		u := x.planUsage()
-		if u == nil || !u.FiveHour.Present && !u.SevenDay.Present {
+		if u == nil {
 			return "", ""
 		}
 		var parts []string
-		for _, w := range []struct {
-			name string
-			w    claude.Window
-		}{{"5h", u.FiveHour}, {"7d", u.SevenDay}} {
-			if w.w.Present {
-				parts = append(parts, fmt.Sprintf("%s%s %.0f%%%s", level(w.w.Percent), w.name, w.w.Percent, reset))
-			}
+		for _, w := range u.Quota("").Windows {
+			parts = append(parts, fmt.Sprintf("%s%s %.0f%%%s", level(w.Percent), w.Label, w.Percent, reset))
 		}
 		return strings.Join(parts, " "), ""
 	}},

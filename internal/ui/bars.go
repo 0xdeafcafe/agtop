@@ -55,8 +55,9 @@ var topSegs = []barSeg{
 		}
 		var parts []string
 		for _, av := range x.m.snap.Accounts {
-			if av.Usage.FiveHour.Present {
-				p := av.Usage.FiveHour.Percent
+			// The shortest window: the one that moves.
+			if len(av.Quota.Windows) > 0 {
+				p := av.Quota.Windows[0].Percent
 				parts = append(parts, dim(av.Name+" ")+paint(usageColor(p), fmt.Sprintf("%.0f%%", p)))
 			}
 		}

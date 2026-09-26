@@ -351,13 +351,10 @@ func (m *Model) activeUsage() string {
 		if !av.Current {
 			continue
 		}
-		u := av.Usage
+		u := av.Quota
 		var parts []string
-		if u.FiveHour.Present {
-			parts = append(parts, usageMeter("5h", u.FiveHour.Percent, u.FiveHour.ResetsAt, 5*time.Hour, m.snap.At))
-		}
-		if u.SevenDay.Present {
-			parts = append(parts, usageMeter("7d", u.SevenDay.Percent, u.SevenDay.ResetsAt, 7*24*time.Hour, m.snap.At))
+		for _, w := range u.Windows {
+			parts = append(parts, usageMeter(w.Label, w.Percent, w.ResetsAt, w.Span, m.snap.At))
 		}
 		if len(parts) == 0 {
 			return ""

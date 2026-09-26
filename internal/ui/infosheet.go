@@ -327,13 +327,10 @@ func usageLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 	}
 	out = append(out, infoHead(head))
 	meterW := min(40, max(10, w-60))
-	if u.FiveHour.Present {
-		out = append(out, infoRow("5-hour", bigMeter(u.FiveHour.Percent, u.FiveHour.ResetsAt, now, 5*time.Hour, meterW), w))
+	for _, win := range av.Quota.Windows {
+		out = append(out, infoRow(win.Name, bigMeter(win.Percent, win.ResetsAt, now, win.Span, meterW), w))
 	}
-	if u.SevenDay.Present {
-		out = append(out, infoRow("weekly", bigMeter(u.SevenDay.Percent, u.SevenDay.ResetsAt, now, 7*24*time.Hour, meterW), w))
-	}
-	if !u.FiveHour.Present && !u.SevenDay.Present {
+	if len(av.Quota.Windows) == 0 {
 		out = append(out, infoRow("limits", faint(firstNonEmpty(u.Problem, "no reading yet: this account's limits come in with the next refresh")), w))
 	} else {
 		if u.Extra {
@@ -403,11 +400,8 @@ func usageLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 		out = append(out, "", infoHead("Every account"))
 		for _, x := range m.snap.Accounts {
 			var parts []string
-			if x.Usage.FiveHour.Present {
-				parts = append(parts, dim("5h ")+paint(usageColor(x.Usage.FiveHour.Percent), fmt.Sprintf("%3.0f%%", x.Usage.FiveHour.Percent)))
-			}
-			if x.Usage.SevenDay.Present {
-				parts = append(parts, dim("7d ")+paint(usageColor(x.Usage.SevenDay.Percent), fmt.Sprintf("%3.0f%%", x.Usage.SevenDay.Percent)))
+			for _, win := range x.Quota.Windows {
+				parts = append(parts, dim(win.Label+" ")+paint(usageColor(win.Percent), fmt.Sprintf("%3.0f%%", win.Percent)))
 			}
 			parts = append(parts, paint(cText, money(x.Today))+dim(" today"))
 			if x.Live > 0 {

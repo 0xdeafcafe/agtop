@@ -282,8 +282,12 @@ func dump() {
 			a.CPU, float64(a.Mem)/(1<<20), a.Spend.Cost, a.Elapsed(now).Round(time.Minute), a.Age(now).Round(time.Second), len(a.PRs))
 	}
 	for _, av := range snap.Accounts {
-		fmt.Printf("account %s daemon=%v live=%d agents=%d spend=$%.2f today=$%.2f 5h=%.0f%% 7d=%.0f%%\n",
-			av.Name, av.Daemon, av.Live, av.Agents, av.Spend, av.Today, av.Usage.FiveHour.Percent, av.Usage.SevenDay.Percent)
+		fmt.Printf("account %s daemon=%v live=%d agents=%d spend=$%.2f today=$%.2f",
+			av.Name, av.Daemon, av.Live, av.Agents, av.Spend, av.Today)
+		for _, w := range av.Quota.Windows {
+			fmt.Printf(" %s=%.0f%%", w.Label, w.Percent)
+		}
+		fmt.Println()
 	}
 	for _, r := range snap.Machine.Rows {
 		fmt.Printf("proc %6d role=%d %-40.40s %5.1f%% %7.0fM n=%d\n", r.PID, r.Role, r.Label, r.CPU, float64(r.Mem)/(1<<20), r.Procs)

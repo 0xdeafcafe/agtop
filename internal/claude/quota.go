@@ -8,13 +8,13 @@ import (
 
 // Claude's plan windows, by the names Anthropic gives them.
 var windows = []struct {
-	id, label string
-	span      time.Duration
-	scope     usage.Scope
+	id, label, name string
+	span            time.Duration
+	scope           usage.Scope
 }{
-	{"five_hour", "5h", 5 * time.Hour, usage.Scope{}},
-	{"seven_day", "week", 7 * 24 * time.Hour, usage.Scope{}},
-	{"seven_day_opus", "Opus week", 7 * 24 * time.Hour, usage.Scope{Models: []string{"opus"}}},
+	{"five_hour", "5h", "5-hour", 5 * time.Hour, usage.Scope{}},
+	{"seven_day", "7d", "weekly", 7 * 24 * time.Hour, usage.Scope{}},
+	{"seven_day_opus", "Opus 7d", "Opus weekly", 7 * 24 * time.Hour, usage.Scope{Models: []string{"opus"}}},
 }
 
 // Quota is the reading as agtop's own model of a plan's limits, kept
@@ -35,7 +35,7 @@ func (u Usage) Quota(key string) usage.Quota {
 		if !w.Present {
 			continue
 		}
-		q.Windows = append(q.Windows, usage.Window{ID: d.id, Label: d.label, Span: d.span, Percent: w.Percent, ResetsAt: w.ResetsAt, Scope: d.scope})
+		q.Windows = append(q.Windows, usage.Window{ID: d.id, Label: d.label, Name: d.name, Span: d.span, Percent: w.Percent, ResetsAt: w.ResetsAt, Scope: d.scope})
 	}
 	return q
 }
