@@ -217,6 +217,16 @@ func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 		who += dim(" · " + av.Usage.Email)
 	}
 	out = append(out, infoRow("login", who, w))
+	if a.StartedAs.ID != "" {
+		runs := paint(cText, a.StartedAs.Label())
+		if a.StartedAs.Org != "" && a.StartedAs.Org != a.StartedAs.Label() {
+			runs += dim(" · " + a.StartedAs.Org)
+		}
+		if note := a.AccountNote(); note != "" {
+			runs = paint(cOrange+bold, a.StartedAs.Label()) + paint(cOrange, " · not the login in use, "+strings.TrimPrefix(note, "on "+a.StartedAs.Label()+" "))
+		}
+		out = append(out, infoRow("claude runs as", runs, w))
+	}
 	var plan []string
 	for _, p := range []string{av.Usage.Plan, av.Usage.Org, av.Usage.Role} {
 		if p != "" {

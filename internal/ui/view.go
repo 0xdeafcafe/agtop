@@ -1465,6 +1465,13 @@ func (m *Model) rowSummary(a *fleet.Agent) (summary, sumColor string, justDone b
 		summary = ""
 	}
 	summary = mdPlain.Replace(summary)
+	if note := a.AccountNote(); note != "" {
+		// Its claude.ai connectors work in that account, not the one in use.
+		summary = strings.TrimSuffix(note+" · "+summary, " · ")
+		if sumColor != cYellow {
+			sumColor = cOrange
+		}
+	}
 	return
 }
 

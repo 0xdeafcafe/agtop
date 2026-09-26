@@ -49,6 +49,53 @@ type Agent struct {
 	Past bool
 	// Temp is how much disk its temp work takes, as last measured.
 	Temp int64
+	// StartedAs is the account its running Claude Code signed in as when
+	// it started, when known. OldAccount is that account not being the
+	// one its config folder is signed in as now: Claude Code keeps the
+	// account it started with (its claude.ai connectors above all) until
+	// it starts again. Restarting is an agtop session that starts again
+	// on the new one once its turn ends.
+	StartedAs  claude.Who
+	OldAccount bool
+	Restarting bool
+}
+
+// AccountNote says an agent is still on the account it started with, and
+// until when; empty when it isn't.
+func (a *Agent) AccountNote() string {
+	if !a.OldAccount {
+		return ""
+	}
+	on := "on " + a.StartedAs.Label()
+	switch {
+	case a.Restarting && a.Live():
+		return on + " until its turn ends"
+	case a.Restarting:
+		return on + " until its background work ends"
+	case a.Agtop:
+		return on + " until it restarts"
+	}
+	return on + " until you restart it"
+}
+
+// startedAs sets who an agent's Claude Code started as: who, when the host
+// recorded it, else the account at started, from the switches since, else
+// the account in use now. Nothing for a Claude Code not running.
+func (a *Agent) startedAs(who *claude.Who, started time.Time, sw []claude.Switch, now claude.Who) {
+	switch {
+	case who != nil:
+		a.StartedAs = *who
+	default:
+		w, ok := claude.StartedAs(sw, a.Acct.ConfigDir, started)
+		if !ok {
+			if started.IsZero() {
+				return
+			}
+			w = now
+		}
+		a.StartedAs = w
+	}
+	a.OldAccount = a.StartedAs.ID != "" && now.ID != "" && a.StartedAs.ID != now.ID
 }
 
 // NeedsYou is a live agent asking something the user has not looked at yet.
@@ -358,6 +405,8 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 	for id := range ours {
 		claimed[id] = true
 	}
+	vault := state.Vault()
+	switches := l.memo(vault.SwitchesPath(), func() any { return vault.Switches() }).([]claude.Switch)
 	l.branches(hosted, claimed)
 	for _, acct := range cfg.AllAccounts() {
 		roster := l.memo(acct.RosterPath(), func() any { return claude.ReadRoster(acct) }).(claude.Roster)
@@ -371,6 +420,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		}).(map[string]int)
 		av := AccountView{Account: acct, Daemon: daemon.Client{Account: acct}.Running(), Current: acct.Name == active.Name}
 		av.Usage = l.readUsage(acct)
+		signedAs := claude.Who{ID: av.Usage.AccountID, Email: av.Usage.Email, Org: av.Usage.Org}
 		sessions := l.sessions(acct)
 		byJob := map[string]claude.Session{}
 		for _, ss := range sessions {
@@ -442,6 +492,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			if tab != nil && a.Live() && a.PID == 0 {
 				a.State, a.Detail = "stopped", "lost its process"
 			}
+			if a.PID != 0 && tab != nil && tab.Procs[a.PID] != nil {
+				a.startedAs(nil, tab.Procs[a.PID].Start, switches, signedAs)
+			}
 			l.sample(tab, a)
 			if a.Live() {
 				av.Live++
@@ -474,6 +527,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				}
 			}
 			a := &Agent{Job: j, Key: key, Acct: acct, DisplayName: ss.Name, Interactive: true, Headless: headless, PID: ss.PID}
+			if ss.StartedMs != 0 {
+				a.startedAs(nil, ss.StartedAt(), switches, signedAs)
+			}
 			if n := ov.Names[key]; n != "" {
 				a.DisplayName = n
 			}
@@ -495,6 +551,14 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				continue
 			}
 			a := l.hosted(acct, info, tab, now)
+			if info.ClaudePID != 0 && info.State != "stopped" {
+				var started time.Time
+				if tab != nil && tab.Procs[info.ClaudePID] != nil {
+					started = tab.Procs[info.ClaudePID].Start
+				}
+				a.startedAs(info.StartedAccount, started, switches, signedAs)
+				a.Restarting = info.RestartAfterTurn
+			}
 			if n := ov.Names[a.Key]; n != "" {
 				a.DisplayName = n
 			}

@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Login is one Claude account agtop can sign ~/.claude in as. Every
@@ -125,9 +126,9 @@ func (v Vault) Keep(a Account) (Login, bool, error) {
 
 // Use signs root in as to: whatever root holds now is kept first, so
 // switching back finds it as it was. A Claude Code already running keeps
-// the account it started with until it restarts; when it next refreshes
-// its sign-in it sees the stored one changed and takes that instead of
-// writing its own back.
+// the account it started with until it restarts (its claude.ai connectors
+// stay on it even after its model calls move over), so the switch is
+// remembered: see StartedAs.
 func (v Vault) Use(root Account, to Login) error {
 	unlock, err := v.lock()
 	if err != nil {
@@ -144,10 +145,15 @@ func (v Vault) Use(root Account, to Login) error {
 	if _, _, err := v.Keep(root); err != nil {
 		return fmt.Errorf("couldn't keep the account in use: %w", err)
 	}
+	from := WhoIs(root)
 	if err := writeCreds(root, cred); err != nil {
 		return err
 	}
-	return writeProfile(root.StatePath(), to.Profile)
+	if err := writeProfile(root.StatePath(), to.Profile); err != nil {
+		return err
+	}
+	_ = v.noteSwitch(Switch{At: time.Now(), Dir: root.ConfigDir, From: from, To: Who{ID: to.ID, Email: to.Email, Org: to.Org}})
+	return nil
 }
 
 // Adopt takes the sign-in a fresh folder was just signed in with (the one
