@@ -1624,7 +1624,7 @@ func (m *Model) noPrompt() bool {
 // promptBoxAt is the Prompt's box at width w, before its labels.
 func (m *Model) promptBoxAt(w int) box {
 	b := box{w: w, focused: !m.sessionFocused(), text: m.input, cursor: m.cursorPos(), anchor: m.anchor - 1,
-		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-m.topH()-4-5))}
+		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-m.topH()-4-5)), top: m.promptTop}
 	if m.sessionFocused() {
 		b.text = nil
 	}
@@ -1661,7 +1661,8 @@ func (m *Model) promptLines(w int) []string {
 	}
 	a := m.selected()
 	text := string(m.input)
-	b := m.promptBoxAt(w)
+	b := m.promptBoxAt(w).scrolled()
+	m.promptTop = b.top
 	// An empty box with nothing asked of it shows no cursor: the list has
 	// the keys until you type, rename, or reply.
 	b.idle = len(m.input) == 0 && m.inKind == inPrompt

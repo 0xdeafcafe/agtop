@@ -31,6 +31,7 @@ type box struct {
 	holder  string // shown faint while the box is empty
 	lead    string // before the text on its first line, e.g. ❯
 	maxRows int
+	top     int  // the wrapped row shown first last time, kept while the cursor stays in view
 	idle    bool // focused but not being typed in: the edge and fill stay, the cursor doesn't
 }
 
@@ -135,7 +136,8 @@ func runeW(r rune) int {
 	return runewidth.RuneWidth(r)
 }
 
-// window is which wrapped rows are on screen: the cursor's row always is.
+// window is which wrapped rows are on screen: the rows from top, moved
+// only as far as it takes to keep the cursor's row among them.
 func (b box) window(segs []seg) (start, end int) {
 	limit := max(1, b.maxRows)
 	if len(segs) <= limit {
@@ -148,8 +150,16 @@ func (b box) window(segs []seg) (start, end int) {
 			break
 		}
 	}
-	start = max(0, min(at-limit+1, len(segs)-limit))
+	start = min(max(b.top, at-limit+1), at)
+	start = max(0, min(start, len(segs)-limit))
 	return start, start + limit
+}
+
+// scrolled is b with top set to the first row it shows, for the caller to
+// keep and hand back on the next draw.
+func (b box) scrolled() box {
+	b.top, _ = b.window(wrapSegs(b.text, max(20, b.w)-4-b.leadW()))
+	return b
 }
 
 func (b box) leadW() int { return cellw.String(b.lead) }

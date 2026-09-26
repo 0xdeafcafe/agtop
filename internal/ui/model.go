@@ -106,6 +106,8 @@ type Model struct {
 	input  []rune
 	back   int // cursor distance from the input's end
 	anchor int // selection start + 1; 0 when nothing is selected
+	// promptTop is the Prompt box's first row on screen, kept between draws.
+	promptTop int
 	// pendingCopy is text to put on the clipboard with the next update.
 	pendingCopy string
 	// Where the Prompt's box was drawn, so a click can place the cursor.

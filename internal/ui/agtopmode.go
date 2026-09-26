@@ -1674,6 +1674,8 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			b.footL = paint(cQueue, "stashed") + dim(" · back after you send")
 		}
 	}
+	b.top = c.box.top
+	b = b.scrolled()
 	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
 	pairs := []string{"enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list"}
