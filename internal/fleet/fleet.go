@@ -200,11 +200,15 @@ type Loader struct {
 	nudged  map[string]time.Time
 	subs    map[string]subsEntry
 	fetched map[string]claude.Usage
-	files   map[string]fileMemo
-	past    map[string]pastListing // by projects folder
-	hosts   host.Lister
-	print   map[int]printEntry
-	Temp    *TempSizes
+	// UsagePath is the readings every agtop process and session shares;
+	// usageMod is its time when last read.
+	UsagePath string
+	usageMod  time.Time
+	files     map[string]fileMemo
+	past      map[string]pastListing // by projects folder
+	hosts     host.Lister
+	print     map[int]printEntry
+	Temp      *TempSizes
 	// pastRows are past conversations' rows as last made, and spendVer
 	// counts each agent's spend updates, so an unchanged row is reused.
 	pastRows map[string]pastRow
@@ -225,6 +229,26 @@ func (l *Loader) SetFetched(configDir string, u claude.Usage) {
 		return
 	}
 	l.fetched[configDir] = u
+}
+
+// syncUsage takes the readings shared through UsagePath that are newer
+// than those it has: a session's, made as it runs, reach the header within
+// a second rather than at the next fetch.
+func (l *Loader) syncUsage() {
+	st, err := os.Stat(l.UsagePath)
+	if err != nil || st.ModTime().Equal(l.usageMod) {
+		return
+	}
+	l.usageMod = st.ModTime()
+	for k, f := range claude.LoadFetchedUsage(l.UsagePath) {
+		if old, ok := l.fetched[k]; ok && !f.Usage.FetchedAt.After(old.FetchedAt) {
+			continue
+		}
+		if time.Now().Before(f.Wait) {
+			f.Usage.Problem = "rate-limited to " + f.Wait.Local().Format("15:04")
+		}
+		l.fetched[k] = f.Usage
+	}
 }
 
 type subsEntry struct {
@@ -321,7 +345,7 @@ func NewLoader(s *state.Store) *Loader {
 		args: map[int]argsEntry{}, git: map[string]gitInfo{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
 		files: map[string]fileMemo{}, past: map[string]pastListing{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{}, checked: map[string]time.Time{},
-		Temp: LoadTempSizes(),
+		Temp: LoadTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"),
 	}
 }
 
@@ -363,6 +387,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		claimed[id] = true
 	}
 	l.branches(hosted, claimed)
+	l.syncUsage()
 	for _, acct := range cfg.AllAccounts() {
 		roster := l.memo(acct.RosterPath(), func() any { return claude.ReadRoster(acct) }).(claude.Roster)
 		prs := l.memo(acct.PRCachePath(), func() any { return claude.ReadPRCache(acct) }).(map[string]claude.PR)
@@ -648,6 +673,14 @@ func (l *Loader) readUsage(acct claude.Account) claude.Usage {
 // Windows that have reset since either reading are dropped.
 func (l *Loader) freshest(acct claude.Account, cached claude.Usage) claude.Usage {
 	f, ok := l.fetched[acct.ConfigDir]
+	if cached.AccountID != "" {
+		// Readings are kept by the login it's signed in as.
+		g, gok := l.fetched[claude.Login{ID: cached.AccountID}.UsageKey()]
+		if gok && (!ok || g.FetchedAt.After(f.FetchedAt) || f.AccountID != cached.AccountID) {
+			f, ok = g, true
+			f.AccountID = cached.AccountID
+		}
+	}
 	if !ok {
 		return cached.Since(time.Now())
 	}

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -43,35 +44,23 @@ func FetchUsage(ctx context.Context, a Account) (Usage, error) {
 	}
 	u, err := FetchUsageWith(ctx, raw)
 	// Whose reading this is: ~/.claude may be signed in as another account
-	// by the time it's looked at.
+	// by the time it's looked at, and the sign-in may not be the account
+	// the folder names.
 	u.AccountID = who
+	if id, oerr := Owner(ctx, raw); oerr == nil {
+		u.AccountID = id
+	}
 	return u, err
 }
 
 // FetchUsageWith is FetchUsage with a sign-in already in hand: a login's
 // that isn't the one in use.
 func FetchUsageWith(ctx context.Context, raw []byte) (Usage, error) {
-	var cred struct {
-		OAuth struct {
-			Token     string `json:"accessToken"`
-			ExpiresAt int64  `json:"expiresAt"`
-		} `json:"claudeAiOauth"`
-	}
-	if json.Unmarshal(raw, &cred) != nil || cred.OAuth.Token == "" {
-		return Usage{}, ErrNotSignedIn
-	}
-	if cred.OAuth.ExpiresAt > 0 && time.UnixMilli(cred.OAuth.ExpiresAt).Before(time.Now()) {
-		return Usage{}, ErrExpired
-	}
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.anthropic.com/api/oauth/usage", nil)
+	token, err := accessToken(raw)
 	if err != nil {
 		return Usage{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+cred.OAuth.Token)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	resp, err := client.Do(req)
+	resp, err := oauthGet(ctx, "usage", token)
 	if err != nil {
 		return Usage{}, errors.New("usage request failed")
 	}
@@ -93,6 +82,80 @@ func FetchUsageWith(ctx context.Context, raw []byte) (Usage, error) {
 		return Usage{}, err
 	}
 	return Usage{FiveHour: data.FiveHour.window(), SevenDay: data.SevenDay.window(), FetchedAt: time.Now(), Fetched: true}, nil
+}
+
+// accessToken is a sign-in's token, while it still works.
+func accessToken(raw []byte) (string, error) {
+	var cred struct {
+		OAuth struct {
+			Token     string `json:"accessToken"`
+			ExpiresAt int64  `json:"expiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal(raw, &cred) != nil || cred.OAuth.Token == "" {
+		return "", ErrNotSignedIn
+	}
+	if cred.OAuth.ExpiresAt > 0 && time.UnixMilli(cred.OAuth.ExpiresAt).Before(time.Now()) {
+		return "", ErrExpired
+	}
+	return cred.OAuth.Token, nil
+}
+
+func oauthGet(ctx context.Context, what, token string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.anthropic.com/api/oauth/"+what, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return client.Do(req)
+}
+
+// owners remembers whose each token is, by its hash: a token only ever
+// belongs to one account, so each is asked about once.
+var owners sync.Map
+
+// Owner is the uuid of the account a sign-in belongs to, asked of
+// Anthropic with the sign-in itself. Which account a config folder says
+// it's signed in as can be wrong: a Claude Code started before a switch
+// writes the old account's sign-in back when it refreshes it, leaving the
+// new one's name beside it.
+func Owner(ctx context.Context, raw []byte) (string, error) {
+	token, err := accessToken(raw)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(token))
+	if id, ok := owners.Load(sum); ok {
+		return id.(string), nil
+	}
+	resp, err := oauthGet(ctx, "profile", token)
+	if err != nil {
+		return "", errors.New("profile request failed")
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized:
+		return "", ErrExpired
+	default:
+		return "", fmt.Errorf("profile request returned %d", resp.StatusCode)
+	}
+	var p struct {
+		Account struct {
+			UUID string `json:"uuid"`
+		} `json:"account"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&p); err != nil {
+		return "", err
+	}
+	if p.Account.UUID == "" {
+		return "", errors.New("profile names no account")
+	}
+	owners.Store(sum, p.Account.UUID)
+	return p.Account.UUID, nil
 }
 
 func retryAfter(v string) time.Time {

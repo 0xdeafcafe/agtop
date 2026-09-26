@@ -21,8 +21,9 @@ import (
 // loginsMsg is the logins signed in where agtop looks, and why ~/.claude's
 // couldn't be kept, if it couldn't.
 type loginsMsg struct {
-	found []fleet.Found
-	err   error
+	found    []fleet.Found
+	restored *fleet.Restored
+	err      error
 }
 
 // switchedMsg is ~/.claude signed in as another login, or why it isn't.
@@ -52,19 +53,23 @@ func (m *Model) findLogins() tea.Cmd {
 	}
 	cfg := m.store.Config
 	return func() tea.Msg {
-		found, err := fleet.FindLogins(cfg)
-		return loginsMsg{found, err}
+		found, restored, err := fleet.FindLogins(cfg)
+		return loginsMsg{found, restored, err}
 	}
 }
 
-// fetchLoginUsage refreshes every saved login's plan usage.
+// fetchLoginUsage refreshes the plan usage of every saved login but the
+// one in use, whose reading is ~/.claude's: see fetchUsage.
 func (m *Model) fetchLoginUsage() []tea.Cmd {
 	path := filepath.Join(state.Dir(), "usage.json")
 	cfg, offline := m.store.Config, m.offline
 	var cmds []tea.Cmd
 	for _, lg := range cfg.Logins {
+		if m.isCurrent(lg.ID) {
+			continue
+		}
 		cmds = append(cmds, func() tea.Msg {
-			return usageMsg{dir: lg.UsageKey(), u: fleet.RefreshLogin(path, cfg, lg, offline)}
+			return usageMsg{key: lg.UsageKey(), u: fleet.RefreshLogin(path, cfg, lg, offline)}
 		})
 	}
 	return cmds
@@ -79,6 +84,16 @@ func (m *Model) onLogins(msg loginsMsg) tea.Cmd {
 		m.flash("agtop can't switch account: "+msg.err.Error(), true)
 	}
 	m.keepFailed = msg.err != nil
+	var fetch []tea.Cmd
+	if r := msg.restored; r != nil {
+		was, now := m.loginNamed(r.Was), m.loginNamed(r.Now)
+		if r.Err != nil {
+			m.flash("a Claude Code started on "+was+" signed ~/.claude back in as it, and agtop couldn't switch to "+now+" again: "+r.Err.Error(), true)
+		} else {
+			m.flash("a Claude Code started on "+was+" signed ~/.claude back in as it · agtop switched to "+now+" again", false)
+		}
+		fetch = append(fetch, m.fetchUsage())
+	}
 	cfg := &m.store.Config
 	changed, added := false, false
 	for _, f := range found {
@@ -106,9 +121,30 @@ func (m *Model) onLogins(msg loginsMsg) tea.Cmd {
 		}
 	}
 	if added {
-		return tea.Batch(m.fetchLoginUsage()...)
+		fetch = append(fetch, m.fetchLoginUsage()...)
 	}
-	return nil
+	return tea.Batch(fetch...)
+}
+
+// isCurrent is whether ~/.claude is signed in as the login id, as far as
+// the last look found.
+func (m *Model) isCurrent(id string) bool {
+	for _, l := range m.snap.Logins {
+		if l.ID == id {
+			return l.Current
+		}
+	}
+	return false
+}
+
+// loginNamed is a login's name, by its uuid.
+func (m *Model) loginNamed(id string) string {
+	for _, l := range m.store.Config.Logins {
+		if l.ID == id {
+			return l.Name
+		}
+	}
+	return "another account"
 }
 
 // inUse is the name of the login ~/.claude is signed in as, or the
@@ -262,7 +298,7 @@ func (m *Model) onSwitched(msg switchedMsg) tea.Cmd {
 	if m.dialog != nil {
 		m.loadDialog()
 	}
-	return tea.Batch(append(m.fetchLoginUsage(), m.fetchUsage())...)
+	return m.fetchUsage()
 }
 
 // addLogin signs in to an account in a folder of its own, then keeps the

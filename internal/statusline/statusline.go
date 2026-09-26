@@ -417,8 +417,17 @@ func (x *extra) gitBranch(dir string) string {
 
 func (x *extra) planUsage() *claude.Usage {
 	if x.usage == nil {
-		f := claude.LoadFetchedUsage(filepath.Join(state.Dir(), "usage.json"))[x.configDir]
-		x.usage = &f.Usage
+		all := claude.LoadFetchedUsage(filepath.Join(state.Dir(), "usage.json"))
+		f := all[x.configDir]
+		// Kept by the login the folder is signed in as, since agtop reads
+		// them per login.
+		if id := claude.SignedInAs(claude.Account{ConfigDir: x.configDir}); id != "" {
+			if g, ok := all[claude.Login{ID: id}.UsageKey()]; ok && g.Usage.FetchedAt.After(f.Usage.FetchedAt) {
+				f = g
+			}
+		}
+		u := f.Usage.Since(time.Now())
+		x.usage = &u
 	}
 	return x.usage
 }

@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -32,6 +33,9 @@ func TestNextLogin(t *testing.T) {
 		{"7d nearly out", []LoginView{loginAt("a", true, 10, 97), loginAt("b", false, 10, 20)}, false, "b"},
 		{"most room wins", []LoginView{loginAt("a", true, 99, 40), loginAt("b", false, 50, 20), loginAt("c", false, 5, 30)}, false, "c"},
 		{"others nearly out too", []LoginView{loginAt("a", true, 96, 40), loginAt("b", false, 95, 20)}, false, ""},
+		{"out, the others nearly", []LoginView{loginAt("a", true, 100, 27), loginAt("b", false, 98, 12), loginAt("c", false, 0, 97)}, false, "c"},
+		{"out, the others too", []LoginView{loginAt("a", true, 100, 27), loginAt("b", false, 100, 12)}, false, ""},
+		{"stopped, the others nearly out", []LoginView{loginAt("a", true, 90, 40), loginAt("b", false, 97, 20)}, true, "b"},
 		{"stopped switches below the threshold", []LoginView{loginAt("a", true, 80, 40), loginAt("b", false, 90, 20)}, true, "b"},
 		{"only one", []LoginView{loginAt("a", true, 99, 99)}, true, ""},
 	} {
@@ -53,7 +57,12 @@ func TestNextLogin(t *testing.T) {
 func TestNextLoginSkipsLoginsWithoutReading(t *testing.T) {
 	unread := LoginView{Login: claude.Login{ID: "b"}}
 	stale := loginAt("c", false, 0, 0)
-	stale.Usage.FetchedAt = time.Now().Add(-time.Hour)
+	stale.Usage.FetchedAt = time.Now().Add(-2 * time.Hour)
+	older := loginAt("e", false, 0, 0)
+	older.Usage.FetchedAt = time.Now().Add(-40 * time.Minute)
+	if got, ok := NextLogin([]LoginView{loginAt("a", true, 100, 55), older}, false); !ok || got.ID != "e" {
+		t.Fatalf("got %q (%v), want e: a login not in use only empties", got.ID, ok)
+	}
 	got, ok := NextLogin([]LoginView{loginAt("a", true, 100, 55), unread, stale, loginAt("d", false, 1, 0)}, true)
 	if !ok || got.ID != "d" {
 		t.Fatalf("got %q (%v), want d, the only one with a reading", got.ID, ok)
@@ -99,5 +108,34 @@ func TestLoginsUseOwnReadingAfterSwitch(t *testing.T) {
 	}
 	if got[0].Current || got[0].Usage.FiveHour.Percent != 97 {
 		t.Fatalf("a: current %v at %.0f%%, want its own 97%%", got[0].Current, got[0].Usage.FiveHour.Percent)
+	}
+}
+
+// A session's reading of the login ~/.claude is signed in as, kept by
+// login, is the folder's usage as soon as it's newer.
+func TestFreshestTakesLoginReading(t *testing.T) {
+	l := NewLoader(&state.Store{})
+	l.UsagePath = filepath.Join(t.TempDir(), "usage.json")
+	acct := claude.Account{Name: "default", ConfigDir: "/x"}
+	now := time.Now()
+	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "a", FetchedAt: now.Add(-4 * time.Minute), FiveHour: claude.Window{Present: true, Percent: 90}})
+	_ = claude.RecordUsage(l.UsagePath, "login:a", claude.Usage{AccountID: "a", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 96}})
+	l.syncUsage()
+	cached := claude.Usage{AccountID: "a", FetchedAt: now.Add(-time.Hour)}
+	if u := l.freshest(acct, cached); u.FiveHour.Percent != 96 {
+		t.Fatalf("got %.0f%%, want the session's 96%%", u.FiveHour.Percent)
+	}
+}
+
+func TestPutBackNeedsTwoLooks(t *testing.T) {
+	if putBack("x", "y") {
+		t.Fatal("put right on the first look: it may be a sign-in under way")
+	}
+	mismatch.at = time.Now().Add(-time.Minute)
+	if !putBack("x", "y") {
+		t.Fatal("not put right on the second look")
+	}
+	if putBack("x", "z") {
+		t.Fatal("another mismatch starts over")
 	}
 }

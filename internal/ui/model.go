@@ -265,7 +265,7 @@ func New(store *state.Store, version string) *Model {
 
 type tickMsg time.Time
 type usageMsg struct {
-	dir string
+	key string // where the reading is kept: see claude.UsageKey
 	u   claude.Usage
 }
 type scanMsg map[string]fleet.Spend
@@ -334,7 +334,8 @@ func (m *Model) fetchUsage() tea.Cmd {
 	for _, acct := range m.store.Config.AllAccounts() {
 		acct := acct
 		cmds = append(cmds, func() tea.Msg {
-			return usageMsg{dir: acct.ConfigDir, u: claude.RefreshUsage(path, acct, offline)}
+			u := claude.RefreshUsage(path, acct, offline)
+			return usageMsg{key: claude.UsageKey(acct, u), u: u}
 		})
 	}
 	return tea.Batch(append(cmds, m.fetchLoginUsage()...)...)
@@ -623,7 +624,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.followTail()
 		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues()}
 		if m.solo == "" {
-			cmds = append(cmds, m.movePending(), m.measureTemp(), m.tidy(), m.squeezeTranscripts())
+			// autoSwitch too: a session's usage reading arrives with the
+			// snapshot, not with a fetch.
+			cmds = append(cmds, m.movePending(), m.measureTemp(), m.tidy(), m.squeezeTranscripts(), m.autoSwitch())
 		}
 		if m.mode == modeEff && !m.eff.loading && time.Since(m.eff.loaded) > 30*time.Second {
 			cmds = append(cmds, m.effLoad(true)) // new transcript lines, every 30s while it's open
@@ -672,7 +675,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case usageMsg:
-		m.loader.SetFetched(msg.dir, msg.u)
+		m.loader.SetFetched(msg.key, msg.u)
 		m.refresh()
 		return m, m.autoSwitch()
 	case loginsMsg:

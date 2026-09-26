@@ -2,10 +2,13 @@ package claude
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -32,13 +35,43 @@ func LoadFetchedUsage(path string) map[string]FetchedUsage {
 
 // SaveFetchedUsage records one account's entry, keeping the others.
 func SaveFetchedUsage(path, key string, f FetchedUsage) error {
-	all := LoadFetchedUsage(path)
-	all[key] = f
-	b, err := json.Marshal(all)
-	if err != nil {
+	return updateFetchedUsage(path, func(all map[string]FetchedUsage) bool {
+		all[key] = f
+		return true
+	})
+}
+
+// RecordUsage keeps a reading made elsewhere (a session's, as it runs)
+// under key, unless the one there is newer; when Anthropic had said to
+// wait, the wait stands.
+func RecordUsage(path, key string, u Usage) error {
+	return updateFetchedUsage(path, func(all map[string]FetchedUsage) bool {
+		f := all[key]
+		if !u.FetchedAt.After(f.Usage.FetchedAt) {
+			return false
+		}
+		f.Usage = u
+		all[key] = f
+		return true
+	})
+}
+
+// updateFetchedUsage changes the readings at path under a lock: every
+// agtop process and every session's host writes them.
+func updateFetchedUsage(path string, change func(map[string]FetchedUsage) bool) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if lf, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600); err == nil {
+		defer lf.Close()
+		_ = syscall.Flock(int(lf.Fd()), syscall.LOCK_EX)
+	}
+	all := LoadFetchedUsage(path)
+	if !change(all) {
+		return nil
+	}
+	b, err := json.Marshal(all)
+	if err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".usage-*")
@@ -58,13 +91,41 @@ func SaveFetchedUsage(path, key string, f FetchedUsage) error {
 // reading shared through path is older than UsageEvery and Anthropic hasn't
 // said to wait; offline never asks. Every agtop process goes through here,
 // so however many are open an account is asked once per UsageEvery.
+// Readings are kept by the login the folder is signed in as, so a
+// session's own readings and the login's fetch are the same one.
 func RefreshUsage(path string, a Account, offline bool) Usage {
-	return RefreshUsageFor(path, a.ConfigDir, offline, func(ctx context.Context) (Usage, error) { return FetchUsage(ctx, a) })
+	who := SignedInAs(a)
+	key := a.ConfigDir
+	if who != "" {
+		key = Login{ID: who}.UsageKey()
+	}
+	return RefreshUsageFor(path, key, offline, func(ctx context.Context) (Usage, error) {
+		u, err := FetchUsage(ctx, a)
+		if err == nil && who != "" && u.AccountID != who {
+			// Its sign-in is another account's than it says: the
+			// reading isn't who's. FindLogins puts it right.
+			return Usage{}, errors.New("signed in as another account than it says")
+		}
+		return u, err
+	})
+}
+
+// UsageKey is where a reading of the account a is signed in as is kept.
+func UsageKey(a Account, u Usage) string {
+	if u.AccountID != "" {
+		return Login{ID: u.AccountID}.UsageKey()
+	}
+	return a.ConfigDir
 }
 
 // RefreshUsageFor is RefreshUsage for readings kept under key, fetched by
 // fetch.
 func RefreshUsageFor(path, key string, offline bool, fetch func(context.Context) (Usage, error)) Usage {
+	if !offline {
+		// One asks at a time, so the others find its reading.
+		unlock := lockKey(path, key)
+		defer unlock()
+	}
 	f := LoadFetchedUsage(path)[key]
 	u, now := f.Usage, time.Now()
 	if now.Before(f.Wait) {
@@ -80,7 +141,7 @@ func RefreshUsageFor(path, key string, offline bool, fetch func(context.Context)
 	switch {
 	case err == nil:
 		u = got
-		_ = SaveFetchedUsage(path, key, FetchedUsage{Usage: got})
+		_ = RecordUsage(path, key, got)
 	case errors.As(err, &rl):
 		_ = SaveFetchedUsage(path, key, FetchedUsage{Usage: f.Usage, Wait: rl.Until})
 		u.Problem = "rate-limited to " + rl.Until.Local().Format("15:04")
@@ -88,4 +149,20 @@ func RefreshUsageFor(path, key string, offline bool, fetch func(context.Context)
 		u.Problem = err.Error()
 	}
 	return u
+}
+
+// lockKey holds the lock on asking Anthropic about key, across every
+// agtop process.
+func lockKey(path, key string) func() {
+	sum := sha256.Sum256([]byte(key))
+	dir := path + ".locks"
+	if os.MkdirAll(dir, 0o700) != nil {
+		return func() {}
+	}
+	f, err := os.OpenFile(filepath.Join(dir, hex.EncodeToString(sum[:8])), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return func() {}
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+	return func() { f.Close() }
 }

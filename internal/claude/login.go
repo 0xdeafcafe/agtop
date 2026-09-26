@@ -2,6 +2,7 @@ package claude
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Login is one Claude account agtop can sign ~/.claude in as. Every
@@ -111,16 +113,27 @@ func SignedInAs(a Account) string {
 
 // Keep saves the sign-in a folder holds now into the vault, when it has
 // changed: Claude Code replaces its tokens as it refreshes them, and only
-// the newest works.
-func (v Vault) Keep(a Account) (Login, bool, error) {
+// the newest works. It's kept as whoever it belongs to, which owner
+// reports when that isn't the account the folder names (a Claude Code
+// started before a switch put its own back); when Anthropic can't be
+// asked, the folder is taken at its word.
+func (v Vault) Keep(a Account) (l Login, owner string, ok bool, err error) {
 	l, cred, ok := Signed(a)
 	if !ok {
-		return Login{}, false, nil
+		return Login{}, "", false, nil
 	}
 	if old, err := v.Get(l.ID); err == nil && bytes.Equal(old, cred) {
-		return l, true, nil
+		return l, "", true, nil
 	}
-	return l, true, v.Put(l.ID, cred)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if id, err := Owner(ctx, cred); err == nil && id != l.ID {
+		if old, err := v.Get(id); err == nil && bytes.Equal(old, cred) {
+			return l, id, true, nil
+		}
+		return l, id, true, v.Put(id, cred)
+	}
+	return l, "", true, v.Put(l.ID, cred)
 }
 
 // Use signs root in as to: whatever root holds now is kept first, so
@@ -141,13 +154,26 @@ func (v Vault) Use(root Account, to Login) error {
 	if len(to.Profile) == 0 {
 		return fmt.Errorf("agtop doesn't know who %s is; sign in to it again", to.Name)
 	}
-	if _, _, err := v.Keep(root); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if id, err := Owner(ctx, cred); err == nil && id != to.ID {
+		// Kept under the wrong name by an agtop from before it checked.
+		_ = v.Forget(to.ID)
+		return fmt.Errorf("agtop's sign-in for %s was another account's; sign in to it again", to.Name)
+	}
+	if _, _, _, err := v.Keep(root); err != nil {
 		return fmt.Errorf("couldn't keep the account in use: %w", err)
 	}
 	if err := writeCreds(root, cred); err != nil {
 		return err
 	}
 	return writeProfile(root.StatePath(), to.Profile)
+}
+
+// Name says in a folder's state file that it's signed in as l, for a
+// sign-in that is l's already.
+func Name(a Account, l Login) error {
+	return writeProfile(a.StatePath(), l.Profile)
 }
 
 // Adopt takes the sign-in a fresh folder was just signed in with (the one

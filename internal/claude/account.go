@@ -98,15 +98,40 @@ func (u Usage) Used() float64 {
 	return p
 }
 
-// Since drops the windows that have reset since the reading was made:
-// their numbers say nothing about now.
+// Since empties the windows that have reset since the reading was made:
+// nothing has been used of them yet, as far as the reading knows.
 func (u Usage) Since(now time.Time) Usage {
 	for _, w := range []*Window{&u.FiveHour, &u.SevenDay} {
 		if w.Present && !w.ResetsAt.IsZero() && now.After(w.ResetsAt) {
-			*w = Window{}
+			*w = Window{Present: true}
 		}
 	}
 	return u
+}
+
+// LiveUsage is the plan usage a Claude Code session reports as it runs (a
+// rate_limit_event's info): the same windows the usage endpoint gives,
+// fresh with every request.
+func LiveUsage(info []byte, at time.Time) (Usage, bool) {
+	var r struct {
+		Windows map[string]*struct {
+			Utilization *float64 `json:"utilization"`
+			ResetsAt    int64    `json:"resetsAt"`
+		} `json:"unifiedWindows"`
+	}
+	if json.Unmarshal(info, &r) != nil {
+		return Usage{}, false
+	}
+	u := Usage{FetchedAt: at, Fetched: true}
+	for name, w := range map[string]*Window{"five_hour": &u.FiveHour, "seven_day": &u.SevenDay} {
+		if raw := r.Windows[name]; raw != nil && raw.Utilization != nil {
+			*w = Window{Present: true, Percent: *raw.Utilization * 100}
+			if raw.ResetsAt > 0 {
+				w.ResetsAt = time.Unix(raw.ResetsAt, 0)
+			}
+		}
+	}
+	return u, u.FiveHour.Present || u.SevenDay.Present
 }
 
 type usageFile struct {

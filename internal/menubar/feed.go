@@ -148,7 +148,10 @@ func Feed(in io.Reader, out io.Writer) error {
 		if time.Since(usageAt) > time.Minute {
 			usageAt = time.Now()
 			for _, a := range st.Config.AllAccounts() {
-				go func() { fetched <- reading{a.ConfigDir, claude.RefreshUsage(usagePath, a, false)} }()
+				go func() {
+					u := claude.RefreshUsage(usagePath, a, false)
+					fetched <- reading{claude.UsageKey(a, u), u}
+				}()
 			}
 			for _, lg := range st.Config.Logins {
 				go func() { fetched <- reading{lg.UsageKey(), fleet.RefreshLogin(usagePath, st.Config, lg, false)} }()
