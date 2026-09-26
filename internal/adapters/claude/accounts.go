@@ -70,8 +70,8 @@ func (Adapter) SignIn(p agent.Profile) *exec.Cmd {
 }
 
 // Quota asks Anthropic for acct's limits with the sign-in agtop keeps
-// for it. It doesn't share or cache the reading: see claude.RefreshUsageFor.
-func (a Adapter) Quota(ctx context.Context, acct agent.Account) (usage.Quota, error) {
+// for it, whichever folder is signed in as it. It doesn't share or cache the reading: see claude.RefreshUsageFor.
+func (a Adapter) Quota(ctx context.Context, _ agent.Profile, acct agent.Account) (usage.Quota, error) {
 	id := strings.TrimPrefix(strings.TrimPrefix(acct.Key, keyPrefix), "login:")
 	cred, err := state.Vault().Get(id)
 	if err != nil {

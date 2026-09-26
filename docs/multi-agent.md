@@ -57,50 +57,16 @@ internal/fleet, host, convo, ui, statusline, menubar, efficiency, plugind
 
 An adapter is a set of optional parts. The core asks for each one and hides the feature when it isn't there, rather than every adapter stubbing everything.
 
-```go
-package agent
+The interfaces are in `internal/agent/adapter.go`. In short:
 
-type Adapter interface {
-    Kind() Kind                      // "claude"
-    Name() string                    // "Claude Code"
-    Caps() Caps                      // what it can do, see below
-    Profiles() []Profile             // the config homes it finds on this machine
-}
-
-// Optional parts, found with a type assertion.
-type Discoverer interface {          // agents running outside agtop, and past ones
-    Live(p Profile, procs *proc.Table) []Session
-    Past(p Profile) []Session
-}
-type Driver interface {              // run a session headless, for agtop mode
-    Start(ctx context.Context, o StartOptions) (Conn, error)
-}
-type Conn interface {
-    Events() <-chan event.Event
-    Send(Input) error
-    Answer(req event.Approval, a Answer) error
-    Interrupt() error
-    SetModel(string) error
-    SetMode(string) error
-    Close() error
-}
-type HistoryReader interface {       // a transcript turned into the same events
-    History(s Session, before time.Time) ([]event.Event, error)
-    Tail(s Session) Tailer
-}
-type QuotaSource interface {         // see Usage below
-    Quota(ctx context.Context, a Account) (usage.Quota, error)
-}
-type Accounts interface {            // sign in, keep, switch
-    Accounts() []Account
-    Current(p Profile) (Account, error)
-    Switch(p Profile, a Account) error
-    SignIn(p Profile) *exec.Cmd
-}
-type Pricer interface{ Price(model string) (usage.Price, bool) }
-type Commands interface{ Commands(p Profile, cwd string) []Command }   // slash commands, skills
-type Instructions interface{ Files(p Profile, cwd string) []DocFile }  // CLAUDE.md, AGENTS.md, …
-```
+- **Adapter** (every adapter has this part): `Kind`, `Name`, `Caps`, `Profiles`.
+- **Discoverer**: sessions running outside agtop, and past ones.
+- **Driver**: `Start(ctx, StartOptions) (Conn, error)`. A `Conn` gives `Events`, `Send`, `Answer(approvalID, optionID)`, `Interrupt`, `SetModel`, `SetMode` and `Close`. An **Answerer** also takes answers to questions.
+- **HistoryReader**: a transcript read back as the same events.
+- **QuotaSource**: `Quota(ctx, Profile, Account)`. It takes the profile because Codex's sign-in lives in the profile folder.
+- **Accounts**: `Accounts`, `Current`, `Switch` and `SignIn`.
+- **Pricer**: `Cost(model, TokenUsage)`.
+- **Commander**: slash commands and skills.
 
 `Caps` is a bit set for everything smaller than a whole interface: `Rewind`, `Fork`, `Resume`, `Images`, `Effort`, `PermissionModes`, `PlanMode`, `Subagents`, `BackgroundTasks`, `StructuredQuestions`, `ContextUsage`, `Compact`, `MCP`, `Hooks`, `Plugins`, `StatusLineHook`, `NativeScreen`. `sessionviews.go`'s command registry becomes `{command, needs Caps}`, so `/rewind` only shows for agents that can.
 
@@ -161,7 +127,7 @@ type Window struct {
 type Scope struct{ Models []string } // e.g. Claude's Opus week, or a per-model Codex limit
 
 type Quota struct {
-    Account   AccountKey    // "claude:login:<uuid>", "codex:chatgpt:<id>", "copilot:gh:<login>"
+    Account   AccountKey    // "claude:login:<uuid>", "codex:<account id>", "copilot:gh:<login>"
     Plan      string
     Windows   []Window
     Credits   *Money        // prepaid or overage balance, if any

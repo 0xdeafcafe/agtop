@@ -126,9 +126,10 @@ type HistoryReader interface {
 	History(s Session, before time.Time) ([]event.Event, error)
 }
 
-// QuotaSource reads an account's limits.
+// QuotaSource reads an account's limits. p is the profile to read them
+// through, for agents whose sign-in lives in the profile.
 type QuotaSource interface {
-	Quota(ctx context.Context, a Account) (usage.Quota, error)
+	Quota(ctx context.Context, p Profile, a Account) (usage.Quota, error)
 }
 
 // Accounts signs in to, lists and switches an agent's accounts.

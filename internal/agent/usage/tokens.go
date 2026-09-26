@@ -6,6 +6,9 @@ package usage
 // the cache fields zero.
 type TokenUsage struct {
 	Input, Output, CacheRead, CacheWrite5m, CacheWrite1h int64
+	// Reasoning is the part of Output spent thinking, when the provider
+	// says. It is counted in Output, not beside it.
+	Reasoning int64
 }
 
 // Add adds o to u.
@@ -15,6 +18,7 @@ func (u *TokenUsage) Add(o TokenUsage) {
 	u.CacheRead += o.CacheRead
 	u.CacheWrite5m += o.CacheWrite5m
 	u.CacheWrite1h += o.CacheWrite1h
+	u.Reasoning += o.Reasoning
 }
 
 // Total is every token counted.

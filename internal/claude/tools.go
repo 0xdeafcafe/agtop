@@ -53,9 +53,9 @@ func Call(id, name string, input json.RawMessage) tool.Call {
 			NewString  string `json:"new_string"`
 			ReplaceAll bool   `json:"replace_all"`
 		} `json:"edits"`
-		Offset    int `json:"offset"`
-		Limit     int `json:"limit"`
-		Todos     []struct {
+		Offset int `json:"offset"`
+		Limit  int `json:"limit"`
+		Todos  []struct {
 			Content    string `json:"content"`
 			ActiveForm string `json:"activeForm"`
 			Status     string `json:"status"`
