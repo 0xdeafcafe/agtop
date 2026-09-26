@@ -734,3 +734,22 @@ func TestCardFocusCarriesOn(t *testing.T) {
 		t.Fatal("a key between cards should leave the keys in the box")
 	}
 }
+
+// A message ending in a command already typed in full sends on enter: the
+// completion would only add a space, and the enter would seem to do nothing.
+func TestSlashCompleteWordSends(t *testing.T) {
+	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
+	c.local = []headless.Command{{Name: "pdf"}, {Name: "pdf-tools"}}
+	c.input, c.back = []rune("then run /pdf"), 0
+	m := &Model{snap: &fleet.Snapshot{}}
+	if _, used := m.slashKey(c, "enter"); used {
+		t.Fatalf("enter was taken by the picker, box now %q", string(c.input))
+	}
+	if string(c.input) != "then run /pdf" {
+		t.Fatalf("box changed to %q", string(c.input))
+	}
+	c.input = []rune("then run /pd")
+	if _, used := m.slashKey(c, "enter"); !used || string(c.input) != "then run /pdf " {
+		t.Fatalf("a partial word still completes, got %q", string(c.input))
+	}
+}
