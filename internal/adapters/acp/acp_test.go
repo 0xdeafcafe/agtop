@@ -473,3 +473,19 @@ func TestPatch(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestKnownAgentsRegister(t *testing.T) {
+	for _, k := range []agent.Kind{"copilot", "gemini", "kimi", "opencode", "vibe"} {
+		a, ok := agent.Get(k)
+		if !ok {
+			t.Errorf("%s isn't registered", k)
+			continue
+		}
+		if _, ok := a.(agent.Driver); !ok {
+			t.Errorf("%s can't be driven", k)
+		}
+	}
+	if _, err := (Agent{ID: "x", Command: "x"}).Start(context.Background(), agent.StartOptions{Fork: true}); err != ErrNoFork {
+		t.Errorf("fork = %v, want ErrNoFork", err)
+	}
+}
