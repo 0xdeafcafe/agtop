@@ -265,6 +265,10 @@ type server struct {
 	wake     *time.Timer // a scheduled continue or retry
 	gen      int         // bumped by every send; a stale timer does nothing
 	idle     *time.Timer
+	// background is how many subagents and shells Claude Code has running
+	// in the background. They outlive the turn that started them, and
+	// keep an idle Claude Code from being stopped under them.
+	background int
 	// stopping is closed once a Claude Code being stopped has gone; a new
 	// one waits for it, so two never write the same conversation.
 	stopping chan struct{}
@@ -421,6 +425,7 @@ func (s *server) detach() *headless.Session {
 	s.info.StartedAccount = nil
 	s.info.RestartAfterTurn = false
 	s.pending = map[string]headless.PermissionRequest{}
+	s.background = 0
 	return sess
 }
 
@@ -657,8 +662,10 @@ func (s *server) onEvent(ev headless.Event) {
 				s.info.ContextTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 			}
 		}
-		if ev.Role == "assistant" && s.info.State == "idle" {
-			// It picked up on its own (a background task finished).
+		if ev.Role == "assistant" && ev.ParentToolUseID == "" && s.info.State == "idle" {
+			// It picked up on its own (a background task finished). A
+			// background subagent at work is not the agent's turn: what
+			// you send meanwhile goes now, not into the queue.
 			s.info.State = "working"
 			if s.idle != nil {
 				s.idle.Stop()
@@ -676,6 +683,9 @@ func (s *server) onEvent(ev headless.Event) {
 				}
 			}
 		}
+	case headless.BackgroundTasks:
+		s.background = len(ev.Tasks)
+		return
 	case headless.MCPRequest:
 		if s.sess != nil && ev.Server == agtools.Server {
 			_ = s.sess.ReplyMCP(ev.ID, agtools.Handle(ev.Message))
@@ -937,9 +947,9 @@ func (s *server) armIdle() {
 	}
 	sess := s.sess
 	s.idle = time.AfterFunc(time.Duration(s.cfg.IdleStop), func() {
-		// Work Claude left running in the background (a test run, a build)
+		// Work Claude left running in the background (a subagent, a build)
 		// would be cut off, and never reported back: rest once it's done.
-		if sess != nil && runsShells(sess.PID()) {
+		if sess != nil && s.working(sess) {
 			s.mu.Lock()
 			if s.sess == sess && s.info.State == "idle" {
 				s.armIdle()
@@ -978,7 +988,7 @@ func (s *server) relogin(sess *headless.Session) {
 		s.mu.Unlock()
 		return
 	}
-	if sess != nil && !limited && runsShells(sess.PID()) {
+	if sess != nil && !limited && (s.background > 0 || runsShells(sess.PID())) {
 		s.info.RestartAfterTurn = true
 		s.publish()
 		s.mu.Unlock()
@@ -1010,7 +1020,7 @@ func (s *server) relogin(sess *headless.Session) {
 // left to its turn, which restarts it when it ends.
 func (s *server) restartWhenQuiet(sess *headless.Session) {
 	time.AfterFunc(quietCheck, func() {
-		busy := runsShells(sess.PID())
+		busy := s.working(sess)
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.sess != sess || !s.info.RestartAfterTurn || s.info.State != "idle" {
@@ -1573,6 +1583,15 @@ func alive(pid int) bool {
 	}
 	err := syscall.Kill(pid, 0)
 	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// working reports whether Claude Code has work of its own running in the
+// background: a subagent, or a shell. Called without mu held.
+func (s *server) working(sess *headless.Session) bool {
+	s.mu.Lock()
+	n := s.background
+	s.mu.Unlock()
+	return n > 0 || runsShells(sess.PID())
 }
 
 // runsShells reports whether Claude Code (pid) has a Bash-tool shell still
