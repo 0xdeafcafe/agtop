@@ -94,6 +94,7 @@ type StartOptions struct {
 	Mode      string
 	Env       []string
 	Flags     []string // passed to the agent as they are
+	Binary    string   // the agent's program, when it isn't on PATH by its usual name
 }
 
 // Conn is a running session.
@@ -105,6 +106,12 @@ type Conn interface {
 	SetModel(model string) error
 	SetMode(mode string) error
 	Close() error
+}
+
+// Answerer is a Conn that takes answers to an event.Question: each Ask's
+// chosen labels, keyed by the Ask's ID, or its Text when it has none.
+type Answerer interface {
+	AnswerQuestion(id string, answers map[string][]string) error
 }
 
 // Input is a message to a session.
