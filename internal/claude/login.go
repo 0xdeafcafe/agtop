@@ -160,6 +160,9 @@ func (v Vault) Use(root Account, to Login) error {
 		return fmt.Errorf("couldn't keep the account in use: %w", err)
 	}
 	from := WhoIs(root)
+	if now, err := readCreds(root); err == nil {
+		cred = withMCPLogins(cred, now)
+	}
 	if err := writeCreds(root, cred); err != nil {
 		return err
 	}
@@ -184,6 +187,26 @@ func (v Vault) Adopt(scratch Account) (Login, error) {
 	_ = deleteCreds(scratch)
 	_ = os.RemoveAll(scratch.ConfigDir)
 	return l, nil
+}
+
+// withMCPLogins is cred carrying the MCP servers' logins that now holds:
+// Claude Code keeps them beside the account's sign-in, but they're yours,
+// not the account's, so a switch keeps them as they are.
+func withMCPLogins(cred, now []byte) []byte {
+	var from map[string]json.RawMessage
+	if json.Unmarshal(now, &from) != nil || len(from["mcpOAuth"]) == 0 {
+		return cred
+	}
+	var to map[string]json.RawMessage
+	if json.Unmarshal(cred, &to) != nil {
+		return cred
+	}
+	to["mcpOAuth"] = from["mcpOAuth"]
+	out, err := json.Marshal(to)
+	if err != nil {
+		return cred
+	}
+	return out
 }
 
 // usable is whether a stored sign-in has what Claude Code needs to carry on

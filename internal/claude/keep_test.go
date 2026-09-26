@@ -17,3 +17,15 @@ func TestKeychainUserIsYours(t *testing.T) {
 		t.Fatalf("keychainUser: %q", got)
 	}
 }
+
+func TestSwitchKeepsMCPLogins(t *testing.T) {
+	now := []byte(`{"claudeAiOauth":{"refreshToken":"a"},"mcpOAuth":{"posthog":{"accessToken":"p"}}}`)
+	to := []byte(`{"claudeAiOauth":{"refreshToken":"b"},"mcpOAuth":{"old":{}}}`)
+	got := string(withMCPLogins(to, now))
+	if got != `{"claudeAiOauth":{"refreshToken":"b"},"mcpOAuth":{"posthog":{"accessToken":"p"}}}` {
+		t.Fatalf("merged: %s", got)
+	}
+	if got := string(withMCPLogins(to, []byte(`{"claudeAiOauth":{}}`))); got != string(to) {
+		t.Fatalf("no MCP logins now: %s", got)
+	}
+}
