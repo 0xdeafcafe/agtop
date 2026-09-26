@@ -1550,6 +1550,13 @@ func backgroundText(a *fleet.Agent) string {
 			parts = append(parts, fmt.Sprintf("%d %s", n, name))
 		}
 	}
+	if n := a.Subs.Direct + a.Subs.Nested; len(parts) == 0 && n > 0 {
+		name := "subagent"
+		if n > 1 {
+			name += "s"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", n, name))
+	}
 	if len(parts) == 0 {
 		parts = append(parts, fmt.Sprintf("%d tasks", a.InFlight))
 	}

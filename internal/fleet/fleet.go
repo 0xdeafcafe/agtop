@@ -88,7 +88,11 @@ func (a *Agent) JustFinished(now time.Time) bool {
 
 // Busy is a finished turn whose background work is still running in a live
 // process; a job file can claim work long after its process has gone.
-func (a *Agent) Busy() bool { return a.Job.Busy() && a.PID != 0 }
+// Subagents still writing count too: the job file lists them late, and a
+// terminal session never does.
+func (a *Agent) Busy() bool {
+	return a.PID != 0 && (a.Job.Busy() || !a.Live() && a.Subs.Direct+a.Subs.Nested > 0)
+}
 
 // Age is what the native view prints on the right: time since last change.
 func (a *Agent) Age(now time.Time) time.Duration {
@@ -481,6 +485,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			a.Group = ov.Groups[key]
 			a.Repo, a.Branch = l.gitFor(ss.Cwd, now)
 			a.Spend = l.spend[key]
+			a.Subs = l.subagents(key, j.TranscriptPath, now)
 			l.sample(tab, a)
 			if a.Live() {
 				av.Live++
