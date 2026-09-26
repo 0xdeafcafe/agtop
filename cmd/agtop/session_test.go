@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -58,7 +60,28 @@ func setup(t *testing.T) (bin string) {
 				c.Close()
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		// A stopped session's host stays up for the next message; the test
+		// binary standing in for agtop must not outlive the test. Only this
+		// test's home is looked at.
+		if os.Getenv("AGTOP_HOME") != home {
+			os.RemoveAll(home)
+			return
+		}
+		for _, i := range host.List() {
+			if i.HostPID > 0 {
+				_ = syscall.Kill(i.HostPID, syscall.SIGTERM)
+			}
+		}
+		for _, i := range host.List() {
+			for deadline := time.Now().Add(3 * time.Second); i.HostPID > 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+				if syscall.Kill(i.HostPID, 0) != nil {
+					break
+				}
+			}
+			if i.HostPID > 0 {
+				_ = syscall.Kill(i.HostPID, syscall.SIGKILL)
+			}
+		}
 		os.RemoveAll(home)
 	})
 	return bin
@@ -233,4 +256,126 @@ func writeFile(t *testing.T, dir, name, body string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// send --image puts each image after the text's [Image #N] for it; an image
+// the text doesn't name goes with it as before.
+func TestSendImagesAtTheirMarkers(t *testing.T) {
+	bin := setup(t)
+	dir := filepath.Dir(bin)
+	startJSON(t, "--cwd", dir, "--session-id", sid, "--binary", bin)
+	a := writeFile(t, dir, "a.png", "\x89PNG\r\n\x1a\nA")
+	b := writeFile(t, dir, "b.png", "\x89PNG\r\n\x1a\nB")
+	if out, code := run(t, "compare [Image #2] with [Image #1] please", "send", "11111111", "--image", a, "--image", b); code != 0 {
+		t.Fatalf("send: exit %d: %s", code, out)
+	}
+	sent := filepath.Join(dir, "sent.log")
+	var line string
+	waitFor(t, "the message", func() bool {
+		body, _ := os.ReadFile(sent)
+		for _, l := range strings.Split(string(body), "\n") {
+			if strings.Contains(l, "compare") {
+				line = l
+			}
+		}
+		return line != ""
+	})
+	var msg struct {
+		Message struct {
+			Content []struct {
+				Type   string `json:"type"`
+				Text   string `json:"text"`
+				Source struct {
+					Data string `json:"data"`
+				} `json:"source"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+		t.Fatalf("%v: %s", err, line)
+	}
+	var got []string
+	for _, bl := range msg.Message.Content {
+		if bl.Type == "text" {
+			got = append(got, bl.Text)
+			continue
+		}
+		raw, _ := base64.StdEncoding.DecodeString(bl.Source.Data)
+		got = append(got, "img"+string(raw[len(raw)-1]))
+	}
+	if strings.Join(got, "|") != "compare [Image #2]|imgB| with [Image #1]|imgA| please" {
+		t.Fatalf("content = %q", got)
+	}
+}
+
+// busyClaude keeps its first turn running until a file named release
+// appears next to it, so messages sent meanwhile wait in the queue.
+const busyClaude = `#!/bin/sh
+dir="$(dirname "$0")"
+echo '{"type":"system","subtype":"init","session_id":"SID","model":"claude-haiku-4-5","permissionMode":"default","tools":[]}'
+while read -r line; do
+  case "$line" in
+  *'"type":"user"'*)
+    printf '%s\n' "$line" >> "$dir/sent.log"
+    while [ ! -f "$dir/release" ]; do sleep 0.05; done
+    echo '{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"ok"}]}}'
+    echo '{"type":"result","subtype":"success","result":"ok","total_cost_usd":0.01}'
+    ;;
+  esac
+done
+`
+
+func TestQueueSendAndRemove(t *testing.T) {
+	bin := setup(t)
+	dir := filepath.Dir(bin)
+	if err := os.WriteFile(bin, []byte(busyClaude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	startJSON(t, "--cwd", dir, "--session-id", sid, "--binary", bin, "--prompt-file", writeFile(t, dir, "p.txt", "first\n"))
+	sent := filepath.Join(dir, "sent.log")
+	waitFor(t, "the first turn", func() bool { b, _ := os.ReadFile(sent); return strings.Contains(string(b), "first") })
+
+	for _, m := range []string{"alpha", "bravo", "charlie"} {
+		if out, code := run(t, m, "send", "11111111"); code != 0 {
+			t.Fatalf("send %s: exit %d: %s", m, code, out)
+		}
+	}
+	queue := func() []string { i, _ := host.ReadInfo("11111111"); return i.Queue }
+	waitFor(t, "three queued", func() bool { return len(queue()) == 3 })
+
+	if out, code := run(t, "", "queue", "11111111", "remove", "0", "--was", "alpha"); code != 0 {
+		t.Fatalf("queue remove: exit %d: %s", code, out)
+	}
+	if q := queue(); strings.Join(q, ",") != "bravo,charlie" {
+		t.Fatalf("after remove: %v", q)
+	}
+	// Position 1 is charlie now; --was left out takes it from the queue.
+	if out, code := run(t, "", "queue", "11111111", "send", "1"); code != 0 || !strings.Contains(out, "sent queued message 1") {
+		t.Fatalf("queue send: exit %d: %s", code, out)
+	}
+	if q := queue(); strings.Join(q, ",") != "bravo" {
+		t.Fatalf("after send: %v", q)
+	}
+	if out, code := run(t, "", "queue", "11111111", "send", "0", "--was", "zulu"); code == 0 {
+		t.Fatalf("a message that was never queued should fail: %s", out)
+	}
+	if _, code := run(t, "", "queue", "11111111", "send", "5"); code == 0 {
+		t.Fatal("a position past the queue should fail")
+	}
+	if _, code := run(t, "", "queue", "11111111", "promote", "0"); code == 0 {
+		t.Fatal("an unknown queue action should fail")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "release"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "charlie, then bravo", func() bool {
+		b, _ := os.ReadFile(sent)
+		s := string(b)
+		c, br := strings.Index(s, "charlie"), strings.Index(s, "bravo")
+		return c >= 0 && br > c
+	})
+	if b, _ := os.ReadFile(sent); strings.Contains(string(b), "alpha") {
+		t.Fatalf("a removed message was sent: %s", b)
+	}
 }

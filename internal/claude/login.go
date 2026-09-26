@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Login is one Claude account agtop can sign ~/.claude in as. Every
@@ -112,22 +113,36 @@ func SignedInAs(a Account) string {
 // Keep saves the sign-in a folder holds now into the vault, when it has
 // changed: Claude Code replaces its tokens as it refreshes them, and only
 // the newest works.
+// The state file can name another account than the sign-in beside it (a
+// Claude Code that was still running refreshed its own tokens over a
+// switch), so the sign-in is saved under the account its token belongs to.
 func (v Vault) Keep(a Account) (Login, bool, error) {
 	l, cred, ok := Signed(a)
 	if !ok {
 		return Login{}, false, nil
 	}
-	if old, err := v.Get(l.ID); err == nil && bytes.Equal(old, cred) {
+	owner, known := TokenOwner(cred)
+	id := keepAs(l.ID, owner, known)
+	if old, err := v.Get(id); err == nil && bytes.Equal(old, cred) {
 		return l, true, nil
 	}
-	return l, true, v.Put(l.ID, cred)
+	return l, true, v.Put(id, cred)
+}
+
+// keepAs is the account a sign-in is saved under: its token's owner when
+// Anthropic told us, else the account the state file names.
+func keepAs(profileID, owner string, known bool) string {
+	if known && owner != "" {
+		return owner
+	}
+	return profileID
 }
 
 // Use signs root in as to: whatever root holds now is kept first, so
 // switching back finds it as it was. A Claude Code already running keeps
-// the account it started with until it restarts; when it next refreshes
-// its sign-in it sees the stored one changed and takes that instead of
-// writing its own back.
+// the account it started with until it restarts (its claude.ai connectors
+// stay on it even after its model calls move over), so the switch is
+// remembered: see StartedAs.
 func (v Vault) Use(root Account, to Login) error {
 	unlock, err := v.lock()
 	if err != nil {
@@ -144,10 +159,18 @@ func (v Vault) Use(root Account, to Login) error {
 	if _, _, err := v.Keep(root); err != nil {
 		return fmt.Errorf("couldn't keep the account in use: %w", err)
 	}
+	from := WhoIs(root)
+	if now, err := readCreds(root); err == nil {
+		cred = withMCPLogins(cred, now)
+	}
 	if err := writeCreds(root, cred); err != nil {
 		return err
 	}
-	return writeProfile(root.StatePath(), to.Profile)
+	if err := writeProfile(root.StatePath(), to.Profile); err != nil {
+		return err
+	}
+	_ = v.noteSwitch(Switch{At: time.Now(), Dir: root.ConfigDir, From: from, To: Who{ID: to.ID, Email: to.Email, Org: to.Org}})
+	return nil
 }
 
 // Adopt takes the sign-in a fresh folder was just signed in with (the one
@@ -164,6 +187,26 @@ func (v Vault) Adopt(scratch Account) (Login, error) {
 	_ = deleteCreds(scratch)
 	_ = os.RemoveAll(scratch.ConfigDir)
 	return l, nil
+}
+
+// withMCPLogins is cred carrying the MCP servers' logins that now holds:
+// Claude Code keeps them beside the account's sign-in, but they're yours,
+// not the account's, so a switch keeps them as they are.
+func withMCPLogins(cred, now []byte) []byte {
+	var from map[string]json.RawMessage
+	if json.Unmarshal(now, &from) != nil || len(from["mcpOAuth"]) == 0 {
+		return cred
+	}
+	var to map[string]json.RawMessage
+	if json.Unmarshal(cred, &to) != nil {
+		return cred
+	}
+	to["mcpOAuth"] = from["mcpOAuth"]
+	out, err := json.Marshal(to)
+	if err != nil {
+		return cred
+	}
+	return out
 }
 
 // usable is whether a stored sign-in has what Claude Code needs to carry on
@@ -218,6 +261,9 @@ func writeProfile(statePath string, prof json.RawMessage) error {
 // login keychain on macOS, in .credentials.json elsewhere.
 func readCreds(a Account) ([]byte, error) {
 	if runtime.GOOS == "darwin" {
+		if cred, err := keychainRead(a.keychainService(), keychainUser()); err == nil {
+			return cred, nil
+		}
 		return keychainRead(a.keychainService(), "")
 	}
 	return os.ReadFile(filepath.Join(a.ConfigDir, ".credentials.json"))
@@ -225,14 +271,14 @@ func readCreds(a Account) ([]byte, error) {
 
 func writeCreds(a Account, cred []byte) error {
 	if runtime.GOOS == "darwin" {
-		return keychainWrite(a.keychainService(), keychainAccount(a.keychainService()), cred)
+		return keychainWrite(a.keychainService(), keychainUser(), cred)
 	}
 	return writeFileAtomic(filepath.Join(a.ConfigDir, ".credentials.json"), cred, 0o600)
 }
 
 func deleteCreds(a Account) error {
 	if runtime.GOOS == "darwin" {
-		return keychainDelete(a.keychainService(), "")
+		return keychainDelete(a.keychainService(), keychainUser())
 	}
 	return os.Remove(filepath.Join(a.ConfigDir, ".credentials.json"))
 }
@@ -281,22 +327,17 @@ func keychainDelete(service, account string) error {
 	return exec.Command("/usr/bin/security", args...).Run()
 }
 
-// keychainAccount is the account name Claude Code's item is stored under,
-// so writing replaces it instead of adding a second; Claude Code uses
-// yours.
-func keychainAccount(service string) string {
-	out, _ := exec.Command("/usr/bin/security", "find-generic-password", "-s", service).Output()
-	for _, l := range strings.Split(string(out), "\n") {
-		if _, v, ok := strings.Cut(strings.TrimSpace(l), `"acct"<blob>=`); ok {
-			if v = strings.Trim(v, `"`); v != "" && v != "<NULL>" {
-				return v
-			}
-		}
+// keychainUser is the account name Claude Code reads and writes its
+// sign-in under: your user name. Another item under the same service (an
+// older tool's) is never read by Claude Code, so it's never used here.
+func keychainUser() string {
+	if u := os.Getenv("USER"); u != "" {
+		return u
 	}
 	if u, err := osuser.Current(); err == nil {
 		return u.Username
 	}
-	return os.Getenv("USER")
+	return ""
 }
 
 func writeFileAtomic(path string, b []byte, mode os.FileMode) error {

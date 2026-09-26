@@ -29,7 +29,8 @@ type loginsMsg struct {
 type switchedMsg struct {
 	to      claude.Login
 	why     string
-	resumed int // agtop sessions that carried on at once
+	hosts   relogins
+	outside int // Claude Code sessions agtop doesn't run, left on the old account
 	err     error
 }
 
@@ -171,7 +172,7 @@ func (m *Model) autoSwitch() tea.Cmd {
 			// since (by another agtop, or before this one could say).
 			m.resumedAt = time.Now()
 			return func() tea.Msg {
-				n := reloginHosts(root)
+				n := reloginHosts(root).resumed
 				if n == 0 {
 					return nil
 				}
@@ -197,12 +198,29 @@ func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 	}
 	m.switching = true
 	root := m.store.Config.ActiveAccount()
+	outside := m.outsideOn(root, to)
 	return func() tea.Msg {
 		if err := state.Vault().Use(root, to); err != nil {
 			return switchedMsg{to: to, err: err}
 		}
-		return switchedMsg{to: to, why: why, resumed: reloginHosts(root)}
+		return switchedMsg{to: to, why: why, hosts: reloginHosts(root), outside: outside}
 	}
+}
+
+// outsideOn counts the Claude Code sessions running on root that agtop
+// doesn't host and that didn't start on to: a switch can't move them, so
+// they stay on the account they started with until they restart.
+func (m *Model) outsideOn(root claude.Account, to claude.Login) int {
+	n := 0
+	for _, a := range m.snap.Agents {
+		if a.Agtop || a.Past || a.PID == 0 || a.Acct.ConfigDir != root.ConfigDir {
+			continue
+		}
+		if a.StartedAs.ID != "" && a.StartedAs.ID != to.ID {
+			n++
+		}
+	}
+	return n
 }
 
 // hasRoom is whether the login in use has a recent reading below where
@@ -216,14 +234,22 @@ func (m *Model) hasRoom() bool {
 	return false
 }
 
+// relogins is what a switch did to agtop's own sessions.
+type relogins struct {
+	resumed int // stopped by a usage limit, carrying on now
+	waiting int // restarting on the new account once their turn ends
+	older   int // hosts too old to restart after a turn: #restart them
+}
+
 // reloginHosts tells every agtop session on root that it's signed in as
-// another account now, and reports how many a usage limit had stopped. A
+// another account now: each starts its Claude Code again on it at the
+// first safe point, an idle one at once, a busy one once its turn ends. A
 // host from before agtop could switch ignores the message: one of those a
 // limit stopped is still stopped after it, so its Claude Code (which holds
 // the old sign-in) is stopped, and it's told to continue, which starts a
 // fresh one.
-func reloginHosts(root claude.Account) int {
-	n := 0
+func reloginHosts(root claude.Account) relogins {
+	var n relogins
 	for _, info := range host.List() {
 		if (info.Account != root.Name && info.Account != "") || info.State == "stopped" {
 			continue
@@ -236,8 +262,15 @@ func reloginHosts(root claude.Account) int {
 		if err == nil && info.Limit != nil && stillLimited(info.ID) {
 			err = restartClaude(c, info, "continue")
 		}
-		if err == nil && info.Limit != nil {
-			n++
+		busy := info.ClaudePID != 0 && (info.State == "working" || info.State == "blocked" || info.State == "starting")
+		switch {
+		case err != nil:
+		case info.Limit != nil:
+			n.resumed++
+		case busy && info.Proto < 3:
+			n.older++
+		case busy:
+			n.waiting++
 		}
 		c.Close()
 	}
@@ -255,14 +288,31 @@ func (m *Model) onSwitched(msg switchedMsg) tea.Cmd {
 	if msg.why != "" {
 		text = msg.why + " · " + text
 	}
-	if msg.resumed > 0 {
-		text += fmt.Sprintf(" · %d stopped by the limit carry on", msg.resumed)
+	if n := msg.hosts.resumed; n > 0 {
+		text += fmt.Sprintf(" · %d stopped by the limit carry on", n)
+	}
+	if n := msg.hosts.waiting; n > 0 {
+		text += " · " + sessions(n, "restarts on it once its turn ends", "restart on it once their turn ends")
+	}
+	if n := msg.hosts.older; n > 0 {
+		text += " · " + sessions(n, "from an older agtop keeps the old account until you #restart it", "from an older agtop keep the old account until you #restart them")
+	}
+	if n := msg.outside; n > 0 {
+		text += " · " + sessions(n, "outside agtop keeps the old account until you restart it", "outside agtop keep the old account until you restart them")
 	}
 	m.flash(text, false)
 	if m.dialog != nil {
 		m.loadDialog()
 	}
 	return tea.Batch(append(m.fetchLoginUsage(), m.fetchUsage())...)
+}
+
+// sessions is n sessions and what's said of them, one or many.
+func sessions(n int, one, many string) string {
+	if n == 1 {
+		return "1 session " + one
+	}
+	return fmt.Sprintf("%d sessions %s", n, many)
 }
 
 // addLogin signs in to an account in a folder of its own, then keeps the

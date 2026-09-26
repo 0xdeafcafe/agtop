@@ -1,11 +1,16 @@
 package ui
 
 import (
+	"fmt"
 	"math/rand"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -158,4 +163,53 @@ func TestChipMask(t *testing.T) {
 	if chipMask([]rune("no chips here")) != nil {
 		t.Fatal("a box without chips has no mask")
 	}
+}
+
+// The box scrolls like any text area: the cursor moves within the rows on
+// screen, and the rows only move when the cursor would leave them.
+func TestBoxScrollsOnlyToKeepTheCursorInView(t *testing.T) {
+	draftHome(t)
+	m, c := stashModel(t, "s1", "")
+	var lines []string
+	for i := 1; i <= 12; i++ {
+		lines = append(lines, fmt.Sprintf("row%02d", i))
+	}
+	c.input, c.back = []rune(strings.Join(lines, "\n")), 0
+	shown := func() (first, last string) {
+		m.paneDock(&fleet.Agent{Key: "s1", DisplayName: "s1"}, c, 80, 40)
+		var rows []string
+		for _, l := range c.box.lines() {
+			if f := strings.Fields(ansi.Strip(l)); len(f) > 1 && strings.HasPrefix(f[len(f)-2], "row") {
+				rows = append(rows, f[len(f)-2])
+			}
+		}
+		return rows[0], rows[len(rows)-1]
+	}
+	want := func(step, first, last string) {
+		t.Helper()
+		if f, l := shown(); f != first || l != last {
+			t.Fatalf("%s: rows %s..%s on screen, want %s..%s", step, f, l, first, last)
+		}
+	}
+	want("typed", "row07", "row12")
+	for i := 1; i <= 5; i++ {
+		m.paneKey(tea.KeyPressMsg{}, "up")
+		want(fmt.Sprintf("up %d", i), "row07", "row12")
+	}
+	m.paneKey(tea.KeyPressMsg{}, "up")
+	want("up past the top row", "row06", "row11")
+	for i := 1; i <= 5; i++ {
+		m.paneKey(tea.KeyPressMsg{}, "down")
+		want(fmt.Sprintf("down %d", i), "row06", "row11")
+	}
+	m.paneKey(tea.KeyPressMsg{}, "down")
+	want("down past the bottom row", "row07", "row12")
+	m.paneKey(tea.KeyPressMsg{}, "super+up")
+	want("to the start", "row01", "row06")
+	m.paneKey(tea.KeyPressMsg{}, "ctrl+e")
+	want("end of the first line", "row01", "row06")
+	m.paneKey(tea.KeyPressMsg{}, "super+down")
+	want("to the end", "row07", "row12")
+	typeInBox(m, "x")
+	want("typing at the end", "row07", "row12x")
 }

@@ -149,11 +149,21 @@ type Info struct {
 	// ContextTokens is how much context the last request sent: the
 	// conversation's size as the model sees it, until it next compacts.
 	ContextTokens int `json:"contextTokens,omitempty"`
+	// StartedAccount is who its running Claude Code signed in as when it
+	// started, from the config folder's state file; nil while none runs.
+	// Switching accounts leaves a running one on this account (its
+	// claude.ai connectors above all) until it starts again.
+	StartedAccount *claude.Who `json:"startedAccount,omitempty"`
+	// RestartAfterTurn is a Claude Code that starts again once its turn
+	// ends, for an account switch or an effort change it can't take while
+	// running.
+	RestartAfterTurn bool `json:"restartAfterTurn,omitempty"`
 }
 
 // Proto is this build's host protocol: 1 adds rewind, 2 context usage and
-// control requests passed through (the ask op).
-const Proto = 2
+// control requests passed through (the ask op), 3 a relogin that restarts
+// Claude Code after a turn under way.
+const Proto = 3
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
@@ -255,6 +265,13 @@ type server struct {
 	wake     *time.Timer // a scheduled continue or retry
 	gen      int         // bumped by every send; a stale timer does nothing
 	idle     *time.Timer
+	// background is how many subagents and shells Claude Code has running
+	// in the background. They outlive the turn that started them, and
+	// keep an idle Claude Code from being stopped under them.
+	background int
+	// stopping is closed once a Claude Code being stopped has gone; a new
+	// one waits for it, so two never write the same conversation.
+	stopping chan struct{}
 	quit     chan struct{}
 	stopOnce sync.Once
 	// plugins are the MCP servers of the approved plugins the running
@@ -288,6 +305,7 @@ func Run(id string) error {
 	if cfg.IdleStop == 0 {
 		cfg.IdleStop = Duration(DefaultIdleStop)
 	}
+	endStrays(cfg.SessionID)
 	sock := SockPath(id)
 	_ = os.Remove(sock)
 	ln, err := net.Listen("unix", sock)
@@ -328,6 +346,12 @@ func (s *server) accept() {
 
 // start launches Claude Code if it is not running. Called with mu held.
 func (s *server) start() error {
+	for s.stopping != nil && s.sess == nil {
+		ch := s.stopping
+		s.mu.Unlock()
+		<-ch
+		s.mu.Lock()
+	}
 	if s.sess != nil {
 		return nil
 	}
@@ -381,6 +405,11 @@ func (s *server) start() error {
 	s.sess = sess
 	s.info.ClaudePID = sess.PID()
 	s.info.Error = ""
+	s.info.RestartAfterTurn = false
+	s.info.StartedAccount = nil
+	if who := claude.WhoIs(s.cfg.Account); who.ID != "" {
+		s.info.StartedAccount = &who
+	}
 	// Every process needs agtop's tools registered before its first message.
 	s.initID, _ = sess.Initialize(append([]string{agtools.Server}, s.plugins...)...)
 	go s.watch(sess)
@@ -393,8 +422,36 @@ func (s *server) detach() *headless.Session {
 	sess := s.sess
 	s.sess = nil
 	s.info.ClaudePID = 0
+	s.info.StartedAccount = nil
+	s.info.RestartAfterTurn = false
 	s.pending = map[string]headless.PermissionRequest{}
+	s.background = 0
 	return sess
+}
+
+// retire stops a detached Claude Code in the background; a new one waits
+// until it has gone. With sendQueued, what's queued (what waited for the
+// turn, and what came while it stopped) is sent once it has. Called with
+// mu held.
+func (s *server) retire(sess *headless.Session, sendQueued bool) {
+	if sess == nil {
+		return
+	}
+	done := make(chan struct{})
+	s.stopping = done
+	go func() {
+		_ = sess.Stop(10 * time.Second)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.stopping == done {
+			s.stopping = nil
+		}
+		close(done)
+		if sendQueued && s.sess == nil && s.info.State == "idle" && len(s.info.Queue) > 0 && !s.info.QueueHeld && s.info.Limit == nil {
+			s.sendQueue()
+		}
+		go debug.FreeOSMemory()
+	}()
 }
 
 // saveConfig writes the config back, for what changes while running.
@@ -565,6 +622,8 @@ func (s *server) watch(sess *headless.Session) {
 	}
 	s.sess = nil
 	s.info.ClaudePID = 0
+	s.info.StartedAccount = nil
+	s.info.RestartAfterTurn = false
 	s.pending = map[string]headless.PermissionRequest{}
 	if s.info.State == "working" || s.info.State == "blocked" || s.info.State == "starting" {
 		// It died mid-turn; the next message resumes it.
@@ -603,8 +662,10 @@ func (s *server) onEvent(ev headless.Event) {
 				s.info.ContextTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 			}
 		}
-		if ev.Role == "assistant" && s.info.State == "idle" {
-			// It picked up on its own (a background task finished).
+		if ev.Role == "assistant" && ev.ParentToolUseID == "" && s.info.State == "idle" {
+			// It picked up on its own (a background task finished). A
+			// background subagent at work is not the agent's turn: what
+			// you send meanwhile goes now, not into the queue.
 			s.info.State = "working"
 			if s.idle != nil {
 				s.idle.Stop()
@@ -622,6 +683,9 @@ func (s *server) onEvent(ev headless.Event) {
 				}
 			}
 		}
+	case headless.BackgroundTasks:
+		s.background = len(ev.Tasks)
+		return
 	case headless.MCPRequest:
 		if s.sess != nil && ev.Server == agtools.Server {
 			_ = s.sess.ReplyMCP(ev.ID, agtools.Handle(ev.Message))
@@ -676,6 +740,10 @@ func (s *server) onEvent(ev headless.Event) {
 		s.info.CostUSD += ev.CostUSD
 		s.askContext()
 		if s.stalled(ev) {
+			if s.info.RestartAfterTurn && s.sess != nil {
+				// The continue or retry starts a fresh one.
+				s.retire(s.detach(), false)
+			}
 			s.publish()
 			return
 		}
@@ -687,6 +755,12 @@ func (s *server) onEvent(ev headless.Event) {
 			s.info.Needs = ""
 			if t := strings.TrimSpace(ev.Text); t != "" {
 				s.info.Detail = firstLine(t)
+			}
+			if s.info.RestartAfterTurn && s.sess != nil {
+				// What's queued goes to the fresh one, once this has gone.
+				s.retire(s.detach(), true)
+				s.publish()
+				return
 			}
 			if len(s.info.Queue) > 0 && !s.info.QueueHeld {
 				// The whole queue goes as one message, unless you asked
@@ -873,9 +947,9 @@ func (s *server) armIdle() {
 	}
 	sess := s.sess
 	s.idle = time.AfterFunc(time.Duration(s.cfg.IdleStop), func() {
-		// Work Claude left running in the background (a test run, a build)
+		// Work Claude left running in the background (a subagent, a build)
 		// would be cut off, and never reported back: rest once it's done.
-		if sess != nil && runsShells(sess.PID()) {
+		if sess != nil && s.working(sess) {
 			s.mu.Lock()
 			if s.sess == sess && s.info.State == "idle" {
 				s.armIdle()
@@ -899,25 +973,38 @@ func (s *server) armIdle() {
 }
 
 // relogin follows ~/.claude being signed in as another account. A running
-// Claude Code keeps the account it started with, so one that's idle rests
-// now (your next message starts it on the new one) unless work it left
-// running would be cut off, and one a usage limit stopped carries on now
-// instead of waiting for the reset. A turn under way is left to finish.
-// Called with mu held; returns with it released.
+// Claude Code keeps the account it started with (its claude.ai connectors
+// above all), so it stops at the first safe point and your next message,
+// or what's queued, starts it on the new one: an idle one now, one in a
+// turn once the turn ends, one with work of its own still running (a test
+// run, a build) once that's done. One a usage limit stopped carries on now
+// instead of waiting for the reset. Called with mu held; returns with it
+// released.
 func (s *server) relogin(sess *headless.Session) {
 	limited := s.info.Limit != nil
-	if s.info.State != "idle" || (sess == nil && !limited) || (!limited && runsShells(sess.PID())) {
+	if sess != nil && (s.info.State == "working" || s.info.State == "blocked" || s.info.State == "starting") {
+		s.info.RestartAfterTurn = true
+		s.publish()
+		s.mu.Unlock()
+		return
+	}
+	if sess != nil && !limited && (s.background > 0 || runsShells(sess.PID())) {
+		s.info.RestartAfterTurn = true
+		s.publish()
+		s.mu.Unlock()
+		s.restartWhenQuiet(sess)
+		return
+	}
+	if s.info.State != "idle" || (sess == nil && !limited) {
 		s.mu.Unlock()
 		return
 	}
 	if sess != nil {
 		s.detach()
 		s.publish()
-		s.mu.Unlock()
-		_ = sess.Stop(10 * time.Second)
-		s.mu.Lock()
+		s.retire(sess, false)
 	}
-	if limited && s.sess == nil {
+	if limited {
 		s.info.Limit = nil
 		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
 			s.sendQueue()
@@ -927,6 +1014,31 @@ func (s *server) relogin(sess *headless.Session) {
 	}
 	s.mu.Unlock()
 }
+
+// restartWhenQuiet stops an idle Claude Code that has work of its own
+// running once that work is done. One that picks up again to report it is
+// left to its turn, which restarts it when it ends.
+func (s *server) restartWhenQuiet(sess *headless.Session) {
+	time.AfterFunc(quietCheck, func() {
+		busy := s.working(sess)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.sess != sess || !s.info.RestartAfterTurn || s.info.State != "idle" {
+			return
+		}
+		if busy {
+			s.restartWhenQuiet(sess)
+			return
+		}
+		s.detach()
+		s.publish()
+		s.retire(sess, true)
+	})
+}
+
+// quietCheck is how often an idle Claude Code waiting to restart is looked
+// at for work of its own still running.
+const quietCheck = 2 * time.Second
 
 // publish writes info.json and sends the new info to clients. Called with
 // mu held.
@@ -1224,6 +1336,10 @@ func (s *server) do(o op) error {
 			s.mu.Unlock()
 			return sess.Stop(10 * time.Second)
 		}
+		if sess != nil {
+			s.info.RestartAfterTurn = true
+			s.publish()
+		}
 	case "rewind":
 		err := s.rewind(o.Text, o.Now, o.Branch)
 		s.mu.Unlock()
@@ -1467,6 +1583,15 @@ func alive(pid int) bool {
 	}
 	err := syscall.Kill(pid, 0)
 	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// working reports whether Claude Code has work of its own running in the
+// background: a subagent, or a shell. Called without mu held.
+func (s *server) working(sess *headless.Session) bool {
+	s.mu.Lock()
+	n := s.background
+	s.mu.Unlock()
+	return n > 0 || runsShells(sess.PID())
 }
 
 // runsShells reports whether Claude Code (pid) has a Bash-tool shell still

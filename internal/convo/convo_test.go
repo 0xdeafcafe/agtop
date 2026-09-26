@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -932,5 +934,99 @@ func TestRenderWide(t *testing.T) {
 	}
 	if w := widest(Options{Width: 200, Now: at(40), Wide: true}); w <= capRow || w > 200 {
 		t.Fatalf("wide rows ran to %d of 200", w)
+	}
+}
+
+// A message split around its images at their markers reads back as the
+// text that was typed.
+func TestPromptJoinsTextAroundImages(t *testing.T) {
+	raw := json.RawMessage(`[{"type":"text","text":"see [Image #1]"},{"type":"image"},{"type":"text","text":" and [Image #2]"},{"type":"image"},{"type":"text","text":" ok"}]`)
+	text, images, ok := prompt(raw)
+	if !ok || text != "see [Image #1] and [Image #2] ok" || len(images) != 2 {
+		t.Fatalf("prompt = %q %v %v", text, images, ok)
+	}
+	if text, _, _ := prompt(json.RawMessage(`[{"type":"text","text":"one"},{"type":"text","text":"two"}]`)); text != "one\ntwo" {
+		t.Fatalf("separate blocks = %q", text)
+	}
+}
+
+func answerLines(t *testing.T, md string, width int) []string {
+	t.Helper()
+	s := New()
+	var out []string
+	for _, l := range s.Answer(md, width) {
+		out = append(out, strings.TrimRight(stripANSI(l.Text), " "))
+	}
+	return out
+}
+
+// Nested lists are drawn at their depth: two columns a level, a bullet of
+// their own, numbers kept, ordered and unordered mixed either way.
+func TestAnswerNestedLists(t *testing.T) {
+	md := "- one\n  - one a\n    - one a i\n  - one b\n- two\n\n1. first\n   - first bullet\n     1. deep number\n2. second\n\n* top\n    * four-space child"
+	got := strings.Join(answerLines(t, md, 80), "\n")
+	for _, want := range []string{
+		"    • one\n      ◦ one a\n        ▪ one a i\n      ◦ one b\n    • two",
+		"    1. first\n      ◦ first bullet\n        1. deep number\n    2. second",
+		"    • top\n      ◦ four-space child",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing\n%s\nin\n%s", want, got)
+		}
+	}
+}
+
+// A long nested item wraps with its lines under its text, not its bullet.
+func TestAnswerNestedListWraps(t *testing.T) {
+	long := strings.Repeat("word ", 20)
+	lines := answerLines(t, "- top\n  - "+long+"\n    more of the same item", 40)
+	var item []string
+	for _, l := range lines {
+		if strings.Contains(l, "word") || strings.Contains(l, "more") {
+			item = append(item, l)
+		}
+	}
+	if len(item) < 3 || !strings.HasPrefix(item[0], "      ◦ word") {
+		t.Fatalf("item:\n%s", strings.Join(lines, "\n"))
+	}
+	for _, l := range item[1:] {
+		if !strings.HasPrefix(l, "        ") || strings.HasPrefix(l, "         ") {
+			t.Fatalf("not under the item's text: %q\n%s", l, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+// An open turn shows the whole message you sent, however long: a URL
+// pasted three times over, one unbroken word, is broken across rows, and
+// the words after it are all there.
+func TestOpenTurnShowsTheWholeMessage(t *testing.T) {
+	url := "https://github.com/0xdeafcafe/agtop/pull/2/files#diff-4f1c0d7e3a9b2c8d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0"
+	tail := "this one keeps opening the wrong file when I click it, and the one after it too, " +
+		"so please look at how the links are resolved and fix both of them before the release"
+	s := New()
+	s.Apply(host.Sent{Text: url + url + url + " " + tail + "\n\nand a second paragraph"}, at(0))
+	s.Apply(say("On it."), at(1))
+	s.Apply(headless.Result{Subtype: "success"}, at(2))
+	const width = 100
+	lines := s.Render(Options{Width: width, Now: at(3), Open: map[string]bool{"t1": true}})
+	var body strings.Builder
+	for _, l := range lines {
+		txt := stripANSI(l.Text)
+		if w := ansi.StringWidth(txt); w > width {
+			t.Fatalf("row %d wide: %q", w, txt)
+		}
+		if strings.Contains(txt, "On it.") {
+			break
+		}
+		body.WriteString(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(txt), "▾")))
+	}
+	got := strings.ReplaceAll(body.String(), " ", "")
+	for _, want := range []string{url + url + url, strings.ReplaceAll(tail, " ", ""), "asecondparagraph"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in\n%s", want, plain(lines))
+		}
+	}
+	if strings.Contains(plain(lines), "…") {
+		t.Fatalf("cut short:\n%s", plain(lines))
 	}
 }

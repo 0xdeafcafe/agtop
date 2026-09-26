@@ -123,6 +123,16 @@ type Compact struct {
 	PostTokens int
 }
 
+// BackgroundTasks lists what Claude Code has running in the background
+// (subagents, shells) each time that changes. They go on after the turn
+// that started them ends, and report back in a turn of their own.
+type BackgroundTasks struct{ Tasks []BackgroundTask }
+
+type BackgroundTask struct {
+	ID   string `json:"task_id"`
+	Type string `json:"task_type"` // local_agent, local_bash
+}
+
 // Result ends a turn.
 type Result struct {
 	Subtype    string // success, error_max_turns, error_during_execution, ...
@@ -174,6 +184,7 @@ func (PermissionDenied) event()    {}
 func (Status) event()              {}
 func (Result) event()              {}
 func (Compact) event()             {}
+func (BackgroundTasks) event()     {}
 func (RateLimit) event()           {}
 func (ControlReply) event()        {}
 func (MCPRequest) event()          {}
@@ -294,6 +305,12 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 		}
 		_ = json.Unmarshal(line, &r)
 		return Compact{Trigger: r.Meta.Trigger, PreTokens: r.Meta.PreTokens}, nil
+	case "background_tasks_changed":
+		var r struct {
+			Tasks []BackgroundTask `json:"tasks"`
+		}
+		_ = json.Unmarshal(line, &r)
+		return BackgroundTasks(r), nil
 	case "permission_denied":
 		var r struct {
 			Tool      string `json:"tool_name"`

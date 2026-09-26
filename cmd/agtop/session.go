@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,10 @@ const sessionUsage = `agtop session: run agtop-mode sessions without the view
   agtop session stop <id>
   agtop session info <id> [--json]
   agtop session list [--json] [--meta k=v]...
+  agtop session queue <id> send|remove <n> [--was TEXT]
+        send the queued message at position n (from 0, as info's queue
+        lists it) now, or drop it; --was names it by its text, so it is
+        still found if the queue moved
 `
 
 // sessionView is a session as the session commands print it: its info,
@@ -67,6 +72,8 @@ func sessionCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		asJSON, err = sessionInfo(rest, stdout)
 	case "list":
 		asJSON, err = sessionList(rest, stdout)
+	case "queue":
+		err = sessionQueue(rest, stdout)
 	default:
 		err = fmt.Errorf("unknown session command %q\n\n%s", sub, sessionUsage)
 	}
@@ -425,6 +432,97 @@ func sessionSend(args []string, stdin io.Reader, stdout io.Writer) error {
 	return nil
 }
 
+// sessionQueue sends one queued message now, or removes it.
+func sessionQueue(args []string, stdout io.Writer) error {
+	fs := newFlags("queue")
+	var was string
+	fs.StringVar(&was, "was", "", "")
+	usage := errors.New("usage: agtop session queue <id> send|remove <n> [--was TEXT]")
+	if len(args) < 3 || strings.HasPrefix(args[0], "-") {
+		return usage
+	}
+	id, action, n := args[0], args[1], args[2]
+	if err := fs.Parse(args[3:]); err != nil {
+		return err
+	}
+	if action != "send" && action != "remove" {
+		return usage
+	}
+	index, err := strconv.Atoi(n)
+	if err != nil || index < 0 {
+		return fmt.Errorf("queue position %q is not a number from 0", n)
+	}
+	if !sessionExists(id) {
+		return fmt.Errorf("session %s %w", id, errNotFound)
+	}
+	info, err := host.ReadInfo(id)
+	if err != nil || !host.Alive(info.HostPID) {
+		return fmt.Errorf("session %s is not running", id)
+	}
+	c, err := host.Dial(id)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	var queue []string
+	if err := awaitLine(c, 10*time.Second, func(ev any) bool {
+		e, ok := ev.(host.InfoEvent)
+		if ok {
+			queue = e.Info.Queue
+		}
+		return ok
+	}); err != nil {
+		return err
+	}
+	if was == "" {
+		if index >= len(queue) {
+			return fmt.Errorf("no queued message %d: the queue has %d", index, len(queue))
+		}
+		was = queue[index]
+	}
+	before := count(queue, was)
+	if action == "send" {
+		err = c.SendQueued(index, was)
+	} else {
+		err = c.RemoveQueued(index, was)
+	}
+	if err != nil {
+		return err
+	}
+	var failed error
+	if err := awaitLine(c, 5*time.Second, func(ev any) bool {
+		switch e := ev.(type) {
+		case host.ErrorEvent:
+			failed = errors.New(e.Error)
+			return true
+		case host.InfoEvent:
+			return count(e.Info.Queue, was) < before
+		}
+		return false
+	}); err != nil {
+		return err
+	}
+	if failed != nil {
+		return failed
+	}
+	if action == "send" {
+		fmt.Fprintf(stdout, "sent queued message %d to %s\n", index, id)
+	} else {
+		fmt.Fprintf(stdout, "removed queued message %d from %s\n", index, id)
+	}
+	return nil
+}
+
+func count(list []string, s string) int {
+	n := 0
+	for _, x := range list {
+		if x == s {
+			n++
+		}
+	}
+	return n
+}
+
 // awaitLine reads host lines until want accepts one.
 func awaitLine(c *host.Client, d time.Duration, want func(any) bool) error {
 	timeout := time.After(d)
@@ -572,6 +670,14 @@ func openSolo(args []string) error {
 	}
 	viewGC()
 	p := tea.NewProgram(ui.NewSolo(state.Load(), version, id), tea.WithFPS(120))
+	// The app it's embedded in may end it at any moment, closing the view:
+	// what's in the box is kept first.
+	stop := ui.EndOnSignals(p.Kill)
 	_, err = p.Run()
+	stop()
+	ui.FlushDrafts()
+	if errors.Is(err, tea.ErrProgramKilled) {
+		return nil
+	}
 	return err
 }

@@ -26,3 +26,28 @@ func TestKeychainWriteLong(t *testing.T) {
 		}
 	}
 }
+
+// Claude Code reads its sign-in under your user name. Another item under
+// the same service (an older tool's) must not catch what a switch writes.
+func TestCredsGoToClaudeCodesItem(t *testing.T) {
+	if os.Getenv("AGTOP_KEYCHAIN_TEST") == "" {
+		t.Skip("writes to your login keychain; set AGTOP_KEYCHAIN_TEST=1")
+	}
+	a := Account{ConfigDir: t.TempDir()}
+	svc := a.keychainService()
+	defer keychainDelete(svc, "unknown")
+	defer keychainDelete(svc, keychainUser())
+	if err := keychainWrite(svc, "unknown", []byte(`{"claudeAiOauth":{"refreshToken":"stale"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte(`{"claudeAiOauth":{"refreshToken":"new"}}`)
+	if err := writeCreds(a, want); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := keychainRead(svc, keychainUser()); err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("Claude Code's item: %s, %v", got, err)
+	}
+	if got, err := readCreds(a); err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("read back: %s, %v", got, err)
+	}
+}

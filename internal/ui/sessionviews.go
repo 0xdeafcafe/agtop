@@ -25,8 +25,8 @@ import (
 // The queue's keys never need alt, which a Mac's option key doesn't send
 // unless the terminal is told to. ↑ from the empty box picks the last
 // queued message, in the dock or here; a picked message takes plain keys
-// (anything else goes back to typing), and ctrl+s always sends everything
-// waiting, now.
+// (anything else goes back to typing), and the send-now key (ctrl+s, or
+// alt+s when ctrl+s stashes) always sends everything waiting, now.
 
 // queueLines lists the messages waiting for the agent, each as you wrote
 // it, line breaks kept; a picked one shows whole.
@@ -786,6 +786,11 @@ func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
 		if start == 0 && strings.TrimSpace(string(c.input[end:])) == "" {
 			c.input, c.back = []rune("/"+cmds[c.slashSel].Name), 0
 			return m.sendPane(c, false), true
+		}
+		// A command already typed in full has nothing to complete: enter
+		// sends the message.
+		if strings.EqualFold(string(c.input[start:end]), "/"+cmds[c.slashSel].Name) {
+			return nil, false
 		}
 		complete(" ")
 		return nil, true

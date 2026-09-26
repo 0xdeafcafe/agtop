@@ -440,20 +440,28 @@ func (d *drawer) open() {
 		ask = "picked up on its own"
 	}
 	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
-	styled, label := styledAsk(oneLine(ask), cText+bold), dim("you")
-	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
-		styled, label = dim("picked up on its own"), dim("◌")
-	}
+	style, label := func(s string) string { return styledAsk(s, cText+bold) }, dim("you")
 	if t.From != "" {
-		styled, label = sub(oneLine(ask)), dim("◌ "+t.From)
+		style, label = sub, dim("◌ "+t.From)
 	}
 	rowW := min(headW-len([]rune(stripANSI(label)))+3, capProse)
-	rows := wrap(styled, rowW)
-	if strings.TrimSpace(t.Prompt) == "" && t.From == "" && imgs != nil {
-		rows, label, imgs = imageChips(imgs, rowW), dim("you"), nil
+	// Open, the message is shown whole, line by line; a word longer than a
+	// row, a pasted URL say, is broken across rows.
+	var rows []string
+	for i, l := range strings.Split(strings.TrimSpace(ask), "\n") {
+		if l = strings.TrimSpace(l); l == "" {
+			if i > 0 && rows[len(rows)-1] != "" {
+				rows = append(rows, "")
+			}
+			continue
+		}
+		rows = append(rows, wrap(style(oneLine(l)), rowW)...)
 	}
-	if len(rows) > 3 {
-		rows = append(rows[:2], rows[2]+dim(" …"))
+	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
+		rows, label = []string{dim("picked up on its own")}, dim("◌")
+		if imgs != nil {
+			rows, label, imgs = imageChips(imgs, rowW), dim("you"), nil
+		}
 	}
 	for i, r := range rows {
 		if i == 0 {
@@ -783,6 +791,7 @@ func (d *drawer) answer(s string) {
 	}
 	w := min(d.cw-5, capProse)
 	lines := strings.Split(strings.TrimRight(s, " \t\n"), "\n")
+	var items []listLevel // the list items open, outermost first
 	for li := 0; li < len(lines); li++ {
 		ln := lines[li]
 		trim := strings.TrimSpace(ln)
@@ -814,35 +823,94 @@ func (d *drawer) answer(s string) {
 			d.blank()
 			continue
 		case strings.HasPrefix(trim, "#"):
+			items = items[:0]
 			d.add("", "", pad+paint(cWhite+bold, strings.TrimSpace(strings.TrimLeft(trim, "#"))), "")
 			continue
 		}
-		k := memoKey{text: trim, style: "answer", spine: d.spine(), width: d.o.Width, cw: d.cw}
+		// A list item, or a line of one, sits at its depth: two columns a
+		// level, the bullet changing with it, wrapped lines under the text.
+		col := indentOf(ln)
+		marker, body, isItem := listItem(trim)
+		lead, ind := marker, ""
+		switch {
+		case isItem:
+			for len(items) > 0 && items[len(items)-1].col >= col {
+				items = items[:len(items)-1]
+			}
+			depth := len(items)
+			if marker == "" {
+				lead = bullets[depth%len(bullets)]
+			}
+			items = append(items, listLevel{col: col, text: 2*depth + len([]rune(lead)) + 1})
+			ind = blanks(2 * depth)
+		case col > 0 && len(items) > 0:
+			// Indented under an item: its text goes on there.
+			for len(items) > 1 && items[len(items)-1].col >= col {
+				items = items[:len(items)-1]
+			}
+			ind = blanks(items[len(items)-1].text)
+		default:
+			items = items[:0]
+		}
+		k := memoKey{text: trim, style: "answer:" + lead, spine: d.spine(), n: len(ind), width: d.o.Width, cw: d.cw}
 		if ls, ok := d.s.memoGet(k); ok {
 			d.lines = append(d.lines, ls...)
 			continue
 		}
 		from := len(d.lines)
-		lead, body := "", trim
-		if strings.HasPrefix(trim, "- ") || strings.HasPrefix(trim, "* ") {
-			lead, body = dim("•")+" ", trim[2:]
-		} else if m := numbered.FindStringSubmatch(trim); m != nil {
-			lead, body = dim(m[1])+" ", m[2]
+		if lead != "" {
+			lead = dim(lead) + " "
 		}
 		leadW := len([]rune(stripANSI(lead)))
-		for k, r := range wrap(text(inline(body, cText)), w-leadW) {
+		for k, r := range wrap(text(inline(body, cText)), max(8, w-len(ind)-leadW)) {
 			if k > 0 && lead != "" {
 				r = blanks(leadW) + r
 			} else {
 				r = lead + r
 			}
-			d.add("", "", pad+r, "")
+			d.add("", "", pad+ind+r, "")
 			if k > 0 {
 				d.wrapped()
 			}
 		}
 		d.s.memoPut(k, d.lines[from:])
 	}
+}
+
+// listLevel is an open list item: the column its marker is at in the
+// source, and the one its text starts at as drawn.
+type listLevel struct{ col, text int }
+
+// bullets mark unordered items, one per depth.
+var bullets = []string{"•", "◦", "▪"}
+
+// listItem splits a markdown list item into its marker and text: marker
+// is "" for a bullet, the number for an ordered item.
+func listItem(trim string) (marker, body string, ok bool) {
+	if len(trim) >= 2 && (trim[0] == '-' || trim[0] == '*' || trim[0] == '+') && trim[1] == ' ' {
+		return "", strings.TrimSpace(trim[2:]), true
+	}
+	if m := numbered.FindStringSubmatch(trim); m != nil {
+		return m[1], m[2], true
+	}
+	return "", trim, false
+}
+
+// indentOf is a line's leading indent in columns, a tab to the next stop
+// of four.
+func indentOf(s string) int {
+	n := 0
+	for _, r := range s {
+		switch r {
+		case ' ':
+			n++
+		case '\t':
+			n += 4 - n%4
+		default:
+			return n
+		}
+	}
+	return n
 }
 
 // Answer draws text the way a turn's final words are drawn (headings,
@@ -1102,7 +1170,7 @@ func link(url string) string {
 // base colour after each.
 func Inline(s, base string) string { return inline(s, base) }
 
-var numbered = regexp.MustCompile(`^(\d+\.)\s+(.*)$`)
+var numbered = regexp.MustCompile(`^(\d+[.)])\s+(.*)$`)
 
 // inline styles **bold** and `code`, returning to base colour after each,
 // draws markdown images and links, and links URLs. Byte scans, the same as

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -56,6 +57,19 @@ func setup(t *testing.T) (bin string) {
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
 	t.Setenv("AGTOP_HOME", home)
+	// Registered after Setenv, so it runs before AGTOP_HOME is restored:
+	// the hosts the test started, and any a restart left, must not outlive
+	// it, and only this test's home is looked at.
+	t.Cleanup(func() {
+		if os.Getenv("AGTOP_HOME") != home {
+			return
+		}
+		for _, i := range List() {
+			if i.HostPID > 0 && i.HostPID != os.Getpid() {
+				_ = syscall.Kill(i.HostPID, syscall.SIGKILL)
+			}
+		}
+	})
 	bin = filepath.Join(home, "claude")
 	if err := os.WriteFile(bin, []byte(fakeClaude), 0o755); err != nil {
 		t.Fatal(err)
@@ -481,5 +495,63 @@ func TestRingTrimsWholeTurns(t *testing.T) {
 	}
 	if !s.info.ReplayFrom.Equal(last) {
 		t.Fatalf("ReplayFrom is %v, the last turn began at %v", s.info.ReplayFrom, last)
+	}
+}
+
+// bgClaude starts a background subagent, ends its turn while the subagent
+// still writes, and answers any later message in a turn of its own.
+const bgClaude = `#!/bin/sh
+printf '%s\n' "$*" >> "$(dirname "$0")/args.log"
+echo '{"type":"system","subtype":"init","session_id":"SID","model":"claude-haiku-4-5"}'
+while read -r line; do
+  case "$line" in *'"type":"user"'*) ;; *) continue ;; esac
+  case "$line" in
+  *'"start"'*)
+    echo '{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"prompt":"dig","run_in_background":true}}]}}'
+    echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a1","task_type":"local_agent"}]}'
+    echo '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"started"}]}}'
+    echo '{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Started."}]}}'
+    echo '{"type":"result","subtype":"success","result":"Started."}'
+    echo '{"type":"assistant","parent_tool_use_id":"t1","message":{"id":"s1","role":"assistant","content":[{"type":"text","text":"digging"}]}}'
+    ;;
+  *'"next"'*)
+    echo '{"type":"assistant","message":{"id":"m3","role":"assistant","content":[{"type":"text","text":"Got next."}]}}'
+    echo '{"type":"result","subtype":"success","result":"Got next."}'
+    ;;
+  esac
+done
+`
+
+// A background subagent still at work doesn't hold the queue: the main
+// turn is over, so a message goes to Claude at once, and the idle stop
+// waits for the subagent.
+func TestBackgroundSubagentDoesNotHoldTheQueue(t *testing.T) {
+	bin := setup(t)
+	if err := os.WriteFile(bin, []byte(bgClaude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Prompt: "start", Binary: bin, IdleStop: Duration(100 * time.Millisecond)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Dial(cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	next(t, c, func(ev any) bool { m, ok := ev.(headless.Message); return ok && m.ParentToolUseID == "t1" })
+	// Past the idle stop: the subagent keeps Claude Code running.
+	time.Sleep(400 * time.Millisecond)
+	if err := c.Send("next"); err != nil {
+		t.Fatal(err)
+	}
+	next(t, c, func(ev any) bool {
+		m, ok := ev.(headless.Message)
+		return ok && m.Role == "assistant" && len(m.Blocks) > 0 && m.Blocks[0].Text == "Got next."
+	})
+	b, _ := os.ReadFile(filepath.Join(filepath.Dir(bin), "args.log"))
+	if n := strings.Count(string(b), "\n"); n != 1 {
+		t.Errorf("Claude Code started %d times, want once:\n%s", n, b)
 	}
 }

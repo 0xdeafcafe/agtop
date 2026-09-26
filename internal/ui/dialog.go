@@ -235,6 +235,12 @@ func settingHelp(label, value string) (what, now string) {
 	case "Menu bar icon":
 		what = "agtop in the menu bar: every account's usage, what's working, and who needs you, with a badge. A question with a few answers can be answered from its notification's buttons, a permission allowed or denied. The first time, it's built with Xcode's Swift compiler (a few seconds)."
 		now = map[string]string{"on": "on: it opens with agtop, and its menu can open it at login; agtop's own notifications give way to its.", "off": "off: no menu bar icon."}[value]
+	case "ctrl+s in the box":
+		what = "What ctrl+s does in a Session's message box. The other of the two goes on alt+s."
+		now = map[string]string{
+			"send now":                 "send now: ctrl+s sends the message at once, steering the turn that's running; alt+s stashes it.",
+			"stash (like Claude Code)": "stash: ctrl+s puts the message aside and empties the box, and it comes back once you've sent another, or on ctrl+s in an empty box; alt+s sends now.",
+		}[value]
 	case "Earlier section":
 		what = "Agents that finished more than a day ago. Folded, it is one line with a count and a peek at the names."
 		now = map[string]string{"folded": "folded: open it with enter or → when you need it.", "open": "open: every older agent is listed."}[value]
@@ -398,6 +404,10 @@ func (m *Model) generalSettings() []setting {
 	if c.SearchTranscriptsOnKey {
 		barSearch = "on ctrl+enter"
 	}
+	ctrlS := "send now"
+	if c.CtrlSInBox == "stash" {
+		ctrlS = "stash (like Claude Code)"
+	}
 	spaces := "hidden"
 	if c.ShowWhitespace {
 		spaces = "shown"
@@ -451,6 +461,12 @@ func (m *Model) generalSettings() []setting {
 		}},
 		{"ctrl+k searches transcripts", barSearch, []string{"as you type", "on ctrl+enter"}, func(v string) {
 			c.SearchTranscriptsOnKey = v == "on ctrl+enter"
+		}},
+		{"ctrl+s in the box", ctrlS, []string{"send now", "stash (like Claude Code)"}, func(v string) {
+			c.CtrlSInBox = ""
+			if v == "stash (like Claude Code)" {
+				c.CtrlSInBox = "stash"
+			}
 		}},
 		{"Earlier section", earlier, []string{"folded", "open"}, func(v string) {
 			if c.Folds == nil {

@@ -106,6 +106,8 @@ type Model struct {
 	input  []rune
 	back   int // cursor distance from the input's end
 	anchor int // selection start + 1; 0 when nothing is selected
+	// promptTop is the Prompt box's first row on screen, kept between draws.
+	promptTop int
 	// pendingCopy is text to put on the clipboard with the next update.
 	pendingCopy string
 	// Where the Prompt's box was drawn, so a click can place the cursor.
@@ -206,6 +208,11 @@ type Model struct {
 	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
 	// its agent's key once the snapshot has it.
 	solo, soloKey string
+	// soloList is solo with Agents shown beside the session (ctrl+6).
+	soloList bool
+	// soloAway is solo with the keys off the message box, after esc: esc
+	// again stops the turn, and anything else goes back to the box.
+	soloAway bool
 	// keysDisambiguated is when the terminal said it tells ctrl+enter
 	// from enter.
 	keysDisambiguated bool
@@ -242,7 +249,12 @@ type listLine struct {
 
 func sectionKey(title string) string { return "§" + title }
 
-func New(store *state.Store, version string) *Model {
+func New(store *state.Store, version string) *Model { return newModel(store, version, "") }
+
+// newModel is New for solo's session id, or "" for every agent. Solo leaves
+// past conversations out until something needs every agent (its Agents
+// list, the command bar), so its session shows without reading them all.
+func newModel(store *state.Store, version, solo string) *Model {
 	dir, _ := os.Getwd()
 	m := &Model{
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
@@ -250,7 +262,9 @@ func New(store *state.Store, version string) *Model {
 		lastState: map[string]string{}, cwdMove: true,
 		hibernated: map[string]bool{},
 		bars:       statusline.LoadBars(),
+		solo:       solo,
 	}
+	m.loader.SkipPast = solo != ""
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
 	}
@@ -505,8 +519,12 @@ func (m *Model) flash(s string, err bool) {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	logged := m.logInput(msg)
 	_, cmd := m.update(msg)
 	m.pinSolo()
+	if logged != nil {
+		logged(cmd)
+	}
 	m.applyJump()
 	_, isTick := msg.(tickMsg)
 	m.noteProgress(isTick)
@@ -518,7 +536,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.fxKick {
 		fxCmd, m.fxKick = fxTick(), false
 	}
-	return m, tea.Batch(cmd, copyCmd, fxCmd, m.syncLive(), m.syncHost(), m.syncWatch())
+	return m, tea.Batch(cmd, copyCmd, fxCmd, m.syncLive(), m.syncHost(), m.syncWatch(), m.noteDraft())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -819,8 +837,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, pasteClipImage()
 		}
 		// Image files dropped onto the terminal arrive as a paste of their
-		// paths; they become attachments on whichever box has focus.
-		if rest, imgs := extractImages(msg.Content); imgs != nil && m.dialog == nil {
+		// paths. In a Session's box each becomes [Image #N] where it was
+		// dropped; in the Prompt, an attachment.
+		if c := m.host; c != nil && m.paneFocus && m.dialog == nil {
+			if t, ok := c.imgs.inline(msg.Content); ok {
+				msg.Content = t
+			}
+		} else if rest, imgs := extractImages(msg.Content); imgs != nil && m.dialog == nil {
 			m.attachImages(imgs)
 			if rest == "" {
 				return m, nil
@@ -851,6 +874,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = insert(m.input, m.cursorPos(), []rune(text))
 			}
 		}
+		return m, nil
+	case draftSaveMsg:
+		m.draftSave(msg)
 		return m, nil
 	case tea.KeyboardEnhancementsMsg:
 		m.keysDisambiguated = msg.SupportsKeyDisambiguation()

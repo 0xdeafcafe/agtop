@@ -524,8 +524,15 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 // the height, which needs the prompt drawn and so the picker, and #view's
 // picker asks which layout is on.
 func (m *Model) widths() (listW, paneW int) {
-	if m.solo != "" {
+	if m.soloAlone() {
 		return 0, m.w // the one session, full width
+	}
+	if m.solo != "" {
+		// Solo's list, beside the session when there's room for both.
+		if side := m.sideWidth(); m.w-side-1 >= minPane {
+			return side, m.w - side - 1
+		}
+		return m.w, 0
 	}
 	listW = m.w
 	showing := m.full || m.preview || m.autoSplit()
@@ -1458,6 +1465,13 @@ func (m *Model) rowSummary(a *fleet.Agent) (summary, sumColor string, justDone b
 		summary = ""
 	}
 	summary = mdPlain.Replace(summary)
+	if note := a.AccountNote(); note != "" {
+		// Its claude.ai connectors work in that account, not the one in use.
+		summary = strings.TrimSuffix(note+" · "+summary, " · ")
+		if sumColor != cYellow {
+			sumColor = cOrange
+		}
+	}
 	return
 }
 
@@ -1600,13 +1614,17 @@ func (m *Model) badges(a *fleet.Agent) string {
 // box, and a Session filling a narrow screen has its own box too, so there
 // are never two boxes on screen at once.
 func (m *Model) noPrompt() bool {
-	return m.zenFull() || m.solo != "" || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList)
+	if m.zenFull() || m.soloAlone() {
+		return true
+	}
+	l, _ := m.widths()
+	return m.host != nil && l == 0 && (m.preview || m.full) && m.mode == modeList
 }
 
 // promptBoxAt is the Prompt's box at width w, before its labels.
 func (m *Model) promptBoxAt(w int) box {
 	b := box{w: w, focused: !m.sessionFocused(), text: m.input, cursor: m.cursorPos(), anchor: m.anchor - 1,
-		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-m.topH()-4-5))}
+		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-m.topH()-4-5)), top: m.promptTop}
 	if m.sessionFocused() {
 		b.text = nil
 	}
@@ -1643,7 +1661,8 @@ func (m *Model) promptLines(w int) []string {
 	}
 	a := m.selected()
 	text := string(m.input)
-	b := m.promptBoxAt(w)
+	b := m.promptBoxAt(w).scrolled()
+	m.promptTop = b.top
 	// An empty box with nothing asked of it shows no cursor: the list has
 	// the keys until you type, rename, or reply.
 	b.idle = len(m.input) == 0 && m.inKind == inPrompt
@@ -1717,6 +1736,10 @@ func (m *Model) promptLines(w int) []string {
 		}
 		if m.newer.Version != "" && !m.updating {
 			pairs = append([]string{"#update", "new agtop"}, pairs...)
+		}
+		if m.solo != "" {
+			// Solo's list: the way back to the session comes first.
+			pairs = append([]string{"esc · ctrl+6", "hide Agents"}, pairs...)
 		}
 		// With one side on screen, how to have both is kept in view.
 		l, p := m.widths()
@@ -2062,6 +2085,13 @@ func (m *Model) cwdBody() []string {
 	return out
 }
 
+// The keys for sending now and stashing depend on the settings; the guide
+// names them where these stand.
+const (
+	keySendNow = "\x00send"
+	keyStash   = "\x00stash"
+)
+
 // helpPages are the guide's tabs: a key and what it does.
 var helpPages = []struct {
 	name string
@@ -2074,6 +2104,8 @@ var helpPages = []struct {
 		{"/", "Claude commands"},
 		{"⌘z · ctrl+/", "undo in a box, a cleared one too"},
 		{"#drafts", "what you typed before · ctrl+r in a Session"},
+		{keySendNow, "send now, steering the turn"},
+		{keyStash, "stash the message · again on an empty box brings it back"},
 	}},
 	{"▤ Agents", [][2]string{
 		{"↑↓", "pick one"},
@@ -2088,6 +2120,7 @@ var helpPages = []struct {
 		{"ctrl+z", "zen"},
 		{", . · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
 		{"shift+← →", "resize · past the end, one side alone"},
+		{"ctrl+6", "hide or show Agents beside a Session"},
 		{"#tips", "Getting started again"},
 		{"esc esc", "quit"},
 	}},
@@ -2105,7 +2138,18 @@ func (m *Model) helpBody() []string {
 	}
 	out := []string{strings.Join(tabs, " "), ""}
 	page := helpPages[m.helpPage]
-	for _, r := range keyRows(page.rows) {
+	send, stash := m.boxKeys()
+	rows := make([][2]string, len(page.rows))
+	for i, r := range page.rows {
+		switch r[0] {
+		case keySendNow:
+			r[0] = send
+		case keyStash:
+			r[0] = stash
+		}
+		rows[i] = r
+	}
+	for _, r := range keyRows(rows) {
 		out = append(out, r, "")
 	}
 	// Every tab as tall as the tallest, so the box stays put.
