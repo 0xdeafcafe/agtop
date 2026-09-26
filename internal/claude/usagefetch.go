@@ -104,3 +104,42 @@ func retryAfter(v string) time.Time {
 	}
 	return min
 }
+
+// TokenOwner asks Anthropic whose account a sign-in's access token is,
+// by uuid; ok is false when the token has expired or the request fails.
+var TokenOwner = func(raw []byte) (uuid string, ok bool) {
+	var cred struct {
+		OAuth struct {
+			Token     string `json:"accessToken"`
+			ExpiresAt int64  `json:"expiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal(raw, &cred) != nil || cred.OAuth.Token == "" {
+		return "", false
+	}
+	if cred.OAuth.ExpiresAt > 0 && time.UnixMilli(cred.OAuth.ExpiresAt).Before(time.Now()) {
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.anthropic.com/api/oauth/profile", nil)
+	if err != nil {
+		return "", false
+	}
+	req.Header.Set("Authorization", "Bearer "+cred.OAuth.Token)
+	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	var prof struct {
+		Account struct {
+			UUID string `json:"uuid"`
+		} `json:"account"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&prof) != nil || prof.Account.UUID == "" {
+		return "", false
+	}
+	return prof.Account.UUID, true
+}
