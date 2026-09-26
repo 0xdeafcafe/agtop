@@ -143,6 +143,10 @@ func (m *Model) barToggle(s string) (tea.Cmd, bool) {
 	if s == "ctrl+k" && m.canCut() {
 		return nil, false
 	}
+	if m.loader != nil && m.loader.SkipPast {
+		m.loader.SkipPast = false
+		m.refresh()
+	}
 	m.openBar(s == "ctrl+f")
 	return nil, true
 }

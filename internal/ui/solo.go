@@ -16,8 +16,7 @@ import (
 // session's agtop id. Only ctrl+q quits: esc leaves the message box, then
 // stops the turn. The session's host keeps running.
 func NewSolo(store *state.Store, version, id string) *Model {
-	m := New(store, version)
-	m.solo = id
+	m := newModel(store, version, id)
 	m.onboard = false
 	m.snap = m.loadSnap()
 	m.rebuild()
@@ -100,6 +99,9 @@ func listKey(s string) bool { return s == "ctrl+6" || s == "ctrl+^" || s == "ctr
 func (m *Model) toggleList() tea.Cmd {
 	if m.solo != "" {
 		m.soloList = !m.soloList
+		if m.soloList && m.loader != nil {
+			m.loader.SkipPast = false
+		}
 		if m.soloList {
 			m.full, m.preview, m.paneFocus = false, true, false
 			m.flash("Agents beside the session · ctrl+6 or esc hides them", false)

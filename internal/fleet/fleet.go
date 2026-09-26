@@ -231,23 +231,26 @@ type Snapshot struct {
 
 // Loader keeps the cheap caches between refreshes.
 type Loader struct {
-	store   *state.Store
-	jobs    map[string]claude.Job // by key, reloaded on mtime change
-	mtimes  map[string]time.Time
-	checked map[string]time.Time // when each job's file was last looked at
-	args    map[int]argsEntry
-	git     map[string]gitInfo
-	usage   map[string]usageEntry
-	prevTab *proc.Table
-	spend   map[string]Spend
-	nudged  map[string]time.Time
-	subs    map[string]subsEntry
-	fetched map[string]claude.Usage
-	files   map[string]fileMemo
-	past    map[string]pastListing // by projects folder
-	hosts   host.Lister
-	print   map[int]printEntry
-	Temp    *TempSizes
+	// SkipPast leaves conversations nothing has open out of the snapshot:
+	// finding them reads every transcript and the repository of each one.
+	SkipPast bool
+	store    *state.Store
+	jobs     map[string]claude.Job // by key, reloaded on mtime change
+	mtimes   map[string]time.Time
+	checked  map[string]time.Time // when each job's file was last looked at
+	args     map[int]argsEntry
+	git      map[string]gitInfo
+	usage    map[string]usageEntry
+	prevTab  *proc.Table
+	spend    map[string]Spend
+	nudged   map[string]time.Time
+	subs     map[string]subsEntry
+	fetched  map[string]claude.Usage
+	files    map[string]fileMemo
+	past     map[string]pastListing // by projects folder
+	hosts    host.Lister
+	print    map[int]printEntry
+	Temp     *TempSizes
 	// pastRows are past conversations' rows as last made, and spendVer
 	// counts each agent's spend updates, so an unchanged row is reused.
 	pastRows map[string]pastRow
@@ -578,6 +581,10 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			av.Spend += a.Spend.Cost
 			av.Today += a.Spend.Today
 			snap.Agents = append(snap.Agents, a)
+		}
+		if l.SkipPast {
+			snap.Accounts = append(snap.Accounts, av)
+			continue
 		}
 		for _, a := range l.pastAgents(acct, claimed, seen, now) {
 			av.Agents++

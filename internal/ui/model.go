@@ -247,7 +247,12 @@ type listLine struct {
 
 func sectionKey(title string) string { return "§" + title }
 
-func New(store *state.Store, version string) *Model {
+func New(store *state.Store, version string) *Model { return newModel(store, version, "") }
+
+// newModel is New for solo's session id, or "" for every agent. Solo leaves
+// past conversations out until something needs every agent (its Agents
+// list, the command bar), so its session shows without reading them all.
+func newModel(store *state.Store, version, solo string) *Model {
 	dir, _ := os.Getwd()
 	m := &Model{
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
@@ -255,7 +260,9 @@ func New(store *state.Store, version string) *Model {
 		lastState: map[string]string{}, cwdMove: true,
 		hibernated: map[string]bool{},
 		bars:       statusline.LoadBars(),
+		solo:       solo,
 	}
+	m.loader.SkipPast = solo != ""
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
 	}
