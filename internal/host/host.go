@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -175,6 +176,9 @@ type Retry struct {
 	// cache expired; a message from you retries.
 	GaveUp bool   `json:"gaveUp,omitempty"`
 	Why    string `json:"why,omitempty"`
+	// Offline is set while the API can't be reached: it continues once it
+	// can, however long that takes.
+	Offline bool `json:"offline,omitempty"`
 }
 
 // cacheLife is how long the prompt cache lasts. Claude Code writes the
@@ -728,13 +732,16 @@ func (s *server) stalled(r headless.Result) bool {
 		s.info.Detail = "usage limit reached"
 		s.scheduleContinue()
 		return true
-	case !r.IsError:
+	case !r.IsError && !strings.HasPrefix(r.Text, "API Error:"):
 		return false
 	case isAuthError(text):
 		s.info.State, s.info.Error = "idle", "log in to continue: "+firstLine(r.Text)
 		return true
 	case strings.Contains(text, "too long") || strings.Contains(text, "too large"):
 		s.info.State, s.info.Error = "idle", firstLine(r.Text)+" · /compact may help"
+		return true
+	case isOffline(text):
+		s.waitOnline(firstLine(r.Text))
 		return true
 	case isRetryable(text):
 		s.retry(firstLine(r.Text))
@@ -753,7 +760,18 @@ func isAuthError(t string) bool {
 }
 
 func isRetryable(t string) bool {
-	for _, k := range []string{"529", "overloaded", "api error: 5", "internal server error", "temporarily", "service unavailable", "timed out", "connection"} {
+	for _, k := range []string{"529", "overloaded", "api error: 5", "internal server error", "temporarily", "service unavailable", "timed out", "connection", "mid-response", "mid-stream", "stopped arriving"} {
+		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// isOffline is an API error that says the network is down (or the machine
+// slept), rather than that the API failed.
+func isOffline(t string) bool {
+	for _, k := range []string{"can't reach the api", "unable to connect to api", "no response from api", "went to sleep", "internet", "enotfound", "eai_again", "econnrefused", "enetunreach", "ehostunreach", "enetdown"} {
 		if strings.Contains(t, k) {
 			return true
 		}
@@ -825,14 +843,101 @@ func (s *server) scheduleContinue() {
 		l.Continue, l.Ask = false, false
 		return
 	}
-	jitter := time.Duration(len(s.cfg.ID)*7+int(s.cfg.ID[0])) % 20 * time.Second
-	s.after(time.Until(l.ResetsAt)+jitter, func() {
+	s.after(time.Until(l.ResetsAt)+s.jitter(), func() {
 		s.info.Limit = nil
-		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
-			s.sendQueue()
-			return
+		s.resume()
+	})
+}
+
+// jitter is this session's few seconds' wait after something every session
+// waits on at once (a limit resetting, the network coming back), so they
+// don't all send in the same moment.
+func (s *server) jitter() time.Duration {
+	return time.Duration(len(s.cfg.ID)*7+int(s.cfg.ID[0])) % 20 * time.Second
+}
+
+// resume carries on a stalled turn: with the queue, if there is one.
+// Called with mu held.
+func (s *server) resume() {
+	if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+		s.sendQueue()
+		return
+	}
+	_ = s.sendLocked("continue")
+}
+
+// onlineEvery is how often a session the network cut off checks whether
+// the API can be reached again.
+var onlineEvery = 5 * time.Second
+
+// reachable is whether the API answers a connection: DNS resolves and the
+// TCP handshake completes.
+var reachable = func() bool {
+	addr := "api.anthropic.com:443"
+	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && u.Hostname() != "" {
+		port := u.Port()
+		if port == "" {
+			port = map[string]string{"http": "80"}[u.Scheme]
 		}
-		_ = s.sendLocked("continue")
+		if port == "" {
+			port = "443"
+		}
+		addr = net.JoinHostPort(u.Hostname(), port)
+	}
+	c, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
+}
+
+// waitOnline handles a turn the network cut off. Trying again while it's
+// down would only fail, so it waits until the API can be reached, however
+// long that is (the cache may be gone by then, but what you asked for
+// still gets done), then continues. A continue that fails again counts as
+// an attempt, so a network that only looks up still gives up in the end.
+// Called with mu held.
+func (s *server) waitOnline(reason string) {
+	most := s.cfg.RetryMax
+	if most <= 0 {
+		most = 8
+	}
+	r := s.info.Retry
+	if r == nil || r.GaveUp {
+		r = &Retry{Max: most}
+	}
+	r.Reason, r.Attempt, r.Offline, r.Next = reason, r.Attempt+1, true, time.Time{}
+	s.info.Retry, s.info.State = r, "idle"
+	if r.Attempt > most {
+		r.GaveUp, r.Why, r.Offline = true, fmt.Sprintf("%d retries used", most), false
+		return
+	}
+	s.pollOnline(r)
+}
+
+// pollOnline checks the network every few seconds until the API can be
+// reached, then continues. The check runs without mu held: a dial can take
+// seconds. Called with mu held.
+func (s *server) pollOnline(r *Retry) {
+	s.after(onlineEvery, func() {
+		g := s.gen
+		go func() {
+			up := reachable()
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if s.gen != g || s.info.Retry != r {
+				return // you sent something meanwhile
+			}
+			if !up {
+				s.pollOnline(r)
+				return
+			}
+			wait := s.jitter()
+			r.Offline, r.Next = false, time.Now().Add(wait)
+			s.publish()
+			s.after(wait, s.resume)
+		}()
 	})
 }
 

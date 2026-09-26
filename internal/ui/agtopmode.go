@@ -1348,6 +1348,8 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 		state = paint(cYellow, "⏸ "+limitText(info.Limit))
 	case info.Retry != nil && info.Retry.GaveUp:
 		state = paint(cRed, "✗ API error · "+info.Retry.Why)
+	case info.Retry != nil && info.Retry.Offline:
+		state = paint(cYellow, "⟳ offline · continues when the network is back")
 	case info.Retry != nil:
 		state = paint(cYellow, fmt.Sprintf("⟳ retry %d of %d in %s", info.Retry.Attempt, info.Retry.Max, dur(time.Until(info.Retry.Next).Round(time.Second))))
 	case len(s.Pending()) > 0:

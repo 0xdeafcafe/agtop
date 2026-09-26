@@ -609,6 +609,8 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 		}
 	case info.Retry != nil && info.Retry.GaveUp:
 		j.Detail = "API error · " + info.Retry.Why
+	case info.Retry != nil && info.Retry.Offline:
+		j.Detail = "offline · continues when the network is back"
 	case info.Retry != nil:
 		j.Detail = fmt.Sprintf("API error · retry %d of %d", info.Retry.Attempt, info.Retry.Max)
 	case info.Error != "" && st == "done":

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -346,6 +347,72 @@ func TestRetryGivesUpPastTheCache(t *testing.T) {
 	s.retry("API Error: 529") // the second would wait 2m, past the cache
 	if !s.info.Retry.GaveUp || !strings.Contains(s.info.Retry.Why, "cache") {
 		t.Fatalf("should give up past the cache: %+v", s.info.Retry)
+	}
+}
+
+// Cut off by the network, a session waits until the API can be reached,
+// however long, then continues.
+func TestOfflineWaitsForTheNetwork(t *testing.T) {
+	setup(t)
+	up := make(chan bool, 1)
+	defer func(r func() bool, e time.Duration) { reachable, onlineEvery = r, e }(reachable, onlineEvery)
+	var checks atomic.Int32
+	reachable = func() bool { checks.Add(1); return len(up) > 0 }
+	onlineEvery = 10 * time.Millisecond
+	// "q" is the ID that waits no jitter once the network is back.
+	s := &server{cfg: Config{ID: "q", Binary: "/nonexistent/claude"}, clients: map[*conn]struct{}{}}
+	s.info.CacheWarm = time.Now().Add(time.Second) // expiring doesn't make it give up
+	s.mu.Lock()
+	if !s.stalled(headless.Result{Text: "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"}) {
+		t.Fatal("an unreachable API should stall the turn")
+	}
+	r := s.info.Retry
+	if r == nil || !r.Offline || r.GaveUp || r.Attempt != 1 {
+		t.Fatalf("waiting for the network: %+v", r)
+	}
+	s.mu.Unlock()
+	for checks.Load() < 3 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	s.mu.Lock()
+	if !r.Offline || s.info.Error != "" {
+		t.Fatalf("still offline: %+v %q", r, s.info.Error)
+	}
+	s.mu.Unlock()
+	up <- true
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		tried := s.info.Error != "" // the continue went, and failed to start the fake claude
+		s.mu.Unlock()
+		if tried {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never continued once the network was back")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r.Offline {
+		t.Fatalf("back online: %+v", r)
+	}
+}
+
+func TestOfflineErrors(t *testing.T) {
+	for text, want := range map[string]bool{
+		"API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)": true,
+		"API Error: Unable to connect to API (ENOTFOUND)":                                true,
+		"API Error: No response from API (waited 5m, then 10m on the retry).":            true,
+		"API Error: Your computer went to sleep mid-response.":                           true,
+		"API Error: 529 Overloaded":                                                      false,
+		"API Error: Connection lost mid-response.":                                       false,
+	} {
+		if got := isOffline(strings.ToLower(text)); got != want {
+			t.Errorf("isOffline(%q) = %v", text, got)
+		}
+	}
+	if !isRetryable(strings.ToLower("API Error: Response stalled mid-stream.")) {
+		t.Error("a stalled stream should be retried")
 	}
 }
 
