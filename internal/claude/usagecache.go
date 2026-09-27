@@ -56,6 +56,20 @@ func RecordUsage(path, key string, u Usage) error {
 	})
 }
 
+// RecordLiveUsage keeps a running Claude Code's own reading of its plan
+// usage as startedAs's, the login a's folder was signed in as when it
+// started, but only while the folder still is: once it's switched to
+// another, Claude Code picks up the new sign-in as it goes, and whose
+// reading it sent can't be told, so it's left out rather than written
+// onto the wrong login.
+func RecordLiveUsage(path string, a Account, startedAs string, u Usage) error {
+	if startedAs == "" || SignedInAs(a) != startedAs {
+		return nil
+	}
+	u.AccountID = startedAs
+	return RecordUsage(path, Login{ID: startedAs}.UsageKey(), u)
+}
+
 // updateFetchedUsage changes the readings at path under a lock: every
 // agtop process and every session's host writes them.
 func updateFetchedUsage(path string, change func(map[string]FetchedUsage) bool) error {

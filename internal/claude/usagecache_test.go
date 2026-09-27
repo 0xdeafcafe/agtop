@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -66,5 +67,40 @@ func TestRecordUsageKeepsNewer(t *testing.T) {
 	_ = RecordUsage(path, "k", Usage{FetchedAt: now.Add(time.Minute), FiveHour: Window{Present: true, Percent: 60}})
 	if f := LoadFetchedUsage(path)["k"]; f.Usage.FiveHour.Percent != 60 || !f.Wait.Equal(wait) {
 		t.Fatalf("got %+v, want 60%% with the wait kept", f)
+	}
+}
+
+// A session that started signed in as one login keeps sending readings
+// after the folder is switched to another, and Claude Code picks up the new
+// sign-in as it goes: those readings must not land on the login it started
+// as, or two logins show the same usage.
+func TestRecordLiveUsageOnlyWhileStillSignedIn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "usage.json")
+	a := Account{ConfigDir: filepath.Join(dir, "cfg")}
+	signIn := func(id string) {
+		t.Helper()
+		if err := os.MkdirAll(a.ConfigDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(a.StatePath(), []byte(`{"oauthAccount":{"accountUuid":"`+id+`"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	signIn("alex")
+	if err := RecordLiveUsage(path, a, "alex", Usage{FetchedAt: now, FiveHour: Window{Present: true, Percent: 10}}); err != nil {
+		t.Fatal(err)
+	}
+	signIn("borrowed")
+	if err := RecordLiveUsage(path, a, "alex", Usage{FetchedAt: now.Add(time.Minute), FiveHour: Window{Present: true, Percent: 84}}); err != nil {
+		t.Fatal(err)
+	}
+	all := LoadFetchedUsage(path)
+	if got := all[Login{ID: "alex"}.UsageKey()].Usage; got.FiveHour.Percent != 10 || got.AccountID != "alex" {
+		t.Fatalf("alex's reading = %+v, want its own 10%%", got)
+	}
+	if _, ok := all[Login{ID: "borrowed"}.UsageKey()]; ok {
+		t.Fatal("a reading whose account can't be told was kept as borrowed's")
 	}
 }
