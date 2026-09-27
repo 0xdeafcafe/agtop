@@ -23,6 +23,7 @@ import (
 type loginsMsg struct {
 	found    []fleet.Found
 	restored *fleet.Restored
+	imported bool // the older folders' logins were all taken in
 	err      error
 }
 
@@ -53,8 +54,8 @@ func (m *Model) findLogins() tea.Cmd {
 	}
 	cfg := m.store.Config
 	return func() tea.Msg {
-		found, restored, err := fleet.FindLogins(cfg)
-		return loginsMsg{found, restored, err}
+		found, restored, imported, err := fleet.FindLogins(cfg)
+		return loginsMsg{found, restored, imported, err}
 	}
 }
 
@@ -109,6 +110,12 @@ func (m *Model) onLogins(msg loginsMsg) tea.Cmd {
 			l.Email, l.Org, l.Profile = f.Login.Email, f.Login.Org, f.Login.Profile
 			changed = true
 		}
+	}
+	if msg.imported && !cfg.FoldersImported {
+		// Older folders are accounts now: taken in once, so one you
+		// forget stays forgotten. The config as it was is kept aside.
+		state.KeepBefore("before-accounts")
+		cfg.FoldersImported, changed = true, true
 	}
 	if cfg.Active != "" {
 		// Which folder new sessions started in is agtop's choice now.
@@ -190,7 +197,7 @@ func (m *Model) loginName(f fleet.Found) string {
 // stopped by a limit on it, unless you asked to stay.
 func (m *Model) autoSwitch() tea.Cmd {
 	cfg := m.store.Config
-	if cfg.StayOnAccount || m.offline || m.switching || time.Since(m.switchedAt) < switchGap || len(m.snap.Logins) < 2 {
+	if cfg.SwitchOnLimit == state.OnLimitOff || m.offline || m.switching || time.Since(m.switchedAt) < switchGap || len(m.snap.Logins) < 2 {
 		return nil
 	}
 	root := cfg.ActiveAccount()

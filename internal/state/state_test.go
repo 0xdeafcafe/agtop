@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,7 +14,7 @@ func TestLoadFallsBackToLastGood(t *testing.T) {
 	t.Setenv("AGTOP_HOME", dir)
 	s := Load()
 	s.Config.SortBy = "cost"
-	s.Config.Accounts = append(s.Config.Accounts, s.Config.ActiveAccount())
+	s.Config.Folders = append(s.Config.Folders, s.Config.ActiveAccount())
 	if err := s.SaveConfig(); err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +24,7 @@ func TestLoadFallsBackToLastGood(t *testing.T) {
 		t.Fatal(err)
 	}
 	s = Load()
-	if s.Config.SortBy != "cost" || len(s.Config.Accounts) != 1 {
+	if s.Config.SortBy != "cost" || len(s.Config.Folders) != 1 {
 		t.Fatalf("got %+v, want the last good config", s.Config)
 	}
 	if _, err := os.Stat(path + ".broken"); err != nil {
@@ -31,5 +32,49 @@ func TestLoadFallsBackToLastGood(t *testing.T) {
 	}
 	if m, _ := filepath.Glob(filepath.Join(dir, "*.tmp")); len(m) > 0 {
 		t.Fatalf("temp files left behind: %v", m)
+	}
+}
+
+// A config from before accounts were grouped by agent loads with what it
+// meant, and saves in a shape an older agtop still reads: its folders
+// under "accounts", and staying put as stayOnAccount.
+func TestMigrateAccounts(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AGTOP_HOME", dir)
+	path := filepath.Join(dir, "config.json")
+	old := `{"accounts":[{"name":"work","configDir":"/x/.claude"},{"name":"old","configDir":"/x/.claude-old"}],"stayOnAccount":true,"groupBy":"account"}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := Load()
+	c := s.Config
+	if c.SwitchOnLimit != OnLimitOff || c.GroupBy != "agent" || len(c.Folders) != 2 {
+		t.Fatalf("migrated to %+v", c)
+	}
+	KeepBefore("before-accounts")
+	s.Config.SetSwitchOnLimit(OnLimitAgent)
+	s.Config.NoteSignIn(SignIn{Kind: "codex", ID: "acct-1", Email: "me@example.com"}, "")
+	if got := s.Config.NoteSignIn(SignIn{Kind: "codex", ID: "acct-2", Email: "me@example.org"}, ""); got.Name != "me-2" {
+		t.Fatalf("a second account with the same name is called %q", got.Name)
+	}
+	if err := s.SaveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	KeepBefore("before-accounts") // never overwritten
+	b, _ := os.ReadFile(path + ".before-accounts")
+	if string(b) != old {
+		t.Fatalf("the config before was kept as %s", b)
+	}
+	var raw map[string]any
+	b, _ = os.ReadFile(path)
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["accounts"]; !ok || raw["stayOnAccount"] != nil {
+		t.Fatalf("saved %s", b)
+	}
+	s.Config.ForgetSignIn("codex", "acct-1")
+	if len(s.Config.SignInsOf("codex")) != 1 {
+		t.Fatalf("forgot the wrong one: %+v", s.Config.SignIns)
 	}
 }

@@ -52,7 +52,7 @@ const (
 	inReply
 )
 
-var groupModes = []string{"status", "repo", "account", "group"}
+var groupModes = []string{"status", "repo", "agent", "group"}
 
 type confirmation struct {
 	// modal asks in a box over the screen rather than on the bottom line:
@@ -1382,8 +1382,8 @@ func (m *Model) rebuild() {
 				}
 			}
 			add(name, 5, a)
-		case by == "account":
-			add(a.Acct.Name, 5, a)
+		case by == "agent":
+			add(agentName(a.Kind), 5, a)
 		case by == "group" && a.Group != "":
 			add(a.Group, 5, a)
 		default:

@@ -263,7 +263,7 @@ func settingHelp(label, value string) (what, now string) {
 		now = map[string]string{
 			"status":  "status: finished agents from the last day under Today, older ones under Earlier.",
 			"repo":    "repo: one section per repository and branch, so work on the same code sits together.",
-			"account": "account: one section per Claude account, handy when you run several subscriptions.",
+			"agent":   "agent: one section per coding agent (Claude Code, Codex, Copilot…), handy when you run several.",
 			"group":   "group: your own sections; put an agent in one with /group <name>. Ungrouped agents fall back to status.",
 		}[value]
 	case "Sort rows by":
@@ -658,7 +658,7 @@ func (m *Model) accountsKey(s string) tea.Cmd {
 		return nil
 	}
 	if s == "s" {
-		m.store.Config.StayOnAccount = !m.store.Config.StayOnAccount
+		m.store.Config.SetSwitchOnLimit(map[bool]string{true: state.OnLimitOff, false: state.OnLimitAccount}[!m.store.Config.StayOnAccount])
 		_ = m.store.SaveConfig()
 		if m.store.Config.StayOnAccount {
 			m.flash("agtop stays on this account, even when it's nearly out", false)
@@ -697,12 +697,12 @@ func (m *Model) accountsKey(s string) tea.Cmd {
 		m.dialog.confirm = fmt.Sprintf("Remove %s from agtop? Its folder %s is kept.", row.Name, tildify(row.ConfigDir))
 		m.dialog.onYes = func() tea.Cmd {
 			var keep []claude.Account
-			for _, a := range m.store.Config.Accounts {
+			for _, a := range m.store.Config.Folders {
 				if a.ConfigDir != row.ConfigDir {
 					keep = append(keep, a)
 				}
 			}
-			m.store.Config.Accounts = keep
+			m.store.Config.Folders = keep
 			_ = m.store.SaveConfig()
 			m.loadDialog()
 			return nil
@@ -831,13 +831,13 @@ func (m *Model) answer(what, v string) tea.Cmd {
 		m.refresh()
 	case strings.HasPrefix(what, "rename "):
 		old := strings.TrimPrefix(what, "rename ")
-		for i, a := range m.store.Config.Accounts {
+		for i, a := range m.store.Config.Folders {
 			if a.Name == old {
-				m.store.Config.Accounts[i].Name = v
+				m.store.Config.Folders[i].Name = v
 			}
 		}
 		if old == m.store.Config.ActiveAccount().Name && claude.DefaultAccount().Name == old {
-			m.store.Config.Accounts = append(m.store.Config.Accounts, claude.Account{Name: v, ConfigDir: claude.DefaultAccount().ConfigDir})
+			m.store.Config.Folders = append(m.store.Config.Folders, claude.Account{Name: v, ConfigDir: claude.DefaultAccount().ConfigDir})
 		}
 		if m.store.Config.Active == old {
 			m.store.Config.Active = v
@@ -871,7 +871,7 @@ func (m *Model) addAccount(name, dir string, login bool) tea.Cmd {
 		m.flash(err.Error(), true)
 		return nil
 	}
-	m.store.Config.Accounts = append(m.store.Config.Accounts, claude.Account{Name: name, ConfigDir: dir})
+	m.store.Config.Folders = append(m.store.Config.Folders, claude.Account{Name: name, ConfigDir: dir})
 	_ = m.store.SaveConfig()
 	m.loadDialog()
 	if !login {

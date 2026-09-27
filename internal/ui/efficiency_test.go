@@ -40,7 +40,7 @@ func effModel(t *testing.T, w, h int) *Model {
 		_ = os.WriteFile(filepath.Join(proj, fmt.Sprintf("s%d.jsonl", s)), []byte(strings.Join(lines, "\n")+"\n"), 0o600)
 	}
 	m, _ := benchModel(w, h)
-	m.store.Config.Accounts = nil
+	m.store.Config.Folders = nil
 	st := efficiency.Open()
 	st.Refresh([]claude.Account{acct})
 	m.setView(placeEff)

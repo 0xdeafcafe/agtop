@@ -27,18 +27,38 @@ func Dir() string {
 func Key(account, id string) string { return account + "/" + id }
 
 type Config struct {
-	// Accounts are Claude config folders sessions live in: ~/.claude, and
-	// any older ~/.claude-* kept for the sessions it holds. New sessions
-	// all start in ~/.claude.
-	Accounts []claude.Account `json:"accounts"`
+	// Folders are the Claude config folders agtop was given before
+	// accounts were sign-ins: ~/.claude, and older ~/.claude-* kept for the
+	// past sessions they hold. Every session runs in ~/.claude now, so
+	// nothing adds to them; the JSON name stays for older agtops.
+	Folders []claude.Account `json:"accounts"`
+	// FoldersImported is set once the older folders' sign-ins were taken
+	// in as logins, so one you forget isn't taken in again.
+	FoldersImported bool `json:"foldersImported,omitempty"`
 	// Active named the folder new sessions started in, before accounts
 	// became logins; cleared once logins are found.
 	Active string `json:"active,omitempty"`
 	// Logins are the Claude accounts ~/.claude can be signed in as; their
 	// sign-ins are in the vault, not here.
 	Logins []claude.Login `json:"logins,omitempty"`
-	// StayOnAccount keeps agtop from switching ~/.claude to another login
-	// when the one in use is nearly out of its 5-hour or weekly usage.
+	// SignIns are the accounts of agents other than Claude Code that agtop
+	// keeps, several to an agent; their credentials are in the vault or
+	// the agent's own keeping, not here.
+	SignIns []SignIn `json:"signIns,omitempty"`
+	// Using is the account an agent runs on where agtop picks it rather
+	// than the agent's home saying: a SignIn's ID, by kind.
+	Using map[string]string `json:"using,omitempty"`
+	// SwitchOnLimit is what agtop does when the account in use is nearly out:
+	// "" (or "account") switches to another account of the same agent, and
+	// sessions carry on; "agent" does that, then starts new sessions on
+	// the next agent in AgentOrder once every account of it is out; "off"
+	// stays.
+	SwitchOnLimit string `json:"switchOnLimit,omitempty"`
+	// AgentOrder is the agents new sessions move on to, in turn, when
+	// SwitchOnLimit is "agent". Installed agents not in it come after, by name.
+	AgentOrder []string `json:"agentOrder,omitempty"`
+	// StayOnAccount is SwitchOnLimit "off" as agtops before it read it:
+	// kept in step with it.
 	StayOnAccount bool            `json:"stayOnAccount,omitempty"`
 	GroupBy       string          `json:"groupBy"`
 	Folds         map[string]bool `json:"folds,omitempty"`
@@ -91,6 +111,112 @@ type Config struct {
 	// they've done, which one-time tips have shown, and whether they've put
 	// Getting started away.
 	Onboarding Onboarding `json:"onboarding"`
+}
+
+// SignIn is an account of an agent other than Claude Code: who it is, and
+// what agtop calls it.
+type SignIn struct {
+	Kind  string `json:"kind"`
+	ID    string `json:"id"` // the agent's own id for the account
+	Name  string `json:"name"`
+	Email string `json:"email,omitempty"`
+	Plan  string `json:"plan,omitempty"`
+}
+
+// What SwitchOnLimit can be.
+const (
+	OnLimitAccount = ""      // another account of the same agent
+	OnLimitAgent   = "agent" // then the next agent
+	OnLimitOff     = "off"
+)
+
+// migrate brings a config written by an older agtop up to date. It only
+// adds and renames: nothing an older agtop reads is taken away.
+func (c *Config) migrate() {
+	if c.StayOnAccount && c.SwitchOnLimit == "" {
+		c.SwitchOnLimit = OnLimitOff
+	}
+	if c.GroupBy == "account" {
+		// Folders are gone; sessions group by the agent they run.
+		c.GroupBy = "agent"
+	}
+}
+
+// SetSwitchOnLimit sets what agtop does when an account is nearly out.
+func (c *Config) SetSwitchOnLimit(v string) {
+	c.SwitchOnLimit, c.StayOnAccount = v, v == OnLimitOff
+}
+
+// DefaultAgent is the agent new sessions run: its kind.
+func (c Config) DefaultAgent() string {
+	if c.Dispatch.Kind == "" {
+		return "claude"
+	}
+	return c.Dispatch.Kind
+}
+
+// NoteSignIn records an account of another agent, named name (or after
+// its email) when it's new, and returns what it's called.
+func (c *Config) NoteSignIn(s SignIn, name string) SignIn {
+	for i, old := range c.SignIns {
+		if old.Kind == s.Kind && old.ID == s.ID {
+			s.Name = old.Name
+			if s.Email == "" {
+				s.Email = old.Email
+			}
+			if s.Plan == "" {
+				s.Plan = old.Plan
+			}
+			c.SignIns[i] = s
+			return s
+		}
+	}
+	if name == "" {
+		name, _, _ = strings.Cut(s.Email, "@")
+	}
+	if name == "" {
+		name = s.ID
+	}
+	s.Name = name
+	for n := 2; c.signInNamed(s.Kind, s.Name); n++ {
+		s.Name = fmt.Sprintf("%s-%d", name, n)
+	}
+	c.SignIns = append(c.SignIns, s)
+	return s
+}
+
+func (c Config) signInNamed(kind, name string) bool {
+	for _, s := range c.SignIns {
+		if s.Kind == kind && strings.EqualFold(s.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// SignInsOf are the accounts agtop keeps for agent kind.
+func (c Config) SignInsOf(kind string) []SignIn {
+	var out []SignIn
+	for _, s := range c.SignIns {
+		if s.Kind == kind {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// ForgetSignIn drops an account of another agent.
+func (c *Config) ForgetSignIn(kind, id string) {
+	var keep []SignIn
+	for _, s := range c.SignIns {
+		if s.Kind != kind || s.ID != id {
+			keep = append(keep, s)
+		}
+	}
+	c.SignIns = keep
+	if c.Using[kind] == id {
+		delete(c.Using, kind)
+	}
 }
 
 // Onboarding is what agtop has taught you so far.
@@ -175,7 +301,7 @@ func (d Dispatch) Flags() []string {
 
 func (c Config) AllAccounts() []claude.Account {
 	out := []claude.Account{claude.DefaultAccount()}
-	for _, a := range c.Accounts {
+	for _, a := range c.Folders {
 		if a.ConfigDir == "" || a.ConfigDir == out[0].ConfigDir {
 			if a.Name != "" {
 				out[0].Name = a.Name
@@ -262,6 +388,7 @@ func Load() *Store {
 	s := &Store{}
 	loadJSON(filepath.Join(Dir(), "config.json"), &s.Config)
 	loadJSON(filepath.Join(Dir(), "state.json"), &s.Overlay)
+	s.Config.migrate()
 	if s.Overlay.Done == nil {
 		s.Overlay.Done = map[string]time.Time{}
 	}
@@ -290,6 +417,19 @@ func (s *Store) SaveConfig() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return writeJSON(filepath.Join(Dir(), "config.json"), s.Config)
+}
+
+// KeepBefore copies config.json aside as config.json.<name>, once, before
+// a change an older agtop wouldn't make: the copy is never overwritten.
+func KeepBefore(name string) {
+	path := filepath.Join(Dir(), "config.json")
+	aside := path + "." + name
+	if _, err := os.Stat(aside); err == nil {
+		return
+	}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = os.WriteFile(aside, b, 0o600)
+	}
 }
 
 func readJSON(path string, v any) {

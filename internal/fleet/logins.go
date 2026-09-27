@@ -61,18 +61,21 @@ type Restored struct {
 }
 
 // FindLogins keeps the sign-in ~/.claude holds now in the vault (Claude
-// Code replaces it as it refreshes) and reports it, with the login of each
-// older folder the vault doesn't have yet. Only ~/.claude's is kept up to
-// date: an older folder's sign-in is taken once, and it goes on working
-// there for the sessions it holds.
+// Code replaces it as it refreshes) and reports it. Until cfg says the
+// older folders were taken in, it also reports the login of each, putting
+// its sign-in in the vault when the vault doesn't have it: they become
+// accounts ~/.claude can switch to, once, and a folder's sign-in goes on
+// working there for the past sessions it holds. imported is whether every
+// older folder signed in was taken in.
 // It fails when ~/.claude's sign-in can't be kept: without a copy agtop
 // never switches away from it.
 //
 // A sign-in in ~/.claude that isn't the account it names was put back by
 // a Claude Code started before a switch, as it refreshed its own: the
 // switch is made again, and restored says so.
-func FindLogins(cfg state.Config) (found []Found, restored *Restored, failed error) {
+func FindLogins(cfg state.Config) (found []Found, restored *Restored, imported bool, failed error) {
 	v := state.Vault()
+	imported = !cfg.FoldersImported
 	var out []Found
 	for i, a := range cfg.AllAccounts() {
 		if i == 0 {
@@ -95,18 +98,22 @@ func FindLogins(cfg state.Config) (found []Found, restored *Restored, failed err
 			}
 			continue
 		}
+		if cfg.FoldersImported {
+			break
+		}
 		lg, cred, ok := claude.Signed(a)
 		if !ok {
 			continue
 		}
 		if _, err := v.Get(lg.ID); err != nil {
 			if v.Put(lg.ID, cred) != nil {
+				imported = false
 				continue
 			}
 		}
 		out = append(out, Found{Login: lg, Name: a.Name})
 	}
-	return out, restored, failed
+	return out, restored, imported, failed
 }
 
 // mismatch is the sign-in found in ~/.claude as another account's than
