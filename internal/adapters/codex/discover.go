@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -95,18 +96,47 @@ func (Adapter) Past(p agent.Profile) []agent.Session {
 	return out
 }
 
+// heads are rollouts' heads as last read, by path: a rollout is read again
+// only once it has changed, and one finished never does.
+var heads = struct {
+	sync.Mutex
+	m map[string]head
+}{m: map[string]head{}}
+
+type head struct {
+	mod  time.Time
+	size int64
+	s    agent.Session
+	ok   bool
+}
+
 // pastSession reads what a list needs from the head of a rollout. ok is
 // false for a subagent's rollout or one that can't be read.
 func pastSession(path string) (agent.Session, bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return agent.Session{}, false
+	}
+	heads.Lock()
+	h, ok := heads.m[path]
+	heads.Unlock()
+	if ok && h.mod.Equal(fi.ModTime()) && h.size == fi.Size() {
+		return h.s, h.ok
+	}
+	s, ok := readHead(path, fi.ModTime())
+	heads.Lock()
+	heads.m[path] = head{mod: fi.ModTime(), size: fi.Size(), s: s, ok: ok}
+	heads.Unlock()
+	return s, ok
+}
+
+func readHead(path string, mod time.Time) (agent.Session, bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return agent.Session{}, false
 	}
 	defer f.Close()
-	s := agent.Session{ID: idFromName(filepath.Base(path)), Transcript: path}
-	if fi, err := f.Stat(); err == nil {
-		s.UpdatedAt = fi.ModTime()
-	}
+	s := agent.Session{ID: idFromName(filepath.Base(path)), Transcript: path, UpdatedAt: mod}
 	meta, sub, n := false, false, 0
 	_ = readLines(f, func(b []byte) bool {
 		n++

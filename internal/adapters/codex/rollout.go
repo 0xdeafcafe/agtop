@@ -8,6 +8,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
@@ -39,10 +40,21 @@ type rolloutLine struct {
 // command outputs can run to several megabytes.
 const maxLine = 256 << 20
 
+// readers keeps readLines' 1MB buffers: listing past threads reads the
+// head of every rollout, and a fresh buffer each was most of what agtop
+// allocated.
+var readers sync.Pool
+
 // readLines calls fn with each line of r, however long, until fn says to
 // stop.
 func readLines(r io.Reader, fn func([]byte) bool) error {
-	br := bufio.NewReaderSize(r, 1<<20)
+	br, _ := readers.Get().(*bufio.Reader)
+	if br == nil {
+		br = bufio.NewReaderSize(r, 1<<20)
+	} else {
+		br.Reset(r)
+	}
+	defer func() { br.Reset(nil); readers.Put(br) }()
 	var long []byte
 	for {
 		chunk, err := br.ReadSlice('\n')
