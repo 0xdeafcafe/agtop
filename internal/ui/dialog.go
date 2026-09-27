@@ -223,6 +223,13 @@ func settingHelp(label, value string) (what, now string) {
 		} else {
 			now = "after " + value + ": an agent that finished and has been idle that long is stopped automatically."
 		}
+	case "Theme":
+		what = "What agtop's colours are made for. Its text and panels are shades between your terminal's background and text colour, so they follow its theme; its orange, green and red stay, made as easy to read on your background as on agtop's own."
+		now = map[string]string{
+			"match terminal": "match terminal: agtop asks the terminal for its background and text, again whenever you come back to it; a terminal that doesn't say gets agtop's dark.",
+			"dark":           "dark: agtop's own dark colours, whatever the terminal says.",
+			"light":          "light: agtop's own light colours, for a light terminal that doesn't say it's light.",
+		}[value]
 	case "Colours":
 		what = "How agtop tells good from bad: added and removed lines in a diff, done and failed steps and agents."
 		now = map[string]string{
@@ -394,6 +401,10 @@ func (m *Model) generalSettings() []setting {
 	if c.ColorBlind {
 		colours = "colour-blind"
 	}
+	themeName := c.Theme
+	if themeName == "" {
+		themeName = "match terminal"
+	}
 	barSearch := "as you type"
 	if c.SearchTranscriptsOnKey {
 		barSearch = "on ctrl+enter"
@@ -441,9 +452,17 @@ func (m *Model) generalSettings() []setting {
 				menubar.Stop()
 			}
 		}},
+		{"Theme", themeName, []string{"match terminal", "dark", "light"}, func(v string) {
+			c.Theme = v
+			if v == "match terminal" {
+				c.Theme = ""
+			}
+			m.applyColors()
+		}},
 		{"Colours", colours, []string{"standard", "colour-blind"}, func(v string) {
 			c.ColorBlind = v == "colour-blind"
-			applyColors(c.ColorBlind)
+			m.colored = false
+			m.applyColors()
 		}},
 		{"Spaces and tabs in diffs", spaces, []string{"hidden", "shown"}, func(v string) {
 			c.ShowWhitespace = v == "shown"
@@ -972,7 +991,7 @@ func pasteAt(lines, box []string, top, left int) []string {
 	return lines
 }
 
-const panelBG = "\x1b[48;2;30;28;26m"
+var panelBG string // applyColors sets this and every other ground
 
 func panel(s string) string {
 	return panelBG + strings.ReplaceAll(s, reset, reset+panelBG) + reset

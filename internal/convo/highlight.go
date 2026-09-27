@@ -12,18 +12,16 @@ import (
 // written only where it changes, never reset mid-line, so a background laid
 // under the line (a diff's, or its changed words') holds across it.
 
-// Syntax colours, muted to sit under agtop's text.
+// Syntax colours, muted to sit under agtop's text; SetColours makes them.
 var (
-	hlKw      = fg(204, 153, 205) // keywords
-	hlStr     = fg(163, 190, 140) // strings
-	hlNum     = fg(222, 165, 132) // numbers and constants
-	hlComment = fg(122, 116, 108)
+	hlKw, hlStr, hlNum string // keywords, strings, numbers and constants
+	hlComment          string
 	// hlOutComment is a comment in what a tool printed, which is already
 	// as quiet as hlComment: it goes a step further under.
-	hlOutComment = fg(92, 87, 80)
-	hlFn         = fg(137, 180, 222) // a call, a key, a variable
-	hlType       = fg(120, 190, 175)
-	hlSpace      = fg(92, 88, 82) // · and → marking spaces and tabs
+	hlOutComment string
+	hlFn         string // a call, a key, a variable
+	hlType       string
+	hlSpace      string // · and → marking spaces and tabs
 )
 
 // showSpace marks spaces and tabs in diffs, as · and →, the way an editor

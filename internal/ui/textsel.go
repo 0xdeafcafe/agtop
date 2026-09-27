@@ -24,7 +24,7 @@ type textSel struct {
 }
 
 // selBlue is the dragged-over text: the colour a terminal selects with.
-const selBlue = "\x1b[48;2;58;78;122m\x1b[38;2;240;236;228m"
+var selBlue string
 
 // paneX is the screen column where the pane's text starts.
 func (m *Model) paneX() int {

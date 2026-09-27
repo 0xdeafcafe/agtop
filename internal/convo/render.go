@@ -263,11 +263,6 @@ type drawer struct {
 	latest *Step
 }
 
-var (
-	spineLive = paint(cOrange, "▏")
-	spineErr  = paint(cRed, "▏")
-)
-
 func (d *drawer) spine() string {
 	switch {
 	case d.t.Live:
@@ -561,20 +556,27 @@ func (d *drawer) open() {
 				}
 			}
 		case KInterject:
-			rows := imageChips(imageNames(it.Images), min(d.cw-10, capProse))
+			// What you said mid-turn stands out from the steps around
+			// it: a band like the turn's own heading, with room either side.
+			rows := imageChips(imageNames(it.Images), min(d.cw-14, capProse))
 			if strings.TrimSpace(it.Text) != "" {
-				rows = append(wrap(styledAsk(oneLine(it.Text), cText), min(d.cw-10, capProse)), rows...)
+				rows = append(wrap(styledAsk(oneLine(it.Text), cText+bold), min(d.cw-14, capProse)), rows...)
 			}
+			if n := len(d.lines); n > 0 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) != strings.TrimSpace(stripANSI(d.spine())) {
+				d.blank()
+			}
+			bar := paint(cOrange, "▍")
 			for k, r := range rows {
-				lead := dim("you") + "  "
+				lead, right := paint(cOrange+bold, "you")+"  ", dim("mid-turn")
 				if k > 0 {
-					lead = "     "
+					lead, right = "     ", ""
 				}
-				d.add("", "", d.spine()+"   "+lead+r, "")
+				d.add("", bgLive, d.spine()+"  "+bar+" "+lead+r, right)
 				if k > 0 {
 					d.wrapped()
 				}
 			}
+			d.blank()
 		case KStep:
 			d.step(it.Step, 0)
 		}
@@ -859,7 +861,7 @@ func (s *Session) Answer(text string, w int) []Line {
 // names (```go); a diff block colours its added and removed lines. A block
 // is drawn once and kept while it's in view.
 func (d *drawer) code(lines []string, tag, pad string) {
-	k := memoKey{text: strings.Join(lines, "\n"), style: "code:" + tag, spine: d.spine(), width: d.o.Width, cw: d.cw, n: palette}
+	k := memoKey{text: strings.Join(lines, "\n"), style: "code:" + tag, spine: d.spine(), width: d.o.Width, cw: d.cw}
 	if ls, ok := d.s.memoGet(k); ok {
 		d.lines = append(d.lines, ls...)
 		return
@@ -975,7 +977,7 @@ func sum(xs []int) int {
 // memoKey names a paragraph as drawn: its text, how, and at what width.
 type memoKey struct {
 	text, style, spine string
-	n, width, cw       int
+	n, width, cw, pal  int
 }
 
 // memoTurn ages the paragraph memo: what the last two renders drew stays,
@@ -1018,7 +1020,10 @@ func (d *drawer) stepMemo(st *Step, what byte, f func(*Step) string) string {
 	return v
 }
 
+// A memo is of a drawing in the palette of the time: memoGet and memoPut
+// key it by that.
 func (s *Session) memoGet(k memoKey) ([]Line, bool) {
+	k.pal = palette
 	if ls, ok := s.memo[k]; ok {
 		return ls, true
 	}
@@ -1030,6 +1035,7 @@ func (s *Session) memoGet(k memoKey) ([]Line, bool) {
 }
 
 func (s *Session) memoPut(k memoKey, ls []Line) {
+	k.pal = palette
 	if s.memo != nil {
 		s.memo[k] = append([]Line(nil), ls...)
 	}

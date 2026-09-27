@@ -26,6 +26,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
+	"github.com/0xdeafcafe/agtop/internal/theme"
 	"github.com/0xdeafcafe/agtop/internal/update"
 )
 
@@ -52,6 +53,9 @@ const (
 var groupModes = []string{"status", "repo", "account", "group"}
 
 type confirmation struct {
+	// modal asks in a box over the screen rather than on the bottom line:
+	// for a question that stops something you just did, like a send.
+	modal    bool
 	question string
 	detail   string
 	onYes    func() tea.Cmd
@@ -152,8 +156,13 @@ type Model struct {
 	listW     int
 	pastes    pastes // long pastes in the main box, shown as chips
 	blurred   bool   // the terminal says agtop isn't the focused window
-	sameFrame bool   // the last message changed nothing on screen
-	lastFrame string // what View drew last
+	// The terminal's background and text, once it has said; agtop's
+	// colours are made from them.
+	termBG, termFG *theme.RGB
+	ground         theme.Ground // what the colours are made for now
+	colored        bool         // whether they've been made yet
+	sameFrame      bool         // the last message changed nothing on screen
+	lastFrame      string       // what View drew last
 	// openFailed is when a Session last failed to open, by agent key; zen
 	// skips those for a while rather than sticking on one it can't show.
 	openFailed   map[string]time.Time
@@ -254,7 +263,7 @@ func New(store *state.Store, version string) *Model {
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
 	}
-	applyColors(store.Config.ColorBlind)
+	m.applyColors()
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
 	m.snap = m.loader.Load(true)
 	m.loadSidebars()
@@ -293,9 +302,30 @@ func tick() tea.Cmd {
 func (m *Model) Init() tea.Cmd {
 	if m.solo != "" {
 		// Only the one session: nothing about the app as a whole.
-		return tea.Batch(tick(), m.scan(), m.loadPreview())
+		return tea.Batch(tick(), m.scan(), m.loadPreview(), askColours)
 	}
-	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar(), m.startView(), m.checkUpdate())
+	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar(), m.startView(), m.checkUpdate(), askColours)
+}
+
+// askColours asks the terminal for its background and text, which agtop's
+// colours are made from. A terminal that doesn't answer keeps agtop's own.
+var askColours = tea.Batch(tea.RequestBackgroundColor, tea.RequestForegroundColor)
+
+// applyColors makes agtop's colours for the theme in Settings, or for the
+// terminal's own background and text.
+func (m *Model) applyColors() {
+	c := m.store.Config
+	g := theme.Terminal(m.termBG, m.termFG)
+	switch c.Theme {
+	case "dark":
+		g = theme.Dark
+	case "light":
+		g = theme.Light
+	}
+	if g != m.ground || !m.colored {
+		m.ground, m.colored = g, true
+		applyColors(g, c.ColorBlind)
+	}
 }
 
 // startView opens on the layout you kept, or asks which, the first time.
@@ -697,6 +727,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.FocusMsg:
 		m.blurred = false
+		// The terminal's profile may have changed while away: light or
+		// dark following the system, or another picked.
+		return m, askColours
+	case tea.BackgroundColorMsg:
+		c := theme.Of(msg.Color)
+		m.termBG = &c
+		m.applyColors()
+		return m, nil
+	case tea.ForegroundColorMsg:
+		c := theme.Of(msg.Color)
+		m.termFG = &c
+		m.applyColors()
 		return m, nil
 	case tea.BlurMsg:
 		m.blurred = true

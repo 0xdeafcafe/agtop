@@ -41,12 +41,17 @@ var namedKeys = map[string]string{
 	"enter": "\r", "tab": "\t", "shift+tab": "\x1b[Z", "backspace": "\x7f", "esc": "\x1b", "space": " ",
 	"up": "\x1b[A", "down": "\x1b[B", "right": "\x1b[C", "left": "\x1b[D",
 	"home": "\x1b[H", "end": "\x1b[F", "pgup": "\x1b[5~", "pgdown": "\x1b[6~", "delete": "\x1b[3~",
-	"shift+enter": "\x1b\r", "alt+enter": "\x1b\r",
+	"shift+enter": "\x1b\r", "alt+enter": "\x1b\r", "shift+backspace": "\x7f", "shift+space": " ",
+	// Editing keys a terminal leaves to the shell's line editor, sent as the
+	// readline keys Claude Code's prompt understands.
+	"alt+backspace": "\x1b\x7f", "ctrl+backspace": "\x17", "super+backspace": "\x15", "super+delete": "\x0b",
+	"alt+left": "\x1bb", "alt+right": "\x1bf", "ctrl+left": "\x1bb", "ctrl+right": "\x1bf",
+	"super+left": "\x01", "super+right": "\x05",
 }
 
 // keyBytes turns a key press back into what a terminal would have sent.
 func keyBytes(k tea.KeyPressMsg) []byte {
-	s := k.String()
+	s := strings.ReplaceAll(k.String(), "meta+", "super+")
 	if b, ok := namedKeys[s]; ok {
 		return []byte(b)
 	}

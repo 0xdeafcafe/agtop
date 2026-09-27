@@ -188,7 +188,7 @@ func (m *Model) clickBtw(c *hostConn, x, y int) bool {
 	return true
 }
 
-var bgBtw = "\x1b[48;2;36;33;30m" // a raised surface: it floats over the conversation
+var bgBtw string // a raised surface: it floats over the conversation
 
 // btwOverlay draws the agent's side thread over the pane's rows from top
 // down, at its right; w is the pane's width and room how many rows it may

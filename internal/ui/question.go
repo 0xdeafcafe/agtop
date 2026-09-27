@@ -14,10 +14,11 @@ import (
 
 // The question card's grounds: the card itself, the option under the
 // cursor, and the keycaps that number the options.
+var qCard, qSel, qCap string
+
+// A lit chip or keycap is in agtop's own colours on any ground, with its
+// own dark text.
 const (
-	qCard  = "\x1b[48;2;42;36;25m"
-	qSel   = "\x1b[48;2;60;49;34m"
-	qCap   = "\x1b[48;2;68;58;43m"
 	qCapOn = "\x1b[48;2;217;119;87m"
 	qChip  = "\x1b[48;2;229;181;103m"
 	qInk   = "\x1b[38;2;33;28;22m" // dark text on a lit chip or keycap
@@ -68,6 +69,10 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 		edge = paint(cOrange, "▍")
 	}
 	cl := func(txt string) { out = append(out, onBg(qCard, edge+txt, w)) }
+	if c.inModal {
+		// The modal's frame is the card.
+		cl = func(txt string) { out = append(out, fit(" "+txt, w)) }
+	}
 	review := c.qIdx >= len(qs)
 	textW := max(20, min(w-8, 108))
 
@@ -118,7 +123,7 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 		}
 		cl("")
 		if c.cardFocus {
-			cl("  " + keysFit(w-6, "enter", "sends your answers", "← · 1–"+fmt.Sprint(len(qs)), "changes one", "s", "skips them all", "esc", "type instead"))
+			cl("  " + keysFit(w-6, "enter", "sends your answers", "← · 1–"+fmt.Sprint(len(qs)), "changes one", "s", "skips them all", "esc", escWord(c)))
 		} else {
 			cl("  " + dim("↑ to send or change your answers"))
 		}
@@ -229,6 +234,25 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 		ownText = paint(cText+bold, "Something else") + "  " + paint(cSub, "enter, then type it below")
 	}
 	rows = append(rows, orow{" " + bar + " " + keycap("✎", own) + " " + ownText, own})
+	if q.MultiSelect {
+		// Enter on an option only ticks it; moving on is this button.
+		btn := cursor == len(q.Options)+1
+		bar, face := " ", tabOff
+		if btn {
+			bar, face = paint(cOrange, "▌"), tabOn
+		}
+		n := 0
+		for _, v := range picked {
+			if v {
+				n++
+			}
+		}
+		note := dim("tick at least one first")
+		if n > 0 {
+			note = paint(cSub, fmt.Sprintf("with %d ticked", n))
+		}
+		rows = append(rows, orow{"", false}, orow{" " + bar + " " + face + " ⏎ Continue " + reset + "  " + note, btn})
+	}
 
 	var pv []string
 	if preview != "" {
@@ -272,12 +296,12 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 	if c.cardFocus {
 		pairs := []string{"↑↓", "choose", "enter", "picks", "1–" + fmt.Sprint(len(q.Options)), "pick one"}
 		if q.MultiSelect {
-			pairs = []string{"↑↓", "choose", "space", "ticks", "enter", "confirms"}
+			pairs = []string{"↑↓", "choose", "enter", "ticks", "1–" + fmt.Sprint(len(q.Options)), "tick one"}
 		}
 		if len(qs) > 1 {
 			pairs = append(pairs, "←→", "questions")
 		}
-		pairs = append(pairs, "s", "skips", "esc", "type instead")
+		pairs = append(pairs, "s", "skips", "esc", escWord(c))
 		cl("  " + keysFit(w-6, pairs...))
 	} else {
 		cl("  " + paint(cSub, "↑") + dim(" to choose   ·   or type your own answer below and press ") + paint(cSub, "enter"))
@@ -373,4 +397,12 @@ func previewBox(name, md string, w int) []string {
 		out = append(out, faint("│")+" "+dim(t)+strings.Repeat(" ", max(0, inner-cellw.String(t)))+" "+faint("│"))
 	}
 	return append(out, faint("╰"+strings.Repeat("─", inner+2)+"╯"))
+}
+
+// escWord is what esc does on a question: in its modal, sets it aside.
+func escWord(c *hostConn) string {
+	if c.inModal {
+		return "later"
+	}
+	return "type instead"
 }

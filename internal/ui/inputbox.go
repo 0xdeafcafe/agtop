@@ -11,10 +11,10 @@ import (
 // The input box sits on the brightest surface on screen, so where you type
 // is never in doubt; its edge turns orange while your keys go there.
 var (
-	bgInput = "\x1b[48;2;40;36;32m"
-	bgMark  = "\x1b[48;2;74;64;54m" // selected text
-	bgChip  = "\x1b[48;2;56;62;72m" // a paste folded into a chip, an image
-	cEdge   = rgb(79, 73, 67)
+	bgInput string
+	bgMark  string // selected text
+	bgChip  string // a paste folded into a chip, an image
+	cEdge   string
 )
 
 // box describes one input box: the edge labels and what's inside.

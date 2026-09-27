@@ -740,11 +740,9 @@ func (e *docEditor) inString() bool {
 
 // --- drawing ---
 
-const (
-	edSelBG  = "\x1b[48;2;72;62;52m"
-	edErrBG  = "\x1b[48;2;96;42;38m"
-	edCursor = "\x1b[7m"
-)
+var edSelBG, edErrBG string
+
+const edCursor = "\x1b[7m"
 
 // view draws the file in w×h cells: a line-number gutter, then its rows,
 // the cursor shown when it has the keys.

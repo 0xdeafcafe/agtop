@@ -37,10 +37,14 @@ func TestFitAndAge(t *testing.T) {
 
 func TestKeyBytesForTheLivePane(t *testing.T) {
 	cases := map[string]tea.KeyPressMsg{
-		"\r":     {Code: tea.KeyEnter},
-		"\x1b[A": {Code: tea.KeyUp},
-		"\x03":   {Code: 'c', Mod: tea.ModCtrl},
-		"é":      {Code: 'é', Text: "é"},
+		"\r":       {Code: tea.KeyEnter},
+		"\x1b[A":   {Code: tea.KeyUp},
+		"\x03":     {Code: 'c', Mod: tea.ModCtrl},
+		"é":        {Code: 'é', Text: "é"},
+		"\x1b\x7f": {Code: tea.KeyBackspace, Mod: tea.ModAlt},
+		"\x01":     {Code: tea.KeyLeft, Mod: tea.ModSuper},
+		"\x05":     {Code: tea.KeyRight, Mod: tea.ModMeta},
+		"\x1bb":    {Code: tea.KeyLeft, Mod: tea.ModAlt},
 	}
 	for want, k := range cases {
 		if got := string(keyBytes(k)); got != want {

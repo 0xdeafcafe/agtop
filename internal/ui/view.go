@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/agtop/internal/theme"
 )
 
 func (m *Model) View() tea.View {
@@ -379,6 +381,9 @@ func (m *Model) render() string {
 	if m.bar != nil {
 		return m.overlayBar(m.renderScreen())
 	}
+	if m.confirm != nil && m.confirm.modal {
+		return m.confirmModal(m.renderScreen())
+	}
 	return m.renderScreen()
 }
 
@@ -452,7 +457,7 @@ func (m *Model) frameCursor(body []string) int {
 }
 
 func (m *Model) statusOr(hint string) string {
-	if m.confirm != nil {
+	if m.confirm != nil && !m.confirm.modal {
 		return m.confirmLine(m.w)
 	}
 	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
@@ -470,15 +475,7 @@ func (m *Model) statusOr(hint string) string {
 // then the keys come before the question.
 func (m *Model) confirmLine(w int) string {
 	c := m.confirm
-	keys := "   " + paint(cOrange, "y") + dim(" "+cmp.Or(c.yesText, "yes"))
-	if c.onBang != nil && c.bangText != "" {
-		keys += "   " + paint(cOrange, "!") + dim(" "+c.bangText)
-	}
-	if c.onNo != nil {
-		keys += "   " + paint(cOrange, "n") + dim(" "+c.noText) + "   " + paint(cOrange, "esc") + dim(" cancel")
-	} else {
-		keys += "   " + paint(cOrange, "n") + dim(" cancel")
-	}
+	keys := "   " + c.keys()
 	q := paint(cText+bold, c.question)
 	for _, s := range []string{"  " + q + "  " + dim(c.detail) + keys, "  " + q + keys} {
 		if cellw.String(s) <= w {
@@ -486,6 +483,38 @@ func (m *Model) confirmLine(w int) string {
 		}
 	}
 	return fit(" "+keys[1:]+"   "+q, w)
+}
+
+// keys are the keys a confirmation waits on, and what each does.
+func (c *confirmation) keys() string {
+	keys := paint(cOrange, "y") + dim(" "+cmp.Or(c.yesText, "yes"))
+	if c.onBang != nil && c.bangText != "" {
+		keys += "   " + paint(cOrange, "!") + dim(" "+c.bangText)
+	}
+	if c.onNo != nil {
+		return keys + "   " + paint(cOrange, "n") + dim(" "+c.noText) + "   " + paint(cOrange, "esc") + dim(" cancel")
+	}
+	return keys + "   " + paint(cOrange, "n") + dim(" cancel")
+}
+
+// confirmModal draws the question being asked in a box over base: the
+// question, its detail, then its keys.
+func (m *Model) confirmModal(base string) string {
+	c := m.confirm
+	bw := min(m.w-4, 72)
+	body := []string{paint(cText+bold, c.question)}
+	if c.detail != "" {
+		for _, l := range wrap(c.detail, bw-4) {
+			body = append(body, dim(l))
+		}
+	}
+	body = append(body, "", c.keys())
+	lines := strings.Split(base, "\n")
+	for y := range lines {
+		lines[y] = faint(ansi.Strip(fit(lines[y], m.w)))
+	}
+	box := edgedBox(body, bw, cYellow)
+	return strings.Join(pasteAt(lines, box, max(1, (len(lines)-len(box))/2), (m.w-bw)/2), "\n")
 }
 
 // keysFit drops the least important pairs (those before the last) until the
@@ -827,6 +856,9 @@ func (m *Model) listView() string {
 	}
 	div := m.divider()
 	split2 := func(l, p string) {
+		if listFade != "" {
+			l = fadeRow(l)
+		}
 		b.WriteString(listFade)
 		fitTo(&b, l, listW, listFade)
 		if listFade != "" {
@@ -886,15 +918,98 @@ func (m *Model) listView() string {
 // Focus: when a session can take the keys, the side without them fades
 // back so where you're typing is obvious at a glance; the side with them
 // keeps full brightness, an orange marker and an orange box edge.
-const fade = "\x1b[2m"
+//
+// agtop fades it itself, every colour fadeBy of the way to the background,
+// not with the terminal's faint, which some (Terminal.app) take so far on
+// a theme's own greys that the quiet parts are lost.
+const fadeBy = 0.4
+
+var (
+	fade  string            // the text colour on the faded side, after every reset
+	faded map[string]string // an escape code as it is on the faded side
+)
+
+// fadeRow is s with its text colours faded back.
+func fadeRow(s string) string {
+	if !strings.Contains(s, "\x1b[") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 16)
+	for {
+		i := strings.Index(s, "\x1b[")
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		j := i + 2
+		for j < len(s) && (s[j] >= '0' && s[j] <= '9' || s[j] == ';' || s[j] == ':') {
+			j++
+		}
+		if j == len(s) || s[j] != 'm' {
+			b.WriteString(s[:j])
+			s = s[j:]
+			continue
+		}
+		b.WriteString(s[:i])
+		b.WriteString(fadeCode(s[i : j+1]))
+		s = s[j+1:]
+	}
+}
+
+// fadeCode is one style code on the faded side: its text colour faded,
+// and the terminal's own text (a reset, or 39) in the faded text colour.
+func fadeCode(code string) string {
+	if f, ok := faded[code]; ok {
+		return f
+	}
+	ps := strings.Split(code[2:len(code)-1], ";")
+	var out []string
+	reset := false
+	for i := 0; i < len(ps); i++ {
+		switch n := ps[i]; {
+		case n == "" || n == "0":
+			out, reset = append(out, "0"), true
+		case n == "39":
+			reset = true
+		case n == "2":
+			// faint is the terminal's; the fade is already here
+		case (n == "38" || n == "48") && i+4 < len(ps) && ps[i+1] == "2":
+			if n == "38" {
+				c := theme.Mix(theme.RGB{R: atoi8(ps[i+2]), G: atoi8(ps[i+3]), B: atoi8(ps[i+4])}, painted.BG, fadeBy)
+				out = append(out, fmt.Sprintf("38;2;%d;%d;%d", c.R, c.G, c.B))
+			} else {
+				out = append(out, ps[i:i+5]...)
+			}
+			i += 4
+		default:
+			out = append(out, n)
+		}
+	}
+	f := "\x1b[" + strings.Join(out, ";") + "m"
+	if len(out) == 0 {
+		f = ""
+	}
+	if reset {
+		f += fade
+	}
+	faded[code] = f
+	return f
+}
+
+func atoi8(s string) uint8 {
+	n, _ := strconv.Atoi(s)
+	return uint8(min(255, max(0, n)))
+}
 
 func (m *Model) twoSided() bool {
 	return m.listW > 0 && (m.host != nil || (m.live != nil && m.focused() != nil && m.live.key == m.focused().Key))
 }
 
-// paneRow writes a Session row w wide, faded when bg is set.
+// paneRow writes a Session row w wide, faded when bg (fade) is set.
 func (m *Model) paneRow(b *strings.Builder, p string, w int, bg string) {
 	if bg != "" {
+		p = fadeRow(p)
 		b.WriteString(bg)
 	}
 	fitTo(b, p, w, bg)
@@ -1028,12 +1143,9 @@ func (m *Model) listLines(w, h int) []string {
 }
 
 // View tabs are pills: the current one filled orange, the rest a quiet grey.
-const (
-	tabOn  = "\x1b[1;38;2;24;22;20;48;2;217;119;87m"
-	tabOff = "\x1b[38;2;168;162;152;48;2;40;37;34m"
-)
+const tabOn = "\x1b[1;38;2;24;22;20;48;2;217;119;87m"
 
-const hoverBG = "\x1b[48;2;33;31;29m"
+var tabOff, hoverBG string
 
 func hoverLine(line string, w int) string {
 	line = fit(line, w)
@@ -1538,9 +1650,9 @@ func backgroundText(a *fleet.Agent) string {
 		}
 	}
 	var parts []string
-	for _, k := range []string{"shell", "agent", "monitor"} {
+	for _, k := range []string{"shell", "agent", "monitor", "task"} {
 		if n := kinds[k]; n > 0 {
-			name := map[string]string{"shell": "shell", "agent": "subagent", "monitor": "monitor"}[k]
+			name := map[string]string{"shell": "shell", "agent": "subagent", "monitor": "monitor", "task": "task"}[k]
 			if n > 1 {
 				name += "s"
 			}
@@ -1733,9 +1845,9 @@ func (m *Model) promptLines(w int) []string {
 		}
 		hint = keysFit(w-4, append(pairs, "?", "guide")...)
 	}
-	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil {
+	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil && !m.confirm.modal {
 		hint = strings.TrimRight(m.statusOr(""), " ") // it pads to the screen, not this box
-		if m.confirm != nil {
+		if m.confirm != nil && !m.confirm.modal {
 			hint = m.confirmLine(w)
 		}
 	} else {

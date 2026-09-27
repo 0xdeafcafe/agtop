@@ -88,6 +88,43 @@ func TestAnswerQuestions(t *testing.T) {
 	}
 }
 
+// On a multi-select question, enter on an option only ticks it; the
+// Continue button under the options is what moves on.
+func TestMultiSelectContinue(t *testing.T) {
+	m := &Model{}
+	c := &hostConn{cardFocus: true}
+	req := askReq()
+	m.questionKey(c, req, "1", true) // answer the first, on to the multi-select
+	m.questionKey(c, req, "enter", true)
+	m.questionKey(c, req, "enter", true)
+	if c.qIdx != 1 || c.picks(1)[0] {
+		t.Fatalf("enter twice on an option should tick then untick it: idx=%d %v", c.qIdx, c.qPicks)
+	}
+	m.questionKey(c, req, "enter", true)
+	for range 4 { // past the options and "Something else", onto Continue
+		m.questionKey(c, req, "down", true)
+	}
+	if c.qCursor != 4 {
+		t.Fatalf("cursor should reach Continue: %d", c.qCursor)
+	}
+	if _, used := m.questionKey(c, req, "down", true); used {
+		t.Error("↓ past Continue should leave the card")
+	}
+	lines := drawQuestion(c, "", mustQs(req), 100, 0)
+	if !strings.Contains(ansi.Strip(strings.Join(lines, "\n")), "Continue") {
+		t.Error("the multi-select card should draw a Continue button")
+	}
+	m.questionKey(c, req, "enter", true)
+	if c.qIdx != 2 || c.qAnswer["Which packages?"] != "mcp" {
+		t.Fatalf("Continue should confirm the ticks: idx=%d %v", c.qIdx, c.qAnswer)
+	}
+}
+
+func mustQs(req *headless.PermissionRequest) []question {
+	_, qs := questions(req)
+	return qs
+}
+
 // A message that starts with y, a, n or a digit must never answer a card:
 // only ↑ onto the card, or an alt chord, does.
 func TestCardsNeedFocus(t *testing.T) {
@@ -739,13 +776,30 @@ func TestCardFocusCarriesOn(t *testing.T) {
 		t.Fatal("the next card should have the keys")
 	}
 
-	// Answered, then a key before the next one: it stays with the box.
+	// Answered, then a key before the next one: it stays with the box,
+	// and the agent's card waits in the dock rather than as a modal.
 	m.paneKey(tea.KeyPressMsg{}, "n")
 	c.sess.Apply(host.Answered{ID: "p1"}, time.Now())
 	m.paneKey(tea.KeyPressMsg{}, "down")
 	ask("Bash", "b3", "r1", json.RawMessage(`{"command":"ls"}`))
 	m.paneDock(a, c, 100, 40)
-	if c.cardFocus {
+	if c.cardFocus || m.cardModal(c) {
 		t.Fatal("a key between cards should leave the keys in the box")
+	}
+}
+
+// A modal confirmation, like sending to a cold cache, asks in a box over
+// the screen, not on the bottom line.
+func TestConfirmModal(t *testing.T) {
+	m := &Model{w: 100, h: 20, snap: &fleet.Snapshot{}}
+	m.confirm = &confirmation{modal: true, question: "Send to a cold cache?", detail: "its prompt cache expired 9m ago"}
+	if strings.Contains(ansi.Strip(m.statusOr("hint")), "cold cache") {
+		t.Error("a modal confirmation shouldn't also ask on the bottom line")
+	}
+	out := ansi.Strip(m.confirmModal(strings.Repeat("behind\n", 19) + "behind"))
+	for _, w := range []string{"╭", "Send to a cold cache?", "expired 9m ago", "y yes", "n cancel", "behind"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("modal missing %q:\n%s", w, out)
+		}
 	}
 }

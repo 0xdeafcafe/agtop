@@ -1149,7 +1149,7 @@ func (m *Model) barBox(w, h int) []string {
 	return out
 }
 
-const barChip = "\x1b[48;2;64;45;37m"
+var barChip string
 
 // barHolder is what the empty box says it takes, in each scope.
 func barHolder(sc barScope) string {
@@ -1318,7 +1318,7 @@ func (m *Model) overlayBar(base string) string {
 	return strings.Join(lines, "\n")
 }
 
-const barShadow = "\x1b[48;2;12;11;10m\x1b[38;2;44;41;38m"
+var barShadow string
 
 // barEdge colours the bar's frame cell by cell: orange at the top left
 // cooling to ember at the bottom right, and, while transcripts are being

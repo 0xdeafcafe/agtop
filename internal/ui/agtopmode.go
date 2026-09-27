@@ -41,6 +41,9 @@ func (m *Model) views(c *hostConn) []string {
 	if len(c.subs) > 0 {
 		v = append(v, "subagents")
 	}
+	if len(c.sess.Jobs()) > 0 {
+		v = append(v, "background")
+	}
 	if len(c.artifactsOf()) > 0 {
 		v = append(v, "artifacts")
 	}
@@ -738,6 +741,13 @@ type hostConn struct {
 	// waiting for an answer; only then do plain letters and digits answer.
 	cardFocus bool
 	cardAgain string // the card just answered from the card, to hand the keys on to the next
+	// The card as a modal (modal.go): the one last seen and when it came,
+	// whether you were typing then, the one set aside for later, and when
+	// you last pressed a key.
+	cardShown, cardLater string
+	cardAt, lastKeyAt    time.Time
+	cardTyping           bool
+	inModal              bool // the card is being drawn in its modal
 
 	// Answering Claude's questions, one at a time.
 	qFor      string
@@ -791,10 +801,11 @@ type hostConn struct {
 	subPeekID  string
 	subReading bool // runs' numbers are being read in the background
 	subOpen    string
-	subList    convo.Subagents // finds the runs, reading each one's meta once
-	subSel     string          // selection inside the opened subagent
-	subHover   string          // the run under the pointer, or "subback" for the banner
-	runPick    int             // where the pick last was among the dock's running subagents
+	subList    convo.Subagents    // finds the runs, reading each one's meta once
+	subSel     string             // selection inside the opened subagent
+	subHover   string             // the run under the pointer, or "subback" for the banner
+	runPick    int                // where the pick last was among the dock's running subagents
+	jobOut     map[string]jobPath // where each running task's output was found
 	subHoverAt time.Time
 }
 
@@ -810,7 +821,7 @@ type hostLinesMsg struct {
 	closed bool
 }
 
-var cBright = rgb(240, 236, 228)
+var cBright string
 
 // frame is how long a burst of output collects before the pane redraws;
 // the replay on connecting gathers for a little longer so it draws whole.
@@ -1065,13 +1076,13 @@ func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
 // --- drawing ---
 
 var (
-	bgChrome = "\x1b[48;2;30;28;26m" // L3: pane header and dock
-	bgTabOn  = "\x1b[48;2;17;16;14m" // the active view opens into the body
-	bgSub    = "\x1b[48;2;24;31;42m" // watching a subagent: its own, cooler ground
-	bgRuns   = "\x1b[48;2;26;30;36m" // the dock's running subagents
-	bgQueue  = "\x1b[48;2;33;29;37m" // the dock's queued messages
+	bgChrome string // L3: pane header and dock
+	bgTabOn  string // the active view opens into the body
+	bgSub    string // watching a subagent: its own, cooler ground
+	bgRuns   string // the dock's running subagents
+	bgQueue  string // the dock's queued messages
 
-	cQueue = rgb(178, 160, 214) // what's queued: neither working nor needing you
+	cQueue string // what's queued: neither working nor needing you
 )
 
 // dockCard sets rows w-1 wide apart on a ground of their own, edged down
@@ -1150,6 +1161,8 @@ func (m *Model) agtopPane(w, h int) []string {
 		body = m.queueLines(c, o)
 	case "tasks":
 		body = m.taskLines(c, o)
+	case "background":
+		body = m.jobLines(c, o)
 	case "artifacts":
 		body = m.artifactLines(c, o)
 	case "memory":
@@ -1299,6 +1312,9 @@ func (m *Model) agtopPane(w, h int) []string {
 	for len(out) < h-len(dock) {
 		out = append(out, "")
 	}
+	if m.cardModal(c) {
+		m.cardOverlay(a, c, out, len(head), h-len(dock)-len(head), w)
+	}
 	m.btwOverlay(c, out, len(head), h-len(dock)-len(head), w)
 	c.boxY = m.paneTop + len(out) + c.boxIdx
 	return append(out, dock...)
@@ -1308,7 +1324,7 @@ func (m *Model) agtopPane(w, h int) []string {
 // a conversation (the main one or a subagent's) or a screen at its end.
 func readsFromTop(view string, c *hostConn) bool {
 	switch view {
-	case "overview", "changes", "tasks", "memory", "artifacts":
+	case "overview", "changes", "tasks", "memory", "artifacts", "background":
 		return true
 	case "subagents":
 		return c.subOpen == ""
@@ -1457,6 +1473,67 @@ func firstNonEmpty(xs ...string) string {
 
 // paneDock is the raised area at the bottom of the pane: the current task,
 // the subagents working, the queue, a card waiting, and the input box.
+// cardRows are the cards waiting on you (a usage limit to decide on, a
+// tool call to allow, Claude's questions), w wide and a question folded to
+// fit maxH rows; nil when nothing waits.
+func (m *Model) cardRows(a *fleet.Agent, c *hostConn, w, maxH int) []string {
+	s := c.sess
+	var out []string
+	// In a modal the frame is the card: no ground or edge of its own, and
+	// the frame's title says what it is.
+	card, bar, modal := qCard, paint(cYellow, "▍"), c.inModal
+	if modal {
+		card, bar = "", " "
+	}
+	cl := func(txt string) {
+		if modal {
+			out = append(out, fit(txt, w))
+			return
+		}
+		out = append(out, onBg(card, txt, w))
+	}
+	if l := s.Info.Limit; l != nil && l.Ask {
+		what := paint(cYellow+bold, "⏸ usage limit") + "   "
+		if modal {
+			what = ""
+		}
+		cl(bar + " " + what + paint(cText, limitText(l)))
+		cl(bar + "     " + dim("Continue by itself when the limit resets? Anything you send meanwhile waits in the queue."))
+		cl(bar + "   " + cardHint(c, paint(cText+bold, "y")+" "+paint(cSub, "continue at the reset")+"   "+paint(cText+bold, "n")+" "+paint(cSub, "wait for me")))
+	}
+	if p := s.Pending(); len(p) > 0 && p[0].Approval.Tool == "AskUserQuestion" {
+		if len(out) > 0 {
+			out = append(out, "")
+		}
+		out = append(out, m.questionCard(c, p[0].Approval, w, maxH)...)
+	} else if len(p) > 0 {
+		if len(out) > 0 {
+			out = append(out, "")
+		}
+		st := p[0]
+		req := st.Approval
+		count := ""
+		if len(p) > 1 {
+			count = fmt.Sprintf("1 of %d", len(p))
+		}
+		what := paint(cYellow+bold, "● needs you") + "   "
+		if modal {
+			what = ""
+		}
+		cl(spread(bar+" "+what+paint(cText+bold, approvalTitle(req)), paint(cSub, count)+"  ", w))
+		for _, l := range approvalBody(req, a.Cwd, w-6) {
+			cl(bar + "     " + l)
+		}
+		k := func(key, label string) string { return paint(cText+bold, key) + " " + paint(cSub, label) }
+		edge := bar
+		if c.cardFocus && !modal {
+			edge = paint(cOrange, "▍")
+		}
+		cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
+	}
+	return out
+}
+
 func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	s := c.sess
 	// A card answered from the card hands the keys on to the next one
@@ -1478,40 +1555,15 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		blocks++
 	}
-	// A card waiting on you sits last, just above the box: the most
-	// important thing in the dock, and the first stop for ↑.
+	// A card waiting on you sits last, just above the box, when you've
+	// set its modal aside for later: the first stop for ↑.
 	cards := func() {
-		if l := s.Info.Limit; l != nil && l.Ask {
-			block()
-			card := "\x1b[48;2;42;36;25m"
-			cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
-			cl(paint(cYellow, "▍") + " " + paint(cYellow+bold, "⏸ usage limit") + "   " + paint(cText, limitText(l)))
-			cl(paint(cYellow, "▍") + "     " + dim("Continue by itself when the limit resets? Anything you send meanwhile waits in the queue."))
-			cl(paint(cYellow, "▍") + "   " + cardHint(c, paint(cText+bold, "y")+" "+paint(cSub, "continue at the reset")+"   "+paint(cText+bold, "n")+" "+paint(cSub, "wait for me")))
+		if m.cardModal(c) {
+			return
 		}
-		if p := s.Pending(); len(p) > 0 && p[0].Approval.Tool == "AskUserQuestion" {
+		if rows := m.cardRows(a, c, w, h*3/5); len(rows) > 0 {
 			block()
-			out = append(out, m.questionCard(c, p[0].Approval, w, h*3/5)...)
-		} else if len(p) > 0 {
-			block()
-			st := p[0]
-			req := st.Approval
-			card := "\x1b[48;2;42;36;25m"
-			cl := func(txt string) { out = append(out, onBg(card, txt, w)) }
-			count := ""
-			if len(p) > 1 {
-				count = fmt.Sprintf("1 of %d", len(p))
-			}
-			cl(spread(paint(cYellow, "▍")+" "+paint(cYellow+bold, "● needs you")+"   "+paint(cText, approvalTitle(req)), paint(cSub, count)+"  ", w))
-			for _, l := range approvalBody(req, a.Cwd, w-6) {
-				cl(paint(cYellow, "▍") + "     " + l)
-			}
-			k := func(key, label string) string { return paint(cText+bold, key) + " " + paint(cSub, label) }
-			edge := paint(cYellow, "▍")
-			if c.cardFocus {
-				edge = paint(cOrange, "▍")
-			}
-			cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
+			out = append(out, rows...)
 		}
 	}
 
@@ -1548,6 +1600,10 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	if run := c.runningSubs(); len(run) > 0 && m.viewName(c) == "conversation" {
 		block()
 		out = append(out, dockCard(bgRuns, cBlue, m.runningPreview(c, run, w-1), w)...)
+	}
+	if jobs := c.dockJobs(); len(jobs) > 0 && m.viewName(c) == "conversation" {
+		block()
+		out = append(out, dockCard(bgRuns, cSub, m.jobsPreview(c, jobs, w-1), w)...)
 	}
 	if l := m.sendingLines(c, w); len(l) > 0 {
 		block()
@@ -1651,6 +1707,8 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	switch {
 	case m.paneFocus && btwOn:
 		top = dim("asking on the side, above · esc returns here")
+	case m.paneFocus && c.cardFocus && m.cardModal(c):
+		top = dim("answering the card above · esc sets it aside for later")
 	case m.paneFocus && c.cardFocus:
 		top = dim("answering the card above · esc returns here")
 	case m.paneFocus && c.memEdit:
@@ -1808,6 +1866,22 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		m.paneFocus = false
 		return nil
 	}
+	defer func() { c.lastKeyAt = time.Now() }()
+	// A card's modal has the keys: nothing behind it gets them, bar
+	// ctrl+x, which stops the turn (and so the card).
+	if m.cardModal(c) && c.cardFocus && s != "ctrl+x" {
+		if c.cardGuarded() && s != "esc" {
+			return nil
+		}
+		cmd, _ := m.cardKey(c, s, len(c.input) == 0)
+		return cmd
+	}
+	// ctrl+b backgrounds what the turn waits on, while the dock offers it.
+	if t := m.btwFor(c.key); s == "ctrl+b" && (t == nil || !t.focused) {
+		if cmd, used := m.jobKey(c, s, len(c.input) == 0); used {
+			return cmd
+		}
+	}
 	// The side thread (/btw) takes the keys while it has them.
 	if cmd, used := m.btwKey(c, k, s); used {
 		return cmd
@@ -1853,6 +1927,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	if m.imageKey(c, s) {
 		return nil
+	}
+	if cmd, used := m.jobKey(c, s, empty); used {
+		return cmd
 	}
 	// ctrl+x on a subagent, picked or watched, stops that one alone; x
 	// does too on its row.
@@ -2360,6 +2437,7 @@ func (m *Model) askCold(c *hostConn, text string, send func() tea.Cmd) bool {
 		what = convo.Tokens(c.sess.Context) + " tokens of context"
 	}
 	m.confirm = &confirmation{
+		modal:    true,
 		question: "Send to a cold cache?",
 		detail:   fmt.Sprintf("its prompt cache expired %s ago · this re-reads %s uncached", dur(time.Since(at)), what),
 		onYes: func() tea.Cmd {
@@ -2409,6 +2487,9 @@ func (m *Model) dockRefs(c *hostConn) []string {
 	if m.viewName(c) == "conversation" {
 		for _, sa := range c.runningSubs() {
 			refs = append(refs, "run:"+sa.ID)
+		}
+		for _, j := range c.dockJobs() {
+			refs = append(refs, "job:"+j.ID)
 		}
 		for i := range m.queueOf(c).items {
 			refs = append(refs, fmt.Sprintf("q:%d", i))
@@ -2816,8 +2897,8 @@ func optionLabel(l string) (string, bool) {
 }
 
 // questionKey answers Claude's questions. While the card has the keys, ↑↓
-// choose, a digit or enter picks (or ticks, for multi-select, where enter
-// confirms), and ←→ move between questions; typed text and enter answer in
+// choose, a digit or enter picks (or ticks, for multi-select, where a
+// Continue button under the options confirms), and ←→ move between questions; typed text and enter answer in
 // your own words. With several questions the last step is a review, where
 // enter sends. It reports whether it used the key.
 func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s string, empty bool) (tea.Cmd, bool) {
@@ -2851,7 +2932,11 @@ func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s stri
 			c.qCursor--
 			return nil, true
 		case "down":
-			if c.qCursor >= len(q.Options) {
+			last := len(q.Options)
+			if q.MultiSelect {
+				last++ // the Continue button
+			}
+			if c.qCursor >= last {
 				return nil, false // past the last row: back to the box
 			}
 			c.qCursor++
@@ -2874,14 +2959,16 @@ func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s stri
 			}
 		case "enter":
 			switch {
-			case c.qCursor >= len(q.Options):
+			case c.qCursor == len(q.Options):
 				c.cardFocus = false // "your own words": type in the box
 				return nil, true
 			case !q.MultiSelect:
 				return m.answerQuestion(c, req, qs, q.Options[c.qCursor].Label), true
-			case !anyPicked(picked):
-				picked[c.qCursor] = true
+			case c.qCursor < len(q.Options):
+				picked[c.qCursor] = !picked[c.qCursor]
+				return nil, true
 			}
+			// On Continue: falls through to confirm what's ticked.
 		}
 	}
 	if empty && len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
@@ -3063,6 +3150,13 @@ func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 	// The card sits just above the box: ↑ from the box goes straight onto
 	// it, and ↑ again on up through the dock's rows and the conversation;
 	// ↓ off the last of those comes back onto it, and ↓ off it to the box.
+	if m.cardModal(c) && c.cardFocus {
+		// The modal keeps the keys until it's answered or set aside.
+		if s == "esc" {
+			c.cardLaterNow()
+		}
+		return nil, true
+	}
 	above := ""
 	if s == "up" || s == "down" {
 		refs := append(slices.Clip(c.bodyRefs), m.dockRefs(c)...)
@@ -3097,6 +3191,9 @@ func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 // cardHint is the last line of a card: its keys when it has focus, how to
 // give it focus when not.
 func cardHint(c *hostConn, keys string) string {
+	if c.inModal && c.cardFocus {
+		return paint(cOrange, "▸ ") + keys // the modal's edge says esc
+	}
 	if c.cardFocus {
 		return paint(cOrange, "▸ ") + keys + dim("   ·   esc back to typing")
 	}

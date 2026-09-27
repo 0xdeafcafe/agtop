@@ -7,6 +7,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/theme"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -17,27 +18,47 @@ const (
 
 func rgb(r, g, b int) string { return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b) }
 
-var (
-	cOrange = rgb(217, 119, 87)
-	cText   = rgb(226, 221, 211)
-	cSub    = rgb(168, 162, 152)
-	cDim    = rgb(122, 117, 108)
-	cFaint  = rgb(72, 68, 63)
-	cGreen  = rgb(127, 191, 138)
-	cYellow = rgb(229, 181, 103)
-	cRed    = rgb(224, 104, 92)
-	cBlue   = rgb(143, 179, 217)
-)
+var cOrange, cText, cSub, cDim, cFaint, cGreen, cYellow, cRed, cBlue string
 
-// applyColors sets agtop's good and bad colours, green and red or, for
-// colour blindness, sky blue and amber, here and in the conversation view.
-func applyColors(colorBlind bool) {
+// painted is the ground the colours are made for.
+var painted theme.Ground
+
+func init() { applyColors(theme.Dark, false) }
+
+// applyColors makes agtop's colours, here and in the conversation view,
+// for the terminal's ground g: each is written as it is on agtop's own
+// dark ground and moved onto g as text (ink), a ground for a row or
+// panel (surface), or a colour that says something (accent). colorBlind
+// makes good and bad sky blue and amber, not green and red.
+func applyColors(g theme.Ground, colorBlind bool) {
+	c := func(r, gr, b uint8) theme.RGB { return theme.RGB{R: r, G: gr, B: b} }
+	ink := func(r, gr, b uint8) string { return g.Ink(c(r, gr, b)).FG() }
+	accent := func(r, gr, b uint8) string { return g.Accent(c(r, gr, b)).FG() }
+	surface := func(r, gr, b uint8) string { return g.Surface(c(r, gr, b)).BG() }
+
+	cText, cSub, cDim, cFaint = ink(226, 221, 211), ink(168, 162, 152), ink(122, 117, 108), ink(72, 68, 63)
+	cBright, cEdge = ink(240, 236, 228), ink(79, 73, 67)
+	cOrange, cYellow, cBlue = accent(217, 119, 87), accent(229, 181, 103), accent(143, 179, 217)
+	cQueue = accent(178, 160, 214)
 	if colorBlind {
-		cGreen, cRed = rgb(86, 180, 233), rgb(230, 159, 0)
+		cGreen, cRed = accent(86, 180, 233), accent(230, 159, 0)
 	} else {
-		cGreen, cRed = rgb(127, 191, 138), rgb(224, 104, 92)
+		cGreen, cRed = accent(127, 191, 138), accent(224, 104, 92)
 	}
-	convo.SetColorBlind(colorBlind)
+
+	selBG, hoverBG, panelBG = surface(44, 40, 36), surface(33, 31, 29), surface(30, 28, 26)
+	bgChrome, bgTabOn, bgBtw = surface(30, 28, 26), surface(17, 16, 14), surface(36, 33, 30)
+	bgSub, bgRuns, bgQueue = surface(24, 31, 42), surface(26, 30, 36), surface(33, 29, 37)
+	bgInput, bgMark, bgChip = surface(40, 36, 32), surface(74, 64, 54), surface(56, 62, 72)
+	qCard, qSel, qCap = surface(42, 36, 25), surface(60, 49, 34), surface(68, 58, 43)
+	barChip, edSelBG, edErrBG = surface(64, 45, 37), surface(72, 62, 52), surface(96, 42, 38)
+	barShadow = surface(12, 11, 10) + ink(44, 41, 38)
+	selBlue = surface(58, 78, 122) + cBright
+	tabOff = cSub + surface(40, 37, 34)
+
+	painted = g
+	fade, faded = theme.Mix(g.FG, g.BG, fadeBy).FG(), map[string]string{}
+	convo.SetColours(g, colorBlind)
 }
 
 func paint(c, s string) string {
@@ -262,12 +283,12 @@ func wrap(s string, w int) []string {
 			out = append(out, "")
 			continue
 		}
-		out = append(out, strings.Split(ansi.Wrap(para, w, " -/"), "\n")...)
+		out = append(out, convo.CarryStyle(strings.Split(ansi.Wrap(para, w, " -/"), "\n"))...)
 	}
 	return out
 }
 
-const selBG = "\x1b[48;2;44;40;36m"
+var selBG string
 
 // highlight paints a full-width selection bar that survives inner resets.
 func highlight(line string, w int) string {

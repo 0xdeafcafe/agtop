@@ -397,7 +397,7 @@ var agtopCommands = []headless.Command{
 	{Name: "effort", Description: "change effort (applies from the next start): low, medium, high, xhigh, max", ArgumentHint: "<level>"},
 	{Name: "plan", Description: "plan mode on, or off again: Claude plans and asks before it changes anything"},
 	{Name: "diff", Description: "what changed: this session's edits and the working tree (the changes view)"},
-	{Name: "tasks", Description: "what's running in the background: subagents and their runs"},
+	{Name: "tasks", Description: "what's running: shells, monitors and subagents, to stop or background"},
 	{Name: "copy", Description: "copy Claude's last answer; /copy 2 the one before", ArgumentHint: "[n]"},
 	{Name: "rename", Description: "rename the agent, or type the new name", ArgumentHint: "[name]"},
 	{Name: "cd", Description: "move the agent to another folder, conversation intact", ArgumentHint: "[path]"},
@@ -869,7 +869,7 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		}
 		return nil, true
 	case "tasks":
-		if !m.showView(c, "subagents") && !m.showView(c, "tasks") {
+		if !m.showView(c, "background") && !m.showView(c, "subagents") && !m.showView(c, "tasks") {
 			m.flash("nothing running in the background", false)
 		}
 		return nil, true

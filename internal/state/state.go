@@ -74,6 +74,9 @@ type Config struct {
 	// ColorBlind draws added and removed, done and failed in sky blue and
 	// amber instead of green and red.
 	ColorBlind bool `json:"colorBlind,omitempty"`
+	// Theme is what agtop's colours are made for: "dark" or "light", or,
+	// empty, whatever the terminal says its background and text are.
+	Theme string `json:"theme,omitempty"`
 	// ShowWhitespace marks spaces and tabs in diffs, as · and →.
 	ShowWhitespace bool `json:"showWhitespace,omitempty"`
 	// SearchTranscriptsOnKey keeps ctrl+k to agent names and commands while

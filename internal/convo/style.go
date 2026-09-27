@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/agtop/internal/theme"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -14,73 +15,92 @@ const (
 	bold  = "\x1b[1m"
 )
 
-func fg(r, g, b int) string { return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b) }
-func bg(r, g, b int) string { return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b) }
-
 // agtop's palette, with dim and faint raised so anything you read clears
-// 4.5:1 and faint is left for decoration.
+// 4.5:1 and faint is left for decoration. SetColours makes it for the
+// terminal's ground.
 var (
-	cText   = fg(226, 221, 211)
-	cSub    = fg(168, 162, 152)
-	cDim    = fg(138, 132, 122)
-	cFaint  = fg(94, 89, 82)
-	cWhite  = fg(240, 236, 228)
-	cOrange = fg(217, 119, 87)
-	cGreen  = fg(127, 191, 138)
-	cYellow = fg(229, 181, 103)
-	cRed    = fg(224, 104, 92)
-	cBlue   = fg(143, 179, 217)
-	cOut    = fg(119, 113, 106) // what tools print: under faint text, over faint rules
-	cOKq    = fg(95, 138, 104)  // a finished step's tick, quiet like its row
+	cText, cSub, cDim, cFaint, cWhite     string
+	cOrange, cGreen, cYellow, cRed, cBlue string
+	cOut                                  string // what tools print: under faint text, over faint rules
+	cOKq                                  string // a finished step's tick, quiet like its row
 	// A card's frame says what its command did: made something (cOKq),
 	// rewrote or set something aside (cWarnQ), threw something away or
 	// failed (cLostQ); cLost is that last one's glyph.
-	cWarnQ = fg(168, 136, 82)
-	cLost  = fg(224, 104, 92)
-	cLostQ = fg(170, 86, 76)
+	cWarnQ, cLost, cLostQ string
 )
 
 // Surfaces. The ground is the terminal's own background, so nothing here
 // paints a slab over a themed terminal; only raised or tinted rows get one.
 var (
-	bgWell = bg(0x1a, 0x18, 0x16) // finished turn heading, output, diffs
-	bgLive = bg(0x21, 0x18, 0x14) // heading of the running turn
-	bgErr  = bg(0x2a, 0x17, 0x15) // failed output, a turn that crashed
-	bgSel  = bg(0x2c, 0x28, 0x24) // selection where your keys go
-	bgSelU = bg(0x1f, 0x1d, 0x1a) // selection on the other side
-	bgAdd  = bg(0x16, 0x30, 0x1a)
-	bgDel  = bg(0x3a, 0x17, 0x14)
+	bgWell string // finished turn heading, output, diffs
+	bgLive string // heading of the running turn
+	bgErr  string // failed output, a turn that crashed
+	bgSel  string // selection where your keys go
+	bgSelU string // selection on the other side
+	bgAdd  string
+	bgDel  string
 	// A diff line's changed words, a step brighter than the line.
-	bgAddHi = bg(0x22, 0x52, 0x2b)
-	bgDelHi = bg(0x62, 0x24, 0x1e)
+	bgAddHi, bgDelHi string
+
+	spineLive, spineErr string
 )
 
 // palette is how many times the colours have changed, so a cached drawing
 // in the old ones isn't used.
 var palette int
 
-// SetColorBlind swaps green and red, what agtop uses for added and
-// removed, done and failed, for sky blue and amber (from the Okabe-Ito
-// palette), which stay apart for every common kind of colour blindness.
-func SetColorBlind(on bool) {
-	if on {
-		cGreen, cRed, cOKq = fg(86, 180, 233), fg(230, 159, 0), fg(80, 140, 180)
+func init() { SetColours(theme.Dark, false) }
+
+// SetColours makes the palette for the terminal's ground g. colorBlind
+// swaps green and red, what agtop uses for added and removed, done and
+// failed, for sky blue and amber (from the Okabe-Ito palette), which stay
+// apart for every common kind of colour blindness.
+func SetColours(g theme.Ground, colorBlind bool) {
+	ink := func(r, gr, b uint8) string { return g.Ink(theme.RGB{R: r, G: gr, B: b}).FG() }
+	accent := func(c theme.RGB) string { return g.Accent(c).FG() }
+	quiet := func(c, of theme.RGB) string { return g.Quiet(c, of).FG() }
+	surface := func(r, gr, b uint8) string { return g.Surface(theme.RGB{R: r, G: gr, B: b}).BG() }
+
+	cText, cSub = ink(226, 221, 211), ink(168, 162, 152)
+	cDim, cFaint = ink(138, 132, 122), ink(94, 89, 82)
+	cWhite, cOut = ink(240, 236, 228), ink(119, 113, 106)
+	cOrange, cYellow, cBlue = accent(orange), accent(yellow), accent(blue)
+	cWarnQ = quiet(theme.RGB{R: 168, G: 136, B: 82}, yellow)
+	bgWell, bgLive = surface(0x1a, 0x18, 0x16), surface(0x21, 0x18, 0x14)
+	bgSel, bgSelU = surface(0x2c, 0x28, 0x24), surface(0x1f, 0x1d, 0x1a)
+
+	green, red := theme.RGB{R: 127, G: 191, B: 138}, theme.RGB{R: 224, G: 104, B: 92}
+	if colorBlind {
+		green, red = theme.RGB{R: 86, G: 180, B: 233}, theme.RGB{R: 230, G: 159}
 		// Amber is taken by failed; lost is vermillion, clear of warn.
-		cLost, cLostQ = fg(213, 94, 0), fg(160, 74, 12)
-		bgAdd, bgDel = bg(0x10, 0x2a, 0x3c), bg(0x30, 0x24, 0x0e)
-		bgAddHi, bgDelHi = bg(0x1a, 0x46, 0x64), bg(0x52, 0x3a, 0x10)
-		bgErr = bg(0x30, 0x24, 0x10)
-		spineErr = paint(cRed, "▏")
+		lost := theme.RGB{R: 213, G: 94}
+		cGreen, cRed, cOKq = accent(green), accent(red), quiet(theme.RGB{R: 80, G: 140, B: 180}, green)
+		cLost, cLostQ = accent(lost), quiet(theme.RGB{R: 160, G: 74, B: 12}, lost)
+		bgAdd, bgDel = surface(0x10, 0x2a, 0x3c), surface(0x30, 0x24, 0x0e)
+		bgAddHi, bgDelHi = surface(0x1a, 0x46, 0x64), surface(0x52, 0x3a, 0x10)
+		bgErr = surface(0x30, 0x24, 0x10)
 	} else {
-		cGreen, cRed, cOKq = fg(127, 191, 138), fg(224, 104, 92), fg(95, 138, 104)
-		cLost, cLostQ = fg(224, 104, 92), fg(170, 86, 76)
-		bgAdd, bgDel = bg(0x16, 0x30, 0x1a), bg(0x3a, 0x17, 0x14)
-		bgAddHi, bgDelHi = bg(0x22, 0x52, 0x2b), bg(0x62, 0x24, 0x1e)
-		bgErr = bg(0x2a, 0x17, 0x15)
-		spineErr = paint(cRed, "▏")
+		cGreen, cRed, cOKq = accent(green), accent(red), quiet(theme.RGB{R: 95, G: 138, B: 104}, green)
+		cLost, cLostQ = accent(red), quiet(theme.RGB{R: 170, G: 86, B: 76}, red)
+		bgAdd, bgDel = surface(0x16, 0x30, 0x1a), surface(0x3a, 0x17, 0x14)
+		bgAddHi, bgDelHi = surface(0x22, 0x52, 0x2b), surface(0x62, 0x24, 0x1e)
+		bgErr = surface(0x2a, 0x17, 0x15)
 	}
+	spineLive, spineErr = paint(cOrange, "▏"), paint(cRed, "▏")
+
+	hlKw, hlStr = accent(theme.RGB{R: 204, G: 153, B: 205}), accent(theme.RGB{R: 163, G: 190, B: 140})
+	hlNum, hlFn = accent(theme.RGB{R: 222, G: 165, B: 132}), accent(theme.RGB{R: 137, G: 180, B: 222})
+	hlType = accent(theme.RGB{R: 120, G: 190, B: 175})
+	hlComment, hlOutComment, hlSpace = ink(122, 116, 108), ink(92, 87, 80), ink(92, 88, 82)
 	palette++
 }
+
+// agtop's accents as they are on its dark ground.
+var (
+	orange = theme.RGB{R: 217, G: 119, B: 87}
+	yellow = theme.RGB{R: 229, G: 181, B: 103}
+	blue   = theme.RGB{R: 143, G: 179, B: 217}
+)
 
 func paint(c, s string) string {
 	if s == "" {
@@ -217,5 +237,51 @@ func wrap(s string, w int) []string {
 		rows[len(rows)-2] += rows[len(rows)-1]
 		rows = rows[:len(rows)-1]
 	}
+	return CarryStyle(rows)
+}
+
+// CarryStyle reopens, at the start of each wrapped row, the style still
+// open at the end of the row before, and closes it at the row's end.
+// Each row is drawn on its own, so without this a paragraph's second row
+// on is in the terminal's own colour, not the paragraph's.
+func CarryStyle(rows []string) []string {
+	open := ""
+	for i, r := range rows {
+		carried := open
+		open = openStyle(open, r)
+		if carried != "" {
+			r = carried + r
+		}
+		if open != "" {
+			r += reset
+		}
+		rows[i] = r
+	}
 	return rows
+}
+
+// openStyle is the style codes open after s, given open before it.
+func openStyle(open, s string) string {
+	for {
+		i := strings.Index(s, "\x1b[")
+		if i < 0 {
+			return open
+		}
+		s = s[i+2:]
+		j := 0
+		for j < len(s) && (s[j] >= '0' && s[j] <= '9' || s[j] == ';' || s[j] == ':') {
+			j++
+		}
+		if j == len(s) || s[j] != 'm' {
+			continue
+		}
+		params := s[:j]
+		if params == "" || params == "0" || strings.HasPrefix(params, "0;") {
+			open = ""
+		}
+		if params != "" && params != "0" {
+			open += "\x1b[" + params + "m"
+		}
+		s = s[j+1:]
+	}
 }

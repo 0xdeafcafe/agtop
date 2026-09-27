@@ -267,7 +267,7 @@ func (m *Model) barLayout(which int) statusline.Layout {
 }
 
 // barMore ends a line that had to leave segments out for room.
-var barMore = faint(" ⋯")
+func barMore() string { return faint(" ⋯") }
 
 // barLine draws line i of an agtop line, at most w wide. When it's too
 // wide, the segments last on the line go first, whole, and the line ends
@@ -292,12 +292,12 @@ func (m *Model) barLine(which, i int, x *barCtx, w int) string {
 	line := strings.Join(parts, dim(sep))
 	n := len(parts)
 	if ansi.StringWidth(line) > w {
-		for n > 0 && ansi.StringWidth(strings.Join(parts[:n], dim(sep)))+ansi.StringWidth(barMore) > w {
+		for n > 0 && ansi.StringWidth(strings.Join(parts[:n], dim(sep)))+ansi.StringWidth(barMore()) > w {
 			n--
 		}
-		line = strings.Join(parts[:n], dim(sep)) + barMore
+		line = strings.Join(parts[:n], dim(sep)) + barMore()
 		if n == 0 {
-			line = strings.TrimLeft(barMore, " ")
+			line = strings.TrimLeft(barMore(), " ")
 		}
 	}
 	if m.barDrops == nil {
