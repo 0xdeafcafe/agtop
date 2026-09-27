@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -212,6 +213,7 @@ type Session struct {
 	cards      map[stepKey][]card // steps' cards drawn this render
 	cardsOld   map[stepKey][]card
 	stepVer    int           // bumped whenever a step is added or changes
+	asked      []*Step       // the steps asked for approval and maybe still waiting: Pending's
 	changes    []*FileChange // Changes, as of changesVer
 	parts      [][]Line      // RenderInto's scratch, one entry per turn
 	searchHits []Hit         // the last search, for searchKey
@@ -249,15 +251,22 @@ func (s *Session) Live() *Turn {
 }
 
 // Pending lists the approvals waiting, oldest first.
+// The pane asks several times a frame, so it looks only at the steps ever
+// asked about, not every step of every turn.
 func (s *Session) Pending() []*Step {
 	var out []*Step
-	for _, t := range s.Turns {
-		for _, st := range t.steps {
-			if st.Approval != nil {
-				out = append(out, st)
-			}
+	kept := s.asked[:0]
+	for _, st := range s.asked {
+		if st.Approval == nil {
+			continue // answered: it's asked again only by adding it again
+		}
+		kept = append(kept, st)
+		if st.turn != nil && st.turn.steps[st.ID] == st {
+			out = append(out, st)
 		}
 	}
+	clear(s.asked[len(kept):])
+	s.asked = kept
 	sortSteps(out)
 	return out
 }
@@ -370,6 +379,9 @@ func (s *Session) Apply(ev any, now time.Time) {
 	case headless.PermissionRequest:
 		if st := s.byID[ev.ToolUseID]; st != nil {
 			req := ev
+			if !slices.Contains(s.asked, st) {
+				s.asked = append(s.asked, st)
+			}
 			st.Approval, st.Status = &req, Waiting
 			s.touchStep(st)
 		}
