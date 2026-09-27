@@ -159,7 +159,7 @@ func (l *Lister) List() []Info {
 		l.infos = map[string]listed{}
 	}
 	ents, _ := os.ReadDir(Root())
-	var out []Info
+	out := make([]Info, 0, len(ents)) // an Info is big: growing copies them
 	for _, e := range ents {
 		id := e.Name()
 		st, err := os.Stat(filepath.Join(dir(id), "info.json"))
