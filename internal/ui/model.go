@@ -88,8 +88,10 @@ type Model struct {
 	switching  bool
 	switchedAt time.Time
 	keepFailed bool // said once until it works again
-	// quotas are other agents' account limits, by profile folder.
+	// quotas are other agents' account limits, by profile folder or
+	// account key.
 	quotas    map[string]usage.Quota
+	accts     accountsState
 	resumedAt time.Time // when sessions a limit stopped were last told to carry on
 
 	sel          string
@@ -714,9 +716,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loader.SetFetched(msg.key, msg.u)
 		m.refresh()
 		return m, m.autoSwitch()
-	case quotaMsg:
-		m.onQuota(msg)
-		return m, nil
+	case acctMsg:
+		return m, msg.applyTo(m)
 	case loginsMsg:
 		return m, m.onLogins(msg)
 	case switchedMsg:

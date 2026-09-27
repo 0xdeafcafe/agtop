@@ -6,17 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
@@ -35,81 +31,16 @@ const (
 var tabNames = []string{"Accounts", "Coding agents", "General", "Claude"}
 
 type dialog struct {
-	tab      int
-	cursor   int
-	input    []rune
-	asking   string // what the input line is for; empty when not typing
-	draft    string // first answer of a two-step form
-	confirm  string
-	onYes    func() tea.Cmd
-	found    []claude.Account // Claude folders on disk, not added yet
-	profiles []agent.Profile  // other agents' config homes
-	agents   []agentDef
+	tab     int
+	cursor  int
+	input   []rune
+	asking  string // what the input line is for; empty when not typing
+	draft   string // first answer of a two-step form
+	confirm string
+	onYes   func() tea.Cmd
+	agents  []agentDef
 
-	claudeAcct int              // which account the Claude tab edits
-	claude     *claude.Settings // that account's settings.json
-}
-
-// acctRow is one account in Accounts: a Claude sign-in with the folders
-// signed in as it, a Claude folder that isn't signed in to one, or another
-// agent's.
-type acctRow struct {
-	login   *fleet.LoginView
-	folders []claude.Account
-	found   bool          // a folder on disk, not added yet
-	profile agent.Profile // another agent's; its Kind is empty for Claude's
-}
-
-// name is what the row is called.
-func (r acctRow) name() string {
-	switch {
-	case r.login != nil:
-		return r.login.Name
-	case r.profile.Kind != "":
-		return strings.TrimPrefix(filepath.Base(r.profile.Dir), ".")
-	case len(r.folders) > 0:
-		return r.folders[0].Name
-	}
-	return ""
-}
-
-// accountRows are the accounts Accounts lists: Claude's sign-ins first,
-// each with the folders signed in as it, then Claude folders that aren't,
-// then every other agent's.
-func (m *Model) accountRows() []acctRow {
-	d := m.dialog
-	byLogin := map[string][]claude.Account{}
-	var loose []claude.Account
-	signedIn := map[string]bool{}
-	for _, lv := range m.snap.Logins {
-		signedIn[lv.ID] = true
-	}
-	views := map[string]fleet.AccountView{}
-	for _, av := range m.snap.Accounts {
-		views[av.ConfigDir] = av
-	}
-	for _, a := range m.store.Config.AllAccounts() {
-		if id := views[a.ConfigDir].Usage.AccountID; id != "" && signedIn[id] {
-			byLogin[id] = append(byLogin[id], a)
-			continue
-		}
-		loose = append(loose, a)
-	}
-	var out []acctRow
-	for i := range m.snap.Logins {
-		lv := &m.snap.Logins[i]
-		out = append(out, acctRow{login: lv, folders: byLogin[lv.ID]})
-	}
-	for _, a := range loose {
-		out = append(out, acctRow{folders: []claude.Account{a}})
-	}
-	for _, a := range d.found {
-		out = append(out, acctRow{folders: []claude.Account{a}, found: true})
-	}
-	for _, p := range d.profiles {
-		out = append(out, acctRow{profile: p})
-	}
-	return out
+	claude *claude.Settings // that account's settings.json
 }
 
 type agentDef struct {
@@ -123,41 +54,10 @@ func (m *Model) openDialog(tab int) {
 
 func (m *Model) loadDialog() {
 	d := m.dialog
-	d.found = d.found[:0]
-	known := map[string]bool{}
-	for _, a := range m.store.Config.AllAccounts() {
-		known[a.ConfigDir] = true
-	}
-	for _, dir := range discoverConfigDirs() {
-		if !known[dir] {
-			d.found = append(d.found, claude.Account{Name: strings.TrimPrefix(filepath.Base(dir), ".claude-"), ConfigDir: dir})
-		}
-	}
-	d.profiles = otherProfiles()
 	d.agents = m.agentDefs()
-}
-
-// discoverConfigDirs finds Claude config folders in the home directory:
-// ~/.claude plus any ~/.claude-* that holds sessions or settings.
-func discoverConfigDirs() []string {
-	home, _ := os.UserHomeDir()
-	ents, _ := os.ReadDir(home)
-	var out []string
-	for _, e := range ents {
-		n := e.Name()
-		if !e.IsDir() || !strings.HasPrefix(n, ".claude") {
-			continue
-		}
-		dir := filepath.Join(home, n)
-		for _, marker := range []string{".claude.json", "projects", "settings.json"} {
-			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil || n == ".claude" {
-				out = append(out, dir)
-				break
-			}
-		}
+	if d.tab == tabAccounts {
+		agent.Recheck() // an agent installed since shows at once
 	}
-	sort.Strings(out)
-	return out
 }
 
 // agentDirs are the user's agents plus the project agents of every
@@ -261,10 +161,10 @@ func settingHelp(label, value string) (what, now string) {
 	case "Group by":
 		what = "How finished agents are sorted into sections. Needs you, Working, Waiting on you and Idle always come first."
 		now = map[string]string{
-			"status":  "status: finished agents from the last day under Today, older ones under Earlier.",
-			"repo":    "repo: one section per repository and branch, so work on the same code sits together.",
-			"agent":   "agent: one section per coding agent (Claude Code, Codex, Copilot…), handy when you run several.",
-			"group":   "group: your own sections; put an agent in one with /group <name>. Ungrouped agents fall back to status.",
+			"status": "status: finished agents from the last day under Today, older ones under Earlier.",
+			"repo":   "repo: one section per repository and branch, so work on the same code sits together.",
+			"agent":  "agent: one section per coding agent (Claude Code, Codex, Copilot…), handy when you run several.",
+			"group":  "group: your own sections; put an agent in one with /group <name>. Ungrouped agents fall back to status.",
 		}[value]
 	case "Sort rows by":
 		what = "The order of rows inside each section. You can also click a column header on the Agents view."
@@ -651,66 +551,6 @@ func (m *Model) ask(what, prefill string) {
 	m.dialog.asking, m.dialog.input = what, []rune(prefill)
 }
 
-func (m *Model) accountsKey(s string) tea.Cmd {
-	d := m.dialog
-	if s == "a" {
-		m.ask("login name", "")
-		return nil
-	}
-	if s == "s" {
-		m.store.Config.SetSwitchOnLimit(map[bool]string{true: state.OnLimitOff, false: state.OnLimitAccount}[!m.store.Config.StayOnAccount])
-		_ = m.store.SaveConfig()
-		if m.store.Config.StayOnAccount {
-			m.flash("agtop stays on this account, even when it's nearly out", false)
-		} else {
-			m.flash(fmt.Sprintf("agtop switches account at %.0f%% of 5h or 7d", state.SwitchAt), false)
-		}
-		return m.autoSwitch()
-	}
-	rows := m.accountRows()
-	if d.cursor >= len(rows) {
-		return nil
-	}
-	r := rows[d.cursor]
-	switch {
-	case r.login != nil:
-		return m.loginKey(*r.login, s)
-	case r.profile.Kind != "":
-		return nil
-	}
-	row := r.folders[0]
-	switch s {
-	case "enter":
-		if r.found {
-			m.addAccount(row.Name, row.ConfigDir, false)
-		}
-	case "r":
-		if !r.found {
-			m.ask("rename "+row.Name, row.Name)
-		}
-	case "l":
-		return tea.ExecProcess(actions.Login(row), func(err error) tea.Msg { return doneMsg{err: err, text: "signed in to " + row.Name} })
-	case "d", "x":
-		if row.IsDefault() || r.found {
-			return nil
-		}
-		m.dialog.confirm = fmt.Sprintf("Remove %s from agtop? Its folder %s is kept.", row.Name, tildify(row.ConfigDir))
-		m.dialog.onYes = func() tea.Cmd {
-			var keep []claude.Account
-			for _, a := range m.store.Config.Folders {
-				if a.ConfigDir != row.ConfigDir {
-					keep = append(keep, a)
-				}
-			}
-			m.store.Config.Folders = keep
-			_ = m.store.SaveConfig()
-			m.loadDialog()
-			return nil
-		}
-	}
-	return nil
-}
-
 // loginKey handles a key on one of the logins in Accounts.
 func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
 	switch s {
@@ -829,21 +669,8 @@ func (m *Model) answer(what, v string) tea.Cmd {
 		}
 		_ = m.store.SaveConfig()
 		m.refresh()
-	case strings.HasPrefix(what, "rename "):
-		old := strings.TrimPrefix(what, "rename ")
-		for i, a := range m.store.Config.Folders {
-			if a.Name == old {
-				m.store.Config.Folders[i].Name = v
-			}
-		}
-		if old == m.store.Config.ActiveAccount().Name && claude.DefaultAccount().Name == old {
-			m.store.Config.Folders = append(m.store.Config.Folders, claude.Account{Name: v, ConfigDir: claude.DefaultAccount().ConfigDir})
-		}
-		if m.store.Config.Active == old {
-			m.store.Config.Active = v
-		}
-		_ = m.store.SaveConfig()
-		m.loadDialog()
+	case strings.HasPrefix(what, "rename account "):
+		m.renameSignIn(what, v)
 	case what == "new agent name":
 		name := strings.ToLower(strings.Join(strings.Fields(v), "-"))
 		dir := m.agentDirs()[0][1]
@@ -866,21 +693,6 @@ model: inherit
 What this agent does, and how.
 `
 
-func (m *Model) addAccount(name, dir string, login bool) tea.Cmd {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		m.flash(err.Error(), true)
-		return nil
-	}
-	m.store.Config.Folders = append(m.store.Config.Folders, claude.Account{Name: name, ConfigDir: dir})
-	_ = m.store.SaveConfig()
-	m.loadDialog()
-	if !login {
-		return nil
-	}
-	acct := claude.Account{Name: name, ConfigDir: dir}
-	return tea.ExecProcess(actions.Login(acct), func(err error) tea.Msg { return doneMsg{err: err, text: "added " + name} })
-}
-
 // dialogBody renders the dialog's inner lines at width w.
 func (m *Model) dialogBody(w int) []string {
 	d := m.dialog
@@ -893,33 +705,7 @@ func (m *Model) dialogBody(w int) []string {
 	}
 	switch d.tab {
 	case tabAccounts:
-		stay := fmt.Sprintf("switches Claude at %.0f%% to the account with the most room", state.SwitchAt)
-		if m.store.Config.StayOnAccount {
-			stay = "stays on this Claude account, even when it's nearly out"
-		}
-		out = append(out, faint("● in use: new sessions run on it · agtop "+stay), "")
-		cols := []int{9, 16, 30, 19, 19, 9}
-		head := faint(fit("AGENT", cols[0]) + fit("NAME", cols[1]) + fit("EMAIL", cols[2]) + fit("LIMITS", cols[3]+cols[4]) + right("RUNNING", cols[5]))
-		out = append(out, "    "+head)
-		rows := m.accountRows()
-		for i, r := range rows {
-			out = append(out, row(i, m.accountLine(r, cols)))
-		}
-		if d.cursor < len(rows) {
-			r := rows[d.cursor]
-			out = append(out, "", rule(r.name(), "", w))
-			out = append(out, m.accountDetail(r, w)...)
-			switch {
-			case r.login != nil:
-				out = append(out, "", keysFit(w, "enter", "switch to", "a", "add account", "r", "rename", "l", "sign in again", "d", "forget", "s", "stay/switch"))
-			case r.found:
-				out = append(out, "", keysFit(w, "enter", "add", "a", "add account", "l", "sign in", "s", "stay/switch"))
-			case r.profile.Kind != "":
-				out = append(out, "", keysFit(w, "a", "add Claude account", "s", "stay/switch"))
-			default:
-				out = append(out, "", keysFit(w, "a", "add account", "r", "rename", "l", "sign in", "d", "remove", "s", "stay/switch"))
-			}
-		}
+		out = append(out, m.accountsBody(w)...)
 	case tabAgents:
 		out = append(out, dim("New sessions start with"))
 		settings := m.agentSettings()
@@ -1001,246 +787,6 @@ var panelBG string // applyColors sets this and every other ground
 
 func panel(s string) string {
 	return panelBG + strings.ReplaceAll(s, reset, reset+panelBG) + reset
-}
-
-// accountLine is one account's row in the table.
-func (m *Model) accountLine(r acctRow, cols []int) string {
-	views := map[string]fleet.AccountView{}
-	for _, av := range m.snap.Accounts {
-		views[av.ConfigDir] = av
-	}
-	mark := faint("○")
-	agentName := "Claude"
-	var email string
-	var q usage.Quota
-	live := 0
-	switch {
-	case r.login != nil:
-		if r.login.Current {
-			mark = paint(cOrange, "●")
-		}
-		email, q = r.login.Email, r.login.Quota
-	case r.profile.Kind != "":
-		mark = paint(cOrange, "●")
-		agentName = kindName(r.profile.Kind)
-		q = m.quotas[r.profile.Dir]
-		email = q.Email
-	case r.found:
-		line := faint(fit("Claude", cols[0])) + paint(cSub, fit(r.name(), cols[1])) + faint(fit(tildify(r.folders[0].ConfigDir), cols[2]))
-		return mark + " " + line + paint(cYellow, "found on disk") + dim(" · enter to add")
-	default:
-		av := views[r.folders[0].ConfigDir]
-		email, q = av.Usage.Email, av.Quota
-		if email == "" {
-			email = "not signed in"
-			if q.Problem == "" {
-				q.Problem = "l signs in"
-			}
-		}
-	}
-	for _, a := range m.snap.Agents {
-		if a.Live() && m.runsOn(a, r) {
-			live++
-		}
-	}
-	running := faint(right("·", cols[5]))
-	if live > 0 {
-		running = paint(cSub, right(fmt.Sprint(live), cols[5]))
-	}
-	line := faint(fit(agentName, cols[0])) + paint(cText, fit(r.name(), cols[1])) + dim(fit(email, cols[2])) +
-		m.limits(r, q, cols[3], cols[4]) + running
-	return mark + " " + line
-}
-
-// kindName is an agent's name, short enough for the table.
-func kindName(k agent.Kind) string {
-	if ad, ok := agent.Get(k); ok && len(ad.Name()) <= 9 {
-		return ad.Name()
-	}
-	s := string(k)
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
-}
-
-// runsOn is whether agent a runs on the account r: in one of its Claude
-// folders, or with its agent.
-func (m *Model) runsOn(a *fleet.Agent, r acctRow) bool {
-	if r.profile.Kind != "" {
-		return a.Kind == string(r.profile.Kind)
-	}
-	if a.Kind != "" && a.Kind != "claude" {
-		return false
-	}
-	for _, f := range r.folders {
-		if a.Acct.ConfigDir == f.ConfigDir {
-			return true
-		}
-	}
-	return false
-}
-
-// limits is an account's first two windows, each a labelled meter, or why
-// there are none.
-func (m *Model) limits(r acctRow, q usage.Quota, w1, w2 int) string {
-	if len(q.Windows) == 0 {
-		msg := faint("no reading")
-		switch {
-		case q.Problem != "":
-			msg = paint(cYellow, q.Problem)
-		case r.profile.Kind != "":
-			ad, _ := agent.Get(r.profile.Kind)
-			if _, ok := ad.(agent.QuotaSource); !ok {
-				msg = faint("doesn't report its limits")
-			} else if q.FetchedAt.IsZero() {
-				msg = faint("fetching…")
-			}
-		case q.FetchedAt.IsZero():
-			msg = faint("fetching…")
-		}
-		return fit(msg, w1+w2)
-	}
-	stale := time.Since(q.FetchedAt) > 3*claude.UsageEvery
-	var out string
-	for i, cw := range []int{w1, w2} {
-		if i >= len(q.Windows) {
-			out += fit("", cw)
-			continue
-		}
-		win := q.Windows[i]
-		pct := fmt.Sprintf("%3.0f%%", win.Percent)
-		cell := faint(fit(win.Label, 3)) + bar(win.Percent) + " " + paint(cText, pct)
-		if stale {
-			cell = faint(fit(win.Label, 3) + strings.Repeat("▱", 10) + " " + pct)
-		}
-		out += fit(cell, cw)
-	}
-	return out
-}
-
-// accountDetail is everything known about one account, under the table.
-func (m *Model) accountDetail(r acctRow, w int) []string {
-	now := m.snap.At
-	views := map[string]fleet.AccountView{}
-	for _, av := range m.snap.Accounts {
-		views[av.ConfigDir] = av
-	}
-	var out []string
-	label := func(k string) string { return dim(fit(k, 10)) }
-	var who []string
-	seen := map[string]bool{}
-	addWho := func(vs ...string) {
-		for _, v := range vs {
-			if v = strings.ReplaceAll(v, "_", " "); v != "" && !seen[v] {
-				seen[v] = true
-				who = append(who, v)
-			}
-		}
-	}
-	var q usage.Quota
-	var u claude.Usage
-	switch {
-	case r.login != nil:
-		u, q = r.login.Usage, r.login.Quota
-		addWho(r.login.Email, u.Org, u.Role, u.Plan, u.Billing)
-	case r.profile.Kind != "":
-		q = m.quotas[r.profile.Dir]
-		addWho(q.Email, q.Plan)
-	case r.found:
-		return []string{label("folder") + faint(tildify(r.folders[0].ConfigDir)+" · found on disk, not added yet: enter adds it")}
-	default:
-		av := views[r.folders[0].ConfigDir]
-		u, q = av.Usage, av.Quota
-		addWho(u.Email, u.Org, u.Role, u.Plan, u.Billing)
-	}
-	if u.Extra {
-		who = append(who, "extra usage on")
-	}
-	if len(who) == 0 {
-		switch {
-		case r.profile.Kind != "":
-			who = append(who, "who it's signed in as isn't known yet")
-		default:
-			who = append(who, "not signed in: press l to sign in")
-		}
-	}
-	out = append(out, label("who")+paint(cText, strings.Join(who, " · ")))
-	for _, win := range q.Windows {
-		s := label(win.Label) + bar(win.Percent) + " " + paint(cText, fmt.Sprintf("%.0f%%", win.Percent))
-		if !win.ResetsAt.IsZero() {
-			when := win.ResetsAt.Local().Format("15:04")
-			if win.ResetsAt.Sub(now) > 20*time.Hour {
-				when = win.ResetsAt.Local().Format("Mon 15:04")
-			}
-			if win.ResetsAt.After(now) {
-				s += dim("  resets " + when + " · in " + dur(win.ResetsAt.Sub(now)))
-			} else {
-				s += faint("  reset at " + when + ", since this reading")
-			}
-		}
-		out = append(out, s)
-	}
-	if len(q.Windows) == 0 && q.Problem != "" {
-		out = append(out, label("limits")+paint(cYellow, q.Problem))
-	}
-	// Sessions, and what they've spent, where they live.
-	var live, total int
-	var today, spend float64
-	var top []*fleet.Agent
-	for _, ag := range m.snap.Agents {
-		if !m.runsOn(ag, r) {
-			continue
-		}
-		total++
-		if ag.Live() {
-			live++
-		}
-		today += ag.Spend.Today
-		spend += ag.Spend.Cost
-		if ag.Spend.Today > 0 {
-			top = append(top, ag)
-		}
-	}
-	out = append(out, label("agents")+paint(cText, fmt.Sprintf("%d running · %d in total", live, total))+dim("  ·  today ")+paint(cText, money(today))+dim("  ·  all time ")+paint(cText, money(spend)))
-	sort.Slice(top, func(i, j int) bool { return top[i].Spend.Today > top[j].Spend.Today })
-	if len(top) > 0 {
-		var parts []string
-		for i, ag := range top {
-			if i == 3 {
-				break
-			}
-			parts = append(parts, oneLine(ag.DisplayName)+" "+paint(cText, money(ag.Spend.Today)))
-		}
-		out = append(out, label("top today")+dim(strings.Join(parts, "  ·  ")))
-	}
-	var where []string
-	switch {
-	case r.profile.Kind != "":
-		where = append(where, tildify(r.profile.Dir))
-	case len(r.folders) == 0:
-		where = append(where, "kept by agtop · no folder is signed in as it now")
-	default:
-		for _, f := range r.folders {
-			s := tildify(f.ConfigDir)
-			if views[f.ConfigDir].Daemon {
-				s += " (daemon running)"
-			}
-			where = append(where, s)
-		}
-	}
-	out = append(out, label("folders")+faint(strings.Join(where, " · ")))
-	if !q.FetchedAt.IsZero() {
-		source := "read"
-		switch q.Source {
-		case usage.Fetched:
-			source = "fetched"
-		case usage.Live:
-			source = "reported by a session"
-		}
-		out = append(out, label("usage")+faint(source+" at "+q.FetchedAt.Local().Format("15:04")))
-	}
-	return out
 }
 
 // settingRow is always one line, the highlighted one too, so moving the

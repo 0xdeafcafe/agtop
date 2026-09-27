@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -163,6 +164,19 @@ func (m *Model) inUse() string {
 		}
 	}
 	return m.store.Config.ActiveAccount().Name
+}
+
+// inUseOf is the name of the account agent k is signed in as.
+func (m *Model) inUseOf(k string) string {
+	if k == "claude" {
+		return m.inUse()
+	}
+	for _, s := range m.store.Config.SignInsOf(k) {
+		if s.ID == m.accts.now[k] {
+			return s.Name
+		}
+	}
+	return ""
 }
 
 func (m *Model) loginIndex(id string) int {
@@ -346,8 +360,22 @@ func (m *Model) onAddedLogin(msg addedLoginMsg) tea.Cmd {
 	return tea.Batch(m.fetchLoginUsage()...)
 }
 
-// useLogin switches to the login named, or with that email.
+// useLogin switches to the account named, or with that email: one of
+// the agent new sessions run first, then any other installed agent's.
 func (m *Model) useLogin(name string) tea.Cmd {
+	k := m.startKind()
+	rows := m.accountRows()
+	sort.SliceStable(rows, func(i, j int) bool { return string(rows[i].kind) == k && string(rows[j].kind) != k })
+	for _, r := range rows {
+		if r.head || r.login != nil || !(strings.EqualFold(r.name(), name) || strings.EqualFold(r.email(), name)) {
+			continue
+		}
+		if r.current {
+			m.flash("already on "+r.name(), false)
+			return nil
+		}
+		return m.switchAccount(r.acct, "")
+	}
 	for _, l := range m.store.Config.Logins {
 		if strings.EqualFold(l.Name, name) || strings.EqualFold(l.Email, name) {
 			if l.ID == claude.SignedInAs(m.store.Config.ActiveAccount()) {

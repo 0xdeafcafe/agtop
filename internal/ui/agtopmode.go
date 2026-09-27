@@ -2836,11 +2836,11 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 		Account: m.store.Config.ActiveAccount(), Cwd: dir, Prompt: text, Images: images, Name: name,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
 	}
-	if d.Kind != "" && d.Kind != "claude" {
+	if kind := m.startKind(); kind != "claude" {
 		// The model, effort and mode in Settings are Claude Code's: another
 		// agent starts with its own.
 		cfg = host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, IdleStop: host.Duration(d.Rest())}
-		if err := cfg.UseAgent(d.Kind); err != nil {
+		if err := cfg.UseAgent(kind); err != nil {
 			m.flash(err.Error(), true)
 			return nil
 		}

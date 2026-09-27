@@ -37,10 +37,10 @@ var fleetCommands = []headless.Command{
 	{Name: "sort", Description: "sort agents by " + strings.Join(sortModes, ", "), ArgumentHint: "<by>"},
 	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", ") + ", or plugin:<name> for a plugin's sections", ArgumentHint: "<group>"},
 	{Name: "folder", Description: "choose the folder new sessions start in"},
-	{Name: "with", Description: "the agent new sessions run: claude, codex, copilot, gemini, kimi, opencode or vibe; alone says what's installed", ArgumentHint: "[agent]"},
+	{Name: "with", Description: "the agent new sessions run by default, of those installed; alone says which", ArgumentHint: "[agent]"},
 	{Name: "efficiency", Description: "where tokens go, and the savers that cut them (#eff, #savers)", ArgumentHint: "[timeline|savers|findings]"},
 	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
-	{Name: "account", Description: "switch to another account; alone opens Accounts", ArgumentHint: "[name]"},
+	{Name: "account", Description: "switch to another account, of any agent; alone opens Accounts", ArgumentHint: "[name]"},
 	{Name: "hibernate", Description: "stop finished agents after this many idle minutes; 0 turns it off", ArgumentHint: "<minutes>"},
 	{Name: "width", Description: "the list's share of the screen; alone goes back to agtop's", ArgumentHint: "[n%]"},
 	{Name: "view", Description: "Agents and the Session side by side, the agent's Session alone, or Agents alone (shift+← →)", ArgumentHint: "<split|agent|list>"},
@@ -88,10 +88,26 @@ func (m *Model) fleetArgs(name string) (opts []string, now string) {
 	case "by":
 		return m.groupModes(), m.store.Config.GroupBy
 	case "account":
-		for _, a := range m.store.Config.AllAccounts() {
-			opts = append(opts, a.Name)
+		// Every account of every installed agent, those of the agent new
+		// sessions run first.
+		k := m.startKind()
+		var mine, rest []string
+		for _, r := range m.accountRows() {
+			if r.head {
+				continue
+			}
+			if string(r.kind) == k {
+				mine = append(mine, r.name())
+			} else {
+				rest = append(rest, r.name())
+			}
 		}
-		return opts, m.store.Config.ActiveAccount().Name
+		return append(mine, rest...), m.inUseOf(k)
+	case "with":
+		for _, a := range m.agentOrder() {
+			opts = append(opts, string(a.Kind()))
+		}
+		return opts, m.store.Config.DefaultAgent()
 	case "clean":
 		return []string{"all"}, ""
 	case "view":

@@ -117,8 +117,8 @@ var topSegs = []barSeg{
 		}
 		return dim(v)
 	}},
-	{"account", "Account", "the account new agents start on", func(x *barCtx) string {
-		return dim(x.m.inUse())
+	{"account", "Account", "the agent and account new agents start on", func(x *barCtx) string {
+		return dim(x.m.startAccount())
 	}},
 	{"clock", "Clock", "the time of day", func(x *barCtx) string {
 		return dim(x.m.snap.At.Local().Format("15:04"))
@@ -235,8 +235,8 @@ var agentSegs = []barSeg{
 		}
 		return ""
 	}},
-	{"account", "Account", "the Claude account it runs on", func(x *barCtx) string {
-		return dim(x.a.Acct.Name)
+	{"account", "Account", "the agent it runs", func(x *barCtx) string {
+		return dim(agentName(x.a.Kind))
 	}},
 	{"session", "Session id", "the conversation's short id", func(x *barCtx) string {
 		if id := firstNonEmpty(x.c.sess.Info.SessionID, x.a.SessionID); len(id) >= 8 {

@@ -755,7 +755,7 @@ func (m *Model) submit() tea.Cmd {
 	}
 	// The Prompt only starts new sessions; replies go through a Session's
 	// own message box.
-	if d := m.store.Config.Dispatch; (d.Kind != "" && d.Kind != "claude") || d.RunIn != "daemon" && (d.Agent == "" || d.Agent == "claude") {
+	if d := m.store.Config.Dispatch; m.startKind() != "claude" || d.RunIn != "daemon" && (d.Agent == "" || d.Agent == "claude") {
 		return m.startHosted(tagged, m.startDir())
 	}
 	acct := m.store.Config.ActiveAccount()

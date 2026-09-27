@@ -41,12 +41,9 @@ var knownEnv = []struct {
 
 func (m *Model) claudeSettings() *claude.Settings {
 	d := m.dialog
-	accts := m.store.Config.AllAccounts()
-	if d.claudeAcct >= len(accts) {
-		d.claudeAcct = 0
-	}
-	if d.claude == nil || d.claude.Path != accts[d.claudeAcct].ConfigDir+"/settings.json" {
-		s, err := claude.LoadSettings(accts[d.claudeAcct])
+	home := m.store.Config.ActiveAccount() // ~/.claude: every session runs there
+	if d.claude == nil || d.claude.Path != home.ConfigDir+"/settings.json" {
+		s, err := claude.LoadSettings(home)
 		if err != nil {
 			m.flash("couldn't read settings.json: "+err.Error(), true)
 			s, _ = claude.LoadSettings(claude.Account{ConfigDir: m.store.Config.AllAccounts()[0].ConfigDir + "/.agtop-unreadable"})
@@ -57,13 +54,7 @@ func (m *Model) claudeSettings() *claude.Settings {
 }
 
 func (m *Model) claudeRows() []claudeRow {
-	d := m.dialog
 	cfg := &m.store.Config
-	accts := cfg.AllAccounts()
-	var names []string
-	for _, a := range accts {
-		names = append(names, a.Name)
-	}
 	s := m.claudeSettings()
 	save := func() {
 		if err := s.Save(); err != nil {
@@ -117,13 +108,6 @@ func (m *Model) claudeRows() []claudeRow {
 	}
 
 	rows := []claudeRow{
-		row("", "Account", setting{value: names[d.claudeAcct], set: func(v string) {
-			for i, n := range names {
-				if n == v {
-					d.claudeAcct, d.claude = i, nil
-				}
-			}
-		}}, names...),
 		row("agtop", "New sessions run in", setting{value: cfg.Dispatch.RunIn, set: func(v string) {
 			cfg.Dispatch.RunIn = v
 			_ = m.store.SaveConfig()
