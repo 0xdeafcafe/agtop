@@ -561,7 +561,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			snap.Agents = append(snap.Agents, l.hostedAgent(claude.Account{Name: info.Account}, info, tab, now))
 		}
 	}
-	snap.Agents = append(snap.Agents, l.otherPast(claimed, seen, now)...)
+	snap.Agents = append(snap.Agents, l.otherAgents(claimed, seen, now)...)
 	if len(snap.Accounts) > 0 {
 		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
 	}

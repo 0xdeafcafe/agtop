@@ -7,18 +7,61 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
-// Live is nil. Codex keeps no record of which threads are running that
-// is cheap to read and can be trusted: its thread-writer-locks files
-// outlive the processes that made them, and a lock is only held while
-// codex runs, so telling a live one from a stale one means taking the
-// lock, which could get in a running codex's way. Matching codex
-// processes to rollouts would mean lsof on every refresh. Threads agtop
-// runs itself come from the host, not from here.
-func (Adapter) Live(agent.Profile) []agent.Session { return nil }
+// liveFor is how recently a rollout must have been written to for its
+// thread to count as running; workingFor, to count as working.
+const (
+	liveFor    = 2 * time.Minute
+	workingFor = 15 * time.Second
+)
+
+// Live are the threads whose rollouts Codex wrote to lately: a codex in a
+// terminal, most often. Codex keeps no record of which threads run that is
+// cheap to read and can be trusted (its thread-writer-locks outlive their
+// processes, and matching processes to rollouts would mean lsof on every
+// refresh), so a rollout written in the last two minutes is taken as
+// running, and one in the last fifteen seconds as working. Only the last
+// week's folders are looked in: rollouts are filed by the day they began.
+// Threads agtop runs itself are also here; the host's rows claim them.
+func (Adapter) Live(p agent.Profile) []agent.Session {
+	now := time.Now()
+	var names map[string]string
+	var out []agent.Session
+	for d := 0; d < 7; d++ {
+		day := now.AddDate(0, 0, -d)
+		dir := filepath.Join(p.Dir, "sessions", day.Format("2006"), day.Format("01"), day.Format("02"))
+		ents, _ := os.ReadDir(dir)
+		for _, e := range ents {
+			if e.IsDir() || !strings.HasPrefix(e.Name(), "rollout-") || !strings.HasSuffix(e.Name(), ".jsonl") {
+				continue
+			}
+			fi, err := e.Info()
+			if err != nil || now.Sub(fi.ModTime()) > liveFor {
+				continue
+			}
+			s, ok := pastSession(filepath.Join(dir, e.Name()))
+			if !ok {
+				continue
+			}
+			if names == nil {
+				names = threadNames(filepath.Join(p.Dir, "session_index.jsonl"))
+			}
+			if n := names[s.ID]; n != "" {
+				s.Name = oneLine(n)
+			}
+			s.Kind, s.Profile, s.State = Kind, p, "idle"
+			if now.Sub(fi.ModTime()) < workingFor {
+				s.State = "working"
+			}
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 // headLines is how many lines of a rollout Past reads at most looking for
 // its first prompt.

@@ -18,14 +18,14 @@ type othersListing struct {
 	sessions []agent.Session
 }
 
-// otherPast are the past sessions of every agent but Claude Code that can
-// list them, less those a row already stands for. A message resumes one
-// in agtop mode, with its agent.
-func (l *Loader) otherPast(claimed, seen map[string]bool, now time.Time) []*Agent {
+// otherAgents are the sessions of every agent but Claude Code that can
+// list them, less those a row already stands for: running ones (a codex in
+// a terminal), which agtop can only show, and past ones, which a message
+// resumes in agtop mode with their agent.
+func (l *Loader) otherAgents(claimed, seen map[string]bool, now time.Time) []*Agent {
 	if l.others == nil {
 		l.others = map[string]othersListing{}
 	}
-	ov := l.store.Overlay
 	var out []*Agent
 	for _, a := range agent.All() {
 		d, ok := a.(agent.Discoverer)
@@ -33,6 +33,17 @@ func (l *Loader) otherPast(claimed, seen map[string]bool, now time.Time) []*Agen
 			continue
 		}
 		for _, p := range a.Profiles() {
+			for _, s := range d.Live(p) {
+				if len(s.ID) < 8 || claimed[s.ID] {
+					continue
+				}
+				claimed[s.ID] = true
+				key := state.Key(p.Name, "i:"+s.ID[:8])
+				seen[key] = true
+				ag := l.otherRow(a, p, s, key, now)
+				ag.State, ag.Interactive = s.State, true
+				out = append(out, ag)
+			}
 			ls, ok := l.others[p.Dir]
 			if !ok || now.Sub(ls.at) >= othersEvery {
 				ls = othersListing{at: now, sessions: d.Past(p)}
@@ -47,19 +58,27 @@ func (l *Loader) otherPast(claimed, seen map[string]bool, now time.Time) []*Agen
 					continue
 				}
 				seen[key] = true
-				j := claude.Job{ID: s.ID[:8], Account: p.Name, Name: s.Name, State: "stopped", Cwd: s.Cwd,
-					SessionID: s.ID, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt}
-				ag := &Agent{Job: j, Key: key, Acct: claude.Account{Name: p.Name, ConfigDir: p.Dir}, DisplayName: s.Name,
-					Past: true, Kind: string(a.Kind()), History: s.Transcript}
-				if n := ov.Names[key]; n != "" {
-					ag.DisplayName = n
-				}
-				_, ag.Done = ov.Done[key]
-				ag.Group = ov.Groups[key]
-				ag.Repo, ag.Branch = l.gitFor(s.Cwd, now)
+				ag := l.otherRow(a, p, s, key, now)
+				ag.Past = true
 				out = append(out, ag)
 			}
 		}
 	}
 	return out
+}
+
+// otherRow is another agent's session as a row, with what you've set on it.
+func (l *Loader) otherRow(a agent.Adapter, p agent.Profile, s agent.Session, key string, now time.Time) *Agent {
+	ov := l.store.Overlay
+	j := claude.Job{ID: s.ID[:8], Account: p.Name, Name: s.Name, State: "stopped", Cwd: s.Cwd,
+		SessionID: s.ID, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt}
+	ag := &Agent{Job: j, Key: key, Acct: claude.Account{Name: p.Name, ConfigDir: p.Dir}, DisplayName: s.Name,
+		Kind: string(a.Kind()), History: s.Transcript}
+	if n := ov.Names[key]; n != "" {
+		ag.DisplayName = n
+	}
+	_, ag.Done = ov.Done[key]
+	ag.Group = ov.Groups[key]
+	ag.Repo, ag.Branch = l.gitFor(s.Cwd, now)
+	return ag
 }

@@ -468,3 +468,31 @@ func TestHistoryFindsTheRolloutByThread(t *testing.T) {
 		t.Error("a thread with no rollout read as one")
 	}
 }
+
+func TestLiveIsWhatWasWrittenLately(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	day := filepath.Join(dir, "sessions", now.Format("2006"), now.Format("01"), now.Format("02"))
+	if err := os.MkdirAll(day, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(id string, age time.Duration) {
+		line := `{"timestamp":"2026-09-27T10:00:00.000Z","type":"session_meta","payload":{"id":"` + id + `","cwd":"/w"}}`
+		path := filepath.Join(day, "rollout-2026-09-27T10-00-00-"+id+".jsonl")
+		if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_ = os.Chtimes(path, now.Add(-age), now.Add(-age))
+	}
+	write("0199aaaa-0000-7000-8000-000000000001", 5*time.Second)
+	write("0199aaaa-0000-7000-8000-000000000002", time.Minute)
+	write("0199aaaa-0000-7000-8000-000000000003", time.Hour)
+	live := Adapter{}.Live(agent.Profile{Dir: dir})
+	states := map[string]string{}
+	for _, s := range live {
+		states[s.ID[len(s.ID)-1:]] = s.State
+	}
+	if len(live) != 2 || states["1"] != "working" || states["2"] != "idle" {
+		t.Errorf("live = %v", states)
+	}
+}
