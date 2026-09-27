@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
@@ -87,7 +88,7 @@ func callOf(it threadItem, raw json.RawMessage) (tool.Call, bool) {
 	switch it.Type {
 	case "commandExecution":
 		c.Name, c.Kind = "shell", tool.Shell
-		c.Input.Command, c.Input.Cwd = it.Command, it.Cwd
+		c.Input.Command, c.Input.Cwd = script(it.Command), it.Cwd
 		// Codex reads one-step commands itself; a lone read or search
 		// is drawn as one.
 		if len(it.CommandActions) == 1 {
@@ -242,4 +243,16 @@ func todoStatus(s string) string {
 		return "in_progress"
 	}
 	return s
+}
+
+// shellRe is a command Codex wrapped in a login shell: /bin/zsh -lc '…'.
+var shellRe = regexp.MustCompile(`^(?:\S*/)?(?:ba|z)?sh -l?c '((?:[^']|'\\'')*)'$`)
+
+// script is what a command runs, out of the shell Codex runs it in.
+func script(cmd string) string {
+	m := shellRe.FindStringSubmatch(cmd)
+	if m == nil {
+		return cmd
+	}
+	return strings.ReplaceAll(m[1], `'\''`, "'")
 }

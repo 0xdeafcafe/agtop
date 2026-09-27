@@ -546,3 +546,16 @@ func TestLive(t *testing.T) {
 	}
 	t.Logf("plan %s", q.Plan)
 }
+
+func TestScript(t *testing.T) {
+	for in, want := range map[string]string{
+		`/bin/zsh -lc 'ls -la'`:            "ls -la",
+		`bash -c 'echo '\''hi'\'' && pwd'`: "echo 'hi' && pwd",
+		`/bin/zsh -lc 'a' extra`:           `/bin/zsh -lc 'a' extra`,
+		`go test ./...`:                    "go test ./...",
+	} {
+		if got := script(in); got != want {
+			t.Errorf("script(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
