@@ -1,6 +1,7 @@
 package convo
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -81,5 +82,41 @@ func TestJobsFromInfo(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success"}, time.Now())
 	if s.Job("f1").Running() || !j.Running() {
 		t.Fatal("foreground job outlived its turn, or the background one didn't")
+	}
+}
+
+// A subagent's run is a task to Claude Code too, but not background work:
+// the background view's tasks leave it out, known by its type or, heard of
+// only from its end, by the Agent call that started it.
+func TestSubagentJobs(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.Apply(host.Sent{Text: "go"}, now)
+	s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{
+		{Type: "tool_use", ID: "tA", Name: "Agent", Input: json.RawMessage(`{"description":"look","subagent_type":"Explore"}`)},
+		{Type: "tool_use", ID: "tB", Name: "Agent", Input: json.RawMessage(`{"description":"older"}`)},
+	}}, now)
+	for _, l := range []string{
+		`{"type":"system","subtype":"task_started","task_id":"a1","tool_use_id":"tA","description":"look","subagent_type":"Explore","is_backgrounded":true,"task_type":"local_agent"}`,
+		`{"type":"system","subtype":"task_started","task_id":"b1","tool_use_id":"tS","description":"npm run dev","is_backgrounded":true,"task_type":"local_bash"}`,
+		`{"type":"system","subtype":"task_notification","task_id":"a0","tool_use_id":"tB","status":"completed","summary":"older"}`,
+	} {
+		ev, err := headless.Decode([]byte(l))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Apply(ev, now)
+	}
+	if w := s.WorkJobs(); len(w) != 1 || w[0].ID != "b1" {
+		t.Fatalf("background work: %+v", w)
+	}
+	if j := s.SubagentJob("a1", ""); j == nil || !j.Running() {
+		t.Fatalf("by agent id: %+v", j)
+	}
+	if j := s.SubagentJob("", "tB"); j == nil || j.ID != "a0" || j.Running() {
+		t.Fatalf("by its call: %+v", j)
+	}
+	if s.SubagentJob("b1", "tS") != nil {
+		t.Fatal("a shell is no subagent")
 	}
 }

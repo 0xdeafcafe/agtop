@@ -42,7 +42,7 @@ func (m *Model) views(c *hostConn) []string {
 	if len(c.subs) > 0 {
 		v = append(v, "subagents")
 	}
-	if len(c.sess.Jobs()) > 0 {
+	if slices.ContainsFunc(c.sess.Jobs(), func(j *convo.Job) bool { return c.sess.JobKind(j) != "subagent" }) {
 		v = append(v, "background")
 	}
 	if len(c.artifactsOf()) > 0 {
@@ -63,7 +63,11 @@ func (m *Model) views(c *hostConn) []string {
 // in the background by the command it returns.
 func (m *Model) refreshSubs() tea.Cmd {
 	c := m.host
-	if c == nil || c.path == "" {
+	if c == nil {
+		return nil
+	}
+	m.followSessionID(c)
+	if c.path == "" {
 		return nil
 	}
 	c.subs = c.subList.List(c.path)
@@ -109,6 +113,24 @@ func (m *Model) refreshSubs() tea.Cmd {
 			read[unread[i].ID] = t
 		}
 		return subStatsMsg{key: key, tails: read}
+	}
+}
+
+// followSessionID keeps a hosted session's transcript path on the
+// conversation Claude Code is writing now. The id it was opened on can
+// change under it: a fork gets its own once Claude Code starts, and a
+// rewind or /clear starts another; the old path would never see the new
+// conversation's subagents.
+func (m *Model) followSessionID(c *hostConn) {
+	i := c.sess.Info
+	if c.client == nil || i.SessionID == "" || i.Cwd == "" || i.Kind != "" && i.Kind != "claude" {
+		return
+	}
+	if c.path != "" && strings.HasSuffix(c.path, string(filepath.Separator)+i.SessionID+".jsonl") {
+		return
+	}
+	if a := m.agentByKey(c.key); a != nil {
+		c.path = a.Acct.TranscriptPath(i.Cwd, i.SessionID)
 	}
 }
 
@@ -237,6 +259,16 @@ func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
 	st := c.sess.Step(sa.ToolUseID)
 	if st != nil && st.Status == convo.Failed && status == "" {
 		status = "failed"
+	}
+	// Claude Code says, in a session agtop runs: its task runs until it
+	// hears otherwise, however long the run goes quiet (a long command, a
+	// long think), and one launched in the background has no step still
+	// running to say so.
+	if j := c.sess.SubagentJob(sa.ID, sa.ToolUseID); j != nil {
+		if !j.Running() && status == "" && j.Status != "ended" {
+			status = j.Status
+		}
+		return status, j.Running()
 	}
 	// No word that it finished, and it wrote recently: still working.
 	live = status == "" && !last.IsZero() && time.Since(last) < 90*time.Second

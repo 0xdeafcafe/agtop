@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -281,5 +283,88 @@ func TestSubagentDockOrder(t *testing.T) {
 	m.runningPreview(c, c.runningSubs(), 100)
 	if c.sel != "run:a1" {
 		t.Fatalf("after a reshuffle, picked %q", c.sel)
+	}
+}
+
+// A subagent launched in the background is a task to Claude Code, but it
+// belongs in the subagents view, not the background one; and while its task
+// runs it shows as running there and in the dock, however long it has been
+// quiet (a long command, a long think), until Claude Code says it's done.
+func TestBackgroundSubagentIsASubagent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent-a1.jsonl")
+	os.WriteFile(path, []byte(`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"go"}}`+"\n"), 0o644)
+	now := time.Now()
+	s := convo.New()
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 1, State: "idle"}}, now)
+	s.Apply(headless.TaskStarted{ID: "a1", ToolUseID: "tA", Type: "local_agent", Description: "look around", SubagentType: "Explore", Backgrounded: true}, now.Add(-10*time.Minute))
+	quiet := convo.Subagent{ID: "a1", Type: "Explore", Description: "look around", ToolUseID: "tA", Path: path, Mod: now.Add(-5 * time.Minute).UnixNano()}
+	c := &hostConn{key: "k", client: &host.Client{}, sess: s, open: map[string]bool{},
+		subs: []convo.Subagent{quiet}, subTails: map[string]*convo.Tail{}}
+	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
+
+	if slices.Contains(m.views(c), "background") {
+		t.Fatalf("a subagent alone makes a background view: %v", m.views(c))
+	}
+	if run := c.runningSubs(); len(run) != 1 {
+		t.Fatalf("a quiet run whose task runs isn't running: %v", run)
+	}
+	list := func() string {
+		var b strings.Builder
+		for _, l := range m.subagentList(c, convo.Options{Width: 100, Now: now}) {
+			b.WriteString(ansi.Strip(l.Text) + "\n")
+		}
+		return b.String()
+	}
+	if out := list(); !strings.Contains(out, "1 running") || !strings.Contains(out, "look around") {
+		t.Fatalf("the subagents view doesn't show it running:\n%s", out)
+	}
+
+	// A shell alongside: the background view has it, and not the subagent.
+	s.Apply(headless.TaskStarted{ID: "b1", ToolUseID: "tS", Type: "local_bash", Description: "npm run dev", Backgrounded: true}, now)
+	if !slices.Contains(m.views(c), "background") {
+		t.Fatal("no background view for a shell")
+	}
+	var b strings.Builder
+	for _, l := range m.jobLines(c, convo.Options{Width: 100, Now: now}) {
+		b.WriteString(ansi.Strip(l.Text) + "\n")
+	}
+	if out := b.String(); !strings.Contains(out, "npm run dev") || strings.Contains(out, "look around") || !strings.Contains(out, "1 tasks") {
+		t.Fatalf("background view:\n%s", out)
+	}
+
+	// Claude Code says it finished: done, though it wrote just now.
+	s.Apply(headless.TaskDone{ID: "a1", ToolUseID: "tA", Status: "completed"}, now)
+	c.subs[0].Mod = time.Now().UnixNano()
+	if run := c.runningSubs(); len(run) != 0 {
+		t.Fatalf("a finished run still running: %v", run)
+	}
+	if out := list(); strings.Contains(out, "running") || !strings.Contains(out, "completed") {
+		t.Fatalf("finished run:\n%s", out)
+	}
+}
+
+// A fork (or a rewind, or /clear) goes on under another session id than
+// the one its pane opened on: the subagents are looked for under the
+// conversation Claude Code writes now, so they show as they start.
+func TestSubagentsFollowTheSessionID(t *testing.T) {
+	cfg := t.TempDir()
+	acct := claude.Account{Name: "x", ConfigDir: cfg}
+	old := acct.TranscriptPath("/w", "old")
+	subs := filepath.Join(strings.TrimSuffix(acct.TranscriptPath("/w", "new"), ".jsonl"), "subagents")
+	os.MkdirAll(subs, 0o755)
+	os.WriteFile(filepath.Join(subs, "agent-a1.meta.json"), []byte(`{"agentType":"Explore","description":"look","toolUseId":"tA"}`), 0o644)
+	os.WriteFile(filepath.Join(subs, "agent-a1.jsonl"), []byte("{}\n"), 0o644)
+
+	s := convo.New()
+	c := &hostConn{key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}, path: old}
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{{Key: "k", Acct: acct}}}, host: c}
+	m.refreshSubs()
+	if len(c.subs) != 0 {
+		t.Fatalf("found runs under the old id: %v", c.subs)
+	}
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 1, SessionID: "new", Cwd: "/w"}}, time.Now())
+	m.refreshSubs()
+	if len(c.subs) != 1 || c.subs[0].ID != "a1" || c.path != acct.TranscriptPath("/w", "new") {
+		t.Fatalf("after the id changed: path %s, runs %v", c.path, c.subs)
 	}
 }

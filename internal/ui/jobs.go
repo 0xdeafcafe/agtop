@@ -34,7 +34,7 @@ const dockJobsShown = 4
 func (c *hostConn) dockJobs() []*convo.Job {
 	var out []*convo.Job
 	for _, j := range c.sess.RunningJobs() {
-		if j.Kind() == "subagent" || !j.Background && time.Since(j.Start) < jobWait {
+		if c.sess.JobKind(j) == "subagent" || !j.Background && time.Since(j.Start) < jobWait {
 			continue
 		}
 		out = append(out, j)
@@ -160,12 +160,13 @@ func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
 	return out
 }
 
-// jobLines is the background view: every task this session has run,
-// what's running first, each with its output under it when opened.
+// jobLines is the background view: every task this session has run but
+// its subagents (the subagents view has those), what's running first, each
+// with its output under it when opened.
 func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 	w := o.Width
 	var run, done []*convo.Job
-	for _, j := range c.sess.Jobs() {
+	for _, j := range c.sess.WorkJobs() {
 		if j.Running() {
 			run = append(run, j)
 		} else {
@@ -180,7 +181,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 	how := "enter shows output · x stops · b backgrounds"
 	lines := []convo.Line{{Text: fit("  "+head+dim(" · "+how), w)}, {Text: ""}}
 	if len(run)+len(done) == 0 {
-		return append(lines, convo.Line{Text: dim("  nothing running · shells, monitors and subagents Claude starts show here")})
+		return append(lines, convo.Line{Text: dim("  nothing running · shells, monitors and workflows Claude starts show here")})
 	}
 	now := time.Now()
 	section := func(title string, jobs []*convo.Job) {

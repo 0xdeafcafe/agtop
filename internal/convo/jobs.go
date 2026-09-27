@@ -50,6 +50,29 @@ func (j *Job) Kind() string {
 // Jobs are every task heard of, in the order they started.
 func (s *Session) Jobs() []*Job { return s.jobs }
 
+// WorkJobs are the tasks but subagents' runs: the shells, monitors and
+// workflows the background view lists, in the order they started.
+func (s *Session) WorkJobs() []*Job {
+	var out []*Job
+	for _, j := range s.jobs {
+		if s.JobKind(j) != "subagent" {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// SubagentJob is the task of the subagent run with this agent id (Claude
+// Code's task id for it) or started by this tool call, or nil.
+func (s *Session) SubagentJob(id, toolUseID string) *Job {
+	for _, j := range s.jobs {
+		if s.JobKind(j) == "subagent" && (j.ID == id || toolUseID != "" && j.ToolUseID == toolUseID) {
+			return j
+		}
+	}
+	return nil
+}
+
 // RunningJobs are the tasks still running, in the order they started.
 func (s *Session) RunningJobs() []*Job {
 	var out []*Job
@@ -205,11 +228,17 @@ func (s *Session) JobCommand(j *Job) string {
 }
 
 // JobKind is Kind, knowing a Monitor tool's command from a Bash one: both
-// are shell tasks to Claude Code.
+// are shell tasks to Claude Code. A task heard of only from its end (a
+// replay that starts after it did) is known by the tool call that started it.
 func (s *Session) JobKind(j *Job) string {
-	if j.Type == "local_bash" {
+	switch j.Type {
+	case "local_bash":
 		if st := s.byID[j.ToolUseID]; st != nil && st.Tool == "Monitor" {
 			return "monitor"
+		}
+	case "":
+		if st := s.byID[j.ToolUseID]; st != nil && (st.Tool == "Agent" || st.Tool == "Task") {
+			return "subagent"
 		}
 	}
 	return j.Kind()
