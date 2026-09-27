@@ -120,7 +120,21 @@ func CleanTemp(a *Agent) error {
 type TempSize struct {
 	Bytes int64     `json:"bytes"`
 	At    time.Time `json:"at"`
+	// Took is how long measuring it took: a folder of millions of files
+	// takes a core for most of a minute to walk.
+	Took time.Duration `json:"took,omitempty"`
 }
+
+// every is how long a running agent's temp work goes before it's
+// measured again: a minute, or longer for one whose last walk was long,
+// so walking never takes more than a sliver of a core.
+func (e TempSize) every() time.Duration {
+	return min(max(time.Minute, e.Took*tempShare), 2*time.Hour)
+}
+
+// tempShare is how much longer than a walk took it waits before the next:
+// walks take at most 1/tempShare of a core.
+const tempShare = 50
 
 // TempSizes remembers what each agent's temp work measured, across
 // restarts, so the folders are walked again only when an agent has done
@@ -145,14 +159,15 @@ func LoadTempSizes() *TempSizes {
 }
 
 // Due are the agents whose temp work should be measured: never measured,
-// busy since, or running and not measured for a minute.
+// busy since, or running and not measured for a while (a minute, longer
+// for one that's slow to walk).
 func (t *TempSizes) Due(agents []*Agent, now time.Time) []*Agent {
 	var out []*Agent
 	for _, a := range agents {
 		e, ok := t.Sizes[a.Key]
 		switch {
 		case !ok:
-		case a.PID != 0 && now.Sub(e.At) > time.Minute:
+		case a.PID != 0 && now.Sub(e.At) > e.every():
 		case a.UpdatedAt.After(e.At) && a.PID == 0:
 		default:
 			continue

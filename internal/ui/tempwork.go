@@ -23,7 +23,7 @@ type tempMsg map[string]fleet.TempSize
 // measureTemp walks the temp folders of the agents whose temp work may have
 // changed, in the background and one batch at a time: never-measured ones
 // once, finished ones again only after they've done something, running ones
-// every minute.
+// every minute (longer for ones slow to walk).
 func (m *Model) measureTemp() tea.Cmd {
 	if m.measuring || m.tick%5 != 1 {
 		return nil
@@ -42,7 +42,8 @@ func (m *Model) measureTemp() tea.Cmd {
 		out := make(tempMsg, len(keys))
 		for i, k := range keys {
 			at := time.Now() // before the walk: anything written during it is measured next time
-			out[k] = fleet.TempSize{Bytes: fleet.DiskUsage(dirs[i]), At: at}
+			n := fleet.DiskUsage(dirs[i])
+			out[k] = fleet.TempSize{Bytes: n, At: at, Took: time.Since(at)}
 		}
 		return out
 	}
