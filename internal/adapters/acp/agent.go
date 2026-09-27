@@ -21,9 +21,8 @@ type Agent struct {
 }
 
 // Known are the ACP agents agtop runs. An agent that grows more than ACP
-// gives (history, limits) moves to a package of its own.
+// gives (history, limits) moves to a package of its own, as Copilot has.
 var Known = []Agent{
-	{ID: "copilot", Title: "Copilot", Command: "copilot", Args: []string{"--acp"}, Home: ".copilot"},
 	{ID: "gemini", Title: "Gemini", Command: "gemini", Args: []string{"--experimental-acp"}, Home: ".gemini"},
 	{ID: "kimi", Title: "Kimi", Command: "kimi", Args: []string{"acp"}, Home: ".kimi-code"},
 	{ID: "opencode", Title: "OpenCode", Command: "opencode", Args: []string{"acp"}, Home: ".config/opencode"},

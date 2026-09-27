@@ -5,4 +5,5 @@ import (
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/acp"
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/codex"
+	_ "github.com/0xdeafcafe/agtop/internal/adapters/copilot"
 )

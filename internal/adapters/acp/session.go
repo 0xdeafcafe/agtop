@@ -472,8 +472,19 @@ func (s *Session) emitInit() {
 	if !s.ready {
 		return
 	}
-	s.emit(event.Init{SessionID: s.id, Model: s.model(), Cwd: s.cwd, Mode: s.mode, Version: s.info.Version,
+	s.emit(event.Init{SessionID: s.id, Model: s.model(), Cwd: s.cwd, Mode: s.modeName(), Version: s.info.Version,
 		Commands: append([]string(nil), s.commands...)})
+}
+
+// modeName is the mode the session is in, by its name when it has one:
+// some agents' mode ids are URLs.
+func (s *Session) modeName() string {
+	for _, m := range s.modes {
+		if m.ID == s.mode && m.Name != "" {
+			return strings.ToLower(m.Name)
+		}
+	}
+	return s.mode
 }
 
 // Close ends the session: the agent is asked to go by closing its stdin,
