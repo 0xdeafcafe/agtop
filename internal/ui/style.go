@@ -212,6 +212,21 @@ func money(c float64) string {
 	}
 }
 
+// moneyShort is money in at most six characters, for a column: past $9,999
+// it counts thousands, so it never runs into the column beside it.
+func moneyShort(c float64) string {
+	switch {
+	case c < 10_000:
+		return money(c)
+	case c < 99_950:
+		return fmt.Sprintf("$%.1fk", c/1e3)
+	case c < 999_500:
+		return fmt.Sprintf("$%.0fk", c/1e3)
+	default:
+		return fmt.Sprintf("$%.1fM", c/1e6)
+	}
+}
+
 func thousands(n int64) string {
 	s := fmt.Sprintf("%d", n)
 	for i := len(s) - 3; i > 0; i -= 3 {

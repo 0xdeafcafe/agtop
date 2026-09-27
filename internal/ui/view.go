@@ -1478,9 +1478,9 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked 
 	case live || busy:
 		right = act + cpuCell() + ramCell(true) + costCell(a.Spend.Cost, wCost)
 	case resident:
-		right = act + faint(right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)) + ramCell(false) + faint(right1(money(a.Spend.Cost), wCost))
+		right = act + faint(right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)) + ramCell(false) + faint(right1(moneyShort(a.Spend.Cost), wCost))
 	default:
-		cost := money(a.Spend.Cost)
+		cost := moneyShort(a.Spend.Cost)
 		if cost == "–" {
 			cost = ""
 		}
@@ -1692,7 +1692,7 @@ func right1(s string, w int) string { return right(s, w) }
 // costCell is a working agent's spend: quiet, yellow from $100 the way cpu
 // is from 50%.
 func costCell(cost float64, w int) string {
-	v := right1(money(cost), w)
+	v := right1(moneyShort(cost), w)
 	if cost >= 100 {
 		return paint(cYellow, v)
 	}
