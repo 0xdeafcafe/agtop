@@ -264,7 +264,8 @@ type server struct {
 	conn    agent.Conn
 	options map[string][]event.Option
 	began   bool     // the conversation has a transcript to resume
-	ring    [][]byte // big lines packed: see pack
+	spent   float64  // the running process's last cost total: see TurnCost
+	ring   [][]byte // big lines packed: see pack
 	ringN   int      // the ring's size as written
 	pk      packer
 	clients map[*conn]struct{}
@@ -365,6 +366,7 @@ func (s *server) start() error {
 	if s.sess != nil || s.conn != nil {
 		return nil
 	}
+	s.spent = 0 // a new process counts from zero
 	if s.cfg.other() {
 		return s.startAgent()
 	}
@@ -423,6 +425,18 @@ func (s *server) start() error {
 	s.initID, _ = sess.Initialize(append([]string{agtools.Server}, s.plugins...)...)
 	go s.watch(sess)
 	return nil
+}
+
+// TurnCost is what one turn cost. A process's results carry its running
+// total, not the turn's, so it is the rise since the last total, spent; a
+// total below that is a new process counting from zero.
+func TurnCost(spent *float64, total float64) float64 {
+	d := total - *spent
+	if d < 0 {
+		d = total
+	}
+	*spent = total
+	return d
 }
 
 // detach forgets the running process so nothing more is sent to it, and
@@ -756,7 +770,7 @@ func (s *server) onEvent(ev headless.Event) {
 		return
 	case headless.Result:
 		s.began = true
-		s.info.CostUSD += ev.CostUSD
+		s.info.CostUSD += TurnCost(&s.spent, ev.CostUSD)
 		s.askContext()
 		if s.stalled(ev) {
 			s.publish()
@@ -882,8 +896,11 @@ func (s *server) shareUsage(ev headless.RateLimit) {
 	}
 	u.AccountID = s.login
 	s.liveUsage = u
+	acct := s.cfg.Account
 	go func() {
-		_ = claude.RecordUsage(filepath.Join(state.Dir(), "usage.json"), claude.Login{ID: u.AccountID}.UsageKey(), u)
+		// Only while the folder is still signed in as it started: after a
+		// switch, the reading may be the new login's.
+		_ = claude.RecordLiveUsage(filepath.Join(state.Dir(), "usage.json"), acct, u.AccountID, u)
 	}()
 }
 

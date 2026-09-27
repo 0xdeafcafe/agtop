@@ -140,6 +140,13 @@ type Spend struct {
 	Today float64
 	Ready bool
 	Halt  *claude.Halt // the error its last turn ended on, if any
+	// Progress is the last count it reported moving ("lint 11,065 →
+	// 9,052"), and when; Context is its newest message's context, and
+	// Compacts how often that was compacted.
+	Progress   string
+	ProgressAt time.Time
+	Context    int64
+	Compacts   int
 }
 
 type AccountView struct {
@@ -609,7 +616,10 @@ func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Tabl
 	if a.Job.TranscriptPath != "" {
 		a.Subs = l.subagents(a.Key, a.Job.TranscriptPath, now)
 	}
-	if a.Spend.Cost < info.CostUSD {
+	// A transcript is priced call by call, subagents and all; the host's
+	// own figure is only for agents that leave none. (Older hosts summed
+	// Claude Code's running totals, so the one they saved can be far out.)
+	if !a.Spend.Ready && a.Spend.Cost < info.CostUSD {
 		a.Spend.Cost = info.CostUSD
 	}
 	return a

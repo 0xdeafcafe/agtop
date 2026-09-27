@@ -199,6 +199,7 @@ type Session struct {
 	Tools    map[string]*ToolStat
 
 	streaming  *Item
+	spent      float64 // the process's cost total at its last result
 	byID       map[string]*Step
 	cache      map[*Turn]cached
 	memo       map[memoKey][]Line
@@ -389,7 +390,7 @@ func (s *Session) Apply(ev any, now time.Time) {
 		s.endJobs(now)
 		if t := s.Live(); t != nil {
 			s.endTurn(t, now)
-			t.Cost = ev.CostUSD
+			t.Cost = host.TurnCost(&s.spent, ev.CostUSD)
 			if ev.IsError || (ev.Subtype != "" && ev.Subtype != "success") {
 				t.Err = strings.ReplaceAll(strings.TrimPrefix(ev.Subtype, "error_"), "_", " ")
 				if t.Err == "" {
