@@ -846,6 +846,7 @@ func (m *Model) listView() string {
 	var b strings.Builder
 	b.Grow(m.frameLen + m.frameLen/8)
 	m.paneTop = len(head)
+	fadeTurn()
 	for _, l := range head {
 		fitTo(&b, l, m.w, "")
 		b.WriteByte('\n')
@@ -934,11 +935,46 @@ var (
 	faded map[string]string // an escape code as it is on the faded side
 )
 
+// fadedRows are the rows fadeRow faded this frame and the last, by row:
+// most rows are the same frame to frame. fadedFor is the fade they were
+// made with.
+var fadedRows, fadedRowsOld map[string]string
+var fadedFor string
+
+// fadeTurn starts a frame's fading: what the frame before faded stays at
+// hand, the rest goes.
+func fadeTurn() {
+	if fadedFor != fade {
+		clear(fadedRows)
+		clear(fadedRowsOld)
+		fadedFor = fade
+	}
+	fadedRowsOld, fadedRows = fadedRows, fadedRowsOld
+	if fadedRows == nil {
+		fadedRows = map[string]string{}
+	}
+	clear(fadedRows)
+}
+
 // fadeRow is s with its text colours faded back.
 func fadeRow(s string) string {
 	if !strings.Contains(s, "\x1b[") {
 		return s
 	}
+	if f, ok := fadedRows[s]; ok {
+		return f
+	}
+	f, ok := fadedRowsOld[s]
+	if !ok {
+		f = fadeRowNow(s)
+	}
+	if fadedRows != nil {
+		fadedRows[s] = f
+	}
+	return f
+}
+
+func fadeRowNow(s string) string {
 	var b strings.Builder
 	b.Grow(len(s) + 16)
 	for {
