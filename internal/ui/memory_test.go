@@ -17,6 +17,9 @@ import (
 
 func TestMemoryView(t *testing.T) {
 	root := t.TempDir()
+	// Agents run with TMPDIR under your home, so the walk up from cwd would
+	// reach your own CLAUDE.md files; home is the test's.
+	t.Setenv("HOME", root)
 	cfg, cwd := filepath.Join(root, "cfg"), filepath.Join(root, "src", "app")
 	proj := filepath.Join(cfg, "projects", projectSlug(cwd))
 	write := func(p, s string) {
