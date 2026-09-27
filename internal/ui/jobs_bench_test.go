@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"os/user"
 	"path/filepath"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
@@ -99,4 +101,50 @@ func BenchmarkBackgroundView(b *testing.B) {
 			m.View()
 		}
 	})
+}
+
+// BenchmarkSwitch is the first frame after switching to an agent whose
+// long conversation has just been read: nothing of it drawn yet.
+func BenchmarkSwitch(b *testing.B) {
+	u, err := user.Current()
+	if err != nil {
+		b.Skip(err)
+	}
+	paths, _ := filepath.Glob(filepath.Join(u.HomeDir, ".claude", "projects", "*", "*.jsonl"))
+	var best string
+	var most int64
+	for _, p := range paths {
+		if st, err := os.Stat(p); err == nil && st.Size() > most && st.Size() < 9<<20 {
+			best, most = p, st.Size()
+		}
+	}
+	if best == "" {
+		b.Skip("no transcript")
+	}
+	m, _ := benchModel(200, 60)
+	key := m.host.key
+	for _, warm := range []bool{false, true} {
+		name := "cold"
+		if warm {
+			name = "warmed"
+		}
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				b.StopTimer()
+				t := convo.NewTail(best)
+				t.Read()
+				open := func() tea.Msg {
+					return hostOpenMsg{key: key, c: &hostConn{key: key, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true}}
+				}
+				if warm {
+					_, paneW := m.widths()
+					open = warmed(open, convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.solo != ""})
+				}
+				m.host = open().(hostOpenMsg).c
+				b.StartTimer()
+				m.View()
+			}
+		})
+	}
 }

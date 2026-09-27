@@ -1032,10 +1032,27 @@ func (m *Model) syncHost() tea.Cmd {
 	}
 	m.dropHost()
 	m.hostOpening = a.Key
+	o := convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.solo != ""}
 	if fromFile {
-		return openTail(a)
+		return warmed(openTail(a), o)
 	}
-	return openHost(a)
+	return warmed(openHost(a), o)
+}
+
+// warmed has a session just opened drawn once as the pane will draw it,
+// still off the UI's thread and before the pane has it: the pane's first
+// frame then finds each turn, and what each step's command and output
+// say, already drawn, rather than drawing a long conversation whole while
+// you wait on the switch.
+func warmed(open tea.Cmd, o convo.Options) tea.Cmd {
+	return func() tea.Msg {
+		msg := open()
+		if hm, ok := msg.(hostOpenMsg); ok && hm.c != nil && hm.c.sess != nil && o.Width > 0 {
+			o.Now = time.Now()
+			hm.c.sess.Render(o)
+		}
+		return msg
+	}
 }
 
 func (m *Model) dropHost() {
