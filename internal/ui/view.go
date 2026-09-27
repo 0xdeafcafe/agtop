@@ -1701,6 +1701,10 @@ func costCell(cost float64, w int) string {
 
 func (m *Model) badges(a *fleet.Agent) string {
 	var parts []string
+	if a.Kind != "" && a.Kind != "claude" {
+		// Which agent, when it isn't Claude Code.
+		parts = append(parts, paint(cBlue, a.Kind))
+	}
 	for i, pr := range a.PRs {
 		if i == 2 {
 			parts = append(parts, dim(fmt.Sprintf("+%d", len(a.PRs)-2)))

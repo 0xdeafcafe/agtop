@@ -50,6 +50,8 @@ type Agent struct {
 	Past bool
 	// Temp is how much disk its temp work takes, as last measured.
 	Temp int64
+	// Kind is the agent an agtop session runs: empty is Claude Code.
+	Kind string
 }
 
 // NeedsYou is a live agent asking something the user has not looked at yet.
@@ -527,23 +529,10 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			snap.Agents = append(snap.Agents, a)
 		}
 		for _, info := range hosted {
-			if info.Account != acct.Name && !(info.Account == "" && acct.IsDefault()) {
+			if otherAgent(info.Kind) || info.Account != acct.Name && !(info.Account == "" && acct.IsDefault()) {
 				continue
 			}
-			a := l.hosted(acct, info, tab, now)
-			if n := ov.Names[a.Key]; n != "" {
-				a.DisplayName = n
-			}
-			_, a.Done = ov.Done[a.Key]
-			a.Group = ov.Groups[a.Key]
-			if t, ok := ov.Seen[a.Key]; ok && !info.UpdatedAt.After(t) {
-				a.Seen = true
-			}
-			a.Spend = l.spend[a.Key]
-			a.Subs = l.subagents(a.Key, a.Job.TranscriptPath, now)
-			if a.Spend.Cost < info.CostUSD {
-				a.Spend.Cost = info.CostUSD
-			}
+			a := l.hostedAgent(acct, info, tab, now)
 			if a.Live() {
 				av.Live++
 			}
@@ -559,6 +548,13 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			snap.Agents = append(snap.Agents, a)
 		}
 		snap.Accounts = append(snap.Accounts, av)
+	}
+	// Other agents' sessions belong to no Claude folder: they're listed
+	// under their own profile's name.
+	for _, info := range hosted {
+		if otherAgent(info.Kind) {
+			snap.Agents = append(snap.Agents, l.hostedAgent(claude.Account{Name: info.Account}, info, tab, now))
+		}
 	}
 	if len(snap.Accounts) > 0 {
 		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
@@ -585,6 +581,31 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 }
 
 // hosted turns an agtop-mode session's info into an agent row.
+// otherAgent is whether kind is an agent other than Claude Code.
+func otherAgent(kind string) bool { return kind != "" && kind != "claude" }
+
+// hostedAgent is an agtop session's row, with what you've set on it.
+func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Table, now time.Time) *Agent {
+	ov := l.store.Overlay
+	a := l.hosted(acct, info, tab, now)
+	if n := ov.Names[a.Key]; n != "" {
+		a.DisplayName = n
+	}
+	_, a.Done = ov.Done[a.Key]
+	a.Group = ov.Groups[a.Key]
+	if t, ok := ov.Seen[a.Key]; ok && !info.UpdatedAt.After(t) {
+		a.Seen = true
+	}
+	a.Spend = l.spend[a.Key]
+	if a.Job.TranscriptPath != "" {
+		a.Subs = l.subagents(a.Key, a.Job.TranscriptPath, now)
+	}
+	if a.Spend.Cost < info.CostUSD {
+		a.Spend.Cost = info.CostUSD
+	}
+	return a
+}
+
 func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, now time.Time) *Agent {
 	st := info.State
 	switch st {
@@ -603,7 +624,9 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 	j := claude.Job{
 		ID: info.ID, Account: acct.Name, Name: name, State: st, Detail: info.Detail, Needs: info.Needs,
 		Cwd: info.Cwd, SessionID: info.SessionID, CreatedAt: info.StartedAt, UpdatedAt: info.UpdatedAt,
-		TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(info.Cwd), info.SessionID+".jsonl"),
+	}
+	if !otherAgent(info.Kind) {
+		j.TranscriptPath = filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(info.Cwd), info.SessionID+".jsonl")
 	}
 	// What it runs in the background, as Claude Code's own background
 	// sessions record theirs, so the list says so alike.
@@ -641,7 +664,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 	case info.Error != "" && st == "done":
 		j.Detail = "stopped mid-turn · your next message resumes it"
 	}
-	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: acct, DisplayName: name, Agtop: true}
+	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: acct, DisplayName: name, Agtop: true, Kind: info.Kind}
 	if info.State != "stopped" && info.HostPID > 0 && (tab == nil || tab.Procs[info.HostPID] != nil) {
 		a.PID = info.HostPID
 	}
