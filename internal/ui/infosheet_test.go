@@ -342,3 +342,42 @@ func TestBtwExportSubtask(t *testing.T) {
 		t.Fatalf("subtask sent: %+v", c.sending)
 	}
 }
+
+// Text in the side thread can be dragged over and copied, as in the chat:
+// on release, or with cmd+c when copying waits for it.
+func TestBtwTextSelects(t *testing.T) {
+	t.Setenv("AGTOP_COPY_ON_SELECT", "0")
+	m, c := infoModel(t)
+	m.btws = map[string]*btwThread{c.key: {focused: true, qa: []btwQA{{Question: "ssh command please", Response: "Run ssh root@example.test to get in."}}}}
+	bt := m.btwFor(c.key)
+	rows := make([]string, 30)
+	for i := range rows {
+		rows[i] = strings.Repeat("c", 100)
+	}
+	m.btwOverlay(c, rows, 2, 26, 100)
+	y, x := -1, -1
+	for i, r := range rows {
+		if p := ansi.Strip(r); strings.Contains(p, "ssh root@") {
+			j := ansi.StringWidth(p[:strings.Index(p, "ssh root@")])
+			y, x = i+m.paneTop, j+m.paneX()
+		}
+	}
+	if y < 0 {
+		t.Fatalf("answer not drawn:\n%s", ansi.Strip(strings.Join(rows, "\n")))
+	}
+	if !m.clickBtw(c, x, y) {
+		t.Fatal("the click missed the panel")
+	}
+	bt.drag(x+len("ssh root@example.test")-1, y)
+	m.endBtwDrag(bt)
+	if m.pendingCopy != "" || !bt.sel.on {
+		t.Fatalf("release copied %q or dropped the selection", m.pendingCopy)
+	}
+	if !strings.Contains(strings.Join(bt.lines(c, bt.at[2], 26, true), ""), selBlue) {
+		t.Fatal("the selection isn't painted")
+	}
+	m.paneKey(tea.KeyPressMsg{Code: 'c', Mod: tea.ModSuper}, "super+c")
+	if m.pendingCopy != "ssh root@example.test" {
+		t.Fatalf("cmd+c copied %q", m.pendingCopy)
+	}
+}

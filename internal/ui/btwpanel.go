@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
@@ -28,9 +29,11 @@ type btwThread struct {
 	waiting time.Time // when the question out was asked; zero when none
 	asked   *hostConn // the connection it was asked on: its answer comes there
 	err     string
-	scroll  int    // rows up from the latest
-	focused bool   // it has the keys, not the message box
-	at      [4]int // where it was drawn: x, y, w, h on screen
+	scroll  int          // rows up from the latest
+	focused bool         // it has the keys, not the message box
+	at      [4]int       // where it was drawn: x, y, w, h on screen
+	shown   []convo.Line // each panel row's text, inside the edge, as drawn
+	sel     textSel      // text dragged over in it: rows of shown
 }
 
 type btwQA struct{ Question, Response string }
@@ -105,6 +108,11 @@ func (m *Model) btwKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bool)
 		return nil, false
 	}
 	switch s {
+	case "super+c", "ctrl+c":
+		if m.copyBtwSel(t) || s == "super+c" {
+			return nil, true
+		}
+		return nil, false
 	case "esc", "ctrl+b":
 		// Back to the conversation. A thread with something in it stays,
 		// tucked away; one never asked anything goes.
@@ -136,8 +144,10 @@ func (m *Model) btwKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bool)
 		}
 	case "up", "pgup":
 		t.scroll += map[string]int{"up": 1, "pgup": 8}[s]
+		t.sel = textSel{}
 	case "down", "pgdown":
 		t.scroll = max(0, t.scroll-map[string]int{"down": 1, "pgdown": 8}[s])
+		t.sel = textSel{}
 	default:
 		if in, pos, ok := edit(t.input, t.pos, k, s); ok {
 			t.input, t.pos = in, pos
@@ -178,14 +188,69 @@ func (m *Model) forkBtw(c *hostConn, t *btwThread) tea.Cmd {
 	return nil
 }
 
-// clickBtw gives the side thread the keys when it's clicked.
+// clickBtw gives the side thread the keys when it's clicked, and starts a
+// drag over its text there.
 func (m *Model) clickBtw(c *hostConn, x, y int) bool {
 	t := m.btwFor(c.key)
 	if t == nil || t.at[2] == 0 || x < t.at[0] || x >= t.at[0]+t.at[2] || y < t.at[1] || y >= t.at[1]+t.at[3] {
 		return false
 	}
 	t.focused, m.paneFocus = true, true
+	at := t.cellAt(x, y)
+	t.sel = textSel{drag: true, a: at, b: at}
 	return true
+}
+
+// cellAt is the panel cell under the pointer, clamped to the panel.
+func (t *btwThread) cellAt(x, y int) cell {
+	return cell{
+		row: min(max(y-t.at[1], 0), max(0, t.at[3]-1)),
+		col: min(max(x-t.at[0]-2, 0), max(0, t.at[2]-3)),
+	}
+}
+
+// drag moves a drag in the side thread to the pointer.
+func (t *btwThread) drag(x, y int) {
+	if at := t.cellAt(x, y); at != t.sel.b {
+		t.sel.b = at
+		t.sel.moved, t.sel.on = true, true
+	}
+}
+
+// endBtwDrag finishes a drag in the side thread: what it covered is copied,
+// unless copying waits for cmd+c.
+func (m *Model) endBtwDrag(t *btwThread) {
+	t.sel.drag = false
+	if !t.sel.moved {
+		t.sel = textSel{}
+		return
+	}
+	if copyOnSelect() {
+		m.copyBtwSel(t)
+	}
+}
+
+// copyBtwSel puts the text dragged over in the side thread on the
+// clipboard, reporting whether there was any.
+func (m *Model) copyBtwSel(t *btwThread) bool {
+	if !t.sel.on {
+		return false
+	}
+	if txt := selectedText(t.shown, t.sel.a, t.sel.b, t.at[2]-3); txt != "" {
+		m.copyText(txt)
+	}
+	return true
+}
+
+// btwDragging is the side thread with a drag under way, if any.
+func (m *Model) btwDragging() *btwThread {
+	if m.host == nil {
+		return nil
+	}
+	if t := m.btwFor(m.host.key); t != nil && t.sel.drag {
+		return t
+	}
+	return nil
 }
 
 var bgBtw = "\x1b[48;2;36;33;30m" // a raised surface: it floats over the conversation
@@ -242,38 +307,37 @@ func (t *btwThread) lines(c *hostConn, pw, maxH int, paneFocused bool) []string 
 	iw := pw - 3 // inside the edge and a space either side
 	row := func(s string) string { return onBg(bgBtw, edge+" "+s, pw) }
 
-	var thread []string
+	var thread []convo.Line
+	add := func(s string) { thread = append(thread, convo.Line{Text: s}) }
 	qa := t.qa
 	if !t.focused && len(qa) > 1 {
 		qa = qa[len(qa)-1:] // tucked away, it shows the latest only
 	}
 	for i, x := range qa {
 		if i > 0 {
-			thread = append(thread, "")
+			add("")
 		}
 		for j, l := range wrap(x.Question, iw-2) {
 			lead := paint(cOrange, "❯ ")
 			if j > 0 {
 				lead = "  "
 			}
-			thread = append(thread, lead+paint(cText+bold, l))
+			add(lead + paint(cText+bold, l))
 		}
 		last := i == len(qa)-1
 		switch {
 		case x.Response != "":
-			for _, l := range c.sess.Answer(x.Response, iw) {
-				thread = append(thread, l.Text)
-			}
+			thread = append(thread, c.sess.Answer(x.Response, iw)...)
 		case last && !t.waiting.IsZero():
-			thread = append(thread, dim("  thinking · "+dur(time.Since(t.waiting))))
+			add(dim("  thinking · " + dur(time.Since(t.waiting))))
 		case last && t.err != "":
 			for _, l := range wrap(t.err, iw-2) {
-				thread = append(thread, "  "+paint(cRed, l))
+				add("  " + paint(cRed, l))
 			}
 		}
 	}
 	if len(t.qa) == 0 {
-		thread = append(thread, dim("ask about what's going on: it doesn't go into the conversation"))
+		add(dim("ask about what's going on: it doesn't go into the conversation"))
 	}
 
 	head := paint(cOrange+bold, "btw") + dim("  side question · not in the conversation")
@@ -295,19 +359,23 @@ func (t *btwThread) lines(c *hostConn, pw, maxH int, paneFocused bool) []string 
 	case len(thread) <= room:
 	case !t.focused:
 		// Tucked away: the latest question and the start of its answer.
-		thread = append(thread[:room-1], dim("  … ctrl+b reads the rest"))
+		thread = append(thread[:room-1], convo.Line{Text: dim("  … ctrl+b reads the rest")})
 	default:
 		// Anchored to its latest line; ↑ scrolls back.
 		t.scroll = max(0, min(t.scroll, len(thread)-room))
 		end := len(thread) - t.scroll
 		thread = thread[max(0, end-room):end]
 	}
-	out := []string{row(head), row("")}
-	for _, l := range thread {
-		out = append(out, row(l))
-	}
+	t.shown = append([]convo.Line{{Text: head}, {}}, thread...)
 	for _, l := range foot {
-		out = append(out, row(l))
+		t.shown = append(t.shown, convo.Line{Text: l})
+	}
+	out := make([]string, len(t.shown))
+	for i, l := range t.shown {
+		out[i] = row(l.Text)
+		if from, to, ok := t.sel.cols(i, iw); ok {
+			out[i] = paintCols(out[i], from+2, to+2) // past the edge and its space
+		}
 	}
 	return out
 }
