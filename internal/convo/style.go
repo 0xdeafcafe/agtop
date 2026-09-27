@@ -249,10 +249,13 @@ func CarryStyle(rows []string) []string {
 	for i, r := range rows {
 		carried := open
 		open = openStyle(open, r)
-		if carried != "" {
+		// One string made per row, not one per addition.
+		switch {
+		case carried != "" && open != "":
+			r = carried + r + reset
+		case carried != "":
 			r = carried + r
-		}
-		if open != "" {
+		case open != "":
 			r += reset
 		}
 		rows[i] = r
