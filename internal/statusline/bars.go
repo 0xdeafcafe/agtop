@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -23,8 +24,12 @@ const BarLines = 2
 // DefaultTop and DefaultAgent are what agtop showed before they could be
 // changed.
 func DefaultTop() Layout {
-	return Layout{Lines: [][]string{{"today", "usage"}, {"ram", "cpu", "tmp"}}, Sep: " · "}
+	return Layout{Lines: [][]string{{"today", "usage"}, {"ram", "cpu", "disk", "battery", "tmp"}}, Sep: " · "}
 }
+
+// oldTop is the top bar's default before disk and battery; one saved
+// unchanged from it gets them too.
+var oldTop = [][]string{{"today", "usage"}, {"ram", "cpu", "tmp"}}
 
 func DefaultAgent() Layout {
 	return Layout{Lines: [][]string{{"context", "cost"}, {"folder", "branch", "model", "effort", "mode", "tmp"}}, Sep: " · "}
@@ -44,7 +49,7 @@ func LoadBars() Bars {
 	if json.Unmarshal(raw, &got) != nil {
 		return b
 	}
-	if got.Top.Lines != nil {
+	if got.Top.Lines != nil && !(reflect.DeepEqual(got.Top.Lines, oldTop) && got.Top.Sep == b.Top.Sep) {
 		b.Top = got.Top
 	}
 	if got.Agent.Lines != nil {

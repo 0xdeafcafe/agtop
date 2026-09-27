@@ -11,6 +11,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
+	"github.com/0xdeafcafe/agtop/internal/sysinfo"
 )
 
 // --- agtop's own status lines ---
@@ -84,6 +85,37 @@ var topSegs = []barSeg{
 			return dim(disk(t) + " tmp")
 		}
 		return ""
+	}},
+	{"disk", "Free disk", "space left on the disk agents work on: yellow under 20G, red under 5G", func(x *barCtx) string {
+		_, d := sysinfo.Now()
+		if d.Total == 0 {
+			return ""
+		}
+		v := disk(int64(d.Free)) + " free"
+		switch {
+		case d.Free < 5<<30:
+			return paint(cRed, v)
+		case d.Free < 20<<30:
+			return paint(cYellow, v)
+		}
+		return dim(v)
+	}},
+	{"battery", "Battery", "the battery's charge, ⚡ while plugged in: yellow under 30%, red under 15% off power", func(x *barCtx) string {
+		b, _ := sysinfo.Now()
+		if !b.Present {
+			return ""
+		}
+		v := fmt.Sprintf("%d%% batt", b.Percent)
+		if b.Charging {
+			return dim("⚡" + v)
+		}
+		switch {
+		case b.Percent < 15:
+			return paint(cRed, v)
+		case b.Percent < 30:
+			return paint(cYellow, v)
+		}
+		return dim(v)
 	}},
 	{"account", "Account", "the account new agents start on", func(x *barCtx) string {
 		return dim(x.m.inUse())
