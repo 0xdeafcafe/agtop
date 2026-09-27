@@ -14,8 +14,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/ui"
@@ -272,7 +270,7 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 		return asJSON, fmt.Errorf("--cwd %s is not a folder", cfg.Cwd)
 	}
 	if kind != "" && kind != "claude" {
-		if err := agentProfile(&cfg, kind); err != nil {
+		if err := cfg.UseAgent(kind); err != nil {
 			return asJSON, err
 		}
 		// The defaults in Settings are Claude Code's model, effort and
@@ -321,33 +319,6 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 		return asJSON, err
 	}
 	return show(info)
-}
-
-// agentProfile sets cfg to run kind, in its first profile.
-func agentProfile(cfg *host.Config, kind string) error {
-	a, ok := agent.Get(agent.Kind(kind))
-	if !ok {
-		var kinds []string
-		for _, a := range agent.All() {
-			kinds = append(kinds, string(a.Kind()))
-		}
-		return fmt.Errorf("agtop doesn't know the agent %q: it knows %s", kind, strings.Join(kinds, ", "))
-	}
-	if _, ok := a.(agent.Driver); !ok {
-		return fmt.Errorf("agtop can't run %s sessions", a.Name())
-	}
-	if cfg.Kind != "" && cfg.Kind != kind {
-		return fmt.Errorf("session %s is a %s session, not %s", cfg.ID, cfg.Kind, kind)
-	}
-	cfg.Kind = kind
-	if cfg.Account.ConfigDir == "" {
-		ps := a.Profiles()
-		if len(ps) == 0 {
-			return fmt.Errorf("%s isn't installed: agtop can't find %s's program", a.Name(), a.Name())
-		}
-		cfg.Account = claude.Account{Name: ps[0].Name, ConfigDir: ps[0].Dir}
-	}
-	return nil
 }
 
 func hasFlag(args []string, f string) bool {

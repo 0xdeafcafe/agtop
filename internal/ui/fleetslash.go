@@ -37,6 +37,7 @@ var fleetCommands = []headless.Command{
 	{Name: "sort", Description: "sort agents by " + strings.Join(sortModes, ", "), ArgumentHint: "<by>"},
 	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", ") + ", or plugin:<name> for a plugin's sections", ArgumentHint: "<group>"},
 	{Name: "folder", Description: "choose the folder new sessions start in"},
+	{Name: "with", Description: "the agent new sessions run: claude, codex, copilot, gemini, kimi, opencode or vibe; alone says what's installed", ArgumentHint: "[agent]"},
 	{Name: "efficiency", Description: "where tokens go, and the savers that cut them (#eff, #savers)", ArgumentHint: "[timeline|savers|findings]"},
 	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
 	{Name: "account", Description: "switch to another account; alone opens Accounts", ArgumentHint: "[name]"},

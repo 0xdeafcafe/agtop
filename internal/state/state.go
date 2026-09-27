@@ -126,6 +126,8 @@ func (c Config) CleanupAfter() time.Duration {
 // Dispatch is how new sessions start: which coding agent, model, effort and
 // permission mode. Empty means Claude Code's own default.
 type Dispatch struct {
+	// Kind is the agent new sessions run: empty is Claude Code.
+	Kind       string `json:"kind,omitempty"`
 	Agent      string `json:"agent,omitempty"`
 	Model      string `json:"model,omitempty"`
 	Effort     string `json:"effort,omitempty"`
