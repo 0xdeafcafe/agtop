@@ -235,3 +235,33 @@ func flatten(cmd tea.Cmd) []tea.Msg {
 	}
 	return []tea.Msg{msg}
 }
+
+type lesserFake struct{ fakeAgent }
+
+func (lesserFake) Lesser() (string, []string, string) { return "agtop-fake-gh", nil, "install zlesser's CLI" }
+
+// An agent there only through a lesser program shows in Accounts, but
+// picking it for new sessions says what to install rather than failing.
+func TestAccountsLesserAgent(t *testing.T) {
+	m, _ := accountsModel(t)
+	agent.Register(lesserFake{fakeAgent{kind: "ylesser", title: "ZLesser", dir: "/y/.ylesser"}})
+	bin := os.Getenv("PATH")
+	if err := os.WriteFile(filepath.Join(bin, "agtop-fake-gh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agent.Recheck()
+	found := false
+	for _, r := range m.accountRows() {
+		found = found || r.head && r.kind == "ylesser"
+	}
+	if !found {
+		t.Fatal("ZLesser isn't in Accounts")
+	}
+	m.withAgent("ylesser")
+	if m.store.Config.DefaultAgent() == "ylesser" {
+		t.Fatal("it became the default though it can't run sessions")
+	}
+	if !strings.Contains(ansi.Strip(strings.Join(m.accountsBody(150), "\n")), "without its CLI") {
+		t.Fatal("no hint in Accounts")
+	}
+}

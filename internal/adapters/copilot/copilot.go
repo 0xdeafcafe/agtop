@@ -6,6 +6,7 @@ package copilot
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,13 +32,19 @@ func (Adapter) Name() string     { return "Copilot" }
 // Program is the Copilot CLI: what runs its sessions here. Its coding
 // agent's sessions on GitHub need only gh, and are listed without it.
 func (Adapter) Program() (string, []string) { return "copilot", []string{".copilot/bin"} }
-func (Adapter) Caps() agent.Caps            { return cli.Caps() }
+
+// Hint is what the Copilot CLI adds to gh alone.
+const Hint = "install the Copilot CLI (npm i -g @github/copilot) to run Copilot sessions here, in agtop mode"
+
+// Lesser is gh: with it alone, agtop lists Copilot's coding agent's
+// sessions on GitHub, its accounts and their premium requests.
+func (Adapter) Lesser() (string, []string, string) { return "gh", nil, Hint }
+func (Adapter) Caps() agent.Caps                   { return cli.Caps() }
 
 // Profiles is COPILOT_HOME, or ~/.copilot, when the CLI is installed or gh
 // is: the coding agent needs only a GitHub sign-in.
 func (Adapter) Profiles() []agent.Profile {
-	_, gh := agent.Find("gh")
-	if !agent.Installed(Kind) && !gh {
+	if !agent.Installed(Kind) {
 		return nil
 	}
 	dir := os.Getenv("COPILOT_HOME")
@@ -54,6 +61,9 @@ func (Adapter) Profiles() []agent.Profile {
 // Start runs the Copilot CLI over ACP. Without a sign-in of its own it gets
 // gh's, which it takes as GH_TOKEN.
 func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, error) {
+	if o.Binary == "" && !agent.Runs(Kind) {
+		return nil, errors.New("copilot: " + Hint)
+	}
 	if !signedIn(o.Profile.Dir) && !hasToken(o.Env) {
 		if tok, err := token(); err == nil {
 			o.Env = append(append([]string(nil), o.Env...), "GH_TOKEN="+tok)

@@ -652,6 +652,8 @@ func (m *Model) accountLine(r acctRow, n int, cols []int) string {
 		}
 		var note string
 		switch k := string(r.kind); {
+		case !agent.Runs(r.kind) && agent.Hint(r.kind) != "":
+			note = faint(fmt.Sprintf("%d accounts · without its CLI: sessions on GitHub only", len(cfg.SignInsOf(k))))
 		case k == m.startKind() && k != cfg.DefaultAgent():
 			note = paint(cYellow, "new sessions run it for now")
 		case k == "claude" && len(m.snap.Logins) == 0:
@@ -770,6 +772,9 @@ func (m *Model) accountDetail(r acctRow, w int) []string {
 			order += " · the default: new sessions run it"
 		}
 		out = append(out, label("order")+faint(order))
+		if hint := agent.Hint(r.kind); hint != "" && !agent.Runs(r.kind) {
+			out = append(out, label("can't run")+faint(hint))
+		}
 		if !switches(r.kind) {
 			out = append(out, label("accounts")+faint("it signs in through its own program; agtop uses whichever account that is"))
 		}

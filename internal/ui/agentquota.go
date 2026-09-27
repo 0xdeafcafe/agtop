@@ -174,7 +174,7 @@ func (m *Model) spillTo(rows []acctRow) {
 	if cfg.SwitchOnLimit == state.OnLimitAgent && (agentOut(rows, agent.Kind(def)) || !agent.Installed(agent.Kind(def))) {
 		for _, ad := range m.agentOrder() {
 			if k := ad.Kind(); string(k) != def && !agentOut(rows, k) {
-				if _, ok := ad.(agent.Driver); ok {
+				if _, ok := ad.(agent.Driver); ok && agent.Runs(k) {
 					m.accts.spill = string(k)
 					break
 				}

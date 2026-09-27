@@ -20,6 +20,11 @@ func (m *Model) withAgent(kind string) {
 		m.flash("new sessions run "+agentName(d.Kind)+" · installed: "+strings.Join(names, ", "), false)
 		return
 	}
+	if k := agent.Kind(kind); agent.Installed(k) && !agent.Runs(k) && agent.Hint(k) != "" {
+		// There, but only for what it can do without its own program.
+		m.flash(agentName(kind)+" can't run sessions here yet: "+agent.Hint(k), false)
+		return
+	}
 	cfg := host.Config{}
 	if err := cfg.UseAgent(kind); err != nil {
 		m.flash(err.Error(), true)

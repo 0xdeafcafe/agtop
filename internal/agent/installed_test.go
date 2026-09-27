@@ -65,3 +65,40 @@ func TestInstalled(t *testing.T) {
 		}
 	}
 }
+
+type lesserAdapter struct{ progAdapter }
+
+func (lesserAdapter) Lesser() (string, []string, string) { return "agtop-test-gh", nil, "install it" }
+
+// An agent whose own program is missing but whose lesser one is there is
+// installed, can't run sessions, and says what installing it adds.
+func TestLesser(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	Register(lesserAdapter{progAdapter{kind: "test-lesser", name: "agtop-test-cli"}})
+	defer func() {
+		mu.Lock()
+		delete(adapters, "test-lesser")
+		mu.Unlock()
+		Recheck()
+	}()
+	Recheck()
+	if Installed("test-lesser") {
+		t.Fatal("installed with neither program")
+	}
+	if err := os.WriteFile(filepath.Join(bin, "agtop-test-gh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	Recheck()
+	if !Installed("test-lesser") || Runs("test-lesser") || Hint("test-lesser") != "install it" || Path("test-lesser") != "" {
+		t.Fatalf("with only the lesser program: installed %v, runs %v, hint %q, path %q", Installed("test-lesser"), Runs("test-lesser"), Hint("test-lesser"), Path("test-lesser"))
+	}
+	if err := os.WriteFile(filepath.Join(bin, "agtop-test-cli"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	Recheck()
+	if !Runs("test-lesser") || Hint("test-lesser") != "" {
+		t.Fatal("its own program doesn't make it run")
+	}
+}
