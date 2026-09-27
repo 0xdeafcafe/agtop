@@ -1600,7 +1600,8 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	if m.viewName(c) == "screen" {
 		chips = dim("typing goes into it · ctrl+] comes back · ctrl+f full screen") + "  "
 	}
-	row3 := spread("  "+strings.Join(tabs, " ")+dim("   [ ]"), chips, hw)
+	strip := withTabHint("  "+strings.Join(tabs, " "), "[ ]", "views", "", hw-cellw.String(chips)-2)
+	row3 := spread(strip, chips, hw)
 	// The chrome's own background marks it off; no half-block edge.
 	return []string{onBg(bgChrome, row1, w), onBg(bgChrome, row2, w), onBg(bgChrome, row3, w)}
 }
@@ -1886,7 +1887,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		// The Session alone: how to have Agents beside it is kept in view.
 		pairs = append(pairs, m.splitHint("shift+→")...)
 	}
-	hint := keysFit(w-4, append(pairs, "↑", "pick a step", "[ ]", "views", "ctrl+o", "show all", "ctrl+x", "stop turn")...)
+	hint := keysFit(w-4, append(pairs, "[ ]", "views", "↑", "pick a step", "ctrl+o", "show all", "ctrl+x", "stop turn")...)
 	if m.watchingSub(c) {
 		back := "back to the list"
 		if c.subBack || m.solo != "" {

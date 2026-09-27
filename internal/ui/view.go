@@ -175,12 +175,26 @@ func (m *Model) header() []string {
 	// Text sits level with the head and face; the view strip on the legs.
 	out[1] = line(robot[1], left1, right1)
 	out[2] = line(robot[2], left2, right2)
-	places := faint("   , .")
+	// < > (or , .) go between the places; in a Session's box they're
+	// text, so it's ctrl+\\ there. The hint goes first when it won't fit.
+	places := "< >"
 	if m.solo != "" || m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil {
-		places = faint("   ctrl+\\") // , and . are text in a Session's box
+		places = "ctrl+\\"
 	}
-	out[3] = "  " + robot[3] + "   " + strings.Join(m.tabs(), " ") + m.pages() + places
+	strip := "  " + robot[3] + "   " + strings.Join(m.tabs(), " ")
+	out[3] = withTabHint(strip, places, "places", m.pages(), m.w)
 	return out
+}
+
+// withTabHint is a strip of tabs with a quiet hint after it, the keys
+// that change tab and what they go through, then rest. The hint is
+// dropped first when the row hasn't the room for it.
+func withTabHint(strip, keys, what, rest string, w int) string {
+	hint := dim("   "+keys) + faint(" "+what)
+	if cellw.String(strip)+cellw.String(hint)+cellw.String(rest) > w {
+		return strip + rest
+	}
+	return strip + hint + rest
 }
 
 // pages are the pages of the place you're in, the one showing bright; tab
@@ -1089,7 +1103,7 @@ func (m *Model) claudeStrip(w int) string {
 		return paint(cSub, " "+name+" ")
 	}
 	screenOn := m.claudeView == 0 && live
-	left := "  " + tab("screen", screenOn, live) + " " + tab("summary", !screenOn, true) + dim("   [ ]")
+	left := "  " + tab("screen", screenOn, live) + " " + tab("summary", !screenOn, true)
 	right := ""
 	switch {
 	case m.embedded:
@@ -1101,6 +1115,7 @@ func (m *Model) claudeStrip(w int) string {
 	case !live:
 		right = dim("not running · enter resumes it")
 	}
+	left = withTabHint(left, "[ ]", "views", "", w-cellw.String(right+" ")-2)
 	return onBg(bgChrome, spread(left, right+" ", w), w)
 }
 
@@ -2261,7 +2276,9 @@ var helpPages = []struct {
 	}},
 	{"◈ Around", [][2]string{
 		{"ctrl+z", "zen"},
-		{", . · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
+		{"< > · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
+		{"[ ]", "a Session's views, with nothing typed"},
+		{"tab", "a place's pages · in Agents, list and Session"},
 		{"shift+← →", "resize · past the end, one side alone"},
 		{"#tips", "Getting started again"},
 		{"esc esc", "quit"},
