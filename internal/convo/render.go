@@ -383,6 +383,9 @@ func imageChips(names []string, w int) []string {
 // transcript; any later one is the agent waking for something it didn't
 // say, such as background work finishing.
 func unasked(t *Turn) string {
+	if t.Cause != "" {
+		return t.Cause
+	}
 	if t.N == 1 {
 		return "continued from earlier"
 	}

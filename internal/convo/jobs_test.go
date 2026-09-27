@@ -142,3 +142,25 @@ func TestWokenSubagentRunsAgain(t *testing.T) {
 		t.Fatal("listed as running in the background, yet not running")
 	}
 }
+
+// A background task finishing while nothing runs wakes the agent with no
+// message: the turn it starts is put down to the task.
+func TestWokenByABackgroundTask(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.Apply(host.Sent{Text: "run the tests in the background"}, now)
+	for _, l := range []string{
+		`{"type":"system","subtype":"task_started","task_id":"b1","tool_use_id":"toolu_09","description":"go test ./...","is_backgrounded":true,"task_type":"local_bash"}`,
+	} {
+		ev, _ := headless.Decode([]byte(l))
+		s.Apply(ev, now)
+	}
+	s.Apply(headless.Result{Subtype: "success"}, now)
+	ev, _ := headless.Decode([]byte(`{"type":"system","subtype":"task_notification","task_id":"b1","tool_use_id":"toolu_09","status":"completed","summary":"go test ./..."}`))
+	s.Apply(ev, now.Add(time.Minute))
+	s.Apply(headless.Delta{Text: "The tests pass."}, now.Add(time.Minute+time.Second))
+	tn := s.Turns[len(s.Turns)-1]
+	if len(s.Turns) != 2 || tn.From != "background shell · completed" || tn.Cause != "go test ./..." {
+		t.Fatalf("turn %d: from %q, cause %q", len(s.Turns), tn.From, tn.Cause)
+	}
+}

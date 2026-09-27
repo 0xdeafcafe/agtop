@@ -115,6 +115,9 @@ type Turn struct {
 	// From is set when the turn wasn't started by you: a background task
 	// reporting back, another session's message, a subagent's report.
 	From string
+	// Cause is what woke it when no message did: the background task that
+	// had just finished, or the monitor that had just fired.
+	Cause string
 	// Streamed counts what Claude has written this turn as it streams
 	// (text, thinking and tool input), for a live token estimate; Thinking
 	// is when the thinking now under way began.
@@ -200,7 +203,9 @@ type Session struct {
 	Tools    map[string]*ToolStat
 
 	streaming  *Item
-	spent      float64 // the process's cost total at its last result
+	woke       *Job      // the background task that ended or fired while nothing ran
+	wokeAt     time.Time // when
+	spent      float64   // the process's cost total at its last result
 	byID       map[string]*Step
 	cache      map[*Turn]cached
 	memo       map[memoKey][]Line
@@ -278,6 +283,10 @@ func (s *Session) turnFor(now time.Time) *Turn {
 	// Output with no prompt to hold it: an agent waking for background
 	// work, or a replay that starts mid-turn.
 	t := &Turn{N: len(s.Turns) + 1, Live: true, Start: now, steps: map[string]*Step{}}
+	if j := s.woke; j != nil && now.Sub(s.wokeAt) < wakeWindow {
+		t.From, t.Cause = s.wakeFrom(j), firstNonEmpty(j.Label, s.JobCommand(j), j.ID)
+	}
+	s.woke = nil
 	s.Turns = append(s.Turns, t)
 	return t
 }

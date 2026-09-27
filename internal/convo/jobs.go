@@ -141,6 +141,9 @@ func (s *Session) applyJob(ev any, now time.Time) {
 		j := s.job(ev.ID, now)
 		j.Summary, j.LastTool = firstNonEmpty(ev.Summary, j.Summary), firstNonEmpty(ev.LastTool, j.LastTool)
 		j.Tokens, j.ToolUses = max(j.Tokens, ev.Tokens), max(j.ToolUses, ev.ToolUses)
+		if s.JobKind(j) == "monitor" {
+			s.noteWake(j, now) // each thing a monitor sees can wake the agent
+		}
 	case headless.TaskDone:
 		j := s.job(ev.ID, now)
 		j.ToolUseID = firstNonEmpty(j.ToolUseID, ev.ToolUseID)
@@ -155,6 +158,7 @@ func (s *Session) applyJob(ev any, now time.Time) {
 			j.Summary = ev.Summary
 		}
 		s.TaskStatus[ev.ID] = firstNonEmpty(j.Status, "completed")
+		s.noteWake(j, now)
 	case headless.BackgroundTasks:
 		s.backgroundNow(ev.Tasks, now)
 	}
@@ -219,6 +223,36 @@ func (s *Session) syncJobs(info host.Info, now time.Time) {
 
 // endJobs ends the tasks a finished turn was waiting on: they ran in the
 // foreground, so they were done by the time it was.
+// wakeWindow is how soon after a task ends or fires a turn with no message
+// is put down to it.
+const wakeWindow = 2 * time.Minute
+
+// noteWake remembers a task that ended or fired while no turn ran: Claude
+// Code wakes the agent for it without a message, and the turn it starts
+// says so.
+func (s *Session) noteWake(j *Job, now time.Time) {
+	if s.Live() == nil {
+		s.woke, s.wokeAt = j, now
+	}
+}
+
+// wakeFrom is who started a turn a task woke: "background shell ·
+// completed", "monitor · fired".
+func (s *Session) wakeFrom(j *Job) string {
+	kind := s.JobKind(j)
+	if kind == "monitor" && j.Running() {
+		return "monitor · fired"
+	}
+	from := kind
+	if kind == "shell" || kind == "subagent" || kind == "workflow" {
+		from = "background " + kind
+	}
+	if j.Status != "" {
+		from += " · " + j.Status
+	}
+	return from
+}
+
 func (s *Session) endJobs(now time.Time) {
 	for _, j := range s.jobs {
 		if j.Running() && !j.Background {
