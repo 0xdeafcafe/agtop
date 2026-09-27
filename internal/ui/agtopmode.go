@@ -1918,6 +1918,17 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.leavePane()
 		}
 		return nil
+	case "super+c":
+		// cmd+c, when the terminal hands it over: copy what's selected,
+		// the dragged-over text first, then the box's.
+		switch {
+		case c.txt.on:
+			m.copyText(selectedText(c.shown, c.txt.a, c.txt.b, c.paneW))
+		case c.anchor > 0 && c.anchor-1 != len(c.input)-c.back:
+			a, b := c.anchor-1, len(c.input)-c.back
+			m.copyText(string(c.input[min(a, b):max(a, b)]))
+		}
+		return nil
 	case "ctrl+c":
 		switch {
 		case c.anchor > 0 && c.anchor-1 != len(c.input)-c.back:

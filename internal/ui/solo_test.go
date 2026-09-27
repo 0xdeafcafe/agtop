@@ -378,3 +378,32 @@ func TestSoloShowsAQuestion(t *testing.T) {
 		t.Fatalf("the question isn't on screen:\n%s", out)
 	}
 }
+
+// With AGTOP_COPY_ON_SELECT=0 a drag only selects; cmd+c copies it.
+func TestCopyOnlyOnCmdC(t *testing.T) {
+	draftHome(t)
+	t.Setenv("AGTOP_COPY_ON_SELECT", "0")
+	writeSession(t, "eeee5555", "a session to copy from")
+	m := NewSolo(state.Load(), "test", "eeee5555")
+	c := &hostConn{key: m.soloKey, sess: selSession(), open: map[string]bool{}}
+	m.host = c
+	m.Frame(120, 40)
+	start := -1
+	for i, l := range c.shown {
+		if strings.Contains(ansi.Strip(l.Text), "The header logo") {
+			start = i
+		}
+	}
+	if start < 0 {
+		t.Fatal("answer not drawn")
+	}
+	c.txt = textSel{drag: true, moved: true, on: true, a: cell{row: start, col: 0}, b: cell{row: start, col: 40}}
+	m.endTextSel(c)
+	if m.pendingCopy != "" {
+		t.Fatalf("the drag copied %q", m.pendingCopy)
+	}
+	m.key(tea.KeyPressMsg{Code: 'c', Mod: tea.ModSuper})
+	if !strings.Contains(m.pendingCopy, "header logo") {
+		t.Fatalf("cmd+c copied %q (status %q)", m.pendingCopy, m.status)
+	}
+}

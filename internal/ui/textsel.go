@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/cellw"
@@ -87,14 +88,25 @@ func (m *Model) dragTextSel(c *hostConn, x, y int) {
 	}
 }
 
-// endTextSel finishes a drag: what it covered goes to the clipboard. A
-// press that never moved is a click on the row.
+// copyOnSelect is whether a drag copies when it ends, as terminals do.
+// AGTOP_COPY_ON_SELECT=0 turns it off for hosts where copying is asked
+// for with cmd+c, such as Kanban Code's terminal.
+func copyOnSelect() bool {
+	return os.Getenv("AGTOP_COPY_ON_SELECT") != "0"
+}
+
+// endTextSel finishes a drag: what it covered goes to the clipboard, or
+// stays selected for cmd+c when copyOnSelect is off. A press that never
+// moved is a click on the row.
 func (m *Model) endTextSel(c *hostConn) {
 	c.txt.drag = false
 	if !c.txt.moved {
 		y := c.txt.pressY
 		c.txt = textSel{}
 		m.clickRow(c, y)
+		return
+	}
+	if !copyOnSelect() {
 		return
 	}
 	if t := selectedText(c.shown, c.txt.a, c.txt.b, c.paneW); t != "" {
