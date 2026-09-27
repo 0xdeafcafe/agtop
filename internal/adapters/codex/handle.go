@@ -290,7 +290,7 @@ func (c *Conn) request(rpc *client, m message) {
 			call = tool.Call{ID: p.ItemID, Name: "shell", Kind: tool.Shell}
 		}
 		if p.Command != "" {
-			call.Input.Command, call.Input.Cwd = p.Command, p.Cwd
+			call.Input.Command, call.Input.Cwd = script(p.Command), p.Cwd
 		}
 		ev = event.Approval{ID: id, Call: call, Reason: p.Reason, Options: decisions}
 	case reqFileChange:

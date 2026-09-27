@@ -245,14 +245,21 @@ func todoStatus(s string) string {
 	return s
 }
 
-// shellRe is a command Codex wrapped in a login shell: /bin/zsh -lc '…'.
-var shellRe = regexp.MustCompile(`^(?:\S*/)?(?:ba|z)?sh -l?c '((?:[^']|'\\'')*)'$`)
+// shellRe is a command Codex wrapped in a login shell: /bin/zsh -lc '…',
+// or the same in double quotes.
+var shellRe = regexp.MustCompile(`^(?:\S*/)?(?:ba|z)?sh -l?c (?:'((?:[^']|'\\'')*)'|"((?:[^"\\]|\\.)*)")$`)
+
+// dquoted are the escapes a shell undoes inside double quotes.
+var dquoted = strings.NewReplacer(`\"`, `"`, `\\`, `\`, `\$`, `$`, "\\`", "`")
 
 // script is what a command runs, out of the shell Codex runs it in.
 func script(cmd string) string {
 	m := shellRe.FindStringSubmatch(cmd)
-	if m == nil {
+	switch {
+	case m == nil:
 		return cmd
+	case m[1] != "" || !strings.Contains(cmd, `"`):
+		return strings.ReplaceAll(m[1], `'\''`, "'")
 	}
-	return strings.ReplaceAll(m[1], `'\''`, "'")
+	return dquoted.Replace(m[2])
 }

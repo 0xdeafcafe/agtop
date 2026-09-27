@@ -549,10 +549,12 @@ func TestLive(t *testing.T) {
 
 func TestScript(t *testing.T) {
 	for in, want := range map[string]string{
-		`/bin/zsh -lc 'ls -la'`:            "ls -la",
-		`bash -c 'echo '\''hi'\'' && pwd'`: "echo 'hi' && pwd",
-		`/bin/zsh -lc 'a' extra`:           `/bin/zsh -lc 'a' extra`,
-		`go test ./...`:                    "go test ./...",
+		`/bin/zsh -lc 'ls -la'`:                 "ls -la",
+		`bash -c 'echo '\''hi'\'' && pwd'`:      "echo 'hi' && pwd",
+		`/bin/zsh -lc 'a' extra`:                `/bin/zsh -lc 'a' extra`,
+		`go test ./...`:                         "go test ./...",
+		`/bin/zsh -lc "printf 'hi\\n' > a.txt"`: `printf 'hi\n' > a.txt`,
+		`/bin/zsh -lc "echo \"\$HOME\""`:        `echo "$HOME"`,
 	} {
 		if got := script(in); got != want {
 			t.Errorf("script(%q) = %q, want %q", in, got, want)
