@@ -2,10 +2,12 @@ package host
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // UseAgent sets cfg to run kind, in the agent's first config folder, and
@@ -51,3 +53,11 @@ func Installed() []agent.Adapter {
 	}
 	return out
 }
+
+// QuotasPath is where every agtop and session keeps other agents' plan
+// limits as last read.
+func QuotasPath() string { return filepath.Join(state.Dir(), "quotas.json") }
+
+// QuotaKey is where the limits of the account a profile is signed in to
+// are kept.
+func QuotaKey(p agent.Profile) string { return string(p.Kind) + ":" + p.Dir }

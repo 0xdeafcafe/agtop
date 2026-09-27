@@ -10,6 +10,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
@@ -92,6 +93,11 @@ func (s *server) onAgentEvent(ev event.Event) {
 		s.options[e.ID] = e.Options
 	case event.Context:
 		s.info.ContextTokens = e.Tokens
+	case event.Quota:
+		// Every agtop shows it at once, as with Claude's readings.
+		p := agent.Profile{Kind: agent.Kind(s.cfg.Kind), Dir: s.cfg.Account.ConfigDir}
+		q := e.Quota
+		go func() { _ = usage.Record(QuotasPath(), QuotaKey(p), q) }()
 	}
 	if b, err := eventLine(ev); err == nil {
 		s.record(b)
