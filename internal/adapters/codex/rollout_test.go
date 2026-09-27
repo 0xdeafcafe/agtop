@@ -448,3 +448,23 @@ func TestPast(t *testing.T) {
 		t.Errorf("live: %v", live)
 	}
 }
+
+func TestHistoryFindsTheRolloutByThread(t *testing.T) {
+	dir := t.TempDir()
+	day := filepath.Join(dir, "sessions", "2026", "09", "27")
+	if err := os.MkdirAll(day, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	id := "0199aaaa-bbbb-7ccc-8ddd-eeeeffff0000"
+	line := `{"timestamp":"2026-09-27T10:00:00.000Z","type":"session_meta","payload":{"id":"` + id + `","cwd":"/w","cli_version":"0.155.1"}}`
+	if err := os.WriteFile(filepath.Join(day, "rollout-2026-09-27T10-00-00-"+id+".jsonl"), []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := Adapter{}.History(agent.Session{ID: id, Profile: agent.Profile{Dir: dir}}, time.Time{})
+	if err != nil || len(evs) == 0 {
+		t.Fatalf("History by thread = %v, %v", evs, err)
+	}
+	if _, err := (Adapter{}).History(agent.Session{ID: "nope", Profile: agent.Profile{Dir: dir}}, time.Time{}); err == nil {
+		t.Error("a thread with no rollout read as one")
+	}
+}

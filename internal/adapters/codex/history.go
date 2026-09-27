@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -16,10 +17,17 @@ var (
 	_ agent.Discoverer    = Adapter{}
 )
 
-// History reads the rollout at s.Transcript as the events a live thread
-// sends. When before isn't zero, it stops at the first line written at or
+// History reads the rollout at s.Transcript, or else the one of thread
+// s.ID in s.Profile, as the events a live thread sends. When before isn't zero, it stops at the first line written at or
 // after it.
 func (Adapter) History(s agent.Session, before time.Time) ([]event.Event, error) {
+	if s.Transcript == "" && s.ID != "" {
+		// Known by its thread alone: its rollout is named after it.
+		m, _ := filepath.Glob(filepath.Join(s.Profile.Dir, "sessions", "*", "*", "*", "rollout-*-"+s.ID+".jsonl"))
+		if len(m) > 0 {
+			s.Transcript = m[len(m)-1]
+		}
+	}
 	if s.Transcript == "" {
 		return nil, fmt.Errorf("codex: session %s has no rollout", s.ID)
 	}
