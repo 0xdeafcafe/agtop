@@ -344,19 +344,57 @@ func (m *Model) backgroundJob(c *hostConn, j *convo.Job) tea.Cmd {
 	return hostCmd(func() error { return cl.Background(id) })
 }
 
-// jobTail is a task's last n lines of output, if it writes any where
-// agtop can find it.
+// jobTail is a task's last n lines of output (at most jobTailMost), if
+// it writes any where agtop can find it. The background view draws every
+// task's tail each frame, so each file is read once and then only looked
+// at again, at most every tailEvery, while its task runs: a stat, and a
+// read only when it has grown.
 func (m *Model) jobTail(c *hostConn, j *convo.Job, n int) []string {
 	p := c.jobOutput(j)
 	if p == "" {
 		return nil
 	}
-	return tailLines(p, n)
+	if c.tails == nil {
+		c.tails = map[string]*jobTailed{}
+	}
+	e := c.tails[p]
+	now := time.Now()
+	if e == nil || !e.final && now.Sub(e.at) >= tailEvery {
+		if e == nil {
+			e = &jobTailed{}
+			c.tails[p] = e
+		}
+		e.at = now
+		if st, err := os.Stat(p); err != nil {
+			e.size, e.lines = -1, nil
+		} else if st.Size() != e.size || !st.ModTime().Equal(e.mod) {
+			e.size, e.mod = st.Size(), st.ModTime()
+			e.lines = tailLines(p, jobTailMost)
+		}
+		// Read once its task had ended, it won't change again.
+		e.final = !j.Running() && e.size >= 0
+	}
+	return e.lines[max(0, len(e.lines)-n):]
+}
+
+// jobTailMost is the most of a task's output shown: an opened one's.
+const jobTailMost = 14
+
+// tailEvery is how often a running task's output is looked at again.
+const tailEvery = 500 * time.Millisecond
+
+// jobTailed is a task's output as last read.
+type jobTailed struct {
+	at    time.Time // when it was last looked at
+	size  int64     // -1 when there was nothing there
+	mod   time.Time
+	lines []string
+	final bool // read after its task ended: it won't change
 }
 
 // jobOutput is the file a task writes its output to: Claude Code says
-// where once it's done; while it runs, it's under the session's own temp
-// folder, found by the task's id.
+// where once it's done; while it runs, it's in the session's tasks folder
+// under its own temp folder, found once, by the task's id.
 func (c *hostConn) jobOutput(j *convo.Job) string {
 	if j.OutputFile != "" {
 		return j.OutputFile
@@ -364,28 +402,24 @@ func (c *hostConn) jobOutput(j *convo.Job) string {
 	if c.client == nil || c.id == "" || c.sess.Info.SessionID == "" {
 		return ""
 	}
-	if c.jobOut == nil {
-		c.jobOut = map[string]jobPath{}
+	if c.taskDirFor != c.sess.Info.SessionID {
+		c.taskDir, c.taskDirAt, c.taskDirFor = "", time.Time{}, c.sess.Info.SessionID
 	}
-	if p, ok := c.jobOut[j.ID]; ok && (p.path != "" || time.Since(p.at) < 2*time.Second) {
-		return p.path
+	if c.taskDir == "" && time.Since(c.taskDirAt) >= 2*time.Second {
+		c.taskDirAt = time.Now()
+		pat := filepath.Join(host.TempDir(c.id), "claude-*", "*", c.sess.Info.SessionID, "tasks")
+		if found, _ := filepath.Glob(pat); len(found) > 0 {
+			c.taskDir = found[0]
+		}
 	}
-	pat := filepath.Join(host.TempDir(c.id), "claude-*", "*", c.sess.Info.SessionID, "tasks", j.ID+".output")
-	found, _ := filepath.Glob(pat)
-	p := jobPath{at: time.Now()}
-	if len(found) > 0 {
-		p.path = found[0]
+	if c.taskDir == "" {
+		return ""
 	}
-	c.jobOut[j.ID] = p
-	return p.path
+	return filepath.Join(c.taskDir, j.ID+".output")
 }
 
-// jobPath is where a task's output was found, or when it was last looked
-// for.
-type jobPath struct {
-	path string
-	at   time.Time
-}
+// tailWidest is the most of a line of output kept, in bytes.
+const tailWidest = 1024
 
 // tailLines is the last n non-blank lines of a file, from its last 16KB.
 func tailLines(path string, n int) []string {
@@ -411,6 +445,11 @@ func tailLines(path string, n int) []string {
 			l = l[i+1:]
 		}
 		if l = strings.TrimRight(ansi.Strip(l), " \t\r"); l != "" {
+			// No row is wider than this: the rest would only be cut off
+			// again, every frame.
+			if len(l) > tailWidest {
+				l = strings.ToValidUTF8(l[:tailWidest], "")
+			}
 			out = append(out, strings.ReplaceAll(l, "\t", "  "))
 		}
 	}

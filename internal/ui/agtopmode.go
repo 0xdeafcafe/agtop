@@ -805,11 +805,14 @@ type hostConn struct {
 	subPeekID  string
 	subReading bool // runs' numbers are being read in the background
 	subOpen    string
-	subList    convo.Subagents    // finds the runs, reading each one's meta once
-	subSel     string             // selection inside the opened subagent
-	subHover   string             // the run under the pointer, or "subback" for the banner
-	runPick    int                // where the pick last was among the dock's running subagents
-	jobOut     map[string]jobPath // where each running task's output was found
+	subList    convo.Subagents       // finds the runs, reading each one's meta once
+	subSel     string                // selection inside the opened subagent
+	subHover   string                // the run under the pointer, or "subback" for the banner
+	runPick    int                   // where the pick last was among the dock's running subagents
+	taskDir    string                // the session's tasks folder, once found
+	taskDirAt  time.Time             // when it was last looked for
+	taskDirFor string                // the conversation it was found for
+	tails      map[string]*jobTailed // each task's output as last read, by file
 	subHoverAt time.Time
 }
 
