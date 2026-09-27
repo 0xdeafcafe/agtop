@@ -31,6 +31,12 @@ func (cfg *Config) UseAgent(kind string) error {
 	if cfg.Kind != "" && cfg.Kind != kind {
 		return fmt.Errorf("session %s is a %s session, not %s", cfg.ID, cfg.Kind, kind)
 	}
+	if !agent.Installed(a.Kind()) {
+		agent.Recheck() // it may have been installed since the last look
+		if !agent.Installed(a.Kind()) {
+			return fmt.Errorf("%s isn't installed: agtop can't find its program", a.Name())
+		}
+	}
 	cfg.Kind = kind
 	if cfg.Account.ConfigDir == "" {
 		ps := a.Profiles()
@@ -46,7 +52,7 @@ func (cfg *Config) UseAgent(kind string) error {
 // machine.
 func Installed() []agent.Adapter {
 	var out []agent.Adapter
-	for _, a := range agent.All() {
+	for _, a := range agent.InstalledAll() {
 		if _, ok := a.(agent.Driver); ok && len(a.Profiles()) > 0 {
 			out = append(out, a)
 		}

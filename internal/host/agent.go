@@ -39,6 +39,11 @@ func (s *server) startAgent() error {
 		Model: s.cfg.Model, Effort: s.cfg.Effort, Mode: s.cfg.PermissionMode,
 		Env: append([]string{"TMPDIR=" + TempDir(s.cfg.ID)}, s.cfg.Env...), Flags: s.cfg.Flags, Binary: s.cfg.Binary,
 	}
+	if o.Binary == "" {
+		// Found where its installer put it, off PATH: agtop started from
+		// the Dock has a thin one.
+		o.Binary = agent.Path(a.Kind())
+	}
 	conn, err := d.Start(context.Background(), o)
 	if err != nil {
 		return err

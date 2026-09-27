@@ -7,7 +7,6 @@ package copilot
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -28,14 +27,17 @@ var cli = acp.Agent{ID: Kind, Title: "Copilot", Command: "copilot", Args: []stri
 
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Copilot" }
-func (Adapter) Caps() agent.Caps { return cli.Caps() }
+
+// Program is the Copilot CLI: what runs its sessions here. Its coding
+// agent's sessions on GitHub need only gh, and are listed without it.
+func (Adapter) Program() (string, []string) { return "copilot", []string{".copilot/bin"} }
+func (Adapter) Caps() agent.Caps            { return cli.Caps() }
 
 // Profiles is COPILOT_HOME, or ~/.copilot, when the CLI is installed or gh
 // is: the coding agent needs only a GitHub sign-in.
 func (Adapter) Profiles() []agent.Profile {
-	_, errCLI := exec.LookPath("copilot")
-	_, errGH := exec.LookPath("gh")
-	if errCLI != nil && errGH != nil {
+	_, gh := agent.Find("gh")
+	if !agent.Installed(Kind) && !gh {
 		return nil
 	}
 	dir := os.Getenv("COPILOT_HOME")

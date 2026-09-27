@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
 // message is one line of the app-server protocol. It is JSON-RPC 2.0
@@ -65,6 +67,11 @@ func newClient(r io.Reader, w io.WriteCloser, handle func(*client, message)) *cl
 func spawn(binary, home string, env, flags []string, handle func(*client, message)) (*client, error) {
 	if binary == "" {
 		binary = "codex"
+		if _, err := exec.LookPath(binary); err != nil {
+			if p := agent.Path(Kind); p != "" {
+				binary = p
+			}
+		}
 	}
 	cmd := exec.Command(binary, append([]string{"app-server"}, flags...)...)
 	cmd.Env = append(os.Environ(), env...)

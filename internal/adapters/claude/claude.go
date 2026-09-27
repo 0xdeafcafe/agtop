@@ -34,6 +34,10 @@ type Adapter struct {
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Claude Code" }
 
+// Program is claude, which Claude Code's own installer puts in
+// ~/.claude/local.
+func (Adapter) Program() (string, []string) { return "claude", []string{".claude/local"} }
+
 func (Adapter) Caps() agent.Caps {
 	return agent.CapResume | agent.CapFork | agent.CapRewind | agent.CapImages | agent.CapEffort | agent.CapModes |
 		agent.CapSubagents | agent.CapBackground | agent.CapQuestions | agent.CapContext | agent.CapCompact |

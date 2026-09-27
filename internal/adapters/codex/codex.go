@@ -23,6 +23,9 @@ type Adapter struct{}
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Codex" }
 
+// Program is codex.
+func (Adapter) Program() (string, []string) { return "codex", []string{".codex/bin"} }
+
 func (Adapter) Caps() agent.Caps {
 	return agent.CapResume | agent.CapFork | agent.CapImages | agent.CapEffort | agent.CapModes |
 		agent.CapQuestions | agent.CapContext | agent.CapMCP

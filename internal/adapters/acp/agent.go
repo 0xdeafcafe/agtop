@@ -42,9 +42,15 @@ func (Agent) Caps() agent.Caps {
 	return agent.CapResume | agent.CapImages | agent.CapModes | agent.CapQuestions | agent.CapMCP
 }
 
+// Program is its program, which its installer may put in its config
+// folder's bin.
+func (a Agent) Program() (string, []string) {
+	return a.Command, []string{filepath.Join(a.Home, "bin")}
+}
+
 // Profiles is its config folder, when it's installed.
 func (a Agent) Profiles() []agent.Profile {
-	if _, err := exec.LookPath(a.Command); err != nil {
+	if !agent.Installed(a.ID) {
 		return nil
 	}
 	home, err := os.UserHomeDir()
@@ -65,6 +71,10 @@ func (a Agent) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 	cmd := a.Command
 	if o.Binary != "" {
 		cmd = o.Binary
+	} else if _, err := exec.LookPath(cmd); err != nil {
+		if p := agent.Path(a.ID); p != "" {
+			cmd = p
+		}
 	}
 	opts := Options{Command: cmd, Args: append(append([]string(nil), a.Args...), o.Flags...), Env: o.Env, Dir: o.Dir, Adapter: string(a.ID)}
 	if o.Resume {
