@@ -378,6 +378,17 @@ func imageChips(names []string, w int) []string {
 	return rows
 }
 
+// unasked names a turn with no message agtop saw start it. The first is
+// the replay beginning partway through a turn, its start left in the
+// transcript; any later one is the agent waking for something it didn't
+// say, such as background work finishing.
+func unasked(t *Turn) string {
+	if t.N == 1 {
+		return "continued from earlier"
+	}
+	return "woke up without a message"
+}
+
 // folded is one row: your ask, then how it came out.
 func (d *drawer) folded() {
 	t := d.t
@@ -386,7 +397,7 @@ func (d *drawer) folded() {
 		ask = strings.Join(imageNames(t.Images), " ")
 	}
 	if ask == "" {
-		ask = "picked up on its own"
+		ask = unasked(t)
 	}
 	outcome := t.Outcome()
 	if t.Err != "" {
@@ -400,7 +411,7 @@ func (d *drawer) folded() {
 	}
 	who := styledAsk(ask, cSub)
 	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
-		who = dim("◌ picked up on its own")
+		who = dim("◌ " + unasked(t))
 	}
 	if t.From != "" {
 		who = dim("◌ "+t.From+" · ") + sub(ask)
@@ -437,12 +448,12 @@ func (d *drawer) open() {
 	}
 	ask := FoldPastes(t.Prompt)
 	if ask == "" {
-		ask = "picked up on its own"
+		ask = unasked(t)
 	}
 	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
 	styled, label := styledAsk(oneLine(ask), cText+bold), dim("you")
 	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
-		styled, label = dim("picked up on its own"), dim("◌")
+		styled, label = dim(unasked(t)), dim("◌")
 	}
 	if t.From != "" {
 		styled, label = sub(oneLine(ask)), dim("◌ "+t.From)
