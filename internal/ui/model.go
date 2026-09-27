@@ -17,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
@@ -85,8 +86,10 @@ type Model struct {
 	// login; switchedAt is when it last was.
 	switching  bool
 	switchedAt time.Time
-	keepFailed bool      // said once until it works again
-	resumedAt  time.Time // when sessions a limit stopped were last told to carry on
+	keepFailed bool // said once until it works again
+	// quotas are other agents' account limits, by profile folder.
+	quotas    map[string]usage.Quota
+	resumedAt time.Time // when sessions a limit stopped were last told to carry on
 
 	sel          string
 	shown        string // the agent last picked, still shown while a folded section is
@@ -304,7 +307,7 @@ func (m *Model) Init() tea.Cmd {
 		// Only the one session: nothing about the app as a whole.
 		return tea.Batch(tick(), m.scan(), m.loadPreview(), askColours)
 	}
-	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.startMenuBar(), m.startView(), m.checkUpdate(), askColours)
+	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), askColours)
 }
 
 // askColours asks the terminal for its background and text, which agtop's
@@ -669,7 +672,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.scan())
 		}
 		if m.tick%60 == 0 && m.solo == "" {
-			cmds = append(cmds, m.fetchUsage(), m.findLogins())
+			cmds = append(cmds, m.fetchUsage(), m.findLogins(), m.fetchQuotas())
 		}
 		m.clkBeat(m.mood(m.tally()))
 		if m.solo != "" {
@@ -709,6 +712,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loader.SetFetched(msg.key, msg.u)
 		m.refresh()
 		return m, m.autoSwitch()
+	case quotaMsg:
+		m.onQuota(msg)
+		return m, nil
 	case loginsMsg:
 		return m, m.onLogins(msg)
 	case switchedMsg:
