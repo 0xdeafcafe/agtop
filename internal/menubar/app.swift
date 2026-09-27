@@ -9,6 +9,8 @@ struct Win: Decodable {
     var present: Bool
     var percent: Double
     var resetsAt: String?
+    var label: String?
+    var name: String?
 }
 
 struct Acct: Decodable {
@@ -347,12 +349,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return i
     }
 
+    /// named is a window's name for a sentence: "Weekly", "5-hour".
+    func named(_ w: Win, _ fallback: String) -> String {
+        guard let n = w.name, let f = n.first else { return fallback }
+        return f.uppercased() + n.dropFirst()
+    }
+
     func usageTip(_ a: Acct) -> String {
         var t: [String] = []
         if let e = a.email { t.append(e) }
         if let p = a.problem, !p.isEmpty { t.append(p) }
-        if a.fiveHour.present, !resets(a.fiveHour.resetsAt).isEmpty { t.append("5-hour resets " + resets(a.fiveHour.resetsAt)) }
-        if a.sevenDay.present, !resets(a.sevenDay.resetsAt).isEmpty { t.append("Week resets " + resets(a.sevenDay.resetsAt)) }
+        if a.fiveHour.present, !resets(a.fiveHour.resetsAt).isEmpty { t.append(named(a.fiveHour, "5-hour") + " resets " + resets(a.fiveHour.resetsAt)) }
+        if a.sevenDay.present, !resets(a.sevenDay.resetsAt).isEmpty { t.append(named(a.sevenDay, "Week") + " resets " + resets(a.sevenDay.resetsAt)) }
         if a.live > 0 { t.append("\(a.live) running") }
         return t.joined(separator: "\n")
     }
@@ -631,8 +639,8 @@ final class UsageView: MenuView {
         }
         let gap: CGFloat = 14
         let each = (bounds.maxX - inset - (inset + nameW) - gap) / 2
-        window("5h", a.fiveHour, x: inset + nameW, w: each, label: label, digits: digits)
-        window("wk", a.sevenDay, x: inset + nameW + each + gap, w: each, label: label, digits: digits)
+        window(a.fiveHour.label ?? "5h", a.fiveHour, x: inset + nameW, w: each, label: label, digits: digits)
+        window(a.sevenDay.label ?? "wk", a.sevenDay, x: inset + nameW + each + gap, w: each, label: label, digits: digits)
     }
 
     func window(_ name: String, _ win: Win, x: CGFloat, w: CGFloat, label: NSFont, digits: NSFont) {

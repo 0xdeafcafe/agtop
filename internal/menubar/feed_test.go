@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -111,5 +112,19 @@ func TestPermissionAndLimit(t *testing.T) {
 	s = build(&fleet.Snapshot{Agents: []*fleet.Agent{b}}, map[string]*pending{})
 	if w := s.Waiting[0]; w.Kind != "" || w.Needs != "pick one" {
 		t.Fatalf("wait = %+v", w)
+	}
+}
+
+func TestWindowsAreAQuotasFirstTwo(t *testing.T) {
+	q := usage.Quota{Windows: []usage.Window{
+		{ID: "primary", Label: "7d", Name: "weekly", Percent: 40},
+		{ID: "gpt-reserve:primary", Label: "gpt 7d", Percent: 90, Scope: usage.Scope{Models: []string{"gpt"}}},
+	}}
+	first, second := windows(q)
+	if !first.Present || first.Label != "7d" || first.Percent != 40 {
+		t.Errorf("first = %+v", first)
+	}
+	if second.Present {
+		t.Errorf("a single model's limit took the second place: %+v", second)
 	}
 }

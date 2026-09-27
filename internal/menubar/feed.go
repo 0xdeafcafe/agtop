@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -47,10 +49,53 @@ type Account struct {
 	Current  bool   `json:"current,omitempty"`
 }
 
+// Window is one of an account's limits. The feed has room for two: the
+// first two of the account's that limit every model, which for Claude are
+// the 5-hour and weekly ones, and fiveHour and sevenDay are their names in
+// it for the app's sake. Label and Name say which they really are.
 type Window struct {
 	Present  bool      `json:"present"`
 	Percent  float64   `json:"percent"`
 	ResetsAt time.Time `json:"resetsAt,omitzero"`
+	Label    string    `json:"label,omitempty"` // "5h", "7d"
+	Name     string    `json:"name,omitempty"`  // "5-hour", "weekly"
+}
+
+// windows are a quota's two windows for the feed.
+func windows(q usage.Quota) (first, second Window) {
+	var out []Window
+	for _, w := range q.Windows {
+		if len(w.Scope.Models) == 0 {
+			out = append(out, Window{Present: true, Percent: w.Percent, ResetsAt: w.ResetsAt, Label: w.Label, Name: w.Name})
+		}
+	}
+	out = append(out, Window{}, Window{})
+	return out[0], out[1]
+}
+
+// otherAccounts are the accounts of every other agent that reports its
+// limits, as every agtop last read them.
+func otherAccounts(snap *fleet.Snapshot) []Account {
+	readings := usage.Load(host.QuotasPath())
+	var out []Account
+	for _, a := range host.Installed() {
+		if _, ok := a.(agent.QuotaSource); !ok || a.Kind() == "claude" {
+			continue
+		}
+		q, ok := readings[host.QuotaKey(a.Profiles()[0])]
+		if !ok {
+			continue
+		}
+		acct := Account{Name: a.Name(), Email: q.Email, Plan: q.Plan, Problem: q.Problem}
+		acct.FiveHour, acct.SevenDay = windows(q)
+		for _, ag := range snap.Agents {
+			if ag.Kind == string(a.Kind()) && ag.Live() {
+				acct.Live++
+			}
+		}
+		out = append(out, acct)
+	}
+	return out
 }
 
 type Working struct {
@@ -200,8 +245,8 @@ func build(snap *fleet.Snapshot, asked map[string]*pending) State {
 		}
 		for _, lv := range snap.Logins {
 			u := lv.Usage
-			a := Account{Name: lv.Name, Email: lv.Email, Plan: u.Plan, Problem: u.Problem, Current: lv.Current,
-				FiveHour: Window(u.FiveHour), SevenDay: Window(u.SevenDay)}
+			a := Account{Name: lv.Name, Email: lv.Email, Plan: u.Plan, Problem: u.Problem, Current: lv.Current}
+			a.FiveHour, a.SevenDay = windows(lv.Quota)
 			if lv.Current {
 				a.Live = live
 			}
@@ -211,12 +256,12 @@ func build(snap *fleet.Snapshot, asked map[string]*pending) State {
 	for _, av := range snap.Accounts {
 		u := av.Usage
 		if len(snap.Logins) == 0 {
-			s.Accounts = append(s.Accounts, Account{
-				Name: av.Name, Email: u.Email, Plan: u.Plan, Problem: u.Problem, Live: av.Live, Current: av.Current,
-				FiveHour: Window(u.FiveHour), SevenDay: Window(u.SevenDay),
-			})
+			a := Account{Name: av.Name, Email: u.Email, Plan: u.Plan, Problem: u.Problem, Live: av.Live, Current: av.Current}
+			a.FiveHour, a.SevenDay = windows(av.Quota)
+			s.Accounts = append(s.Accounts, a)
 		}
 	}
+	s.Accounts = append(s.Accounts, otherAccounts(snap)...)
 	live := map[string]bool{}
 	var working []*fleet.Agent
 	for _, a := range snap.Agents {
