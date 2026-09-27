@@ -376,7 +376,12 @@ func (c *Client) Interrupt() error { return c.do(op{Op: "interrupt"}) }
 // nothing else.
 func (c *Client) StopTask(id string) error         { return c.do(op{Op: "stop_task", ID: id}) }
 func (c *Client) SetPermissionMode(m string) error { return c.do(op{Op: "mode", Mode: m}) }
-func (c *Client) SetModel(m string) error          { return c.do(op{Op: "model", Model: m}) }
+
+// Background moves a tool call the turn is waiting on (a Bash command or a
+// subagent) into the background by its tool_use id; empty moves them all.
+// Hosts before Proto 3 ignore it.
+func (c *Client) Background(toolUseID string) error { return c.do(op{Op: "background", ID: toolUseID}) }
+func (c *Client) SetModel(m string) error           { return c.do(op{Op: "model", Model: m}) }
 
 // Relogin tells the session ~/.claude is now signed in as another account.
 func (c *Client) Relogin() error { return c.do(op{Op: "relogin"}) }

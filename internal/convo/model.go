@@ -220,6 +220,8 @@ type Session struct {
 	inFlight map[string]flight // a light session's tool calls still out
 	done     []string          // a light session's latest calls back, in words, oldest first
 
+	jobs []*Job // Claude Code's tasks, in the order they started
+
 	// TaskStatus is what Claude Code last said about each background task
 	// (completed, killed, …), keyed by task id: a subagent's agent id.
 	TaskStatus map[string]string
@@ -289,6 +291,7 @@ func (s *Session) Apply(ev any, now time.Time) {
 		s.Turns = append(s.Turns, &Turn{N: len(s.Turns) + 1, Prompt: ev.Text, Start: now, Live: true, steps: map[string]*Step{}, Effort: s.Info.Effort, Images: ev.Images})
 	case host.InfoEvent:
 		s.Info = ev.Info
+		s.syncJobs(ev.Info, now)
 		// The host went idle with a turn still open: Claude died mid-turn.
 		if t := s.Live(); t != nil && ev.Info.State == "idle" && ev.Info.ClaudePID == 0 {
 			s.endTurn(t, now)
@@ -373,7 +376,10 @@ func (s *Session) Apply(ev any, now time.Time) {
 			st.Status, st.Output, st.End = Denied, ev.Reason, now
 			s.touchStep(st)
 		}
+	case headless.TaskStarted, headless.TaskUpdated, headless.TaskProgress, headless.TaskDone, headless.BackgroundTasks:
+		s.applyJob(ev, now)
 	case headless.Result:
+		s.endJobs(now)
 		if t := s.Live(); t != nil {
 			s.endTurn(t, now)
 			t.Cost = ev.CostUSD

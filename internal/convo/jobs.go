@@ -1,0 +1,216 @@
+package convo
+
+import (
+	"strings"
+	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/host"
+)
+
+// Job is one of Claude Code's tasks: a Bash command, a monitor, a
+// subagent or a workflow, whether the turn waits on it or it runs in the
+// background. Only a session agtop runs hears of them.
+type Job struct {
+	ID         string
+	ToolUseID  string // the tool call that started it
+	Type       string // local_bash, local_agent, monitor_mcp, local_workflow, ...
+	Label      string // what Claude Code calls it: a description, or the command
+	Agent      string // a subagent's type
+	Background bool   // runs beside the turn rather than holding it
+	// Status is empty while it runs; then completed, failed, stopped, or
+	// ended when it went without a word (its process did).
+	Status     string
+	Error      string
+	Start, End time.Time
+	OutputFile string // where its output is, once it's done
+	Summary    string // its latest progress, or how it ended
+	LastTool   string
+	Tokens     int
+	ToolUses   int
+}
+
+func (j *Job) Running() bool { return j.Status == "" }
+
+// Kind is what it is, in a word: shell, monitor, subagent, workflow, task.
+func (j *Job) Kind() string {
+	switch j.Type {
+	case "local_bash":
+		return "shell"
+	case "monitor_mcp", "monitor_ws":
+		return "monitor"
+	case "local_agent", "remote_agent", "in_process_teammate":
+		return "subagent"
+	case "local_workflow":
+		return "workflow"
+	}
+	return "task"
+}
+
+// Jobs are every task heard of, in the order they started.
+func (s *Session) Jobs() []*Job { return s.jobs }
+
+// RunningJobs are the tasks still running, in the order they started.
+func (s *Session) RunningJobs() []*Job {
+	var out []*Job
+	for _, j := range s.jobs {
+		if j.Running() {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// Job is the task with this id, or nil.
+func (s *Session) Job(id string) *Job {
+	for _, j := range s.jobs {
+		if j.ID == id {
+			return j
+		}
+	}
+	return nil
+}
+
+func (s *Session) job(id string, now time.Time) *Job {
+	if j := s.Job(id); j != nil {
+		return j
+	}
+	j := &Job{ID: id, Start: now}
+	s.jobs = append(s.jobs, j)
+	return j
+}
+
+// jobStatus is Claude Code's word for how a task ended, as agtop says it.
+func jobStatus(st string) string {
+	switch st {
+	case "killed", "stopped":
+		return "stopped"
+	case "", "running", "pending":
+		return ""
+	}
+	return st
+}
+
+// applyJob takes in a task event.
+func (s *Session) applyJob(ev any, now time.Time) {
+	switch ev := ev.(type) {
+	case headless.TaskStarted:
+		j := s.job(ev.ID, now)
+		j.ToolUseID, j.Type, j.Background = ev.ToolUseID, ev.Type, ev.Backgrounded
+		j.Label = firstNonEmpty(ev.Description, ev.Workflow, j.Label)
+		j.Agent = firstNonEmpty(ev.SubagentType, j.Agent)
+	case headless.TaskUpdated:
+		j := s.job(ev.ID, now)
+		if ev.Backgrounded != nil {
+			j.Background = *ev.Backgrounded
+		}
+		if ev.Description != "" {
+			j.Label = ev.Description
+		}
+		if ev.Error != "" {
+			j.Error = ev.Error
+		}
+		if st := jobStatus(ev.Status); st != "" && (j.Running() || j.Status == "ended") {
+			j.Status, j.End = st, now
+		}
+	case headless.TaskProgress:
+		j := s.job(ev.ID, now)
+		j.Summary, j.LastTool = firstNonEmpty(ev.Summary, j.Summary), firstNonEmpty(ev.LastTool, j.LastTool)
+		j.Tokens, j.ToolUses = max(j.Tokens, ev.Tokens), max(j.ToolUses, ev.ToolUses)
+	case headless.TaskDone:
+		j := s.job(ev.ID, now)
+		j.ToolUseID = firstNonEmpty(j.ToolUseID, ev.ToolUseID)
+		j.OutputFile = firstNonEmpty(ev.OutputFile, j.OutputFile)
+		if st := firstNonEmpty(jobStatus(ev.Status), "completed"); j.Running() || j.Status == "ended" {
+			j.Status = st
+		}
+		if j.End.IsZero() {
+			j.End = now
+		}
+		if ev.Summary != "" && ev.Summary != j.Label {
+			j.Summary = ev.Summary
+		}
+		s.TaskStatus[ev.ID] = firstNonEmpty(j.Status, "completed")
+	case headless.BackgroundTasks:
+		s.backgroundNow(ev.Tasks, now)
+	}
+}
+
+// backgroundNow takes Claude Code's list of what runs in the background:
+// each one there is running and backgrounded, and a backgrounded one no
+// longer there has ended (how comes after, if Claude Code says).
+func (s *Session) backgroundNow(list []headless.BackgroundTask, now time.Time) {
+	on := map[string]bool{}
+	for _, t := range list {
+		on[t.ID] = true
+		j := s.job(t.ID, now)
+		j.Background = true
+		j.Type = firstNonEmpty(j.Type, t.Type)
+		j.Label = firstNonEmpty(j.Label, t.Description)
+	}
+	for _, j := range s.jobs {
+		if j.Running() && j.Background && !on[j.ID] {
+			j.Status, j.End = "ended", now
+		}
+	}
+}
+
+// syncJobs matches the tasks to what the host says runs in the background,
+// which a replay that no longer reaches back to a task's start still has.
+// A host older than Proto 3 says nothing, so nothing is taken from it.
+func (s *Session) syncJobs(info host.Info, now time.Time) {
+	if info.Proto < 3 {
+		return
+	}
+	if info.ClaudePID == 0 {
+		// Claude Code isn't running: nothing it started is.
+		for _, j := range s.jobs {
+			if j.Running() {
+				j.Status, j.End = "ended", now
+			}
+		}
+		return
+	}
+	list := make([]headless.BackgroundTask, 0, len(info.Background))
+	for _, t := range info.Background {
+		list = append(list, headless.BackgroundTask{ID: t.ID, Type: t.Type, Description: t.Label})
+		if s.Job(t.ID) == nil {
+			s.job(t.ID, t.StartedAt)
+		}
+	}
+	s.backgroundNow(list, now)
+}
+
+// endJobs ends the tasks a finished turn was waiting on: they ran in the
+// foreground, so they were done by the time it was.
+func (s *Session) endJobs(now time.Time) {
+	for _, j := range s.jobs {
+		if j.Running() && !j.Background {
+			j.Status, j.End = "completed", now
+			if st := s.byID[j.ToolUseID]; st != nil && st.Status == Failed {
+				j.Status = "failed"
+			}
+		}
+	}
+}
+
+// JobCommand is what a shell or monitor task runs, from the tool call that
+// started it; empty when that call isn't in the conversation.
+func (s *Session) JobCommand(j *Job) string {
+	st := s.byID[j.ToolUseID]
+	if st == nil {
+		return ""
+	}
+	return strings.TrimSpace(readInput(st.Input).str("command"))
+}
+
+// JobKind is Kind, knowing a Monitor tool's command from a Bash one: both
+// are shell tasks to Claude Code.
+func (s *Session) JobKind(j *Job) string {
+	if j.Type == "local_bash" {
+		if st := s.byID[j.ToolUseID]; st != nil && st.Tool == "Monitor" {
+			return "monitor"
+		}
+	}
+	return j.Kind()
+}

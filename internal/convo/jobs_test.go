@@ -1,0 +1,85 @@
+package convo
+
+import (
+	"testing"
+	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/host"
+)
+
+// Claude Code's own lines, from a real session: a foreground command
+// moved to the background and stopped, then one started in the background.
+var jobLines = []string{
+	`{"type":"system","subtype":"task_started","task_id":"bomth3m0o","tool_use_id":"toolu_01","description":"for i in $(seq 1 30); do echo tick $i; sleep 1; done","is_backgrounded":false,"task_type":"local_bash"}`,
+	`{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"bomth3m0o","task_type":"local_bash","description":"for i in $(seq 1 30); do echo tick $i; sleep 1; done"}]}`,
+	`{"type":"system","subtype":"task_updated","task_id":"bomth3m0o","patch":{"is_backgrounded":true}}`,
+	`{"type":"system","subtype":"background_tasks_changed","tasks":[]}`,
+	`{"type":"system","subtype":"task_updated","task_id":"bomth3m0o","patch":{"status":"killed","end_time":1790412912883}}`,
+	`{"type":"system","subtype":"task_notification","task_id":"bomth3m0o","tool_use_id":"toolu_01","status":"stopped","output_file":"/tmp/x/tasks/bomth3m0o.output","summary":"for i in $(seq 1 30); do echo tick $i; sleep 1; done"}`,
+	`{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b5hybj1hn","task_type":"local_bash","description":"tick loop progress (1-30)"}]}`,
+	`{"type":"system","subtype":"task_started","task_id":"b5hybj1hn","tool_use_id":"toolu_02","description":"tick loop progress (1-30)","is_backgrounded":true,"task_type":"local_bash"}`,
+}
+
+func TestJobs(t *testing.T) {
+	s := New()
+	now := time.Now()
+	apply := func(i int) {
+		ev, err := headless.Decode([]byte(jobLines[i]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Apply(ev, now)
+	}
+	apply(0)
+	j := s.Job("bomth3m0o")
+	if j == nil || !j.Running() || j.Background || j.Kind() != "shell" || j.ToolUseID != "toolu_01" {
+		t.Fatalf("started: %+v", j)
+	}
+	apply(1)
+	apply(2)
+	if !j.Background || !j.Running() {
+		t.Fatalf("backgrounded: %+v", j)
+	}
+	apply(3)
+	apply(4)
+	apply(5)
+	if j.Status != "stopped" || j.OutputFile == "" || s.TaskStatus["bomth3m0o"] != "stopped" {
+		t.Fatalf("stopped: %+v", j)
+	}
+	apply(6)
+	apply(7)
+	run := s.RunningJobs()
+	if len(run) != 1 || run[0].ID != "b5hybj1hn" || !run[0].Background {
+		t.Fatalf("running: %+v", run)
+	}
+	// A turn ending doesn't end what runs in the background.
+	s.Apply(headless.Result{Subtype: "success"}, now)
+	if len(s.RunningJobs()) != 1 {
+		t.Fatal("a background job ended with the turn")
+	}
+	// The host says Claude Code is gone: so is everything it ran.
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, State: "idle"}}, now)
+	if len(s.RunningJobs()) != 0 || s.Job("b5hybj1hn").Status != "ended" {
+		t.Fatalf("after exit: %+v", s.Job("b5hybj1hn"))
+	}
+}
+
+// A replay that no longer reaches a task's start still has it, from the
+// host's list.
+func TestJobsFromInfo(t *testing.T) {
+	s := New()
+	at := time.Now().Add(-time.Hour)
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 1, Background: []host.Task{{ID: "m1", Type: "monitor_mcp", Label: "watch CI", StartedAt: at}}}}, time.Now())
+	j := s.Job("m1")
+	if j == nil || !j.Running() || j.Kind() != "monitor" || !j.Start.Equal(at) {
+		t.Fatalf("%+v", j)
+	}
+	// A foreground command the turn was waiting on ends with it.
+	ev, _ := headless.Decode([]byte(`{"type":"system","subtype":"task_started","task_id":"f1","tool_use_id":"t","description":"make","task_type":"local_bash"}`))
+	s.Apply(ev, time.Now())
+	s.Apply(headless.Result{Subtype: "success"}, time.Now())
+	if s.Job("f1").Running() || !j.Running() {
+		t.Fatal("foreground job outlived its turn, or the background one didn't")
+	}
+}

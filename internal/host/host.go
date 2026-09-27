@@ -150,11 +150,23 @@ type Info struct {
 	// ContextTokens is how much context the last request sent: the
 	// conversation's size as the model sees it, until it next compacts.
 	ContextTokens int `json:"contextTokens,omitempty"`
+	// Background is what Claude Code has running in the background: shells,
+	// monitors, subagents and workflows, in the order they started.
+	Background []Task `json:"background,omitempty"`
+}
+
+// Task is one thing running in the background.
+type Task struct {
+	ID        string    `json:"id"`
+	Type      string    `json:"type"` // local_bash, local_agent, monitor_mcp, ...
+	Label     string    `json:"label"`
+	StartedAt time.Time `json:"startedAt"`
 }
 
 // Proto is this build's host protocol: 1 adds rewind, 2 context usage and
-// control requests passed through (the ask op).
-const Proto = 2
+// control requests passed through (the ask op), 3 moving a running tool
+// to the background (the background op) and Info.Background.
+const Proto = 3
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
@@ -251,16 +263,23 @@ type server struct {
 	// reply, kept apart from the ring so every client gets it.
 	commands []byte
 	initID   string
-	ctxID    string            // the context-usage question out, if any
-	asks     map[string]string // control requests out for clients: Claude's id → the client's
-	context  []byte            // the last answer, as the line clients get
-	stamped  time.Time         // when the last time mark went into the ring
-	limitRaw headless.RateLimit
-	wake     *time.Timer // a scheduled continue or retry
-	gen      int         // bumped by every send; a stale timer does nothing
-	idle     *time.Timer
-	quit     chan struct{}
-	stopOnce sync.Once
+	ctxID    string // the context-usage question out, if any
+	// taskStart is when each of Claude Code's tasks still running started.
+	taskStart map[string]time.Time
+	asks      map[string]string // control requests out for clients: Claude's id → the client's
+	context   []byte            // the last answer, as the line clients get
+	stamped   time.Time         // when the last time mark went into the ring
+	limitRaw  headless.RateLimit
+	// login is the account the running Claude Code started signed in as:
+	// its plan usage readings are that login's, and once the folder is
+	// signed in as another it rests when its turn ends.
+	login     string
+	liveUsage claude.Usage // the last reading passed on
+	wake      *time.Timer  // a scheduled continue or retry
+	gen       int          // bumped by every send; a stale timer does nothing
+	idle      *time.Timer
+	quit      chan struct{}
+	stopOnce  sync.Once
 	// plugins are the MCP servers of the approved plugins the running
 	// Claude Code was told about; broker reaches them.
 	plugins []string
@@ -397,6 +416,7 @@ func (s *server) detach() *headless.Session {
 	sess := s.sess
 	s.sess = nil
 	s.info.ClaudePID = 0
+	s.info.Background = nil
 	s.pending = map[string]headless.PermissionRequest{}
 	return sess
 }
@@ -412,6 +432,25 @@ func (s *server) saveConfig() {
 	if os.WriteFile(tmp, b, 0o600) == nil {
 		_ = os.Rename(tmp, filepath.Join(dir(s.cfg.ID), "config.json"))
 	}
+}
+
+// background is the list Claude Code just sent, with when each one
+// started: as it said then, or as the list first had it.
+func background(was []Task, now []headless.BackgroundTask, started map[string]time.Time, at time.Time) []Task {
+	var out []Task
+	for _, t := range now {
+		started, ok := started[t.ID]
+		if !ok {
+			started = at
+		}
+		for _, w := range was {
+			if w.ID == t.ID && !ok {
+				started = w.StartedAt
+			}
+		}
+		out = append(out, Task{ID: t.ID, Type: t.Type, Label: t.Description, StartedAt: started})
+	}
+	return out
 }
 
 // tap records Claude Code's output for replay and passes it to clients.
@@ -569,6 +608,7 @@ func (s *server) watch(sess *headless.Session) {
 	}
 	s.sess = nil
 	s.info.ClaudePID = 0
+	s.info.Background = nil // they went with it
 	s.pending = map[string]headless.PermissionRequest{}
 	if s.info.State == "working" || s.info.State == "blocked" || s.info.State == "starting" {
 		// It died mid-turn; the next message resumes it.
@@ -648,6 +688,23 @@ func (s *server) onEvent(ev headless.Event) {
 		s.info.Needs = needs(ev)
 	case headless.PermissionCancelled:
 		s.answered(ev.ID)
+	case headless.TaskStarted:
+		// Backgrounded later, it still started now.
+		if s.taskStart == nil {
+			s.taskStart = map[string]time.Time{}
+		}
+		s.taskStart[ev.ID] = time.Now()
+		for i, t := range s.info.Background {
+			if t.ID == ev.ID {
+				s.info.Background[i].StartedAt = s.taskStart[ev.ID]
+			}
+		}
+		return
+	case headless.BackgroundTasks:
+		s.info.Background = background(s.info.Background, ev.Tasks, s.taskStart, time.Now())
+	case headless.TaskDone:
+		delete(s.taskStart, ev.ID)
+		return
 	case headless.ControlReply:
 		if tag, ok := s.asks[ev.ID]; ok {
 			delete(s.asks, ev.ID)
@@ -1356,6 +1413,8 @@ func (s *server) do(o op) error {
 		return sess.Interrupt()
 	case "stop_task":
 		return sess.StopTask(o.ID)
+	case "background":
+		return sess.Background(o.ID)
 	case "mode":
 		return sess.SetPermissionMode(o.Mode)
 	case "model":

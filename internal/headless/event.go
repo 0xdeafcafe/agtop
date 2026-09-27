@@ -157,6 +157,60 @@ type MCPRequest struct {
 	Message json.RawMessage
 }
 
+// TaskStarted says Claude Code started a task: a Bash command, a subagent,
+// a monitor or a workflow. Backgrounded is false for one the turn waits on
+// (it can still be moved to the background, or stopped, by its ID).
+type TaskStarted struct {
+	ID           string
+	ToolUseID    string
+	Type         string // local_bash, local_agent, monitor_mcp, local_workflow, ...
+	Description  string
+	SubagentType string
+	Workflow     string
+	Backgrounded bool
+}
+
+// TaskUpdated is what changed about a task. Status is set when it ends
+// (completed, failed, killed); Backgrounded when it's moved to the
+// background.
+type TaskUpdated struct {
+	ID           string
+	Status       string
+	Description  string
+	Backgrounded *bool
+	Error        string
+}
+
+// TaskProgress is a subagent or workflow task's running numbers.
+type TaskProgress struct {
+	ID          string
+	Description string
+	Summary     string
+	LastTool    string
+	Tokens      int
+	ToolUses    int
+}
+
+// TaskDone says a task finished (completed, failed, stopped), and where
+// its output is.
+type TaskDone struct {
+	ID         string
+	ToolUseID  string
+	Status     string
+	OutputFile string
+	Summary    string
+}
+
+// BackgroundTasks lists every task now running in the background, each
+// time the list changes.
+type BackgroundTasks struct{ Tasks []BackgroundTask }
+
+type BackgroundTask struct {
+	ID          string `json:"task_id"`
+	Type        string `json:"task_type"`
+	Description string `json:"description"`
+}
+
 // Other is anything not decoded above, kept whole so nothing is lost.
 type Other struct {
 	Type, Subtype string
@@ -177,6 +231,11 @@ func (Compact) event()             {}
 func (RateLimit) event()           {}
 func (ControlReply) event()        {}
 func (MCPRequest) event()          {}
+func (TaskStarted) event()         {}
+func (TaskUpdated) event()         {}
+func (TaskProgress) event()        {}
+func (TaskDone) event()            {}
+func (BackgroundTasks) event()     {}
 func (Other) event()               {}
 
 type envelope struct {
@@ -302,6 +361,70 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 		}
 		_ = json.Unmarshal(line, &r)
 		return PermissionDenied(r), nil
+	case "task_started":
+		var r struct {
+			ID           string `json:"task_id"`
+			ToolUseID    string `json:"tool_use_id"`
+			Type         string `json:"task_type"`
+			Description  string `json:"description"`
+			SubagentType string `json:"subagent_type"`
+			Workflow     string `json:"workflow_name"`
+			Backgrounded bool   `json:"is_backgrounded"`
+		}
+		if err := json.Unmarshal(line, &r); err != nil {
+			return nil, err
+		}
+		return TaskStarted(r), nil
+	case "task_updated":
+		var r struct {
+			ID    string `json:"task_id"`
+			Patch struct {
+				Status       string `json:"status"`
+				Description  string `json:"description"`
+				Backgrounded *bool  `json:"is_backgrounded"`
+				Error        string `json:"error"`
+			} `json:"patch"`
+		}
+		if err := json.Unmarshal(line, &r); err != nil {
+			return nil, err
+		}
+		p := r.Patch
+		return TaskUpdated{ID: r.ID, Status: p.Status, Description: p.Description, Backgrounded: p.Backgrounded, Error: p.Error}, nil
+	case "task_progress":
+		var r struct {
+			ID          string `json:"task_id"`
+			Description string `json:"description"`
+			Summary     string `json:"summary"`
+			LastTool    string `json:"last_tool_name"`
+			Usage       struct {
+				Tokens   int `json:"total_tokens"`
+				ToolUses int `json:"tool_uses"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(line, &r); err != nil {
+			return nil, err
+		}
+		return TaskProgress{ID: r.ID, Description: r.Description, Summary: r.Summary, LastTool: r.LastTool, Tokens: r.Usage.Tokens, ToolUses: r.Usage.ToolUses}, nil
+	case "task_notification":
+		var r struct {
+			ID         string `json:"task_id"`
+			ToolUseID  string `json:"tool_use_id"`
+			Status     string `json:"status"`
+			OutputFile string `json:"output_file"`
+			Summary    string `json:"summary"`
+		}
+		if err := json.Unmarshal(line, &r); err != nil {
+			return nil, err
+		}
+		return TaskDone(r), nil
+	case "background_tasks_changed":
+		var r struct {
+			Tasks []BackgroundTask `json:"tasks"`
+		}
+		if err := json.Unmarshal(line, &r); err != nil {
+			return nil, err
+		}
+		return BackgroundTasks(r), nil
 	}
 	return other, nil
 }

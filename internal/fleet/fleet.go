@@ -90,9 +90,10 @@ func (a *Agent) JustFinished(now time.Time) bool {
 // Busy is a finished turn whose background work is still running in a live
 // process; a job file can claim work long after its process has gone.
 // Subagents still writing count too: the job file lists them late, and a
-// terminal session never does.
+// terminal session never does. Their transcripts are proof enough on their
+// own, as a background job's process isn't always known.
 func (a *Agent) Busy() bool {
-	return a.PID != 0 && (a.Job.Busy() || !a.Live() && a.Subs.Direct+a.Subs.Nested > 0)
+	return a.PID != 0 && a.Job.Busy() || !a.Live() && a.Subs.Direct+a.Subs.Nested > 0
 }
 
 // Age is what the native view prints on the right: time since last change.
@@ -538,6 +539,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				a.Seen = true
 			}
 			a.Spend = l.spend[a.Key]
+			a.Subs = l.subagents(a.Key, a.Job.TranscriptPath, now)
 			if a.Spend.Cost < info.CostUSD {
 				a.Spend.Cost = info.CostUSD
 			}
@@ -601,6 +603,24 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 		ID: info.ID, Account: acct.Name, Name: name, State: st, Detail: info.Detail, Needs: info.Needs,
 		Cwd: info.Cwd, SessionID: info.SessionID, CreatedAt: info.StartedAt, UpdatedAt: info.UpdatedAt,
 		TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(info.Cwd), info.SessionID+".jsonl"),
+	}
+	// What it runs in the background, as Claude Code's own background
+	// sessions record theirs, so the list says so alike.
+	for _, t := range info.Background {
+		kind := "shell"
+		switch t.Type {
+		case "local_agent", "remote_agent", "in_process_teammate":
+			kind = "agent"
+			j.Subagents++
+		case "monitor_mcp", "monitor_ws":
+			kind = "monitor"
+		case "local_bash":
+		default:
+			kind = "task"
+		}
+		j.Running = append(j.Running, claude.Task{Kind: kind, Label: t.Label, StartedAt: t.StartedAt})
+		j.Background = append(j.Background, kind+"\x00"+t.Label)
+		j.InFlight++
 	}
 	switch {
 	case info.Limit != nil:

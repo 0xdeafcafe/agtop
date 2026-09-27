@@ -390,6 +390,18 @@ func (s *Session) StopTask(id string) error {
 	return err
 }
 
+// Background moves a Bash command or subagent the turn is waiting on into
+// the background, as ctrl+b does in Claude Code; the turn carries on
+// without it. An empty toolUseID moves every one.
+func (s *Session) Background(toolUseID string) error {
+	req := map[string]any{"subtype": "background_tasks"}
+	if toolUseID != "" {
+		req["tool_use_id"] = toolUseID
+	}
+	_, err := s.control(req)
+	return err
+}
+
 // SetPermissionMode switches between default, acceptEdits, plan, auto, ...
 func (s *Session) SetPermissionMode(mode string) error {
 	_, err := s.control(map[string]any{"subtype": "set_permission_mode", "mode": mode})
