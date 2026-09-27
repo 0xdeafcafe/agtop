@@ -388,6 +388,7 @@ func (s *server) start() error {
 	} else {
 		o.SessionID = s.cfg.SessionID
 	}
+	s.login = claude.SignedInAs(s.cfg.Account)
 	sess, err := headless.Start(o)
 	if err != nil {
 		return err
@@ -638,6 +639,7 @@ func (s *server) onEvent(ev headless.Event) {
 		}
 	case headless.RateLimit:
 		s.limitRaw = ev
+		s.shareUsage(ev)
 		return
 	case headless.Message:
 		if ev.Role == "assistant" && ev.Usage != nil {
@@ -756,6 +758,15 @@ func (s *server) onEvent(ev headless.Event) {
 				return
 			}
 			s.armIdle()
+			if s.login != "" && claude.SignedInAs(s.cfg.Account) != s.login {
+				// Switched since it started: it rests now, rather than
+				// holding the old sign-in and writing it back as it
+				// refreshes it.
+				go func() {
+					s.mu.Lock()
+					s.relogin(s.sess)
+				}()
+			}
 			// Waiting for you now: give back what the turn used.
 			go debug.FreeOSMemory()
 		}
@@ -834,6 +845,26 @@ func isOffline(t string) bool {
 		}
 	}
 	return false
+}
+
+// shareUsage passes the plan usage Claude Code reports with each request
+// to every agtop, as a reading of the login it runs on: the header and
+// switching accounts then go by it, not by a fetch minutes old. A reading
+// like the last goes only every half minute. Called with mu held.
+func (s *server) shareUsage(ev headless.RateLimit) {
+	u, ok := claude.LiveUsage(ev.Raw, time.Now())
+	if !ok || s.login == "" {
+		return
+	}
+	last := s.liveUsage
+	if u.FiveHour == last.FiveHour && u.SevenDay == last.SevenDay && u.FetchedAt.Sub(last.FetchedAt) < 30*time.Second {
+		return
+	}
+	u.AccountID = s.login
+	s.liveUsage = u
+	go func() {
+		_ = claude.RecordUsage(filepath.Join(state.Dir(), "usage.json"), claude.Login{ID: u.AccountID}.UsageKey(), u)
+	}()
 }
 
 func limitReset(raw json.RawMessage) time.Time {
