@@ -50,17 +50,17 @@ var topSegs = []barSeg{
 	{"usage", "Plan usage", "the account in use: its 5-hour and weekly limits, and when they reset", func(x *barCtx) string {
 		return x.m.activeUsage()
 	}},
-	{"accounts", "Every account", "each account's 5-hour limit, when there are several", func(x *barCtx) string {
-		if len(x.m.snap.Accounts) < 2 {
-			return ""
-		}
+	{"accounts", "Every account", "each account's shortest limit, of every agent, when there are several", func(x *barCtx) string {
 		var parts []string
-		for _, av := range x.m.snap.Accounts {
+		for _, r := range x.m.accountRows() {
 			// The shortest window: the one that moves.
-			if len(av.Quota.Windows) > 0 {
-				p := av.Quota.Windows[0].Percent
-				parts = append(parts, dim(av.Name+" ")+paint(usageColor(p), fmt.Sprintf("%.0f%%", p)))
+			if !r.head && len(r.q.Windows) > 0 {
+				p := r.q.Windows[0].Percent
+				parts = append(parts, dim(r.name()+" ")+paint(usageColor(p), fmt.Sprintf("%.0f%%", p)))
 			}
+		}
+		if len(parts) < 2 {
+			return ""
 		}
 		return strings.Join(parts, "  ")
 	}},

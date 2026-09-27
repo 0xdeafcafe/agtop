@@ -354,6 +354,9 @@ func (m *Model) activeUsage() string {
 			continue
 		}
 		u := av.Quota
+		if q, ok := m.startQuota(); ok {
+			u = q // new sessions run another agent: its account's
+		}
 		var parts []string
 		for _, w := range u.Windows {
 			parts = append(parts, usageMeter(w.Label, w.Percent, w.ResetsAt, w.Span, m.snap.At))

@@ -213,6 +213,21 @@ func (m *Model) startAccount() string {
 	return name
 }
 
+// startQuota is the limits of the account new sessions start on, when
+// they run an agent other than Claude Code.
+func (m *Model) startQuota() (usage.Quota, bool) {
+	k := m.startKind()
+	if k == "claude" {
+		return usage.Quota{}, false
+	}
+	for _, r := range m.accountRows() {
+		if string(r.kind) == k && (r.current || r.head && !switches(r.kind)) {
+			return r.q, true
+		}
+	}
+	return usage.Quota{}, true
+}
+
 // findSignIns asks each agent agtop can switch who it's signed in as, and
 // which accounts it knows of itself.
 func (m *Model) findSignIns() tea.Cmd {
