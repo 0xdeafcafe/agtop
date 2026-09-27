@@ -55,7 +55,7 @@ type Call struct {
 	Kind  Kind
 	Title string // what the agent says the call is, when it says: ACP's title
 	Input Input
-	Raw   json.RawMessage // the input as the agent sent it
+	Raw   json.RawMessage `json:",omitempty"` // the input as the agent sent it
 }
 
 // Input is what a call works on, as far as agtop reads it. An adapter
@@ -103,11 +103,11 @@ type Output struct {
 	IsError bool
 	Stdout  string // Shell, when the agent keeps the streams apart
 	Stderr  string
-	Exit    *int    // Shell, when known
-	Patches []Patch // Edit and Write: what changed
-	Lines   *Span   // Read: which lines it read
-	Created bool    // Write: the file didn't exist before
-	Raw     json.RawMessage
+	Exit    *int            // Shell, when known
+	Patches []Patch         // Edit and Write: what changed
+	Lines   *Span           // Read: which lines it read
+	Created bool            // Write: the file didn't exist before
+	Raw     json.RawMessage `json:",omitempty"`
 }
 
 // Patch is one hunk of a change to a file.

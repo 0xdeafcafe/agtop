@@ -255,7 +255,7 @@ type Plan struct{ Todos []tool.TodoItem }
 type Other struct {
 	Adapter string
 	Type    string
-	Raw     json.RawMessage
+	Raw     json.RawMessage `json:",omitempty"`
 }
 
 func (Init) event()              {}
