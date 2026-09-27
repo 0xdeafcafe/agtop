@@ -167,6 +167,11 @@ type Session struct {
 	Running    []Task
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	// Remote is a session running on the agent's own servers, not this
+	// machine: Repo is the repository it works in, PRs what it opened.
+	Remote bool
+	Repo   string
+	PRs    []PR
 	// Extra is the adapter's own, for its own use: Claude's job file.
 	Extra any
 }

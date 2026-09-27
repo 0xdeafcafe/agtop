@@ -55,6 +55,9 @@ type Agent struct {
 	// History is another agent's transcript, read through its adapter:
 	// TranscriptPath is only ever Claude Code's.
 	History string
+	// Remote is a session running on its agent's own servers: Copilot's
+	// coding agent on GitHub.
+	Remote bool
 }
 
 // NeedsYou is a live agent asking something the user has not looked at yet.
@@ -976,6 +979,9 @@ func isPrint(args []string) bool {
 func (a *Agent) Where() string {
 	if a.Headless {
 		return "run by another program (claude -p)"
+	}
+	if a.Remote {
+		return "on GitHub"
 	}
 	return "open in a terminal"
 }

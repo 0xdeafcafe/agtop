@@ -39,8 +39,8 @@ func agentHistory(kind agent.Kind, s agent.Session, before time.Time) *convo.Ses
 // in a terminal, read again as it grows.
 func openHistory(a *fleet.Agent) tea.Cmd {
 	key, id := a.Key, a.ID
-	h := &history{kind: agent.Kind(a.Kind), s: agent.Session{ID: a.SessionID, Transcript: a.History,
-		Profile: agent.Profile{Kind: agent.Kind(a.Kind), Dir: a.Acct.ConfigDir}}}
+	h := &history{kind: agent.Kind(a.Kind), s: agent.Session{ID: a.SessionID, Name: a.DisplayName, Transcript: a.History,
+		State: a.State, Remote: a.Remote, Profile: agent.Profile{Kind: agent.Kind(a.Kind), Dir: a.Acct.ConfigDir}}}
 	return func() tea.Msg {
 		h.stat()
 		sess := agentHistory(h.kind, h.s, time.Time{})
@@ -62,8 +62,17 @@ type history struct {
 // whole each time.
 const historyEvery = 2 * time.Second
 
-// stat notes how the file stands, and reports whether it changed.
+// remoteEvery is how often a remote session still working is read again:
+// there's no file to watch, only its log to fetch.
+const remoteEvery = 10 * time.Second
+
+// stat notes how the file stands, and reports whether it changed. A
+// remote session's log is taken to change while it works.
 func (h *history) stat() bool {
+	if h.s.Remote {
+		working := h.s.State == "working" || h.s.State == "blocked"
+		return working && time.Since(h.at) >= remoteEvery
+	}
 	fi, err := os.Stat(h.s.Transcript)
 	if err != nil {
 		return false

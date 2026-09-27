@@ -59,7 +59,11 @@ func (l *Loader) otherAgents(claimed, seen map[string]bool, now time.Time) []*Ag
 				}
 				seen[key] = true
 				ag := l.otherRow(a, p, s, key, now)
-				ag.Past = true
+				// One on the agent's servers stays there: agtop only shows it.
+				ag.Past, ag.Interactive = !s.Remote, s.Remote
+				if s.Remote {
+					ag.State = s.State
+				}
 				out = append(out, ag)
 			}
 		}
@@ -73,12 +77,17 @@ func (l *Loader) otherRow(a agent.Adapter, p agent.Profile, s agent.Session, key
 	j := claude.Job{ID: s.ID[:8], Account: p.Name, Name: s.Name, State: "stopped", Cwd: s.Cwd,
 		SessionID: s.ID, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt}
 	ag := &Agent{Job: j, Key: key, Acct: claude.Account{Name: p.Name, ConfigDir: p.Dir}, DisplayName: s.Name,
-		Kind: string(a.Kind()), History: s.Transcript}
+		Kind: string(a.Kind()), History: s.Transcript, Remote: s.Remote, PRs: s.PRs}
+	ag.Detail, ag.Needs = s.Detail, s.Needs
 	if n := ov.Names[key]; n != "" {
 		ag.DisplayName = n
 	}
 	_, ag.Done = ov.Done[key]
 	ag.Group = ov.Groups[key]
-	ag.Repo, ag.Branch = l.gitFor(s.Cwd, now)
+	if s.Remote {
+		ag.Repo = s.Repo
+	} else {
+		ag.Repo, ag.Branch = l.gitFor(s.Cwd, now)
+	}
 	return ag
 }
