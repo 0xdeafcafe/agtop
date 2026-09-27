@@ -64,6 +64,10 @@ func (v Vault) Forget(id string) error {
 	return os.Remove(filepath.Join(v.Dir, id+".json"))
 }
 
+// Lock keeps two agtops from switching any agent's account at once; the
+// func it returns lets go.
+func (v Vault) Lock() (func(), error) { return v.lock() }
+
 // lock keeps two agtops from switching at once.
 func (v Vault) lock() (func(), error) {
 	if err := os.MkdirAll(v.Dir, 0o700); err != nil {

@@ -27,7 +27,7 @@ func TestRegistered(t *testing.T) {
 
 func TestProfiles(t *testing.T) {
 	a := Adapter{Config: func() state.Config {
-		return state.Config{Accounts: []claude.Account{{Name: "work", ConfigDir: "/x/.claude-work"}}}
+		return state.Config{Folders: []claude.Account{{Name: "work", ConfigDir: "/x/.claude-work"}}}
 	}}
 	ps := a.Profiles()
 	if len(ps) < 2 || ps[len(ps)-1] != (agent.Profile{Kind: Kind, Name: "work", Dir: "/x/.claude-work"}) {

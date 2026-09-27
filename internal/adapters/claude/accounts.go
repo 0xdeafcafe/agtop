@@ -2,8 +2,12 @@ package claude
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -18,7 +22,7 @@ const keyPrefix = "claude:"
 
 // accountOf is a saved login as agtop's own account.
 func accountOf(l claude.Login) agent.Account {
-	return agent.Account{Kind: Kind, Key: keyPrefix + l.UsageKey(), Name: l.Name, Email: l.Email, Org: l.Org}
+	return agent.Account{Kind: Kind, ID: l.ID, Key: keyPrefix + l.UsageKey(), Name: l.Name, Email: l.Email, Org: l.Org}
 }
 
 // Accounts are the logins agtop keeps, which ~/.claude can be signed in as.
@@ -62,11 +66,49 @@ func (a Adapter) Switch(p agent.Profile, acct agent.Account) error {
 	return state.Vault().Use(Account(p), l)
 }
 
-// SignIn is Claude Code's own sign-in, in p.
-func (Adapter) SignIn(p agent.Profile) *exec.Cmd {
+// SignIn is Claude Code's own sign-in, in a folder of its own: done keeps
+// the sign-in in the vault and removes the folder, so p stays as it is
+// until you switch.
+func (Adapter) SignIn(p agent.Profile) (*exec.Cmd, func() (agent.Account, error), error) {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	scratch := claude.Account{Name: "sign-in", ConfigDir: filepath.Join(state.Dir(), "signin-"+hex.EncodeToString(b))}
 	c := exec.Command("claude", "auth", "login")
-	c.Env = Account(p).Env()
-	return c
+	c.Env = scratch.Env()
+	done := func() (agent.Account, error) {
+		l, err := state.Vault().Adopt(scratch)
+		if err != nil {
+			return agent.Account{}, err
+		}
+		acct := accountOf(l)
+		acct.Plan = planOf(l.Profile)
+		return acct, nil
+	}
+	return c, done, nil
+}
+
+// planOf is a sign-in's plan, from who Claude Code says it is.
+func planOf(prof []byte) string {
+	var p struct {
+		Tier string `json:"organizationRateLimitTier"`
+		Type string `json:"organizationType"`
+	}
+	_ = json.Unmarshal(prof, &p)
+	return firstOf(p.Type, p.Tier)
+}
+
+func firstOf(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// Forget drops agtop's copy of a's sign-in.
+func (Adapter) Forget(a agent.Account) error {
+	return state.Vault().Forget(a.ID)
 }
 
 // Quota asks Anthropic for acct's limits with the sign-in agtop keeps

@@ -27,6 +27,7 @@ type Profile struct {
 // one.
 type Account struct {
 	Kind  Kind   // the adapter that knows how to sign it in
+	ID    string // the agent's own id for it
 	Key   string // unique across adapters, and where its Quota is kept: "claude:login:<uuid>"
 	Name  string
 	Email string
@@ -132,12 +133,19 @@ type QuotaSource interface {
 	Quota(ctx context.Context, p Profile, a Account) (usage.Quota, error)
 }
 
-// Accounts signs in to, lists and switches an agent's accounts.
+// Accounts signs an agent's home in to one of several accounts. Which
+// accounts there are, and what they're called, is agtop's to keep; the
+// adapter keeps their credentials.
 type Accounts interface {
-	Accounts() []Account
+	// Current is who p is signed in as.
 	Current(p Profile) (Account, error)
+	// Switch signs p in as a, keeping the credential p holds now first.
 	Switch(p Profile, a Account) error
-	SignIn(p Profile) *exec.Cmd
+	// SignIn signs in to an account in the terminal, apart from p: cmd
+	// runs, then done keeps the credential and says whose it is.
+	SignIn(p Profile) (cmd *exec.Cmd, done func() (Account, error), err error)
+	// Forget drops the credential agtop keeps for a.
+	Forget(a Account) error
 }
 
 // Pricer prices a model's tokens.
