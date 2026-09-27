@@ -1176,7 +1176,10 @@ func (s *server) publish() {
 	if os.WriteFile(tmp, b, 0o600) == nil {
 		_ = os.Rename(tmp, filepath.Join(dir(s.cfg.ID), "info.json"))
 	}
-	line, _ := json.Marshal(map[string]any{"type": typeInfo, "info": s.info})
+	// The line clients get wraps the same info, marshalled once: as a map
+	// it would read {"info":…,"type":"agtop_info"}.
+	line := make([]byte, 0, len(b)+32)
+	line = append(append(append(line, `{"info":`...), b...), `,"type":"`+typeInfo+`"}`...)
 	for c := range s.clients {
 		c.push(line)
 	}
@@ -1714,10 +1717,16 @@ func firstLine(s string) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
 	}
-	if r := []rune(s); len(r) > 200 {
-		s = string(r[:200]) + "…"
+	// Counted in place rather than as runes, and copied: it's kept, and
+	// should hold only itself, not the whole message it came from.
+	n := 0
+	for i := range s {
+		if n == 200 {
+			return s[:i] + "…"
+		}
+		n++
 	}
-	return s
+	return strings.Clone(s)
 }
 
 // alive reports whether pid is a running process.
