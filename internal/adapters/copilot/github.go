@@ -12,34 +12,68 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
 // token is the GitHub token Copilot is reached with: the one in the
-// environment, else gh's, asked for at most every ten minutes.
+// environment, else gh's for the account agtop uses for Copilot.
 func token() (string, error) {
 	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
 		if v := os.Getenv(k); v != "" {
 			return v, nil
 		}
 	}
+	return tokenFor(chosen())
+}
+
+// tokenFor is gh's token for login (its active account when empty), asked
+// for at most every ten minutes.
+func tokenFor(login string) (string, error) {
 	tokenMu.Lock()
 	defer tokenMu.Unlock()
-	if tokenVal != "" && time.Since(tokenAt) < 10*time.Minute {
-		return tokenVal, nil
+	if t, ok := tokens[login]; ok && time.Since(t.at) < 10*time.Minute {
+		return t.val, nil
 	}
-	out, err := exec.Command("gh", "auth", "token").Output()
+	args := []string{"auth", "token", "-h", "github.com"}
+	if login != "" {
+		args = append(args, "-u", login)
+	}
+	out, err := exec.Command(gh(), args...).Output()
 	if err != nil {
+		if login != "" {
+			return "", errors.New("copilot: gh isn't signed in as " + login + " (gh auth login)")
+		}
 		return "", errors.New("copilot: not signed in to GitHub (gh auth login)")
 	}
-	tokenVal, tokenAt = strings.TrimSpace(string(out)), time.Now()
-	return tokenVal, nil
+	tokens[login] = tokenEntry{strings.TrimSpace(string(out)), time.Now()}
+	return tokens[login].val, nil
+}
+
+type tokenEntry struct {
+	val string
+	at  time.Time
 }
 
 var (
-	tokenMu  sync.Mutex
-	tokenVal string
-	tokenAt  time.Time
+	tokenMu sync.Mutex
+	tokens  = map[string]tokenEntry{}
 )
+
+// forgetTokens drops the tokens asked for, so the next ask is fresh.
+func forgetTokens() {
+	tokenMu.Lock()
+	tokens = map[string]tokenEntry{}
+	tokenMu.Unlock()
+}
+
+// gh is gh, wherever it's installed.
+func gh() string {
+	if p, ok := agent.Find("gh"); ok {
+		return p
+	}
+	return "gh"
+}
 
 var client = &http.Client{Timeout: 20 * time.Second}
 
@@ -59,6 +93,11 @@ func fetch(ctx context.Context, url string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
+	return fetchWith(ctx, url, tok)
+}
+
+// fetchWith is url's body, with tok.
+func fetchWith(ctx context.Context, url, tok string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -99,6 +138,22 @@ type user struct {
 func readUser(ctx context.Context) (user, error) {
 	var u user
 	err := get(ctx, "https://api.github.com/copilot_internal/user", &u)
+	return u, err
+}
+
+// readUserAs asks GitHub about login's Copilot.
+func readUserAs(ctx context.Context, login string) (user, error) {
+	tok, err := tokenFor(login)
+	if err != nil {
+		return user{}, err
+	}
+	body, err := fetchWith(ctx, "https://api.github.com/copilot_internal/user", tok)
+	if err != nil {
+		return user{}, err
+	}
+	defer body.Close()
+	var u user
+	err = json.NewDecoder(io.LimitReader(body, 16<<20)).Decode(&u)
 	return u, err
 }
 

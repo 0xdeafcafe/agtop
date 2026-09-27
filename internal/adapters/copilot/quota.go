@@ -10,12 +10,23 @@ import (
 
 // Quota is your premium requests this month: what Copilot's agents, and
 // its better models, spend.
-func (Adapter) Quota(ctx context.Context, _ agent.Profile, _ agent.Account) (usage.Quota, error) {
-	u, err := readUser(ctx)
+// a is the GitHub account to read; with none, the one agtop uses.
+func (Adapter) Quota(ctx context.Context, _ agent.Profile, a agent.Account) (usage.Quota, error) {
+	var u user
+	var err error
+	if a.ID != "" {
+		u, err = readUserAs(ctx, a.ID)
+	} else {
+		u, err = readUser(ctx)
+	}
 	if err != nil {
 		return usage.Quota{}, err
 	}
-	return quotaOf(u, time.Now()), nil
+	q := quotaOf(u, time.Now())
+	if a.ID != "" {
+		q.Account, q.Email = accountKey(a.ID), a.ID
+	}
+	return q, nil
 }
 
 // quotaOf is your Copilot's limits as agtop's. Chat and completions are
