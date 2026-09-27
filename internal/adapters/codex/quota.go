@@ -158,6 +158,7 @@ func readQuota(ctx context.Context, c *client) (usage.Quota, error) {
 		if acct.Account.PlanType != "" {
 			q.Plan = acct.Account.PlanType
 		}
+		q.Email = acct.Account.Email
 		if q.Account == "" && acct.Account.Email != "" {
 			q.Account = "codex:" + acct.Account.Email
 		}

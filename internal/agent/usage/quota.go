@@ -55,6 +55,7 @@ const (
 // provider, but any number of agents and sessions can spend it.
 type Quota struct {
 	Account   string // the key it is kept under: "claude:login:<uuid>", "codex:chatgpt:<id>"
+	Email     string // who the account is, when the reading says
 	Plan      string
 	Windows   []Window
 	FetchedAt time.Time
