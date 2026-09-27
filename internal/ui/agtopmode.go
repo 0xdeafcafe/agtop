@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -862,6 +863,19 @@ func openHost(a *fleet.Agent) tea.Cmd {
 				sess = convo.History(filepath.Join(filepath.Dir(path), cfg.From+".jsonl"), started)
 			}
 		}
+		if infoErr == nil && info.Kind != "" && info.Kind != "claude" {
+			// Another agent's: what came before the replay is in its own
+			// history, read through its adapter.
+			sess = convo.New()
+			if cfg, err := host.ReadConfig(id); err == nil && (cfg.Resume || trimmed) {
+				started := info.StartedAt
+				if trimmed {
+					started = info.ReplayFrom
+				}
+				sess = agentHistory(agent.Kind(info.Kind), agent.Session{ID: info.SessionID, Profile: agent.Profile{Kind: agent.Kind(info.Kind), Dir: acct.ConfigDir}}, started)
+			}
+			path = ""
+		}
 		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, client: cl, sess: sess, open: map[string]bool{}, path: path}}
 	}
 }
@@ -920,7 +934,7 @@ func (m *Model) syncHost() tea.Cmd {
 	_, paneW, _ := m.layout()
 	showing := a != nil && paneW > 0 && m.mode == modeList
 	hosted := showing && a.Agtop && a.PID != 0
-	fromFile := showing && !hosted && a.TranscriptPath != ""
+	fromFile := showing && !hosted && (a.TranscriptPath != "" || a.History != "")
 	if !hosted && !fromFile {
 		m.dropHost()
 		if a == nil {
@@ -975,6 +989,9 @@ func freeSoon() {
 // first time; after that a watch takes in what is new as it is written.
 func openTail(a *fleet.Agent) tea.Cmd {
 	key, id, path, agtop := a.Key, a.ID, a.TranscriptPath, a.Agtop
+	if path == "" && a.History != "" {
+		return openHistory(a)
+	}
 	return func() tea.Msg {
 		t := convo.NewTail(path)
 		// A stopped agtop session that never got a message has no
@@ -2800,6 +2817,15 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 	cfg := host.Config{
 		SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
+	}
+	if a.Kind != "" && a.Kind != "claude" {
+		// Another agent's: it carries on with its own model and mode.
+		cfg = host.Config{SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
+			IdleStop: host.Duration(d.Rest())}
+		if err := cfg.UseAgent(a.Kind); err != nil {
+			m.flash(err.Error(), true)
+			return nil
+		}
 	}
 	old := a.Key
 	if a.Interactive {

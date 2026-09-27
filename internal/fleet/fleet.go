@@ -52,6 +52,9 @@ type Agent struct {
 	Temp int64
 	// Kind is the agent an agtop session runs: empty is Claude Code.
 	Kind string
+	// History is another agent's transcript, read through its adapter:
+	// TranscriptPath is only ever Claude Code's.
+	History string
 }
 
 // NeedsYou is a live agent asking something the user has not looked at yet.
@@ -219,6 +222,8 @@ type Loader struct {
 	// pastRows are past conversations' rows as last made, and spendVer
 	// counts each agent's spend updates, so an unchanged row is reused.
 	pastRows map[string]pastRow
+	// others are other agents' past sessions, by profile folder.
+	others   map[string]othersListing
 	spendVer map[string]int
 }
 
@@ -556,6 +561,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			snap.Agents = append(snap.Agents, l.hostedAgent(claude.Account{Name: info.Account}, info, tab, now))
 		}
 	}
+	snap.Agents = append(snap.Agents, l.otherPast(claimed, seen, now)...)
 	if len(snap.Accounts) > 0 {
 		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
 	}
