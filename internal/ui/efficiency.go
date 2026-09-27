@@ -74,6 +74,7 @@ type effLoadedMsg struct {
 	events  []efficiency.Event
 	gains   []efficiency.Gain
 	gainsAt time.Time
+	memory  []efficiency.Finding
 }
 
 type effRanMsg struct {
@@ -133,6 +134,7 @@ func (m *Model) effLoad(scan bool) tea.Cmd {
 	active := m.store.Config.ActiveAccount()
 	q := m.effQuery()
 	gains := time.Since(e.gainsAt) > 15*time.Minute
+	memCfg, memDir := m.effMemoryPlace()
 	return func() tea.Msg {
 		if store == nil {
 			store, scan = efficiency.Open(), true
@@ -143,6 +145,7 @@ func (m *Model) effLoad(scan bool) tea.Cmd {
 		msg := effLoadedMsg{store: store, view: store.View(q)}
 		msg.found = efficiency.Observe(efficiency.LoadEnv(active))
 		msg.events = efficiency.LoadEvents()
+		msg.memory = efficiency.MemoryFindings(memCfg, memDir)
 		if gains {
 			msg.gains, _ = efficiency.RTKGains()
 			msg.gainsAt = time.Now()
@@ -158,7 +161,7 @@ func (m *Model) onEffLoaded(msg effLoadedMsg) {
 	if !msg.gainsAt.IsZero() {
 		e.gains, e.gainsAt = msg.gains, msg.gainsAt
 	}
-	e.findings = efficiency.Findings(e.view, e.found)
+	e.findings = append(efficiency.Findings(e.view, e.found), msg.memory...)
 	e.finding = min(e.finding, max(0, len(e.findings)-1))
 	if e.cursor >= len(e.view.Points) {
 		e.cursor = -1
@@ -424,6 +427,8 @@ func (m *Model) effKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			if e.finding < len(e.findings) {
 				if sv := efficiency.Find(e.findings[e.finding].Fix); sv != nil {
 					m.effPlan(sv, false)
+				} else if p := e.findings[e.finding].Open; p != "" {
+					return editFile(p)
 				}
 			}
 		}
@@ -565,6 +570,9 @@ func (m *Model) effHint() string {
 		return keysFit(w, append([]string{"←→", "move", "m", "metric", "e", "next event", "b", "before/after", "n", "note"}, common...)...)
 	case effSaversPage:
 		return keysFit(w, append([]string{"↑↓", "choose", "enter", "set up", "x", "remove", "o", "its page"}, common...)...)
+	}
+	if e.finding < len(e.findings) && e.findings[e.finding].Open != "" {
+		return keysFit(w, append([]string{"↑↓", "choose", "enter", "open the file"}, common...)...)
 	}
 	return keysFit(w, append([]string{"↑↓", "choose", "enter", "fix it"}, common...)...)
 }

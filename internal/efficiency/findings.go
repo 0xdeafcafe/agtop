@@ -16,7 +16,10 @@ type Finding struct {
 	// worked out; findings with one come first, biggest first.
 	Cost float64
 	// Fix is the saver that addresses it: enter sets it up.
-	Fix  string
+	Fix string
+	// Open is the file to change for it, when there's no saver: enter
+	// opens it.
+	Open string
 	rank int // lower first among findings without a cost; below 0 goes first of all
 }
 
