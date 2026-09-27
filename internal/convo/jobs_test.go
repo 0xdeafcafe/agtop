@@ -120,3 +120,25 @@ func TestSubagentJobs(t *testing.T) {
 		t.Fatal("a shell is no subagent")
 	}
 }
+
+// A message sent to a subagent after it finished runs it again under the
+// same id: Claude Code starts its task anew, and it's running again.
+func TestWokenSubagentRunsAgain(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.Apply(headless.TaskStarted{ID: "a1", ToolUseID: "tA", Type: "local_agent", Backgrounded: true}, now)
+	s.Apply(headless.TaskDone{ID: "a1", ToolUseID: "tA", Status: "completed"}, now)
+	if j := s.Job("a1"); j.Running() || s.TaskStatus["a1"] != "completed" {
+		t.Fatalf("finished: %+v", j)
+	}
+	s.Apply(headless.TaskStarted{ID: "a1", Type: "local_agent", Backgrounded: true}, now.Add(time.Minute))
+	if j := s.Job("a1"); !j.Running() || s.TaskStatus["a1"] != "" || !j.End.IsZero() {
+		t.Fatalf("woken: %+v, status %q", j, s.TaskStatus["a1"])
+	}
+	s.Apply(headless.TaskDone{ID: "a1", Status: "completed"}, now.Add(2*time.Minute))
+	// The host's list of what runs in the background says so too.
+	s.Apply(headless.BackgroundTasks{Tasks: []headless.BackgroundTask{{ID: "a1", Type: "local_agent"}}}, now.Add(3*time.Minute))
+	if !s.Job("a1").Running() {
+		t.Fatal("listed as running in the background, yet not running")
+	}
+}

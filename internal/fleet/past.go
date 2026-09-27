@@ -160,14 +160,14 @@ type pastRow struct {
 }
 
 // pastSubagents is subagents for a conversation nothing has open: none can
-// start, so the folder is looked at again only as often as the listing.
+// start, so the folder is looked at again only as often as the listing,
+// and its transcript isn't read for which are working: only one still
+// writing is, its process gone or not.
 func (l *Loader) pastSubagents(key, transcript string, now time.Time) claude.SubagentStats {
 	if e, ok := l.subs[key]; ok && e.st.Direct+e.st.Nested == 0 && now.Sub(e.at) < pastEvery {
 		return e.st
 	}
-	st := l.subagents(key, transcript, now)
-	if e, ok := l.subs[key]; !ok || e.dir.IsZero() {
-		l.subs[key] = subsEntry{st: st, at: now} // no subagents folder
-	}
+	st := claude.ReadSubagentStats(transcript, now)
+	l.subs[key] = subsEntry{st: st, at: now}
 	return st
 }

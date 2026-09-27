@@ -368,3 +368,34 @@ func TestSubagentsFollowTheSessionID(t *testing.T) {
 		t.Fatalf("after the id changed: path %s, runs %v", c.path, c.subs)
 	}
 }
+
+// A Claude Code session agtop doesn't run has no task events: its
+// transcript says which runs are working. One quiet for minutes (a long
+// command, a long think) whose call has no answer yet is running, in the
+// dock and the view, until it answers.
+func TestQuietSubagentOfATerminalSession(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "s.jsonl")
+	subs := filepath.Join(dir, "s", "subagents")
+	os.MkdirAll(subs, 0o755)
+	os.WriteFile(filepath.Join(subs, "agent-a1.meta.json"), []byte(`{"agentType":"Explore","description":"dig","toolUseId":"tA"}`), 0o644)
+	run := filepath.Join(subs, "agent-a1.jsonl")
+	os.WriteFile(run, []byte(`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"dig"}}`+"\n"), 0o644)
+	old := time.Now().Add(-6 * time.Minute)
+	os.Chtimes(run, old, old)
+	os.WriteFile(main, []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tA","name":"Agent","input":{"description":"dig"}}]}}`+"\n"), 0o644)
+
+	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}, path: main}
+	m := &Model{snap: &fleet.Snapshot{}, host: c}
+	m.refreshSubs()
+	if len(c.subs) != 1 || len(c.runningSubs()) != 1 {
+		t.Fatalf("runs %v, running %v", c.subs, c.runningSubs())
+	}
+	f, _ := os.OpenFile(main, os.O_APPEND|os.O_WRONLY, 0o644)
+	f.WriteString(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tA","content":"dug"}]}}` + "\n")
+	f.Close()
+	m.refreshSubs()
+	if st, live := c.subState(c.subs[0]); live || st != "completed" {
+		t.Fatalf("after its answer: %q live %v", st, live)
+	}
+}

@@ -441,7 +441,7 @@ func (m *Model) targets() []fleet.Target {
 	var targets []fleet.Target
 	for _, a := range m.snap.Agents {
 		if a.TranscriptPath != "" {
-			targets = append(targets, fleet.Target{Key: a.Key, Path: a.TranscriptPath, Live: a.Live() || a.PID != 0, Past: a.Past})
+			targets = append(targets, fleet.Target{Key: a.Key, Path: a.TranscriptPath, Live: a.Live() || a.PID != 0 || a.Subs.Direct+a.Subs.Nested > 0, Past: a.Past})
 		}
 	}
 	return targets

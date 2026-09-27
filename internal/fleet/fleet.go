@@ -274,15 +274,19 @@ func (l *Loader) syncUsage() {
 }
 
 type subsEntry struct {
-	st  claude.SubagentStats
-	at  time.Time
-	dir time.Time // the subagents folder's time when counted
+	st   claude.SubagentStats
+	at   time.Time
+	dir  time.Time // the subagents folder's time when counted
+	main int64     // the transcript's size when counted
+	runs *claude.SubagentRuns
 }
 
 // subagents counts an agent's subagent runs, and those still working.
-// Counting reads the folder and every run's time, so it's done again only
-// when a run started (the folder changed), when some were working (they
-// may have stopped), or after 30s.
+// Whether one is working is read from the transcripts (SubagentRuns): its
+// call without a result, or a background launch not yet reported done,
+// however long the run itself has been quiet. It's counted again when a run
+// started (the folder changed), when the transcript grew (a run ended or
+// was woken), when some were working, or after 30s.
 func (l *Loader) subagents(key, transcript string, now time.Time) claude.SubagentStats {
 	var dir time.Time
 	if st, err := os.Stat(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")); err == nil {
@@ -290,12 +294,19 @@ func (l *Loader) subagents(key, transcript string, now time.Time) claude.Subagen
 	} else {
 		return claude.SubagentStats{}
 	}
+	var main int64
+	if st, err := os.Stat(transcript); err == nil {
+		main = st.Size()
+	}
 	e, ok := l.subs[key]
 	working := e.st.Direct+e.st.Nested > 0
-	if ok && e.dir.Equal(dir) && now.Sub(e.at) < 30*time.Second && (!working || now.Sub(e.at) < 3*time.Second) {
+	if ok && e.runs != nil && e.dir.Equal(dir) && e.main == main && now.Sub(e.at) < 30*time.Second && (!working || now.Sub(e.at) < 3*time.Second) {
 		return e.st
 	}
-	e = subsEntry{st: claude.ReadSubagentStats(transcript, now), at: now, dir: dir}
+	if e.runs == nil {
+		e.runs = &claude.SubagentRuns{}
+	}
+	e.st, e.at, e.dir, e.main = e.runs.Stats(transcript, now), now, dir, main
 	l.subs[key] = e
 	return e.st
 }

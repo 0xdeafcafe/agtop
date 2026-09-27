@@ -119,6 +119,7 @@ func (s *Session) applyJob(ev any, now time.Time) {
 	switch ev := ev.(type) {
 	case headless.TaskStarted:
 		j := s.job(ev.ID, now)
+		s.reopenJob(j, now)
 		j.ToolUseID, j.Type, j.Background = ev.ToolUseID, ev.Type, ev.Backgrounded
 		j.Label = firstNonEmpty(ev.Description, ev.Workflow, j.Label)
 		j.Agent = firstNonEmpty(ev.SubagentType, j.Agent)
@@ -159,6 +160,17 @@ func (s *Session) applyJob(ev any, now time.Time) {
 	}
 }
 
+// reopenJob starts again a task that had ended: a subagent a message was
+// sent to after it finished runs again under the same id, and Claude Code
+// starts it (and lists it in the background) anew.
+func (s *Session) reopenJob(j *Job, now time.Time) {
+	if j.Running() {
+		return
+	}
+	j.Status, j.Error, j.End, j.Start, j.OutputFile = "", "", time.Time{}, now, ""
+	delete(s.TaskStatus, j.ID)
+}
+
 // backgroundNow takes Claude Code's list of what runs in the background:
 // each one there is running and backgrounded, and a backgrounded one no
 // longer there has ended (how comes after, if Claude Code says).
@@ -167,6 +179,7 @@ func (s *Session) backgroundNow(list []headless.BackgroundTask, now time.Time) {
 	for _, t := range list {
 		on[t.ID] = true
 		j := s.job(t.ID, now)
+		s.reopenJob(j, now)
 		j.Background = true
 		j.Type = firstNonEmpty(j.Type, t.Type)
 		j.Label = firstNonEmpty(j.Label, t.Description)

@@ -20,6 +20,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/fswait"
@@ -71,6 +72,10 @@ func (m *Model) refreshSubs() tea.Cmd {
 		return nil
 	}
 	c.subs = c.subList.List(c.path)
+	if len(c.subs) > 0 {
+		// Which runs are still working, from the transcripts' word.
+		c.subRuns.Update(c.path)
+	}
 	if c.subPeek != nil {
 		_, _ = c.subPeek.Read()
 	}
@@ -270,12 +275,20 @@ func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
 		}
 		return status, j.Running()
 	}
-	// No word that it finished, and it wrote recently: still working.
-	live = status == "" && !last.IsZero() && time.Since(last) < 90*time.Second
+	// Otherwise the transcripts say: its call without a result, or a
+	// background launch with no word yet that it finished, is working
+	// however quiet it is; with no word of it, it's working while it writes.
+	if rs, _, _ := c.subRuns.State(sa.ID, sa.ToolUseID); status != "" && rs != claude.RunRunning {
+		return status, false // Claude Code said how it ended, and nothing woke it since
+	}
+	live, ended := c.subRuns.Going(sa.ID, sa.ToolUseID, last, time.Now())
 	if st != nil && st.Status == convo.Running {
 		live = true
 	}
-	return status, live
+	if live {
+		return "", true
+	}
+	return firstNonEmpty(status, ended), false
 }
 
 // runningSubs are the subagent runs still working, the latest started
@@ -838,6 +851,7 @@ type hostConn struct {
 	subReading bool // runs' numbers are being read in the background
 	subOpen    string
 	subList    convo.Subagents       // finds the runs, reading each one's meta once
+	subRuns    claude.SubagentRuns   // which runs the transcripts say are still working
 	subSel     string                // selection inside the opened subagent
 	subHover   string                // the run under the pointer, or "subback" for the banner
 	runPick    int                   // where the pick last was among the dock's running subagents
