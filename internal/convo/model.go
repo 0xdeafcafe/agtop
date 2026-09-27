@@ -621,7 +621,7 @@ func exitCode(st *Step) int {
 func isRejection(text string) bool {
 	t := strings.ToLower(text)
 	for _, k := range []string{"user declined", "user rejected", "doesn't want to proceed", "tool use was rejected",
-		"requires approval", "permission to use", "haven't granted", "has been denied"} {
+		"requires approval", "permission to use", "haven't granted", "has been denied", "auto mode classifier"} {
 		if strings.Contains(t, k) {
 			return true
 		}

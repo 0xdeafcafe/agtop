@@ -1379,6 +1379,9 @@ func (d *drawer) statusMark(st *Step) string {
 	case Waiting:
 		return paint(cYellow, "●")
 	case Denied:
+		if _, ok := classified(st); ok {
+			return paint(cYellow, "⊘")
+		}
 		return dim("⊘")
 	default:
 		return dim("◌")
@@ -1433,6 +1436,7 @@ func (d *drawer) step(st *Step, depth int) {
 		d.body(st, indent+4)
 	}
 	d.cards(st, indent+2)
+	d.denial(st, indent+2)
 	// A subagent shows its own steps while it works, or when opened.
 	if len(st.Children) > 0 && (st.Status == Running || open) {
 		for _, c := range st.Children {
@@ -2060,6 +2064,10 @@ func (d *drawer) body(st *Step, indent int) {
 			d.add("", "", d.spine()+strings.Repeat(" ", indent-1)+faint("no output"), "")
 			return
 		}
+	}
+	// Auto mode's card says why; its instructions to Claude are noise.
+	if _, ok := classified(st); ok && !d.o.Verbose {
+		return
 	}
 	d.output(strings.TrimLeft(exitRe.ReplaceAllString(toolErrTag.Replace(st.Output), ""), "\n"), indent, st.Status == Failed)
 }
