@@ -554,7 +554,12 @@ func slashMatches(c *hostConn) []headless.Command {
 		return nil
 	}
 	lists := [][]headless.Command{c.sess.Commands, c.local}
-	if start == 0 {
+	_, other := otherAgent(c)
+	switch {
+	case start == 0 && other:
+		// Claude Code's screens are its own, not another agent's.
+		lists = append([][]headless.Command{sessionCommands(c)}, lists...)
+	case start == 0:
 		lists = append([][]headless.Command{agtopCommands, claudeScreens}, lists...)
 		lists = append(lists, claudeCloudPicks)
 	}
@@ -804,6 +809,10 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 	}
 	if why := offCommands[name]; why != "" {
 		m.flash("/"+name+" isn't in agtop: "+why, true)
+		return nil, true
+	}
+	if ag, ok := otherAgent(c); ok && (!canRun(c, name) || agtopScreens[name]) {
+		m.flash("/"+name+" is Claude Code's; "+ag.Name()+" can't do it", true)
 		return nil, true
 	}
 	if cloud, ok := claudeCloudName(name); ok && a != nil {
