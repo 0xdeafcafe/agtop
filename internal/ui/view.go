@@ -38,7 +38,7 @@ func (m *Model) View() tea.View {
 func (m *Model) title() string {
 	n := 0
 	for _, a := range m.snap.Agents {
-		if a.NeedsYou() {
+		if a.NeedsYou() || a.Halted() && !a.Seen {
 			n++
 		}
 	}
@@ -1417,6 +1417,10 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked 
 	switch {
 	case a.Checking:
 		marker = paint(cSub, "◔")
+	case a.Halted():
+		marker = paint(cRed, "✗")
+	case a.YourTurn(now):
+		marker = paint(cGreen, "◆")
 	case a.JustFinished(now):
 		marker = paint(cGreen, "✓")
 	case a.NeedsYou():
@@ -1492,7 +1496,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked 
 	// Working rows are bright, not bold, so six of them don't drown one.
 	nameColor := cSub
 	switch {
-	case sel || a.NeedsYou() || a.Waiting():
+	case sel || a.NeedsYou() || a.Waiting() || a.Halted() || a.YourTurn(now):
 		nameColor = cText + bold
 	case live || busy:
 		nameColor = cText
@@ -1531,6 +1535,13 @@ func (m *Model) rowSummary(a *fleet.Agent) (summary, sumColor string, justDone b
 	switch {
 	case a.Checking:
 		summary, sumColor = "turn ended · checking…", cDim
+	case a.Halted():
+		summary, sumColor = "stopped · "+oneLine(a.HaltReason()), cRed
+	case a.YourTurn(now) && !a.JustFinished(now):
+		summary, sumColor = oneLine(a.Detail), cSub
+		if summary == "" {
+			summary = "finished its turn"
+		}
 	case a.JustFinished(now):
 		summary, sumColor = oneLine(a.Detail), cDim
 		justDone = true
@@ -1830,6 +1841,9 @@ func (m *Model) promptLines(w int) []string {
 			pairs = []string{"enter", "rename", "⌘↓ · tab", "talk to it", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "tab", "its Session"}
 		default:
 			pairs = []string{"enter", "rename", "⌘↓ · tab", "open", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session"}
+		}
+		if a != nil && (a.Halted() || a.YourTurn(m.snap.At)) {
+			pairs = append([]string{"alt+g", a.ContinueText()}, pairs...)
 		}
 		if m.newer.Version != "" && !m.updating {
 			pairs = append([]string{"#update", "new agtop"}, pairs...)

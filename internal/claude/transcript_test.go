@@ -76,3 +76,29 @@ func TestProjectSlug(t *testing.T) {
 		t.Fatal(s)
 	}
 }
+
+func TestScanKeepsTheErrorATurnEndedOn(t *testing.T) {
+	limit := `{"type":"assistant","timestamp":"2026-09-23T10:02:00Z","isApiErrorMessage":true,"error":"rate_limit","message":{"id":"x","model":"<synthetic>","content":[{"type":"text","text":"You've hit your session limit · resets 5am (Europe/London)\nmore"}]}}`
+	unasked := `{"type":"assistant","timestamp":"2026-09-23T10:03:00Z","isApiErrorMessage":true,"message":{"id":"y","model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}`
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	if err := os.WriteFile(p, []byte(next+"\n"+limit+"\n"+unasked+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var tot Totals
+	if _, err := Scan(p, &tot, nil); err != nil {
+		t.Fatal(err)
+	}
+	if tot.Halt == nil || tot.Halt.Kind != "rate_limit" || tot.Halt.Text != "You've hit your session limit · resets 5am (Europe/London)" {
+		t.Fatalf("halt %+v", tot.Halt)
+	}
+	// A real reply afterwards means it carried on.
+	f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0)
+	f.WriteString(block2 + "\n")
+	f.Close()
+	if _, err := Scan(p, &tot, nil); err != nil {
+		t.Fatal(err)
+	}
+	if tot.Halt != nil {
+		t.Fatalf("halt survived a reply: %+v", tot.Halt)
+	}
+}

@@ -519,9 +519,10 @@ func (m *Model) loadLivePreviews() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// markSeen acknowledges an agent's question until it asks something new.
+// markSeen acknowledges an agent's question, finished turn or error until
+// it has something new.
 func (m *Model) markSeen(a *fleet.Agent) {
-	if a == nil || a.State != "blocked" {
+	if a == nil || a.State != "blocked" && !a.Halted() && !a.YourTurn(m.snap.At) {
 		return
 	}
 	m.store.Overlay.Seen[a.Key] = time.Now()
@@ -1169,7 +1170,7 @@ func (m *Model) notify() {
 		}
 		prev := m.lastState[a.Key]
 		m.lastState[a.Key] = a.State
-		failing := strings.HasPrefix(a.Detail, "API error") || strings.HasPrefix(a.Detail, "usage limit")
+		failing := strings.HasPrefix(a.Detail, "API error") || strings.HasPrefix(a.Detail, "usage limit") || a.Halted()
 		wasFailing := m.lastErr[a.Key]
 		m.lastErr[a.Key] = failing
 		if !first && prev != "" {
@@ -1193,6 +1194,11 @@ func (m *Model) notify() {
 				body = oneLine(a.Detail)
 			}
 			actions.Notify(a.DisplayName+" needs you", body)
+		}
+		// A turn that died on an error goes nowhere until someone says so;
+		// the menu bar only knows about questions, so this is said here.
+		if !first && !m.store.Config.Quiet && prev != "" && a.Halted() && !wasFailing && !watching {
+			actions.Notify(a.DisplayName+" stopped", a.HaltReason())
 		}
 	}
 }
@@ -1338,16 +1344,20 @@ func (m *Model) rebuild() {
 		switch {
 		case a.NeedsYou():
 			add("Needs you", 0, a)
-		case a.Waiting():
-			add("Waiting on you", 3, a)
+		case a.Halted() && !a.Seen:
+			add("Needs you", 0, a) // it stopped on an error and won't go on by itself
+		case a.Waiting() || a.Halted():
+			add("Waiting on you", 4, a)
+		case a.YourTurn(now):
+			add("Your turn", 1, a) // finished without asking; often wants "keep going"
 		case a.Checking || a.JustFinished(now):
-			add("Working", 2, a)
+			add("Working", 3, a)
 		case a.Pinned:
-			add("Pinned", 1, a)
+			add("Pinned", 2, a)
 		case a.Live() || a.Busy():
-			add("Working", 2, a)
+			add("Working", 3, a)
 		case a.PID != 0:
-			add("Idle", 5, a)
+			add("Idle", 6, a)
 		case !fresh:
 			add("Earlier", 9, a)
 		case a.Done:
@@ -1360,11 +1370,11 @@ func (m *Model) rebuild() {
 					name += " · " + a.Branch
 				}
 			}
-			add(name, 4, a)
+			add(name, 5, a)
 		case by == "account":
-			add(a.Acct.Name, 4, a)
+			add(a.Acct.Name, 5, a)
 		case by == "group" && a.Group != "":
-			add(a.Group, 4, a)
+			add(a.Group, 5, a)
 		default:
 			add("Today", 7, a)
 		}

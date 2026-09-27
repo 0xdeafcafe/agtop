@@ -20,6 +20,7 @@ import (
 // <> needs an argument; one in [] can go without.
 var fleetCommands = []headless.Command{
 	{Name: "done", Description: "move the agent to Done (alt+d); its idle process stops"},
+	{Name: "go", Description: "tell the agent to keep going (alt+g); after an error, to continue"},
 	{Name: "stop", Description: "stop the agent"},
 	{Name: "rm", Description: "delete the session, and its worktree when that's safe"},
 	{Name: "kill", Description: "kill the agent and everything it started"},

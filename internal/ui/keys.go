@@ -440,6 +440,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "alt+d":
 		// Done with it: to Done, its idle process stopped.
 		return m.markDone(a)
+	case "alt+g":
+		// Go on: what "keep going" in its message box would do.
+		return m.keepGoing(a)
 	case "shift+up", "shift+down":
 		n := m.dockLines()
 		if s == "shift+up" {
@@ -637,6 +640,47 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 	return nil
 }
 
+// replyTo sends text to an agent however it takes messages: its host, a
+// resume into agtop mode, its queue while it's busy, or Claude Code.
+// tagged is the text with its pastes marked, for agtop sessions.
+func (m *Model) replyTo(a *fleet.Agent, text, tagged string) tea.Cmd {
+	m.markSeen(a)
+	m.flash("sending to "+a.DisplayName+"…", false)
+	m.loader.Nudge(a.Key)
+	m.refresh()
+	if a.Agtop {
+		return sendHosted(a, tagged)
+	}
+	text = withImages(text, m.images)
+	m.images = nil
+	if a.Past {
+		return m.moveToAgtopWith(a, text)
+	}
+	if q := m.localQ[a.Key]; busy(a) || q != nil && len(q.items) > 0 {
+		m.queueLocal(a.Key, text)
+		m.flash(fmt.Sprintf("queued for %s · goes within 15s", a.DisplayName), false)
+		return nil
+	}
+	return reply(a, text)
+}
+
+// keepGoing tells an agent that stopped to go on: "keep going" after a
+// finished turn, "continue" after an error.
+func (m *Model) keepGoing(a *fleet.Agent) tea.Cmd {
+	switch {
+	case a == nil:
+		m.flash("select an agent first", true)
+		return nil
+	case a.Interactive:
+		m.flash(a.DisplayName+" is open in another terminal", true)
+		return nil
+	case a.Live() || a.Busy():
+		m.flash(a.DisplayName+" is still working", false)
+		return nil
+	}
+	return m.replyTo(a, a.ContinueText(), a.ContinueText())
+}
+
 func (m *Model) submit() tea.Cmd {
 	text := strings.TrimSpace(m.pastes.expand(string(m.input), false))
 	tagged := strings.TrimSpace(m.pastes.expand(string(m.input), true)) // for agtop sessions
@@ -691,24 +735,7 @@ func (m *Model) submit() tea.Cmd {
 			return nil
 		}
 		m.inKind = inReply
-		m.markSeen(a)
-		m.flash("sending to "+a.DisplayName+"…", false)
-		m.loader.Nudge(a.Key)
-		m.refresh()
-		if a.Agtop {
-			return sendHosted(a, tagged)
-		}
-		text = withImages(text, m.images)
-		m.images = nil
-		if a.Past {
-			return m.moveToAgtopWith(a, text)
-		}
-		if q := m.localQ[a.Key]; busy(a) || q != nil && len(q.items) > 0 {
-			m.queueLocal(a.Key, text)
-			m.flash(fmt.Sprintf("queued for %s · goes within 15s", a.DisplayName), false)
-			return nil
-		}
-		return reply(a, text)
+		return m.replyTo(a, text, tagged)
 	}
 	if text == "" {
 		return m.attach(a)
@@ -782,6 +809,10 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		m.flash("Getting started and tips from the top", false)
 	case "done":
 		return m.markDone(a)
+	case "go":
+		if need() {
+			return m.keepGoing(a)
+		}
 	case "clean":
 		if strings.TrimSpace(arg) == "all" {
 			m.askCleanAll()

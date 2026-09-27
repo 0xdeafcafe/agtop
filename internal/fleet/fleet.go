@@ -131,6 +131,7 @@ type Spend struct {
 	Dirs  []string // folders the agent worked in, subagents included
 	Today float64
 	Ready bool
+	Halt  *claude.Halt // the error its last turn ended on, if any
 }
 
 type AccountView struct {

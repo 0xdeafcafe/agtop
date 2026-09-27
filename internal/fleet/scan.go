@@ -121,6 +121,10 @@ func (s *Scanner) Run(targets []Target) map[string]Spend {
 			if f == t.Path {
 				sp.Model = tot.LastModel
 				sp.First, sp.Last = tot.First, tot.Last
+				if tot.Halt != nil {
+					h := *tot.Halt
+					sp.Halt = &h
+				}
 			}
 			if tot.Last.After(sp.Last) {
 				sp.Last = tot.Last

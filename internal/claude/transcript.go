@@ -37,6 +37,18 @@ type Totals struct {
 	PendingUse   TokenUsage `json:"pu"`
 	PendingFast  bool       `json:"pf,omitempty"`
 	PendingAt    time.Time  `json:"pa"`
+	// Halt is the error the session's last turn ended on, if it ended on
+	// one; the next real reply clears it.
+	Halt *Halt `json:"h,omitempty"`
+}
+
+// Halt is a turn Claude Code ended on an error instead of an answer: the
+// API was out of reach, or a usage limit was hit. Nothing more happens
+// until someone says go on.
+type Halt struct {
+	Kind string    `json:"k"` // Claude Code's error: rate_limit, server_error, authentication_failed…
+	Text string    `json:"t"` // what it told the user, first line
+	At   time.Time `json:"a"`
 }
 
 func Day(t time.Time) string { return t.Local().Format("2006-01-02") }
@@ -98,6 +110,8 @@ type line struct {
 	Type      string    `json:"type"`
 	Timestamp time.Time `json:"timestamp"`
 	Cwd       string    `json:"cwd"`
+	APIError  bool      `json:"isApiErrorMessage"`
+	Error     string    `json:"error"`
 	Message   struct {
 		ID      string          `json:"id"`
 		Model   string          `json:"model"`
@@ -196,6 +210,12 @@ func consume(t *Totals, b []byte) {
 		}
 	}
 	m := l.Message
+	switch {
+	case l.APIError && l.Error != "":
+		t.Halt = &Halt{Kind: l.Error, Text: firstText(m.Content), At: l.Timestamp}
+	case m.Model != "" && m.Model != "<synthetic>":
+		t.Halt = nil // it answered after all
+	}
 	if m.Usage == nil || m.Model == "" || m.Model == "<synthetic>" {
 		return
 	}
@@ -212,6 +232,24 @@ func consume(t *Totals, b []byte) {
 	t.PendingFast = m.Usage.Speed == "fast"
 	t.PendingAt = l.Timestamp
 	t.LastModel = m.Model
+}
+
+// firstText is the first line of a message's first text block.
+func firstText(content json.RawMessage) string {
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		return ""
+	}
+	for _, b := range blocks {
+		if b.Type == "text" && b.Text != "" {
+			first, _, _ := strings.Cut(strings.TrimSpace(b.Text), "\n")
+			return first
+		}
+	}
+	return ""
 }
 
 func addUnique(s *[]string, v string) {
