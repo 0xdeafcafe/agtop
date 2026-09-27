@@ -107,7 +107,10 @@ func TestHostRunsAnyAgent(t *testing.T) {
 
 	// Idle past IdleStop it rests, and the next message resumes the
 	// session the agent named.
-	next(t, c, func(ev any) bool { i, ok := ev.(InfoEvent); return ok && i.Info.State == "idle" && i.Info.ClaudePID == 0 })
+	next(t, c, func(ev any) bool {
+		i, ok := ev.(InfoEvent)
+		return ok && i.Info.State == "idle" && i.Info.ClaudePID == 0
+	})
 	time.Sleep(100 * time.Millisecond)
 	if err := c.Send("again"); err != nil {
 		t.Fatal(err)
