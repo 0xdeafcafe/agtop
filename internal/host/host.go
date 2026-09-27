@@ -28,6 +28,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -84,6 +86,9 @@ type Config struct {
 	// Env is added to Claude Code's environment (KEY=value), on every start
 	// of it: idle restarts and resumes too.
 	Env []string `json:"env,omitempty"`
+	// Kind is the agent the session runs, through its adapter: empty is
+	// Claude Code, run by headless.
+	Kind string `json:"kind,omitempty"`
 }
 
 // Branch is a path of the conversation that /rewind left: its own
@@ -143,6 +148,8 @@ type Info struct {
 	// Proto is what the host can do, so a newer agtop can tell a host from
 	// an older one (0) that needs restarting to do it: see Proto.
 	Proto int `json:"proto,omitempty"`
+	// Kind is the agent it runs: empty is Claude Code.
+	Kind string `json:"kind,omitempty"`
 	// StartedBy is the plugin that started it, if one did.
 	StartedBy string `json:"startedBy,omitempty"`
 	// Meta is the config's, as it started with.
@@ -166,7 +173,7 @@ type Task struct {
 // Proto is this build's host protocol: 1 adds rewind, 2 context usage and
 // control requests passed through (the ask op), 3 moving a running tool
 // to the background (the background op) and Info.Background.
-const Proto = 3
+const Proto = 4
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
@@ -250,8 +257,12 @@ type server struct {
 	cfg Config
 	ln  net.Listener
 
-	mu      sync.Mutex
-	sess    *headless.Session
+	mu   sync.Mutex
+	sess *headless.Session
+	// conn is the running session of an agent other than Claude Code, and
+	// options each of its approvals' answers.
+	conn    agent.Conn
+	options map[string][]event.Option
 	began   bool     // the conversation has a transcript to resume
 	ring    [][]byte // big lines packed: see pack
 	ringN   int      // the ring's size as written
@@ -322,7 +333,7 @@ func Run(id string) error {
 		cfg: cfg, ln: ln, began: cfg.Resume,
 		clients: map[*conn]struct{}{}, pending: map[string]headless.PermissionRequest{},
 		quit: make(chan struct{}),
-		info: Info{ID: cfg.ID, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
+		info: Info{ID: cfg.ID, Kind: cfg.Kind, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
 			HostPID: os.Getpid(), State: "idle", Proto: Proto, Model: cfg.Model, Effort: cfg.Effort, PermissionMode: cfg.PermissionMode,
 			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta},
 	}
@@ -351,8 +362,11 @@ func (s *server) accept() {
 
 // start launches Claude Code if it is not running. Called with mu held.
 func (s *server) start() error {
-	if s.sess != nil {
+	if s.sess != nil || s.conn != nil {
 		return nil
+	}
+	if s.cfg.other() {
+		return s.startAgent()
 	}
 	o := headless.Options{
 		Account: s.cfg.Account, Dir: s.cfg.Cwd, Model: s.cfg.Model, Effort: s.cfg.Effort,
@@ -414,6 +428,10 @@ func (s *server) start() error {
 // detach forgets the running process so nothing more is sent to it, and
 // returns it for stopping outside the lock. Called with mu held.
 func (s *server) detach() *headless.Session {
+	if c := s.conn; c != nil {
+		s.conn = nil
+		go stopAgent(c)
+	}
 	sess := s.sess
 	s.sess = nil
 	s.info.ClaudePID = 0
@@ -588,10 +606,12 @@ func relayOnly(l []byte) bool {
 	return isStreamEvent(l) || bytes.HasPrefix(l, []byte(`{"type":"user"`))
 }
 
-func isStreamEvent(l []byte) bool { return bytes.HasPrefix(l, []byte(`{"type":"stream_event"`)) }
+func isStreamEvent(l []byte) bool {
+	return bytes.HasPrefix(l, []byte(`{"type":"stream_event"`)) || isEventLine(l, "delta", "part_start", "message_start")
+}
 
 func isWholeMessage(l []byte) bool {
-	return bytes.HasPrefix(l, []byte(`{"type":"assistant"`)) || bytes.HasPrefix(l, []byte(`{"type":"user"`))
+	return bytes.HasPrefix(l, []byte(`{"type":"assistant"`)) || bytes.HasPrefix(l, []byte(`{"type":"user"`)) || isEventLine(l, "message")
 }
 
 // watch follows one Claude Code process until it exits.
@@ -1064,8 +1084,17 @@ func (s *server) armIdle() {
 	if s.idle != nil {
 		s.idle.Stop()
 	}
-	sess := s.sess
+	sess, conn := s.sess, s.conn
 	s.idle = time.AfterFunc(time.Duration(s.cfg.IdleStop), func() {
+		if conn != nil {
+			s.mu.Lock()
+			if s.conn == conn && s.info.State == "idle" {
+				s.detach()
+				s.publish()
+			}
+			s.mu.Unlock()
+			return
+		}
 		// Work Claude left running in the background (a test run, a build)
 		// would be cut off, and never reported back: rest once it's done.
 		if sess != nil && runsShells(sess.PID()) {
@@ -1249,6 +1278,9 @@ func (s *server) deliver(text string, images []string, pics []headless.Image) er
 	s.info.State = "working"
 	s.info.Detail = ""
 	s.publish()
+	if s.conn != nil {
+		return s.conn.Send(agent.Input{Text: text, Images: images})
+	}
 	return s.sess.SendWith(text, pics)
 }
 
@@ -1334,7 +1366,11 @@ func (s *server) do(o op) error {
 		return s.send(o.Text, o.Images, o.Now)
 	}
 	s.mu.Lock()
-	sess := s.sess
+	sess, conn := s.sess, s.conn
+	if s.cfg.other() && (o.Op == "ask" || o.Op == "rewind" || o.Op == "stop_task" || o.Op == "background") {
+		s.mu.Unlock()
+		return fmt.Errorf("%s isn't something this agent can do", o.Op)
+	}
 	switch o.Op {
 	case "ask":
 		// Asleep, it wakes to answer, and rests again once idle.
@@ -1388,13 +1424,16 @@ func (s *server) do(o op) error {
 		return err
 	case "allow", "deny":
 		req, ok := s.pending[o.ID]
-		if !ok || sess == nil {
+		if !ok || (sess == nil && conn == nil) {
 			s.mu.Unlock()
 			return fmt.Errorf("no pending request %s", o.ID)
 		}
 		s.answered(o.ID)
 		s.publish()
 		s.mu.Unlock()
+		if conn != nil {
+			return s.answerAgent(conn, req, o)
+		}
 		if o.Op == "allow" {
 			return sess.Allow(req, o.Input, o.Always)
 		}
@@ -1411,10 +1450,13 @@ func (s *server) do(o op) error {
 		s.cfg.Effort = o.Effort
 		s.info.Effort = o.Effort
 		s.publish()
-		if sess != nil && s.info.State == "idle" {
+		if (sess != nil || conn != nil) && s.info.State == "idle" {
 			s.detach()
 			s.publish()
 			s.mu.Unlock()
+			if sess == nil {
+				return nil
+			}
 			return sess.Stop(10 * time.Second)
 		}
 	case "rewind":
@@ -1436,6 +1478,17 @@ func (s *server) do(o op) error {
 		return nil
 	}
 	s.mu.Unlock()
+	if conn != nil {
+		switch o.Op {
+		case "interrupt":
+			return conn.Interrupt()
+		case "mode":
+			return conn.SetMode(o.Mode)
+		case "model":
+			return conn.SetModel(o.Model)
+		}
+		return nil
+	}
 	if sess == nil {
 		return nil // applied on the next start
 	}

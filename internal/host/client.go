@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
@@ -227,7 +228,8 @@ type Reply struct {
 // Context is what fills the context window, as last counted.
 type Context struct{ Usage headless.ContextUsage }
 
-// Decode reads one line from a host: its own events, or Claude Code's.
+// Decode reads one line from a host: its own events, Claude Code's, or
+// agtop's own events from another agent's session (an event.Event).
 func Decode(line []byte) (any, error) {
 	// Claude Code's lines start with their type; the host's own (and its
 	// echo of what you sent) are written with sorted keys and don't. So
@@ -248,6 +250,7 @@ func Decode(line []byte) (any, error) {
 		ID        string                 `json:"id"`
 		Reply     json.RawMessage        `json:"reply"`
 		T         int64                  `json:"t"`
+		Ev        json.RawMessage        `json:"ev"`
 	}
 	if err := json.Unmarshal(line, &head); err != nil {
 		return nil, err
@@ -270,6 +273,8 @@ func Decode(line []byte) (any, error) {
 		return Context{Usage: *head.Context}, nil
 	case typeTime:
 		return Stamp{At: time.UnixMilli(head.T)}, nil
+	case typeEvent:
+		return event.Unmarshal(head.Ev)
 	}
 	if head.Sent {
 		var m struct {
