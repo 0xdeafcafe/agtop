@@ -14,6 +14,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/ui"
@@ -21,9 +23,12 @@ import (
 
 const sessionUsage = `agtop session: run agtop-mode sessions without the view
 
-  agtop session start --cwd DIR [--session-id UUID] [--resume] [--name N]
+  agtop session start --cwd DIR [--agent KIND] [--session-id UUID] [--resume] [--name N]
         [--prompt-file F] [--image PATH]... [--env K=V]... [--meta k=v]...
         [--binary PATH] [--model M] [--effort E] [--permission-mode M] [--json]
+
+  --agent is the agent to run: claude (the default), codex, copilot, gemini,
+  kimi, opencode or vibe.
   agtop session send <id> [--now] [--image PATH]...   message text on stdin
   agtop session interrupt <id>
   agtop session stop <id>
@@ -163,11 +168,12 @@ func waitInfo(id string) (host.Info, error) {
 func sessionStart(args []string, stdout io.Writer) (bool, error) {
 	fs := newFlags("start")
 	var (
-		cwd, sessionID, name, promptFile, binary, model, effort, mode string
-		resume, asJSON                                                bool
-		images, env, meta                                             multi
+		cwd, sessionID, name, promptFile, binary, model, effort, mode, kind string
+		resume, asJSON                                                      bool
+		images, env, meta                                                   multi
 	)
 	fs.StringVar(&cwd, "cwd", "", "")
+	fs.StringVar(&kind, "agent", "", "")
 	fs.StringVar(&sessionID, "session-id", "", "")
 	fs.BoolVar(&resume, "resume", false, "")
 	fs.StringVar(&name, "name", "", "")
@@ -265,6 +271,14 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 	if st, err := os.Stat(cfg.Cwd); err != nil || !st.IsDir() {
 		return asJSON, fmt.Errorf("--cwd %s is not a folder", cfg.Cwd)
 	}
+	if kind != "" && kind != "claude" {
+		if err := agentProfile(&cfg, kind); err != nil {
+			return asJSON, err
+		}
+		// The defaults in Settings are Claude Code's model, effort and
+		// modes: another agent starts with its own unless told.
+		d = state.Dispatch{Lean: d.Lean, RestMinutes: d.RestMinutes}
+	}
 	if cfg.Account.ConfigDir == "" {
 		cfg.Account = st.Config.ActiveAccount()
 	}
@@ -307,6 +321,33 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 		return asJSON, err
 	}
 	return show(info)
+}
+
+// agentProfile sets cfg to run kind, in its first profile.
+func agentProfile(cfg *host.Config, kind string) error {
+	a, ok := agent.Get(agent.Kind(kind))
+	if !ok {
+		var kinds []string
+		for _, a := range agent.All() {
+			kinds = append(kinds, string(a.Kind()))
+		}
+		return fmt.Errorf("agtop doesn't know the agent %q: it knows %s", kind, strings.Join(kinds, ", "))
+	}
+	if _, ok := a.(agent.Driver); !ok {
+		return fmt.Errorf("agtop can't run %s sessions", a.Name())
+	}
+	if cfg.Kind != "" && cfg.Kind != kind {
+		return fmt.Errorf("session %s is a %s session, not %s", cfg.ID, cfg.Kind, kind)
+	}
+	cfg.Kind = kind
+	if cfg.Account.ConfigDir == "" {
+		ps := a.Profiles()
+		if len(ps) == 0 {
+			return fmt.Errorf("%s isn't installed: agtop can't find %s's program", a.Name(), a.Name())
+		}
+		cfg.Account = claude.Account{Name: ps[0].Name, ConfigDir: ps[0].Dir}
+	}
+	return nil
 }
 
 func hasFlag(args []string, f string) bool {
