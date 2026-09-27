@@ -666,6 +666,18 @@ func (m *Model) barPlaces(q string) []barItem {
 			return m.attach(a)
 		})
 	}
+	drafts := "sent and cleared too · alt+s keeps one, alt+p brings it back"
+	if n := draftCount(); n > 0 {
+		drafts = fmt.Sprintf("%d waiting · ", n) + drafts
+	}
+	add(paint(cSub, "◇"), "Drafts", drafts, "drafts sent cleared history messages typed before", func(m *Model) tea.Cmd {
+		var c *hostConn
+		if m.paneFocus {
+			c = m.host
+		}
+		m.openDrafts(c)
+		return nil
+	})
 	add(paint(cSub, "◇"), "Folder for new sessions", tildify(m.startDir()), "start dir cwd", func(m *Model) tea.Cmd {
 		m.goView(placeAgents)
 		m.openDirPicker()

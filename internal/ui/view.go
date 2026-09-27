@@ -1843,13 +1843,13 @@ func (m *Model) promptLines(w int) []string {
 		b.holder = "a group name · empty clears it"
 	case m.inKind == inReply && a != nil && !a.Agtop:
 		b.topL = dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…")) + dim(" · enter sends")
-		b.holder = "a message for this agent · esc leaves reply mode"
+		b.holder = draftsHolder("a message for this agent", " · esc leaves reply mode")
 	case typingHash(text):
 		b.topL = dim("agtop command · enter runs it")
 	default:
 		dirs := m.startDirs()
 		b.topL = dim("new session in ") + m.dirLabel(pickDir(dirs, m.dirIdx)) + dim(" · enter starts it")
-		b.holder = "describe a task for a new session"
+		b.holder = draftsHolder("describe a task for a new session", "")
 		if len(dirs) > 1 {
 			b.topR = paint(cSub, "ctrl+l") + dim(" folder")
 		}
@@ -1874,7 +1874,7 @@ func (m *Model) promptLines(w int) []string {
 	var hint string
 	switch {
 	case m.inKind == inReply:
-		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", "?", "guide")
+		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", keySaveDraft, "keep as draft", "?", "guide")
 	case m.inKind != inPrompt:
 		hint = keysFit(w-4, "enter", "save", "esc", "cancel")
 		if m.inKind == inRename {
@@ -1883,7 +1883,7 @@ func (m *Model) promptLines(w int) []string {
 	case typingHash(text):
 		hint = keysFit(w-4, "enter", "run it", "esc", "clear", "?", "guide")
 	case len(m.input) > 0:
-		hint = keysFit(w-4, "enter", "start it", "ctrl+l", "folder", "esc", "clear", "?", "guide")
+		hint = keysFit(w-4, "enter", "start it", keySaveDraft, "keep as draft", "ctrl+l", "folder", "esc", "clear", "?", "guide")
 	case m.peeking():
 		back := "esc"
 		if from := m.agentByKey(m.peekFrom); from != nil {
@@ -2263,7 +2263,9 @@ var helpPages = []struct {
 		{"#", "agtop commands"},
 		{"/", "Claude commands"},
 		{"⌘z · ctrl+/", "undo in a box, a cleared one too"},
-		{"#drafts", "what you typed before · ctrl+r in a Session"},
+		{"alt+s", "keep what's typed as a draft, the box cleared"},
+		{"alt+p", "bring back the latest draft · again for older"},
+		{"#drafts", "drafts, sent and cleared · ctrl+r in a Session"},
 	}},
 	{"▤ Agents", [][2]string{
 		{"↑↓", "pick one"},

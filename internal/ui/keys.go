@@ -406,6 +406,17 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.startRename(a)
 		}
 		return nil
+	case keySaveDraft, keyRecallDraft:
+		// Drafts, in the Prompt or a reply: alt+s keeps what's typed as
+		// one, alt+p brings the latest back, then older ones.
+		if m.inKind == inPrompt || m.inKind == inReply {
+			if s == keySaveDraft {
+				m.savePromptDraft()
+			} else {
+				m.recallPromptDraft()
+			}
+			return nil
+		}
 	case "super+down":
 		// ⌘↓ opens, as in the Finder: into the agent's Session message box.
 		if empty && a != nil && !strings.HasPrefix(m.sel, "§") {

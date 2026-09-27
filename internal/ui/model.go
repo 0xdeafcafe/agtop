@@ -161,6 +161,7 @@ type Model struct {
 	promptFor string
 	listW     int
 	pastes    pastes // long pastes in the main box, shown as chips
+	recall    recall // alt+p going back through the drafts, in the Prompt
 	blurred   bool   // the terminal says agtop isn't the focused window
 	// The terminal's background and text, once it has said; agtop's
 	// colours are made from them.

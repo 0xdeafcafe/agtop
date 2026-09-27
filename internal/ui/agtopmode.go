@@ -790,6 +790,7 @@ type hostConn struct {
 	askN     int
 	pastes   pastes // long pastes shown as chips
 	undo     undoStack
+	recall   recall // alt+p going back through the drafts
 	arts     []*artifact
 	marks    map[string]bool // files marked reviewed in the changes view
 	bodyBuf  []convo.Line    // the conversation\'s lines, reused frame to frame
@@ -1866,7 +1867,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		top = dim("typing returns here · ↓ past the last row or esc")
 	}
 	b := box{w: w, focused: typing, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back), anchor: c.anchor - 1,
-		lead: paint(cOrange, "❯ "), holder: "a message for this agent · ctrl+r for past drafts", maxRows: 6}
+		lead: paint(cOrange, "❯ "), holder: draftsHolder("a message for this agent", " · ctrl+r for past drafts"), maxRows: 6}
 	if mode := s.Info.PermissionMode; mode != "" {
 		b.topR = paint(cOrange, mode)
 	}
@@ -1882,6 +1883,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		pairs[4], pairs[5] = "esc", "close"
 	case m.store.Config.View == "agent" && m.chatAlone() && !m.zen:
 		pairs[5] = "peek at Agents"
+	}
+	// Drafts, next to send: keep what's typed, or bring the latest back.
+	if len(c.input) > 0 {
+		pairs = slices.Insert(pairs, 2, keySaveDraft, "keep as draft")
+	} else if draftCount() > 0 {
+		pairs = slices.Insert(pairs, 2, keyRecallDraft, "latest draft")
 	}
 	if l, _ := m.widths(); l == 0 {
 		// The Session alone: how to have Agents beside it is kept in view.
@@ -2231,6 +2238,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 	case "ctrl+r":
 		m.openDrafts(c)
+		return nil
+	case keySaveDraft:
+		m.saveDraft(c)
+		return nil
+	case keyRecallDraft:
+		m.recallDraft(c)
 		return nil
 	case "space":
 		if empty && c.sel != "" {

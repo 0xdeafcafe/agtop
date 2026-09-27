@@ -46,7 +46,7 @@ var fleetCommands = []headless.Command{
 	{Name: "view", Description: "Agents and the Session side by side, the agent's Session alone, or Agents alone (shift+← →)", ArgumentHint: "<split|agent|list>"},
 	{Name: "dock", Description: "how many lines the agent's card under the list shows", ArgumentHint: "<lines>"},
 	{Name: "native", Description: "open Claude Code's own agents view"},
-	{Name: "drafts", Description: "what you've typed before, sent and cleared, to put back in the box (ctrl+r in a Session)"},
+	{Name: "drafts", Description: "your drafts, what you sent and what you cleared, to put back in the box (ctrl+r in a Session · alt+s keeps one · alt+p brings it back)"},
 	{Name: "help", Description: "a short guide to agtop"},
 	{Name: "update", Description: "install the newest agtop, with go install; reopen agtop to use it"},
 	{Name: "tips", Description: "Getting started and tips from the top; off puts them away", ArgumentHint: "[off]"},
