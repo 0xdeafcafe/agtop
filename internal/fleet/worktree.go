@@ -141,11 +141,19 @@ func FindWorktrees(agents []*Agent) []Worktree {
 // Check looks at a worktree with git: what's uncommitted, what's unpushed,
 // and how much disk it takes. It can take seconds on a big checkout.
 func (w *Worktree) Check() {
+	if w.checkGit() {
+		w.Size = DiskUsage([]TempDir{{Path: w.Path}})
+	}
+}
+
+// checkGit is Check without the size: only what git says, which is all
+// that says whether it's safe to remove.
+func (w *Worktree) checkGit() bool {
 	w.Checked, w.Err = time.Now(), ""
 	status, err := git(w.Path, "status", "--porcelain", "--untracked-files=normal")
 	if err != nil {
 		w.Err = "git status failed"
-		return
+		return false
 	}
 	w.Changed = 0
 	if status != "" {
@@ -158,26 +166,40 @@ func (w *Worktree) Check() {
 		n, err := git(w.Path, "rev-list", "--count", "HEAD", "--not", "--remotes")
 		if err != nil {
 			w.Err = "couldn't compare with the remote"
-			return
+			return false
 		}
 		w.Unpushed, _ = strconv.Atoi(n)
 	}
-	w.Size = DiskUsage([]TempDir{{Path: w.Path}})
+	return true
 }
 
 // RemoveWorktree removes a worktree through git, which also forgets it in
 // the main checkout; its branch stays. Unless force is set, git refuses one
 // with uncommitted changes, and this refuses one with unpushed commits.
 func RemoveWorktree(w Worktree, force bool) error {
+	_, err := removeWorktree(w, force, false)
+	return err
+}
+
+// TidyWorktree is RemoveWorktree unforced, for clean-up: it says how much
+// disk went, measured only once git has said the worktree is safe to go,
+// since walking a big checkout takes seconds.
+func TidyWorktree(w Worktree) (int64, error) { return removeWorktree(w, false, true) }
+
+func removeWorktree(w Worktree, force, measure bool) (int64, error) {
 	if err := linkedWorktree(w); err != nil {
-		return err
+		return 0, err
 	}
 	if !force {
 		c := w
-		c.Check()
+		c.checkGit()
 		if !c.Safe() {
-			return fmt.Errorf("%s isn't safe to remove: %s", filepath.Base(w.Path), firstNonEmpty(c.Losses(), c.Err))
+			return 0, fmt.Errorf("%s isn't safe to remove: %s", filepath.Base(w.Path), firstNonEmpty(c.Losses(), c.Err))
 		}
+	}
+	var size int64
+	if measure {
+		size = DiskUsage([]TempDir{{Path: w.Path}})
 	}
 	args := []string{"worktree", "remove", w.Path}
 	if force {
@@ -186,11 +208,11 @@ func RemoveWorktree(w Worktree, force bool) error {
 	if _, err := git(w.Repo, args...); err != nil {
 		var ee *exec.ExitError
 		if errorsAs(err, &ee) && len(ee.Stderr) > 0 {
-			return fmt.Errorf("git: %s", strings.TrimSpace(string(ee.Stderr)))
+			return 0, fmt.Errorf("git: %s", strings.TrimSpace(string(ee.Stderr)))
 		}
-		return err
+		return 0, err
 	}
-	return nil
+	return size, nil
 }
 
 func firstNonEmpty(s ...string) string {

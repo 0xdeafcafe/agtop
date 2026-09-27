@@ -141,8 +141,8 @@ func (m *Model) tidy() tea.Cmd {
 			if !ready {
 				continue
 			}
-			size := fleet.DiskUsage([]fleet.TempDir{{Path: w.Path}})
-			if err := fleet.RemoveWorktree(w, false); err != nil {
+			size, err := fleet.TidyWorktree(w)
+			if err != nil {
 				msg.kept[w.Path] = err.Error()
 				continue
 			}
@@ -154,8 +154,9 @@ func (m *Model) tidy() tea.Cmd {
 			if err := fleet.CleanTemp(a); err != nil && msg.failed == nil {
 				msg.failed = err
 			}
+			at := time.Now()
 			left := fleet.DiskUsage(a.TempDirs())
-			msg.temp[a.Key] = fleet.TempSize{Bytes: left, At: time.Now()}
+			msg.temp[a.Key] = fleet.TempSize{Bytes: left, At: at, Took: time.Since(at)}
 			msg.freed += before - left
 		}
 		return msg
