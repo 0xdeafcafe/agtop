@@ -391,6 +391,13 @@ func TestQuietSubagentOfATerminalSession(t *testing.T) {
 	if len(c.subs) != 1 || len(c.runningSubs()) != 1 {
 		t.Fatalf("runs %v, running %v", c.subs, c.runningSubs())
 	}
+	// Its process exits with the run unfinished: the run ended with it.
+	m.snap.Agents = []*fleet.Agent{{Key: "k", Interactive: true}}
+	m.refreshSubs()
+	if st, live := c.subState(c.subs[0]); live || st != "ended" {
+		t.Fatalf("process gone: %q live %v", st, live)
+	}
+	m.snap.Agents[0].PID = 42
 	f, _ := os.OpenFile(main, os.O_APPEND|os.O_WRONLY, 0o644)
 	f.WriteString(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tA","content":"dug"}]}}` + "\n")
 	f.Close()

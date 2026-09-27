@@ -73,7 +73,9 @@ func (m *Model) refreshSubs() tea.Cmd {
 	}
 	c.subs = c.subList.List(c.path)
 	if len(c.subs) > 0 {
-		// Which runs are still working, from the transcripts' word.
+		// Which runs are still working, from the transcripts' word; none
+		// is when the session's process is known to have exited.
+		c.subRuns.Gone = m.sessionGone(c)
 		c.subRuns.Update(c.path)
 	}
 	if c.subPeek != nil {
@@ -137,6 +139,19 @@ func (m *Model) followSessionID(c *hostConn) {
 	if a := m.agentByKey(c.key); a != nil {
 		c.path = a.Acct.TranscriptPath(i.Cwd, i.SessionID)
 	}
+}
+
+// sessionGone is whether the session's Claude Code is known to have
+// exited: a hosted one's host says it isn't running and isn't working; a
+// terminal one's process is gone, or it's a conversation nothing has open.
+// A background job's process isn't always known, so it never is.
+func (m *Model) sessionGone(c *hostConn) bool {
+	if c.client != nil {
+		i := c.sess.Info
+		return i.Proto >= 3 && i.ClaudePID == 0 && i.State != "working"
+	}
+	a := m.agentByKey(c.key)
+	return a != nil && (a.Past || a.Interactive && a.PID == 0)
 }
 
 // subStatsMsg brings subagent runs' numbers read in the background.
@@ -282,7 +297,7 @@ func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
 		return status, false // Claude Code said how it ended, and nothing woke it since
 	}
 	live, ended := c.subRuns.Going(sa.ID, sa.ToolUseID, last, time.Now())
-	if st != nil && st.Status == convo.Running {
+	if st != nil && st.Status == convo.Running && !c.subRuns.Gone {
 		live = true
 	}
 	if live {

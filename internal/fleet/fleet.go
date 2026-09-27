@@ -278,16 +278,18 @@ type subsEntry struct {
 	at   time.Time
 	dir  time.Time // the subagents folder's time when counted
 	main int64     // the transcript's size when counted
+	gone bool      // whether its process was known to be gone
 	runs *claude.SubagentRuns
 }
 
 // subagents counts an agent's subagent runs, and those still working.
 // Whether one is working is read from the transcripts (SubagentRuns): its
 // call without a result, or a background launch not yet reported done,
-// however long the run itself has been quiet. It's counted again when a run
+// however long the run itself has been quiet, unless gone says the
+// session's process is known to have exited. It's counted again when a run
 // started (the folder changed), when the transcript grew (a run ended or
 // was woken), when some were working, or after 30s.
-func (l *Loader) subagents(key, transcript string, now time.Time) claude.SubagentStats {
+func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) claude.SubagentStats {
 	var dir time.Time
 	if st, err := os.Stat(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")); err == nil {
 		dir = st.ModTime()
@@ -300,13 +302,14 @@ func (l *Loader) subagents(key, transcript string, now time.Time) claude.Subagen
 	}
 	e, ok := l.subs[key]
 	working := e.st.Direct+e.st.Nested > 0
-	if ok && e.runs != nil && e.dir.Equal(dir) && e.main == main && now.Sub(e.at) < 30*time.Second && (!working || now.Sub(e.at) < 3*time.Second) {
+	if ok && e.runs != nil && e.dir.Equal(dir) && e.main == main && e.gone == gone && now.Sub(e.at) < 30*time.Second && (!working || now.Sub(e.at) < 3*time.Second) {
 		return e.st
 	}
 	if e.runs == nil {
 		e.runs = &claude.SubagentRuns{}
 	}
-	e.st, e.at, e.dir, e.main = e.runs.Stats(transcript, now), now, dir, main
+	e.runs.Gone = gone
+	e.st, e.at, e.dir, e.main, e.gone = e.runs.Stats(transcript, now), now, dir, main, gone
 	l.subs[key] = e
 	return e.st
 }
@@ -484,7 +487,8 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			}
 			a.Spend = l.spend[key]
 			if j.TranscriptPath != "" && (a.Live() || a.PID != 0 || now.Sub(j.UpdatedAt) < 24*time.Hour) {
-				a.Subs = l.subagents(key, j.TranscriptPath, now)
+				// Its process isn't always known, so it's never taken as gone.
+				a.Subs = l.subagents(key, j.TranscriptPath, false, now)
 			}
 			for _, u := range a.Spend.PRs {
 				// Only PRs Claude Code linked to a session; a URL merely
@@ -544,7 +548,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			a.Group = ov.Groups[key]
 			a.Repo, a.Branch = l.gitFor(ss.Cwd, now)
 			a.Spend = l.spend[key]
-			a.Subs = l.subagents(key, j.TranscriptPath, now)
+			a.Subs = l.subagents(key, j.TranscriptPath, false, now) // listed only while its process runs
 			l.sample(tab, a)
 			if a.Live() {
 				av.Live++
@@ -625,7 +629,10 @@ func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Tabl
 	}
 	a.Spend = l.spend[a.Key]
 	if a.Job.TranscriptPath != "" {
-		a.Subs = l.subagents(a.Key, a.Job.TranscriptPath, now)
+		// Its host says whether Claude Code runs: when neither runs, nor
+		// does anything Claude Code started.
+		gone := a.PID == 0 || info.Proto >= 3 && info.ClaudePID == 0 && info.State != "working"
+		a.Subs = l.subagents(a.Key, a.Job.TranscriptPath, gone, now)
 	}
 	// A transcript is priced call by call, subagents and all; the host's
 	// own figure is only for agents that leave none. (Older hosts summed

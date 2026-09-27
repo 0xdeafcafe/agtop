@@ -38,6 +38,11 @@ const (
 // SubagentRuns follows a session's transcript, and its runs' own when one
 // run started another, reading only what each has gained since.
 type SubagentRuns struct {
+	// Gone says the session's own process is known to have exited: a run
+	// the transcripts left unfinished ended with it, at once, rather than
+	// after RunStale. Left false when that can't be told.
+	Gone bool
+
 	path   string
 	files  map[string]int64      // how far each transcript has been read
 	calls  map[string]*agentCall // Agent calls, by tool_use id
@@ -82,7 +87,7 @@ type SubagentRun struct {
 }
 
 func (r *SubagentRuns) reset(path string) {
-	*r = SubagentRuns{path: path, files: map[string]int64{}, calls: map[string]*agentCall{},
+	*r = SubagentRuns{Gone: r.Gone, path: path, files: map[string]int64{}, calls: map[string]*agentCall{},
 		ends: map[string]runEnd{}, woken: map[string]int{}, metas: map[string]runMeta{}}
 }
 
@@ -381,7 +386,8 @@ func (r *SubagentRuns) State(id, toolUseID string) (RunState, string, time.Time)
 
 // Going is whether a run is still working, last written at mod, and how it
 // ended if it has. The transcripts' word counts: a run they call running
-// is, unless it's been silent past RunStale (its process died with it);
+// is, unless its session's process is Gone ("ended"), or, when that can't
+// be told, it's been silent past RunStale (it died with its process);
 // one they call done is, unless it's written since (a message sent to it
 // woke it). With no word, it's running while it writes.
 func (r *SubagentRuns) Going(id, toolUseID string, mod, now time.Time) (bool, string) {
@@ -389,6 +395,9 @@ func (r *SubagentRuns) Going(id, toolUseID string, mod, now time.Time) (bool, st
 	recent := !mod.IsZero() && now.Sub(mod) < runQuiet
 	switch st {
 	case RunRunning:
+		if r.Gone {
+			return false, "ended"
+		}
 		return mod.IsZero() || now.Sub(mod) < RunStale, ""
 	case RunDone:
 		if recent && mod.After(at.Add(5*time.Second)) {

@@ -95,3 +95,30 @@ func TestSubagentRunsFromTheTranscripts(t *testing.T) {
 		t.Errorf("after its second end: going %v, %q", g, how)
 	}
 }
+
+// When the session's own process is known to have exited, a run the
+// transcripts left unfinished ended with it: at once, not after RunStale.
+func TestSubagentRunsEndWithTheirProcess(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "s.jsonl")
+	subs := filepath.Join(dir, "s", "subagents")
+	os.MkdirAll(subs, 0o755)
+	os.WriteFile(filepath.Join(subs, "agent-a1.meta.json"), []byte(`{"toolUseId":"t1"}`), 0o644)
+	p := filepath.Join(subs, "agent-a1.jsonl")
+	os.WriteFile(p, []byte("{}\n"), 0o644)
+	quiet := time.Now().Add(-2 * time.Minute)
+	os.Chtimes(p, quiet, quiet)
+	os.WriteFile(main, []byte(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Agent","input":{}}]}}`+"\n"), 0o644)
+
+	var r SubagentRuns
+	if st := r.Stats(main, time.Now()); st.Direct != 1 {
+		t.Fatalf("can't tell: %+v", st)
+	}
+	r.Gone = true
+	if st := r.Stats(main, time.Now()); st.Direct != 0 || st.Spawned != 1 {
+		t.Fatalf("process gone: %+v", st)
+	}
+	if g, how := r.Going("a1", "t1", quiet, time.Now()); g || how != "ended" {
+		t.Fatalf("going %v, %q", g, how)
+	}
+}
