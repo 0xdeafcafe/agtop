@@ -34,34 +34,67 @@ func TestMemoryView(t *testing.T) {
 	note := filepath.Join(proj, "memory", "work-on-main.md")
 	write(filepath.Join(proj, "memory", "MEMORY.md"), "- [Work on main](work-on-main.md) — no branches\n- [Style](style.md) — commits\n")
 	write(note, "---\nname: work-on-main\ndescription: no worktrees or branches\nmetadata:\n  type: feedback\n---\n\nWork on main.\n")
+	write(filepath.Join(proj, "memory", "stray.md"), "---\nname: stray\ndescription: never indexed\n---\n")
 	write(filepath.Join(root, "src", "CLAUDE.md"), "# parent\n")
+	write(filepath.Join(cfg, "CLAUDE.md"), "@RTK.md\n\nAlso @missing.md, but not `@code.md`.\n")
+	write(filepath.Join(cfg, "RTK.md"), strings.Repeat("x", 400))
 	write(filepath.Join(cwd, ".claude", "settings.local.json"), "{}\n")
 	write(filepath.Join(cwd, ".claude", "skills", "ship", "SKILL.md"), "---\nname: ship\ndescription: ships it\n---\n")
 	write(filepath.Join(cfg, "commands", "git", "push.md"), "Push the branch\n")
 
-	files := memoryFiles(cfg, cwd, proj)
+	files, report := memoryFiles(cfg, cwd, proj)
 	var got []string
 	for _, f := range files {
-		got = append(got, f.Group+"|"+f.Name+"|"+f.Kind+"|"+map[bool]string{true: "missing"}[f.Missing])
+		got = append(got, f.Group+"|"+f.Name+"|"+f.Kind+"|"+map[bool]string{true: "missing"}[f.Missing]+"|"+f.Warn)
 	}
 	want := []string{
-		"Auto memory|MEMORY.md||",
-		"Auto memory|work-on-main|feedback|",
-		"Instructions|" + tildify(filepath.Join(cfg, "CLAUDE.md")) + "||missing",
-		"Instructions|CLAUDE.md||missing",
-		"Instructions|" + tildify(filepath.Join(root, "src", "CLAUDE.md")) + "||",
-		"Settings|" + tildify(filepath.Join(cfg, "settings.json")) + "||missing",
-		"Settings|.claude/settings.local.json||",
-		"Skills|ship||",
-		"Commands|/git:push||",
+		"Auto memory|MEMORY.md|||",
+		"Auto memory|stray|||not in MEMORY.md · found only if recall picks it",
+		"Auto memory|work-on-main|feedback||",
+		"Auto memory|style||missing|line 2 of MEMORY.md points here · no such note",
+		"Instructions|" + tildify(filepath.Join(cfg, "CLAUDE.md")) + "|||",
+		"Instructions|@RTK.md|||",
+		"Instructions|@missing.md||missing|@missing.md doesn't lead to a file",
+		"Instructions|CLAUDE.md||missing|",
+		"Instructions|" + tildify(filepath.Join(root, "src", "CLAUDE.md")) + "|||",
+		"Settings|" + tildify(filepath.Join(cfg, "settings.json")) + "||missing|",
+		"Settings|.claude/settings.local.json|||",
+		"Skills|ship|||",
+		"Commands|/git:push|||",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("files:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// What each costs: the imported file up front, a note on recall, a
+	// skill's description up front and its body when used.
+	for _, f := range files {
+		switch f.Name {
+		case "@RTK.md":
+			if f.Up != 100 || f.Later != 0 {
+				t.Errorf("import costs %d up front, %d later", f.Up, f.Later)
+			}
+		case "work-on-main":
+			if f.Up != 0 || f.Later == 0 || f.When != "on recall" {
+				t.Errorf("note: %+v", f)
+			}
+		case "ship":
+			if f.Up == 0 || f.When != "when used" {
+				t.Errorf("skill: %+v", f)
+			}
+		}
+	}
+	var kinds []string
+	for _, p := range report.Problems {
+		kinds = append(kinds, p.Kind)
+	}
+	if strings.Join(kinds, " ") != "broken-link broken-import orphan" {
+		t.Errorf("problems: %v", kinds)
 	}
 
 	// The view draws them under their groups, the picked one open below.
 	m := &Model{snap: &fleet.Snapshot{}}
 	c := &hostConn{sess: convo.New(), open: map[string]bool{}, mem: files, memAt: time.Now()}
+	memReports[c] = &report
 	for i, v := range m.views(c) {
 		if v == "memory" {
 			c.view = i
@@ -69,10 +102,11 @@ func TestMemoryView(t *testing.T) {
 	}
 	c.sel = "mem:" + note
 	var out string
-	for _, l := range m.memoryLines(c, convo.Options{Width: 100, Now: time.Now()}, 30) {
+	for _, l := range m.memoryLines(c, convo.Options{Width: 100, Now: time.Now()}, 50) {
 		out += ansi.Strip(l.Text) + "\n"
 	}
-	for _, w := range []string{"Auto memory", "work-on-main  feedback", "no worktrees or branches", "Work on main.", "Skills", "◇ CLAUDE.md", "not written yet", "markdown"} {
+	for _, w := range []string{"Auto memory", "work-on-main  feedback", "no worktrees or branches", "Work on main.", "Skills", "◇ CLAUDE.md", "not written yet", "markdown",
+		"tokens every session", "3 things to tidy", "f shows them", "MEMORY.md every session · a note when it's recalled", "never sent to Claude", "↳ @RTK.md", "≈100", "on recall"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("view missing %q:\n%s", w, out)
 		}

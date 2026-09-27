@@ -1,11 +1,9 @@
 package ui
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -13,7 +11,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/efficiency"
 )
 
 // --- memory view ---
@@ -34,9 +34,30 @@ type memFile struct {
 	Missing bool
 	Size    int64
 	Mod     time.Time
+	// Up is the tokens it costs every session, roughly; Later, the tokens
+	// it costs when it's loaded, which When says.
+	Up    int64
+	Later int64
+	When  string
+	Warn  string // what's untidy about it
+	Sub   bool   // @-imported by the file above it
 }
 
 var memGroups = []string{"Auto memory", "Instructions", "Settings", "Agents", "Skills", "Commands", "Output styles"}
+
+// memWhen is when each group's files reach Claude.
+var memWhen = map[string]string{
+	"Auto memory":   "MEMORY.md every session · a note when it's recalled",
+	"Instructions":  "every session",
+	"Settings":      "never sent to Claude",
+	"Agents":        "descriptions every session · the rest when used",
+	"Skills":        "descriptions every session · the rest when used",
+	"Commands":      "only when you run one",
+	"Output styles": "only the one in use",
+}
+
+// memReports are the memory view's checks, read with its files.
+var memReports = map[*hostConn]*claude.MemReport{}
 
 // memoryOf is memoryFiles for the session, read again at most every two
 // seconds, or at once after an edit.
@@ -54,36 +75,39 @@ func (m *Model) memoryOf(c *hostConn) []memFile {
 	} else if cwd != "" {
 		proj = filepath.Join(cfg, "projects", projectSlug(cwd))
 	}
-	c.mem, c.memAt = memoryFiles(cfg, cwd, proj), time.Now()
+	var r claude.MemReport
+	c.mem, r = memoryFiles(cfg, cwd, proj)
+	c.memAt, memReports[c] = time.Now(), &r
 	return c.mem
 }
 
-var slugUnsafe = regexp.MustCompile(`[^A-Za-z0-9]`)
-
 // projectSlug is the folder Claude Code keeps a project's transcripts and
 // memory in, under projects/.
-func projectSlug(cwd string) string { return slugUnsafe.ReplaceAllString(cwd, "-") }
+func projectSlug(cwd string) string { return claude.ProjectSlug(cwd) }
 
-// memoryFiles lists the files, grouped in memGroups' order. The user's
+// memoryFiles lists the files, grouped in memGroups' order, with what each
+// costs and when it's loaded, and the checks they came from. The user's
 // CLAUDE.md and settings, and the project's CLAUDE.md, are listed even when
 // they don't exist yet, so they can be written.
-func memoryFiles(cfg, cwd, proj string) []memFile {
+func memoryFiles(cfg, cwd, proj string) ([]memFile, claude.MemReport) {
+	r := claude.CheckMemory(cfg, cwd, proj)
 	var out []memFile
 	seen := map[string]bool{}
-	add := func(group, path, name, about string, always bool) {
-		if path == "" || seen[path] {
-			return
+	add := func(f memFile, always bool) *memFile {
+		if f.Path == "" || seen[f.Path] {
+			return nil
 		}
-		st, err := os.Stat(path)
+		st, err := os.Stat(f.Path)
 		if (err != nil || st.IsDir()) && !always {
-			return
+			return nil
 		}
-		seen[path] = true
-		f := memFile{Group: group, Path: path, Name: name, About: about, Missing: err != nil}
+		seen[f.Path] = true
+		f.Missing = err != nil
 		if err == nil {
 			f.Size, f.Mod = st.Size(), st.ModTime()
 		}
 		out = append(out, f)
+		return &out[len(out)-1]
 	}
 	// The folders a session in cwd reads from, nearest first, up to but not
 	// including home, whose .claude is the user's own.
@@ -100,66 +124,127 @@ func memoryFiles(cfg, cwd, proj string) []memFile {
 		}
 		return tildify(p)
 	}
+	base := func(p string) string { return strings.TrimSuffix(filepath.Base(p), ".md") }
+	tok := claude.EstTokens
 
 	if proj != "" {
-		dir := filepath.Join(proj, "memory")
-		add("Auto memory", filepath.Join(dir, "MEMORY.md"), "MEMORY.md", "the index · loaded into every session", false)
-		notes, _ := filepath.Glob(filepath.Join(dir, "*.md"))
-		sort.Strings(notes)
-		for _, p := range notes {
-			fm := noteMeta(p)
-			add("Auto memory", p, firstNonEmpty(fm["name"], strings.TrimSuffix(filepath.Base(p), ".md")), fm["description"], false)
-			if n := len(out) - 1; n >= 0 && out[n].Path == p {
-				out[n].Kind = fm["type"]
+		ix := r.Index
+		if f := add(memFile{Group: "Auto memory", Path: ix.Path, Name: "MEMORY.md", About: "the index", Up: tok(int64(ix.LoadedBytes))}, false); f != nil {
+			switch {
+			case ix.Cut():
+				f.Warn = fmt.Sprintf("only its first %d of %d lines load", ix.LoadedLines, ix.Lines)
+			case ix.Long > 0:
+				f.Warn = fmt.Sprintf("%d of its lines are over %d characters", ix.Long, claude.IndexLineLen)
+			}
+		}
+		for _, n := range r.Notes {
+			f := add(memFile{Group: "Auto memory", Path: n.Path, Name: firstNonEmpty(n.Name, base(n.Path)), About: n.Description,
+				Kind: n.Type, Later: tok(n.Size), When: "on recall"}, false)
+			if f == nil {
+				continue
+			}
+			switch {
+			case n.PastCut:
+				f.Warn = "its line in MEMORY.md is past what loads"
+			case !n.Indexed && ix.Exists:
+				f.Warn = "not in MEMORY.md · found only if recall picks it"
+			case n.Same != "":
+				f.Warn = "repeats " + base(n.Same)
+			case len(n.Gone) > 0:
+				f.Warn = "names " + n.Gone[0] + ", which is gone"
+			case n.Description == "":
+				f.Warn = "no description to recall it by"
+			}
+		}
+		for _, l := range ix.Links {
+			if exists(l.File) {
+				continue
+			}
+			if f := add(memFile{Group: "Auto memory", Path: l.File, Name: base(l.File)}, true); f != nil {
+				f.Warn = fmt.Sprintf("line %d of MEMORY.md points here · no such note", l.Line)
 			}
 		}
 	}
 
-	add("Instructions", filepath.Join(cfg, "CLAUDE.md"), tildify(filepath.Join(cfg, "CLAUDE.md")), "yours · every project", true)
-	if cwd != "" {
-		if !exists(filepath.Join(cwd, "CLAUDE.md")) && !exists(filepath.Join(cwd, ".claude", "CLAUDE.md")) {
-			add("Instructions", filepath.Join(cwd, "CLAUDE.md"), "CLAUDE.md", "this project's · shared through git", true)
+	// Instructions, each followed by what it imports; the project's own
+	// CLAUDE.md goes after the user's, written or not.
+	about := map[string]string{"user": "yours · every project", "project": "this project's · shared through git",
+		"parent": "a parent folder's", "local": "just yours · kept out of git"}
+	if user := filepath.Join(cfg, "CLAUDE.md"); !exists(user) {
+		add(memFile{Group: "Instructions", Path: user, Name: tildify(user), About: about["user"]}, true)
+	}
+	projectMD := func() {
+		if cwd != "" && !exists(filepath.Join(cwd, "CLAUDE.md")) && !exists(filepath.Join(cwd, ".claude", "CLAUDE.md")) {
+			add(memFile{Group: "Instructions", Path: filepath.Join(cwd, "CLAUDE.md"), Name: "CLAUDE.md", About: about["project"]}, true)
 		}
 	}
-	for _, d := range dirs {
-		add("Instructions", filepath.Join(d, "CLAUDE.md"), name(filepath.Join(d, "CLAUDE.md")), "project · shared through git", false)
-		add("Instructions", filepath.Join(d, ".claude", "CLAUDE.md"), name(filepath.Join(d, ".claude", "CLAUDE.md")), "project · shared through git", false)
-		add("Instructions", filepath.Join(d, "CLAUDE.local.md"), name(filepath.Join(d, "CLAUDE.local.md")), "project · just yours", false)
+	placed := false
+	for _, in := range r.Instr {
+		if !placed && in.Scope != "user" && in.Scope != "import" {
+			projectMD()
+			placed = true
+		}
+		f := memFile{Group: "Instructions", Path: in.Path, Name: name(in.Path), About: about[in.Scope], Up: tok(in.Size)}
+		switch in.Scope {
+		case "import":
+			f.Sub, f.Name, f.About = true, "@"+in.Ref, "imported by "+filepath.Base(in.From)
+			if in.Missing {
+				f.Up, f.Warn = 0, "@"+in.Ref+" doesn't lead to a file"
+			}
+		case "rule":
+			f.About = firstNonEmpty(claude.FrontMatter(in.Path)["description"], "rule")
+		}
+		if in.OnDemand {
+			f.Up, f.Later, f.When = 0, tok(in.Size), "with matching files"
+		}
+		if in.Scope == "user" {
+			f.Name = tildify(in.Path)
+		}
+		add(f, in.Missing)
 	}
-	for _, root := range append([]string{cfg}, dotClaude(dirs)...) {
-		for _, p := range mdTree(filepath.Join(root, "rules")) {
-			fm := noteMeta(p)
-			add("Instructions", p, name(p), firstNonEmpty(fm["description"], "rule"), false)
+	if !placed {
+		projectMD()
+	}
+
+	add(memFile{Group: "Settings", Path: filepath.Join(cfg, "settings.json"), Name: tildify(filepath.Join(cfg, "settings.json")), About: "yours · every project"}, true)
+	add(memFile{Group: "Settings", Path: filepath.Join(cfg, "settings.local.json"), Name: tildify(filepath.Join(cfg, "settings.local.json")), About: "yours · this machine"}, false)
+	if cwd != "" {
+		add(memFile{Group: "Settings", Path: filepath.Join(cwd, ".claude", "settings.json"), Name: filepath.Join(".claude", "settings.json"), About: "project · shared through git"}, false)
+		add(memFile{Group: "Settings", Path: filepath.Join(cwd, ".claude", "settings.local.json"), Name: filepath.Join(".claude", "settings.local.json"), About: "project · just yours"}, false)
+		add(memFile{Group: "Settings", Path: filepath.Join(cwd, ".mcp.json"), Name: ".mcp.json", About: "project MCP servers"}, false)
+	}
+	add(memFile{Group: "Settings", Path: claudeJSON(cfg), Name: tildify(claudeJSON(cfg)), About: "Claude Code's own state · MCP servers, trust, per-project history"}, false)
+
+	// An agent's or skill's name and description are listed to Claude every
+	// session; the rest when it's used.
+	described := func(group, p, name, desc, when string) {
+		f := add(memFile{Group: group, Path: p, Name: name, About: desc, When: when}, false)
+		if f != nil {
+			f.Up = tok(int64(len(name) + len(desc)))
+			f.Later = max(0, tok(f.Size)-f.Up)
 		}
 	}
-
-	add("Settings", filepath.Join(cfg, "settings.json"), tildify(filepath.Join(cfg, "settings.json")), "yours · every project", true)
-	add("Settings", filepath.Join(cfg, "settings.local.json"), tildify(filepath.Join(cfg, "settings.local.json")), "yours · this machine", false)
-	if cwd != "" {
-		add("Settings", filepath.Join(cwd, ".claude", "settings.json"), filepath.Join(".claude", "settings.json"), "project · shared through git", false)
-		add("Settings", filepath.Join(cwd, ".claude", "settings.local.json"), filepath.Join(".claude", "settings.local.json"), "project · just yours", false)
-		add("Settings", filepath.Join(cwd, ".mcp.json"), ".mcp.json", "project MCP servers", false)
-	}
-	add("Settings", claudeJSON(cfg), tildify(claudeJSON(cfg)), "Claude Code's own state · MCP servers, trust, per-project history", false)
-
 	for _, root := range append(dotClaude(dirs), cfg) {
 		for _, p := range mdTree(filepath.Join(root, "agents")) {
 			fm := noteMeta(p)
-			add("Agents", p, firstNonEmpty(fm["name"], strings.TrimSuffix(filepath.Base(p), ".md")), fm["description"], false)
+			described("Agents", p, firstNonEmpty(fm["name"], base(p)), fm["description"], "when used")
 		}
 		skills, _ := filepath.Glob(filepath.Join(root, "skills", "*", "SKILL.md"))
 		for _, p := range skills {
 			fm := noteMeta(p)
-			add("Skills", p, firstNonEmpty(fm["name"], filepath.Base(filepath.Dir(p))), fm["description"], false)
+			described("Skills", p, firstNonEmpty(fm["name"], filepath.Base(filepath.Dir(p))), fm["description"], "when used")
 		}
 		for _, p := range mdTree(filepath.Join(root, "commands")) {
 			rel, _ := filepath.Rel(filepath.Join(root, "commands"), strings.TrimSuffix(p, ".md"))
-			fm := noteMeta(p)
-			add("Commands", p, "/"+strings.ReplaceAll(rel, string(filepath.Separator), ":"), fm["description"], false)
+			if f := add(memFile{Group: "Commands", Path: p, Name: "/" + strings.ReplaceAll(rel, string(filepath.Separator), ":"), About: noteMeta(p)["description"], When: "when run"}, false); f != nil {
+				f.Later = tok(f.Size)
+			}
 		}
 		for _, p := range mdTree(filepath.Join(root, "output-styles")) {
 			fm := noteMeta(p)
-			add("Output styles", p, firstNonEmpty(fm["name"], strings.TrimSuffix(filepath.Base(p), ".md")), fm["description"], false)
+			if f := add(memFile{Group: "Output styles", Path: p, Name: firstNonEmpty(fm["name"], base(p)), About: fm["description"], When: "if chosen"}, false); f != nil {
+				f.Later = tok(f.Size)
+			}
 		}
 	}
 	// Grouped, keeping each group's own order.
@@ -168,7 +253,7 @@ func memoryFiles(cfg, cwd, proj string) []memFile {
 		rank[g] = i
 	}
 	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Group] < rank[out[j].Group] })
-	return out
+	return out, r
 }
 
 // claudeJSON is Claude Code's state file: ~/.claude.json for the default
@@ -206,40 +291,8 @@ func mdTree(dir string) []string {
 }
 
 // noteMeta reads name, description and type from a markdown file's
-// frontmatter, at any depth (a memory note keeps its type under metadata).
-func noteMeta(path string) map[string]string {
-	out := map[string]string{}
-	f, err := os.Open(path)
-	if err != nil {
-		return out
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
-	for n := 0; sc.Scan() && n < 40; n++ {
-		line := sc.Text()
-		if strings.TrimSpace(line) == "---" {
-			if n == 0 {
-				continue
-			}
-			break
-		}
-		if n == 0 {
-			return out // no frontmatter
-		}
-		k, v, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if !ok {
-			continue
-		}
-		switch k = strings.TrimSpace(k); k {
-		case "name", "description", "type":
-			if out[k] == "" {
-				out[k] = strings.Trim(strings.TrimSpace(v), `"'`)
-			}
-		}
-	}
-	return out
-}
+// frontmatter.
+func noteMeta(path string) map[string]string { return claude.FrontMatter(path) }
 
 // memoryLines draws the memory view in h rows: the files on top, and the
 // picked one below in the editor, which has the bottom half.
@@ -257,8 +310,29 @@ func (m *Model) memoryLines(c *hostConn, o convo.Options, h int) []convo.Line {
 	var out []convo.Line
 	line := func(text, ref string) { out = append(out, convo.Line{Text: fit(text, w), Ref: ref}) }
 	if listH := h - edH; listH > 0 {
-		line(spread("  "+paint(cSub+bold, "Memory")+"   "+dim("what Claude reads for this project"), dim(fmt.Sprintf("%d files", len(files)))+"  ", w), "")
+		var up int64
+		for _, f := range files {
+			up += f.Up
+		}
+		line(spread("  "+paint(cSub+bold, "Memory")+"   "+dim("what Claude reads for this project, and when"),
+			paint(cSub, "≈"+efficiency.Tokens(up))+dim(" tokens every session · "+fmt.Sprintf("%d files", len(files)))+"  ", w), "")
 		line("  "+faint(strings.Repeat("─", max(0, w-4))), "")
+		head := len(out)
+		if r := memReports[c]; r != nil && len(r.Problems) > 0 {
+			key := "#efficiency findings"
+			if strings.HasPrefix(c.sel, "mem:") {
+				key = "f"
+			}
+			n := fmt.Sprintf("%d things to tidy", len(r.Problems))
+			if len(r.Problems) == 1 {
+				n = "1 thing to tidy"
+			}
+			left, right := "  "+paint(cYellow, "! "+n), faint(key+" shows them")+"  "
+			if room := w - cellwidth(left) - cellwidth(right) - 5; room > 12 {
+				left += dim(" · " + ansi.Truncate(r.Problems[0].Title, room, "…"))
+			}
+			line(spread(left, right, w), "")
+		}
 		rows := memRows(files, c.sel, w, o)
 		sel := 0
 		for i, r := range rows {
@@ -267,7 +341,7 @@ func (m *Model) memoryLines(c *hostConn, o convo.Options, h int) []convo.Line {
 				break
 			}
 		}
-		room := max(1, listH-2)
+		room := max(1, listH-head)
 		switch {
 		case sel < c.memTop:
 			c.memTop = max(0, sel-1) // its group's heading too
@@ -290,39 +364,70 @@ func (m *Model) memoryLines(c *hostConn, o convo.Options, h int) []convo.Line {
 	return out
 }
 
-// memRows is a row for each file, under its group's name.
+// memRows is a row for each file, under its group's name and when its
+// files reach Claude. On the right, what a file costs: ≈ tokens every
+// session in full colour, ≈ tokens when it's loaded later faint, nothing
+// for what's never sent.
 func memRows(files []memFile, picked string, w int, o convo.Options) []convo.Line {
 	var out []convo.Line
 	group := ""
 	for _, f := range files {
 		if f.Group != group {
 			group = f.Group
-			head := "  " + paint(cText+bold, group)
-			if group == "Auto memory" {
-				head += "  " + faint(tildify(filepath.Dir(f.Path)))
+			head, when := "  "+paint(cText+bold, group), faint(memWhen[group])+"  "
+			// The memory's folder gives way to when.
+			if dir := tildify(filepath.Dir(f.Path)); group == "Auto memory" {
+				if room := w - 1 - cellwidth(head) - cellwidth(when) - 6; room > 10 {
+					head += "  " + faint(ansi.TruncateLeft(dir, max(0, cellwidth(dir)-room), "…"))
+				}
 			}
-			out = append(out, convo.Line{Text: fit(head, w)})
+			out = append(out, convo.Line{Text: fit(spread(head, when, w-1), w)})
 		}
 		ref := "mem:" + f.Path
-		meta := "not written yet"
-		if !f.Missing {
-			meta = fileSize(f.Size) + " · " + dur(o.Now.Sub(f.Mod)) + " ago"
+		var meta []string
+		if f.Up > 0 {
+			meta = append(meta, paint(cSub, "≈"+efficiency.Tokens(f.Up)))
 		}
+		if f.Later > 0 {
+			meta = append(meta, faint("≈"+efficiency.Tokens(f.Later)+" "+f.When))
+		}
+		switch {
+		case f.Missing && f.Warn != "":
+			meta = append(meta, dim("missing"))
+		case f.Missing:
+			meta = append(meta, dim("not written yet"))
+		case f.Up == 0 && f.Later == 0:
+			meta = append(meta, dim(fileSize(f.Size)+" · "+dur(o.Now.Sub(f.Mod))+" ago"))
+		default:
+			meta = append(meta, dim(dur(o.Now.Sub(f.Mod))+" ago"))
+		}
+		right := strings.Join(meta, dim(" · "))
 		mark := paint(cBlue, "◆ ")
-		if f.Missing {
+		switch {
+		case f.Missing && f.Warn != "":
+			mark = paint(cYellow, "◇ ")
+		case f.Missing:
 			mark = faint("◇ ")
 		}
-		left := "    " + mark + paint(cText, f.Name)
+		left := "    " + mark
+		if f.Sub {
+			left = "      " + faint("↳ ")
+		}
+		left += paint(cText, f.Name)
 		if f.Kind != "" {
 			left += "  " + paint(cSub, f.Kind)
 		}
-		if f.About != "" {
-			room := w - cellwidth(left) - cellwidth(meta) - 8
+		note, paintNote := f.About, dim
+		if f.Warn != "" {
+			note, paintNote = f.Warn, func(s string) string { return paint(cYellow, s) }
+		}
+		if note != "" {
+			room := w - cellwidth(left) - cellwidth(right) - 8
 			if room > 12 {
-				left += "  " + dim(ansi.Truncate(oneLine(f.About), room, "…"))
+				left += "  " + paintNote(ansi.Truncate(oneLine(note), room, "…"))
 			}
 		}
-		r := spread(left, dim(meta)+"  ", w-1)
+		r := spread(left, right+"  ", w-1)
 		if ref == picked {
 			r = picked1(r, w, o.Focused)
 		}
@@ -507,6 +612,17 @@ func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bo
 		return nil, false
 	}
 	switch s {
+	case "f":
+		// What's untidy, in Efficiency's findings.
+		if r := memReports[c]; r == nil || len(r.Problems) == 0 {
+			return nil, false
+		}
+		m.setView(placeEff)
+		m.setEffPage(effFindings)
+		if m.eff.view == nil {
+			return m.effOpen(), true
+		}
+		return m.effLoad(false), true
 	case "enter", "right", "e":
 		e := m.memDoc(c)
 		if e == nil {
