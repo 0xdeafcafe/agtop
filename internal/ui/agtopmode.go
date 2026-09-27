@@ -702,8 +702,11 @@ type hostConn struct {
 	id     string
 	client *host.Client // an agtop session's host; nil when read from a transcript
 	tail   *convo.Tail  // a Claude Code session's transcript, followed as it grows
-	sess   *convo.Session
-	ready  bool // the replay has been drawn at least once
+	// hist is another agent's session read from its history, read again
+	// as it grows: see followHistory.
+	hist  *history
+	sess  *convo.Session
+	ready bool // the replay has been drawn at least once
 
 	view    int
 	sel     string
@@ -1007,6 +1010,9 @@ func openTail(a *fleet.Agent) tea.Cmd {
 // the agent has stopped working (transcripts don't always mark it).
 func (m *Model) followTail() {
 	c := m.host
+	if c != nil && c.hist != nil {
+		c.followHistory()
+	}
 	if c == nil || c.tail == nil {
 		return
 	}

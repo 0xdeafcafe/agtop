@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -33,13 +34,52 @@ func agentHistory(kind agent.Kind, s agent.Session, before time.Time) *convo.Ses
 	return sess
 }
 
-// openHistory shows a past session of another agent, read once: a message
-// resumes it, and the pane then follows the host.
+// openHistory shows another agent's session from its history: a past one,
+// which a message resumes (the pane then follows the host), or one running
+// in a terminal, read again as it grows.
 func openHistory(a *fleet.Agent) tea.Cmd {
 	key, id := a.Key, a.ID
-	s := agent.Session{ID: a.SessionID, Transcript: a.History, Profile: agent.Profile{Kind: agent.Kind(a.Kind), Dir: a.Acct.ConfigDir}}
+	h := &history{kind: agent.Kind(a.Kind), s: agent.Session{ID: a.SessionID, Transcript: a.History,
+		Profile: agent.Profile{Kind: agent.Kind(a.Kind), Dir: a.Acct.ConfigDir}}}
 	return func() tea.Msg {
-		sess := agentHistory(agent.Kind(a.Kind), s, time.Time{})
-		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, sess: sess, open: map[string]bool{}, ready: true}}
+		h.stat()
+		sess := agentHistory(h.kind, h.s, time.Time{})
+		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, sess: sess, hist: h, open: map[string]bool{}, ready: true}}
 	}
+}
+
+// history is where a pane read another agent's session from, and how the
+// file stood then.
+type history struct {
+	kind agent.Kind
+	s    agent.Session
+	mod  time.Time
+	size int64
+	at   time.Time // when it was last read
+}
+
+// historyEvery is how often a growing history is read again: it's read
+// whole each time.
+const historyEvery = 2 * time.Second
+
+// stat notes how the file stands, and reports whether it changed.
+func (h *history) stat() bool {
+	fi, err := os.Stat(h.s.Transcript)
+	if err != nil {
+		return false
+	}
+	changed := !fi.ModTime().Equal(h.mod) || fi.Size() != h.size
+	h.mod, h.size = fi.ModTime(), fi.Size()
+	return changed
+}
+
+// followHistory reads the session again when its history has grown, no
+// more than every historyEvery, keeping how the pane is looked at.
+func (c *hostConn) followHistory() {
+	h := c.hist
+	if time.Since(h.at) < historyEvery || !h.stat() {
+		return
+	}
+	h.at = time.Now()
+	c.sess = agentHistory(h.kind, h.s, time.Time{})
 }
