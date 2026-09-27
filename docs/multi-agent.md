@@ -180,23 +180,24 @@ Steps 1–3 are mostly mechanical and quick. Steps 5–7 are the real work.
 
 ## Where it stands (2026-09-27)
 
-Codex, Copilot, Gemini, Kimi, OpenCode and Vibe run in agtop mode alongside Claude Code. Start one with `#with codex` in the Prompt, or `agtop session start --agent codex`. Their sessions are listed with their agent's name, past Codex sessions too, and a message resumes one. Codex has been tried for real. The ACP agents have only been checked as far as their handshakes, because none was signed in here.
+Codex, Copilot, Gemini, Kimi, OpenCode and Vibe run in agtop mode alongside Claude Code. Start one with `#with codex` in the Prompt, or `agtop session start --agent codex`. Their sessions are listed with their agent's name: agtop-hosted ones, past Codex sessions (a message resumes one), and Codex running in a terminal, followed as it goes. Codex has been tried for real, including an approval answered through agtop. The ACP agents have only been checked as far as their handshakes, because none was signed in here.
 
 How it's built, which differs from the plan above in places:
 
-- **Adapters** register themselves (`cmd/agtop/adapters.go`): `internal/adapters/claude` (claude -p, logins, limits), `codex` (app-server, limits, history, past sessions), and `acp` (one client, and the five thin agents in `acp/agent.go`).
+- **Adapters** register themselves (`cmd/agtop/adapters.go`): `internal/adapters/claude` (claude -p, logins, limits), `codex` (app-server, limits, history, past and running sessions), and `acp` (one client, and the five thin agents in `acp/agent.go`).
 - **The host** runs another agent through its `Driver`. It sends clients agtop's own events as `agtop_ev` lines (Proto 4). For its own bookkeeping it reads them through `headless.FromNeutral` as Claude Code would have said them, so queueing, idle rest, resume, state and what a session needs work unchanged. Claude sessions still go over the wire as Claude's raw lines.
-- **convo** takes agtop's own events (`convo/neutral.go`) the same way, through `headless.FromNeutral`. Each tool call becomes the Claude tool of its kind, so render.go draws every agent's steps with no change. This bridge stands in for step 5: render.go still switches on Claude's tool names.
-- **Usage**: meters and account switching read `usage.Quota`. Other agents' limits are read through their adapter into `quotas.json` (`usage.Refresh`), and live sessions record theirs there too.
+- **convo** takes agtop's own events through the same bridge, so a step's `Tool` and `Input` are in Claude's words. Each step also has a `Kind`, and the renderer, the changes view and the overview switch on it (a Claude session draws byte for byte as before). Claude-only tools (SendMessage, Monitor, Skill) are drawn by name.
+- **Usage**: meters, account switching and the menu bar read `usage.Quota`, whose windows are named by their own labels. Other agents' limits are read through their adapter into `quotas.json` (`usage.Refresh`), and live sessions record theirs there too. Accounts shows every agent's accounts.
 - **Commands**: a session offers only the commands its agent can do (`ui/caps.go`).
 
 Still to do:
 
-1. Step 3: profiles and accounts in `state.Config`. Another agent's profile still travels as a `claude.Account{Name, ConfigDir}`.
-2. Step 4: `fleet.Agent` off `claude.Job`, with discovery moved into the Claude adapter.
-3. Step 5 proper: render.go and efficiency on `tool.Kind`, and then retire the `FromNeutral` bridge in convo.
-4. Claude sessions on the wire as agtop events too, and the menubar's usage from `usage.Quota`.
-5. Limits for Copilot (premium requests), Kimi and Vibe; prices for Codex and the ACP agents; finding Codex sessions that are running outside agtop.
+1. Step 3: profiles and accounts in `state.Config`. Another agent's profile still travels as a `claude.Account{Name, ConfigDir}`, and each adapter finds only its default profile.
+2. Step 4: `fleet.Agent` off `claude.Job`, with Claude discovery moved into its adapter. Outside `internal/claude`, only actions uses the job's Claude-only fields.
+3. Retire the `FromNeutral` bridge: steps read `tool.Input` rather than Claude's input keys, and Claude sessions go on the wire as agtop events too.
+4. Limits for Copilot (premium requests), Kimi and Vibe; prices for Codex and the ACP agents; efficiency for other agents.
+
+Codex, as found: its `approvals_reviewer = "auto_review"` setting answers approvals itself, and agtop leaves that as you set it. Its `primary` window can be the weekly one. It runs every command in `/bin/zsh -lc`, which agtop unwraps.
 
 ## Adding the agents
 
