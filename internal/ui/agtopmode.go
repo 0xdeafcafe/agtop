@@ -914,7 +914,51 @@ func openHost(a *fleet.Agent) tea.Cmd {
 			}
 			path = ""
 		}
-		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, client: cl, sess: sess, open: map[string]bool{}, path: path}}
+		c := &hostConn{key: key, id: id, client: cl, sess: sess, open: map[string]bool{}, path: path}
+		c.ready = takeReplay(cl.Lines, sess, replayMost)
+		return hostOpenMsg{key: key, c: c}
+	}
+}
+
+// replayMost is the longest the pane waits, on connecting, for the host's
+// replay to come in whole before it draws what it has.
+const replayMost = 3 * time.Second
+
+// takeReplay takes in what the host replays on connecting, here rather
+// than on the UI's thread a batch a frame, up to the info the host sends
+// once the replay's done: the pane's first frame is then the whole
+// conversation, at its end, rather than its start growing towards it.
+// It says whether the replay came in whole before most passed.
+func takeReplay(lines <-chan []byte, sess *convo.Session, most time.Duration) bool {
+	t := time.NewTimer(most)
+	defer t.Stop()
+	now := time.Now()
+	for {
+		var l []byte
+		var ok bool
+		select {
+		case l, ok = <-lines:
+		case <-t.C:
+			return false
+		}
+		if !ok {
+			return false
+		}
+		ev, err := host.Decode(l)
+		if err != nil || ev == nil {
+			continue
+		}
+		switch ev := ev.(type) {
+		case host.Stamp:
+			now = ev.At
+			continue
+		case host.Reply:
+			continue // nothing's been asked on this connection yet
+		}
+		sess.Apply(ev, now)
+		if _, done := ev.(host.InfoEvent); done {
+			return true
+		}
 	}
 }
 

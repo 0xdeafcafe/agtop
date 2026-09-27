@@ -170,3 +170,36 @@ func TestScrolledUpStays(t *testing.T) {
 		t.Fatal("a scroll should move the window")
 	}
 }
+
+// Connecting takes the host's whole replay in before the pane first draws,
+// so the first frame is the conversation's end, not its start.
+func TestReplayBeforeFirstFrame(t *testing.T) {
+	lines := make(chan []byte, 512)
+	for i := 1; i <= 60; i++ {
+		lines <- fmt.Appendf(nil, `{"agtop_sent":true,"message":{"content":"question %d","role":"user"},"type":"user"}`, i)
+		lines <- fmt.Appendf(nil, `{"type":"assistant","message":{"id":"m%d","role":"assistant","content":[{"type":"text","text":"answer number %d"}]}}`, i, i)
+		lines <- []byte(`{"type":"result","subtype":"success"}`)
+	}
+	lines <- []byte(`{"info":{},"type":"agtop_info"}`)
+	lines <- []byte(`{"type":"result","subtype":"success"}`) // live output after it stays for next
+	sess := convo.New()
+	if !takeReplay(lines, sess, time.Second) {
+		t.Fatal("the replay should have come in whole")
+	}
+	if len(lines) != 1 {
+		t.Fatalf("what follows the replay is left for the pane: %d lines", len(lines))
+	}
+	m, _ := benchModel(120, 40)
+	m.host = &hostConn{key: m.host.key, client: &host.Client{Lines: lines}, sess: sess, open: map[string]bool{}, ready: true}
+	v := ansi.Strip(m.render())
+	if !strings.Contains(v, "answer number 60") || strings.Contains(v, "answer number 1\n") {
+		t.Fatalf("the first frame should be the conversation's end:\n%s", v)
+	}
+
+	// A host that never says it's done: the pane draws what came, in time.
+	quiet := make(chan []byte, 1)
+	quiet <- []byte(`{"type":"result","subtype":"success"}`)
+	if takeReplay(quiet, convo.New(), 20*time.Millisecond) {
+		t.Fatal("no info, no whole replay")
+	}
+}
