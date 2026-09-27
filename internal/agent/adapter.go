@@ -148,6 +148,19 @@ type Accounts interface {
 	Forget(a Account) error
 }
 
+// Known is an Accounts whose agent keeps a list of its own sign-ins
+// (Copilot's are gh's): agtop lists them as they are.
+type Known interface {
+	Known() []Account
+}
+
+// AnyAccountQuota is a QuotaSource that reads any account's limits, not
+// only those of the account a profile is signed in to.
+type AnyAccountQuota interface {
+	QuotaSource
+	ReadsAnyAccount()
+}
+
 // Pricer prices a model's tokens.
 type Pricer interface {
 	Cost(model string, u usage.TokenUsage) (float64, bool)

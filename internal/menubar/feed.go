@@ -86,7 +86,7 @@ func otherAccounts(snap *fleet.Snapshot) []Account {
 		if !ok {
 			continue
 		}
-		acct := Account{Name: a.Name(), Email: q.Email, Plan: q.Plan, Problem: q.Problem}
+		acct := Account{Name: a.Name(), Email: q.Email, Plan: firstNonEmpty(q.Plan, q.Balance), Problem: q.Problem}
 		acct.FiveHour, acct.SevenDay = windows(q)
 		for _, ag := range snap.Agents {
 			if ag.Kind == string(a.Kind()) && ag.Live() {
@@ -465,4 +465,13 @@ func exe() string {
 		return r
 	}
 	return p
+}
+
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

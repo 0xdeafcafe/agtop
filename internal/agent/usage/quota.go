@@ -54,9 +54,12 @@ const (
 // Quota is an account's limits as last read. An account belongs to one
 // provider, but any number of agents and sessions can spend it.
 type Quota struct {
-	Account   string // the key it is kept under: "claude:login:<uuid>", "codex:chatgpt:<id>"
-	Email     string // who the account is, when the reading says
-	Plan      string
+	Account string // the key it is kept under: "claude:login:<uuid>", "codex:chatgpt:<id>"
+	Email   string // who the account is, when the reading says
+	Plan    string
+	// Balance is what's left on a pay-as-you-go account, in its own
+	// currency and words: "¥110.00 left". Such an account has no windows.
+	Balance   string
 	Windows   []Window
 	FetchedAt time.Time
 	Source    Source

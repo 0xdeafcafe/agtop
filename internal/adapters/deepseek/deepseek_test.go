@@ -133,7 +133,7 @@ func TestQuota(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if auth != "Bearer sk-from-store" || q.Plan != "¥110.00 left" || q.Problem != "" || len(q.Windows) != 0 {
+	if auth != "Bearer sk-from-store" || q.Balance != "¥110.00 left" || q.Problem != "" || len(q.Windows) != 0 {
 		t.Errorf("auth %q, quota %+v", auth, q)
 	}
 
@@ -143,7 +143,7 @@ func TestQuota(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if auth != "Bearer sk-from-env" || q.Plan != "$0.00 left" || q.Problem == "" {
+	if auth != "Bearer sk-from-env" || q.Balance != "$0.00 left" || q.Problem == "" {
 		t.Errorf("auth %q, quota %+v", auth, q)
 	}
 

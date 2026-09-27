@@ -64,6 +64,12 @@ func ghLogins() (logins []string, active string, err error) {
 	return logins, active, nil
 }
 
+// Known are the GitHub accounts gh is signed in to.
+func (Adapter) Known() []agent.Account { return Logins() }
+
+// ReadsAnyAccount: any gh account's premium requests can be read.
+func (Adapter) ReadsAnyAccount() {}
+
 // Logins are the GitHub accounts gh is signed in to.
 func Logins() []agent.Account {
 	logins, _, _ := ghLogins()
@@ -143,4 +149,8 @@ func (Adapter) SignIn(agent.Profile) (*exec.Cmd, func() (agent.Account, error), 
 // Forget leaves gh's sign-in be: it's gh's, and other things use it.
 func (Adapter) Forget(agent.Account) error { return nil }
 
-var _ agent.Accounts = Adapter{}
+var (
+	_ agent.Accounts        = Adapter{}
+	_ agent.Known           = Adapter{}
+	_ agent.AnyAccountQuota = Adapter{}
+)

@@ -36,7 +36,7 @@ type balance struct {
 }
 
 // Quota is what's left on the DeepSeek API key dsh uses. DeepSeek bills
-// as you go, so there are no windows: the balance is the plan line.
+// as you go, so there are no windows, only the balance.
 func (Adapter) Quota(ctx context.Context, p agent.Profile, _ agent.Account) (usage.Quota, error) {
 	dir := p.Dir
 	if dir == "" {
@@ -80,7 +80,7 @@ func quotaOf(b balance, now time.Time) usage.Quota {
 		parts = append(parts, money(i.Currency, i.TotalBalance))
 	}
 	if len(parts) > 0 {
-		q.Plan = strings.Join(parts, " + ") + " left"
+		q.Balance = strings.Join(parts, " + ") + " left"
 	}
 	if !b.IsAvailable {
 		q.Problem = "DeepSeek balance used up: top up to keep going"
