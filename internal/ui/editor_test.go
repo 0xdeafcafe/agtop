@@ -325,3 +325,31 @@ func TestDropGoesWhereItFalls(t *testing.T) {
 		t.Fatal("a drop on the edge moved the keys")
 	}
 }
+
+// Pasting the same long text twice in a row expands its chip into the
+// text, as Claude Code does; another text, or text typed in between,
+// makes a chip of its own.
+func TestPasteTwiceExpands(t *testing.T) {
+	var p pastes
+	long := "a\nb\nc\nd\ne"
+	buf, pos := p.place([]rune("see "), 4, long)
+	if string(buf) != "see [Pasted text #1 +5 lines]" || pos != len([]rune(buf)) {
+		t.Fatalf("first paste: %q %d", string(buf), pos)
+	}
+	buf, pos = p.place(buf, pos, long)
+	if string(buf) != "see "+long || pos != len([]rune(buf)) || len(p.text) != 0 {
+		t.Fatalf("second paste: %q %d %v", string(buf), pos, p.text)
+	}
+
+	var q pastes
+	buf, pos = q.place(nil, 0, long)
+	buf, pos = q.place(buf, pos, "x\ny\nz\nw")
+	if string(buf) != "[Pasted text #1 +5 lines][Pasted text #2 +4 lines]" {
+		t.Fatalf("different text: %q", string(buf))
+	}
+	buf = append(buf, []rune(" and ")...)
+	buf, _ = q.place(buf, len(buf), "x\ny\nz\nw")
+	if !strings.HasSuffix(string(buf), " and [Pasted text #3 +4 lines]") {
+		t.Fatalf("typed in between: %q", string(buf))
+	}
+}

@@ -854,24 +854,20 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// kept so a pasted log or snippet arrives whole.
 		// A long one shows as a chip and goes out whole.
 		if c := m.host; c != nil && m.paneFocus {
-			text := msg.Content
-			if isLongPaste(text) {
-				text = c.pastes.add(text)
-			}
 			pos := max(0, len(c.input)-c.back)
 			c.undo.save(c.input, c.back, false)
-			c.input = insert(c.input, pos, []rune(text))
+			c.input, _ = c.pastes.place(c.input, pos, msg.Content)
 			return m, nil
 		}
 		if m.acceptsText() {
 			if m.dialog != nil {
 				m.dialog.input = append(m.dialog.input, []rune(oneLine(msg.Content))...)
 			} else {
-				text := oneLine(msg.Content)
 				if isLongPaste(msg.Content) {
-					text = m.pastes.add(msg.Content)
+					m.input, _ = m.pastes.place(m.input, m.cursorPos(), msg.Content)
+				} else {
+					m.input = insert(m.input, m.cursorPos(), []rune(oneLine(msg.Content)))
 				}
-				m.input = insert(m.input, m.cursorPos(), []rune(text))
 			}
 		}
 		return m, nil

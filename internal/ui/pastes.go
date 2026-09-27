@@ -40,6 +40,28 @@ func (p *pastes) add(text string) string {
 	return chipFor(p.n, text)
 }
 
+// place pastes text into buf at pos and returns the new buffer and cursor.
+// A long paste goes in as a chip. Pasting the same text again straight
+// after expands that chip into the text itself, as Claude Code does.
+func (p *pastes) place(buf []rune, pos int, text string) ([]rune, int) {
+	if !isLongPaste(text) {
+		return insert(buf, pos, []rune(text)), pos + len([]rune(text))
+	}
+	before := string(buf[:pos])
+	if loc := pasteRe.FindAllStringSubmatchIndex(before, -1); len(loc) > 0 {
+		last := loc[len(loc)-1]
+		id, _ := strconv.Atoi(before[last[2]:last[3]])
+		if last[1] == len(before) && p.text[id] == text {
+			from := len([]rune(before[:last[0]]))
+			out := append(append(append([]rune{}, buf[:from]...), []rune(text)...), buf[pos:]...)
+			delete(p.text, id)
+			return out, from + len([]rune(text))
+		}
+	}
+	chip := []rune(p.add(text))
+	return insert(buf, pos, chip), pos + len(chip)
+}
+
 // expand puts the pasted text back in place of each chip. Tagged, each
 // goes between <pasted_content> tags as Claude Code sends a paste: Claude
 // knows the words were pasted, and the conversation shows it as its chip.
