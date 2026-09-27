@@ -31,8 +31,12 @@ func (Adapter) Caps() agent.Caps {
 		agent.CapQuestions | agent.CapContext | agent.CapMCP
 }
 
-// Profiles is CODEX_HOME, or ~/.codex, when it exists.
+// Profiles is CODEX_HOME, or ~/.codex, when it exists and codex is
+// installed: a folder left behind by an uninstalled codex lists nothing.
 func (Adapter) Profiles() []agent.Profile {
+	if !agent.Installed(Kind) {
+		return nil
+	}
 	dir := os.Getenv("CODEX_HOME")
 	if dir == "" {
 		home, err := os.UserHomeDir()
