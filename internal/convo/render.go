@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/charmbracelet/x/ansi"
 	"net/url"
 	"os"
 	"path"
@@ -15,6 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 
 	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -661,8 +664,8 @@ func (d *drawer) liveLine() {
 // verb is a step in a word or two, for a folded run: the program a command
 // ran, or what a tool did.
 func (d *drawer) verb(st *Step) string {
-	switch st.Tool {
-	case "Bash":
+	switch {
+	case st.kind() == tool.Shell:
 		// A chain that committed or pushed is named for that, not its git add.
 		if cs := d.stepCards(st); len(cs) > 0 {
 			return cs[0].verb()
@@ -681,17 +684,17 @@ func (d *drawer) verb(st *Step) string {
 		default:
 			return strings.Fields(cdRe.ReplaceAllString(strings.TrimSpace(cmd), ""))[0]
 		}
-	case "Read":
+	case st.kind() == tool.Read:
 		return "read"
-	case "Grep", "Glob":
+	case st.kind() == tool.Search || st.kind() == tool.Glob:
 		return "search"
-	case "WebFetch":
+	case st.kind() == tool.Fetch:
 		return "fetch"
-	case "WebSearch":
+	case st.kind() == tool.WebSearch:
 		return "web search"
-	case "Task", "Agent":
+	case st.kind() == tool.Subagent:
 		return agentName(st)
-	case "Skill", "SlashCommand":
+	case st.Tool == "Skill" || st.Tool == "SlashCommand":
 		in := readInput(st.Input)
 		return firstNonEmpty(in.str("skill"), in.str("command"), "skill")
 	}
@@ -1355,7 +1358,7 @@ func foldable(st *Step) bool {
 	if st.Status != OK || hidden(st) {
 		return false
 	}
-	switch glyphFor(st.Tool) {
+	switch glyphFor(st) {
 	case "✎", "⇉", "◆", "◇":
 		return false
 	}
@@ -1364,8 +1367,8 @@ func foldable(st *Step) bool {
 
 // hidden steps are bookkeeping the task line already shows.
 func hidden(st *Step) bool {
-	switch st.Tool {
-	case "TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet":
+	switch {
+	case st.kind() == tool.Todo || st.Tool == "TaskCreate" || st.Tool == "TaskUpdate" || st.Tool == "TaskList" || st.Tool == "TaskGet":
 		return true
 	}
 	return false
@@ -1467,7 +1470,7 @@ func (d *drawer) cells(st *Step) string {
 	if s := d.stepMemo(st, 's', d.summary); s != "" && len(d.stepCards(st)) == 0 {
 		parts = append(parts, s)
 	}
-	if st.Tool == "Bash" && st.Exit > 0 {
+	if st.kind() == tool.Shell && st.Exit > 0 {
 		switch st.Exit {
 		case 124:
 			parts = append(parts, paint(cRed, "timed out"))
@@ -1514,25 +1517,25 @@ func agentName(st *Step) string {
 	return firstNonEmpty(readInput(st.Input).str("subagent_type"), "subagent")
 }
 
-func glyphFor(tool string) string {
-	switch tool {
-	case "Bash":
+func glyphFor(st *Step) string {
+	switch {
+	case st.kind() == tool.Shell:
 		return "$"
-	case "Edit", "MultiEdit", "Write", "NotebookEdit":
+	case st.kind() == tool.Edit || st.kind() == tool.Write || st.kind() == tool.Notebook || st.kind() == tool.Delete || st.kind() == tool.Move:
 		return "✎"
-	case "Read":
+	case st.kind() == tool.Read:
 		return "◧"
-	case "Grep", "Glob":
+	case st.kind() == tool.Search || st.kind() == tool.Glob:
 		return "⌕"
-	case "Task", "Agent":
+	case st.kind() == tool.Subagent:
 		return "⇉"
-	case "WebFetch", "WebSearch":
+	case st.kind() == tool.Fetch || st.kind() == tool.WebSearch:
 		return "↗"
-	case "Artifact":
+	case st.Tool == "Artifact":
 		return "◆"
-	case "Skill", "SlashCommand":
+	case st.Tool == "Skill" || st.Tool == "SlashCommand":
 		return "✦"
-	case agtools.Show:
+	case st.Tool == agtools.Show:
 		return "◇"
 	}
 	return "•"
@@ -1556,7 +1559,7 @@ func (d *drawer) rel(p string) string {
 
 func (d *drawer) label(st *Step) string {
 	in := readInput(st.Input)
-	g := glyphColor(glyphFor(st.Tool))
+	g := glyphColor(glyphFor(st))
 	// A step is the log's quiet voice; one still going, waiting or failed
 	// reads a shade up.
 	base := cDim
@@ -1564,8 +1567,8 @@ func (d *drawer) label(st *Step) string {
 		base = cSub
 	}
 	lbl := func(s string) string { return paint(base, s) }
-	switch st.Tool {
-	case "Bash":
+	switch {
+	case st.kind() == tool.Shell:
 		cmd := in.str("command")
 		// What the command is for reads faster than the command; the command
 		// itself follows, quieter, and shows whole when the row is opened.
@@ -1586,32 +1589,32 @@ func (d *drawer) label(st *Step) string {
 			return l
 		}
 		return g + " " + d.command(cmd, base)
-	case "Edit", "MultiEdit", "Write", "NotebookEdit":
+	case st.kind() == tool.Edit || st.kind() == tool.Write || st.kind() == tool.Notebook || st.kind() == tool.Delete || st.kind() == tool.Move:
 		p := in.str("file_path")
 		if p == "" {
 			p = in.str("notebook_path")
 		}
 		return g + " " + lbl(d.rel(p))
-	case "Read":
+	case st.kind() == tool.Read:
 		return g + " " + lbl(d.rel(in.str("file_path")))
-	case "Grep":
+	case st.kind() == tool.Search:
 		l := g + " " + lbl(in.str("pattern"))
 		if p := in.str("path"); p != "" {
 			l += faint(" in ") + lbl(d.rel(p))
 		}
 		return l
-	case "Glob":
+	case st.kind() == tool.Glob:
 		return g + " " + lbl(in.str("pattern"))
-	case "Task", "Agent":
+	case st.kind() == tool.Subagent:
 		return g + " " + lbl(agentName(st)) + "  " + faint(oneLine(in.str("description")))
-	case "WebFetch":
+	case st.kind() == tool.Fetch:
 		return g + " " + lbl(in.str("url"))
-	case "WebSearch":
+	case st.kind() == tool.WebSearch:
 		return g + " " + lbl(in.str("query"))
-	case "Skill", "SlashCommand":
+	case st.Tool == "Skill" || st.Tool == "SlashCommand":
 		name := firstNonEmpty(in.str("skill"), in.str("command"), in.str("name"))
 		return g + " " + lbl(name) + "  " + faint(oneLine(in.str("args")))
-	case "AskUserQuestion":
+	case st.kind() == tool.Question:
 		q := ""
 		if qs, ok := in["questions"].([]any); ok && len(qs) > 0 {
 			if m, ok := qs[0].(map[string]any); ok {
@@ -1619,9 +1622,9 @@ func (d *drawer) label(st *Step) string {
 			}
 		}
 		return paint(cYellow, "?") + " " + text(oneLine(q))
-	case agtools.Show:
+	case st.Tool == agtools.Show:
 		return g + " " + lbl(firstNonEmpty(oneLine(in.str("title")), "drawing"))
-	case "Artifact":
+	case st.Tool == "Artifact":
 		t := in.str("title")
 		if t == "" {
 			t = filepath.Base(in.str("file_path"))
@@ -1883,8 +1886,8 @@ var (
 )
 
 func (d *drawer) summary(st *Step) string {
-	switch st.Tool {
-	case "Bash":
+	switch {
+	case st.kind() == tool.Shell:
 		out := bashOut(st)
 		if n := len(goFail.FindAllString(out, -1)); n > 0 {
 			s := fmt.Sprintf("%d failed", n)
@@ -1937,7 +1940,7 @@ func (d *drawer) summary(st *Step) string {
 		case n > 1:
 			return faint(fmt.Sprintf("%d lines", n))
 		}
-	case "Edit", "MultiEdit", "Write":
+	case st.kind() == tool.Edit || st.kind() == tool.Write:
 		var r struct {
 			Type    string `json:"type"`
 			Content string `json:"content"`
@@ -1960,7 +1963,7 @@ func (d *drawer) summary(st *Step) string {
 		if add+del > 0 {
 			return paint(cGreen, fmt.Sprintf("+%d", add)) + " " + paint(cRed, fmt.Sprintf("−%d", del))
 		}
-	case "Read":
+	case st.kind() == tool.Read:
 		var r struct {
 			File struct {
 				NumLines   int `json:"numLines"`
@@ -1975,19 +1978,19 @@ func (d *drawer) summary(st *Step) string {
 			}
 			return faint(fmt.Sprintf("%d lines", f.TotalLines))
 		}
-	case "Grep", "Glob":
+	case st.kind() == tool.Search || st.kind() == tool.Glob:
 		if st.Status == OK {
 			n := countLines(st.Output)
 			if strings.HasPrefix(strings.TrimSpace(st.Output), "No ") {
 				n = 0
 			}
 			noun := "results"
-			if st.Tool == "Glob" {
+			if st.kind() == tool.Glob {
 				noun = "files"
 			}
 			return faint(fmt.Sprintf("%d %s", n, noun))
 		}
-	case "Task", "Agent":
+	case st.kind() == tool.Subagent:
 		if n := len(st.Children); n > 0 {
 			return faint(plural(n, "step"))
 		}
@@ -2022,12 +2025,12 @@ func (d *drawer) body(st *Step, indent int) {
 	d.resetHL()
 	defer func() { d.lg, d.byPath, d.spans = nil, false, nil }()
 	in := readInput(st.Input)
-	switch st.Tool {
-	case "Read":
+	switch {
+	case st.kind() == tool.Read:
 		d.lg = langFor(in.str("file_path"))
-	case "Grep":
+	case st.kind() == tool.Search:
 		d.byPath = true
-	case "Bash":
+	case st.kind() == tool.Shell:
 		switch sh := d.shellShape(in.str("command")); sh.kind {
 		case "read":
 			d.lg = langFor(sh.what)
@@ -2040,12 +2043,12 @@ func (d *drawer) body(st *Step, indent int) {
 			d.spans = d.chainSpans(in.str("command"))
 		}
 	}
-	switch st.Tool {
-	case "Edit", "MultiEdit", "Write":
+	switch {
+	case st.kind() == tool.Edit || st.kind() == tool.Write:
 		if d.diff(st, indent) {
 			return
 		}
-	case "Bash":
+	case st.kind() == tool.Shell:
 		if cmd := strings.TrimSpace(readInput(st.Input).str("command")); cmd != "" {
 			d.shellBody(cmd, indent)
 			d.marks = echoMarks(cmd)
@@ -2172,7 +2175,7 @@ func (d *drawer) errorLine(st *Step, indent int, ref string) {
 		Stdout string `json:"stdout"`
 		Stderr string `json:"stderr"`
 	}
-	if st.Tool == "Bash" && json.Unmarshal(st.Result, &r) == nil && r.Stdout+r.Stderr != "" {
+	if st.kind() == tool.Shell && json.Unmarshal(st.Result, &r) == nil && r.Stdout+r.Stderr != "" {
 		text = r.Stdout + "\n" + r.Stderr
 	}
 	// The harness's refusal says why in its own words; its tags don't.

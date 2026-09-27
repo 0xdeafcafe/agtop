@@ -1,16 +1,19 @@
 package convo
 
 import (
-	"github.com/charmbracelet/x/ansi"
 	"math"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/cellw"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
 )
@@ -254,7 +257,7 @@ func (s *Session) Overview(o Options) []Line {
 	add("  "+dim("now  ")+text(PrettyModel(model))+dim(" · effort ")+text(effort)+perm+
 		dim("   in ")+text(tokens(t.In+t.CacheRead+t.CacheOut))+dim(" · out ")+text(tokens(t.Out))+dim(fmt.Sprintf(" · %d requests", t.Requests)), "")
 	for _, st := range s.byID {
-		if (st.Tool == "Task" || st.Tool == "Agent") && st.Status == Running {
+		if st.kind() == tool.Subagent && st.Status == Running {
 			add("  "+paint(cOrange, "⇉ ")+text(agentName(st))+dim("   "+oneLine(readInput(st.Input).str("description"))),
 				paint(cOrange, dur(o.Now.Sub(st.Start))))
 		}

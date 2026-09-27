@@ -28,6 +28,17 @@ var kinds = map[string]tool.Kind{
 	"ExitPlanMode":    tool.PlanMode,
 }
 
+// KindOf is what a Claude Code tool does.
+func KindOf(name string) tool.Kind {
+	if k, ok := kinds[name]; ok {
+		return k
+	}
+	if strings.HasPrefix(name, "mcp__") && strings.Contains(strings.TrimPrefix(name, "mcp__"), "__") {
+		return tool.MCP
+	}
+	return tool.Other
+}
+
 // Call reads one of Claude Code's tool calls into agtop's own.
 func Call(id, name string, input json.RawMessage) tool.Call {
 	c := tool.Call{ID: id, Name: name, Kind: kinds[name], Raw: input}

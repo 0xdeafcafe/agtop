@@ -143,7 +143,7 @@ func (p query) step(st *Step, turnRef string) (Hit, bool) {
 		return Hit{}, false
 	}
 	in := readInput(st.Input)
-	g := glyphFor(st.Tool)
+	g := glyphFor(st)
 	switch {
 	case p.kinds["failed"] && st.Status != Failed:
 		return Hit{}, false

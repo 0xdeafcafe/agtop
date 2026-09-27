@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -35,8 +36,11 @@ const (
 
 // Step is one tool call.
 type Step struct {
-	ID       string
-	Tool     string
+	ID   string
+	Tool string
+	// Kind is what the call does, whichever agent made it; Tool and Input
+	// are in Claude Code's words.
+	Kind     tool.Kind
 	Input    json.RawMessage
 	Status   Status
 	Output   string          // the tool result as text
@@ -498,7 +502,7 @@ func (s *Session) message(m headless.Message, now time.Time) {
 					s.inFlight[b.ID] = flight{b.Name, now, claude.Doing(b.Name, b.Input)}
 					continue
 				}
-				st := &Step{ID: b.ID, Tool: b.Name, Input: b.Input, Start: now, Exit: -1, parent: parent, turn: t}
+				st := &Step{ID: b.ID, Tool: b.Name, Kind: claude.KindOf(b.Name), Input: b.Input, Start: now, Exit: -1, parent: parent, turn: t}
 				s.byID[b.ID] = st
 				t.steps[b.ID] = st
 				s.stepVer++
@@ -594,7 +598,7 @@ func (s *Session) results(m headless.Message, now time.Time) {
 		default:
 			st.Status = OK
 		}
-		if st.Tool == "Bash" {
+		if st.kind() == tool.Shell {
 			st.Exit = exitCode(st)
 		}
 		s.touchStep(st)
@@ -815,4 +819,13 @@ func firstPlain(s string) string {
 		s = rest
 	}
 	return ""
+}
+
+// kind is what the step's call does: the kind its agent gave it, or else
+// what Claude Code's tool of its name does.
+func (st *Step) kind() tool.Kind {
+	if st.Kind != tool.Other {
+		return st.Kind
+	}
+	return claude.KindOf(st.Tool)
 }

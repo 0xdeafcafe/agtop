@@ -68,3 +68,20 @@ func TestNeutralQuestionAndInterrupt(t *testing.T) {
 		t.Errorf("turn = live %v, stopped %v; want stopped", tr.Live, tr.Stopped)
 	}
 }
+
+// A call Claude Code has no tool for keeps its kind, and draws as one.
+func TestNeutralKindsWithoutAClaudeTool(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "tidy"}, at(0))
+	s.Apply(event.Message{Role: "assistant", Parts: []event.Part{
+		{Kind: event.ToolCall, Call: &tool.Call{ID: "d1", Name: "delete", Kind: tool.Delete, Input: tool.Input{Path: "/w/old.go"}}},
+	}}, at(1))
+	st := s.Step("d1")
+	if st == nil || st.kind() != tool.Delete || glyphFor(st) != "✎" {
+		t.Fatalf("delete step = %+v", st)
+	}
+	s.Apply(event.TurnEnd{Reason: "done"}, at(2))
+	if out := plain(s.Render(Options{Width: 100, Now: at(3)})); !strings.Contains(out, "old.go") {
+		t.Errorf("the delete doesn't say what it deleted:\n%s", out)
+	}
+}

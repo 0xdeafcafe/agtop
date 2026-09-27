@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
@@ -48,8 +49,8 @@ func (s *Session) changesNow() []*FileChange {
 				continue
 			}
 			st := it.Step
-			switch st.Tool {
-			case "Edit", "MultiEdit", "Write":
+			switch {
+			case st.kind() == tool.Edit || st.kind() == tool.Write:
 			default:
 				continue
 			}

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
@@ -318,7 +319,7 @@ func (s *Session) shellStart(cmd string, at time.Time) {
 	}
 	id := fmt.Sprintf("you-%d", t.N)
 	in, _ := json.Marshal(map[string]string{"command": cmd, "description": "you ran"})
-	st := &Step{ID: id, Tool: "Bash", Input: in, Start: at, Exit: -1, turn: t}
+	st := &Step{ID: id, Tool: "Bash", Kind: tool.Shell, Input: in, Start: at, Exit: -1, turn: t}
 	s.byID[id] = st
 	t.steps[id] = st
 	s.stepVer++
