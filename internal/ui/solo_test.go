@@ -359,3 +359,22 @@ func isQuit(cmd tea.Cmd) bool {
 	}
 	return false
 }
+
+// A question asked in solo, such as sending to a cold cache, shows under
+// the box: the list's hint row that asks it elsewhere isn't drawn.
+func TestSoloShowsAQuestion(t *testing.T) {
+	draftHome(t)
+	writeSession(t, "dddd4444", "a cold session")
+	m := NewSolo(state.Load(), "test", "dddd4444")
+	m.Frame(160, 45)
+	c := &hostConn{key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
+	c.sess.Context = 120_000
+	c.sess.Requests = []convo.Request{{At: time.Now().Add(-3 * time.Hour)}}
+	m.host = c
+	if !m.askCold(c, "hi", func() tea.Cmd { return nil }) {
+		t.Fatal("a cold cache should ask")
+	}
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "Send to a cold cache?") || !strings.Contains(out, "y yes") {
+		t.Fatalf("the question isn't on screen:\n%s", out)
+	}
+}
