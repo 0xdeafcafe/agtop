@@ -85,3 +85,14 @@ func TestNeutralKindsWithoutAClaudeTool(t *testing.T) {
 		t.Errorf("the delete doesn't say what it deleted:\n%s", out)
 	}
 }
+
+// A history's prompts are your messages: each starts a turn.
+func TestNeutralPromptsStartTurns(t *testing.T) {
+	s := New()
+	s.Apply(event.Message{Role: "user", Parts: []event.Part{{Kind: event.Text, Text: "fix it"}}}, at(0))
+	s.Apply(event.Message{Role: "assistant", Parts: []event.Part{{Kind: event.Text, Text: "Fixed."}}}, at(1))
+	s.Apply(event.TurnEnd{Reason: "done"}, at(2))
+	if len(s.Turns) != 1 || s.Turns[0].Prompt != "fix it" {
+		t.Fatalf("turns = %+v", s.Turns)
+	}
+}

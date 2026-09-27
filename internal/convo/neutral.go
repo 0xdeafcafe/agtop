@@ -2,11 +2,13 @@ package convo
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
 // applyNeutral folds in an event from any agent. The model was made for
@@ -22,6 +24,11 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 		}
 		return
 	case event.Message:
+		if text, ok := said(e); ok {
+			// What you said, as the agent's history tells it.
+			s.Apply(host.Sent{Text: text}, now)
+			return
+		}
 		for _, h := range headless.FromNeutral(ev) {
 			s.Apply(h, now)
 		}
@@ -71,4 +78,19 @@ func (s *Session) ensureStep(c tool.Call, now time.Time) {
 	if st := s.byID[c.ID]; st != nil {
 		st.Kind = c.Kind
 	}
+}
+
+// said is a message of yours: a user message of text alone.
+func said(m event.Message) (string, bool) {
+	if m.Role != "user" || len(m.Parts) == 0 {
+		return "", false
+	}
+	var texts []string
+	for _, p := range m.Parts {
+		if p.Kind != event.Text {
+			return "", false
+		}
+		texts = append(texts, p.Text)
+	}
+	return strings.Join(texts, "\n\n"), true
 }
