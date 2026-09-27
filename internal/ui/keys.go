@@ -201,6 +201,8 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.cleanupKey(s)
 	case modeEff:
 		return m.effKey(k, s)
+	case modeWork:
+		return m.workKey(s)
 	case modeCwd:
 		return m.cwdKey(k, s)
 	}

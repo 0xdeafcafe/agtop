@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"math"
 	"os"
 	"path/filepath"
@@ -100,5 +101,33 @@ func TestScanKeepsTheErrorATurnEndedOn(t *testing.T) {
 	}
 	if tot.Halt != nil {
 		t.Fatalf("halt survived a reply: %+v", tot.Halt)
+	}
+}
+
+func TestProgressIsTheLastCountThatMoved(t *testing.T) {
+	msg := func(text string) json.RawMessage {
+		b, _ := json.Marshal([]map[string]string{{"type": "text", "text": text}})
+		return b
+	}
+	for text, want := range map[string]string{
+		"Wave done.\n\n**Lint** went 11,065 → **9,052** after W11, typecheck 3,044→2,782.": "Lint went 11,065 → 9,052 after W11, typecheck 3,044→2,782",
+		"| api/secrets | 200 -> 403 |":           "",
+		"Candidates dropped 206 → 154. Next up.": "Candidates dropped 206 → 154",
+		"nothing moved":                          "",
+	} {
+		if got := progressIn(msg(text)); got != want {
+			t.Errorf("%q: got %q want %q", text, got, want)
+		}
+	}
+}
+
+func TestScanCountsCompactions(t *testing.T) {
+	compact := `{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}`
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(p, []byte(block1+"\n"+compact+"\n"+next+"\n"+compact+"\n"), 0o600)
+	var tot Totals
+	Scan(p, &tot, nil)
+	if tot.Compacts != 2 || tot.Context() != 1 {
+		t.Fatalf("compacts %d, context %d", tot.Compacts, tot.Context())
 	}
 }

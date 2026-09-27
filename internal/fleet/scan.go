@@ -125,6 +125,8 @@ func (s *Scanner) Run(targets []Target) map[string]Spend {
 					h := *tot.Halt
 					sp.Halt = &h
 				}
+				sp.Progress, sp.ProgressAt = tot.Progress, tot.ProgressAt
+				sp.Context, sp.Compacts = tot.Context(), tot.Compacts
 			}
 			if tot.Last.After(sp.Last) {
 				sp.Last = tot.Last

@@ -37,7 +37,7 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 	m.host.input = m.host.input[:0]
 	m.key(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
-	if m.view != placeEff {
+	if m.view != placeWork {
 		t.Fatalf("ctrl+\\ from the Session's box: view %d", m.view)
 	}
 	m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
@@ -46,6 +46,10 @@ func TestPlacesAndFocus(t *testing.T) {
 		t.Fatal("tab should give the list the keys")
 	}
 
+	m.key(places)
+	if m.view != placeWork || m.mode != modeWork {
+		t.Fatalf("> should go to Workstreams, got view %d mode %d", m.view, m.mode)
+	}
 	m.key(places)
 	if m.view != placeEff || m.mode != modeEff || m.eff.page != effOverview {
 		t.Fatalf("> should go to Efficiency's Overview, got view %d mode %d", m.view, m.mode)
@@ -68,8 +72,9 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 	m.key(back)
 	m.key(back)
+	m.key(back)
 	if m.view != placeAgents || m.mode != modeList {
-		t.Fatal("< < should come back to Agents")
+		t.Fatal("< < < should come back to Agents")
 	}
 	m.key(back)
 	if m.view != placeSettings || m.dialog == nil {
@@ -77,8 +82,9 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 	m.key(places)
 	m.key(places)
+	m.key(places)
 	if m.view != placeEff || m.eff.page != effTimeline {
-		t.Fatal("> from Settings should go round to Agents, then Efficiency on the page it was on")
+		t.Fatal("> from Settings should go round to Agents, Workstreams, then Efficiency on the page it was on")
 	}
 	m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.view != placeAgents || m.mode != modeList {
@@ -86,8 +92,8 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 	m.input = nil
 	m.key(tea.KeyPressMsg{Code: '.', Text: "."})
-	if m.view != placeEff {
-		t.Fatal(". should go to Efficiency, as > does, without shift")
+	if m.view != placeWork {
+		t.Fatal(". should go to Workstreams, as > does, without shift")
 	}
 	m.key(tea.KeyPressMsg{Code: ',', Text: ","})
 	if m.view != placeAgents {
@@ -115,7 +121,7 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 	m.setZen(true)
 	m.key(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl}) // zen's box has the keys: > is text there
-	if m.zen || m.view != placeEff {
+	if m.zen || m.view != placeWork {
 		t.Fatal("going to another place leaves zen")
 	}
 }

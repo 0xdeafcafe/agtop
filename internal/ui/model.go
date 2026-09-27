@@ -40,6 +40,7 @@ const (
 	modeCwd
 	modeHelp
 	modeEff
+	modeWork
 )
 
 type inputKind int
@@ -207,6 +208,7 @@ type Model struct {
 	measuring bool            // temp work is being measured in the background
 	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
 	eff       effState        // the Efficiency place
+	work      workState       // the Workstreams place
 	reaper    fleet.Reaper    // ends what agents leave running when they stop
 	squeezing bool            // transcripts are being compressed in the background
 
@@ -1061,11 +1063,12 @@ func (m *Model) pointerShape(want string) tea.Cmd {
 
 // viewNames are the places at the top: ctrl+\ moves between them, and tab
 // moves within one (the list and its Session, or a place's pages).
-var viewNames = []string{"Agents", "Efficiency", "Machine", "Settings"}
+var viewNames = []string{"Agents", "Workstreams", "Efficiency", "Machine", "Settings"}
 
 // The places, in viewNames' order.
 const (
 	placeAgents = iota
+	placeWork
 	placeEff
 	placeMachine
 	placeSettings
@@ -1082,6 +1085,8 @@ func (m *Model) setView(v int) {
 	m.input, m.inKind = m.input[:0], inPrompt
 	m.zen = false
 	switch m.view {
+	case placeWork:
+		m.mode = modeWork
 	case placeEff:
 		m.setEffPage(m.eff.page)
 	case placeMachine:

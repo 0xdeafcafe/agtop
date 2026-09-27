@@ -617,6 +617,10 @@ func (m *Model) barPlaces(q string) []barItem {
 		m.setZen(!m.zen)
 		return nil
 	})
+	add(paint(cSub, "◇"), "Workstreams", "what's waiting on you, and each repo's sessions", "workstreams waiting stuck progress repos", func(m *Model) tea.Cmd {
+		m.goView(placeWork)
+		return nil
+	})
 	for i, p := range effPages {
 		add(paint(cSub, "◇"), "Efficiency › "+p, "", "efficiency tokens savers usage cost "+p, func(m *Model) tea.Cmd {
 			m.goView(placeEff)
@@ -933,6 +937,8 @@ func (m *Model) here() *spot {
 
 func (s *spot) where() string {
 	switch s.view {
+	case placeWork:
+		return "Workstreams"
 	case placeEff:
 		return "Efficiency › " + effPages[s.effPage%len(effPages)]
 	case placeMachine:
@@ -954,6 +960,9 @@ func (s *spot) where() string {
 func (m *Model) goSpot(s *spot) tea.Cmd {
 	m.barBack = m.here()
 	switch s.view {
+	case placeWork:
+		m.goView(placeWork)
+		return nil
 	case placeEff:
 		m.goView(placeEff)
 		m.setEffPage(s.effPage)

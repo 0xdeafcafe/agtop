@@ -115,7 +115,7 @@ func TestSoloPlaces(t *testing.T) {
 	m.Frame(160, 45)
 	m.host = &hostConn{key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
 
-	want := []int{placeEff, placeMachine, placeSettings, placeAgents}
+	want := []int{placeWork, placeEff, placeMachine, placeSettings, placeAgents}
 	for i, place := range want {
 		soloPress(m, "ctrl+\\")
 		if m.view != place {

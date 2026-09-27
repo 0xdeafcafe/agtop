@@ -40,6 +40,18 @@ type Totals struct {
 	// Halt is the error the session's last turn ended on, if it ended on
 	// one; the next real reply clears it.
 	Halt *Halt `json:"h,omitempty"`
+	// Progress is the last sentence it wrote with a count going from one
+	// number to another ("lint 11,065 → 9,052"), and when.
+	Progress   string    `json:"g,omitempty"`
+	ProgressAt time.Time `json:"ga"`
+	// Compacts is how many times its context was compacted.
+	Compacts int `json:"k,omitempty"`
+}
+
+// Context is how much of the model's window the newest message used.
+func (t *Totals) Context() int64 {
+	u := t.PendingUse
+	return u.Input + u.CacheRead + u.CacheWrite5m + u.CacheWrite1h
 }
 
 // Halt is a turn Claude Code ended on an error instead of an answer: the
@@ -133,7 +145,11 @@ type line struct {
 
 var (
 	assistantMarker = []byte(`"type":"assistant"`)
-	prURL           = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/\d+`)
+	compactMarker   = []byte(`"compact_boundary"`)
+	arrowMarkers    = [][]byte{[]byte("→"), []byte("->")}
+	// progressPair is a count going somewhere: "11,065 → 9,052", "22->18".
+	progressPair = regexp.MustCompile(`((?:\d[\d,.]*)?\dk?)\**\s?(?:→|->)\s?\**~?((?:\d[\d,.]*)?\dk?)`)
+	prURL        = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/\d+`)
 )
 
 // scanReaders are Scan's readers, kept: a scan every few seconds of the
@@ -188,6 +204,10 @@ func Scan(path string, t *Totals, buf []byte) ([]byte, error) {
 }
 
 func consume(t *Totals, b []byte) {
+	if bytes.Contains(b, compactMarker) && bytes.Contains(b, []byte(`"subtype":"compact_boundary"`)) {
+		t.Compacts++
+		return
+	}
 	if !bytes.Contains(b, assistantMarker) {
 		return
 	}
@@ -215,6 +235,11 @@ func consume(t *Totals, b []byte) {
 		t.Halt = &Halt{Kind: l.Error, Text: firstText(m.Content), At: l.Timestamp}
 	case m.Model != "" && m.Model != "<synthetic>":
 		t.Halt = nil // it answered after all
+		if bytes.Contains(b, arrowMarkers[0]) || bytes.Contains(b, arrowMarkers[1]) {
+			if p := progressIn(m.Content); p != "" {
+				t.Progress, t.ProgressAt = p, l.Timestamp
+			}
+		}
 	}
 	if m.Usage == nil || m.Model == "" || m.Model == "<synthetic>" {
 		return
@@ -232,6 +257,50 @@ func consume(t *Totals, b []byte) {
 	t.PendingFast = m.Usage.Speed == "fast"
 	t.PendingAt = l.Timestamp
 	t.LastModel = m.Model
+}
+
+// httpCodes are the pairs that are a status changing, not a count.
+var httpCodes = map[string]bool{"200": true, "201": true, "204": true, "301": true, "302": true, "304": true,
+	"400": true, "401": true, "403": true, "404": true, "409": true, "422": true, "429": true, "500": true, "502": true, "503": true}
+
+// progressIn is the sentence of a message's text with its last count going
+// from one number to another, trimmed to that pair and a little before it.
+func progressIn(content json.RawMessage) string {
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		return ""
+	}
+	best := ""
+	for _, bl := range blocks {
+		if bl.Type != "text" {
+			continue
+		}
+		for _, line := range strings.Split(bl.Text, "\n") {
+			for _, loc := range progressPair.FindAllStringSubmatchIndex(line, -1) {
+				from, to := line[loc[2]:loc[3]], line[loc[4]:loc[5]]
+				if httpCodes[from] && httpCodes[to] {
+					continue
+				}
+				start := strings.LastIndexAny(line[:loc[0]], ".;!?|") + 1
+				if loc[0]-start > 72 {
+					start = loc[0] - 72
+					if i := strings.IndexByte(line[start:loc[0]], ' '); i >= 0 {
+						start += i + 1
+					}
+				}
+				s := line[start:loc[1]]
+				s = strings.NewReplacer("**", "", "`", "", "|", " ").Replace(s)
+				s = strings.Join(strings.Fields(strings.TrimLeft(s, "-*#> :")), " ")
+				if s != "" {
+					best = s
+				}
+			}
+		}
+	}
+	return best
 }
 
 // firstText is the first line of a message's first text block.

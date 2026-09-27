@@ -402,6 +402,8 @@ func (m *Model) renderScreen() string {
 		return m.frame(m.cwdBody(), keysFit(m.w-4, "enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
 	case modeEff:
 		return m.frame(m.effBody(), m.effHint())
+	case modeWork:
+		return m.frame(m.workBody(), m.workHint())
 	}
 	if m.dialog != nil {
 		return m.frame(m.dialogBody(m.w-6), "")
