@@ -265,7 +265,7 @@ type server struct {
 	options map[string][]event.Option
 	began   bool     // the conversation has a transcript to resume
 	spent   float64  // the running process's last cost total: see TurnCost
-	ring   [][]byte // big lines packed: see pack
+	ring    [][]byte // big lines packed: see pack
 	ringN   int      // the ring's size as written
 	pk      packer
 	clients map[*conn]struct{}
