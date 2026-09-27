@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -378,6 +379,8 @@ func (s *Session) Apply(ev any, now time.Time) {
 		}
 	case headless.TaskStarted, headless.TaskUpdated, headless.TaskProgress, headless.TaskDone, headless.BackgroundTasks:
 		s.applyJob(ev, now)
+	case event.Event:
+		s.applyNeutral(ev, now)
 	case headless.Result:
 		s.endJobs(now)
 		if t := s.Live(); t != nil {
