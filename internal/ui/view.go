@@ -1583,6 +1583,9 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked 
 	}
 	name := oneLine(a.DisplayName)
 	badges := m.badges(a)
+	if ps := m.pluginStatus(a.Key); ps != "" {
+		badges = strings.TrimSpace(badges + " " + ps)
+	}
 	summary, sumColor, justDone := m.rowSummary(a)
 	room := w - 3 - cellw.String(right)
 	left := paint(nameColor, name)

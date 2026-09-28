@@ -29,6 +29,9 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.host.subHover = ""
 	}
 	m.lastKeyAt = time.Now()
+	if cmd, used := m.remapKey(&k, &s); used {
+		return cmd
+	}
 	if cmd, ok := m.soloKeyGuard(s); ok {
 		return cmd
 	}
@@ -790,6 +793,9 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	}
 	if n := fleetAliases[name]; n != "" {
 		name = n
+	}
+	if m.isPluginCommand(name) {
+		return m.runPluginCommand(name, a)
 	}
 	need := func() bool {
 		if a == nil {

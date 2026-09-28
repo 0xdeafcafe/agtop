@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -137,6 +138,7 @@ func (m *Model) wipeBox(c *hostConn) {
 	}
 	c.undo.save(c.input, c.back, false)
 	m.keepDraft(c, state.KindCleared)
+	m.emitBox(plugin.EvInputCleared, c.key, string(c.input))
 	c.input, c.back, c.anchor = nil, 0, 0
 	m.flash("cleared · "+undoHint+" brings it back · ctrl+r keeps it under Cleared", false)
 }
@@ -149,6 +151,7 @@ func (m *Model) wipePrompt() {
 		return
 	}
 	keepLater(m.promptDraft(state.KindCleared))
+	m.emitBox(plugin.EvInputCleared, "", string(m.input))
 	m.input, m.back, m.anchor = nil, 0, 0
 	m.flash("cleared · #drafts keeps it under Cleared", false)
 }
@@ -457,6 +460,7 @@ func (m *Model) keepSent(c *hostConn, text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
+	m.emitBox(plugin.EvInputSent, c.key, strings.TrimSpace(text))
 	d := state.Draft{Text: strings.TrimSpace(text), At: time.Now(), Agent: c.key, Kind: state.KindSent}
 	if a := m.agentByKey(c.key); a != nil {
 		d.Name = a.DisplayName

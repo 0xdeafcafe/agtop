@@ -40,6 +40,8 @@ const (
 	pageAgents
 	pageSessions
 	pageInterface
+	pageKeys
+	pagePlugins
 )
 
 // settingsPages are Settings' pages.
@@ -50,6 +52,8 @@ func (m *Model) settingsPages() []page {
 		agentsPage,
 		{name: "Sessions", form: (*Model).sessionSections},
 		{name: "Interface", form: (*Model).interfaceSections},
+		{name: "Keys", body: (*Model).keysBody, key: (*Model).keysKey, rows: (*Model).keysLen},
+		{name: "Plugins", form: (*Model).pluginSections},
 	}
 }
 

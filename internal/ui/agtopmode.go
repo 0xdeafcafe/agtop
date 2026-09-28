@@ -895,6 +895,10 @@ func (m *Model) viewName(c *hostConn) string {
 // host client, the conversation built from what the host sends, and how the
 // pane is being looked at.
 type hostConn struct {
+	// intercepting is a message plugins are looking at before it goes;
+	// intercepted is it going, after they have.
+	intercepting, intercepted bool
+
 	key    string
 	id     string
 	client *host.Client // an agtop session's host; nil when read from a transcript
@@ -1446,7 +1450,7 @@ func (m *Model) agtopPane(w, h int) []string {
 			body = []convo.Line{{Text: ""}, {Text: dim("  connecting to its screen…")}}
 		}
 	case "overview":
-		body = s.Overview(o)
+		body = append(s.Overview(o), m.pluginOverview(c.key)...)
 	case "changes":
 		o.Marks = c.marks
 		body = s.ChangesView(o)
@@ -2638,6 +2642,12 @@ func (m *Model) answerHost(c *hostConn, req *headless.PermissionRequest, allow, 
 // sendPane sends the prompt: now, or queued when the agent is busy (the
 // host decides). A trailing backslash continues onto a new line instead.
 func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
+	if c.intercepting {
+		return nil
+	}
+	if m.wantsIntercept(c, now) {
+		return m.interceptSend(c, now)
+	}
 	text := string(c.input)
 	if strings.HasSuffix(text, "\\") && !now {
 		c.input = append(c.input[:len(c.input)-1], '\n')

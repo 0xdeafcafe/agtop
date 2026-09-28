@@ -170,7 +170,7 @@ func (m *Model) hashMatches(in []rune, back int) []headless.Command {
 	}
 	name, q, hasArg := strings.Cut(text[1:], " ")
 	if !hasArg {
-		return filterCommands(strings.ToLower(name), fleetCommands)
+		return filterCommands(strings.ToLower(name), append(slices.Clip(fleetCommands), m.pluginHashCommands()...))
 	}
 	opts, now := m.fleetArgs(name)
 	if strings.Contains(q, " ") {

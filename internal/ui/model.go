@@ -22,6 +22,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/hooks"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
@@ -70,6 +71,13 @@ type confirmation struct {
 }
 
 type Model struct {
+	// keys is the keymap in force: see keybind.go.
+	keys keyState
+	// hooks is this window's way to its plugins, which never waits; see
+	// pluginui.go.
+	hooks    *hooks.Client
+	hookSeen hookSeen
+
 	store     *state.Store
 	loader    *fleet.Loader
 	scanner   *fleet.Scanner
@@ -328,9 +336,9 @@ func (m *Model) Init() tea.Cmd {
 	watchUI()
 	if m.solo != "" {
 		// Only the one session: nothing about the app as a whole.
-		return tea.Batch(tick(), m.scan(), m.loadPreview(), askColours)
+		return tea.Batch(tick(), m.scan(), m.loadPreview(), askColours, m.loadKeys(), m.startHooks())
 	}
-	return tea.Batch(tick(), m.scan(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), askColours)
+	return tea.Batch(tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), askColours)
 }
 
 // askColours asks the terminal for its background and text, which agtop's
@@ -708,6 +716,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loader.Settle() // nothing new on disk: the last reading, processes sampled again
 		m.refresh()
 		m.zenPick()
+		m.emitHooks()
 		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.watchOnline()}
 		if m.solo == "" {
 			// autoSwitch too: a session's usage reading arrives with the
@@ -972,7 +981,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.keysDisambiguated = msg.SupportsKeyDisambiguation()
 		return m, nil
 	case tea.KeyPressMsg:
-		return m, m.key(msg)
+		cmd := m.key(msg)
+		m.emitInput()
+		return m, cmd
+	case hooks.StateMsg, hooks.DoMsg:
+		return m, m.onHooks(msg)
+	case interceptedMsg:
+		return m, m.onIntercepted(msg)
 	case tea.MouseMotionMsg:
 		m.ptrX, m.ptrY, m.ptrSeen = msg.X, msg.Y, true
 		// An open sheet has the mouse, as it has the keys.

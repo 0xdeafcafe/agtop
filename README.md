@@ -222,6 +222,16 @@ To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe
 
 [plugins/](plugins) has everything else: using and writing them, the examples, the skill, and how it works.
 
+A plugin can also take part in agtop's screen, as far as you approved:
+
+- hear what happens there (sessions opened, turns ending, a session an error stopped, the network going and coming back);
+- add sections to a Session's overview and a word to its row;
+- add commands you can bind to keys, and settings under **Settings → Plugins**;
+- with `input`, see and set what you type;
+- with `intercept`, change or hold back a message before it goes.
+
+None of it can hold agtop up. The screen hands plugins events without waiting, draws what they added from a copy it already has, and gives an intercept 400 ms before the message goes as it was. The [`autodrafts`](plugins/examples/autodrafts) and [`reconnect`](plugins/examples/reconnect) examples rebuild drafts and reconnect-and-continue this way.
+
 ## Embedding agtop
 
 Another app can run agtop-mode sessions without the view and show one of them in a terminal of its own.
@@ -276,6 +286,12 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `#` | agtop's commands |
 | `/` | the agent's commands and skills |
 | `?` | the guide |
+
+Every key can move. **Settings → Keys** lists every action, where it works (everywhere, the list, a Session) and its keys. Press `enter` on one, then the keys you want. A chord is several, `ctrl+x` then `d` say, ended with `enter`. `a` adds a key, `x` leaves it with none, and `r` puts agtop's back. Each `#` command, and each plugin's commands, can have keys too. A key that would take another's asks first. What you change goes in `~/.config/agtop/keybindings.json`:
+
+```json
+{"bindings": {"session.send": ["ctrl+enter"], "command:drafts": ["ctrl+x d"], "list.pr": []}}
+```
 
 ## How it works
 

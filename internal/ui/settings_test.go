@@ -80,7 +80,7 @@ func TestStartForKind(t *testing.T) {
 func TestSettingsAgentsOnePage(t *testing.T) {
 	m, _ := accountsModel(t)
 	m.setView(placeSettings)
-	if n := len(m.settingsPages()); n != pageInterface+1 {
+	if n := len(m.settingsPages()); n != pagePlugins+1 {
 		t.Fatalf("%d pages: an agent has a page of its own again", n)
 	}
 	order := m.agentOrder()
