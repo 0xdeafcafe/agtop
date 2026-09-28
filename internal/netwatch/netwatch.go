@@ -10,6 +10,7 @@ package netwatch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -19,14 +20,25 @@ import (
 	"time"
 )
 
-// How often the API is checked: rarely while it answers, often while it
-// doesn't, so it's noticed soon after it's back. A new network, or a job
-// failing on what looks like the network, checks at once.
+// How often the API is checked: rarely while the network has been steady,
+// more often while it's been shaky, so it can be called steady again on
+// evidence, and while it's down from every 5s backing off to every 30s,
+// so it's noticed soon after it's back. A new network, or a job failing on
+// what looks like the network, checks at once.
 var (
-	upEvery   = 30 * time.Second
-	downEvery = 3 * time.Second
-	dialFor   = 4 * time.Second
-	sample    = time.Second
+	steadyEvery = 2 * time.Minute
+	shakyEvery  = 30 * time.Second
+	downFirst   = 5 * time.Second
+	downMost    = 30 * time.Second
+	dialFor     = 4 * time.Second
+	sample      = 5 * time.Second
+)
+
+// How far back steadiness looks, and how long a connection may take
+// before it counts as slow.
+var (
+	window = 10 * time.Minute
+	slow   = time.Second
 )
 
 // ErrOffline is what a job gets for asking while the API can't be reached.
@@ -56,6 +68,13 @@ type State struct {
 	RxRate, TxRate float64
 	Rated          bool
 
+	// Steady is whether, over the last Window, every check answered,
+	// none was slow, and the machine stayed on one network; Shaky says
+	// what broke it.
+	Steady bool
+	Shaky  []string
+	Window time.Duration
+
 	Jobs []Job // by name
 }
 
@@ -79,7 +98,16 @@ type watcher struct {
 	count   map[int][2]uint64 // each interface's bytes in and out, as last read
 	at      time.Time
 	netKey  string
-	pending bool // the network changed and no check has finished since
+	pending bool    // the network changed and no check has finished since
+	hist    []probe // checks within the window, oldest first
+	fails   int     // checks failed in a row
+}
+
+// probe is one check, kept to judge steadiness.
+type probe struct {
+	at      time.Time
+	up      bool
+	latency time.Duration
 }
 
 var w = &watcher{jobs: map[string]*Job{}, kick: make(chan struct{}, 1)}
@@ -125,7 +153,42 @@ func Now() State {
 		s.Jobs = append(s.Jobs, *j)
 	}
 	sort.Slice(s.Jobs, func(i, j int) bool { return s.Jobs[i].Name < s.Jobs[j].Name })
+	s.Steady, s.Shaky, s.Window = w.steady(time.Now())
 	return s
+}
+
+// steady judges the network over the window; called with w held.
+func (w *watcher) steady(now time.Time) (bool, []string, time.Duration) {
+	var failed, slowed int
+	for _, p := range w.hist {
+		if now.Sub(p.at) > window {
+			continue
+		}
+		switch {
+		case !p.up:
+			failed++
+		case p.latency > slow:
+			slowed++
+		}
+	}
+	var why []string
+	if failed > 0 {
+		why = append(why, fmt.Sprintf("%d check%s failed", failed, plural(failed)))
+	}
+	if slowed > 0 {
+		why = append(why, fmt.Sprintf("%d slow to connect", slowed))
+	}
+	if !w.s.Changed.IsZero() && now.Sub(w.s.Changed) <= window {
+		why = append(why, "joined another network")
+	}
+	return len(why) == 0, why, window
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // Changes gives a channel that's closed the next time the API goes from
@@ -231,7 +294,7 @@ func target() string {
 	return addr
 }
 
-// loop samples the interfaces every second, and checks the API when it's
+// loop samples the interfaces every few seconds, and checks the API when it's
 // due, when asked, and when the network changes.
 func (w *watcher) loop() {
 	tick := time.NewTicker(sample)
@@ -295,16 +358,25 @@ func (w *watcher) took(r checkResult) time.Duration {
 		w.pending = false
 		s.Noticed = now.Sub(s.Changed)
 	}
-	if r.up {
-		for _, j := range w.jobs {
-			j.Paused = false
-		}
-		if known && !was {
-			w.wake()
-		}
-		return upEvery
+	w.hist = append(w.hist, probe{at: now, up: r.up, latency: r.latency})
+	for len(w.hist) > 0 && now.Sub(w.hist[0].at) > window {
+		w.hist = w.hist[1:]
 	}
-	return downEvery
+	if !r.up {
+		w.fails++
+		return min(downFirst<<(w.fails-1), downMost)
+	}
+	w.fails = 0
+	for _, j := range w.jobs {
+		j.Paused = false
+	}
+	if known && !was {
+		w.wake()
+	}
+	if ok, _, _ := w.steady(now); ok {
+		return steadyEvery
+	}
+	return shakyEvery
 }
 
 // sampleNet reads the interfaces' counters, for the rates, and which

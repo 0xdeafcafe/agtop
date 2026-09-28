@@ -56,21 +56,20 @@ func netRate(b float64) string {
 	return fmt.Sprintf("%.0fB", b)
 }
 
-// netSeg is the top bar's network: how fast it moves in and out; red
-// while the API can't be reached, yellow while it's slow to answer.
+// netSeg is the top bar's network: whether it's been steady. Red while
+// the API can't be reached, yellow while it's recently failed, been slow,
+// or changed.
 func netSeg() string {
 	s := netwatch.Now()
-	if s.Known && !s.Up {
-		return paint(cRed, "offline")
-	}
-	if !s.Rated {
+	switch {
+	case !s.Known:
 		return ""
+	case !s.Up:
+		return paint(cRed, "offline")
+	case !s.Steady:
+		return paint(cYellow, "net shaky")
 	}
-	v := "↓" + netRate(s.RxRate) + " ↑" + netRate(s.TxRate)
-	if s.Known && s.Latency > time.Second {
-		return paint(cYellow, v)
-	}
-	return dim(v)
+	return dim("net steady")
 }
 
 // netSheet is #network: whether the API answers, the network agtop is on,
@@ -112,9 +111,12 @@ func (*netSheet) body(m *Model, w, h int) []string {
 	}
 	out = append(out, label("API")+api)
 	if s.Known {
-		next := "every 30s while it answers"
-		if !s.Up {
-			next = "every 3s until it answers"
+		next := "every 2m while it's steady"
+		switch {
+		case !s.Up:
+			next = "every 5–30s until it answers"
+		case !s.Steady:
+			next = "every 30s until it's steady"
 		}
 		checking := ""
 		if s.Checking {
@@ -122,6 +124,16 @@ func (*netSheet) body(m *Model, w, h int) []string {
 		}
 		out = append(out, label("")+faint(fmt.Sprintf("checked %s ago · %d checks · %s%s", age(now.Sub(s.Checked)), s.Checks, next, checking)))
 	}
+
+	// Whether it's been steady.
+	steady := paint(cGreen, "● steady") + dim(" · every check answered, promptly, on one network over the last "+dur(s.Window))
+	switch {
+	case !s.Known:
+		steady = faint("–")
+	case !s.Steady:
+		steady = paint(cYellow, "● shaky") + dim(" · over the last "+dur(s.Window)+": "+strings.Join(s.Shaky, " · "))
+	}
+	out = append(out, label("Steadiness")+steady)
 
 	// The network, and how fast it moves.
 	speed := faint("–")
@@ -133,7 +145,7 @@ func (*netSheet) body(m *Model, w, h int) []string {
 	// Noticing another network.
 	switch s.Changes {
 	case 0:
-		out = append(out, label("New network")+dim("none since agtop opened")+faint(" · interfaces looked at every second; a change checks the API at once"))
+		out = append(out, label("New network")+dim("none since agtop opened")+faint(" · interfaces looked at every 5s; a change checks the API at once"))
 	default:
 		n := fmt.Sprintf("%d change%s · last %s ago", s.Changes, plural(s.Changes), age(now.Sub(s.Changed)))
 		how := paint(cYellow, "checking the API on it…")

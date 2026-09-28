@@ -53,9 +53,42 @@ func TestGrewWraps(t *testing.T) {
 	}
 }
 
+func TestSteadiness(t *testing.T) {
+	w.Lock()
+	defer func() { w.hist, w.fails, w.s = nil, 0, State{}; w.Unlock() }()
+	w.s.Known = true
+	now := time.Now()
+	if ok, why, _ := w.steady(now); !ok {
+		t.Fatalf("no checks yet, yet shaky: %v", why)
+	}
+	w.Unlock()
+	if d := w.took(checkResult{up: true, latency: 50 * time.Millisecond}); d != steadyEvery {
+		t.Fatalf("steady check next in %s", d)
+	}
+	if d := w.took(checkResult{why: "timeout"}); d != downFirst {
+		t.Fatalf("first failure next in %s", d)
+	}
+	w.took(checkResult{why: "timeout"})
+	w.took(checkResult{why: "timeout"})
+	if d := w.took(checkResult{why: "timeout"}); d != downMost {
+		t.Fatalf("backoff not capped: %s", d)
+	}
+	if d := w.took(checkResult{up: true, latency: 50 * time.Millisecond}); d != shakyEvery {
+		t.Fatalf("back up after failures, next in %s", d)
+	}
+	w.Lock()
+	if ok, why, _ := w.steady(time.Now()); ok || len(why) != 1 {
+		t.Fatalf("failures within the window: steady=%v %v", ok, why)
+	}
+	if ok, _, _ := w.steady(time.Now().Add(window + time.Second)); !ok {
+		t.Fatal("failures past the window still count")
+	}
+}
+
 func TestRates(t *testing.T) {
+	sample = 100 * time.Millisecond
 	Start()
-	time.Sleep(2500 * time.Millisecond)
+	time.Sleep(time.Second)
 	s := Now()
 	t.Logf("%+v", s)
 	if !s.Rated || !s.Known {
