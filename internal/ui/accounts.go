@@ -209,10 +209,25 @@ func (m *Model) startKind() string { return m.startKindIn(m.startDir()) }
 
 // startKindIn is the agent a new session in dir runs.
 func (m *Model) startKindIn(dir string) string {
-	if p, ok := m.startPick(dir); ok {
-		return p.Kind
+	// A frame asks it for the top bar, and the accounts dialog for every
+	// row: nothing changes while one is drawn, so it's worked out once.
+	if mk := m.kindMemo; m.drawing && mk.ok && mk.dir == dir {
+		return mk.kind
 	}
-	return m.store.Config.DefaultAgent()
+	k := m.store.Config.DefaultAgent()
+	if p, ok := m.startPick(dir); ok {
+		k = p.Kind
+	}
+	if m.drawing {
+		m.kindMemo = kindMemo{dir: dir, kind: k, ok: true}
+	}
+	return k
+}
+
+// kindMemo is startKindIn's answer while a frame is drawn.
+type kindMemo struct {
+	dir, kind string
+	ok        bool
 }
 
 // startAccount is the agent and account new sessions start on, for the

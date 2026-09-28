@@ -23,7 +23,9 @@ func (m *Model) View() tea.View {
 	defer uiBusy("frame")()
 	frame := m.lastFrame
 	if !m.sameFrame || frame == "" {
+		m.drawing = true
 		frame = m.render()
+		m.drawing, m.kindMemo = false, kindMemo{}
 		m.lastFrame = frame
 	}
 	m.sameFrame = false
