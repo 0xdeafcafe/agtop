@@ -149,6 +149,7 @@ func Feed(in io.Reader, out io.Writer) error {
 	defer unlock()
 	st := state.Load()
 	l := fleet.NewLoader(st)
+	l.Watch(10 * time.Second) // between full readings, only what changed on disk
 	usagePath := filepath.Join(state.Dir(), "usage.json")
 
 	var mu sync.Mutex // guards asked
@@ -209,6 +210,7 @@ func Feed(in io.Reader, out io.Writer) error {
 				drained = true
 			}
 		}
+		l.Settle()
 		snap := l.Load(true)
 		mu.Lock()
 		s := build(snap, asked)

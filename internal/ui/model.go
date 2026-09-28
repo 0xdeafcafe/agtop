@@ -268,6 +268,9 @@ func New(store *state.Store, version string) *Model {
 		hibernated: map[string]bool{},
 		bars:       statusline.LoadBars(),
 	}
+	// Each second's refresh reads only what changed on disk; everything
+	// is read afresh every few seconds all the same.
+	m.loader.Watch(5 * time.Second)
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
 	}
@@ -654,6 +657,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.peekCheck()
 	case tickMsg:
 		m.tick++
+		m.loader.Settle() // nothing new on disk: the last reading, processes sampled again
 		m.refresh()
 		m.watchShells()
 		m.zenPick()
@@ -702,8 +706,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanMsg:
 		m.scanning = false
 		m.loader.SetSpend(msg)
-		m.loaded = true
-		m.refresh()
+		if len(msg) > 0 || !m.loaded {
+			m.loaded = true
+			m.refresh()
+		}
 		return m, nil
 	case dialogReload:
 		if m.dialog != nil {

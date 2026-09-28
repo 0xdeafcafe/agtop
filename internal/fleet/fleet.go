@@ -87,7 +87,7 @@ func (a *Agent) applyStatus(ss claude.Session) {
 
 // Nudge marks agents the user just sent something to as working until their
 // own files catch up.
-func (l *Loader) Nudge(key string) { l.nudged[key] = time.Now() }
+func (l *Loader) Nudge(key string) { l.nudged[key] = time.Now(); l.changedSince() }
 
 // JustFinished is a turn that ended moments ago; it lingers in Working so a
 // finish is noticed rather than vanishing into history.
@@ -235,6 +235,7 @@ type Loader struct {
 	// others are other agents' past sessions, by profile folder.
 	others   map[string]othersListing
 	spendVer map[string]int
+	watching *watching
 }
 
 // printEntry remembers whether a pid runs claude -p, by its start time.
@@ -245,6 +246,7 @@ type printEntry struct {
 
 // SetFetched stores a usage reading fetched from Anthropic for an account.
 func (l *Loader) SetFetched(configDir string, u claude.Usage) {
+	l.changedSince()
 	if old, ok := l.fetched[configDir]; ok && u.FetchedAt.IsZero() {
 		old.Problem = u.Problem // keep the last good numbers, note why they're not refreshing
 		l.fetched[configDir] = old
@@ -387,6 +389,9 @@ func NewLoader(s *state.Store) *Loader {
 
 // SetSpend receives cost totals from the background scanner.
 func (l *Loader) SetSpend(m map[string]Spend) {
+	if len(m) > 0 {
+		l.changedSince()
+	}
 	for k, v := range m {
 		l.spend[k] = v
 		l.spendVer[k]++
@@ -395,6 +400,12 @@ func (l *Loader) SetSpend(m map[string]Spend) {
 
 func (l *Loader) Load(sampleProcs bool) *Snapshot {
 	now := time.Now()
+	if sampleProcs {
+		if snap, ok := l.reuse(now); ok {
+			return snap
+		}
+	}
+	l.began()
 	snap := &Snapshot{At: now}
 	cfg := l.store.Config
 	ov := l.store.Overlay
@@ -617,6 +628,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 	sort.SliceStable(snap.Agents, func(i, j int) bool {
 		return snap.Agents[i].Age(now) < snap.Agents[j].Age(now)
 	})
+	if sampleProcs {
+		l.read(snap, hosted)
+	}
 	return snap
 }
 
