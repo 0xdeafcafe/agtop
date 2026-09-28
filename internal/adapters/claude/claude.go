@@ -44,6 +44,26 @@ func (Adapter) Caps() agent.Caps {
 		agent.CapMCP | agent.CapHooks | agent.CapPlugins | agent.CapStatusLine | agent.CapScreen
 }
 
+// features: Claude Code does everything agtop does, bar sessions on
+// Anthropic's servers. Its running and past sessions are found by fleet
+// and read by convo directly, until they move behind this adapter.
+var features = map[agent.Feature]agent.Support{
+	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
+	agent.FeatureRewind: agent.Yes, agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes,
+	agent.FeatureEffort: agent.Yes, agent.FeatureModes: agent.Yes, agent.FeaturePlan: agent.Yes,
+	agent.FeatureImages: agent.Yes, agent.FeatureQuestions: agent.Yes, agent.FeatureSubagents: agent.Yes,
+	agent.FeatureBackground: agent.Yes, agent.FeatureContext: agent.Yes, agent.FeatureCompact: agent.Yes,
+	agent.FeatureCommands: agent.Yes, agent.FeatureSideQuestion: agent.Yes, agent.FeatureDirs: agent.Yes,
+	agent.FeatureMCP: agent.Yes, agent.FeatureHooks: agent.Yes, agent.FeaturePlugins: agent.Yes,
+	agent.FeatureStatusLine: agent.Yes, agent.FeatureScreen: agent.Yes, agent.FeatureHandoffIn: agent.Yes,
+	agent.FeatureLive: agent.Yes, agent.FeatureHistory: agent.Yes,
+	agent.FeatureSwitch: agent.Yes, agent.FeatureSignIn: agent.Yes, agent.FeatureQuota: agent.Yes,
+	agent.FeaturePricing: agent.Yes, agent.FeatureEfficiency: agent.Yes, agent.FeatureMemory: agent.Yes,
+}
+
+func (Adapter) Features() map[agent.Feature]agent.Support { return features }
+func (Adapter) Level() agent.Level                        { return agent.LevelFull }
+
 // Profiles is ~/.claude: every account is a sign-in swapped into it.
 func (a Adapter) Profiles() []agent.Profile {
 	return []agent.Profile{Profile(a.config().ActiveAccount())}

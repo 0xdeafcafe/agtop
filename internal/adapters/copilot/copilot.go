@@ -24,7 +24,14 @@ func init() { agent.Register(Adapter{}) }
 type Adapter struct{}
 
 // cli is the Copilot CLI over ACP.
-var cli = acp.Agent{ID: Kind, Title: "Copilot", Command: "copilot", Args: []string{"--acp"}}
+var cli = acp.Agent{ID: Kind, Title: "Copilot", Command: "copilot", Args: []string{"--acp"}, Tried: agent.LevelTested,
+	More: map[agent.Feature]agent.Support{
+		agent.FeatureLive: agent.Yes.With("the coding agent's, on GitHub"), agent.FeatureHistory: agent.Yes,
+		agent.FeatureRemote: agent.Yes.With("view only"),
+		agent.FeatureSwitch: agent.Yes.With("gh's accounts"), agent.FeatureSignIn: agent.Yes,
+		agent.FeatureQuota:   agent.Yes.With("premium requests"),
+		agent.FeaturePricing: agent.Planned.With("its models' premium-request multipliers"),
+	}}
 
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Copilot" }
@@ -40,6 +47,11 @@ const Hint = "install the Copilot CLI (npm i -g @github/copilot) to run Copilot 
 // sessions on GitHub, its accounts and their premium requests.
 func (Adapter) Lesser() (string, []string, string) { return "gh", nil, Hint }
 func (Adapter) Caps() agent.Caps                   { return cli.Caps() }
+
+// Features are the CLI's over ACP, and the coding agent's on GitHub. It's
+// been tried lightly against the real CLI.
+func (Adapter) Features() map[agent.Feature]agent.Support { return cli.Features() }
+func (Adapter) Level() agent.Level                        { return cli.Level() }
 
 // Profiles is COPILOT_HOME, or ~/.copilot, when the CLI is installed or gh
 // is: the coding agent needs only a GitHub sign-in.

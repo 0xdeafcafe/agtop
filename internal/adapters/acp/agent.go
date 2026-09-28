@@ -18,15 +18,20 @@ type Agent struct {
 	Command string   // its program
 	Args    []string // what makes it speak ACP
 	Home    string   // its config folder, under the home folder: ".kimi-code"
+	// More are features it has, or lacks, beyond what ACP gives every
+	// agent (Features).
+	More map[agent.Feature]agent.Support
+	// Tried is how far agtop's support for it has been tried.
+	Tried agent.Level
 }
 
 // Known are the ACP agents agtop runs. An agent that grows more than ACP
 // gives (history, limits) moves to a package of its own, as Copilot has.
 var Known = []Agent{
 	{ID: "gemini", Title: "Gemini", Command: "gemini", Args: []string{"--experimental-acp"}, Home: ".gemini"},
-	{ID: "kimi", Title: "Kimi", Command: "kimi", Args: []string{"acp"}, Home: ".kimi-code"},
+	{ID: "kimi", Title: "Kimi", Command: "kimi", Args: []string{"acp"}, Home: ".kimi-code", More: plannedLimits},
 	{ID: "opencode", Title: "OpenCode", Command: "opencode", Args: []string{"acp"}, Home: ".config/opencode"},
-	{ID: "vibe", Title: "Mistral Vibe", Command: "vibe-acp", Home: ".vibe"},
+	{ID: "vibe", Title: "Mistral Vibe", Command: "vibe-acp", Home: ".vibe", More: plannedLimits},
 }
 
 func init() {
@@ -37,6 +42,38 @@ func init() {
 
 func (a Agent) Kind() agent.Kind { return a.ID }
 func (a Agent) Name() string     { return a.Title }
+
+// plannedLimits are Kimi's and Vibe's: their billing APIs aren't read yet.
+var plannedLimits = map[agent.Feature]agent.Support{agent.FeatureQuota: agent.Planned}
+
+// features are what ACP gives any agent. Rewind, fork, context breakdowns,
+// background tasks and a screen of its own have no ACP equivalent.
+var features = map[agent.Feature]agent.Support{
+	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureInterrupt: agent.Yes,
+	agent.FeatureModel: agent.Yes.With("when the agent offers models"),
+	agent.FeatureModes: agent.Yes.With("the agent's own"), agent.FeaturePlan: agent.Yes.With("when the agent has a plan mode"),
+	agent.FeatureImages: agent.Yes, agent.FeatureQuestions: agent.Yes, agent.FeatureMCP: agent.Yes,
+	agent.FeatureHandoffIn:  agent.Yes,
+	agent.FeatureBackground: agent.No.With("ACP has no background tasks"),
+	agent.FeatureHistory:    agent.Planned, agent.FeaturePricing: agent.Planned,
+}
+
+// Features are ACP's, with the agent's own over them.
+func (a Agent) Features() map[agent.Feature]agent.Support {
+	if len(a.More) == 0 {
+		return features
+	}
+	out := make(map[agent.Feature]agent.Support, len(features)+len(a.More))
+	for f, s := range features {
+		out[f] = s
+	}
+	for f, s := range a.More {
+		out[f] = s
+	}
+	return out
+}
+
+func (a Agent) Level() agent.Level { return a.Tried }
 
 func (Agent) Caps() agent.Caps {
 	return agent.CapResume | agent.CapImages | agent.CapModes | agent.CapQuestions | agent.CapMCP

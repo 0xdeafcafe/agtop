@@ -37,6 +37,20 @@ func (Adapter) Program() (string, []string) { return "dsh", []string{".dsh/bin"}
 // no modes and asks no questions over ACP.
 func (Adapter) Caps() agent.Caps { return agent.CapResume | agent.CapImages | agent.CapMCP }
 
+// features are dsh's over ACP: it resumes without replaying, has no modes
+// and asks no questions. Its money left is read, not a window.
+var features = map[agent.Feature]agent.Support{
+	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes.With("without replaying the conversation"),
+	agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes.With("when dsh offers models"),
+	agent.FeatureImages: agent.Yes.With("on models that take them"), agent.FeatureMCP: agent.Yes,
+	agent.FeatureHandoffIn: agent.Yes, agent.FeatureQuota: agent.Yes.With("the API key's balance"),
+	agent.FeatureBackground: agent.No.With("ACP has no background tasks"),
+	agent.FeatureHistory:    agent.No.With("dsh's session logs are compressed and still change"),
+}
+
+func (Adapter) Features() map[agent.Feature]agent.Support { return features }
+func (Adapter) Level() agent.Level                        { return agent.LevelPreview }
+
 // Profiles is DSH_HOME, or ~/.dsh, when dsh is installed.
 func (Adapter) Profiles() []agent.Profile {
 	if !agent.Installed(Kind) {

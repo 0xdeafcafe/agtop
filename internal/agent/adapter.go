@@ -67,6 +67,11 @@ type Adapter interface {
 	Kind() Kind
 	Name() string // "Claude Code"
 	Caps() Caps
+	// Features is what agtop can do with it, feature by feature. A
+	// feature it leaves out is No.
+	Features() map[Feature]Support
+	// Level is how far agtop's support for it has been tried.
+	Level() Level
 	// Profiles are its config homes on this machine.
 	Profiles() []Profile
 }

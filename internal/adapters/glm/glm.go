@@ -24,7 +24,8 @@ func init() { agent.Register(Adapter{}) }
 type Adapter struct{}
 
 // cli is ZCode over ACP, through the bridge.
-var cli = acp.Agent{ID: Kind, Title: "GLM", Command: "zcode-acp-server"}
+var cli = acp.Agent{ID: Kind, Title: "GLM", Command: "zcode-acp-server",
+	More: map[agent.Feature]agent.Support{agent.FeatureQuota: agent.Yes.With("the GLM Coding Plan's")}}
 
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "GLM" }
@@ -35,6 +36,11 @@ func (Adapter) Program() (string, []string) { return "zcode-acp-server", nil }
 // Caps are the bridge's: ZCode's modes (plan, build, edit, yolo, auto),
 // its questions, resume, images and MCP.
 func (Adapter) Caps() agent.Caps { return cli.Caps() }
+
+// Features are the bridge's over ACP, and the Coding Plan's limits. It's
+// been tried only against recorded fixtures.
+func (Adapter) Features() map[agent.Feature]agent.Support { return cli.Features() }
+func (Adapter) Level() agent.Level                        { return cli.Level() }
 
 // Profiles is ZCODE_HOME, or ~/.zcode, when the bridge is installed and
 // has a ZCode to drive.

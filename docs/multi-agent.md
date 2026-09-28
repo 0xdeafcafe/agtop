@@ -210,6 +210,35 @@ DeepSeek and GLM, as found (2026-09-27): DeepSeek's own agent is DeepSeek Harnes
 
 Codex, as found: its `approvals_reviewer = "auto_review"` setting answers approvals itself, and agtop leaves that as you set it. Its `primary` window can be the weekly one. It runs every command in `/bin/zsh -lc`, which agtop unwraps.
 
+## Features, profiles and providers (planned 2026-09-28)
+
+The core isn't isolated yet. Claude Code is the implicit default: `canRun` lets Claude do everything and checks only other agents, `Caps` is sixteen coarse flags checked in two places, and there are 37 `"claude"` comparisons outside the adapters and about 300 `claude.X` references across 13 packages. What follows is the target, built in two parallel tracks.
+
+### Track A: every agtop feature is opted into
+
+- **`agent.Feature`** names every agtop action a session or provider might offer: resume, fork, rewind, images, effort, modes, plan, subagents, background tasks, questions, context breakdown, compact, MCP, hooks, plugins, statusline, screen, cd/add-dir, side questions (btw), mid-session model switch, interrupt, slash commands and skills, live discovery, past history, remote sessions, account switching, sign-in, quota, pricing, efficiency, memory report, and hand-off in (starting from another agent's transcript). Where a feature has an optional interface (`Driver`, `HistoryReader`, `QuotaSource`, `Accounts`, `Pricer`, `Commander`…), the interface stays the way it's implemented.
+- **Adapters declare each one**: `Features() map[Feature]Support`, where `Support` is `Yes`, `No` or `Planned`, with an optional note ("needs a paid plan", "view only"). A feature an adapter doesn't list is `No`. A test checks that a feature declared `Yes` has its interface implemented, and the other way round.
+- **One gate**: `agent.Supports(kind, feature)`. The core never compares a kind to `"claude"`. An empty kind (older state, drafts and host info) is made `claude` once, where it's read. `Caps` goes.
+- **Claude is an adapter like the rest.** `canRun`, `otherAgent`, host `other()`, fleet's `otherAgent` and the process-name checks go through the registry or the adapter (`Programmer`, `Discoverer`). A test fails on any `"claude"` literal outside `internal/claude`, `internal/adapters/claude` and marked migrations.
+- Then step 4 (`fleet.Agent` off `claude.Job`), then `claude.Account` → `agent.Profile` in host and fleet, and then retiring `FromNeutral`.
+- **Hand-off**: `agent.Handoff(from Session) Input` renders a conversation (its first message, a summary of what was done, recent turns and open todos) as the opening prompt of a new session on another provider. The UI and profiles call it.
+
+Track A as built:
+
+- **Features** (2026-09-28). `internal/agent/feature.go` has `Feature`, `Support{Is, Note}` (`Yes`, `No`, `Planned`, and `.With(note)`), `Level` (`LevelFull`, `LevelTested`, `LevelPreview`), `AllFeatures()` in display order with labels, `Features(kind)`, `FeatureOf`, `Supports` and `LevelOf`. Every adapter declares its features and level: Claude is full, Codex and Copilot tested, the rest preview. `internal/adapters/features_test.go` checks each feature that is an interface against the adapter; Claude's running and past sessions are the one exception, found by fleet and convo until step 4 moves them.
+
+### Track B: providers and profiles
+
+- **Provider family always visible.** Every session row, the session header and the top bar show the provider with its own glyph and colour (Claude, Codex, Copilot, DeepSeek, GLM, Kimi, Vibe, Gemini, OpenCode), along with the account and the profile in use.
+- **Profiles** (`state.Config.Profiles`) are named lists of providers plus a policy:
+  - `providers`: ordered provider kinds. Accounts within each provider rotate as they do now.
+  - `mix`: `stay` (only the first installed provider; when all its accounts are out, wait) or `mix` (new sessions go to the next provider once every account of the current one is out).
+  - `onLimit`, for a *running* conversation that hits a usage limit: `wait` (continue at the reset, as `Dispatch.OnLimit` does now), `account` (another account of the same provider; the conversation carries on), or `handoff` (another account first, then hand it to the next provider in the list through `agent.Handoff`). Otherwise a running conversation stays where it is.
+- **Which profile a session gets**: the one picked for it (the start picker, `#profile <name>` in the Prompt, `agtop session start --profile`), else the longest matching folder rule (`Config.FolderRules`: a path prefix, `~` expanded, to a profile), else `Config.DefaultProfile`. `Config.ProfileFor(cwd, explicit)` is the one resolver, and `Profile.Pick(quotas)` gives the provider and account to start on.
+- **Migration**: `Dispatch.Kind`, `SwitchOnLimit` and `AgentOrder` become a profile called "Default", made once. The old fields are still written for older agtops.
+- **Providers page** (the Accounts page reworked): installed providers, each with its accounts and limits and its support level (`full`, `tested`, or `preview`: built but not tried against the real CLI), plus the feature matrix from Track A (✓, –, planned).
+- **Profiles page**: create, rename, delete and reorder providers, set the policy, and manage folder rules (add one from the selected session's folder). A key switches the default profile or provider from anywhere, with a picker.
+
 ## Adding the agents
 
 Each agent is its own milestone: it appears in the list, runs in agtop mode, draws its history, and shows its usage.

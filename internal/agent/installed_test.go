@@ -15,6 +15,8 @@ type progAdapter struct {
 func (p progAdapter) Kind() Kind                  { return p.kind }
 func (p progAdapter) Name() string                { return string(p.kind) }
 func (progAdapter) Caps() Caps                    { return 0 }
+func (progAdapter) Features() map[Feature]Support { return nil }
+func (progAdapter) Level() Level                  { return LevelPreview }
 func (progAdapter) Profiles() []Profile           { return nil }
 func (p progAdapter) Program() (string, []string) { return p.name, p.dirs }
 

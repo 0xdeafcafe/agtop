@@ -31,6 +31,22 @@ func (Adapter) Caps() agent.Caps {
 		agent.CapQuestions | agent.CapContext | agent.CapMCP
 }
 
+// features are what app-server gives agtop. Codex has no subagents, no
+// plan mode among its approval presets, and nothing to rewind to.
+var features = map[agent.Feature]agent.Support{
+	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
+	agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes.With("from the next turn"),
+	agent.FeatureEffort: agent.Yes, agent.FeatureModes: agent.Yes.With("read-only, auto, full-access"),
+	agent.FeatureImages: agent.Yes, agent.FeatureQuestions: agent.Yes, agent.FeatureContext: agent.Yes,
+	agent.FeatureMCP: agent.Yes, agent.FeatureHandoffIn: agent.Yes,
+	agent.FeatureLive: agent.Yes, agent.FeatureHistory: agent.Yes,
+	agent.FeatureSwitch: agent.Yes, agent.FeatureSignIn: agent.Yes, agent.FeatureQuota: agent.Yes,
+	agent.FeatureCommands: agent.Planned, agent.FeaturePricing: agent.Planned, agent.FeatureEfficiency: agent.Planned,
+}
+
+func (Adapter) Features() map[agent.Feature]agent.Support { return features }
+func (Adapter) Level() agent.Level                        { return agent.LevelTested }
+
 // Profiles is CODEX_HOME, or ~/.codex, when it exists and codex is
 // installed: a folder left behind by an uninstalled codex lists nothing.
 func (Adapter) Profiles() []agent.Profile {

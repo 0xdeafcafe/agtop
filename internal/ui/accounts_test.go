@@ -30,6 +30,8 @@ type fakeAgent struct {
 func (f fakeAgent) Kind() agent.Kind                                            { return f.kind }
 func (f fakeAgent) Name() string                                                { return f.title }
 func (fakeAgent) Caps() agent.Caps                                              { return 0 }
+func (fakeAgent) Features() map[agent.Feature]agent.Support                     { return nil }
+func (fakeAgent) Level() agent.Level                                            { return agent.LevelPreview }
 func (f fakeAgent) Profiles() []agent.Profile                                   { return []agent.Profile{{Kind: f.kind, Dir: f.dir}} }
 func (f fakeAgent) Program() (string, []string)                                 { return "agtop-fake-" + string(f.kind), nil }
 func (fakeAgent) Start(context.Context, agent.StartOptions) (agent.Conn, error) { return nil, nil }
@@ -238,7 +240,9 @@ func flatten(cmd tea.Cmd) []tea.Msg {
 
 type lesserFake struct{ fakeAgent }
 
-func (lesserFake) Lesser() (string, []string, string) { return "agtop-fake-gh", nil, "install zlesser's CLI" }
+func (lesserFake) Lesser() (string, []string, string) {
+	return "agtop-fake-gh", nil, "install zlesser's CLI"
+}
 
 // An agent there only through a lesser program shows in Accounts, but
 // picking it for new sessions says what to install rather than failing.
