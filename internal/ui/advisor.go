@@ -56,8 +56,12 @@ func (m *Model) advTick() tea.Cmd {
 // advRun runs a pass: when it's due, or regardless when force is set.
 func (m *Model) advRun(force bool) tea.Cmd {
 	a := &m.eff.adv
-	acct, ok := advisor.Account(m.store.Config)
-	if a.running || !ok {
+	// It runs Claude Code, as whoever ~/.claude is signed in as: only when
+	// the profile here lists Claude Code and one of its logins has room.
+	// Another login can't be used without switching ~/.claude.
+	_, ok := m.store.Config.ProfileFor(m.launchDir, "").PickFor(string(loginsKind), m.room())
+	acct := m.store.Config.ActiveAccount()
+	if a.running || !ok || acct.ConfigDir == "" {
 		return nil
 	}
 	a.running = true

@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -95,13 +94,6 @@ func (r *Record) Save() error {
 		return err
 	}
 	return os.Rename(tmp, recordPath())
-}
-
-// Account is the Claude login the advisor runs as. It's the one ~/.claude
-// is signed in to until profiles can pick one for it.
-func Account(cfg state.Config) (claude.Account, bool) {
-	a := cfg.ActiveAccount()
-	return a, a.ConfigDir != ""
 }
 
 // Due is whether a pass should run now, given how many requests your
