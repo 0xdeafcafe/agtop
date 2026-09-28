@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 )
 
 // A commit card read from the command and its output is a guess: a message
@@ -99,10 +101,10 @@ func (d *drawer) gitCommits(st *Step) ([]card, bool) {
 }
 
 func (d *drawer) commitQuery(st *Step) (commitQuery, bool) {
-	if st.Tool != "Bash" || st.Status == Running || st.Status == Waiting || st.Start.IsZero() || st.End.IsZero() {
+	if st.kind() != tool.Shell || st.Status == Running || st.Status == Waiting || st.Start.IsZero() || st.End.IsZero() {
 		return commitQuery{}, false
 	}
-	cmd := readInput(st.Input).str("command")
+	cmd := st.in().Command
 	commits := false
 	for _, c := range gitCalls(cmd) {
 		commits = commits || c.verb == "commit" || c.verb == "cherry-pick" || c.verb == "revert"
