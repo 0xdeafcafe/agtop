@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestTrimTempKeepsWhatsInUse(t *testing.T) {
+func TestTrimTmpKeepsWhatsInUse(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "tmp")
 	old := time.Now().Add(-4 * time.Hour)
 	for _, n := range []string{"old-build", "held-build", "claude-502", "fresh-build"} {
@@ -21,7 +21,7 @@ func TestTrimTempKeepsWhatsInUse(t *testing.T) {
 			}
 		}
 	}
-	if got := trimTemp(dir, time.Now(), map[string]bool{"held-build": true}); got != 1 {
+	if got := trimTmp(dir, time.Now(), map[string]bool{"held-build": true}); got != 1 {
 		t.Errorf("removed %d, want 1", got)
 	}
 	for n, want := range map[string]bool{"old-build": false, "held-build": true, "claude-502": true, "fresh-build": true} {
@@ -29,7 +29,7 @@ func TestTrimTempKeepsWhatsInUse(t *testing.T) {
 			t.Errorf("%s there = %v, want %v", n, err == nil, want)
 		}
 	}
-	if trimTemp(filepath.Dir(dir), time.Now(), nil) != 0 {
+	if trimTmp(filepath.Dir(dir), time.Now(), nil) != 0 {
 		t.Error("trimmed a folder that isn't a session's tmp")
 	}
 }

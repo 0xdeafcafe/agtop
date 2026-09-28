@@ -15,11 +15,11 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
-// A running session's temp folder only grows: every build, test run and
+// A running session's tmp folder only grows: every build, test run and
 // clone it makes as scratch stays until the session is cleaned, which
 // agtop won't do while it runs. Two long sessions reached 40 GB and 27 GB
 // in two days. When the setting is on and the disk runs low, the host
-// clears out its own session's old scratch: what's been untouched for
+// clears out its own session's old tmp: what's been untouched for
 // trimAge and is open in no process.
 const (
 	trimEvery = 10 * time.Minute
@@ -39,7 +39,7 @@ func (s *server) trimLoop() {
 		case <-s.quit:
 			return
 		case <-t.C:
-			if !state.Load().Config.TrimRunningTemp {
+			if !state.Load().Config.TrimRunningTmp {
 				continue
 			}
 			tmp := TempDir(s.cfg.ID)
@@ -50,7 +50,7 @@ func (s *server) trimLoop() {
 			if !ok {
 				continue // without knowing what's open, nothing is safe to remove
 			}
-			trimTemp(tmp, time.Now(), held)
+			trimTmp(tmp, time.Now(), held)
 		}
 	}
 }
@@ -92,12 +92,12 @@ func heldUnder(dir string) (map[string]bool, bool) {
 	return held, true
 }
 
-// trimTemp removes the entries of dir that are older than trimAge and
+// trimTmp removes the entries of dir that are older than trimAge and
 // not held. Claude Code's own folders (claude-<uid>: its task output and
 // diffs) stay, as the session reads them back.
-func trimTemp(dir string, now time.Time, held map[string]bool) (removed int) {
+func trimTmp(dir string, now time.Time, held map[string]bool) (removed int) {
 	if filepath.Base(dir) != "tmp" {
-		return 0 // only ever a session's own temp folder
+		return 0 // only ever a session's own tmp folder
 	}
 	ents, err := os.ReadDir(dir)
 	if err != nil {
