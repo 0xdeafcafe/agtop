@@ -17,3 +17,7 @@ func TestUIBlock(t *testing.T) {
 func TestHot(t *testing.T) { analysistest.Run(t, analysistest.TestData(), Hot, "hot") }
 
 func TestRead(t *testing.T) { analysistest.Run(t, analysistest.TestData(), Read, "read") }
+
+func TestHooks(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), Hooks, "example.com/internal/ui/hookcheck")
+}
