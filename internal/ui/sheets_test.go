@@ -185,7 +185,7 @@ func TestStatusSheetDrag(t *testing.T) {
 		m.Update(tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
 	}
 	drag("Spend today", "CPU")
-	if got := st.bars.Top.Lines; !slices.Equal(got[0], []string{"usage"}) || !slices.Equal(got[1], []string{"ram", "cpu", "today", "disk", "battery", "tmp"}) {
+	if got := st.bars.Top.Lines; !slices.Equal(got[0], []string{"usage"}) || !slices.Equal(got[1], []string{"ram", "cpu", "today", "net", "disk", "battery", "tmp"}) {
 		t.Fatalf("onto CPU: %v", got)
 	}
 	drag("Clock", "Line 2")

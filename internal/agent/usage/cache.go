@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/netwatch"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -54,6 +55,10 @@ func Record(path, key string, q Quota) error {
 	return os.Rename(tmp.Name(), path)
 }
 
+// Job is what reading other agents' limits is called where agtop shows
+// what waits on the network.
+const Job = "Other agents' limits"
+
 // Refresh is the reading kept under key, read again with fetch when it's
 // older than Every; offline never reads. One process reads at a time, and
 // the others find its reading. A failed read keeps the last reading, with
@@ -68,9 +73,13 @@ func Refresh(path, key string, offline bool, fetch func(context.Context) (Quota,
 	if offline || time.Since(q.FetchedAt) < Every {
 		return q
 	}
+	if !netwatch.Run(Job) {
+		return q // the network's down: the last reading, until it's back
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	got, err := fetch(ctx)
+	netwatch.Done(Job, err)
 	if err != nil {
 		q.Problem = err.Error()
 		return q

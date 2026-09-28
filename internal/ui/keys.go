@@ -989,6 +989,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		return m.macKeysCommand(arg)
 	case "statusline":
 		m.openTopBar(a)
+	case "network":
+		m.sheet = &netSheet{}
 	case "efficiency":
 		m.setView(placeEff)
 		if p := map[string]int{"timeline": effTimeline, "savers": effSaversPage, "findings": effFindings}[arg]; p > 0 {

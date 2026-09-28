@@ -80,6 +80,9 @@ var topSegs = []barSeg{
 	{"cpu", "CPU", "what agents and their processes use", func(x *barCtx) string {
 		return dim(fmt.Sprintf("%.0f%% cpu", x.m.snap.Machine.TotalCPU))
 	}},
+	{"net", "Network", "how fast the network moves in and out: yellow while the API is slow to answer, offline in red while it can't be reached · #network says more", func(x *barCtx) string {
+		return netSeg()
+	}},
 	{"tmp", "Temp files", "agents' scratch left on disk, when there's much", func(x *barCtx) string {
 		if t := x.m.tempTotal(); t >= tempShown {
 			return dim(disk(t) + " tmp")

@@ -18,6 +18,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/netwatch"
 )
 
 // The models each pass runs on, and what each may spend.
@@ -194,9 +195,23 @@ type call struct {
 	schema  string
 }
 
+// Job is what the advisor's calls are called where agtop shows what waits
+// on the network.
+const Job = "Advisor"
+
 // ask runs c and decodes its structured answer into out. It reports what
-// the call cost even when it fails.
+// the call cost even when it fails. While the network is down it waits
+// rather than run.
 func ask(ctx context.Context, acct claude.Account, c call, out any) (float64, error) {
+	if !netwatch.Run(Job) {
+		return 0, netwatch.ErrOffline
+	}
+	cost, err := run(ctx, acct, c, out)
+	netwatch.Done(Job, err)
+	return cost, err
+}
+
+func run(ctx context.Context, acct claude.Account, c call, out any) (float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -24,12 +25,15 @@ const BarLines = 2
 // DefaultTop and DefaultAgent are what agtop showed before they could be
 // changed.
 func DefaultTop() Layout {
-	return Layout{Lines: [][]string{{"today", "usage"}, {"ram", "cpu", "disk", "battery", "tmp"}}, Sep: " · "}
+	return Layout{Lines: [][]string{{"today", "usage"}, {"ram", "cpu", "net", "disk", "battery", "tmp"}}, Sep: " · "}
 }
 
-// oldTop is the top bar's default before disk and battery; one saved
-// unchanged from it gets them too.
-var oldTop = [][]string{{"today", "usage"}, {"ram", "cpu", "tmp"}}
+// oldTops are the top bar's defaults before disk and battery, and before
+// the network; one saved unchanged from either gets what came since.
+var oldTops = [][][]string{
+	{{"today", "usage"}, {"ram", "cpu", "tmp"}},
+	{{"today", "usage"}, {"ram", "cpu", "disk", "battery", "tmp"}},
+}
 
 func DefaultAgent() Layout {
 	return Layout{Lines: [][]string{{"context", "cost"}, {"folder", "branch", "model", "effort", "mode", "tmp"}}, Sep: " · "}
@@ -49,7 +53,7 @@ func LoadBars() Bars {
 	if jsonx.Unmarshal(raw, &got) != nil {
 		return b
 	}
-	if got.Top.Lines != nil && !(reflect.DeepEqual(got.Top.Lines, oldTop) && got.Top.Sep == b.Top.Sep) {
+	if got.Top.Lines != nil && !(slices.ContainsFunc(oldTops, func(o [][]string) bool { return reflect.DeepEqual(got.Top.Lines, o) }) && got.Top.Sep == b.Top.Sep) {
 		b.Top = got.Top
 	}
 	if got.Agent.Lines != nil {

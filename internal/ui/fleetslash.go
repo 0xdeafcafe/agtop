@@ -44,6 +44,7 @@ var fleetCommands = []headless.Command{
 	{Name: "advisor", Description: "let Haiku look over your agents' figures now and then for what would save tokens or time, with Opus checking; now looks at once", ArgumentHint: "[on|off|now]"},
 	{Name: "mackeys", Description: "send Terminal.app's ⌘← → ⌘⌫ ⌘⌦ ⌘Z on to agtop through Hammerspoon, installed with brew if need be; alone says whether it's on", ArgumentHint: "[on|off]"},
 	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
+	{Name: "network", Description: "whether the API answers, the network agtop is on and how fast it moves, and what waits for it (#net)"},
 	{Name: "account", Description: "switch to another account, of any agent; alone opens Accounts", ArgumentHint: "[name]"},
 	{Name: "hibernate", Description: "stop finished agents after this many idle minutes; 0 turns it off", ArgumentHint: "<minutes>"},
 	{Name: "width", Description: "the list's share of the screen; alone goes back to agtop's", ArgumentHint: "[n%]"},
@@ -58,7 +59,7 @@ var fleetCommands = []headless.Command{
 }
 
 // fleetAliases are other names command() answers to.
-var fleetAliases = map[string]string{"eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "drafts"}
+var fleetAliases = map[string]string{"eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "drafts", "net": "network"}
 
 // isHashCmd is whether text is a # command: # and a letter, so a Markdown
 // heading (# Plan) or an issue (#123) is still a message.

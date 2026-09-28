@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/netwatch"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -118,6 +119,10 @@ type cache struct {
 
 func cachePath() string { return filepath.Join(state.Dir(), "update.json") }
 
+// Job is what looking for a newer agtop is called where agtop shows what
+// waits on the network.
+const Job = "Update check"
+
 // Check is the newer agtop that's out, if there is one, asking the proxy
 // only when no agtop has in the last Every.
 func Check(ctx context.Context) (Info, bool) {
@@ -130,7 +135,11 @@ func Check(ctx context.Context) (Info, bool) {
 		_ = jsonx.Unmarshal(b, &c)
 	}
 	if time.Since(c.Checked) > Every || c.Latest.Version == "" {
+		if !netwatch.Run(Job) {
+			return Info{}, false
+		}
 		l, err := Latest(ctx)
+		netwatch.Done(Job, err)
 		if err != nil {
 			return Info{}, false
 		}

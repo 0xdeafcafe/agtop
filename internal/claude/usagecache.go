@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/netwatch"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -150,6 +151,10 @@ func UsageKey(a Account, u Usage) string {
 	return a.ConfigDir
 }
 
+// UsageJob is what asking Anthropic for plan usage is called where agtop
+// shows what waits on the network.
+const UsageJob = "Claude plan usage"
+
 // RefreshUsageFor is RefreshUsage for readings kept under key, fetched by
 // fetch.
 func RefreshUsageFor(path, key string, offline bool, fetch func(context.Context) (Usage, error)) Usage {
@@ -166,9 +171,13 @@ func RefreshUsageFor(path, key string, offline bool, fetch func(context.Context)
 	if offline || now.Before(f.Wait) || now.Sub(u.FetchedAt) < UsageEvery {
 		return u
 	}
+	if !netwatch.Run(UsageJob) {
+		return u // the network's down: the last reading, until it's back
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	got, err := fetch(ctx)
+	netwatch.Done(UsageJob, err)
 	var rl *ErrRateLimited
 	switch {
 	case err == nil:

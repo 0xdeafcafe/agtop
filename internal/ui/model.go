@@ -321,7 +321,7 @@ func (m *Model) Init() tea.Cmd {
 		// Only the one session: nothing about the app as a whole.
 		return tea.Batch(tick(), m.scan(), m.loadPreview(), askColours)
 	}
-	return tea.Batch(tick(), m.scan(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), askColours)
+	return tea.Batch(tick(), m.scan(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), askColours)
 }
 
 // askColours asks the terminal for its background and text, which agtop's
@@ -665,6 +665,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case snapMsg:
 		m.onSnap(msg)
 		return m, nil
+	case netMsg:
+		return m, m.onNet()
 	case peekCheckMsg:
 		return m, m.peekCheck()
 	case tickMsg:
