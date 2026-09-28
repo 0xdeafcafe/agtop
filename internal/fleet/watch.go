@@ -39,11 +39,9 @@ func (l *Loader) Watch(every time.Duration) {
 // changed since. A refresh on a timer settles; one after something you did
 // doesn't, so it always reads afresh.
 func (l *Loader) Settle() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.watching != nil {
-		l.watching.settle = true
-	}
+	l.inMu.Lock()
+	defer l.inMu.Unlock()
+	l.in.settle = true
 }
 
 // changedSince marks the last reading stale: spend, usage or a nudge was

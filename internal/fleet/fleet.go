@@ -95,10 +95,13 @@ func (a *Agent) applyStatus(ss claude.Session) {
 // Nudge marks agents the user just sent something to as working until their
 // own files catch up.
 func (l *Loader) Nudge(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.nudged[key] = time.Now()
-	l.changedSince()
+	l.inMu.Lock()
+	defer l.inMu.Unlock()
+	if l.in.nudged == nil {
+		l.in.nudged = map[string]time.Time{}
+	}
+	l.in.nudged[key] = time.Now()
+	l.in.stale = true
 }
 
 // JustFinished is a turn that ended moments ago; it lingers in Working so a
@@ -220,9 +223,12 @@ type Snapshot struct {
 
 // Loader keeps the cheap caches between refreshes.
 type Loader struct {
-	// mu is held by Load and by everything handed in, so the UI can load
-	// off its own goroutine while it goes on handing things in.
+	// mu is held by Load, which runs off the UI's goroutine. What the UI
+	// hands in waits in "in", under a lock of its own held only a moment,
+	// so the UI never waits for a Load to finish; Load takes it in first.
 	mu      sync.Mutex
+	inMu    sync.Mutex
+	in      inbox
 	store   *state.Store
 	jobs    map[string]claude.Job // by key, reloaded on mtime change
 	mtimes  map[string]time.Time
@@ -259,11 +265,53 @@ type printEntry struct {
 	print bool
 }
 
+// inbox is what was handed in since the last Load began.
+type inbox struct {
+	settle  bool
+	stale   bool
+	spend   map[string]Spend
+	nudged  map[string]time.Time
+	fetched []fetchedIn // in the order they came
+}
+
+type fetchedIn struct {
+	configDir string
+	u         claude.Usage
+}
+
+// takeIn takes in what was handed in since the last Load; l.mu is held.
+func (l *Loader) takeIn() {
+	l.inMu.Lock()
+	in := l.in
+	l.in = inbox{}
+	l.inMu.Unlock()
+	for k, v := range in.spend {
+		l.spend[k] = v
+		l.spendVer[k]++
+	}
+	for k, t := range in.nudged {
+		l.nudged[k] = t
+	}
+	for _, f := range in.fetched {
+		l.setFetched(f.configDir, f.u)
+	}
+	if in.stale {
+		l.changedSince()
+	}
+	if in.settle && l.watching != nil {
+		l.watching.settle = true
+	}
+}
+
 // SetFetched stores a usage reading fetched from Anthropic for an account.
 func (l *Loader) SetFetched(configDir string, u claude.Usage) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.changedSince()
+	l.inMu.Lock()
+	defer l.inMu.Unlock()
+	l.in.fetched = append(l.in.fetched, fetchedIn{configDir, u})
+	l.in.stale = true
+}
+
+func (l *Loader) setFetched(configDir string, u claude.Usage) {
 	if old, ok := l.fetched[configDir]; ok && u.FetchedAt.IsZero() {
 		old.Problem = u.Problem // keep the last good numbers, note why they're not refreshing
 		l.fetched[configDir] = old
@@ -406,15 +454,18 @@ func NewLoader(s *state.Store) *Loader {
 
 // SetSpend receives cost totals from the background scanner.
 func (l *Loader) SetSpend(m map[string]Spend) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if len(m) > 0 {
-		l.changedSince()
+	if len(m) == 0 {
+		return
+	}
+	l.inMu.Lock()
+	defer l.inMu.Unlock()
+	if l.in.spend == nil {
+		l.in.spend = make(map[string]Spend, len(m))
 	}
 	for k, v := range m {
-		l.spend[k] = v
-		l.spendVer[k]++
+		l.in.spend[k] = v
 	}
+	l.in.stale = true
 }
 
 func (l *Loader) Load(sampleProcs bool) *Snapshot {
@@ -433,6 +484,7 @@ func (l *Loader) LoadFrom(s *state.Store, sampleProcs bool) *Snapshot {
 }
 
 func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,maintidx // Load's body as it was, moved under the lock
+	l.takeIn()
 	now := time.Now()
 	if sampleProcs {
 		if snap, ok := l.reuse(now); ok {

@@ -84,11 +84,13 @@ func TestFreshestSkipsOtherAccountsReading(t *testing.T) {
 	acct := claude.Account{Name: "default", ConfigDir: "/x"}
 	now := time.Now()
 	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "old", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 97}})
+	l.takeIn()
 	cached := claude.Usage{AccountID: "new", FetchedAt: now.Add(-time.Minute), FiveHour: claude.Window{Present: true, Percent: 3}}
 	if u := l.freshest(acct, cached); u.AccountID != "new" || u.FiveHour.Percent != 3 {
 		t.Fatalf("got %s at %.0f%%, want new at 3%%", u.AccountID, u.FiveHour.Percent)
 	}
 	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "new", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 5}})
+	l.takeIn()
 	if u := l.freshest(acct, cached); u.FiveHour.Percent != 5 {
 		t.Fatalf("got %.0f%%, want the newer reading's 5%%", u.FiveHour.Percent)
 	}
@@ -100,6 +102,7 @@ func TestLoginsUseOwnReadingAfterSwitch(t *testing.T) {
 	cfg := state.Config{Logins: []claude.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}
 	l.SetFetched("login:a", claude.Usage{AccountID: "a", FetchedAt: now.Add(-time.Minute), FiveHour: claude.Window{Present: true, Percent: 97}})
 	l.SetFetched("login:b", claude.Usage{AccountID: "b", FetchedAt: now.Add(-time.Minute), FiveHour: claude.Window{Present: true, Percent: 4}})
+	l.takeIn()
 	// ~/.claude is now signed in as b, with a fresher reading of its own.
 	root := AccountView{Usage: claude.Usage{AccountID: "b", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 6}}}
 	got := l.logins(cfg, root, now)
@@ -119,6 +122,7 @@ func TestFreshestTakesLoginReading(t *testing.T) {
 	acct := claude.Account{Name: "default", ConfigDir: "/x"}
 	now := time.Now()
 	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "a", FetchedAt: now.Add(-4 * time.Minute), FiveHour: claude.Window{Present: true, Percent: 90}})
+	l.takeIn()
 	_ = claude.RecordUsage(l.UsagePath, "login:a", claude.Usage{AccountID: "a", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 96}})
 	l.syncUsage()
 	cached := claude.Usage{AccountID: "a", FetchedAt: now.Add(-time.Hour)}
