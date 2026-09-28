@@ -42,8 +42,7 @@ func (Adapter) Builtin() {}
 func (Adapter) Program() (string, []string) { return "claude", []string{".claude/local"} }
 
 // features: Claude Code does everything agtop does, bar sessions on
-// Anthropic's servers. Its running and past sessions are found by fleet
-// and read by convo directly, until they move behind this adapter.
+// Anthropic's servers.
 var features = map[agent.Feature]agent.Support{
 	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
 	agent.FeatureRewind: agent.Yes, agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes,

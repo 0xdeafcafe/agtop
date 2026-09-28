@@ -233,9 +233,6 @@ type Loader struct {
 	inMu    sync.Mutex
 	in      inbox
 	store   *state.Store
-	jobs    map[string]claude.Job // by key, reloaded on mtime change
-	mtimes  map[string]time.Time
-	checked map[string]time.Time // when each job's file was last looked at
 	args    map[int]argsEntry
 	git     map[string]gitInfo
 	roots   map[string]string // folder → main checkout, for mainCheckout
@@ -250,13 +247,14 @@ type Loader struct {
 	UsagePath string
 	usageMod  time.Time
 	files     map[string]fileMemo
-	past      map[string]pastListing // by projects folder
 	hosts     host.Lister
 	print     map[int]printEntry
 	Temp      *TempSizes
 	// pastRows are past conversations' rows as last made, and spendVer
 	// counts each agent's spend updates, so an unchanged row is reused.
 	pastRows map[string]pastRow
+	// pastKeys are the built-in agent's past conversations' row keys.
+	pastKeys pastKeys
 	// others are other agents' past sessions, by profile folder.
 	others   map[string]othersListing
 	spendVer map[string]int
@@ -385,34 +383,6 @@ func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) cla
 	return e.st
 }
 
-// sessions lists an account's live Claude Code sessions, parsing only the
-// session files that changed.
-func (l *Loader) sessions(acct claude.Account) []claude.Session {
-	dir := filepath.Join(acct.ConfigDir, "sessions")
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var out []claude.Session
-	for _, e := range ents {
-		if !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		p := filepath.Join(dir, e.Name())
-		ss, ok := l.memo(p, func() any {
-			s, ok := claude.ReadSession(p)
-			if !ok {
-				return nil
-			}
-			return s
-		}).(claude.Session)
-		if ok && claude.Alive(ss.PID) {
-			out = append(out, ss)
-		}
-	}
-	return out
-}
-
 // isPrint reports whether pid is claude -p, reading its arguments once.
 func (l *Loader) isPrint(tab *proc.Table, pid int) bool {
 	var start time.Time
@@ -448,10 +418,10 @@ type usageEntry struct {
 
 func NewLoader(s *state.Store) *Loader {
 	return &Loader{
-		store: s, jobs: map[string]claude.Job{}, mtimes: map[string]time.Time{},
-		args: map[int]argsEntry{}, git: map[string]gitInfo{}, roots: map[string]string{}, usage: map[string]usageEntry{},
+		store: s,
+		args:  map[int]argsEntry{}, git: map[string]gitInfo{}, roots: map[string]string{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
-		files: map[string]fileMemo{}, past: map[string]pastListing{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{}, checked: map[string]time.Time{},
+		files: map[string]fileMemo{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{},
 		Temp: LoadTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"),
 	}
 }
@@ -545,7 +515,19 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		av := AccountView{Account: acct, Daemon: daemon.Client{Account: acct}.Running(), Current: true}
 		av.Usage = l.readUsage(acct)
 		av.Quota = av.Usage.Quota(claude.UsageKey(acct, av.Usage))
-		sessions := l.sessions(acct)
+		// Its sessions, as its adapter finds them: background jobs, then
+		// every session file whose process is alive.
+		var jobs []claude.Job
+		var sessions []claude.Session
+		live := builtinLive(acct)
+		for i := range live {
+			switch x := live[i].Extra.(type) {
+			case claude.Job:
+				jobs = append(jobs, x)
+			case claude.Session:
+				sessions = append(sessions, x)
+			}
+		}
 		byJob := map[string]claude.Session{}
 		for _, ss := range sessions {
 			parents[ss.PID] = true
@@ -556,15 +538,13 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 				byJob[ss.JobID] = ss
 			}
 		}
-		for _, id := range claude.ListJobIDs(acct) {
+		for i := range jobs {
+			j := &jobs[i]
+			id := j.ID
 			key := state.Key(acct.Name, id)
 			seen[key] = true
-			j, ok := l.job(acct, id, key)
-			if !ok {
-				continue
-			}
 			claimed[j.SessionID] = true
-			a := &Agent{Job: j.Job, Extra: j, Key: key, Acct: acct, DisplayName: j.Name}
+			a := &Agent{Job: j.Job, Extra: *j, Key: key, Acct: acct, DisplayName: j.Name}
 			if ss, ok := byJob[id]; ok {
 				a.applyStatus(ss)
 			}
@@ -715,13 +695,6 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	if len(snap.Accounts) > 0 {
 		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
 	}
-	for k := range l.jobs {
-		if !seen[k] {
-			delete(l.jobs, k)
-			delete(l.mtimes, k)
-			delete(l.checked, k)
-		}
-	}
 	if tab != nil {
 		snap.Machine = l.machine(tab, snap)
 		l.prevTab = tab
@@ -751,6 +724,29 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 }
 
 // hosted turns an agtop-mode session's info into an agent row.
+// builtinProfile is the built-in agent's profile for acct.
+func builtinProfile(acct claude.Account) agent.Profile {
+	return agent.Profile{Kind: agent.BuiltinKind(), Name: acct.Name, Dir: acct.ConfigDir}
+}
+
+// builtinDiscoverer is how the built-in agent's sessions are found.
+func builtinDiscoverer() (agent.Discoverer, bool) {
+	a, ok := agent.Get(agent.BuiltinKind())
+	if !ok {
+		return nil, false
+	}
+	d, ok := a.(agent.Discoverer)
+	return d, ok
+}
+
+// builtinLive is the built-in agent's running sessions in acct.
+func builtinLive(acct claude.Account) []agent.Session {
+	if d, ok := builtinDiscoverer(); ok {
+		return d.Live(builtinProfile(acct))
+	}
+	return nil
+}
+
 // otherAgent is whether kind is an agent other than the built-in one,
 // whose sessions Load finds itself.
 func otherAgent(kind string) bool { return !agent.IsBuiltin(agent.Kind(kind)) }
@@ -865,31 +861,6 @@ func (l *Loader) sample(tab *proc.Table, a *Agent) {
 	}
 	tab.Fill(l.prevTab, []int{a.PID})
 	a.Mem, a.CPU, a.Procs = tab.Sum(a.PID, nil)
-}
-
-func (l *Loader) job(acct claude.Account, id, key string) (claude.Job, bool) {
-	// A finished job's file rarely changes: it's looked at every 10s, a
-	// live one's every time.
-	if j, ok := l.jobs[key]; ok && !j.Live() && j.InFlight == 0 && time.Since(l.checked[key]) < 10*time.Second {
-		return j, true
-	}
-	l.checked[key] = time.Now()
-	st, err := os.Stat(filepath.Join(acct.JobsDir(), id, "state.json"))
-	if err != nil {
-		return claude.Job{}, false
-	}
-	if j, ok := l.jobs[key]; ok && l.mtimes[key].Equal(st.ModTime()) {
-		return j, true
-	}
-	j, err := claude.LoadJob(acct, id)
-	if err != nil {
-		if old, ok := l.jobs[key]; ok {
-			return old, true // mid-write; keep the last good read
-		}
-		return claude.Job{}, false
-	}
-	l.jobs[key], l.mtimes[key] = j, st.ModTime()
-	return j, true
 }
 
 func (l *Loader) readUsage(acct claude.Account) claude.Usage {

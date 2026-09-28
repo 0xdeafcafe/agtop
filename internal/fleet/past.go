@@ -1,9 +1,7 @@
 package fleet
 
 import (
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -12,65 +10,12 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
-// pastEvery is how often an account's projects folder is listed again for
-// conversations that ended or appeared since.
+// pastEvery is how often a past conversation's subagents are looked at
+// again: none can start, so no oftener than its adapter lists it.
 const pastEvery = 15 * time.Second
 
-// pastListing is an account's transcripts as last listed.
-type pastListing struct {
-	at    time.Time
-	files []pastFile
-}
-
-// pastFile is one transcript, read again only when it changes.
-type pastFile struct {
-	path string
-	mod  time.Time
-	size int64
-	c    claude.Convo
-	ok   bool
-	key  string // its row's, made once
-}
-
-// transcripts lists every conversation in an account's projects folder.
-func (l *Loader) transcripts(acct claude.Account, now time.Time) []pastFile {
-	root := acct.ProjectsDir()
-	ls, ok := l.past[root]
-	if ok && now.Sub(ls.at) < pastEvery {
-		return ls.files
-	}
-	prev := make(map[string]pastFile, len(ls.files))
-	for _, f := range ls.files {
-		prev[f.path] = f
-	}
-	ls = pastListing{at: now, files: make([]pastFile, 0, len(ls.files))}
-	projects, _ := os.ReadDir(root)
-	for _, p := range projects {
-		if !p.IsDir() {
-			continue
-		}
-		dir := filepath.Join(root, p.Name())
-		ents, _ := os.ReadDir(dir)
-		for _, e := range ents {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
-				continue
-			}
-			st, err := e.Info()
-			if err != nil {
-				continue
-			}
-			path := filepath.Join(dir, e.Name())
-			f, ok := prev[path]
-			if !ok || !f.mod.Equal(st.ModTime()) || f.size != st.Size() {
-				f = pastFile{path: path, mod: st.ModTime(), size: st.Size()}
-				f.c, f.ok = claude.ReadConvo(path)
-			}
-			ls.files = append(ls.files, f)
-		}
-	}
-	l.past[root] = ls
-	return ls.files
-}
+// pastKeys are past conversations' row keys, by session id, made once.
+type pastKeys map[string]string
 
 // branches are the conversations agtop sessions left behind when rewound:
 // each session shows them itself.
@@ -98,17 +43,27 @@ func (l *Loader) branches(hosted []host.Info, claimed map[string]bool) {
 func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, now time.Time) []*Agent {
 	ov := l.store.Overlay
 	var out []*Agent
-	files := l.transcripts(acct, now)
-	for i := range files {
-		f := &files[i]
-		sid := f.c.SessionID
-		if !f.ok || len(sid) < 8 || claimed[sid] {
+	d, ok := builtinDiscoverer()
+	if !ok {
+		return nil
+	}
+	if l.pastKeys == nil {
+		l.pastKeys = pastKeys{}
+	}
+	past := d.Past(builtinProfile(acct))
+	for i := range past {
+		s := &past[i]
+		c, _ := s.Extra.(claude.Convo)
+		sid := s.ID
+		if len(sid) < 8 || claimed[sid] {
 			continue
 		}
-		if f.key == "" {
-			f.key = state.Key(acct.Name, "i:"+sid[:8])
+		key, ok := l.pastKeys[sid]
+		if !ok {
+			key = state.Key(acct.Name, "i:"+sid[:8])
+			l.pastKeys[sid] = key
 		}
-		key := f.key
+		f := pastFile{path: s.Transcript, mod: s.UpdatedAt, c: c}
 		if seen[key] {
 			continue
 		}
@@ -141,6 +96,13 @@ func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, 
 		out = append(out, a)
 	}
 	return out
+}
+
+// pastFile is one transcript as the adapter lists it.
+type pastFile struct {
+	path string
+	mod  time.Time
+	c    claude.Convo
 }
 
 // pastIn is everything a past conversation's row is made from.

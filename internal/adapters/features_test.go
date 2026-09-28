@@ -27,13 +27,6 @@ var implements = map[agent.Feature]func(agent.Adapter) bool{
 	agent.FeatureCommands: func(a agent.Adapter) bool { _, ok := a.(agent.Commander); return ok },
 }
 
-// elsewhere are features an adapter has without their interface, because
-// the core still does them itself: Claude Code's sessions are found by
-// fleet and read by convo until they move behind its adapter.
-var elsewhere = map[agent.Kind]map[agent.Feature]bool{
-	"claude": {agent.FeatureLive: true, agent.FeatureHistory: true},
-}
-
 // A feature an adapter declares Yes has its interface, and an interface
 // it has is declared Yes.
 func TestFeaturesMatchInterfaces(t *testing.T) {
@@ -43,12 +36,6 @@ func TestFeaturesMatchInterfaces(t *testing.T) {
 	for _, a := range agent.All() {
 		for f, has := range implements {
 			yes := agent.Supports(a.Kind(), f)
-			if elsewhere[a.Kind()][f] {
-				if !yes || has(a) {
-					t.Errorf("%s: %s is listed as done elsewhere, but it's declared %v and implemented %v", a.Kind(), f, yes, has(a))
-				}
-				continue
-			}
 			if yes != has(a) {
 				t.Errorf("%s: %s declared %v, but its interface implemented is %v", a.Kind(), f, agent.FeatureOf(a.Kind(), f).Is, has(a))
 			}
