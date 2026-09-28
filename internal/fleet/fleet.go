@@ -981,8 +981,8 @@ func (l *Loader) cmdline(p *proc.Proc) string {
 
 func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 	var m Machine
-	workerOf := map[int]*Agent{}
-	agentOf := map[int]*Agent{} // every agent's own root process
+	workerOf := make(map[int]*Agent, len(snap.Agents))
+	agentOf := make(map[int]*Agent, len(snap.Agents)) // every agent's own root process
 	for _, a := range snap.Agents {
 		if a.Worker != nil {
 			workerOf[a.Worker.PID] = a

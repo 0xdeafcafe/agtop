@@ -178,6 +178,7 @@ type Session struct {
 var (
 	mu       sync.RWMutex
 	adapters = map[Kind]Adapter{}
+	sorted   []Adapter // adapters by kind, made again on Register
 )
 
 // Register makes an adapter known. Adapters call it from init.
@@ -185,6 +186,11 @@ func Register(a Adapter) {
 	mu.Lock()
 	defer mu.Unlock()
 	adapters[a.Kind()] = a
+	sorted = make([]Adapter, 0, len(adapters))
+	for _, a := range adapters {
+		sorted = append(sorted, a)
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Kind() < sorted[j].Kind() })
 }
 
 // Get is the adapter for kind, if one is registered.
@@ -195,14 +201,11 @@ func Get(k Kind) (Adapter, bool) {
 	return a, ok
 }
 
-// All is every registered adapter, by kind.
+// All is every registered adapter, by kind. It's asked for every process
+// on every load, so it's kept sorted rather than sorted each time; the
+// slice is shared, and mustn't be changed.
 func All() []Adapter {
 	mu.RLock()
 	defer mu.RUnlock()
-	out := make([]Adapter, 0, len(adapters))
-	for _, a := range adapters {
-		out = append(out, a)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Kind() < out[j].Kind() })
-	return out
+	return sorted[:len(sorted):len(sorted)]
 }

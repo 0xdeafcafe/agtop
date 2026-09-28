@@ -4,6 +4,8 @@
 package state
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"maps"
 	"os"
@@ -414,6 +416,16 @@ type Store struct {
 	mu      sync.Mutex
 	Config  Config
 	Overlay Overlay
+	copied  copied
+}
+
+// copied is the config as Copy last made it, and as JSON: while the
+// config is unchanged, Copy hands out that config again rather than
+// decoding a fresh one on every load.
+type copied struct {
+	buf  bytes.Buffer
+	json []byte
+	cfg  Config
 }
 
 func Load() *Store {
@@ -440,16 +452,30 @@ func Load() *Store {
 }
 
 // Copy is the config and overlay as they are now, sharing nothing with s:
-// for reading off the UI's goroutine while the UI goes on changing s.
+// for reading, and only reading, off the UI's goroutine while the UI goes
+// on changing s. Copies made while the config is unchanged share theirs.
 func (s *Store) Copy() *Store {
 	c := &Store{Overlay: Overlay{
 		Done: maps.Clone(s.Overlay.Done), Names: maps.Clone(s.Overlay.Names),
 		Groups: maps.Clone(s.Overlay.Groups), Moved: maps.Clone(s.Overlay.Moved),
 		Seen: maps.Clone(s.Overlay.Seen),
 	}}
-	if b, err := jsonx.Marshal(s.Config); err == nil {
-		_ = jsonx.Unmarshal(b, &c.Config)
+	// The config is read only, off the UI's goroutine, so copies can share
+	// one while it's the same.
+	cp := &s.copied
+	cp.buf.Reset()
+	if jsonx.MarshalWrite(&cp.buf, s.Config) != nil {
+		return c
 	}
+	if cp.json == nil || !bytes.Equal(cp.buf.Bytes(), cp.json) {
+		cp.cfg = Config{}
+		if jsonx.Unmarshal(cp.buf.Bytes(), &cp.cfg) != nil {
+			cp.json = nil
+			return c
+		}
+		cp.json = bytes.Clone(cp.buf.Bytes())
+	}
+	c.Config = cp.cfg
 	return c
 }
 
@@ -601,15 +627,25 @@ func (c *CostCache) Save() error {
 	}
 	c.dirty = false
 	// Compact: it's a cache nobody reads, and indenting made it a third bigger.
+	// It's written as it's made: it runs to megabytes, saved every 30s.
 	path := filepath.Join(cacheDir(), "costs.json")
-	b, err := jsonx.Marshal(c)
-	if err != nil {
-		return err
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path+".tmp", b, 0o600); err != nil {
+	f, err := os.OpenFile(path+".tmp", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriterSize(f, 64<<10)
+	err = jsonx.MarshalWrite(w, c)
+	if err == nil {
+		err = w.Flush()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(path + ".tmp")
 		return err
 	}
 	return os.Rename(path+".tmp", path)

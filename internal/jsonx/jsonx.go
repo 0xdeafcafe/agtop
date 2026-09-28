@@ -57,6 +57,12 @@ func Marshal(v any, o ...json.Options) ([]byte, error) {
 	return json.Marshal(v, join(Opts, o)...)
 }
 
+// MarshalWrite writes v to w as JSON as it goes, rather than making it
+// whole in memory first: for a big file saved often.
+func MarshalWrite(w io.Writer, v any, o ...json.Options) error {
+	return json.MarshalWrite(w, v, join(Opts, o)...)
+}
+
 // MarshalIndent is v in JSON, indented two spaces a level.
 func MarshalIndent(v any, o ...json.Options) ([]byte, error) {
 	return json.Marshal(v, join(indented, o)...)
