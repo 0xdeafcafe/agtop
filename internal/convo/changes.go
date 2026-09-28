@@ -57,7 +57,7 @@ func (s *Session) changesNow() []*FileChange {
 			if st.Status != OK {
 				continue
 			}
-			path := readInput(st.Input).str("file_path")
+			path := st.in().Path
 			fc := byPath[path]
 			if fc == nil {
 				fc = &FileChange{Path: path}
