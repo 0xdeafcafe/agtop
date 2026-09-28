@@ -368,15 +368,11 @@ func (m *Model) startMenuBar() tea.Cmd {
 func (m *Model) fetchUsage() tea.Cmd {
 	path := filepath.Join(state.Dir(), "usage.json")
 	offline := m.offline
-	var cmds []tea.Cmd
-	for _, acct := range m.store.Config.AllAccounts() {
-		acct := acct
-		cmds = append(cmds, func() tea.Msg {
-			u := claude.RefreshUsage(path, acct, offline)
-			return usageMsg{key: claude.UsageKey(acct, u), u: u}
-		})
-	}
-	return tea.Batch(append(cmds, m.fetchLoginUsage()...)...)
+	acct := m.store.Config.ActiveAccount()
+	return tea.Batch(append(m.fetchLoginUsage(), func() tea.Msg {
+		u := claude.RefreshUsage(path, acct, offline)
+		return usageMsg{key: claude.UsageKey(acct, u), u: u}
+	})...)
 }
 
 func (m *Model) scan() tea.Cmd {
@@ -1579,15 +1575,6 @@ func tildify(p string) string {
 		return "~" + p[len(home):]
 	}
 	return p
-}
-
-func (m *Model) account(name string) claude.Account {
-	for _, a := range m.store.Config.AllAccounts() {
-		if a.Name == name {
-			return a
-		}
-	}
-	return m.store.Config.ActiveAccount()
 }
 
 func cmdErr(text string, f func() error) tea.Cmd {

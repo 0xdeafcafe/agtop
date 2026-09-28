@@ -27,11 +27,12 @@ func Dir() string {
 func Key(account, id string) string { return account + "/" + id }
 
 type Config struct {
-	// Folders are the Claude config folders agtop was given before
-	// accounts were sign-ins: ~/.claude, and older ~/.claude-* kept for the
-	// past sessions they hold. Every session runs in ~/.claude now, so
-	// nothing adds to them; the JSON name stays for older agtops.
-	Folders []claude.Account `json:"accounts"`
+	// Folders are the Claude config folders an older agtop was given:
+	// ~/.claude and ~/.claude-*. Everything is in ~/.claude now; the others
+	// are only read to take their sign-ins and past sessions in, once, and
+	// dropped after. ~/.claude's entry stays: its name is what its
+	// sessions, names and hosted agents are kept under.
+	Folders []claude.Account `json:"accounts,omitempty"`
 	// FoldersImported is set once the older folders' sign-ins were taken
 	// in as logins, so one you forget isn't taken in again.
 	FoldersImported bool `json:"foldersImported,omitempty"`
@@ -248,7 +249,6 @@ func (c Config) CleanupAfter() time.Duration {
 	return DefaultCleanup
 }
 
-// AllAccounts is the default account plus any configured ones.
 // Dispatch is how new sessions start: which coding agent, model, effort and
 // permission mode. Empty means Claude Code's own default.
 type Dispatch struct {
@@ -299,23 +299,40 @@ func (d Dispatch) Flags() []string {
 	return f
 }
 
-func (c Config) AllAccounts() []claude.Account {
-	out := []claude.Account{claude.DefaultAccount()}
+// OldFolders are the folders besides ~/.claude an older agtop was given,
+// whose sign-ins and past sessions are still to be taken in.
+func (c Config) OldFolders() []claude.Account {
+	var out []claude.Account
 	for _, a := range c.Folders {
-		if a.ConfigDir == "" || a.ConfigDir == out[0].ConfigDir {
-			if a.Name != "" {
-				out[0].Name = a.Name
-			}
-			continue
+		if a.ConfigDir != "" && a.ConfigDir != claude.DefaultAccount().ConfigDir {
+			out = append(out, a)
 		}
-		out = append(out, a)
 	}
 	return out
 }
 
-// ActiveAccount is the folder new sessions start in: always ~/.claude,
-// signed in as whichever login is in use.
-func (c Config) ActiveAccount() claude.Account { return c.AllAccounts()[0] }
+// RootFolder is ~/.claude's entry in Folders, if it has one: what's kept
+// when the older folders are dropped.
+func (c Config) RootFolder() []claude.Account {
+	for _, a := range c.Folders {
+		if a.ConfigDir == claude.DefaultAccount().ConfigDir {
+			return []claude.Account{a}
+		}
+	}
+	return nil
+}
+
+// ActiveAccount is where every session runs: ~/.claude, signed in as
+// whichever login is in use.
+func (c Config) ActiveAccount() claude.Account {
+	root := claude.DefaultAccount()
+	for _, a := range c.Folders {
+		if a.ConfigDir == root.ConfigDir && a.Name != "" {
+			root.Name = a.Name
+		}
+	}
+	return root
+}
 
 // Vault is where agtop keeps the sign-ins of the logins not in use.
 func Vault() claude.Vault { return claude.Vault{Dir: filepath.Join(Dir(), "logins")} }

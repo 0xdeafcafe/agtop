@@ -44,14 +44,9 @@ func (Adapter) Caps() agent.Caps {
 		agent.CapMCP | agent.CapHooks | agent.CapPlugins | agent.CapStatusLine | agent.CapScreen
 }
 
-// Profiles are ~/.claude and every other folder agtop was given.
+// Profiles is ~/.claude: every account is a sign-in swapped into it.
 func (a Adapter) Profiles() []agent.Profile {
-	cfg := a.config()
-	var out []agent.Profile
-	for _, acct := range cfg.AllAccounts() {
-		out = append(out, Profile(acct))
-	}
-	return out
+	return []agent.Profile{Profile(a.config().ActiveAccount())}
 }
 
 func (a Adapter) config() state.Config {

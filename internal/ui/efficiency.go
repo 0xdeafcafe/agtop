@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 )
 
@@ -130,7 +131,6 @@ func (m *Model) effLoad(scan bool) tea.Cmd {
 	}
 	e.loading = true
 	store := e.store
-	accts := m.store.Config.AllAccounts()
 	active := m.store.Config.ActiveAccount()
 	q := m.effQuery()
 	gains := time.Since(e.gainsAt) > 15*time.Minute
@@ -140,7 +140,7 @@ func (m *Model) effLoad(scan bool) tea.Cmd {
 			store, scan = efficiency.Open(), true
 		}
 		if scan {
-			store.Refresh(accts)
+			store.Refresh([]claude.Account{active})
 		}
 		msg := effLoadedMsg{store: store, view: store.View(q)}
 		msg.found = efficiency.Observe(efficiency.LoadEnv(active))

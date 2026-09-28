@@ -61,12 +61,12 @@ type Restored struct {
 }
 
 // FindLogins keeps the sign-in ~/.claude holds now in the vault (Claude
-// Code replaces it as it refreshes) and reports it. Until cfg says the
-// older folders were taken in, it also reports the login of each, putting
-// its sign-in in the vault when the vault doesn't have it: they become
-// accounts ~/.claude can switch to, once, and a folder's sign-in goes on
-// working there for the past sessions it holds. imported is whether every
-// older folder signed in was taken in.
+// Code replaces it as it refreshes) and reports it. It also takes in the
+// folders an older agtop was given: each one's login is reported, its
+// sign-in put in the vault unless cfg says that was done already, and its
+// past sessions copied into ~/.claude, where they're found and resumed
+// like any other. imported is whether every older folder was taken in
+// whole, and cfg can forget them.
 // It fails when ~/.claude's sign-in can't be kept: without a copy agtop
 // never switches away from it.
 //
@@ -75,31 +75,31 @@ type Restored struct {
 // switch is made again, and restored says so.
 func FindLogins(cfg state.Config) (found []Found, restored *Restored, imported bool, failed error) {
 	v := state.Vault()
-	imported = !cfg.FoldersImported
-	var out []Found
-	for i, a := range cfg.AllAccounts() {
-		if i == 0 {
-			lg, owner, ok, err := v.Keep(a)
-			if ok && err == nil {
-				out = append(out, Found{Login: lg, Name: a.Name})
-			}
-			failed = err
-			if ok && err == nil && owner != "" && putBack(owner, lg.ID) {
-				restored = &Restored{Was: owner, Now: lg.ID, Err: v.Use(a, lg)}
-				if restored.Err != nil {
-					// It can't be switched back: it's signed in as owner,
-					// so it says so.
-					for _, l := range cfg.Logins {
-						if l.ID == owner && len(l.Profile) > 0 {
-							_ = claude.Name(a, l)
-						}
-					}
+	root := cfg.ActiveAccount()
+	lg, owner, ok, err := v.Keep(root)
+	if ok && err == nil {
+		found = append(found, Found{Login: lg})
+	}
+	failed = err
+	if ok && err == nil && owner != "" && putBack(owner, lg.ID) {
+		restored = &Restored{Was: owner, Now: lg.ID, Err: v.Use(root, lg)}
+		if restored.Err != nil {
+			// It can't be switched back: it's signed in as owner,
+			// so it says so.
+			for _, l := range cfg.Logins {
+				if l.ID == owner && len(l.Profile) > 0 {
+					_ = claude.Name(root, l)
 				}
 			}
-			continue
+		}
+	}
+	imported = true
+	for _, a := range cfg.OldFolders() {
+		if claude.MergeHistory(a, root) != nil {
+			imported = false
 		}
 		if cfg.FoldersImported {
-			break
+			continue
 		}
 		lg, cred, ok := claude.Signed(a)
 		if !ok {
@@ -111,9 +111,9 @@ func FindLogins(cfg state.Config) (found []Found, restored *Restored, imported b
 				continue
 			}
 		}
-		out = append(out, Found{Login: lg, Name: a.Name})
+		found = append(found, Found{Login: lg, Name: a.Name})
 	}
-	return out, restored, imported, failed
+	return found, restored, imported, failed
 }
 
 // mismatch is the sign-in found in ~/.claude as another account's than

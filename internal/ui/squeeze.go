@@ -19,10 +19,7 @@ func (m *Model) squeezeTranscripts() tea.Cmd {
 	if m.store.Config.KeepTranscriptsPlain || m.squeezing || (m.tick != 120 && m.tick%21600 != 120) {
 		return nil
 	}
-	var dirs []string
-	for _, a := range m.store.Config.AllAccounts() {
-		dirs = append(dirs, a.ProjectsDir())
-	}
+	dirs := []string{m.store.Config.ActiveAccount().ProjectsDir()}
 	m.squeezing = true
 	return func() tea.Msg { return squeezedMsg(squeeze.Transcripts(dirs, 48*time.Hour)) }
 }

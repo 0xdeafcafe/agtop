@@ -112,11 +112,16 @@ func (m *Model) onLogins(msg loginsMsg) tea.Cmd {
 			changed = true
 		}
 	}
-	if msg.imported && !cfg.FoldersImported {
-		// Older folders are accounts now: taken in once, so one you
-		// forget stays forgotten. The config as it was is kept aside.
-		state.KeepBefore("before-accounts")
-		cfg.FoldersImported, changed = true, true
+	if msg.imported && (!cfg.FoldersImported || len(cfg.OldFolders()) > 0) {
+		// Older folders' sign-ins are accounts now and their past
+		// sessions are in ~/.claude: taken in once, so one you forget
+		// stays forgotten. The config as it was is kept aside.
+		if !cfg.FoldersImported {
+			state.KeepBefore("before-accounts")
+		} else {
+			state.KeepBefore("before-folders")
+		}
+		cfg.FoldersImported, cfg.Folders, changed = true, cfg.RootFolder(), true
 	}
 	if cfg.Active != "" {
 		// Which folder new sessions started in is agtop's choice now.

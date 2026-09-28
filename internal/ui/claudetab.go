@@ -46,7 +46,7 @@ func (m *Model) claudeSettings() *claude.Settings {
 		s, err := claude.LoadSettings(home)
 		if err != nil {
 			m.flash("couldn't read settings.json: "+err.Error(), true)
-			s, _ = claude.LoadSettings(claude.Account{ConfigDir: m.store.Config.AllAccounts()[0].ConfigDir + "/.agtop-unreadable"})
+			s, _ = claude.LoadSettings(claude.Account{ConfigDir: home.ConfigDir + "/.agtop-unreadable"})
 		}
 		d.claude = s
 	}

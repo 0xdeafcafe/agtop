@@ -424,7 +424,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 	}
 	l.branches(hosted, claimed)
 	l.syncUsage()
-	for _, acct := range cfg.AllAccounts() {
+	for _, acct := range []claude.Account{active} { // ~/.claude: every session runs there
 		roster := l.memo(acct.RosterPath(), func() any { return claude.ReadRoster(acct) }).(claude.Roster)
 		prs := l.memo(acct.PRCachePath(), func() any { return claude.ReadPRCache(acct) }).(map[string]claude.PR)
 		pins := l.memo(claude.PinsPath(acct), func() any {
@@ -434,7 +434,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			}
 			return pins
 		}).(map[string]int)
-		av := AccountView{Account: acct, Daemon: daemon.Client{Account: acct}.Running(), Current: acct.Name == active.Name}
+		av := AccountView{Account: acct, Daemon: daemon.Client{Account: acct}.Running(), Current: true}
 		av.Usage = l.readUsage(acct)
 		av.Quota = av.Usage.Quota(claude.UsageKey(acct, av.Usage))
 		sessions := l.sessions(acct)
@@ -559,7 +559,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			snap.Agents = append(snap.Agents, a)
 		}
 		for _, info := range hosted {
-			if otherAgent(info.Kind) || info.Account != acct.Name && !(info.Account == "" && acct.IsDefault()) {
+			// Every Claude session runs in ~/.claude, whatever name its
+			// folder had when it started.
+			if otherAgent(info.Kind) {
 				continue
 			}
 			a := l.hostedAgent(acct, info, tab, now)

@@ -25,12 +25,14 @@ func TestRegistered(t *testing.T) {
 	}
 }
 
+// Older folders an agtop was given aren't profiles: every session runs in
+// ~/.claude.
 func TestProfiles(t *testing.T) {
 	a := Adapter{Config: func() state.Config {
 		return state.Config{Folders: []claude.Account{{Name: "work", ConfigDir: "/x/.claude-work"}}}
 	}}
 	ps := a.Profiles()
-	if len(ps) < 2 || ps[len(ps)-1] != (agent.Profile{Kind: Kind, Name: "work", Dir: "/x/.claude-work"}) {
+	if len(ps) != 1 || ps[0].Dir != claude.DefaultAccount().ConfigDir {
 		t.Errorf("Profiles = %+v", ps)
 	}
 }

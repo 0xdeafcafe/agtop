@@ -427,10 +427,12 @@ func (x *extra) planUsage() *claude.Usage {
 	return x.usage
 }
 
+// accountName is the login the config folder at dir is signed in as.
 func accountName(dir string) string {
-	for _, a := range state.Load().Config.AllAccounts() {
-		if a.ConfigDir == dir {
-			return a.Name
+	id := claude.SignedInAs(claude.Account{ConfigDir: dir})
+	for _, l := range state.Load().Config.Logins {
+		if l.ID == id && id != "" {
+			return l.Name
 		}
 	}
 	return strings.TrimPrefix(filepath.Base(dir), ".claude-")
