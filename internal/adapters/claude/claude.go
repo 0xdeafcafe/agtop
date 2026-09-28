@@ -34,6 +34,9 @@ type Adapter struct {
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Claude Code" }
 
+// Builtin: the core still runs and reads Claude Code's sessions itself.
+func (Adapter) Builtin() {}
+
 // Program is claude, which Claude Code's own installer puts in
 // ~/.claude/local.
 func (Adapter) Program() (string, []string) { return "claude", []string{".claude/local"} }
@@ -225,5 +228,6 @@ var (
 	_ agent.Driver    = Adapter{}
 	_ agent.Pricer    = Adapter{}
 	_ agent.Commander = Adapter{}
+	_ agent.Builtin   = Adapter{}
 	_ agent.Answerer  = (*conn)(nil)
 )

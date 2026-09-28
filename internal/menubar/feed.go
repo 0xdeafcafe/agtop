@@ -79,7 +79,7 @@ func otherAccounts(snap *fleet.Snapshot) []Account {
 	readings := usage.Load(host.QuotasPath())
 	var out []Account
 	for _, a := range host.Installed() {
-		if _, ok := a.(agent.QuotaSource); !ok || a.Kind() == "claude" {
+		if _, ok := a.(agent.QuotaSource); !ok || agent.IsBuiltin(a.Kind()) {
 			continue
 		}
 		q, ok := readings[host.QuotaKey(a.Profiles()[0])]

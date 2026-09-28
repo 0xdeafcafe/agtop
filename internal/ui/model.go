@@ -1696,7 +1696,7 @@ func (m *Model) neighbour(key string) string {
 }
 
 func (m *Model) nativeView() tea.Cmd {
-	c := exec.Command("claude", "agents")
+	c := exec.Command(claude.Program, "agents")
 	c.Env = m.store.Config.ActiveAccount().Env()
 	return tea.ExecProcess(c, func(err error) tea.Msg { return doneMsg{err: err} })
 }

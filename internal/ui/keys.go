@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/proc"
@@ -766,7 +767,7 @@ func (m *Model) submit() tea.Cmd {
 	}
 	// The Prompt only starts new sessions; replies go through a Session's
 	// own message box.
-	if d := m.store.Config.Dispatch; m.startKind() != "claude" || d.RunIn != "daemon" && (d.Agent == "" || d.Agent == "claude") {
+	if d := m.store.Config.Dispatch; !agent.IsBuiltin(agent.Kind(m.startKind())) || d.RunIn != "daemon" && (d.Agent == "" || d.Agent == claude.DefaultAgent) {
 		return m.startHosted(tagged, m.startDir())
 	}
 	acct := m.store.Config.ActiveAccount()
@@ -1189,11 +1190,7 @@ func (m *Model) toolRows(a *fleet.Agent) []procRow {
 // own reports whether a process is part of the agent itself rather than
 // something it runs.
 func own(comm string) bool {
-	switch filepath.Base(comm) {
-	case "claude", "agtop":
-		return true
-	}
-	return false
+	return filepath.Base(comm) == "agtop" || agent.IsProgram(comm)
 }
 
 // procIndex is where the cursor is: on the process it was on, wherever the

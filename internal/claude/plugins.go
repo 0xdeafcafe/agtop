@@ -59,7 +59,7 @@ func (m Marketplace) Where() string {
 
 // PluginCLI runs `claude plugin …` for the account in dir.
 func PluginCLI(a Account, dir string, args ...string) ([]byte, error) {
-	c := exec.Command("claude", append([]string{"plugin"}, args...)...)
+	c := exec.Command(Program, append([]string{"plugin"}, args...)...)
 	c.Env, c.Dir = a.Env(), dir
 	var out, errb bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errb

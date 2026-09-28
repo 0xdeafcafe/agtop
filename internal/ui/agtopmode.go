@@ -130,7 +130,7 @@ func (m *Model) refreshSubs() tea.Cmd {
 // conversation's subagents.
 func (m *Model) followSessionID(c *hostConn) {
 	i := c.sess.Info
-	if c.client == nil || i.SessionID == "" || i.Cwd == "" || i.Kind != "" && i.Kind != "claude" {
+	if c.client == nil || i.SessionID == "" || i.Cwd == "" || !agent.IsBuiltin(agent.Kind(i.Kind)) {
 		return
 	}
 	if c.path != "" && strings.HasSuffix(c.path, string(filepath.Separator)+i.SessionID+".jsonl") {
@@ -932,7 +932,7 @@ func openHost(a *fleet.Agent) tea.Cmd {
 				sess = convo.History(filepath.Join(filepath.Dir(path), cfg.From+".jsonl"), started)
 			}
 		}
-		if infoErr == nil && info.Kind != "" && info.Kind != "claude" {
+		if infoErr == nil && !agent.IsBuiltin(agent.Kind(info.Kind)) {
 			// Another agent's: what came before the replay is in its own
 			// history, read through its adapter.
 			sess = convo.New()
@@ -2884,9 +2884,9 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
 		Profile: profile,
 	}
-	if kind != "claude" {
-		// The model, effort and mode in Settings are Claude Code's: another
-		// agent starts with its own.
+	if !agent.IsBuiltin(agent.Kind(kind)) {
+		// The model, effort and mode in Settings are the built-in agent's:
+		// another agent starts with its own.
 		cfg = host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, IdleStop: host.Duration(d.Rest()), Profile: profile}
 		if err := cfg.UseAgent(kind); err != nil {
 			m.flash(err.Error(), true)
@@ -2968,7 +2968,7 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 		SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
 	}
-	if a.Kind != "" && a.Kind != "claude" {
+	if !agent.IsBuiltin(agent.Kind(a.Kind)) {
 		// Another agent's: it carries on with its own model and mode.
 		cfg = host.Config{SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
 			IdleStop: host.Duration(d.Rest())}

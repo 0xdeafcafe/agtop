@@ -18,9 +18,9 @@ import (
 // of an agent other than Claude Code sends them.
 const typeEvent = "agtop_ev"
 
-// other is whether the session runs an agent other than Claude Code,
+// other is whether the session runs an agent other than the built-in one,
 // through its adapter rather than headless.
-func (cfg Config) other() bool { return cfg.Kind != "" && cfg.Kind != "claude" }
+func (cfg Config) other() bool { return !agent.IsBuiltin(agent.Kind(cfg.Kind)) }
 
 // startAgent starts the session's agent through its adapter. Called with
 // mu held.

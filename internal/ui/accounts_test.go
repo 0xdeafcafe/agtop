@@ -65,6 +65,11 @@ func accountsModel(t *testing.T) (*Model, *[]string) {
 		fakeAgent{kind: "zgone", title: "ZGone", dir: "/z/.zgone"},
 	}
 	for _, f := range fakes {
+		// The real agent of that kind comes back after: the built-in one
+		// is what every other test's sessions run.
+		if was, ok := agent.Get(f.Kind()); ok {
+			t.Cleanup(func() { agent.Register(was) })
+		}
 		agent.Register(f)
 		if f.Kind() != "zgone" {
 			name, _ := f.(agent.Programmer).Program()

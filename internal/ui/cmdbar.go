@@ -837,7 +837,7 @@ func whoGlyph(who string) string {
 	switch who {
 	case "you":
 		return paint(cText, "›")
-	case "claude":
+	case convo.WhoAgent:
 		return paint(cOrange, "✻")
 	}
 	return paint(cSub, "·")

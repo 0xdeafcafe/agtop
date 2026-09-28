@@ -13,32 +13,22 @@ var commandNeeds = map[string]agent.Feature{
 	"btw": agent.FeatureSideQuestion, "cd": agent.FeatureDirs, "add-dir": agent.FeatureDirs,
 }
 
-// otherAgent is the agent a session runs when it isn't Claude Code.
-func otherAgent(c *hostConn) (agent.Adapter, bool) {
-	kind := c.sess.Info.Kind
-	if kind == "" || kind == "claude" {
-		return nil, false
-	}
-	a, ok := agent.Get(agent.Kind(kind))
-	return a, ok
-}
+// sessionAgent is the agent a session runs.
+func sessionAgent(c *hostConn) agent.Kind { return agent.KindOf(c.sess.Info.Kind) }
 
 // canRun is whether the session's agent can do the command agtop would
-// run for name; Claude Code can do them all.
+// run for name.
 func canRun(c *hostConn, name string) bool {
-	a, ok := otherAgent(c)
-	if !ok {
-		return true
-	}
 	need, gated := commandNeeds[name]
-	return !gated || agent.Supports(a.Kind(), need)
+	return !gated || agent.Supports(sessionAgent(c), need)
 }
+
+// ownScreens is whether the session's agent has screens of its own, which
+// agtop shows or hands the terminal to.
+func ownScreens(c *hostConn) bool { return agent.Supports(sessionAgent(c), agent.FeatureScreen) }
 
 // sessionCommands are agtop's commands this session's agent can do.
 func sessionCommands(c *hostConn) []headless.Command {
-	if _, ok := otherAgent(c); !ok {
-		return agtopCommands
-	}
 	var out []headless.Command
 	for _, cmd := range agtopCommands {
 		if canRun(c, cmd.Name) {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
@@ -637,8 +638,16 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 }
 
 // hosted turns an agtop-mode session's info into an agent row.
-// otherAgent is whether kind is an agent other than Claude Code.
-func otherAgent(kind string) bool { return kind != "" && kind != "claude" }
+// otherAgent is whether kind is an agent other than the built-in one,
+// whose sessions Load finds itself.
+func otherAgent(kind string) bool { return !agent.IsBuiltin(agent.Kind(kind)) }
+
+// builtinComm is whether a process called comm is the built-in agent's
+// program.
+func builtinComm(comm string) bool {
+	p := agent.ProgramOf(agent.BuiltinKind())
+	return p != "" && (comm == p || strings.HasSuffix(comm, "/"+p))
+}
 
 // hostedAgent is an agtop session's row, with what you've set on it.
 func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Table, now time.Time) *Agent {
@@ -891,7 +900,7 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 			// An agtop session's host, or a claude in a terminal: the agent.
 			a := agentOf[pid]
 			row = ProcRow{PID: pid, Cmd: l.cmdline(p), Start: p.Start, Role: RoleWorker, Label: a.DisplayName, Key: a.Key}
-		case p.Comm == "claude" || strings.HasSuffix(p.Comm, "/claude"):
+		case builtinComm(p.Comm):
 			cmd := l.cmdline(p)
 			row = ProcRow{PID: pid, Cmd: cmd, Start: p.Start}
 			switch {
@@ -908,7 +917,7 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 			case strings.HasSuffix(strings.TrimSpace(cmd), " agents") || strings.Contains(cmd, " agents "):
 				row.Role, row.Label = RoleView, "claude agents (native view)"
 			default:
-				if hasClaudeAncestor(tab, p) || underAgent(tab, p, agentOf) || !strings.HasSuffix(strings.Fields(cmd + " x")[0], "claude") {
+				if hasClaudeAncestor(tab, p) || underAgent(tab, p, agentOf) || !builtinComm(strings.Fields(cmd + " x")[0]) {
 					continue
 				}
 				row.Role, row.Label = RoleOther, "claude (interactive)"
@@ -954,7 +963,7 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 
 func isClaudePID(tab *proc.Table, pid int) bool {
 	p := tab.Procs[pid]
-	return p != nil && p.Comm == "claude"
+	return p != nil && p.Comm == agent.ProgramOf(agent.BuiltinKind())
 }
 
 func hasClaudeAncestor(tab *proc.Table, p *proc.Proc) bool {
@@ -963,7 +972,7 @@ func hasClaudeAncestor(tab *proc.Table, p *proc.Proc) bool {
 		if q == nil {
 			return false
 		}
-		if q.Comm == "claude" {
+		if builtinComm(q.Comm) {
 			return true
 		}
 		pid = q.PPID

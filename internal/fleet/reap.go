@@ -122,7 +122,7 @@ func (l Leftover) End(grace time.Duration) {
 // host) the child of root that p descends from. p itself is never its own
 // owner.
 func ownerOf(tab *proc.Table, root, p *proc.Proc) *proc.Proc {
-	if root.Comm == "claude" {
+	if builtinComm(root.Comm) {
 		return root
 	}
 	for q, i := p, 0; q != nil && i < 64; i++ {

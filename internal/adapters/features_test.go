@@ -86,3 +86,17 @@ func TestLevels(t *testing.T) {
 		}
 	}
 }
+
+// Claude Code is the built-in agent: what an empty kind means, and whose
+// program fleet looks for.
+func TestBuiltin(t *testing.T) {
+	if k := agent.KindOf(""); k != "claude" || !agent.IsBuiltin(k) || !agent.IsBuiltin("") {
+		t.Errorf("an empty kind is %q", k)
+	}
+	if agent.IsBuiltin("codex") || agent.KindOf("codex") != "codex" {
+		t.Error("Codex is taken as built in")
+	}
+	if !agent.IsProgram("/opt/homebrew/bin/claude") || !agent.IsProgram("codex") || agent.IsProgram("zsh") {
+		t.Error("agents' programs aren't told from others")
+	}
+}

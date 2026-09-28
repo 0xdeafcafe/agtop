@@ -14,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/ui"
@@ -287,7 +288,7 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 			}
 		}
 	}
-	if kind != "" && kind != "claude" {
+	if !agent.IsBuiltin(agent.Kind(kind)) {
 		if err := cfg.UseAgent(kind); err != nil {
 			return asJSON, err
 		}

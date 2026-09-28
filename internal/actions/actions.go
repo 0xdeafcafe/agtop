@@ -33,7 +33,7 @@ func newID(out string) string {
 }
 
 func claudeCmd(acct claude.Account, dir string, args ...string) *exec.Cmd {
-	c := exec.Command("claude", args...)
+	c := exec.Command(claude.Program, args...)
 	c.Env = acct.Env()
 	c.Dir = dir
 	return c

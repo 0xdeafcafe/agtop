@@ -24,7 +24,11 @@ type query struct {
 	unknown  []string
 }
 
-var knownKinds = map[string]bool{"failed": true, "edit": true, "cmd": true, "read": true, "you": true, "claude": true}
+var knownKinds = map[string]bool{"failed": true, "edit": true, "cmd": true, "read": true, "you": true, WhoAgent: true}
+
+// WhoAgent is who a hit in what the agent said is from, and the word that
+// finds only those.
+const WhoAgent = "claude"
 
 func parseQuery(q string) query {
 	p := query{kinds: map[string]bool{}}

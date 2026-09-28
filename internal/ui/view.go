@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -1757,8 +1758,8 @@ func costCell(cost float64, w int) string {
 
 func (m *Model) badges(a *fleet.Agent) string {
 	var parts []string
-	if a.Kind != "" && a.Kind != "claude" {
-		// Which agent, when it isn't Claude Code.
+	if !agent.IsBuiltin(agent.Kind(a.Kind)) {
+		// Which agent, when it isn't the built-in one.
 		parts = append(parts, paint(cBlue, a.Kind))
 	}
 	for i, pr := range a.PRs {
