@@ -117,8 +117,8 @@ var topSegs = []barSeg{
 		}
 		return dim(v)
 	}},
-	{"account", "Account", "the agent and account new agents start on", func(x *barCtx) string {
-		return dim(x.m.startAccount())
+	{"account", "Account", "the agent and account new agents start on, and their profile", func(x *barCtx) string {
+		return x.m.startTag()
 	}},
 	{"clock", "Clock", "the time of day", func(x *barCtx) string {
 		return dim(x.m.snap.At.Local().Format("15:04"))

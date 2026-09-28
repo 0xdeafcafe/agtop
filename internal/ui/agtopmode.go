@@ -1573,6 +1573,9 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 			conn = paint(cYellow, "cache cold") + "   " + conn
 		}
 	}
+	if tag := m.sessionTag(a); hw-cellw.String(conn+tag) > 72 {
+		conn = tag + "   " + conn // its provider, account and profile, with room
+	}
 	meta := m.barLine(barAgent, 1, x, hw-cellw.String(conn)-6)
 	row2 := spread("  "+meta, conn+" ", hw)
 

@@ -12,7 +12,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -142,8 +141,9 @@ func (m *Model) header() []string {
 	}
 	left1 := paint(cText+bold, "agtop") + "   " + strings.Join(counts, "   ")
 
-	acct := m.inUse()
-	left2 := dim(acct + " · " + tildify(m.launchDir))
+	// Which provider, account and profile new sessions start on.
+	acct := m.startTag()
+	left2 := acct + dim(" · "+tildify(m.launchDir))
 	if m.w < narrowHead {
 		// Only his face fits, so it's always him, never the monogram.
 		var g clkGrid
@@ -257,7 +257,7 @@ func (m *Model) narrowHeader(robot, counts []string, acct string) []string {
 	}
 	out := []string{
 		"  " + face + "  " + fit(title, m.w-cellw.String(face)-4),
-		"  " + indent + dim(acct+" · "+shortPath(tildify(m.launchDir), m.w-cellw.String(indent)-len(acct)-5)),
+		"  " + indent + acct + dim(" · "+shortPath(tildify(m.launchDir), m.w-cellw.String(indent)-cellw.String(ansi.Strip(acct))-5)),
 	}
 	tabs := m.tabs()
 	room := m.w - cellw.String(indent) - 4
@@ -1758,9 +1758,9 @@ func costCell(cost float64, w int) string {
 
 func (m *Model) badges(a *fleet.Agent) string {
 	var parts []string
-	if !agent.IsBuiltin(agent.Kind(a.Kind)) {
+	if b := rowBadge(a); b != "" {
 		// Which agent, when it isn't the built-in one.
-		parts = append(parts, paint(cBlue, a.Kind))
+		parts = append(parts, b)
 	}
 	for i, pr := range a.PRs {
 		if i == 2 {
