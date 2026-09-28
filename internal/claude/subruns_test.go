@@ -122,3 +122,32 @@ func TestSubagentRunsEndWithTheirProcess(t *testing.T) {
 		t.Fatalf("going %v, %q", g, how)
 	}
 }
+
+// Runs all quiet past RunStale can't be working, whatever the transcript
+// says: they're counted without reading it. One that writes again is read
+// from the start, and counted as working.
+func TestSubagentStatsSkipsQuietSessions(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "s.jsonl")
+	subs := filepath.Join(dir, "s", "subagents")
+	os.MkdirAll(subs, 0o755)
+	os.WriteFile(filepath.Join(subs, "agent-a.meta.json"), []byte(`{"toolUseId":"t1"}`), 0o644)
+	run := filepath.Join(subs, "agent-a.jsonl")
+	os.WriteFile(run, []byte(`{"type":"user","isSidechain":true}`+"\n"), 0o644)
+	old := time.Now().Add(-RunStale - time.Minute)
+	os.Chtimes(run, old, old)
+	// Its call has no result: it would be running, were it not so quiet.
+	os.WriteFile(main, []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"prompt":"go"}}]}}`+"\n"), 0o644)
+	var r SubagentRuns
+	if st := r.Stats(main, time.Now()); st.Spawned != 1 || st.Direct != 0 {
+		t.Fatalf("quiet: %+v", st)
+	}
+	if r.files[main] != 0 {
+		t.Fatal("the transcript was read")
+	}
+	now := time.Now()
+	os.Chtimes(run, now, now)
+	if st := r.Stats(main, now); st.Direct != 1 {
+		t.Fatalf("written again: %+v", st)
+	}
+}

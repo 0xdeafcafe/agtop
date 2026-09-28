@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -103,6 +104,13 @@ func (r *SubagentRuns) Update(path string) []SubagentRun {
 	if len(runs) == 0 {
 		return nil
 	}
+	r.readFor(path, runs)
+	return runs
+}
+
+// readFor reads what the session's transcript, and its runs' when needed,
+// have gained.
+func (r *SubagentRuns) readFor(path string, runs []SubagentRun) {
 	r.read(path)
 	// A run a run started has its call, and word of its end, in that run's
 	// transcript: those are read only while such a run hasn't ended.
@@ -120,7 +128,6 @@ func (r *SubagentRuns) Update(path string) []SubagentRun {
 			r.read(filepath.Join(dir, "agent-"+x.ID+".jsonl"))
 		}
 	}
-	return runs
 }
 
 // Clone is a copy that answers State and Going as r does now, for the
@@ -255,11 +262,8 @@ func (r *SubagentRuns) line(b []byte) {
 				r.calls[bl.ID] = &agentCall{seq: r.seq}
 			case bl.Name == "SendMessage":
 				// A message to a finished run wakes it, until it next ends.
-				var in struct {
-					To string `json:"to"`
-				}
-				if jsonx.Unmarshal(bl.Input, &in) == nil && in.To != "" {
-					r.woken[in.To] = r.seq
+				if bl.Input != "" {
+					r.woken[string(bl.Input)] = r.seq
 				}
 			}
 		}
@@ -274,7 +278,7 @@ func (r *SubagentRuns) line(b []byte) {
 			c.async = bytes.Contains(b, asyncMarks[0]) || bytes.Contains(b, asyncMarks[1])
 			c.status = "completed"
 			switch {
-			case bytes.Contains(bl.Content, []byte("[Request interrupted")):
+			case bool(bl.Content):
 				c.status = "stopped"
 			case bl.IsError:
 				c.status = "failed"
@@ -311,28 +315,76 @@ func (r *SubagentRuns) line(b []byte) {
 }
 
 type lineBlock struct {
-	Type      string         `json:"type"`
-	ID        string         `json:"id"`
-	Name      string         `json:"name"`
-	ToolUseID string         `json:"tool_use_id"`
-	IsError   bool           `json:"is_error"`
-	Input     jsontext.Value `json:"input"`
-	Content   jsontext.Value `json:"content"`
+	Type      string      `json:"type"`
+	ID        string      `json:"id"`
+	Name      string      `json:"name"`
+	ToolUseID string      `json:"tool_use_id"`
+	IsError   bool        `json:"is_error"`
+	Input     sendTo      `json:"input"`
+	Content   interrupted `json:"content"`
 }
+
+// A block's input and content can be a whole prompt or a tool's whole
+// output, and a run's lines are only asked two things of them. Each is
+// looked at where the decoder holds it, never copied.
+
+// sendTo is a SendMessage call's input: who it's to.
+type sendTo string
+
+func (s *sendTo) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	v, err := d.ReadValue()
+	if err != nil || !bytes.Contains(v, toMark) {
+		return err
+	}
+	var in struct {
+		To string `json:"to"`
+	}
+	if jsonx.Unmarshal(v, &in) == nil {
+		*s = sendTo(in.To)
+	}
+	return nil
+}
+
+// interrupted is a tool result's content: whether it says the request
+// was interrupted.
+type interrupted bool
+
+func (x *interrupted) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	v, err := d.ReadValue()
+	*x = interrupted(err == nil && bytes.Contains(v, interruptMark))
+	return err
+}
+
+// lineContent is a message's content: its blocks, or none for one
+// written as plain text.
+type lineContent []lineBlock
+
+func (c *lineContent) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	if d.PeekKind() != '[' {
+		return d.SkipValue()
+	}
+	var bl []lineBlock
+	err := jsonx.DecodeValue(d, &bl)
+	*c = bl
+	return err
+}
+
+var (
+	toMark        = []byte(`"to"`)
+	interruptMark = []byte("[Request interrupted")
+)
 
 // lineBlocks are a transcript line's message's content blocks.
 func lineBlocks(b []byte) []lineBlock {
 	var l struct {
 		Message struct {
-			Content jsontext.Value `json:"content"`
+			Content lineContent `json:"content"`
 		} `json:"message"`
 	}
 	if jsonx.Unmarshal(b, &l) != nil {
 		return nil
 	}
-	var bl []lineBlock
-	_ = jsonx.Unmarshal(l.Message.Content, &bl) // a plain-text message has none
-	return bl
+	return l.Message.Content
 }
 
 // lineTime is a transcript line's time, or now.
@@ -430,9 +482,19 @@ func (r *SubagentRuns) Going(id, toolUseID string, mod, now time.Time) (bool, st
 // Stats counts the session's runs, and those still working, directly and
 // at any depth.
 func (r *SubagentRuns) Stats(path string, now time.Time) SubagentStats {
-	var st SubagentStats
-	for _, x := range r.Update(path) {
-		st.Spawned++
+	if r.files == nil || r.path != path {
+		r.reset(path)
+	}
+	runs := r.list()
+	st := SubagentStats{Spawned: len(runs)}
+	// Only a run written in the last RunStale can be working: when none
+	// has been, what the transcripts say needn't be read. An old session's
+	// can be tens of megabytes, and every one was read as agtop started.
+	if !slices.ContainsFunc(runs, func(x SubagentRun) bool { return x.Mod.IsZero() || now.Sub(x.Mod) < RunStale }) {
+		return st
+	}
+	r.readFor(path, runs)
+	for _, x := range runs {
 		if going, _ := r.Going(x.ID, x.ToolUseID, x.Mod, now); !going {
 			continue
 		}
