@@ -269,7 +269,7 @@ func (s *Session) JobCommand(j *Job) string {
 	if st == nil {
 		return ""
 	}
-	return strings.TrimSpace(readInput(st.Input).str("command"))
+	return strings.TrimSpace(st.in().Command)
 }
 
 // JobKind is Kind, knowing a Monitor tool's command from a Bash one: both
