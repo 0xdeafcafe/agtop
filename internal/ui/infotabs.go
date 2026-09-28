@@ -265,7 +265,7 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 	}
 	return []settingsLink{
 		{name: "Claude Code", value: join(model, count(env, "env var", "env vars")), about: "settings.json and the environment every session starts with",
-			open: func(m *Model) tea.Cmd { m.sheet = nil; m.openDialog(tabClaude); return nil }},
+			open: func(m *Model) tea.Cmd { m.sheet = nil; m.openAgentSettings(loginsKind); return nil }},
 		{name: "Permissions", value: join(mode, count(allow, "allow", "allow"), count(ask, "ask", "ask"), count(deny, "deny", "deny")), about: "what tools may do without asking",
 			open: func(m *Model) tea.Cmd { m.openPermissions(c, a); return nil }},
 		{name: "Hooks", value: count(hooks, "hook", "hooks"), about: "commands run around tools, prompts and sessions",

@@ -3032,9 +3032,10 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 		Profile: profile,
 	}
 	if !agent.IsBuiltin(agent.Kind(kind)) {
-		// The model, effort and mode in Settings are the built-in agent's:
-		// another agent starts with its own.
-		cfg = host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, IdleStop: host.Duration(d.Rest()), Profile: profile}
+		// Another agent starts with what its own Settings page says.
+		st := d.StartFor(kind)
+		cfg = host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, IdleStop: host.Duration(d.Rest()), Profile: profile,
+			Model: st.Model, Effort: st.Effort, PermissionMode: st.Mode}
 		if err := cfg.UseAgent(kind); err != nil {
 			m.flash(err.Error(), true)
 			return nil

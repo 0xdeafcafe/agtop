@@ -388,7 +388,7 @@ func (msg acctSwitchedMsg) applyTo(m *Model) tea.Cmd {
 // addAccount signs in to another account of agent k.
 func (m *Model) addAccount(k agent.Kind) tea.Cmd {
 	if k == loginsKind {
-		m.ask("login name", "")
+		m.ask("login name", "", m.addLogin)
 		return nil
 	}
 	ad, _ := agent.Get(k)
@@ -446,8 +446,7 @@ func (m *Model) forgetAccount(r acctRow) {
 		return
 	}
 	d := m.dialog
-	d.confirm = fmt.Sprintf("Forget %s (%s)? agtop drops its saved sign-in; sessions already on it keep going.", r.name(), firstNonEmpty(r.email(), agentName(string(r.kind))))
-	d.onYes = func() tea.Cmd {
+	m.confirmThen(fmt.Sprintf("Forget %s (%s)? agtop drops its saved sign-in; sessions already on it keep going.", r.name(), firstNonEmpty(r.email(), agentName(string(r.kind)))), func() tea.Cmd {
 		if ad, ok := agent.Get(r.kind); ok {
 			if acc, ok := ad.(agent.Accounts); ok {
 				_ = acc.Forget(r.acct)
@@ -457,7 +456,7 @@ func (m *Model) forgetAccount(r acctRow) {
 		_ = m.store.SaveConfig()
 		d.cursor = max(0, d.cursor-1)
 		return nil
-	}
+	})
 }
 
 // moveAgent moves agent k one place earlier (d<0) or later in the order.
@@ -558,6 +557,9 @@ func (m *Model) accountsKey(s string) tea.Cmd {
 	}
 	r := rows[d.cursor]
 	switch s {
+	case "o":
+		m.showAgentSettings(r.kind)
+		return nil
 	case "p", "*":
 		m.setDefaultAgent(r.kind)
 		return nil
@@ -586,7 +588,10 @@ func (m *Model) accountsKey(s string) tea.Cmd {
 			}
 			return m.switchAccount(r.acct, "")
 		case "r":
-			m.ask("rename account "+string(r.kind)+" "+r.acct.ID, r.name())
+			m.ask("rename "+r.name(), r.name(), func(v string) tea.Cmd {
+				m.renameSignIn(string(r.kind), r.acct.ID, v)
+				return nil
+			})
 		case "l":
 			return m.addAccount(r.kind)
 		case "d", "x":
@@ -596,15 +601,59 @@ func (m *Model) accountsKey(s string) tea.Cmd {
 	return nil
 }
 
-// renameSignIn renames another agent's account, from the rename prompt.
-func (m *Model) renameSignIn(what, v string) {
-	kind, id, _ := strings.Cut(strings.TrimPrefix(what, "rename account "), " ")
+// renameSignIn renames another agent's account.
+func (m *Model) renameSignIn(kind, id, v string) {
 	for i, s := range m.store.Config.SignIns {
 		if s.Kind == kind && s.ID == id {
 			m.store.Config.SignIns[i].Name = v
 		}
 	}
 	_ = m.store.SaveConfig()
+}
+
+// loginKey handles a key on one of Claude Code's accounts.
+func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
+	switch s {
+	case "enter":
+		if lv.Current {
+			m.flash("already on "+lv.Name, false)
+			return nil
+		}
+		return m.switchLogin(lv.Login, "")
+	case "r":
+		m.ask("rename "+lv.Name, lv.Name, func(v string) tea.Cmd {
+			for i, l := range m.store.Config.Logins {
+				if l.ID == lv.ID {
+					m.store.Config.Logins[i].Name = v
+				}
+			}
+			_ = m.store.SaveConfig()
+			m.refresh()
+			return nil
+		})
+	case "l":
+		return m.addLogin(lv.Name)
+	case "d", "x":
+		if lv.Current {
+			m.flash("switch to another account before forgetting "+lv.Name, true)
+			return nil
+		}
+		m.confirmThen(fmt.Sprintf("Forget %s (%s)? agtop drops its saved sign-in; sessions already on it keep going.", lv.Name, lv.Email), func() tea.Cmd {
+			var keep []claude.Login
+			for _, l := range m.store.Config.Logins {
+				if l.ID != lv.ID {
+					keep = append(keep, l)
+				}
+			}
+			m.store.Config.Logins = keep
+			_ = state.Vault().Forget(lv.ID)
+			_ = m.store.SaveConfig()
+			m.refresh()
+			m.dialog.cursor = max(0, m.dialog.cursor-1)
+			return nil
+		})
+	}
+	return nil
 }
 
 // accountsBody draws Accounts at width w.
@@ -619,7 +668,7 @@ func (m *Model) accountsBody(w int) []string {
 		return "  " + s
 	}
 	def := cfg.Default()
-	line := dim("New sessions: ") + paint(cText, def.Name) + dim(" · ") + m.chain(def) + dim("   ·   at a limit: ") + paint(cText, limitWords(def.Limit())) + faint("   (Profiles changes it)")
+	line := dim("New sessions: ") + paint(cText, def.Name) + dim(" · ") + m.chain(def) + dim("   ·   at a limit: ") + paint(cText, limitWords(def.Limit())) + faint("   (Sessions changes the profile)")
 	if m.accts.spill != "" {
 		line += dim(" · for now ") + glyph(agent.Kind(m.accts.spill)) + " " + paint(cYellow, agentName(m.accts.spill)) + dim(": the first's accounts are all nearly out")
 	}
@@ -676,8 +725,8 @@ func (m *Model) accountsBody(w int) []string {
 		default:
 			keys = append(keys, "enter", "switch to", "a", "add account", "r", "rename", "d", "forget", "p", "make default")
 		}
-		keys = append(keys, "J/K", "move agent", "1-9", "agent", "s", "when nearly out")
-		out = append(out, "", keysFit(w, keys...))
+		keys = append(keys, "J/K", "move agent", "1-9", "agent", "s", "when nearly out", "o", "its settings")
+		out = append(out, "", keysFit(w, append(keys, pagesKeys...)...))
 	}
 	for i, l := range out {
 		if cellw.String(ansi.Strip(l)) > w {

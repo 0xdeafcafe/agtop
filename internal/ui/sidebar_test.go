@@ -89,7 +89,7 @@ func TestSidebarArrangesTheList(t *testing.T) {
 
 	// Back to agtop's own grouping, the names are agtop's again.
 	m.cycleGroupBy()
-	if m.store.Config.GroupBy != "status" {
+	if m.store.Config.GroupBy != "folder" {
 		t.Fatalf("cycled to %q", m.store.Config.GroupBy)
 	}
 	for _, a := range m.snap.Agents {

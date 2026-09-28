@@ -351,11 +351,11 @@ func TestBarStartsAnAgent(t *testing.T) {
 	}
 }
 
-// Settings › General switches how ctrl+k searches the transcripts.
+// Settings › Interface switches how ctrl+k searches the transcripts.
 func TestBarSearchSetting(t *testing.T) {
 	m, _ := benchModel(120, 40)
 	find := func() setting {
-		for _, s := range m.generalSettings() {
+		for _, s := range flat(m.interfaceSections()) {
 			if s.label == "ctrl+k searches transcripts" {
 				return s
 			}

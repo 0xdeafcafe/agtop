@@ -99,7 +99,7 @@ func accountsModel(t *testing.T) (*Model, *[]string) {
 	m.accts.ready()
 	m.accts.now["zcodex"] = "a1"
 	m.rebuild()
-	m.openDialog(tabAccounts)
+	m.openDialog(pageProviders)
 	return m, &switched
 }
 

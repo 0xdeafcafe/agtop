@@ -1,0 +1,423 @@
+package ui
+
+import (
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/agtop/internal/claude"
+)
+
+// Settings is a place of pages, and [ and ] go between them. Most hold
+// for every agent; Agents shows one installed agent at a time (1-9 picks
+// it): what its new sessions start with, the same rows for every agent,
+// then the sections the agent adds itself (agentExtras).
+//
+// Most pages are forms: sections of settings, each of which says what it
+// does and what its values mean, drawn and driven here. Overview and
+// Providers draw themselves.
+
+// page is one page of Settings: a form, or one that draws itself.
+type page struct {
+	name string
+	keys []string // its own keys, for a form's key line
+
+	form func(m *Model) []section
+	head func(m *Model, w int) []string // lines above a form's sections
+
+	body func(m *Model, w int) []string
+	key  func(m *Model, s string) tea.Cmd
+	rows func(m *Model) int // the lines the cursor goes through
+}
+
+// The pages, in order.
+const (
+	pageOverview = iota
+	pageProviders
+	pageAgents
+	pageSessions
+	pageInterface
+)
+
+// settingsPages are Settings' pages.
+func (m *Model) settingsPages() []page {
+	return []page{
+		{name: "Overview", body: (*Model).overviewBody, key: (*Model).overviewKey, rows: (*Model).overviewLen},
+		{name: "Providers", body: (*Model).accountsBody, key: (*Model).accountsKey, rows: func(m *Model) int { return len(m.accountRows()) }},
+		agentsPage,
+		{name: "Sessions", form: (*Model).sessionSections},
+		{name: "Interface", form: (*Model).interfaceSections},
+	}
+}
+
+// openAgentSettings shows agent k on Settings › Agents.
+func (m *Model) openAgentSettings(k agent.Kind) {
+	m.setView(placeSettings)
+	m.showAgentSettings(k)
+}
+
+// showAgentSettings goes to Agents, on agent k.
+func (m *Model) showAgentSettings(k agent.Kind) {
+	m.setSettingsPage(pageAgents)
+	m.dialog.agent = k
+}
+
+// dialog is Settings while it's open: the page, the cursor, and a value
+// being typed or a question being asked.
+type dialog struct {
+	page   int
+	cursor int
+	agent  agent.Kind // the one Agents shows
+
+	input    []rune
+	asking   string // what the input line is for; empty when not typing
+	onAnswer func(string) tea.Cmd
+
+	confirm string
+	onYes   func() tea.Cmd
+
+	agents []agentDef       // Claude Code's agent definitions
+	claude *claude.Settings // Claude Code's settings.json
+}
+
+func (m *Model) openDialog(p int) {
+	m.dialog = &dialog{page: p}
+	m.loadDialog()
+}
+
+func (m *Model) loadDialog() {
+	d := m.dialog
+	d.agents = m.agentDefs()
+	if d.page == pageProviders || d.page == pageOverview {
+		agent.Recheck() // an agent installed since shows at once
+	}
+}
+
+// curPage is the page showing.
+func (m *Model) curPage() page {
+	pages := m.settingsPages()
+	return pages[min(m.dialog.page, len(pages)-1)]
+}
+
+// dialogLen is how many lines the cursor goes through.
+func (m *Model) dialogLen() int {
+	p := m.curPage()
+	if p.form != nil {
+		return len(flat(p.form(m)))
+	}
+	return p.rows(m)
+}
+
+// ask opens the input line for a typed value; answer gets it, trimmed,
+// unless it's empty.
+func (m *Model) ask(what, prefill string, answer func(string) tea.Cmd) {
+	m.dialog.asking, m.dialog.input, m.dialog.onAnswer = what, []rune(prefill), answer
+}
+
+// confirmThen asks a yes or no question before doing yes.
+func (m *Model) confirmThen(q string, yes func() tea.Cmd) {
+	m.dialog.confirm, m.dialog.onYes = q, yes
+}
+
+func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
+	d := m.dialog
+	if d.confirm != "" {
+		switch s {
+		case "y", "enter":
+			f := d.onYes
+			d.confirm, d.onYes = "", nil
+			if f != nil {
+				return f()
+			}
+		case "n", "esc":
+			d.confirm, d.onYes = "", nil
+		}
+		return nil
+	}
+	if d.asking != "" {
+		switch s {
+		case "esc":
+			d.asking, d.input, d.onAnswer = "", nil, nil
+		case "enter":
+			v, f := strings.TrimSpace(string(d.input)), d.onAnswer
+			d.asking, d.input, d.onAnswer = "", nil, nil
+			if v != "" && f != nil {
+				return f(v)
+			}
+		default:
+			m.dialogEdit(k, s)
+		}
+		return nil
+	}
+	switch s {
+	case "esc", "q", "ctrl+g", "ctrl+a":
+		m.setView(placeAgents)
+		m.refresh()
+		return nil
+	case "[", "]":
+		m.setSettingsPage(d.page + map[string]int{"[": -1, "]": 1}[s])
+		return nil
+	case "up", "k":
+		d.cursor = roundMove(d.cursor, -1, m.dialogLen())
+		return nil
+	case "down", "j":
+		d.cursor = roundMove(d.cursor, 1, m.dialogLen())
+		return nil
+	}
+	if d.page == pageAgents {
+		if n := int(s[0] - '0'); len(s) == 1 && n >= 1 && n <= 9 {
+			if order := m.agentOrder(); n <= len(order) {
+				d.agent, d.cursor = order[n-1].Kind(), 0
+			}
+			return nil
+		}
+	}
+	if p := m.curPage(); p.form == nil {
+		return p.key(m, s)
+	}
+	return m.formKey(s)
+}
+
+func (m *Model) dialogEdit(k tea.KeyPressMsg, s string) {
+	d := m.dialog
+	switch s {
+	case "backspace":
+		if len(d.input) > 0 {
+			d.input = d.input[:len(d.input)-1]
+		}
+	case "ctrl+u", "super+backspace":
+		d.input = nil
+	default:
+		if k.Text != "" && k.Mod&^tea.ModShift == 0 {
+			d.input = append(d.input, []rune(k.Text)...)
+		}
+	}
+}
+
+// dialogBody renders the page at width w.
+func (m *Model) dialogBody(w int) []string {
+	p := m.curPage()
+	out := []string{paint(cText+bold, p.name)}
+	if p.form == nil {
+		return append(append(out, ""), p.body(m, w)...)
+	}
+	if p.head != nil {
+		out = append(out, p.head(m, w)...)
+	}
+	return append(out, m.formBody(p.form(m), p.keys, w)...)
+}
+
+// pagesKeys are the keys every page ends its key line with.
+var pagesKeys = []string{"[ ]", "page", "esc", "back"}
+
+// section is a titled run of settings on a form page.
+type section struct {
+	title string
+	note  string // after the title, quieter
+	rows  []setting
+}
+
+// setting is one line of a form: a value that ←→ go through or you type,
+// or, with line and key, a line of its own (an agent definition, an
+// environment variable).
+type setting struct {
+	label   string
+	value   string   // as kept; "" is the default
+	choices []string // what ←→ go through
+	set     func(string)
+	// run is set instead, for a change with work to start.
+	run func(string) tea.Cmd
+
+	what  string            // what it does, for About
+	means map[string]string // what each value means
+	unset string            // how "" shows; "default" when not given
+	typed bool              // enter types a value rather than choosing one
+
+	line  func(w int) string                      // draws the row itself
+	key   func(s string) (cmd tea.Cmd, used bool) // its own keys, before ←→
+	keys  []string                                // its own keys, for the key line
+	about func() (title, what, now string)        // About, when it's more than what and means
+}
+
+// shown is how the value is shown.
+func (st setting) shown() string {
+	if st.value == "" {
+		return firstNonEmpty(st.unset, "default")
+	}
+	return st.value
+}
+
+// now is what the value means, in a sentence.
+func (st setting) now() string {
+	if s := st.means[st.value]; s != "" {
+		return st.shown() + ": " + s
+	}
+	return st.shown() + "."
+}
+
+// flat is a form's rows in order.
+func flat(secs []section) []setting {
+	var out []setting
+	for _, s := range secs {
+		out = append(out, s.rows...)
+	}
+	return out
+}
+
+// cycle moves s to the choice dir away, round the ends.
+func cycle(s setting, dir int) tea.Cmd {
+	if len(s.choices) == 0 {
+		return nil
+	}
+	i := 0
+	for j, c := range s.choices {
+		if c == s.value {
+			i = j
+		}
+	}
+	v := s.choices[(i+dir+len(s.choices))%len(s.choices)]
+	if s.run != nil {
+		return s.run(v)
+	}
+	s.set(v)
+	return nil
+}
+
+// formKey handles a key on a form page's highlighted row.
+func (m *Model) formKey(s string) tea.Cmd {
+	d := m.dialog
+	rows := flat(m.curPage().form(m))
+	if d.cursor >= len(rows) {
+		return nil
+	}
+	st := rows[d.cursor]
+	if st.key != nil {
+		if cmd, used := st.key(s); used {
+			return cmd
+		}
+	}
+	changed := func(cmd tea.Cmd) tea.Cmd {
+		_ = m.store.SaveConfig()
+		m.rebuild()
+		return cmd
+	}
+	switch s {
+	case "enter", "right", "l", "space":
+		if st.typed && (s == "enter" || len(st.choices) == 0) {
+			m.ask(st.label, st.value, func(v string) tea.Cmd {
+				if st.run != nil {
+					return changed(st.run(v))
+				}
+				st.set(v)
+				return changed(nil)
+			})
+			return nil
+		}
+		return changed(cycle(st, 1))
+	case "left", "h":
+		return changed(cycle(st, -1))
+	}
+	return nil
+}
+
+// formBody draws a form's sections, About for the highlighted row, and
+// the keys.
+func (m *Model) formBody(secs []section, pageKeys []string, w int) []string {
+	d := m.dialog
+	rows := flat(secs)
+	// One label and one value column for the page, so the › line up.
+	labelW, valueW := 0, 12
+	for _, st := range rows {
+		if st.line == nil {
+			labelW = max(labelW, cellw.String(st.label)+2)
+			valueW = max(valueW, cellw.String(st.shown()))
+		}
+	}
+	labelW, valueW = min(labelW, 32), min(valueW, max(12, min(40, w-labelW-24)))
+	var out []string
+	i := 0
+	for _, sec := range secs {
+		title := dim(sec.title)
+		if sec.note != "" {
+			title += faint(" · " + sec.note)
+		}
+		out = append(out, "", title)
+		for _, st := range sec.rows {
+			out = append(out, m.settingRow(i == d.cursor, st, labelW, valueW, w))
+			i++
+		}
+	}
+	var cur setting
+	if d.cursor < len(rows) {
+		cur = rows[d.cursor]
+	}
+	out = append(out, m.about(cur, w)...)
+	keys := []string{}
+	if cur.line == nil && len(cur.choices) > 0 {
+		keys = append(keys, "←→", "change")
+	}
+	if cur.typed {
+		keys = append(keys, "enter", "type it")
+	}
+	keys = append(keys, cur.keys...)
+	return append(out, "", keysFit(w, append(append(keys, pageKeys...), pagesKeys...)...))
+}
+
+// settingRow is always one line, the highlighted one too, so moving the
+// highlight never shifts the page; About explains it.
+func (m *Model) settingRow(on bool, st setting, labelW, valueW, w int) string {
+	var line string
+	if st.line != nil {
+		line = st.line(w - 4)
+	} else {
+		line = fit(st.label, labelW) + faint("‹ ") + paint(cText, fit(st.shown(), valueW)) + faint(" › ")
+		if room := w - cellw.String(line) - 6; room > 12 {
+			line += faint(ansi.Truncate(st.means[st.value], room, "…"))
+		}
+	}
+	if on {
+		return highlight(paint(cOrange, "▍")+" "+line, w)
+	}
+	return "  " + line
+}
+
+const aboutLines = 6
+
+// about explains the highlighted row in a fixed-height section, so the
+// page keeps its shape whatever is highlighted.
+func (m *Model) about(st setting, w int) []string {
+	title, what, now := st.label, st.what, st.now()
+	if st.about != nil {
+		title, what, now = st.about()
+	}
+	var body []string
+	add := func(col, text string) {
+		for _, l := range wrap(text, w-4) {
+			body = append(body, "  "+paint(col, l))
+		}
+	}
+	add(cSub, what)
+	add(cText, now)
+	out := []string{"", rule("About "+title, "", w)}
+	for i := range aboutLines {
+		if i < len(body) {
+			out = append(out, body[i])
+		} else {
+			out = append(out, "")
+		}
+	}
+	return out
+}
+
+// choiceSetting is a setting from a list of values and what each means.
+func choiceSetting(label, value, what string, choices [][2]string, set func(string)) setting {
+	st := setting{label: label, value: value, what: what, set: set, means: map[string]string{}}
+	for _, c := range choices {
+		st.choices = append(st.choices, c[0])
+		st.means[c[0]] = c[1]
+	}
+	return st
+}

@@ -52,7 +52,7 @@ const (
 	inReply
 )
 
-var groupModes = []string{"status", "repo", "agent", "group"}
+var groupModes = []string{"folder", "status", "agent", "group"}
 
 type confirmation struct {
 	// modal asks in a box over the screen rather than on the bottom line:
@@ -221,6 +221,7 @@ type Model struct {
 	jump    *barJump // a jump into a conversation that's still opening
 	// groupOf is the list section each agent is in, folded or not.
 	groupOf map[string]string
+	folders folderCache // what git says of the folders in the list
 	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
 	// its agent's key once the snapshot has it.
 	solo, soloKey string
@@ -255,6 +256,7 @@ const (
 	lineBlank lineKind = iota
 	lineSection
 	lineAgent
+	lineTree // a linked worktree's heading inside its repository's section
 )
 
 type listLine struct {
@@ -264,6 +266,9 @@ type listLine struct {
 	folded bool
 	peek   string
 	agent  *fleet.Agent
+	// root is the folder a folder section is for, or a tree line's
+	// worktree; a tree line's title is its section's folder.
+	root string
 }
 
 func sectionKey(title string) string { return "§" + title }
@@ -281,7 +286,7 @@ func New(store *state.Store, version string) *Model {
 	// is read afresh every few seconds all the same.
 	m.loader.Watch(5 * time.Second)
 	if store.Config.GroupBy == "" {
-		store.Config.GroupBy = "status"
+		store.Config.GroupBy = "folder"
 	}
 	m.applyColors()
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
@@ -609,6 +614,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onGrow(msg)
 	case paneMsg:
 		return m, m.onPane(msg)
+	case foldersMsg:
+		m.onFolders(msg)
+		return m, nil
 	case subStatsMsg:
 		m.onSubStats(msg)
 		return m, nil
@@ -700,7 +708,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loader.Settle() // nothing new on disk: the last reading, processes sampled again
 		m.refresh()
 		m.zenPick()
-		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshSubs(), m.flushLocalQueues(), m.watchOnline()}
+		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.watchOnline()}
 		if m.solo == "" {
 			// autoSwitch too: a session's usage reading arrives with the
 			// snapshot, not with a fetch.
@@ -1128,8 +1136,8 @@ const (
 	placeSettings
 )
 
-// machinePages and the Settings dialog's tabNames are the pages of the
-// Machine and Settings places.
+// machinePages are the pages of the Machine place; Settings' are
+// settingsPages.
 var machinePages = []string{"Processes", "Cleanup"}
 
 // setView switches the whole screen to a place, on the page it was last on.
@@ -1160,9 +1168,10 @@ func (m *Model) setMachinePage(p int) {
 	}
 }
 
-// setSettingsPage shows one of the Settings dialog's tabs.
+// setSettingsPage shows one of Settings' pages.
 func (m *Model) setSettingsPage(p int) {
-	m.settingsPage = (p + len(tabNames)) % len(tabNames)
+	n := len(m.settingsPages())
+	m.settingsPage = (p + n) % n
 	m.openDialog(m.settingsPage)
 }
 
@@ -1368,6 +1377,7 @@ func (m *Model) rebuild() {
 		agents []*fleet.Agent
 		rank   int
 		recent time.Time
+		root   string // the folder, grouped by folder
 	}
 	order := map[*fleet.Agent]int{} // places under a plugin's arrangement
 	groups := map[string]*group{}
@@ -1395,6 +1405,16 @@ func (m *Model) rebuild() {
 			continue
 		}
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
+		if by == "folder" {
+			// Every agent from the last day sits under its folder, doing
+			// whatever it's doing; the header counts what wants you.
+			if fresh {
+				add(folderKey(a), 5, a)
+			} else {
+				add("Earlier", 9, a)
+			}
+			continue
+		}
 		switch {
 		case a.NeedsYou():
 			add("Needs you", 0, a)
@@ -1416,15 +1436,6 @@ func (m *Model) rebuild() {
 			add("Earlier", 9, a)
 		case a.Done:
 			add("Done", 8, a)
-		case by == "repo":
-			name := "No repository"
-			if a.Repo != "" {
-				name = filepath.Base(a.Repo)
-				if a.Branch != "" {
-					name += " · " + a.Branch
-				}
-			}
-			add(name, 5, a)
 		case by == "agent":
 			add(agentName(a.Kind), 5, a)
 		case by == "group" && a.Group != "":
@@ -1437,9 +1448,36 @@ func (m *Model) rebuild() {
 	for _, g := range groups {
 		list = append(list, g)
 	}
+	byFolder := by == "folder" && sb == nil
+	if byFolder {
+		// Folders stay put, by name, those with an agent running first; a
+		// section is keyed by its folder and titled by a name for it.
+		keys := map[string]bool{}
+		for _, g := range list {
+			if g.rank == 5 {
+				keys[g.name] = true
+			}
+		}
+		titles := folderTitles(keys)
+		for _, g := range list {
+			if g.rank != 5 {
+				continue
+			}
+			g.root, g.name = g.name, titles[g.name]
+			for _, a := range g.agents {
+				if a.Open() || a.Busy() {
+					g.rank = 4
+					break
+				}
+			}
+		}
+	}
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].rank != list[j].rank {
 			return list[i].rank < list[j].rank
+		}
+		if byFolder {
+			return cmpLower(list[i].name, list[j].name) < 0
 		}
 		return list[i].recent.After(list[j].recent)
 	})
@@ -1455,6 +1493,8 @@ func (m *Model) rebuild() {
 			}
 		case sb == nil && g.name == "Done":
 			less = m.doneLess
+		case g.root != "":
+			less = m.folderLess
 		}
 		sort.SliceStable(g.agents, func(i, j int) bool { return less(g.agents[i], g.agents[j]) })
 	}
@@ -1475,6 +1515,9 @@ func (m *Model) rebuild() {
 		}
 		fold := m.folded(g.name)
 		meta := sectionMeta(len(g.agents), cost)
+		if g.root != "" {
+			meta = folderMeta(g.agents, now)
+		}
 		// One extra figure at most, and only one you can act on: temp work
 		// where /clean all reaches it, memory where agents rest.
 		switch name := g.name; {
@@ -1497,12 +1540,17 @@ func (m *Model) rebuild() {
 			meta += " · " + mem(held) + " ram"
 		}
 		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: meta,
-			folded: fold, peek: strings.Join(names, ", ")})
+			folded: fold, peek: strings.Join(names, ", "), root: g.root})
+		tree := ""
 		for _, a := range g.agents {
 			m.order = append(m.order, a)
 			m.groupOf[a.Key] = g.name
 			if fold {
 				continue
+			}
+			if t := treeOf(a); g.root != "" && t != tree {
+				tree = t
+				m.lines = append(m.lines, listLine{kind: lineTree, title: g.root, root: t})
 			}
 			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a})
 

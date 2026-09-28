@@ -33,6 +33,9 @@ type Agent struct {
 	Group       string
 	Worker      *claude.Worker
 	Repo        string
+	// Root is the main checkout of Repo's repository: Repo itself, or for
+	// a linked worktree the checkout it was made from.
+	Root        string
 	Branch      string
 	Mem         uint64
 	CPU         float64
@@ -235,6 +238,7 @@ type Loader struct {
 	checked map[string]time.Time // when each job's file was last looked at
 	args    map[int]argsEntry
 	git     map[string]gitInfo
+	roots   map[string]string // folder → main checkout, for mainCheckout
 	usage   map[string]usageEntry
 	prevTab *proc.Table
 	spend   map[string]Spend
@@ -445,7 +449,7 @@ type usageEntry struct {
 func NewLoader(s *state.Store) *Loader {
 	return &Loader{
 		store: s, jobs: map[string]claude.Job{}, mtimes: map[string]time.Time{},
-		args: map[int]argsEntry{}, git: map[string]gitInfo{}, usage: map[string]usageEntry{},
+		args: map[int]argsEntry{}, git: map[string]gitInfo{}, roots: map[string]string{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
 		files: map[string]fileMemo{}, past: map[string]pastListing{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{}, checked: map[string]time.Time{},
 		Temp: LoadTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"),
@@ -727,6 +731,9 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	listed := make(map[string]bool, len(snap.Agents))
 	for _, a := range snap.Agents {
 		a.Temp = l.Temp.Bytes(a.Key)
+		if a.Repo != "" {
+			a.Root = firstNonEmpty(mainCheckout(a.Repo, l.roots), a.Repo)
+		}
 		listed[a.Key] = true
 	}
 	for k := range l.subs {

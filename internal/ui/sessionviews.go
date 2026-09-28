@@ -1002,7 +1002,7 @@ func (m *Model) agtopScreen(c *hostConn, a *fleet.Agent, screen string) (tea.Cmd
 			return nil, true
 		}
 	case "config":
-		m.openDialog(tabClaude)
+		m.openAgentSettings(loginsKind)
 		return nil, true
 	case "statusline":
 		m.openStatusLine(c, a)

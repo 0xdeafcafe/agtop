@@ -99,6 +99,7 @@ type spot struct {
 	view, effPage, machinePage, settingsPage int
 	zen                                      bool
 	key, name                                string
+	settingsName                             string // the Settings page's
 	paneView                                 int
 	ref                                      string
 }
@@ -635,8 +636,8 @@ func (m *Model) barPlaces(q string) []barItem {
 			return nil
 		})
 	}
-	for i, p := range tabNames {
-		add(paint(cSub, "◇"), "Settings › "+p, "", "settings preferences "+p, func(m *Model) tea.Cmd {
+	for i, p := range m.settingsPages() {
+		add(paint(cSub, "◇"), "Settings › "+p.name, "", "settings preferences "+p.name, func(m *Model) tea.Cmd {
 			m.goView(placeSettings)
 			m.setSettingsPage(i)
 			return nil
@@ -941,6 +942,9 @@ func (m *Model) here() *spot {
 	if a := m.agentByKey(m.sel); a != nil {
 		s.name = oneLine(a.DisplayName)
 	}
+	if pages := m.settingsPages(); m.view == placeSettings && m.settingsPage < len(pages) {
+		s.settingsName = pages[m.settingsPage].name
+	}
 	if c := m.host; c != nil && c.key == m.sel && m.paneFocus {
 		s.paneView, s.ref = c.view, c.sel
 	}
@@ -956,7 +960,7 @@ func (s *spot) where() string {
 	case placeMachine:
 		return "Machine › " + machinePages[s.machinePage%len(machinePages)]
 	case placeSettings:
-		return "Settings › " + tabNames[s.settingsPage%len(tabNames)]
+		return "Settings › " + s.settingsName
 	}
 	if s.zen {
 		return "Zen"

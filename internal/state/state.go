@@ -152,6 +152,10 @@ func (c *Config) migrate() {
 	if c.StayOnAccount && c.SwitchOnLimit == "" {
 		c.SwitchOnLimit = OnLimitOff
 	}
+	if c.GroupBy == "repo" {
+		// Repo and branch became folders, worktrees under their repository.
+		c.GroupBy = "folder"
+	}
 	if c.GroupBy == "account" {
 		// Folders are gone; sessions group by the agent they run.
 		c.GroupBy = "agent"
@@ -289,6 +293,42 @@ type Dispatch struct {
 	// running before stopping it (a message starts it again); 0 is the
 	// default, as soon as it's done.
 	RestMinutes int `json:"restMinutes,omitzero"`
+	// Starts are what new sessions of the agents other than the built-in
+	// one start with, by kind; the built-in's are Model, Effort and
+	// Permission above, where older agtops read them.
+	Starts map[string]Start `json:"starts,omitempty"`
+}
+
+// Start is the model, effort and permission mode a new session starts
+// with; empty is the agent's own default.
+type Start struct {
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+	Mode   string `json:"mode,omitempty"`
+}
+
+// StartFor is what a new session of agent kind starts with.
+func (d Dispatch) StartFor(kind string) Start {
+	if KindOf(kind) == legacyKind {
+		return Start{Model: d.Model, Effort: d.Effort, Mode: d.Permission}
+	}
+	return d.Starts[kind]
+}
+
+// SetStartFor sets what new sessions of agent kind start with.
+func (d *Dispatch) SetStartFor(kind string, s Start) {
+	if KindOf(kind) == legacyKind {
+		d.Model, d.Effort, d.Permission = s.Model, s.Effort, s.Mode
+		return
+	}
+	if d.Starts == nil {
+		d.Starts = map[string]Start{}
+	}
+	if s == (Start{}) {
+		delete(d.Starts, kind)
+		return
+	}
+	d.Starts[kind] = s
 }
 
 // DefaultRest is how long an idle agtop-mode session keeps Claude Code

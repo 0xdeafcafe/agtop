@@ -167,17 +167,13 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.setEffPage(m.eff.page + d)
 		return m.effOpen()
 	}
-	// In Machine and Settings tab goes through the place's pages.
-	if (s == "tab" || s == "shift+tab") && (m.mode == modeProcs || m.mode == modeCleanup || (m.dialog != nil && m.dialog.asking == "")) {
+	// In Machine tab goes through the place's pages; Settings uses [ ].
+	if (s == "tab" || s == "shift+tab") && (m.mode == modeProcs || m.mode == modeCleanup) {
 		d := 1
 		if s == "shift+tab" {
 			d = -1
 		}
-		if m.dialog != nil {
-			m.setSettingsPage(m.dialog.tab + d)
-		} else {
-			m.setMachinePage(m.machinePage + d)
-		}
+		m.setMachinePage(m.machinePage + d)
 		return nil
 	}
 	if m.dialog != nil {
@@ -880,7 +876,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	case "account":
 		if arg == "" {
 			m.setView(placeSettings)
-			m.setSettingsPage(tabAccounts)
+			m.setSettingsPage(pageProviders)
 			return nil
 		}
 		return m.useLogin(arg)

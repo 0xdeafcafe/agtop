@@ -202,13 +202,17 @@ func withTabHint(strip, keys, what, rest string, w int) string {
 }
 
 // pages are the pages of the place you're in, the one showing bright; tab
-// goes through them. In Agents it says whether Zen is on.
+// goes through them ([ and ] in Settings). In Agents it says whether Zen
+// is on.
 func (m *Model) pages() string {
 	var names []string
-	cur := 0
+	cur, hint := 0, "tab"
 	switch {
 	case m.dialog != nil:
-		names, cur = tabNames, m.dialog.tab
+		for _, p := range m.settingsPages() {
+			names = append(names, p.name)
+		}
+		cur, hint = m.dialog.page, "[ ]"
 	case m.mode == modeProcs || m.mode == modeCleanup:
 		names, cur = machinePages, m.machinePage
 	case m.mode == modeEff:
@@ -228,7 +232,13 @@ func (m *Model) pages() string {
 			out[i] = dim(n)
 		}
 	}
-	return "   " + strings.Join(out, dim(" · ")) + faint("  tab")
+	full := "   " + strings.Join(out, dim(" · ")) + faint("  "+hint)
+	// Where the row hasn't the room for every page, the one showing and
+	// where it is among them.
+	if used := 20 + cellw.String(ansi.Strip(strings.Join(m.tabs(), " "))); used+cellw.String(ansi.Strip(full)) > m.w {
+		return "   " + faint("‹ ") + paint(cText+bold, names[cur]) + faint(fmt.Sprintf(" %d/%d › ", cur+1, len(names))) + faint(hint)
+	}
+	return full
 }
 
 func (m *Model) tabs() []string {
@@ -1156,7 +1166,13 @@ func (m *Model) listLines(w, h int) []string {
 		switch l.kind {
 		case lineSection:
 			key := sectionKey(l.title)
-			emit(m.sectionLine(l, w), key, key == m.sel)
+			line := m.sectionLine(l, w)
+			if l.root != "" {
+				line = m.folderSectionLine(l, w)
+			}
+			emit(line, key, key == m.sel)
+		case lineTree:
+			emit(m.treeLine(l, w), "", false)
 		case lineBlank:
 			emit("", "", false)
 		case lineAgent:

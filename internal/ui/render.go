@@ -15,6 +15,7 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 	m.refreshNow()
 	time.Sleep(500 * time.Millisecond)
 	m.refreshNow()
+	m.drain(m.refreshFolders())
 	// AGTOP_RENDER_SELECT picks an agent by name, for checking one pane.
 	if want := os.Getenv("AGTOP_RENDER_SELECT"); want != "" {
 		for _, a := range m.order {
@@ -76,6 +77,8 @@ func (m *Model) drain(cmd tea.Cmd) {
 		m.drain(m.onHostOpen(msg))
 	case hostLinesMsg:
 		m.onHostLines(msg)
+	case foldersMsg:
+		m.onFolders(msg)
 	case paneMsg:
 		m.drain(m.onPane(msg))
 	}
