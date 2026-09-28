@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -143,7 +144,12 @@ func (m *Model) handOffStopped() tea.Cmd {
 		if _, ok := p.PickFor(kind, room); ok {
 			continue // another of its accounts has room: switching comes first
 		}
-		to, ok := p.Next(kind, room)
+		// Only to a provider that can start from another's conversation.
+		takers := p
+		takers.Providers = slices.DeleteFunc(slices.Clone(p.Providers), func(k string) bool {
+			return k != kind && !agent.Supports(agent.Kind(k), agent.FeatureHandoffIn)
+		})
+		to, ok := takers.Next(kind, room)
 		if !ok {
 			continue
 		}
@@ -157,12 +163,8 @@ func (m *Model) handOffStopped() tea.Cmd {
 // conversation on: in the same folder, under the same profile, opened
 // with the conversation so far. The one a limit stopped is left as it is.
 func (m *Model) handOff(a *fleet.Agent, to state.Pick, p state.Profile) tea.Cmd {
-	prompt, ok := handoffPrompt(a)
-	if !ok {
-		m.flash(a.DisplayName+" is out of "+agentName(a.Kind)+" · handing it to "+agentName(to.Kind)+" isn't built yet; it waits for the reset", true)
-		return nil
-	}
-	cfg := host.Config{Cwd: a.Cwd, Prompt: prompt, Name: a.DisplayName + " · on " + agentName(to.Kind), Profile: p.Name,
+	in := agent.Handoff(m.conversationOf(a))
+	cfg := host.Config{Cwd: a.Cwd, Prompt: in.Text, Images: in.Images, Name: a.DisplayName + " · on " + agentName(to.Kind), Profile: p.Name,
 		IdleStop: host.Duration(m.store.Config.Dispatch.Rest())}
 	if err := cfg.UseAgent(to.Kind); err != nil {
 		m.flash("couldn't hand "+a.DisplayName+" on: "+err.Error(), true)
@@ -176,15 +178,4 @@ func (m *Model) handOff(a *fleet.Agent, to state.Pick, p state.Profile) tea.Cmd 
 		}
 		return hostStartedMsg{id: c.ID, name: cfg.Name}
 	}
-}
-
-// handoffPrompt is a conversation rendered as the opening message of a
-// session on another provider.
-//
-// SEAM(agent.Handoff): Track A builds agent.Handoff(from agent.Session)
-// agent.Input (the first message, a summary of what was done, recent turns
-// and open todos). Until it lands, nothing is handed on and the session
-// waits for its reset.
-func handoffPrompt(a *fleet.Agent) (string, bool) {
-	return "", false
 }

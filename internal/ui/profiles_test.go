@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -53,12 +55,25 @@ func TestPickFollowsRoom(t *testing.T) {
 	}
 }
 
+// takerAgent is a provider that can start from another's conversation.
+type takerAgent struct{ fakeAgent }
+
+func (takerAgent) Features() map[agent.Feature]agent.Support {
+	return map[agent.Feature]agent.Support{agent.FeatureHandoffIn: agent.Yes}
+}
+
 // A conversation a limit stopped under a profile that hands on is handed
-// to the next provider once its own has no room, and only once.
+// to the next provider that can take it once its own has no room, and
+// only once.
 func TestHandOffStopped(t *testing.T) {
 	m, _ := accountsModel(t)
+	agent.Register(takerAgent{fakeAgent{kind: "ztaker", title: "ZTaker", dir: "/z/.ztaker"}})
+	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "agtop-fake-ztaker"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agent.Recheck()
 	cfg := &m.store.Config
-	cfg.SetProfile("", state.Profile{Name: "Default", Providers: []string{"zcodex", "zplain"}, OnLimit: state.LimitHandoff})
+	cfg.SetProfile("", state.Profile{Name: "Default", Providers: []string{"zcodex", "zplain", "ztaker"}, OnLimit: state.LimitHandoff})
 	a := &fleet.Agent{Key: "k1", DisplayName: "fixer", Agtop: true, Kind: "zcodex", Profile: "Default", Cwd: "/x"}
 	a.Detail = "usage limit · resets 15:00"
 	m.snap.Agents = []*fleet.Agent{a}
@@ -70,5 +85,8 @@ func TestHandOffStopped(t *testing.T) {
 	m.handOffStopped()
 	if !m.accts.handedOff["k1"] {
 		t.Fatal("not handed on with every zcodex account out")
+	}
+	if cmd := m.handOffStopped(); cmd != nil && cmd() != nil {
+		t.Fatal("handed on twice")
 	}
 }
