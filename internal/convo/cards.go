@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -176,10 +177,10 @@ func gitCalls(cmd string) []gitCall {
 // commit's body. That's a reading of text: gitCommits asks git what was
 // really committed, when the session's folder is on this machine.
 func cardsOf(st *Step) []card {
-	if st.Tool != "Bash" || st.Status == Running || st.Status == Waiting {
+	if st.kind() != tool.Shell || st.Status == Running || st.Status == Waiting {
 		return nil
 	}
-	cmd := readInput(st.Input).str("command")
+	cmd := st.in().Command
 	calls := gitCalls(cmd)
 	var verbs []string
 	for _, c := range calls {
