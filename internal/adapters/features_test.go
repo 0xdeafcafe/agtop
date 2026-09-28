@@ -10,6 +10,7 @@ import (
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/copilot"
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/deepseek"
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/glm"
+	_ "github.com/0xdeafcafe/agtop/internal/adapters/ollama"
 	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 

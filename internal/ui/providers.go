@@ -34,6 +34,7 @@ var (
 		"gemini":   {"✦", theme.RGB{R: 138, G: 180, B: 248}}, // Gemini's sparkle
 		"kimi":     {"◐", theme.RGB{R: 200, G: 200, B: 214}}, // Moonshot's moon
 		"vibe":     {"■", theme.RGB{R: 245, G: 165, B: 60}},  // Mistral's amber
+		"ollama":   {"◉", theme.RGB{R: 232, G: 232, B: 226}}, // Ollama's white llama
 		"opencode": {"▣", theme.RGB{R: 186, G: 182, B: 176}},
 	}
 )
