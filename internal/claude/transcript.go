@@ -3,7 +3,7 @@ package claude
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Totals is what one transcript file has cost so far. It is small and
@@ -35,7 +36,7 @@ type Totals struct {
 	PendingID    string     `json:"pi,omitempty"`
 	PendingModel string     `json:"pm,omitempty"`
 	PendingUse   TokenUsage `json:"pu"`
-	PendingFast  bool       `json:"pf,omitempty"`
+	PendingFast  bool       `json:"pf,omitzero"`
 	PendingAt    time.Time  `json:"pa"`
 	// Halt is the error the session's last turn ended on, if it ended on
 	// one; the next real reply clears it.
@@ -45,7 +46,7 @@ type Totals struct {
 	Progress   string    `json:"g,omitempty"`
 	ProgressAt time.Time `json:"ga"`
 	// Compacts is how many times its context was compacted.
-	Compacts int `json:"k,omitempty"`
+	Compacts int `json:"k,omitzero"`
 }
 
 // Context is how much of the model's window the newest message used.
@@ -125,10 +126,10 @@ type line struct {
 	APIError  bool      `json:"isApiErrorMessage"`
 	Error     string    `json:"error"`
 	Message   struct {
-		ID      string          `json:"id"`
-		Model   string          `json:"model"`
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
+		ID      string         `json:"id"`
+		Model   string         `json:"model"`
+		Role    string         `json:"role"`
+		Content jsontext.Value `json:"content"`
 		Usage   *struct {
 			Input        int64  `json:"input_tokens"`
 			Output       int64  `json:"output_tokens"`
@@ -212,7 +213,7 @@ func consume(t *Totals, b []byte) {
 		return
 	}
 	var l line
-	if json.Unmarshal(b, &l) != nil || l.Type != "assistant" {
+	if jsonx.Unmarshal(b, &l) != nil || l.Type != "assistant" {
 		return
 	}
 	if l.Cwd != "" && len(t.Dirs) < 64 && (len(t.Dirs) == 0 || t.Dirs[len(t.Dirs)-1] != l.Cwd) {
@@ -265,12 +266,12 @@ var httpCodes = map[string]bool{"200": true, "201": true, "204": true, "301": tr
 
 // progressIn is the sentence of a message's text with its last count going
 // from one number to another, trimmed to that pair and a little before it.
-func progressIn(content json.RawMessage) string {
+func progressIn(content jsontext.Value) string {
 	var blocks []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
-	if json.Unmarshal(content, &blocks) != nil {
+	if jsonx.Unmarshal(content, &blocks) != nil {
 		return ""
 	}
 	best := ""
@@ -304,12 +305,12 @@ func progressIn(content json.RawMessage) string {
 }
 
 // firstText is the first line of a message's first text block.
-func firstText(content json.RawMessage) string {
+func firstText(content jsontext.Value) string {
 	var blocks []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
-	if json.Unmarshal(content, &blocks) != nil {
+	if jsonx.Unmarshal(content, &blocks) != nil {
 		return ""
 	}
 	for _, b := range blocks {
@@ -362,26 +363,26 @@ func ReadPreview(path string, window int64) Preview {
 	p.First = firstUser(f, lines, off)
 	for i := len(lines) - 1; i >= 0 && (p.Text == "" || p.Tool == "" || p.LastUser == "" || p.Context == 0); i-- {
 		var l line
-		if json.Unmarshal(lines[i], &l) != nil {
+		if jsonx.Unmarshal(lines[i], &l) != nil {
 			continue
 		}
 		if p.At.IsZero() && !l.Timestamp.IsZero() {
 			p.At = l.Timestamp
 		}
 		var blocks []struct {
-			Type  string          `json:"type"`
-			Text  string          `json:"text"`
-			Name  string          `json:"name"`
-			Input json.RawMessage `json:"input"`
+			Type  string         `json:"type"`
+			Text  string         `json:"text"`
+			Name  string         `json:"name"`
+			Input jsontext.Value `json:"input"`
 		}
 		if l.Type == "user" && p.LastUser == "" {
 			var s string
-			if json.Unmarshal(l.Message.Content, &s) == nil && s != "" && !strings.HasPrefix(s, "<") {
+			if jsonx.Unmarshal(l.Message.Content, &s) == nil && s != "" && !strings.HasPrefix(s, "<") {
 				p.LastUser = s
 			}
 			continue
 		}
-		if l.Type != "assistant" || json.Unmarshal(l.Message.Content, &blocks) != nil {
+		if l.Type != "assistant" || jsonx.Unmarshal(l.Message.Content, &blocks) != nil {
 			continue
 		}
 		if p.Model == "" {
@@ -403,9 +404,9 @@ func ReadPreview(path string, window int64) Preview {
 	return p
 }
 
-func toolArg(in json.RawMessage) string {
+func toolArg(in jsontext.Value) string {
 	var m map[string]any
-	if json.Unmarshal(in, &m) != nil {
+	if jsonx.Unmarshal(in, &m) != nil {
 		return ""
 	}
 	for _, k := range []string{"description", "command", "file_path", "pattern", "prompt", "url", "query"} {
@@ -442,23 +443,23 @@ func recentEvents(lines [][]byte, n int) []Event {
 	var out []Event
 	for _, raw := range lines {
 		var l line
-		if json.Unmarshal(raw, &l) != nil || (l.Type != "user" && l.Type != "assistant") {
+		if jsonx.Unmarshal(raw, &l) != nil || (l.Type != "user" && l.Type != "assistant") {
 			continue
 		}
 		var str string
-		if l.Type == "user" && json.Unmarshal(l.Message.Content, &str) == nil {
+		if l.Type == "user" && jsonx.Unmarshal(l.Message.Content, &str) == nil {
 			if str != "" && !strings.HasPrefix(str, "<") {
 				out = append(out, Event{Role: "user", Text: str, At: l.Timestamp})
 			}
 			continue
 		}
 		var blocks []struct {
-			Type  string          `json:"type"`
-			Text  string          `json:"text"`
-			Name  string          `json:"name"`
-			Input json.RawMessage `json:"input"`
+			Type  string         `json:"type"`
+			Text  string         `json:"text"`
+			Name  string         `json:"name"`
+			Input jsontext.Value `json:"input"`
 		}
-		if json.Unmarshal(l.Message.Content, &blocks) != nil {
+		if jsonx.Unmarshal(l.Message.Content, &blocks) != nil {
 			continue
 		}
 		for _, bl := range blocks {
@@ -504,7 +505,7 @@ func ReadSubagentStats(mainPath string, now time.Time) SubagentStats {
 			Depth int `json:"spawnDepth"`
 		}
 		if b, err := os.ReadFile(meta); err == nil {
-			_ = json.Unmarshal(b, &m)
+			_ = jsonx.Unmarshal(b, &m)
 		}
 		if m.Depth <= 1 {
 			st.Direct++

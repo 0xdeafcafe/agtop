@@ -8,7 +8,7 @@ package acp
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -35,7 +35,7 @@ type Options struct {
 	// Resume is a past session to open instead of a new one.
 	Resume string
 	// MCPServers are passed to the agent as ACP McpServer objects.
-	MCPServers []json.RawMessage
+	MCPServers []jsontext.Value
 	// Adapter names the agent in the events nothing else fits: "kimi".
 	Adapter string
 	// NoFS keeps file reads and writes with the agent rather than agtop.
@@ -69,7 +69,7 @@ type Session struct {
 	turns  sync.WaitGroup
 
 	amu       sync.Mutex
-	approvals map[string]json.RawMessage // approval ID → the agent's request ID
+	approvals map[string]jsontext.Value // approval ID → the agent's request ID
 	questions map[string]*elicitation
 
 	mu       sync.Mutex // what follows, and the order events go out in
@@ -151,7 +151,7 @@ func newSession(o Options, w io.Writer) *Session {
 	s := &Session{
 		o: o, rpc: newRPC(w), exited: make(chan struct{}),
 		events: make(chan event.Event, 64), closed: make(chan struct{}),
-		approvals: map[string]json.RawMessage{}, questions: map[string]*elicitation{},
+		approvals: map[string]jsontext.Value{}, questions: map[string]*elicitation{},
 		calls: map[string]*call{},
 	}
 	s.qcond = sync.NewCond(&s.qmu)
@@ -204,7 +204,7 @@ func (s *Session) begin(ctx context.Context) error {
 	}
 	servers := s.o.MCPServers
 	if servers == nil {
-		servers = []json.RawMessage{}
+		servers = []jsontext.Value{}
 	}
 	params := map[string]any{"cwd": s.cwd, "mcpServers": servers}
 	var res sessionResult
@@ -365,7 +365,7 @@ func (s *Session) Interrupt() error {
 	}
 	s.amu.Lock()
 	waiting := s.approvals
-	s.approvals = map[string]json.RawMessage{}
+	s.approvals = map[string]jsontext.Value{}
 	s.amu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()

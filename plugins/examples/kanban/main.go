@@ -27,7 +27,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"os"
@@ -38,6 +38,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -61,6 +62,9 @@ var (
 
 	mu       sync.Mutex
 	sessions = map[string]session{} // agtop's sessions, by agtop id
+	// watching closes once agtop has sent its sessions: until then, a card
+	// can't tell it already has an agent.
+	watching = make(chan struct{})
 	st       memory
 	linking  = map[string]bool{}      // relinks under way, by session
 	tried    = map[string]time.Time{} // when each was last tried
@@ -79,7 +83,7 @@ type memory struct {
 
 type prSeen struct {
 	Failing []string `json:"failing,omitempty"`
-	Threads int      `json:"threads,omitempty"`
+	Threads int      `json:"threads,omitzero"`
 }
 
 func main() {
@@ -95,13 +99,13 @@ func main() {
 	<-conn.Done()
 }
 
-func handle(ctx context.Context, method string, params json.RawMessage) (any, error) {
+func handle(ctx context.Context, method string, params jsontext.Value) (any, error) {
 	switch method {
 	case "initialize":
 		var in struct {
 			DataDir string `json:"dataDir"`
 		}
-		_ = json.Unmarshal(params, &in)
+		_ = jsonx.Unmarshal(params, &in)
 		data = in.DataDir
 		load()
 		go follow()
@@ -116,9 +120,9 @@ func handle(ctx context.Context, method string, params json.RawMessage) (any, er
 			Cwd       string            `json:"cwd"`
 			Meta      map[string]string `json:"meta"`
 			Name      string            `json:"name"`
-			Arguments json.RawMessage   `json:"arguments"`
+			Arguments jsontext.Value    `json:"arguments"`
 		}
-		if err := json.Unmarshal(params, &in); err != nil {
+		if err := jsonx.Unmarshal(params, &in); err != nil {
 			return nil, err
 		}
 		me := session{ID: in.Session, SessionID: in.SessionID, Cwd: in.Cwd, Meta: in.Meta}
@@ -129,7 +133,7 @@ func handle(ctx context.Context, method string, params json.RawMessage) (any, er
 		return result(text, false), nil
 	case "session.changed":
 		var s session
-		if json.Unmarshal(params, &s) == nil {
+		if jsonx.Unmarshal(params, &s) == nil {
 			mu.Lock()
 			sessions[s.ID] = s
 			mu.Unlock()
@@ -138,7 +142,7 @@ func handle(ctx context.Context, method string, params json.RawMessage) (any, er
 		return nil, nil
 	case "session.gone":
 		var s struct{ ID string }
-		_ = json.Unmarshal(params, &s)
+		_ = jsonx.Unmarshal(params, &s)
 		mu.Lock()
 		delete(sessions, s.ID)
 		mu.Unlock()
@@ -160,6 +164,7 @@ func follow() {
 				sessions[s.ID] = s
 			}
 			mu.Unlock()
+			close(watching)
 			for _, s := range list {
 				go link(s)
 			}
@@ -297,7 +302,7 @@ func prNews(prs []pr, was map[int]prSeen, known bool) (map[int]prSeen, []string)
 	return now, news
 }
 
-func call(ctx context.Context, me session, name string, args json.RawMessage) (string, error) {
+func call(ctx context.Context, me session, name string, args jsontext.Value) (string, error) {
 	var in struct {
 		Card   string `json:"card"`
 		Column string `json:"column"`
@@ -305,7 +310,7 @@ func call(ctx context.Context, me session, name string, args json.RawMessage) (s
 		Mode   string `json:"permissionMode"`
 		Text   string `json:"text"`
 	}
-	_ = json.Unmarshal(args, &in)
+	_ = jsonx.Unmarshal(args, &in)
 	cards, err := readCards()
 	if err != nil {
 		return "", err
@@ -350,6 +355,12 @@ func call(ctx context.Context, me session, name string, args json.RawMessage) (s
 
 // working is the live agtop session working on a card, if there is one.
 func working(cards []card, c card) (session, bool) {
+	// Just started, agtop may not have said yet which agents are running:
+	// wait a moment rather than start a second one on the card.
+	select {
+	case <-watching:
+	case <-time.After(3 * time.Second):
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	for _, s := range sessions {
@@ -433,7 +444,7 @@ func exists(p string) bool {
 func load() {
 	st = memory{Linked: map[string]string{}, Tries: map[string]int{}, Seen: map[string]map[int]prSeen{}}
 	if b, err := os.ReadFile(filepath.Join(data, "state.json")); err == nil {
-		_ = json.Unmarshal(b, &st)
+		_ = jsonx.Unmarshal(b, &st)
 	}
 	if st.Linked == nil {
 		st.Linked = map[string]string{}
@@ -448,7 +459,7 @@ func load() {
 
 // save keeps the memory. Called with mu held.
 func save() {
-	b, _ := json.MarshalIndent(st, "", "  ")
+	b, _ := jsonx.MarshalIndent(st)
 	tmp := filepath.Join(data, "state.json.tmp")
 	if os.WriteFile(tmp, b, 0o600) == nil {
 		_ = os.Rename(tmp, filepath.Join(data, "state.json"))

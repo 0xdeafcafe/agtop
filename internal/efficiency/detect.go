@@ -1,7 +1,7 @@
 package efficiency
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Status is how far a saver is set up.
@@ -68,7 +69,7 @@ func LoadEnv(a claude.Account) *Env {
 		} `json:"plugins"`
 	}
 	if b, err := os.ReadFile(filepath.Join(a.ConfigDir, "plugins", "installed_plugins.json")); err == nil {
-		_ = json.Unmarshal(b, &inst)
+		_ = jsonx.Unmarshal(b, &inst)
 	}
 	for id, list := range inst.Plugins {
 		for _, p := range list {
@@ -78,10 +79,10 @@ func LoadEnv(a claude.Account) *Env {
 		}
 	}
 	var st struct {
-		MCP map[string]json.RawMessage `json:"mcpServers"`
+		MCP map[string]jsontext.Value `json:"mcpServers"`
 	}
 	if b, err := os.ReadFile(a.StatePath()); err == nil {
-		_ = json.Unmarshal(b, &st)
+		_ = jsonx.Unmarshal(b, &st)
 	}
 	for name := range st.MCP {
 		e.mcp[name] = true
@@ -189,7 +190,7 @@ func (e *Env) Detect(s *Saver) Found {
 
 func (e *Env) detectSetting(st *Setting) Found {
 	var f Found
-	var raw json.RawMessage
+	var raw jsontext.Value
 	ok := false
 	if st.Env {
 		v, set := e.Settings.Env()[st.Key]
@@ -220,7 +221,7 @@ func brewTime(p string) time.Time {
 	var r struct {
 		Time int64 `json:"time"`
 	}
-	if json.Unmarshal(b, &r) != nil || r.Time == 0 {
+	if jsonx.Unmarshal(b, &r) != nil || r.Time == 0 {
 		return time.Time{}
 	}
 	return time.Unix(r.Time, 0)

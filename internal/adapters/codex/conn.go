@@ -2,7 +2,7 @@ package codex
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"sync"
@@ -12,6 +12,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Server requests agtop answers.
@@ -41,10 +42,10 @@ var modes = map[string]mode{
 
 // ask is a server request waiting on the user.
 type ask struct {
-	id     json.RawMessage
+	id     jsontext.Value
 	method string
-	perms  map[string]json.RawMessage // permissions asked for
-	qs     map[string]string          // a question's text → its id
+	perms  map[string]jsontext.Value // permissions asked for
+	qs     map[string]string         // a question's text → its id
 }
 
 // Conn is a Codex thread run through `codex app-server`.
@@ -146,9 +147,9 @@ func (c *Conn) begin(rpc *client, o agent.StartOptions) error {
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
-		Model          string          `json:"model"`
-		Cwd            string          `json:"cwd"`
-		ApprovalPolicy json.RawMessage `json:"approvalPolicy"`
+		Model          string         `json:"model"`
+		Cwd            string         `json:"cwd"`
+		ApprovalPolicy jsontext.Value `json:"approvalPolicy"`
 	}
 	if err := rpc.call(c.ctx, method, params, &res); err != nil {
 		return err
@@ -158,7 +159,7 @@ func (c *Conn) begin(rpc *client, o agent.StartOptions) error {
 	c.mu.Unlock()
 	init := event.Init{SessionID: res.Thread.ID, Model: res.Model, Cwd: res.Cwd, Mode: o.Mode, Version: c.version}
 	if init.Mode == "" {
-		_ = json.Unmarshal(res.ApprovalPolicy, &init.Mode)
+		_ = jsonx.Unmarshal(res.ApprovalPolicy, &init.Mode)
 	}
 	c.emit(init)
 	go c.readQuota()
@@ -278,7 +279,7 @@ func (c *Conn) Answer(approvalID, optionID string) error {
 	case reqPermissions:
 		switch optionID {
 		case "turn", "session":
-			granted := map[string]json.RawMessage{}
+			granted := map[string]jsontext.Value{}
 			for k, v := range a.perms {
 				if string(v) != "null" {
 					granted[k] = v

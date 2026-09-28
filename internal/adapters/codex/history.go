@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 var (
@@ -43,7 +43,7 @@ func readRollout(f io.Reader, before time.Time) ([]event.Event, error) {
 	var r replay
 	err := readLines(f, func(b []byte) bool {
 		var l rolloutLine
-		if json.Unmarshal(b, &l) != nil {
+		if jsonx.Unmarshal(b, &l) != nil {
 			return true // a line cut short while Codex writes it
 		}
 		if !before.IsZero() {

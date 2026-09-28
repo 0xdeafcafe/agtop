@@ -1,6 +1,9 @@
 package headless
 
-import "encoding/json"
+import (
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
+)
 
 // Question is one of the questions Claude asks with the AskUserQuestion
 // tool.
@@ -21,16 +24,16 @@ func (r *PermissionRequest) Questions() (title string, qs []Question) {
 		Title     string     `json:"title"`
 		Questions []Question `json:"questions"`
 	}
-	_ = json.Unmarshal(r.Input, &in)
+	_ = jsonx.Unmarshal(r.Input, &in)
 	return in.Title, in.Questions
 }
 
 // AnswerInput is the tool input that answers r: Claude Code takes the
 // answers keyed by question text, with the preview of each chosen option
 // beside it. Questions left unanswered go without one.
-func (r *PermissionRequest) AnswerInput(qs []Question, answers map[string]string) json.RawMessage {
+func (r *PermissionRequest) AnswerInput(qs []Question, answers map[string]string) jsontext.Value {
 	in := map[string]any{}
-	_ = json.Unmarshal(r.Input, &in)
+	_ = jsonx.Unmarshal(r.Input, &in)
 	in["answers"] = answers
 	notes := map[string]any{}
 	for _, q := range qs {
@@ -43,6 +46,6 @@ func (r *PermissionRequest) AnswerInput(qs []Question, answers map[string]string
 	if len(notes) > 0 {
 		in["annotations"] = notes
 	}
-	b, _ := json.Marshal(in)
+	b, _ := jsonx.Marshal(in)
 	return b
 }

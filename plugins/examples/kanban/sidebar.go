@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -80,7 +80,7 @@ func showBoard() {
 		if fi, err := os.Stat(filepath.Join(kanbanHome(), "links.json")); err == nil && !fi.ModTime().Equal(mod) {
 			if cards, err := readCards(); err == nil {
 				p := sidebarPayload(cards)
-				b, _ := json.Marshal(p)
+				b, _ := jsonx.Marshal(p)
 				if string(b) == string(sent) {
 					mod = fi.ModTime()
 				} else if err := conn.Call(context.Background(), "sidebar.set", p, nil); err == nil {

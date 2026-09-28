@@ -2,8 +2,9 @@ package claude
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,7 +96,7 @@ func Plugins(a Account, dir string) (installed, available []Plugin, err error) {
 			PluginID string `json:"pluginId"`
 		} `json:"available"`
 	}
-	if err := json.Unmarshal(out, &raw); err != nil {
+	if err := jsonx.Unmarshal(out, &raw); err != nil {
 		return nil, nil, fmt.Errorf("claude plugin list: %w", err)
 	}
 	for _, p := range raw.Installed {
@@ -124,7 +125,7 @@ func Marketplaces(a Account, dir string) ([]Marketplace, error) {
 		return nil, err
 	}
 	var ms []Marketplace
-	if err := json.Unmarshal(out, &ms); err != nil {
+	if err := jsonx.Unmarshal(out, &ms); err != nil {
 		return nil, fmt.Errorf("claude plugin marketplace list: %w", err)
 	}
 	return ms, nil
@@ -154,7 +155,7 @@ func readManifest(p *Plugin) {
 		Description string `json:"description"`
 		Version     string `json:"version"`
 	}
-	if json.Unmarshal(b, &m) == nil {
+	if jsonx.Unmarshal(b, &m) == nil {
 		p.Description = firstOf(p.Description, m.Description)
 		p.Version = firstOf(p.Version, m.Version)
 	}
@@ -182,9 +183,9 @@ func pluginParts(dir string) PluginParts {
 	p.Agents, p.Commands = names("agents/*.md"), names("commands/*.md")
 	if b, err := os.ReadFile(filepath.Join(dir, "hooks", "hooks.json")); err == nil {
 		var h struct {
-			Hooks map[string]json.RawMessage `json:"hooks"`
+			Hooks map[string]jsontext.Value `json:"hooks"`
 		}
-		if json.Unmarshal(b, &h) == nil {
+		if jsonx.Unmarshal(b, &h) == nil {
 			for ev := range h.Hooks {
 				p.Hooks = append(p.Hooks, ev)
 			}
@@ -193,9 +194,9 @@ func pluginParts(dir string) PluginParts {
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, ".mcp.json")); err == nil {
 		var m struct {
-			Servers map[string]json.RawMessage `json:"mcpServers"`
+			Servers map[string]jsontext.Value `json:"mcpServers"`
 		}
-		if json.Unmarshal(b, &m) == nil {
+		if jsonx.Unmarshal(b, &m) == nil {
 			for s := range m.Servers {
 				p.MCP = append(p.MCP, s)
 			}

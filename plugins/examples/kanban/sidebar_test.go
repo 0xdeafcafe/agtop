@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -30,7 +30,7 @@ func TestSidebarPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := json.Marshal(sidebarPayload(cards))
+	b, _ := jsonx.Marshal(sidebarPayload(cards))
 
 	// It's what agtop's broker takes.
 	s, err := plugin.ParseSidebar("kanban", b)
@@ -64,7 +64,7 @@ func TestSidebarPayload(t *testing.T) {
 		t.Errorf("title %q", s.Title)
 	}
 
-	empty, _ := json.Marshal(sidebarPayload(nil))
+	empty, _ := jsonx.Marshal(sidebarPayload(nil))
 	if s, err := plugin.ParseSidebar("kanban", empty); err != nil || !s.Empty() {
 		t.Fatalf("an empty board should clear the list's arrangement: %s %v", empty, err)
 	}

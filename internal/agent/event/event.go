@@ -5,7 +5,7 @@
 package event
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
@@ -255,7 +255,7 @@ type Plan struct{ Todos []tool.TodoItem }
 type Other struct {
 	Adapter string
 	Type    string
-	Raw     json.RawMessage `json:",omitempty"`
+	Raw     jsontext.Value `json:",omitzero"`
 }
 
 func (Init) event()              {}

@@ -2,8 +2,8 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -110,37 +110,36 @@ func readCards() ([]card, error) {
 	defer f.Close()
 	// A card at a time: the file holds every conversation kanban-code has
 	// seen, and can be tens of megabytes, most of it cards left off here.
-	dec := json.NewDecoder(bufio.NewReaderSize(f, 64<<10))
+	dec := jsonx.NewDecoder(bufio.NewReaderSize(f, 64<<10))
 	var out []card
 	fail := func(err error) ([]card, error) { return nil, fmt.Errorf("reading links.json: %w", err) }
-	if _, err := dec.Token(); err != nil { // {
+	if _, err := dec.ReadToken(); err != nil { // {
 		return fail(err)
 	}
-	for dec.More() {
-		key, err := dec.Token()
+	for dec.PeekKind() != '}' {
+		key, err := dec.ReadToken()
 		if err != nil {
 			return fail(err)
 		}
-		if key != "links" {
-			var skip json.RawMessage
-			if err := dec.Decode(&skip); err != nil {
+		if key.String() != "links" {
+			if err := dec.SkipValue(); err != nil {
 				return fail(err)
 			}
 			continue
 		}
-		if _, err := dec.Token(); err != nil { // [
+		if _, err := dec.ReadToken(); err != nil { // [
 			return fail(err)
 		}
-		for dec.More() {
+		for dec.PeekKind() != ']' {
 			var c card
-			if err := dec.Decode(&c); err != nil {
+			if err := jsonx.DecodeValue(dec, &c); err != nil {
 				return fail(err)
 			}
 			if !c.ManuallyArchived && c.ParentCardID == "" && c.Column != "all_sessions" {
 				out = append(out, c)
 			}
 		}
-		if _, err := dec.Token(); err != nil { // ]
+		if _, err := dec.ReadToken(); err != nil { // ]
 			return fail(err)
 		}
 	}

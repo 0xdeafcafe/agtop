@@ -1,7 +1,8 @@
 package plugin
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,7 +18,7 @@ func install(t *testing.T, m Manifest, files map[string]string) string {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := json.Marshal(m)
+	b, _ := jsonx.Marshal(m)
 	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -52,10 +53,10 @@ func TestValidate(t *testing.T) {
 		{"network no port", func(m *Manifest) { m.Network = []string{"example.com"} }, "host:port"},
 		{"network ok", func(m *Manifest) { m.Network = []string{"api.example.com:443"} }, ""},
 		{"agent without prompt", func(m *Manifest) {
-			m.Agents = map[string]json.RawMessage{"x": json.RawMessage(`{"description":"d"}`)}
+			m.Agents = map[string]jsontext.Value{"x": jsontext.Value(`{"description":"d"}`)}
 		}, "prompt"},
 		{"agent bad name", func(m *Manifest) {
-			m.Agents = map[string]json.RawMessage{"X Y": json.RawMessage(`{"description":"d","prompt":"p"}`)}
+			m.Agents = map[string]jsontext.Value{"X Y": jsontext.Value(`{"description":"d","prompt":"p"}`)}
 		}, "agent name"},
 		{"huge prompt", func(m *Manifest) { m.Prompt = strings.Repeat("x", maxPrompt+1) }, "prompt"},
 		{"queue without workspace", func(m *Manifest) { m.Sessions = []string{CapQueue} }, "workspace"},
@@ -145,7 +146,7 @@ func TestForSession(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	for _, m := range []Manifest{
 		{Name: "a", Command: []string{"a"}, Tools: true, Prompt: "Be kind.",
-			Agents: map[string]json.RawMessage{"rev": json.RawMessage(`{"description":"d","prompt":"p"}`)}},
+			Agents: map[string]jsontext.Value{"rev": jsontext.Value(`{"description":"d","prompt":"p"}`)}},
 		{Name: "b", Command: []string{"b"}, Protocol: ProtoMCP},
 		{Name: "c", Command: []string{"c"}},
 	} {

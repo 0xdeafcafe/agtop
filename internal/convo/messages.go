@@ -2,7 +2,7 @@ package convo
 
 import (
 	"bytes"
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"regexp"
 	"strconv"
 	"strings"
@@ -46,7 +46,7 @@ func (d *drawer) recipient(st *Step) string {
 			AgentID     string `json:"agentId"`
 			Description string `json:"description"`
 		}
-		_ = json.Unmarshal(a.Result, &r)
+		_ = jsonx.Unmarshal(a.Result, &r)
 		ain := readInput(a.Input)
 		if r.AgentID == to || ain.str("name") == to {
 			return firstNonEmpty(oneLine(ain.str("description")), oneLine(r.Description), to)
@@ -82,8 +82,8 @@ func delivery(st *Step) string {
 	}
 	// The result, or its text when the structured one didn't come.
 	var r sent
-	if json.Unmarshal(st.Result, &r) != nil || r == (sent{}) {
-		_ = json.Unmarshal([]byte(st.Output), &r)
+	if jsonx.Unmarshal(st.Result, &r) != nil || r == (sent{}) {
+		_ = jsonx.Unmarshal([]byte(st.Output), &r)
 	}
 	switch st.Tool {
 	case "PushNotification":
@@ -191,7 +191,7 @@ func (d *drawer) toolLabel(st *Step, lbl func(string) string) (string, bool) {
 		var r struct {
 			Command string `json:"command"`
 		}
-		_ = json.Unmarshal(st.Result, &r)
+		_ = jsonx.Unmarshal(st.Result, &r)
 		what := oneLine(r.Command)
 		if what == "" {
 			if m := tookFor.FindStringSubmatch(oneLine(st.Output)); m != nil {
@@ -244,7 +244,7 @@ func toolSummary(st *Step) string {
 		return ""
 	}
 	var r map[string]any
-	_ = json.Unmarshal(st.Result, &r)
+	_ = jsonx.Unmarshal(st.Result, &r)
 	switch st.Tool {
 	case "ListAgents":
 		n := 0

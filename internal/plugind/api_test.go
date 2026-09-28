@@ -2,7 +2,6 @@ package plugind
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -11,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -36,7 +36,7 @@ func writeInfo(t *testing.T, i host.Info) {
 	t.Helper()
 	d := filepath.Join(host.Root(), i.ID)
 	_ = os.MkdirAll(d, 0o700)
-	b, _ := json.Marshal(i)
+	b, _ := jsonx.Marshal(i)
 	if err := os.WriteFile(filepath.Join(d, "info.json"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -23,10 +23,9 @@
 package plugin
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -41,6 +40,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -100,7 +100,7 @@ type Manifest struct {
 	// Tools offers the plugin's tools to every agtop-mode session, as
 	// mcp__agtop-<name>__<tool>. They ask before running, like any tool.
 	// An MCP plugin always offers them.
-	Tools    bool     `json:"tools,omitempty"`
+	Tools    bool     `json:"tools,omitzero"`
 	Sessions []string `json:"sessions,omitempty"` // capabilities, see Cap*
 	// Workspaces are the folders sessions it starts may run in.
 	Workspaces []string `json:"workspaces,omitempty"`
@@ -116,15 +116,15 @@ type Manifest struct {
 	// each a fixed command line the plugin may add arguments to. It is how
 	// a plugin drives another tool's CLI.
 	Exec     map[string][]string `json:"exec,omitempty"`
-	MemoryMB int                 `json:"memoryMB,omitempty"` // default DefaultMemoryMB
+	MemoryMB int                 `json:"memoryMB,omitzero"` // default DefaultMemoryMB
 	// Agents are subagents given to every agtop-mode session, as Claude
 	// Code's --agents takes them; each is named <plugin>:<agent>.
-	Agents map[string]json.RawMessage `json:"agents,omitempty"`
+	Agents map[string]jsontext.Value `json:"agents,omitempty"`
 	// Prompt is added to every agtop-mode session's system prompt.
 	Prompt string `json:"prompt,omitempty"`
 	// Sidebar lets it arrange agtop's agent list with sidebar.set: its own
 	// sections, and a name for each agent. See Sidebar.
-	Sidebar bool `json:"sidebar,omitempty"`
+	Sidebar bool `json:"sidebar,omitzero"`
 }
 
 // DefaultMemoryMB is the memory limit a manifest doesn't set.
@@ -275,7 +275,7 @@ func (m Manifest) Validate(dir string) error {
 			Description string `json:"description"`
 			Prompt      string `json:"prompt"`
 		}
-		if err := json.Unmarshal(a, &def); err != nil || def.Description == "" || def.Prompt == "" {
+		if err := jsonx.Unmarshal(a, &def); err != nil || def.Description == "" || def.Prompt == "" {
 			return fmt.Errorf("agent %q needs a description and a prompt", name)
 		}
 		size += len(a)
@@ -339,9 +339,7 @@ func Load(dir string) (Plugin, error) {
 		return Plugin{}, err
 	}
 	var m Manifest
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&m); err != nil {
+	if err := jsonx.Unmarshal(b, &m, jsonx.RejectUnknown); err != nil {
 		return Plugin{}, fmt.Errorf("%s: %w", filepath.Join(dir, "plugin.json"), err)
 	}
 	if err := m.Validate(dir); err != nil {
@@ -425,7 +423,7 @@ func Approvals() map[string]Approval {
 	out := map[string]Approval{}
 	b, err := os.ReadFile(approvedPath())
 	if err == nil {
-		_ = json.Unmarshal(b, &out)
+		_ = jsonx.Unmarshal(b, &out)
 	}
 	return out
 }
@@ -434,7 +432,7 @@ func saveApprovals(a map[string]Approval) error {
 	if err := os.MkdirAll(Root(), 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(a, "", "  ")
+	b, err := jsonx.MarshalIndent(a)
 	if err != nil {
 		return err
 	}
@@ -507,7 +505,7 @@ func ForSession() Contributions {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	agents := map[string]json.RawMessage{}
+	agents := map[string]jsontext.Value{}
 	var prompts []string
 	for _, n := range names {
 		m := a[n].Manifest
@@ -522,7 +520,7 @@ func ForSession() Contributions {
 		}
 	}
 	if len(agents) > 0 {
-		b, _ := json.Marshal(agents)
+		b, _ := jsonx.Marshal(agents)
 		c.Flags = append(c.Flags, "--agents", string(b))
 	}
 	if len(prompts) > 0 {

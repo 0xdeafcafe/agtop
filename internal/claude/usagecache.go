@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -28,7 +28,7 @@ type FetchedUsage struct {
 func LoadFetchedUsage(path string) map[string]FetchedUsage {
 	out := map[string]FetchedUsage{}
 	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &out)
+		_ = jsonx.Unmarshal(b, &out)
 	}
 	return out
 }
@@ -102,7 +102,7 @@ func updateFetchedUsage(path string, change func(map[string]FetchedUsage) bool) 
 	if !change(all) {
 		return nil
 	}
-	b, err := json.Marshal(all)
+	b, err := jsonx.Marshal(all)
 	if err != nil {
 		return err
 	}

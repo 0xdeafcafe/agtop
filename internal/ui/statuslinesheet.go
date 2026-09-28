@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
 )
 
@@ -76,7 +76,7 @@ func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 		st.current = s.String("statusLine.command")
 	}
 	// Taken before your own line is folded in, so saving adopts it.
-	b, _ := json.Marshal(trimmed(st.claude))
+	b, _ := jsonx.Marshal(trimmed(st.claude))
 	st.was = string(b)
 	// A status line of your own isn't lost: it becomes a segment, kept
 	// where it was, on the first line.
@@ -464,7 +464,7 @@ func (st *statusSheet) save(m *Model) tea.Cmd {
 	if !l.Shown("custom") {
 		l.Custom = "" // let go of it only when it's taken out
 	}
-	if b, _ := json.Marshal(trimmed(st.claude)); string(b) != st.was {
+	if b, _ := jsonx.Marshal(trimmed(st.claude)); string(b) != st.was {
 		if err := statusline.Save(l); err != nil {
 			st.err = err.Error()
 			return nil

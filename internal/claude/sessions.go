@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +59,7 @@ func ReadSessions(a Account) []Session {
 func ReadSession(path string) (Session, bool) {
 	var s Session
 	b, err := os.ReadFile(path)
-	if err != nil || json.Unmarshal(b, &s) != nil || s.PID <= 0 {
+	if err != nil || jsonx.Unmarshal(b, &s) != nil || s.PID <= 0 {
 		return s, false
 	}
 	return s, true

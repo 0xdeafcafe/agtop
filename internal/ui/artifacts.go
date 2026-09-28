@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -12,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // artifact is a page the session published with the Artifact tool, at its
@@ -48,7 +48,7 @@ func artifacts(s *convo.Session) []*artifact {
 				Description string `json:"description"`
 				URL         string `json:"url"`
 			}
-			_ = json.Unmarshal(st.Input, &in)
+			_ = jsonx.Unmarshal(st.Input, &in)
 			if in.Action != "" && in.Action != "publish" {
 				continue
 			}

@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 	"weak"
@@ -10,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // --- /btw: side questions in a floating panel ---
@@ -75,7 +75,7 @@ func (t *btwThread) ask(m *Model, c *hostConn, q string) tea.Cmd {
 		switch {
 		case r.Error != "":
 			t.err = r.Error
-		case json.Unmarshal(r.Body, &a) != nil || strings.TrimSpace(a.Response) == "":
+		case jsonx.Unmarshal(r.Body, &a) != nil || strings.TrimSpace(a.Response) == "":
 			t.err = "no answer came back: ask again, or ask in the conversation"
 		default:
 			t.qa[len(t.qa)-1].Response = a.Response

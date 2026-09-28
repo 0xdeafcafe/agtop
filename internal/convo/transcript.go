@@ -2,7 +2,7 @@ package convo
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +14,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Tail follows a Claude Code transcript file, so a session agtop doesn't
@@ -52,17 +53,17 @@ func History(path string, before time.Time) *Session {
 }
 
 type tline struct {
-	Type          string          `json:"type"`
-	Subtype       string          `json:"subtype"`
-	IsMeta        bool            `json:"isMeta"`
-	IsSidechain   bool            `json:"isSidechain"`
-	Timestamp     time.Time       `json:"timestamp"`
-	Message       json.RawMessage `json:"message"`
-	ToolUseResult json.RawMessage `json:"toolUseResult"`
-	Cwd           string          `json:"cwd"`
-	Effort        string          `json:"effort"`
-	Content       json.RawMessage `json:"content"`
-	Level         string          `json:"level"`
+	Type          string         `json:"type"`
+	Subtype       string         `json:"subtype"`
+	IsMeta        bool           `json:"isMeta"`
+	IsSidechain   bool           `json:"isSidechain"`
+	Timestamp     time.Time      `json:"timestamp"`
+	Message       jsontext.Value `json:"message"`
+	ToolUseResult jsontext.Value `json:"toolUseResult"`
+	Cwd           string         `json:"cwd"`
+	Effort        string         `json:"effort"`
+	Content       jsontext.Value `json:"content"`
+	Level         string         `json:"level"`
 	Compact       struct {
 		Trigger    string `json:"trigger"`
 		PreTokens  int    `json:"preTokens"`
@@ -138,7 +139,7 @@ func (t *Tail) apply(b []byte) bool {
 		return t.applyLight(b)
 	}
 	var l tline
-	if json.Unmarshal(b, &l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
+	if jsonx.Unmarshal(b, &l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
 		return false
 	}
 	if !t.before.IsZero() && !l.Timestamp.IsZero() && !l.Timestamp.Before(t.before) {
@@ -159,7 +160,7 @@ func (t *Tail) apply(b []byte) bool {
 			// Claude Code telling you something (an unknown command, a
 			// warning): shown where it happened.
 			var text string
-			if json.Unmarshal(l.Content, &text) == nil && strings.TrimSpace(text) != "" {
+			if jsonx.Unmarshal(l.Content, &text) == nil && strings.TrimSpace(text) != "" {
 				s.notice(stripTags(text), l.Level, at)
 				return true
 			}
@@ -173,9 +174,9 @@ func (t *Tail) apply(b []byte) bool {
 		return false
 	case "user":
 		var m struct {
-			Content json.RawMessage `json:"content"`
+			Content jsontext.Value `json:"content"`
 		}
-		_ = json.Unmarshal(l.Message, &m)
+		_ = jsonx.Unmarshal(l.Message, &m)
 		if text, images, ok := prompt(m.Content); ok {
 			// A shell command you ran with ! is its own small turn, and
 			// its output lands on it rather than starting another.
@@ -237,16 +238,16 @@ func (t *Tail) apply(b []byte) bool {
 
 // prompt reads a user line as something you typed: plain text or text and
 // image blocks, not a tool result. Command wrappers are unwrapped.
-func prompt(raw json.RawMessage) (string, []string, bool) {
+func prompt(raw jsontext.Value) (string, []string, bool) {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if jsonx.Unmarshal(raw, &s) == nil {
 		return cleanPrompt(s), nil, strings.TrimSpace(s) != ""
 	}
 	var blocks []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
-	if json.Unmarshal(raw, &blocks) != nil || len(blocks) == 0 {
+	if jsonx.Unmarshal(raw, &blocks) != nil || len(blocks) == 0 {
 		return "", nil, false
 	}
 	var texts, images []string
@@ -318,7 +319,7 @@ func (s *Session) shellStart(cmd string, at time.Time) {
 		return
 	}
 	id := fmt.Sprintf("you-%d", t.N)
-	in, _ := json.Marshal(map[string]string{"command": cmd, "description": "you ran"})
+	in, _ := jsonx.Marshal(map[string]string{"command": cmd, "description": "you ran"})
 	st := &Step{ID: id, Tool: "Bash", Kind: tool.Shell, Input: in, Start: at, Exit: -1, turn: t}
 	s.byID[id] = st
 	t.steps[id] = st
@@ -337,7 +338,7 @@ func (s *Session) shellResult(t *Turn, out shellOut, at time.Time) {
 		stdout = ""
 	}
 	st.Output, st.End, st.Status = strings.TrimSpace(stdout+"\n"+out.stderr), at, OK
-	st.Result, _ = json.Marshal(map[string]string{"stdout": stdout, "stderr": out.stderr})
+	st.Result, _ = jsonx.Marshal(map[string]string{"stdout": stdout, "stderr": out.stderr})
 	if strings.TrimSpace(out.stderr) != "" {
 		st.Status = Failed
 	}
@@ -400,13 +401,13 @@ func stripTags(s string) string { return strings.TrimSpace(tagRe.ReplaceAllStrin
 
 // noteTask records a background task's reported status, from the
 // notification Claude Code injects when one finishes.
-func (s *Session) noteTask(raw json.RawMessage) {
+func (s *Session) noteTask(raw jsontext.Value) {
 	var t string
-	if json.Unmarshal(raw, &t) != nil {
+	if jsonx.Unmarshal(raw, &t) != nil {
 		var blocks []struct {
 			Text string `json:"text"`
 		}
-		_ = json.Unmarshal(raw, &blocks)
+		_ = jsonx.Unmarshal(raw, &blocks)
 		for _, b := range blocks {
 			t += b.Text
 		}
@@ -456,26 +457,26 @@ type lightContent struct {
 }
 
 type lightBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Input     json.RawMessage `json:"input"` // read for the call in words, then dropped
-	ToolUseID string          `json:"tool_use_id"`
-	IsError   bool            `json:"is_error"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Input     jsontext.Value `json:"input"` // read for the call in words, then dropped
+	ToolUseID string         `json:"tool_use_id"`
+	IsError   bool           `json:"is_error"`
 }
 
 func (c *lightContent) UnmarshalJSON(b []byte) error {
 	if len(b) > 0 && b[0] == '"' {
-		return json.Unmarshal(b, &c.text)
+		return jsonx.Unmarshal(b, &c.text)
 	}
-	return json.Unmarshal(b, &c.blocks)
+	return jsonx.Unmarshal(b, &c.blocks)
 }
 
 // applyLight takes in a line for a light session (SubagentStats).
 func (t *Tail) applyLight(b []byte) bool {
 	var l lightLine
-	if json.Unmarshal(b, &l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
+	if jsonx.Unmarshal(b, &l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
 		return false
 	}
 	s, at := t.Sess, l.Timestamp

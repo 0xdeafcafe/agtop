@@ -5,23 +5,24 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
 func main() {
-	c := plugin.NewConn(os.NewFile(3, "agtop"), func(_ context.Context, method string, params json.RawMessage) (any, error) {
+	c := plugin.NewConn(os.NewFile(3, "agtop"), func(_ context.Context, method string, params jsontext.Value) (any, error) {
 		var in struct {
 			Secret, Outside, Sock, Data string
 			Proxy                       int
 		}
-		_ = json.Unmarshal(params, &in)
+		_ = jsonx.Unmarshal(params, &in)
 		ok := func(err error) string {
 			if err != nil {
 				return "denied: " + err.Error()
@@ -57,6 +58,6 @@ func main() {
 }
 
 func itoa(n int) string {
-	b, _ := json.Marshal(n)
+	b, _ := jsonx.Marshal(n)
 	return string(b)
 }

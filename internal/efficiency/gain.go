@@ -2,7 +2,7 @@ package efficiency
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os/exec"
 	"time"
 )
@@ -32,7 +32,7 @@ func RTKGains() ([]Gain, error) {
 	var r struct {
 		Daily []Gain `json:"daily"`
 	}
-	if err := json.Unmarshal(out, &r); err != nil {
+	if err := jsonx.Unmarshal(out, &r); err != nil {
 		return nil, err
 	}
 	return r.Daily, nil

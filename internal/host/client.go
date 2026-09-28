@@ -2,7 +2,7 @@ package host
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Spawn writes cfg and starts its host as a detached process, returning once
@@ -43,7 +44,7 @@ func Spawn(cfg Config) (Config, error) {
 	if info, err := ReadInfo(cfg.ID); err == nil && alive(info.HostPID) {
 		return cfg, fmt.Errorf("%s is already running", cfg.ID)
 	}
-	b, err := json.MarshalIndent(cfg, "", "  ")
+	b, err := jsonx.MarshalIndent(cfg)
 	if err != nil {
 		return cfg, err
 	}
@@ -134,7 +135,7 @@ func readInfoFile(id string) (Info, error) {
 	if err != nil {
 		return info, err
 	}
-	return info, json.Unmarshal(b, &info)
+	return info, jsonx.Unmarshal(b, &info)
 }
 
 // List returns every agtop-mode session, newest first.
@@ -193,7 +194,7 @@ func ReadConfig(id string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	return cfg, json.Unmarshal(b, &cfg)
+	return cfg, jsonx.Unmarshal(b, &cfg)
 }
 
 // InfoEvent is a session's info, sent on connect and whenever it changes.
@@ -221,7 +222,7 @@ type Commands struct{ Commands []headless.Command }
 // the client's own.
 type Reply struct {
 	ID    string
-	Body  json.RawMessage
+	Body  jsontext.Value
 	Error string
 }
 
@@ -244,15 +245,15 @@ func Decode(line []byte) (any, error) {
 		Error     string                 `json:"error"`
 		Sent      bool                   `json:"agtop_sent"`
 		Images    []string               `json:"agtop_images"`
-		Message   json.RawMessage        `json:"message"`
+		Message   jsontext.Value         `json:"message"`
 		Commands  []headless.Command     `json:"commands"`
 		Context   *headless.ContextUsage `json:"context"`
 		ID        string                 `json:"id"`
-		Reply     json.RawMessage        `json:"reply"`
+		Reply     jsontext.Value         `json:"reply"`
 		T         int64                  `json:"t"`
-		Ev        json.RawMessage        `json:"ev"`
+		Ev        jsontext.Value         `json:"ev"`
 	}
-	if err := json.Unmarshal(line, &head); err != nil {
+	if err := jsonx.Unmarshal(line, &head); err != nil {
 		return nil, err
 	}
 	switch head.Type {
@@ -280,7 +281,7 @@ func Decode(line []byte) (any, error) {
 		var m struct {
 			Content string `json:"content"`
 		}
-		_ = json.Unmarshal(head.Message, &m)
+		_ = jsonx.Unmarshal(head.Message, &m)
 		return Sent{Text: m.Content, Images: head.Images}, nil
 	}
 	return headless.Decode(line)
@@ -318,7 +319,7 @@ func Dial(id string) (*Client, error) {
 }
 
 func (c *Client) do(o op) error {
-	b, err := json.Marshal(o)
+	b, err := jsonx.Marshal(o)
 	if err != nil {
 		return err
 	}
@@ -367,7 +368,7 @@ func (c *Client) HoldQueue(on bool) error { return c.do(op{Op: "queue_hold", Now
 func (c *Client) QueueSeparately(on bool) error { return c.do(op{Op: "queue_separate", Now: on}) }
 
 // Allow lets a pending tool call run; input nil keeps the requested input.
-func (c *Client) Allow(id string, input json.RawMessage, always bool) error {
+func (c *Client) Allow(id string, input jsontext.Value, always bool) error {
 	return c.do(op{Op: "allow", ID: id, Input: input, Always: always})
 }
 
@@ -448,7 +449,7 @@ func (c *Client) Stop() error { return c.do(op{Op: "stop"}) }
 // answer arrives on Lines as a Reply with this id. Hosts before Proto 2
 // ignore it.
 func (c *Client) Ask(id string, req any) error {
-	b, err := json.Marshal(req)
+	b, err := jsonx.Marshal(req)
 	if err != nil {
 		return err
 	}

@@ -1,11 +1,12 @@
 package claude
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Worker is a live background session as the daemon tracks it.
@@ -37,19 +38,19 @@ type Roster struct {
 
 func ReadRoster(a Account) Roster {
 	var raw struct {
-		SupervisorPID int             `json:"supervisorPid"`
-		Workers       json.RawMessage `json:"workers"`
+		SupervisorPID int            `json:"supervisorPid"`
+		Workers       jsontext.Value `json:"workers"`
 	}
 	r := Roster{Workers: map[string]Worker{}}
 	b, err := os.ReadFile(a.RosterPath())
-	if err != nil || json.Unmarshal(b, &raw) != nil {
+	if err != nil || jsonx.Unmarshal(b, &raw) != nil {
 		return r
 	}
 	r.SupervisorPID = raw.SupervisorPID
 	var list []Worker
-	if json.Unmarshal(raw.Workers, &list) != nil {
+	if jsonx.Unmarshal(raw.Workers, &list) != nil {
 		var m map[string]Worker
-		if json.Unmarshal(raw.Workers, &m) == nil {
+		if jsonx.Unmarshal(raw.Workers, &m) == nil {
 			for _, w := range m {
 				list = append(list, w)
 			}
@@ -70,7 +71,7 @@ func ReadPRCache(a Account) map[string]PR {
 	if err != nil {
 		return m
 	}
-	_ = json.Unmarshal(b, &m)
+	_ = jsonx.Unmarshal(b, &m)
 	return m
 }
 

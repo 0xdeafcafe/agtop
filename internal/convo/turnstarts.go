@@ -3,7 +3,7 @@ package convo
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
 	"os"
 )
@@ -43,7 +43,7 @@ func TurnStarts(path string) ([]TurnStart, error) {
 				var id struct {
 					UUID string `json:"uuid"`
 				}
-				_ = json.Unmarshal(line, &id)
+				_ = jsonx.Unmarshal(line, &id)
 				out = append(out, TurnStart{N: tn.N, Prompt: tn.Prompt, Offset: off, UUID: id.UUID, From: tn.From})
 			}
 			off += int64(len(line))

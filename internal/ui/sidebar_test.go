@@ -1,12 +1,12 @@
 package ui
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -18,7 +18,7 @@ func sidebarPlugin(t *testing.T, s plugin.Sidebar) {
 	m := plugin.Manifest{Name: s.Plugin, Command: []string{s.Plugin}, Sidebar: true}
 	dir := filepath.Join(plugin.Root(), m.Name)
 	_ = os.MkdirAll(dir, 0o700)
-	b, _ := json.Marshal(m)
+	b, _ := jsonx.Marshal(m)
 	_ = os.WriteFile(filepath.Join(dir, "plugin.json"), b, 0o600)
 	if err := plugin.Approve(plugin.Plugin{Manifest: m, Dir: dir}); err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestSidebarIgnoredWhenRevokedOrSolo(t *testing.T) {
 	// A stale file of a plugin no longer approved is not used.
 	a := plugin.Approvals()
 	delete(a, "kanban")
-	b, _ := json.Marshal(a)
+	b, _ := jsonx.Marshal(a)
 	_ = os.WriteFile(filepath.Join(plugin.Root(), "approved.json"), b, 0o600)
 	m.refresh()
 	if m.activeSidebar() != nil || len(m.groupModes()) != len(groupModes) {

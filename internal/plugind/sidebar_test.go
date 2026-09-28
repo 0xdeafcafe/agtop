@@ -2,12 +2,13 @@ package plugind
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"log"
 	"os"
 	"testing"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -16,7 +17,7 @@ func TestSidebarSet(t *testing.T) {
 	r.p = p
 	ctx := context.Background()
 	set := func(params string) error {
-		_, err := r.fromPlugin(ctx, "sidebar.set", json.RawMessage(params))
+		_, err := r.fromPlugin(ctx, "sidebar.set", jsontext.Value(params))
 		return err
 	}
 	board := `{"title": "Kanban", "sections": [{"title": "In Progress"}],
@@ -42,7 +43,7 @@ func TestSidebarSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got plugin.Sidebar
-	_ = json.Unmarshal(b, &got)
+	_ = jsonx.Unmarshal(b, &got)
 	if got.Plugin != "kanban" || got.UpdatedAt.IsZero() || got.Agents["8c76706f-1c00-4aed-9c6d-7509f3033943"].Name != "Fix login" {
 		t.Fatalf("written = %s", b)
 	}

@@ -3,7 +3,8 @@ package claude
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
 	"os"
 	"path/filepath"
@@ -124,7 +125,7 @@ func (t *Timeline) Update(path string, since time.Time) {
 				ToolUse     string `json:"toolUseId"`
 				Depth       int    `json:"spawnDepth"`
 			}
-			if b, err := os.ReadFile(p); err == nil && json.Unmarshal(b, &m) == nil {
+			if b, err := os.ReadFile(p); err == nil && jsonx.Unmarshal(b, &m) == nil {
 				r.Name, r.Type, r.ToolUseID, r.Depth = m.Description, m.Type, m.ToolUse, max(1, m.Depth)
 			}
 		}
@@ -246,20 +247,20 @@ type tlLine struct {
 	APIError  bool      `json:"isApiErrorMessage"`
 	Error     string    `json:"error"`
 	Message   struct {
-		Content    json.RawMessage `json:"content"`
-		StopReason string          `json:"stop_reason"`
+		Content    jsontext.Value `json:"content"`
+		StopReason string         `json:"stop_reason"`
 	} `json:"message"`
-	ToolUseResult json.RawMessage `json:"toolUseResult"`
+	ToolUseResult jsontext.Value `json:"toolUseResult"`
 }
 
 type tlBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Input     json.RawMessage `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
-	Content   json.RawMessage `json:"content"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Input     jsontext.Value `json:"input"`
+	ToolUseID string         `json:"tool_use_id"`
+	Content   jsontext.Value `json:"content"`
 }
 
 var (
@@ -289,7 +290,7 @@ func (t *Timeline) line(tf *tlFile, b []byte) {
 		}
 	}
 	var l tlLine
-	if json.Unmarshal(b, &l) != nil {
+	if jsonx.Unmarshal(b, &l) != nil {
 		return
 	}
 	at := l.Timestamp
@@ -309,7 +310,7 @@ func (t *Timeline) line(tf *tlFile, b []byte) {
 
 func (t *Timeline) assistant(tf *tlFile, l *tlLine, add func(Happening)) {
 	var blocks []tlBlock
-	_ = json.Unmarshal(l.Message.Content, &blocks)
+	_ = jsonx.Unmarshal(l.Message.Content, &blocks)
 	r := t.runs[tf.run]
 	text := ""
 	for _, bl := range blocks {
@@ -325,7 +326,7 @@ func (t *Timeline) assistant(tf *tlFile, l *tlLine, add func(Happening)) {
 				r.held = false
 				if bl.Name == "SubagentHandback" || bl.Name == "SendMessage" {
 					var in struct{ Message string }
-					if json.Unmarshal(bl.Input, &in) == nil && in.Message != "" {
+					if jsonx.Unmarshal(bl.Input, &in) == nil && in.Message != "" {
 						r.Said, r.SaidAt, r.held = said(in.Message), l.Timestamp, true
 					}
 				}
@@ -370,7 +371,7 @@ func (t *Timeline) toolUse(tf *tlFile, bl tlBlock, add func(Happening)) {
 	switch bl.Name {
 	case "TaskCreate":
 		var in struct{ Subject string }
-		if json.Unmarshal(bl.Input, &in) == nil {
+		if jsonx.Unmarshal(bl.Input, &in) == nil {
 			tf.creates[bl.ID] = in.Subject
 		}
 	case "TaskUpdate":
@@ -378,7 +379,7 @@ func (t *Timeline) toolUse(tf *tlFile, bl tlBlock, add func(Happening)) {
 			TaskID string `json:"taskId"`
 			Status string `json:"status"`
 		}
-		if json.Unmarshal(bl.Input, &in) == nil && in.Status == "completed" {
+		if jsonx.Unmarshal(bl.Input, &in) == nil && in.Status == "completed" {
 			s := tf.tasks[in.TaskID]
 			if s == "" {
 				s = "task #" + in.TaskID
@@ -392,7 +393,7 @@ func (t *Timeline) toolUse(tf *tlFile, bl tlBlock, add func(Happening)) {
 		var in struct {
 			Todos []struct{ Content, Status string } `json:"todos"`
 		}
-		if json.Unmarshal(bl.Input, &in) != nil {
+		if jsonx.Unmarshal(bl.Input, &in) != nil {
 			return
 		}
 		fresh := len(tf.todos) == 0
@@ -409,7 +410,7 @@ func (t *Timeline) toolUse(tf *tlFile, bl tlBlock, add func(Happening)) {
 		tf.todos = next
 	case "Agent", "Task":
 		var in struct{ Description string }
-		if json.Unmarshal(bl.Input, &in) == nil {
+		if jsonx.Unmarshal(bl.Input, &in) == nil {
 			t.calls[bl.ID] = in.Description
 			add(Happening{Kind: EvStart, Text: in.Description})
 		}
@@ -417,7 +418,7 @@ func (t *Timeline) toolUse(tf *tlFile, bl tlBlock, add func(Happening)) {
 		var in struct {
 			Questions []struct{ Question string } `json:"questions"`
 		}
-		if json.Unmarshal(bl.Input, &in) == nil && len(in.Questions) > 0 {
+		if jsonx.Unmarshal(bl.Input, &in) == nil && len(in.Questions) > 0 {
 			add(Happening{Kind: EvAsk, Text: in.Questions[0].Question})
 		}
 	}
@@ -426,8 +427,8 @@ func (t *Timeline) toolUse(tf *tlFile, bl tlBlock, add func(Happening)) {
 func (t *Timeline) user(tf *tlFile, l *tlLine, add func(Happening)) {
 	var s string
 	var blocks []tlBlock
-	if json.Unmarshal(l.Message.Content, &s) != nil {
-		_ = json.Unmarshal(l.Message.Content, &blocks)
+	if jsonx.Unmarshal(l.Message.Content, &s) != nil {
+		_ = jsonx.Unmarshal(l.Message.Content, &blocks)
 	}
 	for _, bl := range blocks {
 		switch bl.Type {
@@ -455,7 +456,7 @@ func (t *Timeline) toolResult(tf *tlFile, bl tlBlock, l *tlLine, add func(Happen
 		var res struct {
 			Task struct{ ID, Subject string } `json:"task"`
 		}
-		if json.Unmarshal(l.ToolUseResult, &res) == nil && res.Task.ID != "" {
+		if jsonx.Unmarshal(l.ToolUseResult, &res) == nil && res.Task.ID != "" {
 			if res.Task.Subject != "" {
 				subj = res.Task.Subject
 			}
@@ -475,9 +476,9 @@ func (t *Timeline) toolResult(tf *tlFile, bl tlBlock, l *tlLine, add func(Happen
 		return
 	}
 	var text string
-	if json.Unmarshal(bl.Content, &text) != nil {
+	if jsonx.Unmarshal(bl.Content, &text) != nil {
 		var parts []tlBlock
-		_ = json.Unmarshal(bl.Content, &parts)
+		_ = jsonx.Unmarshal(bl.Content, &parts)
 		for _, p := range parts {
 			text += p.Text
 		}

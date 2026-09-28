@@ -1,7 +1,7 @@
 package convo
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"strings"
 	"testing"
 )
@@ -26,7 +26,7 @@ func TestChainLabel(t *testing.T) {
 		// Short and single: the command itself.
 		"go test ./internal/ui": "$ go test ./internal/ui",
 	} {
-		in, _ := json.Marshal(map[string]string{"command": cmd})
+		in, _ := jsonx.Marshal(map[string]string{"command": cmd})
 		if got := stripANSI(d.label(&Step{Tool: "Bash", Input: in, Status: OK})); got != want {
 			t.Errorf("label(%q)\n got %q\nwant %q", cmd, got, want)
 		}
@@ -52,7 +52,7 @@ func TestEchoMarks(t *testing.T) {
 func TestChainFlagValues(t *testing.T) {
 	s := New()
 	d := &drawer{s: s}
-	in, _ := json.Marshal(map[string]string{"command": "go vet ./internal/convo && go test ./internal/convo -run ZZPeek -count=1 -v"})
+	in, _ := jsonx.Marshal(map[string]string{"command": "go vet ./internal/convo && go test ./internal/convo -run ZZPeek -count=1 -v"})
 	if got, want := stripANSI(d.label(&Step{Tool: "Bash", Input: in, Status: OK})), "$ go vet ./internal/convo › go test ./internal/convo"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

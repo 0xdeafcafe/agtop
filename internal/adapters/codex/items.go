@@ -1,12 +1,13 @@
 package codex
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"regexp"
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // threadItem is Codex's ThreadItem, with the fields of every type agtop
@@ -15,9 +16,9 @@ type threadItem struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
 
-	Text    string          `json:"text"`    // agentMessage
-	Content json.RawMessage `json:"content"` // userMessage: []UserInput; reasoning: []string
-	Summary []string        `json:"summary"` // reasoning
+	Text    string         `json:"text"`    // agentMessage
+	Content jsontext.Value `json:"content"` // userMessage: []UserInput; reasoning: []string
+	Summary []string       `json:"summary"` // reasoning
 
 	Command          string          `json:"command"` // commandExecution
 	Cwd              string          `json:"cwd"`
@@ -30,8 +31,8 @@ type threadItem struct {
 
 	Server       string                    `json:"server"` // mcpToolCall
 	Tool         string                    `json:"tool"`   // mcpToolCall, dynamicToolCall, collabAgentToolCall
-	Arguments    json.RawMessage           `json:"arguments"`
-	Result       json.RawMessage           `json:"result"`
+	Arguments    jsontext.Value            `json:"arguments"`
+	Result       jsontext.Value            `json:"result"`
 	Error        *struct{ Message string } `json:"error"`
 	ContentItems []contentItem             `json:"contentItems"` // dynamicToolCall
 	Success      *bool                     `json:"success"`
@@ -44,7 +45,7 @@ type threadItem struct {
 		URL     string   `json:"url"`
 		Pattern string   `json:"pattern"`
 	} `json:"action"`
-	Results json.RawMessage `json:"results"`
+	Results jsontext.Value `json:"results"`
 
 	Path string `json:"path"` // imageView
 
@@ -83,7 +84,7 @@ type userInput struct {
 }
 
 // callOf is the tool call an item is, if it is one.
-func callOf(it threadItem, raw json.RawMessage) (tool.Call, bool) {
+func callOf(it threadItem, raw jsontext.Value) (tool.Call, bool) {
 	c := tool.Call{ID: it.ID, Raw: raw}
 	switch it.Type {
 	case "commandExecution":
@@ -154,7 +155,7 @@ func callOf(it threadItem, raw json.RawMessage) (tool.Call, bool) {
 }
 
 // outputOf is what a finished tool call item returned.
-func outputOf(it threadItem, raw json.RawMessage) tool.Output {
+func outputOf(it threadItem, raw jsontext.Value) tool.Output {
 	o := tool.Output{CallID: it.ID, Raw: raw}
 	failed := it.Status == "failed" || it.Status == "declined"
 	switch it.Type {
@@ -186,7 +187,7 @@ func outputOf(it threadItem, raw json.RawMessage) tool.Output {
 		var res struct {
 			Content []contentItem `json:"content"`
 		}
-		_ = json.Unmarshal(it.Result, &res)
+		_ = jsonx.Unmarshal(it.Result, &res)
 		o.Text = texts(res.Content)
 		if it.Error != nil {
 			o.IsError, o.Text = true, it.Error.Message
@@ -214,7 +215,7 @@ func texts(cs []contentItem) string {
 // userMessage is a userMessage item as a user Message.
 func userMessage(it threadItem) event.Message {
 	var in []userInput
-	_ = json.Unmarshal(it.Content, &in)
+	_ = jsonx.Unmarshal(it.Content, &in)
 	m := event.Message{Role: "user", ID: it.ID}
 	for _, p := range in {
 		switch p.Type {
@@ -233,7 +234,7 @@ func userMessage(it threadItem) event.Message {
 // its raw reasoning.
 func reasoningText(it threadItem) string {
 	var content []string
-	_ = json.Unmarshal(it.Content, &content)
+	_ = jsonx.Unmarshal(it.Content, &content)
 	return strings.TrimSpace(strings.Join(append(append([]string{}, it.Summary...), content...), "\n\n"))
 }
 

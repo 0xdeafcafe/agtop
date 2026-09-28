@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"os/exec"
 	osuser "os/user"
@@ -28,7 +29,7 @@ type Login struct {
 	Org   string `json:"org,omitempty"`
 	// Profile is the oauthAccount block Claude Code keeps beside the
 	// sign-in in its state file: who the account is, not a secret.
-	Profile json.RawMessage `json:"profile,omitempty"`
+	Profile jsontext.Value `json:"profile,omitzero"`
 }
 
 // UsageKey is where the login's usage readings are kept.
@@ -97,7 +98,7 @@ func Signed(a Account) (l Login, cred []byte, ok bool) {
 		Email string `json:"emailAddress"`
 		Org   string `json:"organizationName"`
 	}
-	if json.Unmarshal(prof, &p) != nil || p.UUID == "" {
+	if jsonx.Unmarshal(prof, &p) != nil || p.UUID == "" {
 		return Login{}, nil, false
 	}
 	return Login{ID: p.UUID, Email: p.Email, Org: p.Org, Profile: prof}, cred, true
@@ -110,7 +111,7 @@ func SignedInAs(a Account) string {
 		UUID string `json:"accountUuid"`
 	}
 	if prof := readProfile(a.StatePath()); prof != nil {
-		_ = json.Unmarshal(prof, &p)
+		_ = jsonx.Unmarshal(prof, &p)
 	}
 	return p.UUID
 }
@@ -204,18 +205,18 @@ func usable(cred []byte) bool {
 			Refresh string `json:"refreshToken"`
 		} `json:"claudeAiOauth"`
 	}
-	return json.Unmarshal(cred, &c) == nil && c.OAuth.Refresh != ""
+	return jsonx.Unmarshal(cred, &c) == nil && c.OAuth.Refresh != ""
 }
 
-func readProfile(statePath string) json.RawMessage {
+func readProfile(statePath string) jsontext.Value {
 	b, err := os.ReadFile(statePath)
 	if err != nil {
 		return nil
 	}
 	var f struct {
-		OAuth json.RawMessage `json:"oauthAccount"`
+		OAuth jsontext.Value `json:"oauthAccount"`
 	}
-	if json.Unmarshal(b, &f) != nil || len(f.OAuth) == 0 || string(f.OAuth) == "null" {
+	if jsonx.Unmarshal(b, &f) != nil || len(f.OAuth) == 0 || string(f.OAuth) == "null" {
 		return nil
 	}
 	return f.OAuth
@@ -224,20 +225,20 @@ func readProfile(statePath string) json.RawMessage {
 // writeProfile puts prof in the state file as who it's signed in as,
 // leaving everything else. The usage Claude Code cached was the other
 // account's, so it goes.
-func writeProfile(statePath string, prof json.RawMessage) error {
-	all := map[string]json.RawMessage{}
+func writeProfile(statePath string, prof jsontext.Value) error {
+	all := map[string]jsontext.Value{}
 	b, err := os.ReadFile(statePath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	if len(b) > 0 {
-		if err := json.Unmarshal(b, &all); err != nil {
+		if err := jsonx.Unmarshal(b, &all); err != nil {
 			return fmt.Errorf("%s isn't readable: %w", statePath, err)
 		}
 	}
 	all["oauthAccount"] = prof
 	delete(all, "cachedUsageUtilization")
-	out, err := json.MarshalIndent(all, "", "  ")
+	out, err := jsonx.MarshalIndent(all)
 	if err != nil {
 		return err
 	}

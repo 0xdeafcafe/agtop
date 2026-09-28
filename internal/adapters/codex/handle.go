@@ -1,13 +1,14 @@
 package codex
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // handle turns what the app-server says into agtop's events, and keeps
@@ -27,17 +28,17 @@ func (c *Conn) other(m message) event.Event {
 // notification is what one notification means as events.
 func (c *Conn) notification(m message) []event.Event {
 	var p struct {
-		ThreadID string          `json:"threadId"`
-		TurnID   string          `json:"turnId"`
-		ItemID   string          `json:"itemId"`
-		Delta    string          `json:"delta"`
-		Item     json.RawMessage `json:"item"`
+		ThreadID string         `json:"threadId"`
+		TurnID   string         `json:"turnId"`
+		ItemID   string         `json:"itemId"`
+		Delta    string         `json:"delta"`
+		Item     jsontext.Value `json:"item"`
 		Turn     *struct {
 			ID     string `json:"id"`
 			Status string `json:"status"`
 			Error  *struct {
-				Message        string          `json:"message"`
-				CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
+				Message        string         `json:"message"`
+				CodexErrorInfo jsontext.Value `json:"codexErrorInfo"`
 			} `json:"error"`
 			DurationMs *int64 `json:"durationMs"`
 		} `json:"turn"`
@@ -53,10 +54,10 @@ func (c *Conn) notification(m message) []event.Event {
 			ModelContextWindow *int           `json:"modelContextWindow"`
 		} `json:"tokenUsage"`
 		RateLimits *rateLimitSnapshot `json:"rateLimits"`
-		RequestID  json.RawMessage    `json:"requestId"`
+		RequestID  jsontext.Value     `json:"requestId"`
 		WillRetry  bool               `json:"willRetry"`
 	}
-	if err := json.Unmarshal(m.Params, &p); err != nil {
+	if err := jsonx.Unmarshal(m.Params, &p); err != nil {
 		return []event.Event{c.other(m)}
 	}
 	c.mu.Lock()
@@ -192,9 +193,9 @@ func (c *Conn) openItem(item string, kind event.PartKind) []event.Event {
 	return []event.Event{event.MessageStart{ID: item, Model: c.model}, event.PartStart{Index: 0, Kind: kind}}
 }
 
-func (c *Conn) itemStarted(raw json.RawMessage) []event.Event {
+func (c *Conn) itemStarted(raw jsontext.Value) []event.Event {
 	var it threadItem
-	if json.Unmarshal(raw, &it) != nil {
+	if jsonx.Unmarshal(raw, &it) != nil {
 		return nil
 	}
 	switch it.Type {
@@ -219,9 +220,9 @@ func (c *Conn) callMessage(call tool.Call) event.Message {
 	return event.Message{Role: "assistant", ID: call.ID, Model: model, Parts: []event.Part{{Kind: event.ToolCall, Call: &call}}}
 }
 
-func (c *Conn) itemCompleted(raw json.RawMessage) []event.Event {
+func (c *Conn) itemCompleted(raw jsontext.Value) []event.Event {
 	var it threadItem
-	if json.Unmarshal(raw, &it) != nil {
+	if jsonx.Unmarshal(raw, &it) != nil {
 		return nil
 	}
 	c.mu.Lock()
@@ -262,12 +263,12 @@ func (c *Conn) itemCompleted(raw json.RawMessage) []event.Event {
 func (c *Conn) request(rpc *client, m message) {
 	id := idString(m.ID)
 	var p struct {
-		ItemID      string                     `json:"itemId"`
-		Reason      string                     `json:"reason"`
-		Command     string                     `json:"command"`
-		Cwd         string                     `json:"cwd"`
-		GrantRoot   string                     `json:"grantRoot"`
-		Permissions map[string]json.RawMessage `json:"permissions"`
+		ItemID      string                    `json:"itemId"`
+		Reason      string                    `json:"reason"`
+		Command     string                    `json:"command"`
+		Cwd         string                    `json:"cwd"`
+		GrantRoot   string                    `json:"grantRoot"`
+		Permissions map[string]jsontext.Value `json:"permissions"`
 		Questions   []struct {
 			ID       string `json:"id"`
 			Header   string `json:"header"`
@@ -278,7 +279,7 @@ func (c *Conn) request(rpc *client, m message) {
 			} `json:"options"`
 		} `json:"questions"`
 	}
-	_ = json.Unmarshal(m.Params, &p)
+	_ = jsonx.Unmarshal(m.Params, &p)
 	c.mu.Lock()
 	call, known := c.calls[p.ItemID]
 	c.mu.Unlock()
@@ -346,12 +347,12 @@ var grants = []event.Option{
 }
 
 // firstPath is the first path a file-system permission asks for.
-func firstPath(fs json.RawMessage) string {
+func firstPath(fs jsontext.Value) string {
 	var p struct {
 		Write []string `json:"write"`
 		Read  []string `json:"read"`
 	}
-	_ = json.Unmarshal(fs, &p)
+	_ = jsonx.Unmarshal(fs, &p)
 	for _, l := range [][]string{p.Write, p.Read} {
 		for _, s := range l {
 			if s = strings.TrimSpace(s); s != "" {

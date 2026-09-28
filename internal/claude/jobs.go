@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Job is one background session as Claude Code records it under
@@ -25,22 +26,22 @@ type Todo = agent.Todo
 type Task = agent.Task
 
 type jobFile struct {
-	State          string          `json:"state"`
-	Detail         string          `json:"detail"`
-	Tempo          string          `json:"tempo"`
-	Needs          json.RawMessage `json:"needs"`
-	Intent         string          `json:"intent"`
-	DisplayIntent  string          `json:"displayIntent"`
-	Name           string          `json:"name"`
-	NameSource     string          `json:"nameSource"`
-	Cwd            string          `json:"cwd"`
-	SessionID      string          `json:"sessionId"`
-	LinkScanPath   string          `json:"linkScanPath"`
-	CLIVersion     string          `json:"cliVersion"`
-	RespawnFlags   []string        `json:"respawnFlags"`
-	WorktreePath   string          `json:"worktreePath"`
-	WorktreeBranch string          `json:"worktreeBranch"`
-	Children       json.RawMessage `json:"children"`
+	State          string         `json:"state"`
+	Detail         string         `json:"detail"`
+	Tempo          string         `json:"tempo"`
+	Needs          jsontext.Value `json:"needs"`
+	Intent         string         `json:"intent"`
+	DisplayIntent  string         `json:"displayIntent"`
+	Name           string         `json:"name"`
+	NameSource     string         `json:"nameSource"`
+	Cwd            string         `json:"cwd"`
+	SessionID      string         `json:"sessionId"`
+	LinkScanPath   string         `json:"linkScanPath"`
+	CLIVersion     string         `json:"cliVersion"`
+	RespawnFlags   []string       `json:"respawnFlags"`
+	WorktreePath   string         `json:"worktreePath"`
+	WorktreeBranch string         `json:"worktreeBranch"`
+	Children       jsontext.Value `json:"children"`
 	InFlightRaw    *struct {
 		Tasks  int `json:"tasks"`
 		Queued int `json:"queued"`
@@ -66,7 +67,7 @@ func LoadJob(a Account, id string) (Job, error) {
 		return Job{}, err
 	}
 	var f jobFile
-	if err := json.Unmarshal(b, &f); err != nil {
+	if err := jsonx.Unmarshal(b, &f); err != nil {
 		return Job{}, err
 	}
 	j := Job{Job: agent.Job{
@@ -80,11 +81,11 @@ func LoadJob(a Account, id string) (Job, error) {
 		j.Intent = f.DisplayIntent
 	}
 	if len(f.Needs) > 0 && f.Needs[0] == '"' {
-		_ = json.Unmarshal(f.Needs, &j.Needs)
+		_ = jsonx.Unmarshal(f.Needs, &j.Needs)
 	}
 	if len(f.Children) > 0 && f.Children[0] == '[' {
-		var c []json.RawMessage
-		if json.Unmarshal(f.Children, &c) == nil {
+		var c []jsontext.Value
+		if jsonx.Unmarshal(f.Children, &c) == nil {
 			j.Children = len(c)
 		}
 	}
@@ -167,7 +168,7 @@ func ReadTimeline(a Account, id string) []TimelineEntry {
 			b = nil
 		}
 		var e TimelineEntry
-		if json.Unmarshal(line, &e) == nil {
+		if jsonx.Unmarshal(line, &e) == nil {
 			out = append(out, e)
 		}
 	}
@@ -205,14 +206,14 @@ func LoadPins(a Account) ([]string, error) {
 		return nil, err
 	}
 	var ids []string
-	if err := json.Unmarshal(b, &ids); err != nil {
+	if err := jsonx.Unmarshal(b, &ids); err != nil {
 		return nil, fmt.Errorf("couldn't read the pin list: %w", err)
 	}
 	return ids, nil
 }
 
 func WritePins(a Account, ids []string) error {
-	b, err := json.MarshalIndent(ids, "", "  ")
+	b, err := jsonx.MarshalIndent(ids)
 	if err != nil {
 		return err
 	}

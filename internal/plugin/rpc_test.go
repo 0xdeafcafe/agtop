@@ -2,8 +2,9 @@ package plugin
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
 	"net"
 	"strings"
@@ -21,7 +22,7 @@ func pair(t *testing.T, a, b Handler) (*Conn, *Conn) {
 }
 
 func TestCallsBothWays(t *testing.T) {
-	echo := func(_ context.Context, method string, params json.RawMessage) (any, error) {
+	echo := func(_ context.Context, method string, params jsontext.Value) (any, error) {
 		switch method {
 		case "echo":
 			return params, nil
@@ -54,9 +55,9 @@ func TestCallsBothWays(t *testing.T) {
 }
 
 func TestConcurrentCallsMatchTheirReplies(t *testing.T) {
-	slowEcho := func(_ context.Context, _ string, params json.RawMessage) (any, error) {
+	slowEcho := func(_ context.Context, _ string, params jsontext.Value) (any, error) {
 		var n int
-		_ = json.Unmarshal(params, &n)
+		_ = jsonx.Unmarshal(params, &n)
 		time.Sleep(time.Duration(50-n) * time.Millisecond) // later calls answer first
 		return n, nil
 	}
@@ -79,9 +80,9 @@ func TestNotificationsArriveInOrder(t *testing.T) {
 	var mu sync.Mutex
 	var seen []int
 	done := make(chan struct{})
-	a, _ := pair(t, nil, func(_ context.Context, _ string, params json.RawMessage) (any, error) {
+	a, _ := pair(t, nil, func(_ context.Context, _ string, params jsontext.Value) (any, error) {
 		var n int
-		_ = json.Unmarshal(params, &n)
+		_ = jsonx.Unmarshal(params, &n)
 		mu.Lock()
 		seen = append(seen, n)
 		if len(seen) == 100 {
@@ -105,7 +106,7 @@ func TestNotificationsArriveInOrder(t *testing.T) {
 
 func TestCallFailsWhenTheOtherSideGoes(t *testing.T) {
 	block := make(chan struct{})
-	a, b := pair(t, nil, func(context.Context, string, json.RawMessage) (any, error) { <-block; return nil, nil })
+	a, b := pair(t, nil, func(context.Context, string, jsontext.Value) (any, error) { <-block; return nil, nil })
 	errc := make(chan error)
 	go func() { errc <- a.Call(context.Background(), "wait", nil, nil) }()
 	time.Sleep(20 * time.Millisecond)
@@ -138,7 +139,7 @@ func TestLineConnSpeaksMCPStdio(t *testing.T) {
 	// The server side reads lines on its stdin and writes lines to stdout.
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
-	server := NewLineConn(inR, outW, func(_ context.Context, method string, _ json.RawMessage) (any, error) {
+	server := NewLineConn(inR, outW, func(_ context.Context, method string, _ jsontext.Value) (any, error) {
 		return map[string]string{"method": method}, nil
 	})
 	client := NewLineConn(outR, inW, nil)

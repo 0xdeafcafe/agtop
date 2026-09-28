@@ -2,7 +2,6 @@ package copilot
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // token is the GitHub token Copilot is reached with: the one in the
@@ -84,7 +84,7 @@ func get(ctx context.Context, url string, v any) error {
 		return err
 	}
 	defer body.Close()
-	return json.NewDecoder(io.LimitReader(body, 16<<20)).Decode(v)
+	return jsonx.Decode(io.LimitReader(body, 16<<20), v)
 }
 
 // fetch is url's body, with the GitHub token.
@@ -153,7 +153,7 @@ func readUserAs(ctx context.Context, login string) (user, error) {
 	}
 	defer body.Close()
 	var u user
-	err = json.NewDecoder(io.LimitReader(body, 16<<20)).Decode(&u)
+	err = jsonx.Decode(io.LimitReader(body, 16<<20), &u)
 	return u, err
 }
 

@@ -2,7 +2,7 @@ package statusline
 
 import (
 	"bytes"
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"regexp"
 	"strings"
@@ -16,7 +16,7 @@ func TestRenderRealInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	var in Input
-	if err := json.Unmarshal(b, &in); err != nil {
+	if err := jsonx.Unmarshal(b, &in); err != nil {
 		t.Fatal(err)
 	}
 	in.Cost.USD, in.Context.Input = 1.5, 250_000

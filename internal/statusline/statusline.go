@@ -6,7 +6,6 @@ package statusline
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -26,7 +26,7 @@ import (
 type Layout struct {
 	Lines [][]string `json:"lines"`
 	Sep   string     `json:"sep"`
-	Plain bool       `json:"plain,omitempty"` // no colour
+	Plain bool       `json:"plain,omitzero"` // no colour
 	// Custom is a status line command of your own, drawn by the "custom"
 	// segment: the one agtop's replaced, kept.
 	Custom string `json:"custom,omitempty"`
@@ -272,7 +272,7 @@ func (x *extra) runCustom(in Input) string {
 func runOwn(cmd string, in Input) string {
 	raw := in.raw
 	if raw == nil {
-		raw, _ = json.Marshal(in)
+		raw, _ = jsonx.Marshal(in)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -465,7 +465,7 @@ func Load() Layout {
 	l := Default()
 	if b, err := os.ReadFile(Path()); err == nil {
 		var got Layout
-		if json.Unmarshal(b, &got) == nil && got.Lines != nil {
+		if jsonx.Unmarshal(b, &got) == nil && got.Lines != nil {
 			l = got
 		}
 	}
@@ -474,7 +474,7 @@ func Load() Layout {
 
 // Save writes the layout.
 func Save(l Layout) error {
-	b, err := json.MarshalIndent(l, "", "  ")
+	b, err := jsonx.MarshalIndent(l)
 	if err != nil {
 		return err
 	}
@@ -491,7 +491,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 	var in Input
-	if err := json.Unmarshal(raw, &in); err != nil {
+	if err := jsonx.Unmarshal(raw, &in); err != nil {
 		return err
 	}
 	in.raw = raw

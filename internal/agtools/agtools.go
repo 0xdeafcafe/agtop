@@ -5,7 +5,8 @@
 package agtools
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"strings"
 )
 
@@ -63,13 +64,13 @@ func Allowed() []string {
 
 // Handle answers one JSON-RPC message from Claude Code's MCP client. A
 // notification gets an empty result, which is what Claude Code expects back.
-func Handle(msg json.RawMessage) json.RawMessage {
+func Handle(msg jsontext.Value) jsontext.Value {
 	var m struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
+		ID     jsontext.Value `json:"id"`
+		Method string         `json:"method"`
+		Params jsontext.Value `json:"params"`
 	}
-	if err := json.Unmarshal(msg, &m); err != nil {
+	if err := jsonx.Unmarshal(msg, &m); err != nil {
 		return reply(nil, nil, &rpcError{Code: -32700, Message: "parse error"})
 	}
 	if len(m.ID) == 0 {
@@ -80,7 +81,7 @@ func Handle(msg json.RawMessage) json.RawMessage {
 		var p struct {
 			ProtocolVersion string `json:"protocolVersion"`
 		}
-		_ = json.Unmarshal(m.Params, &p)
+		_ = jsonx.Unmarshal(m.Params, &p)
 		return reply(m.ID, map[string]any{
 			"protocolVersion": p.ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
@@ -90,10 +91,10 @@ func Handle(msg json.RawMessage) json.RawMessage {
 		return reply(m.ID, map[string]any{"tools": tools}, nil)
 	case "tools/call":
 		var p struct {
-			Name      string          `json:"name"`
-			Arguments json.RawMessage `json:"arguments"`
+			Name      string         `json:"name"`
+			Arguments jsontext.Value `json:"arguments"`
 		}
-		_ = json.Unmarshal(m.Params, &p)
+		_ = jsonx.Unmarshal(m.Params, &p)
 		return reply(m.ID, call(p.Name, p.Arguments), nil)
 	case "ping":
 		return reply(m.ID, map[string]any{}, nil)
@@ -103,11 +104,11 @@ func Handle(msg json.RawMessage) json.RawMessage {
 
 // call runs a tool. The drawing itself is the call's input, which the
 // transcript keeps, so showing it needs nothing more than a yes.
-func call(name string, args json.RawMessage) map[string]any {
+func call(name string, args jsontext.Value) map[string]any {
 	switch name {
 	case "show":
 		var in ShowInput
-		_ = json.Unmarshal(args, &in)
+		_ = jsonx.Unmarshal(args, &in)
 		if strings.TrimSpace(in.Drawing) == "" {
 			return result("Nothing to show: the drawing is empty.", true)
 		}
@@ -125,7 +126,7 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-func reply(id json.RawMessage, res any, e *rpcError) json.RawMessage {
+func reply(id jsontext.Value, res any, e *rpcError) jsontext.Value {
 	out := map[string]any{"jsonrpc": "2.0"}
 	if id != nil {
 		out["id"] = id
@@ -135,6 +136,6 @@ func reply(id json.RawMessage, res any, e *rpcError) json.RawMessage {
 	} else {
 		out["result"] = res
 	}
-	b, _ := json.Marshal(out)
+	b, _ := jsonx.Marshal(out)
 	return b
 }

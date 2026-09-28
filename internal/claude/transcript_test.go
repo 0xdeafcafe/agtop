@@ -1,7 +1,8 @@
 package claude
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"math"
 	"os"
 	"path/filepath"
@@ -105,8 +106,8 @@ func TestScanKeepsTheErrorATurnEndedOn(t *testing.T) {
 }
 
 func TestProgressIsTheLastCountThatMoved(t *testing.T) {
-	msg := func(text string) json.RawMessage {
-		b, _ := json.Marshal([]map[string]string{{"type": "text", "text": text}})
+	msg := func(text string) jsontext.Value {
+		b, _ := jsonx.Marshal([]map[string]string{{"type": "text", "text": text}})
 		return b
 	}
 	for text, want := range map[string]string{

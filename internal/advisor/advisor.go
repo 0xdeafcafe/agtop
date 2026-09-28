@@ -9,7 +9,6 @@ package advisor
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -55,22 +55,22 @@ type Finding struct {
 	Title    string    `json:"title"`
 	Detail   string    `json:"detail"`
 	Evidence []string  `json:"evidence,omitempty"`
-	Weekly   float64   `json:"weekly,omitempty"` // dollars a week at stake, roughly
-	Fix      string    `json:"fix,omitempty"`    // a saver's ID
-	Open     string    `json:"open,omitempty"`   // a file to change
+	Weekly   float64   `json:"weekly,omitzero"` // dollars a week at stake, roughly
+	Fix      string    `json:"fix,omitempty"`   // a saver's ID
+	Open     string    `json:"open,omitempty"`  // a file to change
 	Status   string    `json:"status"`
-	Note     string    `json:"note,omitempty"`  // the reviewer's
-	Tries    int       `json:"tries,omitempty"` // reviews that failed
+	Note     string    `json:"note,omitempty"` // the reviewer's
+	Tries    int       `json:"tries,omitzero"` // reviews that failed
 	At       time.Time `json:"at"`
 }
 
 // Record is what the advisor keeps between runs.
 type Record struct {
 	LastRun  time.Time   `json:"lastRun,omitzero"`
-	Runs     int         `json:"runs,omitempty"`
+	Runs     int         `json:"runs,omitzero"`
 	Reviews  []time.Time `json:"reviews,omitempty"`
-	Spent    float64     `json:"spent,omitempty"` // what the advisor itself has cost
-	Err      string      `json:"err,omitempty"`   // why the last pass failed
+	Spent    float64     `json:"spent,omitzero"` // what the advisor itself has cost
+	Err      string      `json:"err,omitempty"`  // why the last pass failed
 	Findings []Finding   `json:"findings,omitempty"`
 	// Dismissed are findings you put away: never shown or proposed again.
 	Dismissed []string `json:"dismissed,omitempty"`
@@ -90,7 +90,7 @@ func Load() *Record {
 	if err != nil {
 		return r
 	}
-	if err := json.Unmarshal(b, r); err != nil {
+	if err := jsonx.Unmarshal(b, r); err != nil {
 		_ = os.Rename(recordPath(), recordPath()+".bad")
 		return &Record{LastRun: time.Now(), Err: "its record couldn't be read, and is kept as record.json.bad"}
 	}
@@ -104,7 +104,7 @@ func Enabled() bool {
 		Advisor bool `json:"advisor"`
 	}
 	b, err := os.ReadFile(filepath.Join(state.Dir(), "config.json"))
-	return err == nil && json.Unmarshal(b, &c) == nil && c.Advisor
+	return err == nil && jsonx.Unmarshal(b, &c) == nil && c.Advisor
 }
 
 // Begin marks a pass as started, before it spends anything: if agtop quits
@@ -128,7 +128,7 @@ func (r *Record) Save() error {
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(r, "", "  ")
+	b, err := jsonx.MarshalIndent(r)
 	if err != nil {
 		return err
 	}

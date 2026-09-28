@@ -1,7 +1,7 @@
 package acp
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,11 +10,12 @@ import (
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // served takes the agent's requests of agtop. Those that wait on the user
 // are answered later, through Answer and AnswerQuestion.
-func (s *Session) served(id json.RawMessage, method string, params json.RawMessage) {
+func (s *Session) served(id jsontext.Value, method string, params jsontext.Value) {
 	switch {
 	case method == "session/request_permission":
 		s.permission(id, params)
@@ -31,14 +32,14 @@ func (s *Session) served(id json.RawMessage, method string, params json.RawMessa
 }
 
 // requestKey is a request ID as agtop's approval and question IDs.
-func requestKey(id json.RawMessage) string { return strings.Trim(string(id), `"`) }
+func requestKey(id jsontext.Value) string { return strings.Trim(string(id), `"`) }
 
-func (s *Session) permission(id, params json.RawMessage) {
+func (s *Session) permission(id, params jsontext.Value) {
 	var p struct {
 		ToolCall toolCall           `json:"toolCall"`
 		Options  []permissionOption `json:"options"`
 	}
-	if err := json.Unmarshal(params, &p); err != nil {
+	if err := jsonx.Unmarshal(params, &p); err != nil {
 		_ = s.rpc.reply(id, nil, &Error{Code: CodeInvalidParams, Message: err.Error()})
 		return
 	}
@@ -71,7 +72,7 @@ func optionKind(k string) event.OptionKind {
 }
 
 // withdraw is the agent taking back a request of its own.
-func (s *Session) withdraw(id json.RawMessage) {
+func (s *Session) withdraw(id jsontext.Value) {
 	key := requestKey(id)
 	s.amu.Lock()
 	rid, approval := s.approvals[key]
@@ -94,7 +95,7 @@ func (s *Session) withdraw(id json.RawMessage) {
 // elicitation is a form the agent asked the user to fill in, as a
 // Question.
 type elicitation struct {
-	id     json.RawMessage
+	id     jsontext.Value
 	fields map[string]field
 }
 
@@ -121,7 +122,7 @@ type titled struct {
 
 // elicit turns a form elicitation into a Question: one Ask a field. A
 // URL elicitation isn't advertised, so is declined.
-func (s *Session) elicit(id, params json.RawMessage) {
+func (s *Session) elicit(id, params jsontext.Value) {
 	var p struct {
 		Mode            string `json:"mode"`
 		Message         string `json:"message"`
@@ -130,7 +131,7 @@ func (s *Session) elicit(id, params json.RawMessage) {
 			Properties map[string]propSchema `json:"properties"`
 		} `json:"requestedSchema"`
 	}
-	if err := json.Unmarshal(params, &p); err != nil || p.Mode != "form" {
+	if err := jsonx.Unmarshal(params, &p); err != nil || p.Mode != "form" {
 		_ = s.rpc.reply(id, map[string]string{"action": "decline"}, nil)
 		return
 	}
@@ -226,14 +227,14 @@ func (s *Session) AnswerQuestion(id string, answers map[string][]string) error {
 }
 
 // fsCall reads or writes a file for the agent.
-func fsCall(method string, params json.RawMessage) (any, *Error) {
+func fsCall(method string, params jsontext.Value) (any, *Error) {
 	var p struct {
 		Path    string `json:"path"`
 		Line    int    `json:"line"`
 		Limit   int    `json:"limit"`
 		Content string `json:"content"`
 	}
-	if err := json.Unmarshal(params, &p); err != nil || !filepath.IsAbs(p.Path) {
+	if err := jsonx.Unmarshal(params, &p); err != nil || !filepath.IsAbs(p.Path) {
 		return nil, &Error{Code: CodeInvalidParams, Message: "an absolute path is needed"}
 	}
 	if method == "fs/write_text_file" {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // The test binary stands in for agtop: host.Spawn runs `<exe> host run <id>`.
@@ -78,7 +78,7 @@ func startJSON(t *testing.T, args ...string) map[string]any {
 		t.Fatalf("start %v: exit %d: %s", args, code, out)
 	}
 	var v map[string]any
-	if err := json.Unmarshal([]byte(out), &v); err != nil {
+	if err := jsonx.Unmarshal([]byte(out), &v); err != nil {
 		t.Fatalf("start printed %q: %v", out, err)
 	}
 	return v
@@ -123,7 +123,7 @@ func TestStartIsIdempotentAndPrintsInfo(t *testing.T) {
 
 	out, code := run(t, "", "info", "11111111", "--json")
 	var info map[string]any
-	if code != 0 || json.Unmarshal([]byte(out), &info) != nil || info["alive"] != true || info["id"] != "11111111" {
+	if code != 0 || jsonx.Unmarshal([]byte(out), &info) != nil || info["alive"] != true || info["id"] != "11111111" {
 		t.Fatalf("info: exit %d: %s", code, out)
 	}
 	out, code = run(t, "", "info", "deadbeef", "--json")
@@ -205,7 +205,7 @@ func TestListFiltersByMeta(t *testing.T) {
 	list := func(args ...string) []map[string]any {
 		out, code := run(t, "", append([]string{"list", "--json"}, args...)...)
 		var v []map[string]any
-		if code != 0 || json.Unmarshal([]byte(out), &v) != nil {
+		if code != 0 || jsonx.Unmarshal([]byte(out), &v) != nil {
 			t.Fatalf("list %v: exit %d: %s", args, code, out)
 		}
 		return v

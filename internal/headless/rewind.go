@@ -1,9 +1,9 @@
 package headless
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os/exec"
 	"strings"
 	"time"
@@ -19,8 +19,8 @@ type FileRewind struct {
 	CanRewind  bool     `json:"canRewind"`
 	Error      string   `json:"error,omitempty"`
 	Files      []string `json:"filesChanged,omitempty"`
-	Insertions int      `json:"insertions,omitempty"`
-	Deletions  int      `json:"deletions,omitempty"`
+	Insertions int      `json:"insertions,omitzero"`
+	Deletions  int      `json:"deletions,omitzero"`
 }
 
 // RewindFiles puts the files a conversation changed back as they were just
@@ -56,7 +56,7 @@ func RewindFiles(o Options, userMessageID string, dryRun bool) (FileRewind, erro
 			}
 			var out FileRewind
 			if len(r.Body) > 0 {
-				_ = json.Unmarshal(r.Body, &out)
+				_ = jsonx.Unmarshal(r.Body, &out)
 			}
 			if r.Error != "" {
 				return out, errors.New(r.Error)
@@ -104,7 +104,7 @@ func Recap(o Options, from string) (string, error) {
 		Result  string `json:"result"`
 		IsError bool   `json:"is_error"`
 	}
-	if jerr := json.Unmarshal(out, &r); jerr != nil || r.IsError || strings.TrimSpace(r.Result) == "" {
+	if jerr := jsonx.Unmarshal(out, &r); jerr != nil || r.IsError || strings.TrimSpace(r.Result) == "" {
 		if err == nil {
 			err = errors.New(firstNonEmpty(strings.TrimSpace(r.Result), "no answer"))
 		}

@@ -1,7 +1,6 @@
 package convo
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -9,6 +8,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // applyNeutral folds in an event from any agent. The model was made for
@@ -58,7 +58,7 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 		s.Context = e.Tokens
 		return
 	case event.Plan:
-		b, _ := json.Marshal(map[string]any{"todos": headless.ClaudeTodos(e.Todos)})
+		b, _ := jsonx.Marshal(map[string]any{"todos": headless.ClaudeTodos(e.Todos)})
 		s.tasksFromInput(&Step{Tool: "TodoWrite", Input: b})
 		return
 	}

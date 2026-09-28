@@ -1,7 +1,7 @@
 package plugind
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -70,7 +71,7 @@ func TestBrokerRunsTheExamplePlugin(t *testing.T) {
 	mcp := func(msg string) map[string]any {
 		t.Helper()
 		var out map[string]any
-		if err := json.Unmarshal(b.MCP("delegate", "sess1", json.RawMessage(msg)), &out); err != nil {
+		if err := jsonx.Unmarshal(b.MCP("delegate", "sess1", jsontext.Value(msg)), &out); err != nil {
 			t.Fatal(err)
 		}
 		return out

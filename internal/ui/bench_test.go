@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,10 +14,11 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
-func benchJSON(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+func benchJSON(v any) jsontext.Value { b, _ := jsonx.Marshal(v); return b }
 
 // benchConvo is a long agtop-mode session with a live turn streaming.
 func benchConvo(turns int) *convo.Session {

@@ -2,7 +2,7 @@ package ui
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -26,6 +26,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fswait"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Pane views, cycled with [ and ]: every session has a conversation and an
@@ -2865,7 +2866,7 @@ func (m *Model) focusPane(a *fleet.Agent) tea.Cmd {
 	return m.loadPreview()
 }
 
-func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+func jsonUnmarshal(b []byte, v any) error { return jsonx.Unmarshal(b, v) }
 
 // resume brings a stopped agtop-mode session back: a new host, the same
 // conversation, the model, effort and mode it last had.
@@ -3267,7 +3268,7 @@ func (m *Model) sendAnswers(c *hostConn, req *headless.PermissionRequest, qs []q
 }
 
 // answerInput is the tool input that answers req.
-func answerInput(req *headless.PermissionRequest, qs []question, answers map[string]string) json.RawMessage {
+func answerInput(req *headless.PermissionRequest, qs []question, answers map[string]string) jsontext.Value {
 	return req.AnswerInput(qs, answers)
 }
 

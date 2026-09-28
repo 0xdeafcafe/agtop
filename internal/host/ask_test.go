@@ -1,7 +1,7 @@
 package host
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,7 +55,7 @@ func TestAskAndContext(t *testing.T) {
 	}
 	r := next(t, c, func(ev any) bool { r, ok := ev.(Reply); return ok && r.ID == "ui-1" }).(Reply)
 	var a struct{ Response string }
-	if json.Unmarshal(r.Body, &a); a.Response != "four" || r.Error != "" {
+	if jsonx.Unmarshal(r.Body, &a); a.Response != "four" || r.Error != "" {
 		t.Fatalf("reply: %+v %s", r, r.Body)
 	}
 	// A client that connects later is told the last count.

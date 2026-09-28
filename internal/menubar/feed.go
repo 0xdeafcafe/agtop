@@ -9,7 +9,6 @@ package menubar
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,6 +23,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -46,7 +46,7 @@ type Account struct {
 	SevenDay Window `json:"sevenDay"`
 	Problem  string `json:"problem,omitempty"`
 	Live     int    `json:"live"`
-	Current  bool   `json:"current,omitempty"`
+	Current  bool   `json:"current,omitzero"`
 }
 
 // Window is one of an account's limits. The feed has room for two: the
@@ -116,7 +116,7 @@ type Waiting struct {
 	Name    string    `json:"name"`
 	Needs   string    `json:"needs"`
 	Account string    `json:"account"`
-	Seen    bool      `json:"seen,omitempty"`
+	Seen    bool      `json:"seen,omitzero"`
 	Kind    string    `json:"kind,omitempty"`
 	Req     string    `json:"req,omitempty"` // the request an answer is for
 	Header  string    `json:"header,omitempty"`
@@ -131,7 +131,7 @@ type Op struct {
 	Key    string `json:"key"`
 	Req    string `json:"req,omitempty"`
 	Answer string `json:"answer,omitempty"` // an option's label or your own words
-	Yes    bool   `json:"yes,omitempty"`    // limit: continue at the reset
+	Yes    bool   `json:"yes,omitzero"`     // limit: continue at the reset
 }
 
 // pending is what a waiting agtop session is asking, as its host has it.
@@ -168,7 +168,7 @@ func Feed(in io.Reader, out io.Writer) error {
 		sc.Buffer(make([]byte, 64<<10), 1<<20)
 		for sc.Scan() {
 			var o Op
-			if json.Unmarshal(sc.Bytes(), &o) != nil {
+			if jsonx.Unmarshal(sc.Bytes(), &o) != nil {
 				continue
 			}
 			if o.Op == "show" {
@@ -215,7 +215,7 @@ func Feed(in io.Reader, out io.Writer) error {
 		mu.Lock()
 		s := build(snap, asked)
 		mu.Unlock()
-		b, _ := json.Marshal(s)
+		b, _ := jsonx.Marshal(s)
 		if string(b) != string(last) {
 			last = b
 			if _, err := out.Write(append(b, '\n')); err != nil {
@@ -226,7 +226,7 @@ func Feed(in io.Reader, out io.Writer) error {
 		case <-done:
 			return nil
 		case e := <-errs:
-			b, _ := json.Marshal(map[string]string{"error": e})
+			b, _ := jsonx.Marshal(map[string]string{"error": e})
 			if _, err := out.Write(append(b, '\n')); err != nil {
 				return err
 			}

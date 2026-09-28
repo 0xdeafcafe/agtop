@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,7 +119,7 @@ func LiveUsage(info []byte, at time.Time) (Usage, bool) {
 			ResetsAt    int64    `json:"resetsAt"`
 		} `json:"unifiedWindows"`
 	}
-	if json.Unmarshal(info, &r) != nil {
+	if jsonx.Unmarshal(info, &r) != nil {
 		return Usage{}, false
 	}
 	u := Usage{FetchedAt: at, Fetched: true}
@@ -176,7 +176,7 @@ func ReadUsage(a Account) (Usage, error) {
 		return Usage{}, err
 	}
 	var f usageFile
-	if err := json.Unmarshal(b, &f); err != nil {
+	if err := jsonx.Unmarshal(b, &f); err != nil {
 		return Usage{}, err
 	}
 	var u Usage

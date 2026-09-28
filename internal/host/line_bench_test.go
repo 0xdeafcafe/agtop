@@ -1,13 +1,13 @@
 package host
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // benchTurn is a turn's output as Claude Code writes it: streamed deltas,
@@ -71,7 +71,7 @@ func TestPublishLine(t *testing.T) {
 	s.info.Detail = "a <b> & c"
 	s.publish()
 	got := <-c.out
-	want, _ := json.Marshal(map[string]any{"type": typeInfo, "info": s.info})
+	want, _ := jsonx.Marshal(map[string]any{"type": typeInfo, "info": s.info})
 	if string(got) != string(want) {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}

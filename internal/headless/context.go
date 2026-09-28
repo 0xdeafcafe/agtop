@@ -1,8 +1,9 @@
 package headless
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"time"
 )
 
@@ -81,15 +82,15 @@ func (s *Session) AskContextUsage() (string, error) {
 // ParseContextUsage reads a reply to AskContextUsage.
 func ParseContextUsage(reply ControlReply) (ContextUsage, error) {
 	var u ContextUsage
-	err := json.Unmarshal(reply.Body, &u)
+	err := jsonx.Unmarshal(reply.Body, &u)
 	return u, err
 }
 
 // Ask sends any control request (req carries its subtype) and returns its
 // id; the answer is a ControlReply for it.
-func (s *Session) Ask(req json.RawMessage) (string, error) {
+func (s *Session) Ask(req jsontext.Value) (string, error) {
 	var m map[string]any
-	if err := json.Unmarshal(req, &m); err != nil {
+	if err := jsonx.Unmarshal(req, &m); err != nil {
 		return "", err
 	}
 	if _, ok := m["subtype"].(string); !ok {

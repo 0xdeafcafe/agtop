@@ -1,6 +1,9 @@
 package acp
 
-import "encoding/json"
+import (
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
+)
 
 // ProtocolVersion is the ACP version this client speaks.
 const ProtocolVersion = 1
@@ -39,7 +42,7 @@ type initializeResult struct {
 			Image bool `json:"image"`
 		} `json:"promptCapabilities"`
 		SessionCapabilities struct {
-			Resume json.RawMessage `json:"resume"`
+			Resume jsontext.Value `json:"resume"`
 		} `json:"sessionCapabilities"`
 	} `json:"agentCapabilities"`
 	AuthMethods []AuthMethod `json:"authMethods"`
@@ -69,16 +72,16 @@ type sessionResult struct {
 // configOption is one of a session's settings: its model, its mode, how
 // hard it thinks.
 type configOption struct {
-	ID           string          `json:"id"`
-	Name         string          `json:"name"`
-	Category     string          `json:"category"`
-	Type         string          `json:"type"`
-	CurrentValue json.RawMessage `json:"currentValue"`
+	ID           string         `json:"id"`
+	Name         string         `json:"name"`
+	Category     string         `json:"category"`
+	Type         string         `json:"type"`
+	CurrentValue jsontext.Value `json:"currentValue"`
 }
 
 func (o configOption) current() string {
 	var s string
-	_ = json.Unmarshal(o.CurrentValue, &s)
+	_ = jsonx.Unmarshal(o.CurrentValue, &s)
 	return s
 }
 
@@ -99,15 +102,15 @@ type chunk struct {
 // toolCall is a tool_call, a tool_call_update, or the call a permission
 // request is about. Unset fields leave what an earlier one said.
 type toolCall struct {
-	ToolCallID string          `json:"toolCallId"`
-	Title      *string         `json:"title"`
-	Name       *string         `json:"name"`
-	Kind       *string         `json:"kind"`
-	Status     *string         `json:"status"`
-	Content    []toolContent   `json:"content"`
-	Locations  []location      `json:"locations"`
-	RawInput   json.RawMessage `json:"rawInput"`
-	RawOutput  json.RawMessage `json:"rawOutput"`
+	ToolCallID string         `json:"toolCallId"`
+	Title      *string        `json:"title"`
+	Name       *string        `json:"name"`
+	Kind       *string        `json:"kind"`
+	Status     *string        `json:"status"`
+	Content    []toolContent  `json:"content"`
+	Locations  []location     `json:"locations"`
+	RawInput   jsontext.Value `json:"rawInput"`
+	RawOutput  jsontext.Value `json:"rawOutput"`
 }
 
 type toolContent struct {

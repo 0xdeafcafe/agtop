@@ -1,13 +1,13 @@
 package copilot
 
 import (
-	"encoding/json"
 	"errors"
 	"os/exec"
 	"sync"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -52,7 +52,7 @@ func ghLogins() (logins []string, active string, err error) {
 			State  string `json:"state"`
 		} `json:"hosts"`
 	}
-	if err := json.Unmarshal(out, &st); err != nil {
+	if err := jsonx.Unmarshal(out, &st); err != nil {
 		return nil, "", err
 	}
 	for _, h := range st.Hosts["github.com"] {

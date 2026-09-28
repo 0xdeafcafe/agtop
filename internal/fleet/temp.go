@@ -1,7 +1,6 @@
 package fleet
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -122,7 +122,7 @@ type TempSize struct {
 	At    time.Time `json:"at"`
 	// Took is how long measuring it took: a folder of millions of files
 	// takes a core for most of a minute to walk.
-	Took time.Duration `json:"took,omitempty"`
+	Took time.Duration `json:"took,omitzero"`
 }
 
 // every is how long a running agent's temp work goes before it's
@@ -150,7 +150,7 @@ func tempPath() string { return state.CachePath("temp.json") }
 func LoadTempSizes() *TempSizes {
 	t := &TempSizes{}
 	if b, err := os.ReadFile(tempPath()); err == nil {
-		_ = json.Unmarshal(b, t)
+		_ = jsonx.Unmarshal(b, t)
 	}
 	if t.Sizes == nil {
 		t.Sizes = map[string]TempSize{}
@@ -191,7 +191,7 @@ func (t *TempSizes) Save() {
 	if !t.dirty {
 		return
 	}
-	if b, err := json.Marshal(t); err == nil {
+	if b, err := jsonx.Marshal(t); err == nil {
 		_ = os.MkdirAll(filepath.Dir(tempPath()), 0o700)
 		if os.WriteFile(tempPath()+".tmp", b, 0o600) == nil {
 			_ = os.Rename(tempPath()+".tmp", tempPath())

@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -200,7 +200,7 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 				*kind.n += len(rules)
 			}
 		}
-		var hs map[string][]json.RawMessage
+		var hs map[string][]jsontext.Value
 		if s.Get("hooks", &hs) {
 			for _, list := range hs {
 				hooks += len(list)

@@ -4,9 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
 	"net/http"
 	"strconv"
@@ -78,7 +78,7 @@ func FetchUsageWith(ctx context.Context, raw []byte) (Usage, error) {
 		FiveHour *rawWindow `json:"five_hour"`
 		SevenDay *rawWindow `json:"seven_day"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&data); err != nil {
+	if err := jsonx.Decode(io.LimitReader(resp.Body, 1<<20), &data); err != nil {
 		return Usage{}, err
 	}
 	return Usage{FiveHour: data.FiveHour.window(), SevenDay: data.SevenDay.window(), FetchedAt: time.Now(), Fetched: true}, nil
@@ -92,7 +92,7 @@ func accessToken(raw []byte) (string, error) {
 			ExpiresAt int64  `json:"expiresAt"`
 		} `json:"claudeAiOauth"`
 	}
-	if json.Unmarshal(raw, &cred) != nil || cred.OAuth.Token == "" {
+	if jsonx.Unmarshal(raw, &cred) != nil || cred.OAuth.Token == "" {
 		return "", ErrNotSignedIn
 	}
 	if cred.OAuth.ExpiresAt > 0 && time.UnixMilli(cred.OAuth.ExpiresAt).Before(time.Now()) {
@@ -148,7 +148,7 @@ func Owner(ctx context.Context, raw []byte) (string, error) {
 			UUID string `json:"uuid"`
 		} `json:"account"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&p); err != nil {
+	if err := jsonx.Decode(io.LimitReader(resp.Body, 1<<20), &p); err != nil {
 		return "", err
 	}
 	if p.Account.UUID == "" {

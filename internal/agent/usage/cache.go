@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -20,7 +20,7 @@ const Every = 5 * time.Minute
 func Load(path string) map[string]Quota {
 	out := map[string]Quota{}
 	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &out)
+		_ = jsonx.Unmarshal(b, &out)
 	}
 	return out
 }
@@ -37,7 +37,7 @@ func Record(path, key string, q Quota) error {
 		return nil
 	}
 	all[key] = q
-	b, err := json.Marshal(all)
+	b, err := jsonx.Marshal(all)
 	if err != nil {
 		return err
 	}

@@ -1,11 +1,11 @@
 package convo
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -36,7 +36,7 @@ func TestPartOf(t *testing.T) {
 
 func runningChain(cmd string, start time.Time) (*Session, *Step) {
 	s := New()
-	in, _ := json.Marshal(map[string]string{"command": cmd})
+	in, _ := jsonx.Marshal(map[string]string{"command": cmd})
 	st := &Step{ID: "b1", Tool: "Bash", Input: in, Status: Running, Start: start}
 	s.Turns = append(s.Turns, &Turn{Live: true, Items: []*Item{{Kind: KStep, Step: st}}})
 	return s, st

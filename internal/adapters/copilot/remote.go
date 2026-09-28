@@ -3,7 +3,7 @@ package copilot
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"io"
 	"regexp"
@@ -14,6 +14,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // A remote session is Copilot's coding agent working on GitHub: given an
@@ -158,8 +159,8 @@ func (Adapter) History(s agent.Session, before time.Time) ([]event.Event, error)
 // chunk is one line of a session's log: a chat completion chunk, whose
 // tool calls come twice, as made and then with what they returned.
 type chunk struct {
-	ID      string          `json:"id"`
-	Created json.RawMessage `json:"created"`
+	ID      string         `json:"id"`
+	Created jsontext.Value `json:"created"`
 	Choices []struct {
 		Finish string `json:"finish_reason"`
 		Delta  struct {
@@ -188,7 +189,7 @@ func readLog(r io.Reader, before time.Time) []event.Event {
 			continue
 		}
 		var c chunk
-		if json.Unmarshal([]byte(line), &c) != nil {
+		if jsonx.Unmarshal([]byte(line), &c) != nil {
 			continue
 		}
 		if at := created(c.Created); !before.IsZero() && !at.IsZero() && !at.Before(before) {
@@ -222,11 +223,11 @@ func readLog(r io.Reader, before time.Time) []event.Event {
 
 // created is a chunk's time: seconds or milliseconds, as a number or a
 // string.
-func created(raw json.RawMessage) time.Time {
+func created(raw jsontext.Value) time.Time {
 	var n int64
-	if json.Unmarshal(raw, &n) != nil {
+	if jsonx.Unmarshal(raw, &n) != nil {
 		var s string
-		if json.Unmarshal(raw, &s) != nil {
+		if jsonx.Unmarshal(raw, &s) != nil {
 			return time.Time{}
 		}
 		fmt.Sscan(s, &n)
@@ -242,7 +243,7 @@ func created(raw json.RawMessage) time.Time {
 
 // callOf is one of the coding agent's tool calls as agtop's own.
 func callOf(id, name, arguments string) tool.Call {
-	c := tool.Call{ID: id, Name: name, Raw: json.RawMessage(arguments)}
+	c := tool.Call{ID: id, Name: name, Raw: jsontext.Value(arguments)}
 	var in struct {
 		Command     string `json:"command"`
 		Description string `json:"description"`
@@ -255,7 +256,7 @@ func callOf(id, name, arguments string) tool.Call {
 		FileText    string `json:"file_text"`
 		Name        string `json:"name"`
 	}
-	_ = json.Unmarshal([]byte(arguments), &in)
+	_ = jsonx.Unmarshal([]byte(arguments), &in)
 	in.Path, in.Paths = inRepo(in.Path), inRepo(in.Paths)
 	in.Command = strings.ReplaceAll(in.Command, "cd "+runnerDir(in.Command)+" && ", "")
 	x := &c.Input

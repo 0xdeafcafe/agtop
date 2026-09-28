@@ -13,7 +13,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"net"
@@ -33,6 +33,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -47,7 +48,7 @@ type Config struct {
 	// Fork continues a copy of the conversation (Claude Code's
 	// --fork-session), leaving the original to whoever has it open. Once
 	// Claude Code names the copy, SessionID becomes that and Fork is cleared.
-	Fork bool `json:"fork,omitempty"`
+	Fork bool `json:"fork,omitzero"`
 	// From is the conversation this one continues, for showing its history
 	// (a fork's own transcript may start empty).
 	From           string         `json:"from,omitempty"`
@@ -60,20 +61,20 @@ type Config struct {
 	Flags          []string       `json:"flags,omitempty"`
 	Prompt         string         `json:"prompt,omitempty"` // first message
 	Images         []string       `json:"images,omitempty"` // files attached to it
-	IdleStop       Duration       `json:"idleStop,omitempty"`
+	IdleStop       Duration       `json:"idleStop,omitzero"`
 	// LimitMode is what happens when a usage limit stops the session:
 	// "auto" continues at the reset, "off" waits for you, and "" (opt-in)
 	// asks once per session.
 	LimitMode string `json:"limitMode,omitempty"`
 	// RetryBase is the first wait before retrying an API error; each retry
 	// doubles it. RetryMax caps the attempts. Zero means the defaults.
-	RetryBase Duration `json:"retryBase,omitempty"`
-	RetryMax  int      `json:"retryMax,omitempty"`
+	RetryBase Duration `json:"retryBase,omitzero"`
+	RetryMax  int      `json:"retryMax,omitzero"`
 	Binary    string   `json:"binary,omitempty"`
 	// Lean starts Claude Code without its non-essential network traffic:
 	// it's ready in about half the time, but without the features that
 	// need it (DesignSync, Projects, plugin downloads, live preview).
-	Lean bool `json:"lean,omitempty"`
+	Lean bool `json:"lean,omitzero"`
 	// Branches are the paths /rewind left behind, newest last, so you can
 	// go back down one.
 	Branches []Branch `json:"branches,omitempty"`
@@ -99,9 +100,9 @@ type Config struct {
 type Branch struct {
 	SessionID string    `json:"sessionId"`
 	Left      time.Time `json:"left"`
-	From      int       `json:"from,omitempty"`  // the first turn of its own
-	Turns     int       `json:"turns,omitempty"` // your messages on it
-	Last      string    `json:"last,omitempty"`  // the last of them
+	From      int       `json:"from,omitzero"`  // the first turn of its own
+	Turns     int       `json:"turns,omitzero"` // your messages on it
+	Last      string    `json:"last,omitempty"` // the last of them
 }
 
 // maxBranches is how many left paths an agent remembers.
@@ -116,41 +117,41 @@ type Info struct {
 	Cwd            string  `json:"cwd"`
 	Name           string  `json:"name,omitempty"`
 	HostPID        int     `json:"hostPid"`
-	ClaudePID      int     `json:"claudePid,omitempty"`
+	ClaudePID      int     `json:"claudePid,omitzero"`
 	State          string  `json:"state"` // starting, working, blocked, idle, stopped
 	Detail         string  `json:"detail,omitempty"`
 	Needs          string  `json:"needs,omitempty"`
 	Model          string  `json:"model,omitempty"`
 	Effort         string  `json:"effort,omitempty"`
 	PermissionMode string  `json:"permissionMode,omitempty"`
-	CostUSD        float64 `json:"costUsd,omitempty"`
+	CostUSD        float64 `json:"costUsd,omitzero"`
 	// Queue holds messages sent while the agent was busy; the host sends
 	// the first when the turn ends.
 	Queue []string `json:"queue,omitempty"`
 	// QueueHeld pauses sending the queue; QueueSeparate sends one queued
 	// message per turn instead of the whole queue as one.
-	QueueHeld     bool `json:"queueHeld,omitempty"`
-	QueueSeparate bool `json:"queueSeparate,omitempty"`
+	QueueHeld     bool `json:"queueHeld,omitzero"`
+	QueueSeparate bool `json:"queueSeparate,omitzero"`
 	// Limit is set while a usage limit has stopped the session.
 	Limit *Limit `json:"limit,omitempty"`
 	// Retry is set while an API error is being retried, or has given up.
 	Retry *Retry `json:"retry,omitempty"`
 	// CacheWarm is when the prompt cache written by the last request
 	// expires; a request after it re-reads the whole context.
-	CacheWarm time.Time `json:"cacheWarm,omitempty"`
+	CacheWarm time.Time `json:"cacheWarm"`
 	Error     string    `json:"error,omitempty"`
 	StartedAt time.Time `json:"startedAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 	// RewoundAt is when /rewind last switched it to an earlier point of
 	// the conversation: everything before it is in the transcript.
-	RewoundAt time.Time `json:"rewoundAt,omitempty"`
+	RewoundAt time.Time `json:"rewoundAt"`
 	// ReplayFrom is set once the replay no longer reaches back to the
 	// start: the turn it now begins with started then, and everything
 	// before it is in the transcript.
-	ReplayFrom time.Time `json:"replayFrom,omitempty"`
+	ReplayFrom time.Time `json:"replayFrom"`
 	// Proto is what the host can do, so a newer agtop can tell a host from
 	// an older one (0) that needs restarting to do it: see Proto.
-	Proto int `json:"proto,omitempty"`
+	Proto int `json:"proto,omitzero"`
 	// Kind is the agent it runs: empty is Claude Code.
 	Kind string `json:"kind,omitempty"`
 	// Profile is the config's: the profile it was started under.
@@ -161,7 +162,7 @@ type Info struct {
 	Meta map[string]string `json:"meta,omitempty"`
 	// ContextTokens is how much context the last request sent: the
 	// conversation's size as the model sees it, until it next compacts.
-	ContextTokens int `json:"contextTokens,omitempty"`
+	ContextTokens int `json:"contextTokens,omitzero"`
 	// Background is what Claude Code has running in the background: shells,
 	// monitors, subagents and workflows, in the order they started.
 	Background []Task `json:"background,omitempty"`
@@ -182,12 +183,12 @@ const Proto = 4
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
-	ResetsAt time.Time `json:"resetsAt,omitempty"`
+	ResetsAt time.Time `json:"resetsAt"`
 	Window   string    `json:"window,omitempty"` // five_hour, seven_day, …
 	// Continue is whether the session carries on at the reset; Ask is set
 	// when that's still yours to decide.
 	Continue bool `json:"continue"`
-	Ask      bool `json:"ask,omitempty"`
+	Ask      bool `json:"ask,omitzero"`
 }
 
 // Retry describes an API error being retried.
@@ -195,14 +196,14 @@ type Retry struct {
 	Reason  string    `json:"reason"`
 	Attempt int       `json:"attempt"`
 	Max     int       `json:"max"`
-	Next    time.Time `json:"next,omitempty"`
+	Next    time.Time `json:"next"`
 	// GaveUp is set when retries ran out or the next would land after the
 	// cache expired; a message from you retries.
-	GaveUp bool   `json:"gaveUp,omitempty"`
+	GaveUp bool   `json:"gaveUp,omitzero"`
 	Why    string `json:"why,omitempty"`
 	// Offline is set while the API can't be reached: it continues once it
 	// can, however long that takes.
-	Offline bool `json:"offline,omitempty"`
+	Offline bool `json:"offline,omitzero"`
 }
 
 // cacheLife is how long the prompt cache lasts. Claude Code writes the
@@ -212,10 +213,10 @@ const cacheLife = time.Hour
 // Duration reads and writes as a Go duration string.
 type Duration time.Duration
 
-func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(time.Duration(d).String()) }
+func (d Duration) MarshalJSON() ([]byte, error) { return jsonx.Marshal(time.Duration(d).String()) }
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
+	if err := jsonx.Unmarshal(b, &s); err != nil {
 		return err
 	}
 	v, err := time.ParseDuration(s)
@@ -324,7 +325,7 @@ func Run(id string) error {
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(b, &cfg); err != nil {
+	if err := jsonx.Unmarshal(b, &cfg); err != nil {
 		return err
 	}
 	if cfg.IdleStop == 0 {
@@ -483,7 +484,7 @@ func (s *server) detach() *headless.Session {
 // saveConfig writes the config back, for what changes while running.
 // Called with mu held.
 func (s *server) saveConfig() {
-	b, err := json.MarshalIndent(s.cfg, "", "  ")
+	b, err := jsonx.MarshalIndent(s.cfg)
 	if err != nil {
 		return
 	}
@@ -532,7 +533,7 @@ func (s *server) record(line []byte) {
 	// A turn's first line always gets one: a trimmed ring starts there.
 	if now := time.Now(); now.Sub(s.stamped) >= 500*time.Millisecond || isEcho(line) {
 		s.stamped = now
-		b, _ := json.Marshal(map[string]any{"type": typeTime, "t": now.UnixMilli()})
+		b, _ := jsonx.Marshal(map[string]any{"type": typeTime, "t": now.UnixMilli()})
 		s.ring = append(s.ring, b)
 		s.ringN += len(b)
 		for c := range s.clients {
@@ -607,7 +608,7 @@ func turnStart(l, next []byte) (time.Time, bool) {
 	var m struct {
 		T int64 `json:"t"`
 	}
-	if json.Unmarshal(l, &m) != nil {
+	if jsonx.Unmarshal(l, &m) != nil {
 		return time.Time{}, false
 	}
 	return time.UnixMilli(m.T), true
@@ -631,7 +632,7 @@ func ownTraffic(l []byte) bool {
 			Tool    string `json:"tool_name"`
 		} `json:"request"`
 	}
-	if json.Unmarshal(l, &e) != nil {
+	if jsonx.Unmarshal(l, &e) != nil {
 		return false
 	}
 	r := e.Request
@@ -773,7 +774,7 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.ControlReply:
 		if tag, ok := s.asks[ev.ID]; ok {
 			delete(s.asks, ev.ID)
-			line, _ := json.Marshal(map[string]any{"type": typeReply, "id": tag, "reply": ev.Body, "error": ev.Error})
+			line, _ := jsonx.Marshal(map[string]any{"type": typeReply, "id": tag, "reply": ev.Body, "error": ev.Error})
 			for c := range s.clients {
 				c.push(line)
 			}
@@ -783,7 +784,7 @@ func (s *server) onEvent(ev headless.Event) {
 			s.ctxID = ""
 			if u, err := headless.ParseContextUsage(ev); err == nil && ev.Error == "" {
 				u.At = time.Now()
-				s.context, _ = json.Marshal(map[string]any{"type": typeContext, "context": u})
+				s.context, _ = jsonx.Marshal(map[string]any{"type": typeContext, "context": u})
 				for c := range s.clients {
 					c.push(s.context)
 				}
@@ -791,7 +792,7 @@ func (s *server) onEvent(ev headless.Event) {
 			return
 		}
 		if ev.ID == s.initID && ev.Error == "" {
-			s.commands, _ = json.Marshal(map[string]any{"type": typeCommands, "commands": headless.Commands(ev)})
+			s.commands, _ = jsonx.Marshal(map[string]any{"type": typeCommands, "commands": headless.Commands(ev)})
 			for c := range s.clients {
 				c.push(s.commands)
 			}
@@ -933,21 +934,21 @@ func (s *server) shareUsage(ev headless.RateLimit) {
 	}()
 }
 
-func limitReset(raw json.RawMessage) time.Time {
+func limitReset(raw jsontext.Value) time.Time {
 	var r struct {
 		ResetsAt int64 `json:"resetsAt"`
 	}
-	if json.Unmarshal(raw, &r) == nil && r.ResetsAt > 0 {
+	if jsonx.Unmarshal(raw, &r) == nil && r.ResetsAt > 0 {
 		return time.Unix(r.ResetsAt, 0)
 	}
 	return time.Time{}
 }
 
-func limitWindow(raw json.RawMessage) string {
+func limitWindow(raw jsontext.Value) string {
 	var r struct {
 		Type string `json:"rateLimitType"`
 	}
-	_ = json.Unmarshal(raw, &r)
+	_ = jsonx.Unmarshal(raw, &r)
 	return r.Type
 }
 
@@ -1118,7 +1119,7 @@ func (s *server) answered(id string) {
 		return
 	}
 	delete(s.pending, id)
-	b, _ := json.Marshal(map[string]string{"type": typeAnswered, "request_id": id})
+	b, _ := jsonx.Marshal(map[string]string{"type": typeAnswered, "request_id": id})
 	s.record(b)
 	if len(s.pending) == 0 && s.info.State == "blocked" {
 		s.info.State = "working"
@@ -1212,7 +1213,7 @@ func (s *server) relogin(sess *headless.Session) {
 // mu held.
 func (s *server) publish() {
 	s.info.UpdatedAt = time.Now()
-	b, _ := json.Marshal(s.info)
+	b, _ := jsonx.Marshal(s.info)
 	tmp := filepath.Join(dir(s.cfg.ID), "info.json.tmp")
 	if os.WriteFile(tmp, b, 0o600) == nil {
 		_ = os.Rename(tmp, filepath.Join(dir(s.cfg.ID), "info.json"))
@@ -1334,7 +1335,7 @@ func (s *server) deliver(text string, images []string, pics []headless.Image) er
 		}
 		echo["agtop_images"] = names
 	}
-	b, _ := json.Marshal(echo)
+	b, _ := jsonx.Marshal(echo)
 	s.record(b)
 	s.info.State = "working"
 	s.info.Detail = ""
@@ -1403,23 +1404,23 @@ func (s *server) editQueue(o op) error {
 
 // op is one command from a client.
 type op struct {
-	Op        string          `json:"op"`
-	Text      string          `json:"text,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	Always    bool            `json:"always,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`
-	Message   string          `json:"message,omitempty"`
-	Interrupt bool            `json:"interrupt,omitempty"`
-	Mode      string          `json:"mode,omitempty"`
-	Model     string          `json:"model,omitempty"`
-	Effort    string          `json:"effort,omitempty"`
-	Now       bool            `json:"now,omitempty"`
-	Images    []string        `json:"images,omitempty"`
-	Index     int             `json:"index,omitempty"`
-	Was       string          `json:"was,omitempty"` // the queued text the client saw at Index
-	To        int             `json:"to,omitempty"`
-	Branch    *Branch         `json:"branch,omitempty"`  // what rewind leaves
-	Request   json.RawMessage `json:"request,omitempty"` // ask: the control request
+	Op        string         `json:"op"`
+	Text      string         `json:"text,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Always    bool           `json:"always,omitzero"`
+	Input     jsontext.Value `json:"input,omitzero"`
+	Message   string         `json:"message,omitempty"`
+	Interrupt bool           `json:"interrupt,omitzero"`
+	Mode      string         `json:"mode,omitempty"`
+	Model     string         `json:"model,omitempty"`
+	Effort    string         `json:"effort,omitempty"`
+	Now       bool           `json:"now,omitzero"`
+	Images    []string       `json:"images,omitempty"`
+	Index     int            `json:"index,omitzero"`
+	Was       string         `json:"was,omitempty"` // the queued text the client saw at Index
+	To        int            `json:"to,omitzero"`
+	Branch    *Branch        `json:"branch,omitempty"` // what rewind leaves
+	Request   jsontext.Value `json:"request,omitzero"` // ask: the control request
 }
 
 func (s *server) do(o op) error {
@@ -1649,7 +1650,7 @@ func (s *server) serve(nc net.Conn) {
 	if s.context != nil {
 		replay = append(replay, s.context)
 	}
-	info, _ := json.Marshal(map[string]any{"type": typeInfo, "info": s.info})
+	info, _ := jsonx.Marshal(map[string]any{"type": typeInfo, "info": s.info})
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
 	defer func() {
@@ -1702,11 +1703,11 @@ func (s *server) serve(nc net.Conn) {
 	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
 	for sc.Scan() {
 		var o op
-		if json.Unmarshal(sc.Bytes(), &o) != nil {
+		if jsonx.Unmarshal(sc.Bytes(), &o) != nil {
 			continue
 		}
 		if err := s.do(o); err != nil {
-			b, _ := json.Marshal(map[string]string{"type": "agtop_error", "error": err.Error()})
+			b, _ := jsonx.Marshal(map[string]string{"type": "agtop_error", "error": err.Error()})
 			c.push(b)
 		}
 		if o.Op == "stop" {
@@ -1723,7 +1724,7 @@ func needs(r headless.PermissionRequest) string {
 				Question string `json:"question"`
 			} `json:"questions"`
 		}
-		_ = json.Unmarshal(r.Input, &in)
+		_ = jsonx.Unmarshal(r.Input, &in)
 		if len(in.Questions) > 0 {
 			return "asks: " + firstLine(in.Questions[0].Question)
 		}
@@ -1733,9 +1734,9 @@ func needs(r headless.PermissionRequest) string {
 }
 
 // toolSummary picks the argument that says what a tool call does.
-func toolSummary(input json.RawMessage) string {
+func toolSummary(input jsontext.Value) string {
 	var m map[string]any
-	if json.Unmarshal(input, &m) != nil {
+	if jsonx.Unmarshal(input, &m) != nil {
 		return ""
 	}
 	if qs, ok := m["questions"].([]any); ok && len(qs) > 0 {

@@ -4,7 +4,6 @@
 package state
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 func Dir() string {
@@ -35,7 +35,7 @@ type Config struct {
 	Folders []claude.Account `json:"accounts,omitempty"`
 	// FoldersImported is set once the older folders' sign-ins were taken
 	// in as logins, so one you forget isn't taken in again.
-	FoldersImported bool `json:"foldersImported,omitempty"`
+	FoldersImported bool `json:"foldersImported,omitzero"`
 	// Active named the folder new sessions started in, before accounts
 	// became logins; cleared once logins are found.
 	Active string `json:"active,omitempty"`
@@ -68,25 +68,25 @@ type Config struct {
 	AgentOrder []string `json:"agentOrder,omitempty"`
 	// StayOnAccount is SwitchOnLimit "off" as agtops before it read it:
 	// kept in step with it.
-	StayOnAccount bool            `json:"stayOnAccount,omitempty"`
+	StayOnAccount bool            `json:"stayOnAccount,omitzero"`
 	GroupBy       string          `json:"groupBy"`
 	Folds         map[string]bool `json:"folds,omitempty"`
 	Dispatch      Dispatch        `json:"dispatch"`
-	Quiet         bool            `json:"quiet,omitempty"`
-	DockLines     int             `json:"dockLines,omitempty"`
+	Quiet         bool            `json:"quiet,omitzero"`
+	DockLines     int             `json:"dockLines,omitzero"`
 	// SideWidth is the agent list's share of a split screen, 0.25 to 0.5;
 	// zero means agtop's own choice.
-	SideWidth float64 `json:"sideWidth,omitempty"`
+	SideWidth float64 `json:"sideWidth,omitzero"`
 	// View is the layout you picked: "split" (Agents and the Session side
 	// by side), "agent" (the Session alone) or "list" (Agents alone).
 	// Empty asks, the first time agtop opens.
 	View string `json:"view,omitempty"`
 	// ListOnly keeps a wide screen to the list alone: no Session beside
 	// it until you open one.
-	ListOnly bool `json:"listOnly,omitempty"`
+	ListOnly bool `json:"listOnly,omitzero"`
 	// ChatFull is how a Session opens from Agents alone: the whole screen
 	// rather than beside the list. It follows how you last had one.
-	ChatFull bool `json:"chatFull,omitempty"`
+	ChatFull bool `json:"chatFull,omitzero"`
 	// EnterOn is what enter does on an agent in the list: "rename" it, as
 	// in the Finder, or "open" it. Empty asks, the first time.
 	EnterOn   string `json:"enterOn,omitempty"`
@@ -97,25 +97,25 @@ type Config struct {
 	// CleanupHours is how long an agent must have been done and untouched
 	// before its worktree (clean and pushed) and temp work are removed on
 	// their own; 0 is the default, and a negative number turns it off.
-	CleanupHours int `json:"cleanupHours,omitempty"`
+	CleanupHours int `json:"cleanupHours,omitzero"`
 	// KeepTranscriptsPlain turns off storing idle transcripts compressed.
-	KeepTranscriptsPlain bool `json:"keepTranscriptsPlain,omitempty"`
+	KeepTranscriptsPlain bool `json:"keepTranscriptsPlain,omitzero"`
 	// ColorBlind draws added and removed, done and failed in sky blue and
 	// amber instead of green and red.
-	ColorBlind bool `json:"colorBlind,omitempty"`
+	ColorBlind bool `json:"colorBlind,omitzero"`
 	// Theme is what agtop's colours are made for: "dark" or "light", or,
 	// empty, whatever the terminal says its background and text are.
 	Theme string `json:"theme,omitempty"`
 	// ShowWhitespace marks spaces and tabs in diffs, as · and →.
-	ShowWhitespace bool `json:"showWhitespace,omitempty"`
+	ShowWhitespace bool `json:"showWhitespace,omitzero"`
 	// SearchTranscriptsOnKey keeps ctrl+k to agent names and commands while
 	// you type; ctrl+enter (or ctrl+j) then searches the transcripts.
-	SearchTranscriptsOnKey bool `json:"searchTranscriptsOnKey,omitempty"`
+	SearchTranscriptsOnKey bool `json:"searchTranscriptsOnKey,omitzero"`
 	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
-	MenuBar bool `json:"menuBar,omitempty"`
+	MenuBar bool `json:"menuBar,omitzero"`
 	// MenuBarAsked is set once agtop has offered the menu bar icon.
-	MenuBarAsked bool `json:"menuBarAsked,omitempty"`
+	MenuBarAsked bool `json:"menuBarAsked,omitzero"`
 	// Onboarding is how far a new user has got: the Getting started steps
 	// they've done, which one-time tips have shown, and whether they've put
 	// Getting started away.
@@ -123,7 +123,7 @@ type Config struct {
 	// Advisor lets agtop's advisor look over your agents' figures now and
 	// then, on Haiku, with Opus checking what it finds, to say what would
 	// cut tokens or time. Off until you turn it on.
-	Advisor bool `json:"advisor,omitempty"`
+	Advisor bool `json:"advisor,omitzero"`
 }
 
 // SignIn is an account of an agent other than Claude Code: who it is, and
@@ -237,7 +237,7 @@ func (c *Config) ForgetSignIn(kind, id string) {
 type Onboarding struct {
 	Steps  []string `json:"steps,omitempty"`
 	Tips   []string `json:"tips,omitempty"`
-	Hidden bool     `json:"hidden,omitempty"`
+	Hidden bool     `json:"hidden,omitzero"`
 }
 
 // DefaultCleanup is how long done work waits before it's cleaned up.
@@ -281,11 +281,11 @@ type Dispatch struct {
 	// Lean starts agtop-mode sessions without Claude Code's non-essential
 	// network traffic: ready in about half the time, but without DesignSync,
 	// Projects, plugin downloads or live preview.
-	Lean bool `json:"lean,omitempty"`
+	Lean bool `json:"lean,omitzero"`
 	// RestMinutes is how long an idle agtop-mode session keeps Claude Code
 	// running before stopping it (a message starts it again); 0 is the
 	// default, as soon as it's done.
-	RestMinutes int `json:"restMinutes,omitempty"`
+	RestMinutes int `json:"restMinutes,omitzero"`
 }
 
 // DefaultRest is how long an idle agtop-mode session keeps Claude Code
@@ -465,7 +465,7 @@ func KeepBefore(name string) {
 
 func readJSON(path string, v any) {
 	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, v)
+		_ = jsonx.Unmarshal(b, v)
 	}
 }
 
@@ -479,8 +479,8 @@ func loadJSON(path string, v any) {
 		readJSON(path+".bak", v)
 		return
 	}
-	if json.Valid(b) {
-		_ = json.Unmarshal(b, v)
+	if jsonx.Valid(b) {
+		_ = jsonx.Unmarshal(b, v)
 		_ = os.WriteFile(path+".bak", b, 0o600)
 		return
 	}
@@ -492,7 +492,7 @@ func writeJSON(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(v, "", "  ")
+	b, err := jsonx.MarshalIndent(v)
 	if err != nil {
 		return err
 	}
@@ -587,7 +587,7 @@ func (c *CostCache) Save() error {
 	c.dirty = false
 	// Compact: it's a cache nobody reads, and indenting made it a third bigger.
 	path := filepath.Join(cacheDir(), "costs.json")
-	b, err := json.Marshal(c)
+	b, err := jsonx.Marshal(c)
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // liveFor is how recently a rollout must have been written to for its
@@ -141,7 +141,7 @@ func readHead(path string, mod time.Time) (agent.Session, bool) {
 	_ = readLines(f, func(b []byte) bool {
 		n++
 		var l rolloutLine
-		if json.Unmarshal(b, &l) != nil {
+		if jsonx.Unmarshal(b, &l) != nil {
 			return n < headLines
 		}
 		if s.CreatedAt.IsZero() {
@@ -150,7 +150,7 @@ func readHead(path string, mod time.Time) (agent.Session, bool) {
 		switch l.Type {
 		case "session_meta":
 			var m sessionMeta
-			if meta || json.Unmarshal(l.Payload, &m) != nil {
+			if meta || jsonx.Unmarshal(l.Payload, &m) != nil {
 				break
 			}
 			meta = true
@@ -167,12 +167,12 @@ func readHead(path string, mod time.Time) (agent.Session, bool) {
 			}
 		case "turn_context":
 			var c turnContext
-			if s.Model == "" && json.Unmarshal(l.Payload, &c) == nil {
+			if s.Model == "" && jsonx.Unmarshal(l.Payload, &c) == nil {
 				s.Model = c.Model
 			}
 		case "response_item":
 			var ri responseItem
-			if s.Name == "" && json.Unmarshal(l.Payload, &ri) == nil && ri.Type == "message" && ri.Role == "user" {
+			if s.Name == "" && jsonx.Unmarshal(l.Payload, &ri) == nil && ri.Type == "message" && ri.Role == "user" {
 				if m, ok := userPrompt(ri); ok {
 					for _, p := range m.Parts {
 						if s.Name == "" && strings.TrimSpace(p.Text) != "" {
@@ -216,7 +216,7 @@ func threadNames(path string) map[string]string {
 			ID         string `json:"id"`
 			ThreadName string `json:"thread_name"`
 		}
-		if json.Unmarshal(b, &e) == nil && e.ID != "" && strings.TrimSpace(e.ThreadName) != "" {
+		if jsonx.Unmarshal(b, &e) == nil && e.ID != "" && strings.TrimSpace(e.ThreadName) != "" {
 			names[e.ID] = e.ThreadName
 		}
 		return true

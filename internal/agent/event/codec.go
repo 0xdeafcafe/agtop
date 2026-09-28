@@ -1,8 +1,9 @@
 package event
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"reflect"
 )
 
@@ -29,8 +30,8 @@ func init() {
 
 // wire is an event as the host sends it: its name, and its fields.
 type wire struct {
-	T string          `json:"t"`
-	E json.RawMessage `json:"e"`
+	T string         `json:"t"`
+	E jsontext.Value `json:"e"`
 }
 
 // Marshal is ev as one line of JSON, which Unmarshal reads back.
@@ -39,17 +40,17 @@ func Marshal(ev Event) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("event: %T has no name", ev)
 	}
-	body, err := json.Marshal(ev)
+	body, err := jsonx.Marshal(ev)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(wire{T: name, E: body})
+	return jsonx.Marshal(wire{T: name, E: body})
 }
 
 // Unmarshal reads an event Marshal wrote.
 func Unmarshal(b []byte) (Event, error) {
 	var w wire
-	if err := json.Unmarshal(b, &w); err != nil {
+	if err := jsonx.Unmarshal(b, &w); err != nil {
 		return nil, err
 	}
 	t, ok := types[w.T]
@@ -57,7 +58,7 @@ func Unmarshal(b []byte) (Event, error) {
 		return nil, fmt.Errorf("event: unknown %q", w.T)
 	}
 	v := reflect.New(t)
-	if err := json.Unmarshal(w.E, v.Interface()); err != nil {
+	if err := jsonx.Unmarshal(w.E, v.Interface()); err != nil {
 		return nil, err
 	}
 	return v.Elem().Interface().(Event), nil

@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 const proto = 1
@@ -70,7 +70,7 @@ func (c Client) dial(req map[string]any) (net.Conn, *bufio.Reader, []byte, error
 	if k := c.key(); k != "" {
 		req["auth"] = k
 	}
-	b, _ := json.Marshal(req)
+	b, _ := jsonx.Marshal(req)
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if _, err := conn.Write(append(b, '\n')); err != nil {
 		conn.Close()
@@ -83,7 +83,7 @@ func (c Client) dial(req map[string]any) (net.Conn, *bufio.Reader, []byte, error
 		return nil, nil, nil, err
 	}
 	var res response
-	if err := json.Unmarshal(line, &res); err != nil {
+	if err := jsonx.Unmarshal(line, &res); err != nil {
 		conn.Close()
 		return nil, nil, nil, err
 	}
@@ -141,7 +141,7 @@ func (c Client) Attach(short, attachID string, cols, rows int) (net.Conn, *bufio
 	if err != nil {
 		return nil, nil, info, err
 	}
-	_ = json.Unmarshal(line, &info)
+	_ = jsonx.Unmarshal(line, &info)
 	return conn, r, info, nil
 }
 

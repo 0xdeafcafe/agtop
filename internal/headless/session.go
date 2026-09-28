@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Options says which conversation to run and where.
@@ -181,7 +182,7 @@ func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte), skip 
 			// A request we never registered for; refuse it rather than
 			// leave Claude Code waiting.
 			var e envelope
-			_ = json.Unmarshal(o.Raw, &e)
+			_ = jsonx.Unmarshal(o.Raw, &e)
 			_ = s.reply(e.RequestID, nil, "not supported by agtop")
 			continue
 		}
@@ -265,7 +266,7 @@ func (s *Session) Err() error {
 }
 
 func (s *Session) write(v any) error {
-	b, err := json.Marshal(v)
+	b, err := jsonx.Marshal(v)
 	if err != nil {
 		return err
 	}
@@ -315,7 +316,7 @@ func (s *Session) SendWith(text string, images []Image) error {
 // Allow lets a requested tool run. input is the tool input to use, usually
 // the request's own; always adds the request's suggested rules so Claude
 // Code stops asking for the same thing.
-func (s *Session) Allow(req PermissionRequest, input json.RawMessage, always bool) error {
+func (s *Session) Allow(req PermissionRequest, input jsontext.Value, always bool) error {
 	if input == nil {
 		input = req.Input
 	}
@@ -373,7 +374,7 @@ func (s *Session) Initialize(servers ...string) (string, error) {
 }
 
 // ReplyMCP answers an MCPRequest with its server's JSON-RPC reply.
-func (s *Session) ReplyMCP(id string, reply json.RawMessage) error {
+func (s *Session) ReplyMCP(id string, reply jsontext.Value) error {
 	return s.reply(id, map[string]any{"mcp_response": reply}, "")
 }
 

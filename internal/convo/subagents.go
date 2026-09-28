@@ -1,7 +1,7 @@
 package convo
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"sort"
@@ -78,7 +78,7 @@ func (l *Subagents) List(transcript string) []Subagent {
 				if born == 0 {
 					m.sa.Born = st.ModTime().UnixNano()
 				}
-				if b, err := os.ReadFile(meta); err == nil && json.Unmarshal(b, &m.sa) == nil {
+				if b, err := os.ReadFile(meta); err == nil && jsonx.Unmarshal(b, &m.sa) == nil {
 					m.ok = true
 					m.sa.ID = strings.TrimSuffix(strings.TrimPrefix(filepath.Base(meta), "agent-"), ".meta.json")
 					m.sa.Path = filepath.Join(dir, "agent-"+m.sa.ID+".jsonl")

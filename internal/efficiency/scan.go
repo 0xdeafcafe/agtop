@@ -6,13 +6,14 @@ package efficiency
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"io"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Tool classes: what tool results are counted by. Bash and Read are most of
@@ -48,25 +49,25 @@ func toolClass(name string) uint8 {
 // Bucket is one hour of use: requests, tokens by kind, dollars by kind and
 // the tool output that came back.
 type Bucket struct {
-	Req   int64 `json:"r,omitempty"`
-	In    int64 `json:"i,omitempty"`
-	Out   int64 `json:"o,omitempty"`
-	CR    int64 `json:"cr,omitempty"`
-	CW    int64 `json:"cw,omitempty"`
-	Think int64 `json:"t,omitempty"`
+	Req   int64 `json:"r,omitzero"`
+	In    int64 `json:"i,omitzero"`
+	Out   int64 `json:"o,omitzero"`
+	CR    int64 `json:"cr,omitzero"`
+	CW    int64 `json:"cw,omitzero"`
+	Think int64 `json:"t,omitzero"`
 	// Cost by what it paid for: input, output, cache read, cache write.
-	CIn  float64 `json:"ci,omitempty"`
-	COut float64 `json:"co,omitempty"`
-	CCR  float64 `json:"ccr,omitempty"`
-	CCW  float64 `json:"ccw,omitempty"`
+	CIn  float64 `json:"ci,omitzero"`
+	COut float64 `json:"co,omitzero"`
+	CCR  float64 `json:"ccr,omitzero"`
+	CCW  float64 `json:"ccw,omitzero"`
 
 	Calls [NTools]int32 `json:"k"`
 	Bytes [NTools]int64 `json:"b"`
 	// Look is the part of Bash's output that came from searching and
 	// reading code (grep, rg, find, cat, sed -n…): what code-graph and
 	// retrieval savers stand in for.
-	LookCalls int32 `json:"lk,omitempty"`
-	Look      int64 `json:"lb,omitempty"`
+	LookCalls int32 `json:"lk,omitzero"`
+	Look      int64 `json:"lb,omitzero"`
 }
 
 func (b *Bucket) Cost() float64 { return b.CIn + b.COut + b.CCR + b.CCW }
@@ -115,7 +116,7 @@ func (u *Use) see(at time.Time) {
 // Compact is one compaction of the conversation.
 type Compact struct {
 	At   time.Time `json:"a"`
-	Auto bool      `json:"u,omitempty"`
+	Auto bool      `json:"u,omitzero"`
 	Pre  int64     `json:"p"`
 	Post int64     `json:"q"`
 }
@@ -128,7 +129,7 @@ type File struct {
 	Account string `json:"acct"`
 	Session string `json:"sid,omitempty"`
 	Project string `json:"cwd,omitempty"` // the folder it first worked in
-	Sub     bool   `json:"sub,omitempty"` // a subagent's transcript
+	Sub     bool   `json:"sub,omitzero"`  // a subagent's transcript
 	Model   string `json:"model,omitempty"`
 
 	First time.Time `json:"first"`
@@ -136,10 +137,10 @@ type File struct {
 
 	Hours map[int64]*Bucket `json:"h,omitempty"` // unix hour → use
 
-	StartCtx int64     `json:"sc,omitempty"` // the first request's context: what a session starts with
-	PeakCtx  int64     `json:"pc,omitempty"`
+	StartCtx int64     `json:"sc,omitzero"` // the first request's context: what a session starts with
+	PeakCtx  int64     `json:"pc,omitzero"`
 	Compacts []Compact `json:"cp,omitempty"`
-	Big      int       `json:"big,omitempty"` // tool results over BigResult bytes
+	Big      int       `json:"big,omitzero"` // tool results over BigResult bytes
 
 	Uses  map[string]*Use `json:"u,omitempty"`
 	Reads map[string]int  `json:"rd,omitempty"` // file → times read
@@ -149,8 +150,8 @@ type File struct {
 	PendID    string            `json:"pi,omitempty"`
 	PendModel string            `json:"pm,omitempty"`
 	PendUse   claude.TokenUsage `json:"pu"`
-	PendThink int64             `json:"pt,omitempty"`
-	PendFast  bool              `json:"pf,omitempty"`
+	PendThink int64             `json:"pt,omitzero"`
+	PendFast  bool              `json:"pf,omitzero"`
 	PendAt    time.Time         `json:"pa"`
 	// Tool calls whose results haven't come back yet: id → class, with
 	// lookFlag for a shell command that searches or reads code.
@@ -308,9 +309,9 @@ type rawLine struct {
 	Cwd       string    `json:"cwd"`
 	SessionID string    `json:"sessionId"`
 	Message   struct {
-		ID      string          `json:"id"`
-		Model   string          `json:"model"`
-		Content json.RawMessage `json:"content"`
+		ID      string         `json:"id"`
+		Model   string         `json:"model"`
+		Content jsontext.Value `json:"content"`
 		Usage   *struct {
 			Input       int64  `json:"input_tokens"`
 			Output      int64  `json:"output_tokens"`
@@ -339,16 +340,16 @@ type rawLine struct {
 		Pre     int64  `json:"preTokens"`
 		Post    int64  `json:"postTokens"`
 	} `json:"compactMetadata"`
-	Content json.RawMessage `json:"content"` // a system line's
+	Content jsontext.Value `json:"content"` // a system line's
 }
 
 type block struct {
-	Type      string          `json:"type"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Input     json.RawMessage `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
-	Content   json.RawMessage `json:"content"`
+	Type      string         `json:"type"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Input     jsontext.Value `json:"input"`
+	ToolUseID string         `json:"tool_use_id"`
+	Content   jsontext.Value `json:"content"`
 }
 
 // The lines worth decoding carry one of these; the rest (most of the bytes:
@@ -420,7 +421,7 @@ func Scan(path string, f *File, buf []byte) ([]byte, error) {
 
 func (f *File) consume(b []byte) {
 	var l rawLine
-	if json.Unmarshal(b, &l) != nil {
+	if jsonx.Unmarshal(b, &l) != nil {
 		return
 	}
 	at := l.Timestamp
@@ -464,7 +465,7 @@ func (f *File) consume(b []byte) {
 			f.Compacts = append(f.Compacts, Compact{At: at, Auto: l.Compact.Trigger == "auto", Pre: l.Compact.Pre, Post: l.Compact.Post})
 		}
 		var s string
-		if json.Unmarshal(l.Content, &s) == nil {
+		if jsonx.Unmarshal(l.Content, &s) == nil {
 			f.slash(s, at)
 		}
 	}
@@ -514,7 +515,7 @@ func (f *File) assistant(l *rawLine, at time.Time) {
 		return
 	}
 	var blocks []block
-	if json.Unmarshal(m.Content, &blocks) != nil {
+	if jsonx.Unmarshal(m.Content, &blocks) != nil {
 		return
 	}
 	for _, bl := range blocks {
@@ -530,7 +531,7 @@ func (f *File) assistant(l *rawLine, at time.Time) {
 			var in struct {
 				Command string `json:"command"`
 			}
-			if json.Unmarshal(bl.Input, &in) == nil {
+			if jsonx.Unmarshal(bl.Input, &in) == nil {
 				if Looks(in.Command) {
 					c |= lookFlag
 				}
@@ -544,7 +545,7 @@ func (f *File) assistant(l *rawLine, at time.Time) {
 			var in struct {
 				Path string `json:"file_path"`
 			}
-			if json.Unmarshal(bl.Input, &in) == nil && in.Path != "" {
+			if jsonx.Unmarshal(bl.Input, &in) == nil && in.Path != "" {
 				if f.Reads == nil {
 					f.Reads = map[string]int{}
 				}
@@ -556,7 +557,7 @@ func (f *File) assistant(l *rawLine, at time.Time) {
 			var in struct {
 				Skill string `json:"skill"`
 			}
-			if json.Unmarshal(bl.Input, &in) == nil && in.Skill != "" {
+			if jsonx.Unmarshal(bl.Input, &in) == nil && in.Skill != "" {
 				f.use("skill:"+in.Skill, at)
 			}
 		case strings.HasPrefix(bl.Name, "mcp__"):
@@ -654,7 +655,7 @@ func (f *File) user(l *rawLine, at time.Time) {
 	c := l.Message.Content
 	if len(c) > 0 && c[0] == '"' {
 		var s string
-		if json.Unmarshal(c, &s) == nil {
+		if jsonx.Unmarshal(c, &s) == nil {
 			f.slash(s, at)
 		}
 		return
@@ -663,7 +664,7 @@ func (f *File) user(l *rawLine, at time.Time) {
 		return
 	}
 	var blocks []block
-	if json.Unmarshal(c, &blocks) != nil {
+	if jsonx.Unmarshal(c, &blocks) != nil {
 		return
 	}
 	for _, bl := range blocks {
@@ -692,7 +693,7 @@ func (f *File) user(l *rawLine, at time.Time) {
 
 // resultSize is how much text a tool result gave back; images count as
 // nothing, being tokens of another kind.
-func resultSize(raw json.RawMessage) int64 {
+func resultSize(raw jsontext.Value) int64 {
 	if len(raw) == 0 {
 		return 0
 	}
@@ -703,7 +704,7 @@ func resultSize(raw json.RawMessage) int64 {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
-	if json.Unmarshal(raw, &parts) != nil {
+	if jsonx.Unmarshal(raw, &parts) != nil {
 		return int64(len(raw))
 	}
 	var n int64

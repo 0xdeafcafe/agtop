@@ -1,7 +1,7 @@
 package plugind
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -50,7 +51,7 @@ func TestBrokerRunsTheKanbanExample(t *testing.T) {
 	if out, err := exec.Command("go", "build", "-o", filepath.Join(dir, "kanban"), "../../plugins/examples/kanban").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	m, _ := json.Marshal(plugin.Manifest{Name: "kanban", Command: []string{"kanban"}, Tools: true,
+	m, _ := jsonx.Marshal(plugin.Manifest{Name: "kanban", Command: []string{"kanban"}, Tools: true,
 		Sidebar: true, Sessions: []string{plugin.CapList, plugin.CapStart, plugin.CapQueue}, Workspaces: []string{home},
 		Read: []string{kb}, Env: map[string]string{"KANBAN_CODE_HOME": kb}, Exec: map[string][]string{"kanban": {cli}}})
 	_ = os.WriteFile(filepath.Join(dir, "plugin.json"), m, 0o600)
@@ -72,7 +73,7 @@ func TestBrokerRunsTheKanbanExample(t *testing.T) {
 			}
 		}
 		msg := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + tool + `","arguments":` + args + `}}`
-		if err := json.Unmarshal(b.MCP("kanban", "k1", json.RawMessage(msg)), &out); err != nil || len(out.Result.Content) == 0 {
+		if err := jsonx.Unmarshal(b.MCP("kanban", "k1", jsontext.Value(msg)), &out); err != nil || len(out.Result.Content) == 0 {
 			t.Fatalf("%s: %v %+v", tool, err, out)
 		}
 		return out.Result.Content[0].Text

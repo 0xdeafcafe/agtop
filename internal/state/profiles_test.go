@@ -1,12 +1,12 @@
 package state
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // fakeAgent is a provider for the resolver: installed unless missing.
@@ -151,7 +151,7 @@ func TestMigrateProfiles(t *testing.T) {
 		DefaultProfile string
 	}
 	b, _ := os.ReadFile(path)
-	if err := json.Unmarshal(b, &raw); err != nil {
+	if err := jsonx.Unmarshal(b, &raw); err != nil {
 		t.Fatal(err)
 	}
 	if raw.Dispatch.Kind != "" || raw.SwitchOnLimit != OnLimitOff || !raw.StayOnAccount || !equal(raw.AgentOrder, []string{"claude", "pb"}) || len(raw.Profiles) != 2 {

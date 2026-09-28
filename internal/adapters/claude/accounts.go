@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -93,7 +93,7 @@ func planOf(prof []byte) string {
 		Tier string `json:"organizationRateLimitTier"`
 		Type string `json:"organizationType"`
 	}
-	_ = json.Unmarshal(prof, &p)
+	_ = jsonx.Unmarshal(prof, &p)
 	return firstOf(p.Type, p.Tier)
 }
 

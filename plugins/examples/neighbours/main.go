@@ -12,11 +12,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -32,7 +33,7 @@ func main() {
 	<-conn.Done()
 }
 
-func handle(ctx context.Context, method string, params json.RawMessage) (any, error) {
+func handle(ctx context.Context, method string, params jsontext.Value) (any, error) {
 	switch method {
 	case "initialize":
 		return map[string]any{}, nil
@@ -49,7 +50,7 @@ func handle(ctx context.Context, method string, params json.RawMessage) (any, er
 			Session string `json:"session"`
 			Cwd     string `json:"cwd"`
 		}
-		if err := json.Unmarshal(params, &in); err != nil {
+		if err := jsonx.Unmarshal(params, &in); err != nil {
 			return nil, err
 		}
 		text, err := neighbours(ctx, in.Session, in.Cwd)

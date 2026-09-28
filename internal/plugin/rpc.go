@@ -5,9 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
 	"strconv"
 	"sync"
@@ -21,7 +22,7 @@ const MaxFrame = 16 << 20
 // Handler answers a request, or takes a notification (whose result is
 // dropped). Returning an *Error sends it as is; any other error is sent as a
 // generic server error.
-type Handler func(ctx context.Context, method string, params json.RawMessage) (any, error)
+type Handler func(ctx context.Context, method string, params jsontext.Value) (any, error)
 
 // Error is a JSON-RPC error.
 type Error struct {
@@ -47,12 +48,12 @@ func Denied(what string) *Error {
 }
 
 type message struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *Error          `json:"error,omitempty"`
+	JSONRPC string         `json:"jsonrpc"`
+	ID      jsontext.Value `json:"id,omitzero"`
+	Method  string         `json:"method,omitempty"`
+	Params  jsontext.Value `json:"params,omitzero"`
+	Result  jsontext.Value `json:"result,omitzero"`
+	Error   *Error         `json:"error,omitempty"`
 }
 
 // codec reads and writes whole messages.
@@ -209,7 +210,7 @@ func (c *Conn) readLoop() {
 			return
 		}
 		var m message
-		if err := json.Unmarshal(b, &m); err != nil {
+		if err := jsonx.Unmarshal(b, &m); err != nil {
 			_ = c.send(&message{Error: &Error{Code: CodeParse, Message: "parse error"}})
 			continue
 		}
@@ -245,22 +246,22 @@ func (c *Conn) serve(m *message) {
 		} else {
 			out.Error = &Error{Code: CodeServer, Message: err.Error()}
 		}
-	} else if raw, ok := res.(json.RawMessage); ok {
+	} else if raw, ok := res.(jsontext.Value); ok {
 		out.Result = raw
-	} else if b, err := json.Marshal(res); err != nil {
+	} else if b, err := jsonx.Marshal(res); err != nil {
 		out.Error = &Error{Code: CodeServer, Message: err.Error()}
 	} else {
 		out.Result = b
 	}
 	if out.Error == nil && out.Result == nil {
-		out.Result = json.RawMessage("null")
+		out.Result = jsontext.Value("null")
 	}
 	_ = c.send(out)
 }
 
 func (c *Conn) send(m *message) error {
 	m.JSONRPC = "2.0"
-	b, err := json.Marshal(m)
+	b, err := jsonx.Marshal(m)
 	if err != nil {
 		return err
 	}
@@ -275,8 +276,8 @@ var ErrClosed = errors.New("connection closed")
 
 // CallRaw calls method with params already encoded, and returns the raw
 // result.
-func (c *Conn) CallRaw(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
-	id := json.RawMessage(strconv.FormatInt(c.next.Add(1), 10))
+func (c *Conn) CallRaw(ctx context.Context, method string, params jsontext.Value) (jsontext.Value, error) {
+	id := jsontext.Value(strconv.FormatInt(c.next.Add(1), 10))
 	ch := make(chan *message, 1)
 	c.mu.Lock()
 	if c.closed {
@@ -320,7 +321,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, out any) error {
 	if err != nil || out == nil {
 		return err
 	}
-	return json.Unmarshal(res, out)
+	return jsonx.Unmarshal(res, out)
 }
 
 // Notify sends a notification, which has no reply.
@@ -332,12 +333,12 @@ func (c *Conn) Notify(method string, params any) error {
 	return c.send(&message{Method: method, Params: p})
 }
 
-func marshalParams(params any) (json.RawMessage, error) {
+func marshalParams(params any) (jsontext.Value, error) {
 	switch p := params.(type) {
 	case nil:
 		return nil, nil
-	case json.RawMessage:
+	case jsontext.Value:
 		return p, nil
 	}
-	return json.Marshal(params)
+	return jsonx.Marshal(params)
 }

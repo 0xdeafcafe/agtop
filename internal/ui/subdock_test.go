@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,7 +82,7 @@ func TestSubagentDock(t *testing.T) {
 	// the box goes straight onto it, ↑ again to the subagent above, ↓ back
 	// onto the card, and ↓ again to the box. It never opens as a modal.
 	c.sess.Apply(host.Sent{Text: "go"}, time.Now())
-	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}}}, time.Now())
+	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: jsontext.Value(`{"command":"ls"}`)}}}, time.Now())
 	c.sess.Apply(headless.PermissionRequest{ID: "r1", Tool: "Bash", ToolUseID: "b1"}, time.Now())
 	key := func(s string) { m.paneKey(tea.KeyPressMsg{}, s) }
 	c.sel = ""

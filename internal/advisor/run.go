@@ -3,7 +3,7 @@ package advisor
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +17,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // The models each pass runs on, and what each may spend.
@@ -239,13 +240,13 @@ func ask(ctx context.Context, acct claude.Account, c call, out any) (float64, er
 	running.remove(cmd)
 
 	var r struct {
-		IsError    bool            `json:"is_error"`
-		Subtype    string          `json:"subtype"`
-		Result     string          `json:"result"`
-		Cost       float64         `json:"total_cost_usd"`
-		Structured json.RawMessage `json:"structured_output"`
+		IsError    bool           `json:"is_error"`
+		Subtype    string         `json:"subtype"`
+		Result     string         `json:"result"`
+		Cost       float64        `json:"total_cost_usd"`
+		Structured jsontext.Value `json:"structured_output"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &r); err != nil {
+	if err := jsonx.Unmarshal(stdout.Bytes(), &r); err != nil {
 		// Stopped or broken halfway: what it spent isn't known, so count
 		// what it was allowed to.
 		if runErr != nil {
@@ -259,7 +260,7 @@ func ask(ctx context.Context, acct claude.Account, c call, out any) (float64, er
 	case len(r.Structured) == 0 || string(r.Structured) == "null":
 		return r.Cost, errors.New("no answer")
 	}
-	return r.Cost, json.Unmarshal(r.Structured, out)
+	return r.Cost, jsonx.Unmarshal(r.Structured, out)
 }
 
 // running are the passes' claude processes, for Stop.
@@ -304,7 +305,7 @@ func firstLine(s string) string {
 }
 
 func reviewPrompt(digest string, c Finding) string {
-	b, _ := json.MarshalIndent(proposal{c.Title, c.Detail, c.Evidence, c.Weekly, c.Fix, c.Open}, "", "  ")
+	b, _ := jsonx.MarshalIndent(proposal{c.Title, c.Detail, c.Evidence, c.Weekly, c.Fix, c.Open})
 	return "## Candidate\n" + string(b) + "\n\n" + digest
 }
 

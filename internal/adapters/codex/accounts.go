@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -39,7 +39,7 @@ type authFile struct {
 // secret: an API key's account is named by a hash of it.
 func whoIs(b []byte) (agent.Account, error) {
 	var f authFile
-	if err := json.Unmarshal(b, &f); err != nil {
+	if err := jsonx.Unmarshal(b, &f); err != nil {
 		return agent.Account{}, errors.New("codex: its auth.json isn't readable")
 	}
 	a := agent.Account{Kind: Kind}
@@ -75,7 +75,7 @@ func jwtClaims(tok string) idClaims {
 	}
 	b, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err == nil {
-		_ = json.Unmarshal(b, &c)
+		_ = jsonx.Unmarshal(b, &c)
 	}
 	return c
 }

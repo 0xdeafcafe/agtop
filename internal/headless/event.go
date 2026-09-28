@@ -5,7 +5,8 @@
 package headless
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"strings"
 )
 
@@ -67,7 +68,7 @@ type Message struct {
 	// ToolResult is Claude Code's structured account of a tool run, sent with
 	// the tool_result message: an Edit's structuredPatch, a Read's file, a
 	// Bash run's stdout and stderr.
-	ToolResult json.RawMessage
+	ToolResult jsontext.Value
 }
 
 // Block is one content block of a message.
@@ -76,7 +77,7 @@ type Block struct {
 	Text      string // text, thinking, or a tool result flattened to text
 	ID        string // tool_use
 	Name      string // tool_use
-	Input     json.RawMessage
+	Input     jsontext.Value
 	ToolUseID string // tool_result
 	IsError   bool   // tool_result
 }
@@ -93,13 +94,13 @@ type Usage struct {
 type PermissionRequest struct {
 	ID          string
 	Tool        string
-	Input       json.RawMessage
+	Input       jsontext.Value
 	Description string
 	Reason      string
 	ReasonType  string
 	ToolUseID   string
 	BlockedPath string
-	Suggestions json.RawMessage
+	Suggestions jsontext.Value
 }
 
 // PermissionCancelled withdraws a PermissionRequest, e.g. after an interrupt.
@@ -139,14 +140,14 @@ type Result struct {
 // RateLimit carries the account's usage windows.
 type RateLimit struct {
 	Status string
-	Raw    json.RawMessage
+	Raw    jsontext.Value
 }
 
 // ControlReply answers a control request the host sent.
 type ControlReply struct {
 	ID    string
 	Error string
-	Body  json.RawMessage
+	Body  jsontext.Value
 }
 
 // MCPRequest carries one MCP message from Claude Code to a server the host
@@ -154,7 +155,7 @@ type ControlReply struct {
 type MCPRequest struct {
 	ID      string
 	Server  string
-	Message json.RawMessage
+	Message jsontext.Value
 }
 
 // TaskStarted says Claude Code started a task: a Bash command, a subagent,
@@ -214,7 +215,7 @@ type BackgroundTask struct {
 // Other is anything not decoded above, kept whole so nothing is lost.
 type Other struct {
 	Type, Subtype string
-	Raw           json.RawMessage
+	Raw           jsontext.Value
 }
 
 func (Init) event()                {}
@@ -239,16 +240,16 @@ func (BackgroundTasks) event()     {}
 func (Other) event()               {}
 
 type envelope struct {
-	Type            string          `json:"type"`
-	Subtype         string          `json:"subtype"`
-	UUID            string          `json:"uuid"`
-	ParentToolUseID string          `json:"parent_tool_use_id"`
-	RequestID       string          `json:"request_id"`
-	Request         json.RawMessage `json:"request"`
-	Response        json.RawMessage `json:"response"`
-	Message         json.RawMessage `json:"message"`
-	Event           json.RawMessage `json:"event"`
-	ToolUseResult   json.RawMessage `json:"tool_use_result"`
+	Type            string         `json:"type"`
+	Subtype         string         `json:"subtype"`
+	UUID            string         `json:"uuid"`
+	ParentToolUseID string         `json:"parent_tool_use_id"`
+	RequestID       string         `json:"request_id"`
+	Request         jsontext.Value `json:"request"`
+	Response        jsontext.Value `json:"response"`
+	Message         jsontext.Value `json:"message"`
+	Event           jsontext.Value `json:"event"`
+	ToolUseResult   jsontext.Value `json:"tool_use_result"`
 }
 
 // Decode turns one output line into an Event.
@@ -257,7 +258,7 @@ func Decode(line []byte) (Event, error) {
 	if o, ok := ev.(Other); ok && o.Raw == nil {
 		// Only what isn't decoded keeps a copy of its line; copying every
 		// line, deltas and all, was most of what decoding allocated.
-		o.Raw = append(json.RawMessage(nil), line...)
+		o.Raw = append(jsontext.Value(nil), line...)
 		return o, err
 	}
 	return ev, err
@@ -265,7 +266,7 @@ func Decode(line []byte) (Event, error) {
 
 func decodeLine(line []byte) (Event, error) {
 	var e envelope
-	if err := json.Unmarshal(line, &e); err != nil {
+	if err := jsonx.Unmarshal(line, &e); err != nil {
 		return nil, err
 	}
 	other := Other{Type: e.Type, Subtype: e.Subtype}
@@ -282,11 +283,11 @@ func decodeLine(line []byte) (Event, error) {
 		return PermissionCancelled{ID: e.RequestID}, nil
 	case "control_response":
 		var r struct {
-			RequestID string          `json:"request_id"`
-			Error     string          `json:"error"`
-			Response  json.RawMessage `json:"response"`
+			RequestID string         `json:"request_id"`
+			Error     string         `json:"error"`
+			Response  jsontext.Value `json:"response"`
 		}
-		if err := json.Unmarshal(e.Response, &r); err != nil {
+		if err := jsonx.Unmarshal(e.Response, &r); err != nil {
 			return nil, err
 		}
 		return ControlReply{ID: r.RequestID, Error: r.Error, Body: r.Response}, nil
@@ -302,20 +303,20 @@ func decodeLine(line []byte) (Event, error) {
 			NumTurns   int     `json:"num_turns"`
 			Usage      Usage   `json:"usage"`
 		}
-		if err := json.Unmarshal(line, &r); err != nil {
+		if err := jsonx.Unmarshal(line, &r); err != nil {
 			return nil, err
 		}
 		return Result{Subtype: r.Subtype, IsError: r.IsError, Text: r.Result, StopReason: r.StopReason,
 			SessionID: r.SessionID, CostUSD: r.CostUSD, DurationMS: r.DurationMS, NumTurns: r.NumTurns, Usage: r.Usage}, nil
 	case "rate_limit_event":
 		var r struct {
-			Info json.RawMessage `json:"rate_limit_info"`
+			Info jsontext.Value `json:"rate_limit_info"`
 		}
-		_ = json.Unmarshal(line, &r)
+		_ = jsonx.Unmarshal(line, &r)
 		var s struct {
 			Status string `json:"status"`
 		}
-		_ = json.Unmarshal(r.Info, &s)
+		_ = jsonx.Unmarshal(r.Info, &s)
 		return RateLimit{Status: s.Status, Raw: r.Info}, nil
 	}
 	return other, nil
@@ -334,7 +335,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 			SlashCommands  []string    `json:"slash_commands"`
 			MCPServers     []MCPServer `json:"mcp_servers"`
 		}
-		if err := json.Unmarshal(line, &r); err != nil {
+		if err := jsonx.Unmarshal(line, &r); err != nil {
 			return nil, err
 		}
 		return Init(r), nil
@@ -342,7 +343,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 		var r struct {
 			Status string `json:"status"`
 		}
-		_ = json.Unmarshal(line, &r)
+		_ = jsonx.Unmarshal(line, &r)
 		return Status(r), nil
 	case "compact_boundary":
 		var r struct {
@@ -351,7 +352,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 				PreTokens int    `json:"pre_tokens"`
 			} `json:"compact_metadata"`
 		}
-		_ = json.Unmarshal(line, &r)
+		_ = jsonx.Unmarshal(line, &r)
 		return Compact{Trigger: r.Meta.Trigger, PreTokens: r.Meta.PreTokens}, nil
 	case "permission_denied":
 		var r struct {
@@ -359,7 +360,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 			ToolUseID string `json:"tool_use_id"`
 			Reason    string `json:"decision_reason"`
 		}
-		_ = json.Unmarshal(line, &r)
+		_ = jsonx.Unmarshal(line, &r)
 		return PermissionDenied(r), nil
 	case "task_started":
 		var r struct {
@@ -371,7 +372,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 			Workflow     string `json:"workflow_name"`
 			Backgrounded bool   `json:"is_backgrounded"`
 		}
-		if err := json.Unmarshal(line, &r); err != nil {
+		if err := jsonx.Unmarshal(line, &r); err != nil {
 			return nil, err
 		}
 		return TaskStarted(r), nil
@@ -385,7 +386,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 				Error        string `json:"error"`
 			} `json:"patch"`
 		}
-		if err := json.Unmarshal(line, &r); err != nil {
+		if err := jsonx.Unmarshal(line, &r); err != nil {
 			return nil, err
 		}
 		p := r.Patch
@@ -401,7 +402,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 				ToolUses int `json:"tool_uses"`
 			} `json:"usage"`
 		}
-		if err := json.Unmarshal(line, &r); err != nil {
+		if err := jsonx.Unmarshal(line, &r); err != nil {
 			return nil, err
 		}
 		return TaskProgress{ID: r.ID, Description: r.Description, Summary: r.Summary, LastTool: r.LastTool, Tokens: r.Usage.Tokens, ToolUses: r.Usage.ToolUses}, nil
@@ -413,7 +414,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 			OutputFile string `json:"output_file"`
 			Summary    string `json:"summary"`
 		}
-		if err := json.Unmarshal(line, &r); err != nil {
+		if err := jsonx.Unmarshal(line, &r); err != nil {
 			return nil, err
 		}
 		return TaskDone(r), nil
@@ -421,7 +422,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 		var r struct {
 			Tasks []BackgroundTask `json:"tasks"`
 		}
-		if err := json.Unmarshal(line, &r); err != nil {
+		if err := jsonx.Unmarshal(line, &r); err != nil {
 			return nil, err
 		}
 		return BackgroundTasks(r), nil
@@ -429,7 +430,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 	return other, nil
 }
 
-func decodeStream(raw json.RawMessage, other Other) (Event, error) {
+func decodeStream(raw jsontext.Value, other Other) (Event, error) {
 	var ev struct {
 		Type    string `json:"type"`
 		Index   int    `json:"index"`
@@ -447,7 +448,7 @@ func decodeStream(raw json.RawMessage, other Other) (Event, error) {
 			Type string `json:"type"`
 		} `json:"content_block"`
 	}
-	if err := json.Unmarshal(raw, &ev); err != nil {
+	if err := jsonx.Unmarshal(raw, &ev); err != nil {
 		return nil, err
 	}
 	switch ev.Type {
@@ -471,19 +472,19 @@ func decodeStream(raw json.RawMessage, other Other) (Event, error) {
 
 // DecodeMessage decodes an assistant or user message from its parts, for a
 // reader (like a transcript's) that has already split the line up.
-func DecodeMessage(typ string, message, toolUseResult json.RawMessage) (Event, error) {
+func DecodeMessage(typ string, message, toolUseResult jsontext.Value) (Event, error) {
 	return decodeMessage(envelope{Type: typ, Message: message, ToolUseResult: toolUseResult})
 }
 
 func decodeMessage(e envelope) (Event, error) {
 	var m struct {
-		ID      string          `json:"id"`
-		Role    string          `json:"role"`
-		Model   string          `json:"model"`
-		Content json.RawMessage `json:"content"`
-		Usage   *Usage          `json:"usage"`
+		ID      string         `json:"id"`
+		Role    string         `json:"role"`
+		Model   string         `json:"model"`
+		Content jsontext.Value `json:"content"`
+		Usage   *Usage         `json:"usage"`
 	}
-	if err := json.Unmarshal(e.Message, &m); err != nil {
+	if err := jsonx.Unmarshal(e.Message, &m); err != nil {
 		return nil, err
 	}
 	out := Message{Role: m.Role, ID: m.ID, Model: m.Model, UUID: e.UUID, ParentToolUseID: e.ParentToolUseID, Usage: m.Usage, ToolResult: e.ToolUseResult}
@@ -491,22 +492,22 @@ func decodeMessage(e envelope) (Event, error) {
 		out.Role = e.Type
 	}
 	var text string
-	if json.Unmarshal(m.Content, &text) == nil {
+	if jsonx.Unmarshal(m.Content, &text) == nil {
 		out.Blocks = []Block{{Type: "text", Text: text}}
 		return out, nil
 	}
 	var blocks []struct {
-		Type      string          `json:"type"`
-		Text      string          `json:"text"`
-		Thinking  string          `json:"thinking"`
-		ID        string          `json:"id"`
-		Name      string          `json:"name"`
-		Input     json.RawMessage `json:"input"`
-		ToolUseID string          `json:"tool_use_id"`
-		Content   json.RawMessage `json:"content"`
-		IsError   bool            `json:"is_error"`
+		Type      string         `json:"type"`
+		Text      string         `json:"text"`
+		Thinking  string         `json:"thinking"`
+		ID        string         `json:"id"`
+		Name      string         `json:"name"`
+		Input     jsontext.Value `json:"input"`
+		ToolUseID string         `json:"tool_use_id"`
+		Content   jsontext.Value `json:"content"`
+		IsError   bool           `json:"is_error"`
 	}
-	if err := json.Unmarshal(m.Content, &blocks); err != nil {
+	if err := jsonx.Unmarshal(m.Content, &blocks); err != nil {
 		return nil, err
 	}
 	for _, b := range blocks {
@@ -523,16 +524,16 @@ func decodeMessage(e envelope) (Event, error) {
 }
 
 // flatten reads a tool result's content, a string or a list of blocks, as text.
-func flatten(raw json.RawMessage) string {
+func flatten(raw jsontext.Value) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if jsonx.Unmarshal(raw, &s) == nil {
 		return s
 	}
 	var parts []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
-	if json.Unmarshal(raw, &parts) != nil {
+	if jsonx.Unmarshal(raw, &parts) != nil {
 		return ""
 	}
 	var out []string
@@ -549,25 +550,25 @@ func flatten(raw json.RawMessage) string {
 
 func decodeControl(e envelope, other Other) (Event, error) {
 	var r struct {
-		Subtype     string          `json:"subtype"`
-		Tool        string          `json:"tool_name"`
-		Input       json.RawMessage `json:"input"`
-		Description string          `json:"description"`
-		Reason      string          `json:"decision_reason"`
-		ReasonType  string          `json:"decision_reason_type"`
-		ToolUseID   string          `json:"tool_use_id"`
-		BlockedPath string          `json:"blocked_path"`
-		Suggestions json.RawMessage `json:"permission_suggestions"`
+		Subtype     string         `json:"subtype"`
+		Tool        string         `json:"tool_name"`
+		Input       jsontext.Value `json:"input"`
+		Description string         `json:"description"`
+		Reason      string         `json:"decision_reason"`
+		ReasonType  string         `json:"decision_reason_type"`
+		ToolUseID   string         `json:"tool_use_id"`
+		BlockedPath string         `json:"blocked_path"`
+		Suggestions jsontext.Value `json:"permission_suggestions"`
 	}
-	if err := json.Unmarshal(e.Request, &r); err != nil {
+	if err := jsonx.Unmarshal(e.Request, &r); err != nil {
 		return nil, err
 	}
 	if r.Subtype == "mcp_message" {
 		var m struct {
-			Server  string          `json:"server_name"`
-			Message json.RawMessage `json:"message"`
+			Server  string         `json:"server_name"`
+			Message jsontext.Value `json:"message"`
 		}
-		if err := json.Unmarshal(e.Request, &m); err != nil {
+		if err := jsonx.Unmarshal(e.Request, &m); err != nil {
 			return nil, err
 		}
 		return MCPRequest{ID: e.RequestID, Server: m.Server, Message: m.Message}, nil
@@ -593,7 +594,7 @@ func Commands(reply ControlReply) []Command {
 	var r struct {
 		Commands []Command `json:"commands"`
 	}
-	_ = json.Unmarshal(reply.Body, &r)
+	_ = jsonx.Unmarshal(reply.Body, &r)
 	return r.Commands
 }
 
@@ -608,10 +609,10 @@ type Patch struct {
 }
 
 // Patches reads the hunks from a tool result, if it has any.
-func Patches(toolResult json.RawMessage) []Patch {
+func Patches(toolResult jsontext.Value) []Patch {
 	var r struct {
 		StructuredPatch []Patch `json:"structuredPatch"`
 	}
-	_ = json.Unmarshal(toolResult, &r)
+	_ = jsonx.Unmarshal(toolResult, &r)
 	return r.StructuredPatch
 }

@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // --- Claude Code's commands that need the session: /btw, /export, /subtask ---
@@ -89,7 +89,7 @@ func (m *Model) openExport(c *hostConn, dir, arg string) tea.Cmd {
 			Text     string `json:"text"`
 			Filename string `json:"default_filename"`
 		}
-		if r.Error != "" || json.Unmarshal(r.Body, &v) != nil {
+		if r.Error != "" || jsonx.Unmarshal(r.Body, &v) != nil {
 			k.err = firstNonEmpty(r.Error, "Claude Code sent back something agtop can't read")
 			return nil
 		}

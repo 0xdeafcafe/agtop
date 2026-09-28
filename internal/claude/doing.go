@@ -1,15 +1,15 @@
 package claude
 
 import (
-	"encoding/json"
-
+	"encoding/json/jsontext"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Doing says in words what a tool call is doing, for the one line a list row
 // has: "running pnpm test", "reading view.go", "searching for PrettyModel".
 // A command's own description wins when Claude gave one.
-func Doing(name string, input json.RawMessage) string {
+func Doing(name string, input jsontext.Value) string {
 	switch name {
 	case "BashOutput", "TaskOutput":
 		return "checking a background task"
@@ -19,7 +19,7 @@ func Doing(name string, input json.RawMessage) string {
 		return "updating its todo list"
 	case "Skill":
 		var in struct{ Skill string }
-		_ = json.Unmarshal(input, &in)
+		_ = jsonx.Unmarshal(input, &in)
 		if in.Skill == "" {
 			return "using"
 		}
@@ -30,7 +30,7 @@ func Doing(name string, input json.RawMessage) string {
 		return "waiting"
 	case "SendMessage":
 		var in struct{ Summary string }
-		_ = json.Unmarshal(input, &in)
+		_ = jsonx.Unmarshal(input, &in)
 		if in.Summary == "" {
 			return "messaging"
 		}

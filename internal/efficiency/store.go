@@ -1,7 +1,6 @@
 package efficiency
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -53,11 +53,11 @@ func Dir() string { return filepath.Join(state.Dir(), "efficiency") }
 func Open() *Store {
 	s := &Store{files: map[string]*File{}, retired: map[string]*Retired{}}
 	var c cacheFile
-	if b, err := os.ReadFile(cachePath()); err == nil && json.Unmarshal(b, &c) == nil && c.Version == cacheVersion && c.Files != nil {
+	if b, err := os.ReadFile(cachePath()); err == nil && jsonx.Unmarshal(b, &c) == nil && c.Version == cacheVersion && c.Files != nil {
 		s.files = c.Files
 	}
 	if b, err := os.ReadFile(retiredPath()); err == nil {
-		_ = json.Unmarshal(b, &s.retired)
+		_ = jsonx.Unmarshal(b, &s.retired)
 	}
 	if s.retired == nil {
 		s.retired = map[string]*Retired{}
@@ -209,7 +209,7 @@ func (s *Store) retire(f *File) {
 
 func (s *Store) saveRetired() {
 	s.mu.RLock()
-	b, err := json.Marshal(s.retired)
+	b, err := jsonx.Marshal(s.retired)
 	s.mu.RUnlock()
 	if err == nil {
 		_ = writeFile(retiredPath(), b)
@@ -223,7 +223,7 @@ func (s *Store) Save() {
 		s.mu.Unlock()
 		return
 	}
-	b, err := json.Marshal(cacheFile{Version: cacheVersion, Files: s.files})
+	b, err := jsonx.Marshal(cacheFile{Version: cacheVersion, Files: s.files})
 	s.dirty = false
 	s.saved = time.Now()
 	s.mu.Unlock()

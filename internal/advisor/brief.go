@@ -3,8 +3,9 @@ package advisor
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ type briefEntry struct {
 	Subtype   string    `json:"subtype"`
 	Timestamp time.Time `json:"timestamp"`
 	Message   *struct {
-		Content json.RawMessage `json:"content"`
+		Content jsontext.Value `json:"content"`
 		Usage   *struct {
 			In int64 `json:"input_tokens"`
 			CR int64 `json:"cache_read_input_tokens"`
@@ -63,13 +64,13 @@ type briefEntry struct {
 }
 
 type briefBlock struct {
-	Type      string          `json:"type"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Text      string          `json:"text"`
-	Input     json.RawMessage `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
-	Content   json.RawMessage `json:"content"`
+	Type      string         `json:"type"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Text      string         `json:"text"`
+	Input     jsontext.Value `json:"input"`
+	ToolUseID string         `json:"tool_use_id"`
+	Content   jsontext.Value `json:"content"`
 }
 
 func brief(path string) ([]string, error) {
@@ -107,7 +108,7 @@ func briefOf(raw []byte, lines []string, calls map[string]int, ctx *int64) []str
 		return lines
 	}
 	var e briefEntry
-	if json.Unmarshal(raw, &e) != nil {
+	if jsonx.Unmarshal(raw, &e) != nil {
 		return lines
 	}
 	at := e.Timestamp.Local().Format("15:04")
@@ -126,10 +127,10 @@ func briefOf(raw []byte, lines []string, calls map[string]int, ctx *int64) []str
 		return lines
 	}
 	var blocks []briefBlock
-	if json.Unmarshal(e.Message.Content, &blocks) != nil {
+	if jsonx.Unmarshal(e.Message.Content, &blocks) != nil {
 		// A prompt written as a plain string.
 		var s string
-		if e.Type == "user" && json.Unmarshal(e.Message.Content, &s) == nil && s != "" {
+		if e.Type == "user" && jsonx.Unmarshal(e.Message.Content, &s) == nil && s != "" {
 			add(fmt.Sprintf("%s you (ctx %s): %s", at, tokens(*ctx), s))
 		}
 		return lines
@@ -154,9 +155,9 @@ func briefOf(raw []byte, lines []string, calls map[string]int, ctx *int64) []str
 }
 
 // toolInput is the part of a tool call's input that says what it did.
-func toolInput(raw json.RawMessage) string {
+func toolInput(raw jsontext.Value) string {
 	var in map[string]any
-	if json.Unmarshal(raw, &in) != nil {
+	if jsonx.Unmarshal(raw, &in) != nil {
 		return ""
 	}
 	for _, k := range []string{"command", "file_path", "pattern", "description", "prompt", "url", "query"} {

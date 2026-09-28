@@ -2,7 +2,7 @@ package plugind
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +17,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -40,15 +41,15 @@ type Session struct {
 	Cwd            string            `json:"cwd"`
 	Repo           string            `json:"repo,omitempty"`   // the checkout cwd is in
 	Branch         string            `json:"branch,omitempty"` // what it has checked out
-	Worktree       bool              `json:"worktree,omitempty"`
+	Worktree       bool              `json:"worktree,omitzero"`
 	State          string            `json:"state"`
 	Detail         string            `json:"detail,omitempty"`
 	Needs          string            `json:"needs,omitempty"`
 	Model          string            `json:"model,omitempty"`
 	PermissionMode string            `json:"permissionMode,omitempty"`
-	CostUSD        float64           `json:"costUsd,omitempty"`
-	ContextTokens  int               `json:"contextTokens,omitempty"`
-	Queued         int               `json:"queued,omitempty"` // messages waiting for its turn to end
+	CostUSD        float64           `json:"costUsd,omitzero"`
+	ContextTokens  int               `json:"contextTokens,omitzero"`
+	Queued         int               `json:"queued,omitzero"` // messages waiting for its turn to end
 	StartedBy      string            `json:"startedBy,omitempty"`
 	Meta           map[string]string `json:"meta,omitempty"`
 	StartedAt      time.Time         `json:"startedAt"`
@@ -78,7 +79,7 @@ func alive(pid int) bool {
 // fromPlugin answers the plugin's own calls, each checked against what it
 // was approved for. Sending, reading and control reach only sessions it
 // started: another session may run with permissions it was never given.
-func (r *runner) fromPlugin(ctx context.Context, method string, params json.RawMessage) (any, error) {
+func (r *runner) fromPlugin(ctx context.Context, method string, params jsontext.Value) (any, error) {
 	r.mu.Lock()
 	p := r.p
 	r.mu.Unlock()
@@ -105,7 +106,7 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params json.RawM
 		Stdin          string            `json:"stdin"`
 	}
 	if len(params) > 0 {
-		if err := json.Unmarshal(params, &in); err != nil {
+		if err := jsonx.Unmarshal(params, &in); err != nil {
 			return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: err.Error()}
 		}
 	}
@@ -225,7 +226,7 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params json.RawM
 
 // setSidebar keeps how the plugin arranges agtop's agent list, once it is
 // checked and cleaned, where the UI reads it and the plugin can't write.
-func (r *runner) setSidebar(p plugin.Plugin, params json.RawMessage) (any, error) {
+func (r *runner) setSidebar(p plugin.Plugin, params jsontext.Value) (any, error) {
 	if !p.Sidebar {
 		return nil, plugin.Denied(`sidebar.set needs "sidebar" in the manifest`)
 	}

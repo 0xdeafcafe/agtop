@@ -1,7 +1,7 @@
 package convo
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"reflect"
 	"strings"
 	"testing"
@@ -95,8 +95,8 @@ func TestChainOutputHighlighted(t *testing.T) {
 	s.Info.Cwd = "/work"
 	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 200, Verbose: true, Open: map[string]bool{}}, cw: 200}
 	cmd := "sed -n 1,3p main.go; echo ---; cat settings.json; git log --format=%s -1"
-	in, _ := json.Marshal(map[string]string{"command": cmd})
-	res, _ := json.Marshal(map[string]string{"stdout": "package main\n\nfunc main() {}\n---\n{\"a\": true}\nfix: for the thing\n"})
+	in, _ := jsonx.Marshal(map[string]string{"command": cmd})
+	res, _ := jsonx.Marshal(map[string]string{"stdout": "package main\n\nfunc main() {}\n---\n{\"a\": true}\nfix: for the thing\n"})
 	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
 	var out string
 	for _, l := range d.lines {
@@ -118,9 +118,9 @@ func TestSearchHitsAligned(t *testing.T) {
 	s := New()
 	s.Info.Cwd = "/work"
 	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 200, Verbose: true, Open: map[string]bool{}}, cw: 200}
-	in, _ := json.Marshal(map[string]string{"command": `grep -rn "x" .`})
+	in, _ := jsonx.Marshal(map[string]string{"command": `grep -rn "x" .`})
 	out := "render.go:2267:\t\tlg := x\n../ui/docstyle.go:35:\t\t\tif x {\n"
-	res, _ := json.Marshal(map[string]string{"stdout": out})
+	res, _ := jsonx.Marshal(map[string]string{"stdout": out})
 	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
 	var got []string
 	for _, l := range d.lines {
@@ -142,11 +142,11 @@ func TestSearchChainHighlighted(t *testing.T) {
 	s.Info.Cwd = "/work"
 	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 200, Verbose: true, Open: map[string]bool{}}, cw: 200}
 	cmd := "grep -rn \"type Agent\" internal\ngrep -n \"func x\" -A2 a-b/c.go | head -30"
-	in, _ := json.Marshal(map[string]string{"command": cmd})
+	in, _ := jsonx.Marshal(map[string]string{"command": cmd})
 	out := "internal/fleet/fleet.go:20:type Agent struct { s := `open\n" +
 		"a-b/x.go:9:\treturn nil\n" +
 		"823:func x() {\n824-\treturn nil\n825-}\n"
-	res, _ := json.Marshal(map[string]string{"stdout": out})
+	res, _ := jsonx.Marshal(map[string]string{"stdout": out})
 	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
 	var got []string
 	for _, l := range d.lines {
@@ -171,12 +171,12 @@ func TestHeredocChainWithDiff(t *testing.T) {
 	s.Info.Cwd = "/work"
 	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 200, Verbose: true, Open: map[string]bool{}}, cw: 200}
 	cmd := "python3 - <<'EOF'\nprint('ok')\nEOF\ngrep -n \"confirm\" internal/ui/keys.go | head\ngit diff internal/ui/fleetslash.go | head -20"
-	in, _ := json.Marshal(map[string]string{"command": cmd})
+	in, _ := jsonx.Marshal(map[string]string{"command": cmd})
 	out := "patched\n40:\t\tif m.confirm != nil {\n" +
 		"diff --git a/internal/ui/fleetslash.go b/internal/ui/fleetslash.go\n" +
 		"--- a/internal/ui/fleetslash.go\n+++ b/internal/ui/fleetslash.go\n@@ -1,2 +1,3 @@\n" +
 		" \tvar x = 1\n+\treturn nil\n-\tbreak\n"
-	res, _ := json.Marshal(map[string]string{"stdout": out})
+	res, _ := jsonx.Marshal(map[string]string{"stdout": out})
 	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
 	var got []string
 	for _, l := range d.lines {

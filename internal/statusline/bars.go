@@ -1,11 +1,11 @@
 package statusline
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -46,7 +46,7 @@ func LoadBars() Bars {
 		return b
 	}
 	var got Bars
-	if json.Unmarshal(raw, &got) != nil {
+	if jsonx.Unmarshal(raw, &got) != nil {
 		return b
 	}
 	if got.Top.Lines != nil && !(reflect.DeepEqual(got.Top.Lines, oldTop) && got.Top.Sep == b.Top.Sep) {
@@ -60,7 +60,7 @@ func LoadBars() Bars {
 
 // SaveBars writes them.
 func SaveBars(b Bars) error {
-	raw, err := json.MarshalIndent(b, "", "  ")
+	raw, err := jsonx.MarshalIndent(b)
 	if err != nil {
 		return err
 	}

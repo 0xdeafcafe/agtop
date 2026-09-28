@@ -2,7 +2,6 @@ package host
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // The test binary stands in for agtop: Spawn runs `<exe> host run <id>`.
@@ -512,7 +512,7 @@ func TestRingTrimsWholeTurns(t *testing.T) {
 	s := &server{cfg: Config{ID: "tr"}, clients: map[*conn]struct{}{}}
 	big := []byte(`{"type":"assistant","message":{"content":"` + strings.Repeat("x", 1<<20) + `"}}`)
 	for turn := range 5 {
-		echo, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": fmt.Sprint("turn ", turn)}, "agtop_sent": true})
+		echo, _ := jsonx.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": fmt.Sprint("turn ", turn)}, "agtop_sent": true})
 		s.record(echo)
 		for range 3 {
 			s.record(append([]byte(nil), big...))

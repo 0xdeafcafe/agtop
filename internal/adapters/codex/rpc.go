@@ -3,7 +3,7 @@ package codex
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -16,17 +16,18 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // message is one line of the app-server protocol. It is JSON-RPC 2.0
 // without the "jsonrpc" field: a request has ID and Method, a
 // notification only Method, a response ID and Result or Error.
 type message struct {
-	ID     json.RawMessage `json:"id,omitempty"`
-	Method string          `json:"method,omitempty"`
-	Params json.RawMessage `json:"params,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *rpcError       `json:"error,omitempty"`
+	ID     jsontext.Value `json:"id,omitzero"`
+	Method string         `json:"method,omitempty"`
+	Params jsontext.Value `json:"params,omitzero"`
+	Result jsontext.Value `json:"result,omitzero"`
+	Error  *rpcError      `json:"error,omitempty"`
 }
 
 type rpcError struct {
@@ -100,7 +101,7 @@ func (c *client) read(r io.Reader) {
 	sc.Buffer(make([]byte, 64*1024), 64*1024*1024)
 	for sc.Scan() {
 		var m message
-		if err := json.Unmarshal(sc.Bytes(), &m); err != nil {
+		if err := jsonx.Unmarshal(sc.Bytes(), &m); err != nil {
 			continue
 		}
 		if m.Method == "" && m.ID != nil {
@@ -133,7 +134,7 @@ func (c *client) read(r io.Reader) {
 }
 
 func (c *client) write(m any) error {
-	b, err := json.Marshal(m)
+	b, err := jsonx.Marshal(m)
 	if err != nil {
 		return err
 	}
@@ -175,7 +176,7 @@ func (c *client) call(ctx context.Context, method string, params, out any) error
 			return m.Error
 		}
 		if out != nil && len(m.Result) > 0 {
-			return json.Unmarshal(m.Result, out)
+			return jsonx.Unmarshal(m.Result, out)
 		}
 		return nil
 	case <-ctx.Done():
@@ -193,18 +194,18 @@ func (c *client) notify(method string) error {
 }
 
 // reply answers a server request.
-func (c *client) reply(id json.RawMessage, result any) error {
+func (c *client) reply(id jsontext.Value, result any) error {
 	return c.write(struct {
-		ID     json.RawMessage `json:"id"`
-		Result any             `json:"result"`
+		ID     jsontext.Value `json:"id"`
+		Result any            `json:"result"`
 	}{id, result})
 }
 
 // refuse answers a server request agtop doesn't handle.
-func (c *client) refuse(id json.RawMessage, msg string) error {
+func (c *client) refuse(id jsontext.Value, msg string) error {
 	return c.write(struct {
-		ID    json.RawMessage `json:"id"`
-		Error rpcError        `json:"error"`
+		ID    jsontext.Value `json:"id"`
+		Error rpcError       `json:"error"`
 	}{id, rpcError{Code: -32601, Message: msg}})
 }
 
@@ -264,7 +265,7 @@ func (c *client) close() error {
 }
 
 // idString is a request id as agtop keys it.
-func idString(id json.RawMessage) string {
+func idString(id jsontext.Value) string {
 	s := string(id)
 	if u, err := strconv.Unquote(s); err == nil {
 		return u

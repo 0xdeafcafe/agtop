@@ -1,13 +1,13 @@
 package headless
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Neutral turns Claude Code's events into agtop's own, which any agent's
@@ -86,7 +86,7 @@ func (n *Neutral) Event(ev Event) []event.Event {
 				Type     string `json:"rateLimitType"`
 				ResetsAt int64  `json:"resetsAt"`
 			}
-			_ = json.Unmarshal(e.Raw, &r)
+			_ = jsonx.Unmarshal(e.Raw, &r)
 			l := event.Limited{Window: r.Type}
 			if r.ResetsAt > 0 {
 				l.ResetsAt = time.Unix(r.ResetsAt, 0)

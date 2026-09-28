@@ -8,7 +8,6 @@ package update
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -83,7 +83,7 @@ func fetch(ctx context.Context, path string) (Info, error) {
 		return Info{}, fmt.Errorf("the Go module proxy said %s", res.Status)
 	}
 	var i Info
-	return i, json.NewDecoder(res.Body).Decode(&i)
+	return i, jsonx.Decode(res.Body, &i)
 }
 
 // proxy is the first proxy in GOPROXY that's a URL, or Go's own.
@@ -127,7 +127,7 @@ func Check(ctx context.Context) (Info, bool) {
 	}
 	var c cache
 	if b, err := os.ReadFile(cachePath()); err == nil {
-		_ = json.Unmarshal(b, &c)
+		_ = jsonx.Unmarshal(b, &c)
 	}
 	if time.Since(c.Checked) > Every || c.Latest.Version == "" {
 		l, err := Latest(ctx)
@@ -135,7 +135,7 @@ func Check(ctx context.Context) (Info, bool) {
 			return Info{}, false
 		}
 		c = cache{Checked: time.Now(), Latest: l}
-		if b, err := json.Marshal(c); err == nil {
+		if b, err := jsonx.Marshal(c); err == nil {
 			_ = os.MkdirAll(state.Dir(), 0o700)
 			_ = os.WriteFile(cachePath(), b, 0o600)
 		}
@@ -168,7 +168,7 @@ func Install(ctx context.Context) (Info, error) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return Info{}, fmt.Errorf("go install: %s", strings.TrimSpace(cmp.Or(strings.TrimSpace(string(out)), err.Error())))
 	}
-	c, _ := json.Marshal(cache{Checked: time.Now(), Latest: l})
+	c, _ := jsonx.Marshal(cache{Checked: time.Now(), Latest: l})
 	_ = os.WriteFile(cachePath(), c, 0o600)
 	return l, nil
 }

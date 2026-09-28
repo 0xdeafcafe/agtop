@@ -1,7 +1,7 @@
 package state
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +29,7 @@ type Draft struct {
 	Name  string    `json:"name,omitempty"`  // and its name then
 	Kind  string    `json:"kind,omitempty"`
 	// Sent is what older agtops read; it's kept in step with Kind.
-	Sent bool `json:"sent,omitempty"`
+	Sent bool `json:"sent,omitzero"`
 }
 
 // maxKept is how many of each kind are kept, newest first.
@@ -57,7 +57,7 @@ func loadDrafts() []Draft {
 	b, err := os.ReadFile(path)
 	var out []Draft
 	if err == nil {
-		_ = json.Unmarshal(b, &out)
+		_ = jsonx.Unmarshal(b, &out)
 	}
 	migrated := false
 	for i := range out {

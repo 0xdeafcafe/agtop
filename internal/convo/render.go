@@ -1,8 +1,7 @@
 package convo
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"net/url"
 	"os"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 
 	"github.com/0xdeafcafe/agtop/internal/agtools"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -1527,9 +1527,9 @@ func (in input) str(k string) string {
 	return v
 }
 
-func readInput(raw json.RawMessage) input {
+func readInput(raw jsontext.Value) input {
 	var m input
-	_ = json.Unmarshal(raw, &m)
+	_ = jsonx.Unmarshal(raw, &m)
 	return m
 }
 
@@ -1540,7 +1540,7 @@ func agentName(st *Step) string {
 	var r struct {
 		AgentType string `json:"agentType"`
 	}
-	if len(st.Result) > 0 && json.Unmarshal(st.Result, &r) == nil && r.AgentType != "" {
+	if len(st.Result) > 0 && jsonx.Unmarshal(st.Result, &r) == nil && r.AgentType != "" {
 		return r.AgentType
 	}
 	return firstNonEmpty(readInput(st.Input).str("subagent_type"), "subagent")
@@ -1980,7 +1980,7 @@ func (d *drawer) summary(st *Step) string {
 			Type    string `json:"type"`
 			Content string `json:"content"`
 		}
-		_ = json.Unmarshal(st.Result, &r)
+		_ = jsonx.Unmarshal(st.Result, &r)
 		if r.Type == "create" {
 			return paint(cGreen, fmt.Sprintf("new · %d lines", countLines(r.Content)))
 		}
@@ -2006,7 +2006,7 @@ func (d *drawer) summary(st *Step) string {
 				TotalLines int `json:"totalLines"`
 			} `json:"file"`
 		}
-		if json.Unmarshal(st.Result, &r) == nil && r.File.NumLines > 0 {
+		if jsonx.Unmarshal(st.Result, &r) == nil && r.File.NumLines > 0 {
 			f := r.File
 			if f.NumLines < f.TotalLines {
 				return faint(fmt.Sprintf("lines %d–%d", f.StartLine, f.StartLine+f.NumLines-1))
@@ -2038,7 +2038,7 @@ func bashOut(st *Step) string {
 		Stdout string `json:"stdout"`
 		Stderr string `json:"stderr"`
 	}
-	if json.Unmarshal(st.Result, &r) == nil && (r.Stdout != "" || r.Stderr != "") {
+	if jsonx.Unmarshal(st.Result, &r) == nil && (r.Stdout != "" || r.Stderr != "") {
 		return r.Stdout + "\n" + r.Stderr
 	}
 	return st.Output
@@ -2093,7 +2093,7 @@ func (d *drawer) body(st *Step, indent int) {
 			Stdout string `json:"stdout"`
 			Stderr string `json:"stderr"`
 		}
-		if json.Unmarshal(st.Result, &r) == nil && (r.Stdout != "" || r.Stderr != "") {
+		if jsonx.Unmarshal(st.Result, &r) == nil && (r.Stdout != "" || r.Stderr != "") {
 			d.output(r.Stdout, indent, st.Status == Failed && r.Stderr == "")
 			d.spans = nil
 			if strings.TrimSpace(r.Stderr) != "" {
@@ -2230,7 +2230,7 @@ func (d *drawer) errorLine(st *Step, indent int, ref string) {
 		Stdout string `json:"stdout"`
 		Stderr string `json:"stderr"`
 	}
-	if st.kind() == tool.Shell && json.Unmarshal(st.Result, &r) == nil && r.Stdout+r.Stderr != "" {
+	if st.kind() == tool.Shell && jsonx.Unmarshal(st.Result, &r) == nil && r.Stdout+r.Stderr != "" {
 		text = r.Stdout + "\n" + r.Stderr
 	}
 	// The harness's refusal says why in its own words; its tags don't.
@@ -2503,15 +2503,15 @@ func prettyJSON(s string) (string, bool) {
 	if len(t) < 2 || len(t) > 4<<20 || t[0] != '{' && t[0] != '[' {
 		return "", false
 	}
-	if json.Valid([]byte(t)) {
-		var buf bytes.Buffer
-		if json.Indent(&buf, []byte(t), "", "  ") != nil {
+	if jsonx.Valid([]byte(t)) {
+		out, err := jsonx.Indent([]byte(t))
+		if err != nil {
 			return "", false
 		}
-		return buf.String(), true
+		return string(out), true
 	}
 	for _, l := range strings.Split(t, "\n") {
-		if l = strings.TrimSpace(l); l != "" && (l[0] != '{' && l[0] != '[' || !json.Valid([]byte(l))) {
+		if l = strings.TrimSpace(l); l != "" && (l[0] != '{' && l[0] != '[' || !jsonx.Valid([]byte(l))) {
 			return "", false
 		}
 	}
@@ -2523,7 +2523,7 @@ func (d *drawer) diff(st *Step, indent int) bool {
 		Type    string `json:"type"`
 		Content string `json:"content"`
 	}
-	_ = json.Unmarshal(st.Result, &r)
+	_ = jsonx.Unmarshal(st.Result, &r)
 	in := readInput(st.Input)
 	lg := langFor(firstNonEmpty(in.str("file_path"), in.str("notebook_path")))
 	pad := d.spine() + strings.Repeat(" ", indent-1)
@@ -2762,7 +2762,7 @@ func (d *drawer) figure(st *Step, ref string, indent int) bool {
 		return false
 	}
 	var in agtools.ShowInput
-	_ = json.Unmarshal(st.Input, &in)
+	_ = jsonx.Unmarshal(st.Input, &in)
 	title := firstNonEmpty(oneLine(in.Title), "drawing")
 	pad := d.spine() + blanks(indent-1)
 	wide := 0
@@ -2809,7 +2809,7 @@ func Drawing(st *Step) []string {
 		return nil
 	}
 	var in agtools.ShowInput
-	if json.Unmarshal(st.Input, &in) != nil {
+	if jsonx.Unmarshal(st.Input, &in) != nil {
 		return nil
 	}
 	rows := strings.Split(expandTabs(collapseCR(in.Drawing)), "\n")

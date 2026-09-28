@@ -3,7 +3,6 @@ package deepseek
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // balanceURL is DeepSeek's balance endpoint. Asking it spends nothing.
@@ -65,7 +65,7 @@ func (Adapter) Quota(ctx context.Context, p agent.Profile, _ agent.Account) (usa
 		return usage.Quota{}, fmt.Errorf("DeepSeek balance: %s", res.Status)
 	}
 	var b balance
-	if err := json.Unmarshal(body, &b); err != nil {
+	if err := jsonx.Unmarshal(body, &b); err != nil {
 		return usage.Quota{}, fmt.Errorf("DeepSeek balance: %w", err)
 	}
 	return quotaOf(b, time.Now()), nil

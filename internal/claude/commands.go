@@ -2,7 +2,6 @@ package claude
 
 import (
 	"bufio"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 type Command = agent.Command
@@ -86,7 +86,7 @@ func pluginRoots(configDir, cwd string) []string {
 		} `json:"plugins"`
 	}
 	if b, err := os.ReadFile(filepath.Join(configDir, "plugins", "installed_plugins.json")); err == nil {
-		_ = json.Unmarshal(b, &inst)
+		_ = jsonx.Unmarshal(b, &inst)
 	}
 	for _, list := range inst.Plugins {
 		for _, p := range list {
@@ -110,7 +110,7 @@ func pluginName(root string) string {
 		Name string `json:"name"`
 	}
 	if b, err := os.ReadFile(filepath.Join(root, ".claude-plugin", "plugin.json")); err == nil {
-		_ = json.Unmarshal(b, &m)
+		_ = jsonx.Unmarshal(b, &m)
 	}
 	if m.Name != "" {
 		return m.Name

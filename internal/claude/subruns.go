@@ -3,7 +3,8 @@ package claude
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
 	"os"
 	"path/filepath"
@@ -157,7 +158,7 @@ func (r *SubagentRuns) list() []SubagentRun {
 					ToolUse string `json:"toolUseId"`
 					Depth   int    `json:"spawnDepth"`
 				}
-				if b, err := os.ReadFile(p); err == nil && json.Unmarshal(b, &v) == nil {
+				if b, err := os.ReadFile(p); err == nil && jsonx.Unmarshal(b, &v) == nil {
 					m.toolUse = v.ToolUse
 					m.depth = max(1, v.Depth)
 				}
@@ -244,7 +245,7 @@ func (r *SubagentRuns) line(b []byte) {
 				var in struct {
 					To string `json:"to"`
 				}
-				if json.Unmarshal(bl.Input, &in) == nil && in.To != "" {
+				if jsonx.Unmarshal(bl.Input, &in) == nil && in.To != "" {
 					r.woken[in.To] = r.seq
 				}
 			}
@@ -297,27 +298,27 @@ func (r *SubagentRuns) line(b []byte) {
 }
 
 type lineBlock struct {
-	Type      string          `json:"type"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	ToolUseID string          `json:"tool_use_id"`
-	IsError   bool            `json:"is_error"`
-	Input     json.RawMessage `json:"input"`
-	Content   json.RawMessage `json:"content"`
+	Type      string         `json:"type"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	ToolUseID string         `json:"tool_use_id"`
+	IsError   bool           `json:"is_error"`
+	Input     jsontext.Value `json:"input"`
+	Content   jsontext.Value `json:"content"`
 }
 
 // lineBlocks are a transcript line's message's content blocks.
 func lineBlocks(b []byte) []lineBlock {
 	var l struct {
 		Message struct {
-			Content json.RawMessage `json:"content"`
+			Content jsontext.Value `json:"content"`
 		} `json:"message"`
 	}
-	if json.Unmarshal(b, &l) != nil {
+	if jsonx.Unmarshal(b, &l) != nil {
 		return nil
 	}
 	var bl []lineBlock
-	_ = json.Unmarshal(l.Message.Content, &bl) // a plain-text message has none
+	_ = jsonx.Unmarshal(l.Message.Content, &bl) // a plain-text message has none
 	return bl
 }
 

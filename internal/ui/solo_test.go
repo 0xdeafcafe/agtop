@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -27,7 +27,7 @@ func writeSession(t *testing.T, id, name string) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	b, _ := json.Marshal(host.Info{ID: id, SessionID: id + "-0000-4000-8000-000000000000", Cwd: t.TempDir(), Name: name,
+	b, _ := jsonx.Marshal(host.Info{ID: id, SessionID: id + "-0000-4000-8000-000000000000", Cwd: t.TempDir(), Name: name,
 		State: "stopped", StartedAt: now, UpdatedAt: now})
 	if err := os.WriteFile(filepath.Join(d, "info.json"), b, 0o600); err != nil {
 		t.Fatal(err)

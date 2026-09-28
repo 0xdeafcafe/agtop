@@ -1,7 +1,7 @@
 package codex
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +13,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // rollout builds a synthetic rollout file, a line a second from t0.
@@ -26,7 +27,7 @@ var t0 = time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
 func (r *rollout) at(i int) time.Time { return r.t0.Add(time.Duration(i) * time.Second) }
 
 func (r *rollout) add(typ string, payload any) *rollout {
-	b, err := json.Marshal(map[string]any{
+	b, err := jsonx.Marshal(map[string]any{
 		"timestamp": r.at(len(r.lines)).Format("2006-01-02T15:04:05.000Z"), "ordinal": len(r.lines), "type": typ, "payload": payload,
 	})
 	if err != nil {
@@ -362,14 +363,14 @@ func TestArgv(t *testing.T) {
 		{`["git","status"]`, "git status"},
 		{`"make"`, "make"},
 	} {
-		if got := argv(json.RawMessage(tc.raw)); got != tc.want {
+		if got := argv(jsontext.Value(tc.raw)); got != tc.want {
 			t.Errorf("argv(%s) = %q, want %q", tc.raw, got, tc.want)
 		}
 	}
 }
 
 func TestReadCallFromItem(t *testing.T) {
-	it := rolloutItem{Type: "CommandExecution", ID: "e", Command: json.RawMessage(`["sh","-lc","rg foo src"]`),
+	it := rolloutItem{Type: "CommandExecution", ID: "e", Command: jsontext.Value(`["sh","-lc","rg foo src"]`),
 		ParsedCmd: []parsedCommand{{Type: "search", Query: "foo", Path: "src"}}}
 	ti, _ := it.threadItem()
 	c, _ := callOf(ti, nil)

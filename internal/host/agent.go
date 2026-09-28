@@ -3,7 +3,6 @@ package host
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // typeEvent is a line carrying one of agtop's own events, as a session
@@ -147,7 +147,7 @@ func (s *server) answerAgent(conn agent.Conn, req headless.PermissionRequest, o 
 		var in struct {
 			Answers map[string]string `json:"answers"`
 		}
-		_ = json.Unmarshal(o.Input, &in)
+		_ = jsonx.Unmarshal(o.Input, &in)
 		answers := map[string][]string{}
 		for q, labels := range in.Answers {
 			answers[q] = strings.Split(labels, ", ")

@@ -2,8 +2,9 @@ package plugin
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"net"
 	"os"
 	"os/exec"
@@ -108,16 +109,16 @@ func (b *Broker) get(ctx context.Context) (*Conn, error) {
 // MCP passes one of Claude Code's MCP messages to a plugin and returns the
 // plugin's reply, or an error reply of its own: Claude Code always gets an
 // answer.
-func (b *Broker) MCP(plugin, session string, msg json.RawMessage) json.RawMessage {
+func (b *Broker) MCP(plugin, session string, msg jsontext.Value) jsontext.Value {
 	var head struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
+		ID     jsontext.Value `json:"id"`
+		Method string         `json:"method"`
 	}
-	_ = json.Unmarshal(msg, &head)
+	_ = jsonx.Unmarshal(msg, &head)
 	if len(head.ID) == 0 {
 		// A notification: nothing to pass on, and Claude Code expects an
 		// empty result.
-		return json.RawMessage(`{"jsonrpc":"2.0","result":{}}`)
+		return jsontext.Value(`{"jsonrpc":"2.0","result":{}}`)
 	}
 	timeout := 30 * time.Second
 	if head.Method == "tools/call" {
@@ -126,7 +127,7 @@ func (b *Broker) MCP(plugin, session string, msg json.RawMessage) json.RawMessag
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	c, err := b.get(ctx)
-	var res json.RawMessage
+	var res jsontext.Value
 	if err == nil {
 		res, err = c.CallRaw(ctx, "mcp", mustJSON(map[string]any{"plugin": plugin, "session": session, "message": msg}))
 	}
@@ -140,7 +141,7 @@ func (b *Broker) MCP(plugin, session string, msg json.RawMessage) json.RawMessag
 	return res
 }
 
-func mustJSON(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
+func mustJSON(v any) jsontext.Value {
+	b, _ := jsonx.Marshal(v)
 	return b
 }

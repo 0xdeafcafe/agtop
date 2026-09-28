@@ -2,7 +2,6 @@ package menubar
 
 import (
 	"bufio"
-	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 const (
@@ -53,7 +53,7 @@ func fakeHost(t *testing.T, id string, replay ...string) <-chan map[string]any {
 				sc := bufio.NewScanner(c)
 				for sc.Scan() {
 					var o map[string]any
-					_ = json.Unmarshal(sc.Bytes(), &o)
+					_ = jsonx.Unmarshal(sc.Bytes(), &o)
 					ops <- o
 				}
 			}()

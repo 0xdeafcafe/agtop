@@ -12,7 +12,7 @@ package plugind
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"log"
@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 )
@@ -206,15 +207,15 @@ func (b *broker) watch() {
 }
 
 // fromAgtop answers agtop itself: session hosts and the CLI.
-func (b *broker) fromAgtop(ctx context.Context, method string, params json.RawMessage) (any, error) {
+func (b *broker) fromAgtop(ctx context.Context, method string, params jsontext.Value) (any, error) {
 	switch method {
 	case "mcp":
 		var p struct {
-			Plugin  string          `json:"plugin"`
-			Session string          `json:"session"`
-			Message json.RawMessage `json:"message"`
+			Plugin  string         `json:"plugin"`
+			Session string         `json:"session"`
+			Message jsontext.Value `json:"message"`
 		}
-		if err := json.Unmarshal(params, &p); err != nil {
+		if err := jsonx.Unmarshal(params, &p); err != nil {
 			return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: err.Error()}
 		}
 		r := b.runner(p.Plugin)
@@ -235,9 +236,9 @@ func (b *broker) fromAgtop(ctx context.Context, method string, params json.RawMe
 type Status struct {
 	Name     string    `json:"name"`
 	State    string    `json:"state"` // starting, running, waiting, refused
-	PID      int       `json:"pid,omitempty"`
+	PID      int       `json:"pid,omitzero"`
 	Since    time.Time `json:"since"`
-	Restarts int       `json:"restarts,omitempty"`
+	Restarts int       `json:"restarts,omitzero"`
 	Error    string    `json:"error,omitempty"`
 }
 

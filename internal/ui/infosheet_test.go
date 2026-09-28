@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
 	"strings"
@@ -236,7 +236,7 @@ func TestBtwExportSubtask(t *testing.T) {
 	}
 	reply := func(body string) {
 		for id := range c.asks {
-			m.onReply(c, host.Reply{ID: id, Body: json.RawMessage(body)})
+			m.onReply(c, host.Reply{ID: id, Body: jsontext.Value(body)})
 		}
 	}
 	// /btw asks at once, in a panel over the Session: no sheet takes the keys.

@@ -1,7 +1,7 @@
 package convo
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 	"time"
 
@@ -93,8 +93,8 @@ func TestSubagentJobs(t *testing.T) {
 	now := time.Now()
 	s.Apply(host.Sent{Text: "go"}, now)
 	s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{
-		{Type: "tool_use", ID: "tA", Name: "Agent", Input: json.RawMessage(`{"description":"look","subagent_type":"Explore"}`)},
-		{Type: "tool_use", ID: "tB", Name: "Agent", Input: json.RawMessage(`{"description":"older"}`)},
+		{Type: "tool_use", ID: "tA", Name: "Agent", Input: jsontext.Value(`{"description":"look","subagent_type":"Explore"}`)},
+		{Type: "tool_use", ID: "tB", Name: "Agent", Input: jsontext.Value(`{"description":"older"}`)},
 	}}, now)
 	for _, l := range []string{
 		`{"type":"system","subtype":"task_started","task_id":"a1","tool_use_id":"tA","description":"look","subagent_type":"Explore","is_backgrounded":true,"task_type":"local_agent"}`,

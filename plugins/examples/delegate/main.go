@@ -13,12 +13,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -40,7 +41,7 @@ func main() {
 	<-conn.Done()
 }
 
-func handle(ctx context.Context, method string, params json.RawMessage) (any, error) {
+func handle(ctx context.Context, method string, params jsontext.Value) (any, error) {
 	switch method {
 	case "initialize":
 		return map[string]any{}, nil
@@ -48,11 +49,11 @@ func handle(ctx context.Context, method string, params json.RawMessage) (any, er
 		return map[string]any{"tools": tools}, nil
 	case "tools.call":
 		var in struct {
-			Session   string          `json:"session"`
-			Name      string          `json:"name"`
-			Arguments json.RawMessage `json:"arguments"`
+			Session   string         `json:"session"`
+			Name      string         `json:"name"`
+			Arguments jsontext.Value `json:"arguments"`
 		}
-		if err := json.Unmarshal(params, &in); err != nil {
+		if err := jsonx.Unmarshal(params, &in); err != nil {
 			return nil, err
 		}
 		text, err := call(ctx, in.Name, in.Arguments)
@@ -67,7 +68,7 @@ func handle(ctx context.Context, method string, params json.RawMessage) (any, er
 			Text    string `json:"text"`
 			State   string `json:"state"`
 		}
-		_ = json.Unmarshal(params, &ev)
+		_ = jsonx.Unmarshal(params, &ev)
 		mu.Lock()
 		switch ev.Type {
 		case "text", "result":
@@ -85,14 +86,14 @@ func handle(ctx context.Context, method string, params json.RawMessage) (any, er
 	return nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: "method not found: " + method}
 }
 
-func call(ctx context.Context, name string, args json.RawMessage) (string, error) {
+func call(ctx context.Context, name string, args jsontext.Value) (string, error) {
 	var in struct {
 		Prompt string `json:"prompt"`
 		Cwd    string `json:"cwd"`
 		ID     string `json:"id"`
 		Text   string `json:"text"`
 	}
-	_ = json.Unmarshal(args, &in)
+	_ = jsonx.Unmarshal(args, &in)
 	switch name {
 	case "start_agent":
 		var out struct {

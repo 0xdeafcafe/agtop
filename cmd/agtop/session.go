@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/ui"
 )
@@ -86,11 +86,7 @@ func sessionCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 1
 }
 
-func writeJSON(w io.Writer, v any) {
-	e := json.NewEncoder(w)
-	e.SetEscapeHTML(false)
-	_ = e.Encode(v)
-}
+func writeJSON(w io.Writer, v any) { _ = jsonx.Write(w, v) }
 
 // multi is a flag given any number of times.
 type multi []string

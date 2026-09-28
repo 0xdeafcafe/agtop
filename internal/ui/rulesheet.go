@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +15,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // --- /permissions and /hooks ---
@@ -245,7 +246,7 @@ func (m *Model) openHooks(c *hostConn, a *fleet.Agent) tea.Cmd {
 		if s.Get("disableAllHooks", &off) && off {
 			hs.off = true
 		}
-		var raw json.RawMessage
+		var raw jsontext.Value
 		if s.Get("hooks", &raw) {
 			hs.hooks = append(hs.hooks, parseHooks(raw, f)...)
 		}
@@ -264,9 +265,9 @@ func (m *Model) openHooks(c *hostConn, a *fleet.Agent) tea.Cmd {
 			path := filepath.Join(pl.InstallPath, "hooks", "hooks.json")
 			if b, err := os.ReadFile(path); err == nil {
 				var w struct {
-					Hooks json.RawMessage `json:"hooks"`
+					Hooks jsontext.Value `json:"hooks"`
 				}
-				if json.Unmarshal(b, &w) == nil {
+				if jsonx.Unmarshal(b, &w) == nil {
 					out = append(out, parseHooks(w.Hooks, settingsFile{"plugin " + pl.Name, path})...)
 				}
 			}
@@ -283,7 +284,7 @@ func (hs *hookSheet) sort() {
 	sort.SliceStable(hs.hooks, func(i, j int) bool { return hs.hooks[i].event < hs.hooks[j].event })
 }
 
-func parseHooks(raw json.RawMessage, f settingsFile) []hook {
+func parseHooks(raw jsontext.Value, f settingsFile) []hook {
 	var byEvent map[string][]struct {
 		Matcher string `json:"matcher"`
 		Hooks   []struct {
@@ -292,7 +293,7 @@ func parseHooks(raw json.RawMessage, f settingsFile) []hook {
 			Prompt  string `json:"prompt"`
 		} `json:"hooks"`
 	}
-	if json.Unmarshal(raw, &byEvent) != nil {
+	if jsonx.Unmarshal(raw, &byEvent) != nil {
 		return nil
 	}
 	var out []hook

@@ -2,7 +2,6 @@ package convo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // FileChange is everything this session did to one file.
@@ -71,7 +71,7 @@ func (s *Session) changesNow() []*FileChange {
 				Type    string `json:"type"`
 				Content string `json:"content"`
 			}
-			_ = json.Unmarshal(st.Result, &r)
+			_ = jsonx.Unmarshal(st.Result, &r)
 			stepRef := fmt.Sprintf("t%d:s:%s", t.N, st.ID)
 			if r.Type == "create" {
 				fc.New, fc.Content, fc.NewFrom = true, r.Content, stepRef

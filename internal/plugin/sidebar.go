@@ -2,9 +2,10 @@ package plugin
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"maps"
 	"os"
 	"path/filepath"
@@ -69,17 +70,15 @@ var sidebarIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 // ParseSidebar reads and checks what a plugin sent with sidebar.set,
 // cleaning every string of what a terminal would act on. Empty params, or
 // no sections, clear it.
-func ParseSidebar(plugin string, params json.RawMessage) (Sidebar, error) {
+func ParseSidebar(plugin string, params jsontext.Value) (Sidebar, error) {
 	s := Sidebar{Plugin: plugin}
 	if p := bytes.TrimSpace(params); len(p) > 0 && !bytes.Equal(p, []byte("null")) {
-		dec := json.NewDecoder(bytes.NewReader(p))
-		dec.DisallowUnknownFields()
 		var in struct {
 			Title    string                  `json:"title"`
 			Sections []SidebarSection        `json:"sections"`
 			Agents   map[string]SidebarAgent `json:"agents"`
 		}
-		if err := dec.Decode(&in); err != nil {
+		if err := jsonx.Unmarshal(p, &in, jsonx.RejectUnknown); err != nil {
 			return Sidebar{}, err
 		}
 		s.Title, s.Sections, s.Agents = in.Title, in.Sections, in.Agents
@@ -223,7 +222,7 @@ func SaveSidebar(s Sidebar) error {
 	if err := os.MkdirAll(SidebarRoot(), 0o700); err != nil {
 		return err
 	}
-	b, err := json.Marshal(s)
+	b, err := jsonx.Marshal(s)
 	if err != nil {
 		return err
 	}
@@ -329,7 +328,7 @@ func readSidebar(name string) (Sidebar, bool) {
 		return Sidebar{}, false
 	}
 	var s Sidebar
-	if json.Unmarshal(b, &s) != nil || s.Plugin != name || s.check() != nil {
+	if jsonx.Unmarshal(b, &s) != nil || s.Plugin != name || s.check() != nil {
 		return Sidebar{}, false
 	}
 	return s, true

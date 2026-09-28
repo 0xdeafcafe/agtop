@@ -1,7 +1,7 @@
 package state
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,7 +67,7 @@ func TestMigrateAccounts(t *testing.T) {
 	}
 	var raw map[string]any
 	b, _ = os.ReadFile(path)
-	if err := json.Unmarshal(b, &raw); err != nil {
+	if err := jsonx.Unmarshal(b, &raw); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := raw["accounts"]; !ok || raw["stayOnAccount"] != nil {

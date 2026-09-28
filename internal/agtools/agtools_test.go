@@ -1,7 +1,8 @@
 package agtools
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"strings"
 	"testing"
 )
@@ -9,7 +10,7 @@ import (
 func rpc(t *testing.T, msg string) map[string]any {
 	t.Helper()
 	var out map[string]any
-	if err := json.Unmarshal(Handle(json.RawMessage(msg)), &out); err != nil {
+	if err := jsonx.Unmarshal(Handle(jsontext.Value(msg)), &out); err != nil {
 		t.Fatal(err)
 	}
 	return out

@@ -1,12 +1,13 @@
 package claude
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // kinds is what each of Claude Code's tools does.
@@ -40,7 +41,7 @@ func KindOf(name string) tool.Kind {
 }
 
 // Call reads one of Claude Code's tool calls into agtop's own.
-func Call(id, name string, input json.RawMessage) tool.Call {
+func Call(id, name string, input jsontext.Value) tool.Call {
 	c := tool.Call{ID: id, Name: name, Kind: kinds[name], Raw: input}
 	var in struct {
 		Command      string `json:"command"`
@@ -75,7 +76,7 @@ func Call(id, name string, input json.RawMessage) tool.Call {
 			Question string `json:"question"`
 		} `json:"questions"`
 	}
-	_ = json.Unmarshal(input, &in)
+	_ = jsonx.Unmarshal(input, &in)
 	x := &c.Input
 	x.Description, x.Prompt = in.Description, in.Prompt
 	switch c.Kind {
@@ -130,7 +131,7 @@ var exitRe = regexp.MustCompile(`(?m)^(?:Error: )?Exit code (\d+)`)
 // Output reads a tool result into agtop's own: text is what Claude read,
 // result is Claude Code's structured account of the run (its
 // toolUseResult), when there is one.
-func Output(c tool.Call, text string, isError bool, result json.RawMessage) tool.Output {
+func Output(c tool.Call, text string, isError bool, result jsontext.Value) tool.Output {
 	o := tool.Output{CallID: c.ID, Text: text, IsError: isError, Raw: result}
 	var r struct {
 		Type            string       `json:"type"`
@@ -143,7 +144,7 @@ func Output(c tool.Call, text string, isError bool, result json.RawMessage) tool
 			TotalLines int `json:"totalLines"`
 		} `json:"file"`
 	}
-	_ = json.Unmarshal(result, &r)
+	_ = jsonx.Unmarshal(result, &r)
 	switch c.Kind {
 	case tool.Shell:
 		o.Stdout, o.Stderr = r.Stdout, r.Stderr

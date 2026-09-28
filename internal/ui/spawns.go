@@ -2,7 +2,7 @@ package ui
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // An agent a session ran from its shell (claude -p, codex exec) wrote a
@@ -327,16 +328,16 @@ func firstPrompt(path string) (string, time.Time) {
 			IsSidechain bool      `json:"isSidechain"`
 			Timestamp   time.Time `json:"timestamp"`
 			Message     struct {
-				Content json.RawMessage `json:"content"`
+				Content jsontext.Value `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(l, &line) != nil || line.Type != "user" || line.IsSidechain {
+		if jsonx.Unmarshal(l, &line) != nil || line.Type != "user" || line.IsSidechain {
 			continue
 		}
 		var text string
-		if json.Unmarshal(line.Message.Content, &text) != nil {
+		if jsonx.Unmarshal(line.Message.Content, &text) != nil {
 			var blocks []struct{ Type, Text string }
-			_ = json.Unmarshal(line.Message.Content, &blocks)
+			_ = jsonx.Unmarshal(line.Message.Content, &blocks)
 			for _, bl := range blocks {
 				if bl.Type == "text" {
 					text += bl.Text

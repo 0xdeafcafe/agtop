@@ -2,7 +2,7 @@ package efficiency
 
 import (
 	"bufio"
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,7 +43,7 @@ func LoadEvents() []Event {
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		var e Event
-		if json.Unmarshal(sc.Bytes(), &e) == nil && !e.At.IsZero() {
+		if jsonx.Unmarshal(sc.Bytes(), &e) == nil && !e.At.IsZero() {
 			out = append(out, e)
 		}
 	}
@@ -58,7 +58,7 @@ func AddEvent(e Event) error {
 	if e.At.IsZero() {
 		e.At = time.Now()
 	}
-	b, err := json.Marshal(e)
+	b, err := jsonx.Marshal(e)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func Observe(env *Env) map[string]Found {
 	eventsMu.Lock()
 	all := map[string]map[string]seen{}
 	if b, err := os.ReadFile(detectedPath()); err == nil {
-		_ = json.Unmarshal(b, &all)
+		_ = jsonx.Unmarshal(b, &all)
 	}
 	eventsMu.Unlock()
 	acct := env.Acct.ConfigDir
@@ -122,7 +122,7 @@ func Observe(env *Env) map[string]Found {
 	}
 	eventsMu.Lock()
 	all[acct] = now
-	if b, err := json.Marshal(all); err == nil {
+	if b, err := jsonx.Marshal(all); err == nil {
 		_ = writeFile(detectedPath(), b)
 	}
 	eventsMu.Unlock()
@@ -136,13 +136,13 @@ func Remember(env *Env, id string, f Found) {
 	defer eventsMu.Unlock()
 	all := map[string]map[string]seen{}
 	if b, err := os.ReadFile(detectedPath()); err == nil {
-		_ = json.Unmarshal(b, &all)
+		_ = jsonx.Unmarshal(b, &all)
 	}
 	if all[env.Acct.ConfigDir] == nil {
 		all[env.Acct.ConfigDir] = map[string]seen{}
 	}
 	all[env.Acct.ConfigDir][id] = seen{f.Status, f.Value}
-	if b, err := json.Marshal(all); err == nil {
+	if b, err := jsonx.Marshal(all); err == nil {
 		_ = writeFile(detectedPath(), b)
 	}
 }

@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -23,7 +24,7 @@ func askReq() *headless.PermissionRequest {
 		{"question": "Which rules first?", "header": "Lint", "options": []map[string]any{{"label": "no-floating-promises"}, {"label": "explicit return types"}}},
 		{"question": "Which packages?", "multiSelect": true, "options": []map[string]any{{"label": "mcp"}, {"label": "skills"}, {"label": "web"}}},
 	}}
-	b, _ := json.Marshal(in)
+	b, _ := jsonx.Marshal(in)
 	return &headless.PermissionRequest{ID: "q1", Tool: "AskUserQuestion", Input: b}
 }
 
@@ -71,7 +72,7 @@ func TestAnswerQuestions(t *testing.T) {
 		t.Fatal("enter on the review should reply")
 	}
 	// A lone question sends as soon as it's answered.
-	one, _ := json.Marshal(map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{{"label": "yes"}, {"label": "no"}}}}})
+	one, _ := jsonx.Marshal(map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{{"label": "yes"}, {"label": "no"}}}}})
 	c1 := &hostConn{}
 	if cmd, _ := m.questionKey(c1, &headless.PermissionRequest{ID: "q2", Tool: "AskUserQuestion", Input: one}, "2", true); cmd == nil {
 		t.Fatal("a single question should reply on its answer")
@@ -131,7 +132,7 @@ func TestCardsNeedFocus(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}}
 	c := &hostConn{sess: convo.New()}
 	c.sess.Apply(host.Sent{Text: "go"}, time.Now())
-	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)}}}, time.Now())
+	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: jsontext.Value(`{"command":"ls"}`)}}}, time.Now())
 	c.sess.Apply(headless.PermissionRequest{ID: "r1", Tool: "Bash", ToolUseID: "b1"}, time.Now())
 	for _, k := range []string{"y", "a", "n", "enter", "1"} {
 		if _, used := m.cardKey(c, k, true); used {
@@ -416,7 +417,7 @@ func TestArtifacts(t *testing.T) {
 	s := convo.New()
 	now := time.Now()
 	pub := func(id, ver string) {
-		in, _ := json.Marshal(map[string]string{"file_path": "/tmp/agtop-mode.html", "description": "design review"})
+		in, _ := jsonx.Marshal(map[string]string{"file_path": "/tmp/agtop-mode.html", "description": "design review"})
 		s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: id, Name: "Artifact", Input: in}}}, now)
 		s.Apply(headless.Message{Role: "user", Blocks: []headless.Block{{Type: "tool_result", ToolUseID: id,
 			Text: "Published /tmp/agtop-mode.html at https://claude.ai/artifact/2pdtkfBi4he8cVWra7qYq6 (Version " + ver + ")"}}}, now)
@@ -457,7 +458,7 @@ func TestQuestionCardDraws(t *testing.T) {
 		}},
 		{"question": "Theme?", "header": "Theme", "options": []map[string]any{{"label": "dark"}, {"label": "light"}}},
 	}}
-	b, _ := json.Marshal(in)
+	b, _ := jsonx.Marshal(in)
 	req := &headless.PermissionRequest{ID: "q9", Tool: "AskUserQuestion", Input: b}
 	m := &Model{}
 	c := &hostConn{cardFocus: true}
@@ -525,7 +526,7 @@ func TestQuestionCardFolds(t *testing.T) {
 	in := map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{
 		{"label": "one", "description": long}, {"label": "two", "description": long}, {"label": "three", "description": long},
 	}}}}
-	b, _ := json.Marshal(in)
+	b, _ := jsonx.Marshal(in)
 	req := &headless.PermissionRequest{ID: "q5", Tool: "AskUserQuestion", Input: b}
 	m := &Model{}
 	c := &hostConn{cardFocus: true}
@@ -544,7 +545,7 @@ func TestAnswersCarryPreview(t *testing.T) {
 		{"question": "Which?", "options": []map[string]any{{"label": "a", "preview": "A!"}, {"label": "b"}}},
 		{"question": "And?", "options": []map[string]any{{"label": "x"}}},
 	}}
-	b, _ := json.Marshal(in)
+	b, _ := jsonx.Marshal(in)
 	req := &headless.PermissionRequest{ID: "q3", Tool: "AskUserQuestion", Input: b}
 	_, qs := questions(req)
 	var got struct {
@@ -552,7 +553,7 @@ func TestAnswersCarryPreview(t *testing.T) {
 		Answers     map[string]string            `json:"answers"`
 		Annotations map[string]map[string]string `json:"annotations"`
 	}
-	_ = json.Unmarshal(answerInput(req, qs, map[string]string{"Which?": "a", "And?": "my own"}), &got)
+	_ = jsonx.Unmarshal(answerInput(req, qs, map[string]string{"Which?": "a", "And?": "my own"}), &got)
 	if len(got.Questions) != 2 || got.Answers["Which?"] != "a" || got.Answers["And?"] != "my own" {
 		t.Fatalf("answers: %+v", got)
 	}
@@ -753,8 +754,8 @@ func TestChipsKeepPickInView(t *testing.T) {
 func TestCardFocusCarriesOn(t *testing.T) {
 	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, host: c, paneFocus: true}
-	one, _ := json.Marshal(map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{{"label": "yes"}, {"label": "no"}}}}})
-	ask := func(tool, tu, id string, in json.RawMessage) {
+	one, _ := jsonx.Marshal(map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{{"label": "yes"}, {"label": "no"}}}}})
+	ask := func(tool, tu, id string, in jsontext.Value) {
 		c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: tu, Name: tool, Input: in}}}, time.Now())
 		c.sess.Apply(headless.PermissionRequest{ID: id, Tool: tool, ToolUseID: tu, Input: in}, time.Now())
 	}
@@ -770,7 +771,7 @@ func TestCardFocusCarriesOn(t *testing.T) {
 		t.Fatal("the card just answered shouldn't take the keys back")
 	}
 	c.sess.Apply(host.Answered{ID: "q1"}, time.Now())
-	ask("ExitPlanMode", "b2", "p1", json.RawMessage(`{"plan":"do it"}`))
+	ask("ExitPlanMode", "b2", "p1", jsontext.Value(`{"plan":"do it"}`))
 	m.paneDock(a, c, 100, 40)
 	if !c.cardFocus {
 		t.Fatal("the next card should have the keys")
@@ -781,7 +782,7 @@ func TestCardFocusCarriesOn(t *testing.T) {
 	m.paneKey(tea.KeyPressMsg{}, "n")
 	c.sess.Apply(host.Answered{ID: "p1"}, time.Now())
 	m.paneKey(tea.KeyPressMsg{}, "down")
-	ask("Bash", "b3", "r1", json.RawMessage(`{"command":"ls"}`))
+	ask("Bash", "b3", "r1", jsontext.Value(`{"command":"ls"}`))
 	m.paneDock(a, c, 100, 40)
 	if c.cardFocus || m.cardModal(c) {
 		t.Fatal("a key between cards should leave the keys in the box")

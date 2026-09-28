@@ -3,8 +3,8 @@ package ollama
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"net/http"
 	"os"
 	"strings"
@@ -59,7 +59,7 @@ var client = &http.Client{}
 func call(ctx context.Context, method, path string, body, out any) error {
 	var r *bytes.Reader
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := jsonx.Marshal(body)
 		if err != nil {
 			return err
 		}
@@ -82,7 +82,7 @@ func call(ctx context.Context, method, path string, body, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		var e struct{ Error string }
-		_ = json.NewDecoder(resp.Body).Decode(&e)
+		_ = jsonx.Decode(resp.Body, &e)
 		if e.Error == "" {
 			e.Error = resp.Status
 		}
@@ -91,7 +91,7 @@ func call(ctx context.Context, method, path string, body, out any) error {
 	if out == nil {
 		return nil
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return jsonx.Decode(resp.Body, out)
 }
 
 // names are the models the server has.

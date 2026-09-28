@@ -1,7 +1,8 @@
 package headless
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,7 +149,7 @@ loop:
 		Type    string                   `json:"type"`
 		Message struct{ Content string } `json:"message"`
 	}
-	_ = json.Unmarshal([]byte(lines[0]), &prompt)
+	_ = jsonx.Unmarshal([]byte(lines[0]), &prompt)
 	if prompt.Type != "user" || prompt.Message.Content != "say hi" {
 		t.Errorf("prompt: %s", lines[0])
 	}
@@ -158,13 +159,13 @@ loop:
 			Subtype   string `json:"subtype"`
 			RequestID string `json:"request_id"`
 			Response  struct {
-				Behavior           string          `json:"behavior"`
-				UpdatedInput       json.RawMessage `json:"updatedInput"`
-				UpdatedPermissions json.RawMessage `json:"updatedPermissions"`
+				Behavior           string         `json:"behavior"`
+				UpdatedInput       jsontext.Value `json:"updatedInput"`
+				UpdatedPermissions jsontext.Value `json:"updatedPermissions"`
 			} `json:"response"`
 		} `json:"response"`
 	}
-	_ = json.Unmarshal([]byte(lines[1]), &answer)
+	_ = jsonx.Unmarshal([]byte(lines[1]), &answer)
 	r := answer.Response
 	if answer.Type != "control_response" || r.Subtype != "success" || r.RequestID != "req-1" || r.Response.Behavior != "allow" ||
 		!strings.Contains(string(r.Response.UpdatedInput), "echo hi") || len(r.Response.UpdatedPermissions) == 0 {

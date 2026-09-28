@@ -2,7 +2,6 @@ package glm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // The GLM Coding Plan's limits, as ZCode itself reads them: api.z.ai for
@@ -46,7 +46,7 @@ func credentials(dir string) (key, baseURL string) {
 	var cfg struct {
 		Provider map[string]provider `json:"provider"`
 	}
-	if json.Unmarshal(b, &cfg) != nil {
+	if jsonx.Unmarshal(b, &cfg) != nil {
 		return "", ""
 	}
 	ids := make([]string, 0, len(cfg.Provider))
@@ -121,7 +121,7 @@ func (Adapter) Quota(ctx context.Context, p agent.Profile, _ agent.Account) (usa
 		return usage.Quota{}, errors.New("GLM quota: rate-limited")
 	}
 	var r quotaResponse
-	if err := json.Unmarshal(body, &r); err != nil {
+	if err := jsonx.Unmarshal(body, &r); err != nil {
 		return usage.Quota{}, fmt.Errorf("GLM quota: %s", res.Status)
 	}
 	if !r.Success {

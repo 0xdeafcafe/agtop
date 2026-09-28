@@ -4,9 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
 	"strconv"
 	"strings"
@@ -25,9 +26,9 @@ const (
 
 // Error is a JSON-RPC error, from the agent or for it.
 type Error struct {
-	Code    int             `json:"code"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Code    int            `json:"code"`
+	Message string         `json:"message"`
+	Data    jsontext.Value `json:"data,omitzero"`
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("acp: %s (%d)", e.Message, e.Code) }
@@ -37,12 +38,12 @@ var ErrClosed = errors.New("acp: connection closed")
 
 // wire is one JSON-RPC message, whichever kind it is.
 type wire struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *Error          `json:"error,omitempty"`
+	JSONRPC string         `json:"jsonrpc"`
+	ID      jsontext.Value `json:"id,omitzero"`
+	Method  string         `json:"method,omitempty"`
+	Params  jsontext.Value `json:"params,omitzero"`
+	Result  jsontext.Value `json:"result,omitzero"`
+	Error   *Error         `json:"error,omitempty"`
 }
 
 // rpc is a JSON-RPC 2.0 connection of newline-delimited JSON, both ways:
@@ -58,8 +59,8 @@ type rpc struct {
 	err     error
 	done    chan struct{}
 
-	notify func(method string, params json.RawMessage)
-	serve  func(id json.RawMessage, method string, params json.RawMessage)
+	notify func(method string, params jsontext.Value)
+	serve  func(id jsontext.Value, method string, params jsontext.Value)
 }
 
 func newRPC(w io.Writer) *rpc {
@@ -96,7 +97,7 @@ func (c *rpc) read(r io.Reader) {
 
 func (c *rpc) dispatch(line []byte) {
 	var m wire
-	if json.Unmarshal(line, &m) != nil {
+	if jsonx.Unmarshal(line, &m) != nil {
 		return // not ours: some agents log to stdout
 	}
 	switch {
@@ -127,7 +128,7 @@ func (c *rpc) dispatch(line []byte) {
 
 func (c *rpc) write(m wire) error {
 	m.JSONRPC = "2.0"
-	b, err := json.Marshal(m)
+	b, err := jsonx.Marshal(m)
 	if err != nil {
 		return err
 	}
@@ -137,11 +138,11 @@ func (c *rpc) write(m wire) error {
 	return err
 }
 
-func marshal(v any) (json.RawMessage, error) {
+func marshal(v any) (jsontext.Value, error) {
 	if v == nil {
 		return nil, nil
 	}
-	return json.Marshal(v)
+	return jsonx.Marshal(v)
 }
 
 // call asks the agent method with params and decodes its result into
@@ -161,7 +162,7 @@ func (c *rpc) call(ctx context.Context, method string, params, out any) error {
 	id := c.next
 	c.pending[id] = ch
 	c.mu.Unlock()
-	if err := c.write(wire{ID: json.RawMessage(strconv.FormatInt(id, 10)), Method: method, Params: p}); err != nil {
+	if err := c.write(wire{ID: jsontext.Value(strconv.FormatInt(id, 10)), Method: method, Params: p}); err != nil {
 		c.forget(id)
 		return err
 	}
@@ -176,7 +177,7 @@ func (c *rpc) call(ctx context.Context, method string, params, out any) error {
 		if out == nil || len(m.Result) == 0 {
 			return nil
 		}
-		return json.Unmarshal(m.Result, out)
+		return jsonx.Unmarshal(m.Result, out)
 	case <-ctx.Done():
 		c.forget(id)
 		_ = c.send("$/cancel_request", map[string]any{"requestId": id})
@@ -209,14 +210,14 @@ func (c *rpc) send(method string, params any) error {
 }
 
 // reply answers the agent's request id with result, or with e.
-func (c *rpc) reply(id json.RawMessage, result any, e *Error) error {
+func (c *rpc) reply(id jsontext.Value, result any, e *Error) error {
 	if e != nil {
 		return c.write(wire{ID: id, Error: e})
 	}
 	if result == nil {
 		result = struct{}{}
 	}
-	r, err := json.Marshal(result)
+	r, err := jsonx.Marshal(result)
 	if err != nil {
 		return err
 	}

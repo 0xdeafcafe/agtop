@@ -2,8 +2,9 @@ package claude
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,40 +25,41 @@ type Settings struct {
 
 type change struct {
 	keys []string
-	val  json.RawMessage // nil removes
+	val  jsontext.Value // nil removes
 }
 
 // object is a JSON object that remembers its key order.
 type object struct {
 	keys []string
-	vals map[string]json.RawMessage
+	vals map[string]jsontext.Value
 }
 
-func newObject() *object { return &object{vals: map[string]json.RawMessage{}} }
+func newObject() *object { return &object{vals: map[string]jsontext.Value{}} }
 
 func parseObject(b []byte) (*object, error) {
 	o := newObject()
 	if len(bytes.TrimSpace(b)) == 0 {
 		return o, nil
 	}
-	d := json.NewDecoder(bytes.NewReader(b))
-	t, err := d.Token()
+	d := jsonx.NewDecoder(bytes.NewReader(b))
+	t, err := d.ReadToken()
 	if err != nil {
 		return nil, err
 	}
-	if t != json.Delim('{') {
+	if t.Kind() != '{' {
 		return nil, errors.New("settings.json isn't a JSON object")
 	}
-	for d.More() {
-		t, err := d.Token()
+	for d.PeekKind() != '}' {
+		t, err := d.ReadToken()
 		if err != nil {
 			return nil, err
 		}
-		k, _ := t.(string)
-		var v json.RawMessage
-		if err := d.Decode(&v); err != nil {
+		k := t.String()
+		v, err := d.ReadValue()
+		if err != nil {
 			return nil, err
 		}
+		v = v.Clone() // the decoder reuses its buffer
 		if _, dup := o.vals[k]; !dup {
 			o.keys = append(o.keys, k)
 		}
@@ -66,7 +68,7 @@ func parseObject(b []byte) (*object, error) {
 	return o, nil
 }
 
-func (o *object) set(k string, v json.RawMessage) {
+func (o *object) set(k string, v jsontext.Value) {
 	if v == nil {
 		if _, ok := o.vals[k]; ok {
 			delete(o.vals, k)
@@ -95,16 +97,14 @@ func (o *object) bytes() []byte {
 	return b.Bytes()
 }
 
-// encode is json.Marshal without escaping <, > and &: a hook command like
+// encode is v in JSON, <, > and & unescaped: a hook command like
 // `a && b > out` must stay readable.
 func encode(v any) []byte {
-	var b bytes.Buffer
-	e := json.NewEncoder(&b)
-	e.SetEscapeHTML(false)
-	if e.Encode(v) != nil {
+	b, err := jsonx.Marshal(v)
+	if err != nil {
 		return nil
 	}
-	return bytes.TrimRight(b.Bytes(), "\n")
+	return b
 }
 
 // LoadSettings reads acct's settings.json; a missing file is an empty one.
@@ -142,7 +142,7 @@ func (s *Settings) Get(path string, v any) bool {
 	if !ok {
 		return false
 	}
-	return json.Unmarshal(raw, v) == nil
+	return jsonx.Unmarshal(raw, v) == nil
 }
 
 // String is Get for a string, "" when unset.
@@ -152,7 +152,7 @@ func (s *Settings) String(path string) string {
 	return v
 }
 
-func (s *Settings) lookup(keys []string) (json.RawMessage, bool) {
+func (s *Settings) lookup(keys []string) (jsontext.Value, bool) {
 	cur := s.raw
 	for i, k := range keys {
 		raw, ok := cur.vals[k]
@@ -175,7 +175,7 @@ func (s *Settings) lookup(keys []string) (json.RawMessage, bool) {
 // are created, and their other keys kept in order.
 func (s *Settings) Set(path string, v any) error {
 	keys := strings.Split(path, ".")
-	var val json.RawMessage
+	var val jsontext.Value
 	if v != nil {
 		if val = encode(v); val == nil {
 			return errors.New("can't write that value")
@@ -186,7 +186,7 @@ func (s *Settings) Set(path string, v any) error {
 	return nil
 }
 
-func setIn(o *object, keys []string, val json.RawMessage) {
+func setIn(o *object, keys []string, val jsontext.Value) {
 	k := keys[0]
 	if len(keys) == 1 {
 		o.set(k, val)
@@ -235,11 +235,11 @@ func (s *Settings) Save() error {
 	for _, c := range s.changes {
 		setIn(cur, c.keys, c.val)
 	}
-	var b bytes.Buffer
-	if err := json.Indent(&b, cur.bytes(), "", "  "); err != nil {
+	out, err := jsonx.Indent(cur.bytes())
+	if err != nil {
 		return err
 	}
-	b.WriteByte('\n')
+	b := bytes.NewBuffer(append(out, '\n'))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}

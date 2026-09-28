@@ -2,7 +2,6 @@ package claude
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 type Convo = agent.Convo
@@ -60,7 +60,7 @@ func ReadConvo(path string) (Convo, bool) {
 			Sidechain  bool      `json:"isSidechain"`
 			Kind       string    `json:"sessionKind"`
 		}
-		if json.Unmarshal(b, &l) != nil {
+		if jsonx.Unmarshal(b, &l) != nil {
 			continue
 		}
 		if l.Sidechain || l.Kind == "bg" || strings.HasPrefix(l.Entrypoint, "sdk") {
@@ -108,7 +108,7 @@ func ReadConvo(path string) (Convo, bool) {
 			Custom string `json:"customTitle"`
 			AI     string `json:"aiTitle"`
 		}
-		if json.Unmarshal(b, &l) != nil {
+		if jsonx.Unmarshal(b, &l) != nil {
 			continue
 		}
 		if l.Custom != "" {

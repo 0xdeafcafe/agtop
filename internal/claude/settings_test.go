@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,7 +41,7 @@ func TestSettingsKeepUnknownKeys(t *testing.T) {
 	}
 	var got map[string]any
 	b, _ := os.ReadFile(path)
-	if err := json.Unmarshal(b, &got); err != nil {
+	if err := jsonx.Unmarshal(b, &got); err != nil {
 		t.Fatal(err)
 	}
 	perms := got["permissions"].(map[string]any)
@@ -63,7 +63,7 @@ func TestSettingsKeepUnknownKeys(t *testing.T) {
 	_ = s.Save()
 	b, _ = os.ReadFile(path)
 	got = nil
-	_ = json.Unmarshal(b, &got)
+	_ = jsonx.Unmarshal(b, &got)
 	if _, ok := got["env"]; ok {
 		t.Errorf("empty env should be removed: %v", got)
 	}

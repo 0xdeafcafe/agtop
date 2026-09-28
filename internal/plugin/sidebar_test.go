@@ -1,8 +1,9 @@
 package plugin
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 const uuid = "8c76706f-1c00-4aed-9c6d-7509f3033943"
 
 func TestParseSidebar(t *testing.T) {
-	s, err := ParseSidebar("kanban", json.RawMessage(`{"title": "Kan\u001b[31mban",
+	s, err := ParseSidebar("kanban", jsontext.Value(`{"title": "Kan\u001b[31mban",
 		"sections": [{"title": "In Progress"}, {"title": "Wait‮ing\n"}],
 		"agents": {"`+uuid+`": {"name": "Fix \u001b]0;pwned\u0007login\tbug", "section": "In Progress", "order": 2}}}`))
 	if err != nil {
@@ -26,7 +27,7 @@ func TestParseSidebar(t *testing.T) {
 	}
 
 	for _, clear := range []string{``, `null`, `{}`, `{"sections": []}`} {
-		s, err := ParseSidebar("kanban", json.RawMessage(clear))
+		s, err := ParseSidebar("kanban", jsontext.Value(clear))
 		if err != nil || !s.Empty() {
 			t.Errorf("%q: %+v %v", clear, s, err)
 		}
@@ -36,12 +37,12 @@ func TestParseSidebar(t *testing.T) {
 	for i := range many {
 		many[i].Title = strings.Repeat("s", i+1)
 	}
-	manyJSON, _ := json.Marshal(map[string]any{"sections": many})
+	manyJSON, _ := jsonx.Marshal(map[string]any{"sections": many})
 	agents := map[string]SidebarAgent{}
 	for i := range MaxSidebarAgents + 1 {
 		agents[fmt.Sprintf("a%d", i)] = SidebarAgent{Section: "A"}
 	}
-	agentsJSON, _ := json.Marshal(map[string]any{"sections": []SidebarSection{{"A"}}, "agents": agents})
+	agentsJSON, _ := jsonx.Marshal(map[string]any{"sections": []SidebarSection{{"A"}}, "agents": agents})
 	bad := map[string]string{
 		"too many sections": string(manyJSON),
 		"too many agents":   string(agentsJSON),
@@ -55,7 +56,7 @@ func TestParseSidebar(t *testing.T) {
 		"unknown field":     `{"sections": [{"title": "A"}], "color": "red"}`,
 	}
 	for name, params := range bad {
-		if _, err := ParseSidebar("kanban", json.RawMessage(params)); err == nil {
+		if _, err := ParseSidebar("kanban", jsontext.Value(params)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
@@ -67,7 +68,7 @@ func TestSidebarsFollowApprovals(t *testing.T) {
 	if err := Approve(Plugin{Manifest: with, Dir: install(t, with, nil)}); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := ParseSidebar("kanban", json.RawMessage(`{"title": "Kanban", "sections": [{"title": "A"}], "agents": {"s1": {"name": "one", "section": "A"}}}`))
+	s, _ := ParseSidebar("kanban", jsontext.Value(`{"title": "Kanban", "sections": [{"title": "A"}], "agents": {"s1": {"name": "one", "section": "A"}}}`))
 	if err := SaveSidebar(s); err != nil {
 		t.Fatal(err)
 	}

@@ -2,7 +2,7 @@ package plugind
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"log"
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -33,7 +34,7 @@ type runner struct {
 	cmd      *exec.Cmd
 	exited   chan struct{}
 	pid      int
-	mcpInit  json.RawMessage // an MCP plugin's initialize result
+	mcpInit  jsontext.Value // an MCP plugin's initialize result
 	state    string
 	since    time.Time
 	restarts int
@@ -276,7 +277,7 @@ func (r *runner) handshake(p plugin.Plugin, conn *plugin.Conn) error {
 
 // fromMCPServer answers what an MCP server asks of its client: nothing it
 // asks for (sampling, roots, elicitation) is offered.
-func fromMCPServer(_ context.Context, method string, _ json.RawMessage) (any, error) {
+func fromMCPServer(_ context.Context, method string, _ jsontext.Value) (any, error) {
 	return nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: "agtop does not offer " + method}
 }
 
@@ -335,13 +336,13 @@ func (r *runner) wait(ctx context.Context) (*plugin.Conn, error) {
 
 // mcp answers one MCP message from a session for this plugin's server,
 // with the whole JSON-RPC reply.
-func (r *runner) mcp(ctx context.Context, session string, msg json.RawMessage) json.RawMessage {
+func (r *runner) mcp(ctx context.Context, session string, msg jsontext.Value) jsontext.Value {
 	var m struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
+		ID     jsontext.Value `json:"id"`
+		Method string         `json:"method"`
+		Params jsontext.Value `json:"params"`
 	}
-	if err := json.Unmarshal(msg, &m); err != nil {
+	if err := jsonx.Unmarshal(msg, &m); err != nil {
 		return rpcReply(nil, nil, &plugin.Error{Code: plugin.CodeParse, Message: "parse error"})
 	}
 	r.mu.Lock()
@@ -350,14 +351,14 @@ func (r *runner) mcp(ctx context.Context, session string, msg json.RawMessage) j
 	if !p.HasTools() {
 		return rpcReply(m.ID, nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: r.name + " has no tools"})
 	}
-	var res json.RawMessage
+	var res jsontext.Value
 	var err error
 	switch m.Method {
 	case "initialize":
 		var in struct {
 			ProtocolVersion string `json:"protocolVersion"`
 		}
-		_ = json.Unmarshal(m.Params, &in)
+		_ = jsonx.Unmarshal(m.Params, &in)
 		out := map[string]any{
 			"protocolVersion": in.ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
@@ -370,7 +371,7 @@ func (r *runner) mcp(ctx context.Context, session string, msg json.RawMessage) j
 					Instructions string `json:"instructions"`
 				}
 				r.mu.Lock()
-				_ = json.Unmarshal(r.mcpInit, &init)
+				_ = jsonx.Unmarshal(r.mcpInit, &init)
 				r.mu.Unlock()
 				if init.Instructions != "" {
 					out["instructions"] = init.Instructions
@@ -379,7 +380,7 @@ func (r *runner) mcp(ctx context.Context, session string, msg json.RawMessage) j
 		}
 		res = mustJSON(out)
 	case "ping":
-		res = json.RawMessage(`{}`)
+		res = jsontext.Value(`{}`)
 	case "tools/list":
 		var conn *plugin.Conn
 		if conn, err = r.wait(ctx); err == nil {
@@ -396,10 +397,10 @@ func (r *runner) mcp(ctx context.Context, session string, msg json.RawMessage) j
 				res, err = conn.CallRaw(ctx, "tools/call", m.Params)
 			} else {
 				var call struct {
-					Name      string          `json:"name"`
-					Arguments json.RawMessage `json:"arguments"`
+					Name      string         `json:"name"`
+					Arguments jsontext.Value `json:"arguments"`
 				}
-				_ = json.Unmarshal(m.Params, &call)
+				_ = jsonx.Unmarshal(m.Params, &call)
 				args := map[string]any{"session": session, "name": call.Name, "arguments": call.Arguments}
 				// Who's calling, so a plugin can tie the call to what it
 				// knows the session by.
@@ -424,7 +425,7 @@ func (r *runner) mcp(ctx context.Context, session string, msg json.RawMessage) j
 	return rpcReply(m.ID, res, nil)
 }
 
-func rpcReply(id, result json.RawMessage, e *plugin.Error) json.RawMessage {
+func rpcReply(id, result jsontext.Value, e *plugin.Error) jsontext.Value {
 	out := map[string]any{"jsonrpc": "2.0"}
 	if id != nil {
 		out["id"] = id
@@ -437,7 +438,7 @@ func rpcReply(id, result json.RawMessage, e *plugin.Error) json.RawMessage {
 	return mustJSON(out)
 }
 
-func mustJSON(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
+func mustJSON(v any) jsontext.Value {
+	b, _ := jsonx.Marshal(v)
 	return b
 }

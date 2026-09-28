@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"sort"
@@ -88,7 +88,7 @@ func LoadStats(acct Account) (Stats, error) {
 		} `json:"longestSession"`
 		HourCounts map[string]int `json:"hourCounts"`
 	}
-	if err := json.Unmarshal(b, &raw); err != nil {
+	if err := jsonx.Unmarshal(b, &raw); err != nil {
 		return Stats{}, err
 	}
 	s := Stats{Computed: raw.LastComputedDate, Sessions: raw.TotalSessions, Messages: raw.TotalMessages,

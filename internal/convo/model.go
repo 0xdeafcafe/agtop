@@ -8,7 +8,7 @@
 package convo
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -21,6 +21,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Status is where a step is.
@@ -42,11 +43,11 @@ type Step struct {
 	// Kind is what the call does, whichever agent made it; Tool and Input
 	// are in Claude Code's words.
 	Kind     tool.Kind
-	Input    json.RawMessage
+	Input    jsontext.Value
 	Status   Status
-	Output   string          // the tool result as text
-	Result   json.RawMessage // Claude Code's structured result (patches, stdout/stderr)
-	Exit     int             // Bash exit code, -1 when unknown
+	Output   string         // the tool result as text
+	Result   jsontext.Value // Claude Code's structured result (patches, stdout/stderr)
+	Exit     int            // Bash exit code, -1 when unknown
 	Start    time.Time
 	End      time.Time
 	Children []*Step // a subagent's own steps
@@ -606,7 +607,7 @@ func (s *Session) results(m headless.Message, now time.Time) {
 	for _, b := range m.Blocks {
 		if b.Type == "text" && strings.HasPrefix(strings.TrimSpace(b.Text), "<") {
 			if from, text, ok := Injected(b.Text); ok && s.Live() == nil {
-				raw, _ := json.Marshal(b.Text)
+				raw, _ := jsonx.Marshal(b.Text)
 				s.noteTask(raw)
 				s.Apply(host.Sent{Text: text}, now)
 				s.Turns[len(s.Turns)-1].From = from
@@ -736,7 +737,7 @@ func (s *Session) tasksFromInput(st *Step) {
 				Status     string `json:"status"`
 			} `json:"todos"`
 		}
-		if json.Unmarshal(st.Input, &in) != nil {
+		if jsonx.Unmarshal(st.Input, &in) != nil {
 			return
 		}
 		s.Tasks = s.Tasks[:0]
@@ -750,7 +751,7 @@ func (s *Session) tasksFromInput(st *Step) {
 			Subject    string `json:"subject"`
 			ActiveForm string `json:"activeForm"`
 		}
-		if json.Unmarshal(st.Input, &in) != nil {
+		if jsonx.Unmarshal(st.Input, &in) != nil {
 			return
 		}
 		for i := range s.Tasks {
@@ -785,7 +786,7 @@ func (s *Session) tasksFromResult(st *Step) {
 		Subject    string `json:"subject"`
 		ActiveForm string `json:"activeForm"`
 	}
-	_ = json.Unmarshal(st.Input, &in)
+	_ = jsonx.Unmarshal(st.Input, &in)
 	id := strconv.Itoa(len(s.Tasks) + 1)
 	if m := taskIDRe.FindStringSubmatch(st.Output); m != nil {
 		id = m[1]
@@ -871,29 +872,29 @@ func firstPlain(s string) string {
 // slimResult drops from a tool's result what nothing draws: the whole file
 // an edit or write was made to, and a read file's text, which its Output
 // already has. Else a long session holds a copy of every file it touched.
-func slimResult(k tool.Kind, raw json.RawMessage) json.RawMessage {
+func slimResult(k tool.Kind, raw jsontext.Value) jsontext.Value {
 	if len(raw) < 2<<10 {
 		return raw
 	}
-	var drop func(map[string]json.RawMessage) bool
+	var drop func(map[string]jsontext.Value) bool
 	switch k {
 	case tool.Edit, tool.Write:
-		drop = func(m map[string]json.RawMessage) bool {
+		drop = func(m map[string]jsontext.Value) bool {
 			_, ok := m["originalFile"]
 			delete(m, "originalFile")
 			return ok
 		}
 	case tool.Read:
-		drop = func(m map[string]json.RawMessage) bool {
-			var f map[string]json.RawMessage
-			if json.Unmarshal(m["file"], &f) != nil {
+		drop = func(m map[string]jsontext.Value) bool {
+			var f map[string]jsontext.Value
+			if jsonx.Unmarshal(m["file"], &f) != nil {
 				return false
 			}
 			_, text := f["content"]
 			_, image := f["base64"]
 			delete(f, "content")
 			delete(f, "base64")
-			b, err := json.Marshal(f)
+			b, err := jsonx.Marshal(f)
 			if err != nil || !text && !image {
 				return false
 			}
@@ -903,11 +904,11 @@ func slimResult(k tool.Kind, raw json.RawMessage) json.RawMessage {
 	default:
 		return raw
 	}
-	var m map[string]json.RawMessage
-	if json.Unmarshal(raw, &m) != nil || !drop(m) {
+	var m map[string]jsontext.Value
+	if jsonx.Unmarshal(raw, &m) != nil || !drop(m) {
 		return raw
 	}
-	b, err := json.Marshal(m)
+	b, err := jsonx.Marshal(m)
 	if err != nil {
 		return raw
 	}

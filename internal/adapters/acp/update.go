@@ -2,11 +2,12 @@ package acp
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // call is a tool call as the updates so far describe it.
@@ -20,31 +21,31 @@ type call struct {
 }
 
 // notified takes the agent's notifications.
-func (s *Session) notified(method string, params json.RawMessage) {
+func (s *Session) notified(method string, params jsontext.Value) {
 	switch method {
 	case "session/update":
 		var n struct {
-			Update json.RawMessage `json:"update"`
+			Update jsontext.Value `json:"update"`
 		}
-		if json.Unmarshal(params, &n) == nil {
+		if jsonx.Unmarshal(params, &n) == nil {
 			s.update(n.Update)
 		}
 	case "$/cancel_request":
 		var p struct {
-			RequestID json.RawMessage `json:"requestId"`
+			RequestID jsontext.Value `json:"requestId"`
 		}
-		if json.Unmarshal(params, &p) == nil {
+		if jsonx.Unmarshal(params, &p) == nil {
 			s.withdraw(p.RequestID)
 		}
 	}
 }
 
 // update turns one session/update into events.
-func (s *Session) update(raw json.RawMessage) {
+func (s *Session) update(raw jsontext.Value) {
 	var u struct {
 		SessionUpdate string `json:"sessionUpdate"`
 	}
-	if json.Unmarshal(raw, &u) != nil {
+	if jsonx.Unmarshal(raw, &u) != nil {
 		return
 	}
 	s.mu.Lock()
@@ -52,7 +53,7 @@ func (s *Session) update(raw json.RawMessage) {
 	switch u.SessionUpdate {
 	case "agent_message_chunk", "agent_thought_chunk", "user_message_chunk":
 		var c chunk
-		if json.Unmarshal(raw, &c) != nil {
+		if jsonx.Unmarshal(raw, &c) != nil {
 			return
 		}
 		role, kind := "assistant", event.Text
@@ -65,14 +66,14 @@ func (s *Session) update(raw json.RawMessage) {
 		s.chunk(role, kind, c.MessageID, c.Content)
 	case "tool_call", "tool_call_update":
 		var tc toolCall
-		if json.Unmarshal(raw, &tc) == nil {
+		if jsonx.Unmarshal(raw, &tc) == nil {
 			s.track(tc)
 		}
 	case "plan":
 		var p struct {
 			Entries []planEntry `json:"entries"`
 		}
-		if json.Unmarshal(raw, &p) != nil {
+		if jsonx.Unmarshal(raw, &p) != nil {
 			return
 		}
 		todos := make([]tool.TodoItem, len(p.Entries))
@@ -86,7 +87,7 @@ func (s *Session) update(raw json.RawMessage) {
 				Name string `json:"name"`
 			} `json:"availableCommands"`
 		}
-		if json.Unmarshal(raw, &p) != nil {
+		if jsonx.Unmarshal(raw, &p) != nil {
 			return
 		}
 		s.commands = s.commands[:0]
@@ -98,7 +99,7 @@ func (s *Session) update(raw json.RawMessage) {
 		var p struct {
 			CurrentModeID string `json:"currentModeId"`
 		}
-		if json.Unmarshal(raw, &p) == nil && p.CurrentModeID != s.mode {
+		if jsonx.Unmarshal(raw, &p) == nil && p.CurrentModeID != s.mode {
 			s.mode = p.CurrentModeID
 			s.emitInit()
 		}
@@ -106,7 +107,7 @@ func (s *Session) update(raw json.RawMessage) {
 		var p struct {
 			ConfigOptions []configOption `json:"configOptions"`
 		}
-		if json.Unmarshal(raw, &p) == nil {
+		if jsonx.Unmarshal(raw, &p) == nil {
 			s.setConfig(p.ConfigOptions)
 			s.emitInit()
 		}
@@ -118,7 +119,7 @@ func (s *Session) update(raw json.RawMessage) {
 				Currency string  `json:"currency"`
 			} `json:"cost"`
 		}
-		if json.Unmarshal(raw, &p) != nil {
+		if jsonx.Unmarshal(raw, &p) != nil {
 			return
 		}
 		if p.Cost != nil && (p.Cost.Currency == "" || strings.EqualFold(p.Cost.Currency, "USD")) {
@@ -126,7 +127,7 @@ func (s *Session) update(raw json.RawMessage) {
 		}
 		s.emit(event.Context{Tokens: p.Used, Window: p.Size})
 	default:
-		s.emit(event.Other{Adapter: s.o.Adapter, Type: u.SessionUpdate, Raw: append(json.RawMessage(nil), raw...)})
+		s.emit(event.Other{Adapter: s.o.Adapter, Type: u.SessionUpdate, Raw: append(jsontext.Value(nil), raw...)})
 	}
 }
 
@@ -197,7 +198,7 @@ func (s *Session) track(tc toolCall) *call {
 		c.c.Kind = kindOf(c.acpKind)
 	}
 	if raw := tc.RawInput; len(raw) > 0 && string(raw) != "null" {
-		c.c.Raw = append(json.RawMessage(nil), raw...)
+		c.c.Raw = append(jsontext.Value(nil), raw...)
 	}
 	if tc.Content != nil {
 		c.content = tc.Content
@@ -261,9 +262,9 @@ func kindOf(k string) tool.Kind {
 // readInput reads what it can of a call's input. ACP leaves rawInput to
 // each agent, so it looks for the names agents commonly use; locations and
 // diffs, which ACP does define, fill in the rest.
-func readInput(k tool.Kind, raw json.RawMessage, locs []location, content []toolContent) tool.Input {
+func readInput(k tool.Kind, raw jsontext.Value, locs []location, content []toolContent) tool.Input {
 	var m map[string]any
-	_ = json.Unmarshal(raw, &m)
+	_ = jsonx.Unmarshal(raw, &m)
 	str := func(keys ...string) string {
 		for _, key := range keys {
 			if v, ok := m[key].(string); ok && v != "" {
@@ -336,10 +337,10 @@ func readInput(k tool.Kind, raw json.RawMessage, locs []location, content []tool
 }
 
 // readOutput reads a finished call's result.
-func readOutput(id string, failed bool, content []toolContent, raw json.RawMessage) *tool.Output {
+func readOutput(id string, failed bool, content []toolContent, raw jsontext.Value) *tool.Output {
 	out := &tool.Output{CallID: id, IsError: failed}
 	if len(raw) > 0 && string(raw) != "null" {
-		out.Raw = append(json.RawMessage(nil), raw...)
+		out.Raw = append(jsontext.Value(nil), raw...)
 	}
 	var texts []string
 	for _, c := range content {
@@ -358,7 +359,7 @@ func readOutput(id string, failed bool, content []toolContent, raw json.RawMessa
 		return out
 	}
 	var v any
-	_ = json.Unmarshal(out.Raw, &v)
+	_ = jsonx.Unmarshal(out.Raw, &v)
 	switch v := v.(type) {
 	case string:
 		out.Text = v

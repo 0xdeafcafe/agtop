@@ -1,7 +1,7 @@
 package headless
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // FromNeutral is any agent's event as Claude Code would have said it:
@@ -43,7 +44,7 @@ func FromNeutral(ev event.Event) []Event {
 		req := PermissionRequest{ID: e.ID, Tool: name, Input: input, ToolUseID: e.Call.ID, Reason: e.Reason, BlockedPath: e.Path}
 		for _, o := range e.Options {
 			if o.Kind == event.AllowAlways {
-				req.Suggestions = json.RawMessage(`[{"agtop":"always"}]`)
+				req.Suggestions = jsontext.Value(`[{"agtop":"always"}]`)
 			}
 		}
 		return []Event{req}
@@ -62,7 +63,7 @@ func FromNeutral(ev event.Event) []Event {
 	case event.Compacted:
 		return []Event{Compact{Trigger: e.Trigger, PreTokens: e.Before, PostTokens: e.After}}
 	case event.Limited:
-		raw, _ := json.Marshal(map[string]any{"status": "rejected", "rateLimitType": e.Window, "resetsAt": e.ResetsAt.Unix()})
+		raw, _ := jsonx.Marshal(map[string]any{"status": "rejected", "rateLimitType": e.Window, "resetsAt": e.ResetsAt.Unix()})
 		return []Event{RateLimit{Status: "rejected", Raw: raw}}
 	case event.TaskStarted:
 		return []Event{TaskStarted{ID: e.ID, ToolUseID: e.CallID, Type: taskType(e.Kind), Description: e.Label, SubagentType: e.Agent, Backgrounded: e.Background}}
@@ -140,7 +141,7 @@ var claudeNames = map[tool.Kind]string{
 
 // ClaudeTool is a call as the Claude tool of its kind, with that tool's
 // input; a call of no Claude kind keeps its name and input.
-func ClaudeTool(c tool.Call) (string, json.RawMessage) {
+func ClaudeTool(c tool.Call) (string, jsontext.Value) {
 	in := c.Input
 	name, ok := claudeNames[c.Kind]
 	var v map[string]any
@@ -209,12 +210,12 @@ func ClaudeTool(c tool.Call) (string, json.RawMessage) {
 			v["description"] = c.Title
 		}
 	}
-	b, _ := json.Marshal(v)
+	b, _ := jsonx.Marshal(v)
 	return name, b
 }
 
 // claudeResult is an output as Claude Code's structured account of a run.
-func claudeResult(o *tool.Output) json.RawMessage {
+func claudeResult(o *tool.Output) jsontext.Value {
 	v := map[string]any{}
 	if o.Stdout != "" || o.Stderr != "" {
 		v["stdout"], v["stderr"] = o.Stdout, o.Stderr
@@ -231,7 +232,7 @@ func claudeResult(o *tool.Output) json.RawMessage {
 	if len(v) == 0 {
 		return nil
 	}
-	b, _ := json.Marshal(v)
+	b, _ := jsonx.Marshal(v)
 	return b
 }
 
@@ -261,7 +262,7 @@ func claudeTodos(todos []tool.TodoItem) []map[string]string {
 	return out
 }
 
-func questionInput(q event.Question) json.RawMessage {
+func questionInput(q event.Question) jsontext.Value {
 	var qs []map[string]any
 	for _, a := range q.Asks {
 		var opts []map[string]string
@@ -270,7 +271,7 @@ func questionInput(q event.Question) json.RawMessage {
 		}
 		qs = append(qs, map[string]any{"question": a.Text, "header": a.Header, "multiSelect": a.Multi, "options": opts})
 	}
-	b, _ := json.Marshal(map[string]any{"title": q.Title, "questions": qs})
+	b, _ := jsonx.Marshal(map[string]any{"title": q.Title, "questions": qs})
 	return b
 }
 

@@ -1,7 +1,7 @@
 package convo
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,13 +14,14 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 var t0 = time.Date(2026, 9, 23, 22, 0, 0, 0, time.UTC)
 
 func at(sec int) time.Time { return t0.Add(time.Duration(sec) * time.Second) }
 
-func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+func raw(v any) jsontext.Value { b, _ := jsonx.Marshal(v); return b }
 
 func toolUse(id, name string, in any) headless.Message {
 	return headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: id, Name: name, Input: raw(in)}}}

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,7 +91,7 @@ func TestDescribeAndTask(t *testing.T) {
 
 func TestPRNews(t *testing.T) {
 	var p []pr
-	_ = json.Unmarshal([]byte(`[{"number": 7, "unresolvedThreads": 1, "firstUnresolvedThreadURL": "u",
+	_ = jsonx.Unmarshal([]byte(`[{"number": 7, "unresolvedThreads": 1, "firstUnresolvedThreadURL": "u",
 		"checkRuns": [{"name": "lint", "conclusion": "failure"}]}]`), &p)
 	seen, news := prNews(p, nil, false)
 	if len(news) != 0 {

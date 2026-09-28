@@ -3,7 +3,7 @@ package acp
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +14,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // fake is the agent's end of the pipes, driven by the test.
@@ -30,7 +31,7 @@ func (f *fake) recv() wire {
 		f.t.Fatalf("agent read: %v", err)
 	}
 	var m wire
-	if err := json.Unmarshal(line, &m); err != nil {
+	if err := jsonx.Unmarshal(line, &m); err != nil {
 		f.t.Fatalf("agent read %q: %v", line, err)
 	}
 	return m
@@ -48,13 +49,13 @@ func (f *fake) expect(method string) wire {
 
 func (f *fake) send(v any) {
 	f.t.Helper()
-	b, _ := json.Marshal(v)
+	b, _ := jsonx.Marshal(v)
 	if _, err := f.out.Write(append(b, '\n')); err != nil {
 		f.t.Fatalf("agent write: %v", err)
 	}
 }
 
-func (f *fake) result(id json.RawMessage, result any) {
+func (f *fake) result(id jsontext.Value, result any) {
 	f.send(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 }
 
@@ -108,7 +109,7 @@ func open(t *testing.T, resume string, replay func(f *fake)) (*Session, *fake) {
 			Terminal bool            `json:"terminal"`
 		} `json:"clientCapabilities"`
 	}
-	_ = json.Unmarshal(m.Params, &ip)
+	_ = jsonx.Unmarshal(m.Params, &ip)
 	if ip.ProtocolVersion != 1 || !ip.ClientCapabilities.FS["readTextFile"] || !ip.ClientCapabilities.FS["writeTextFile"] || ip.ClientCapabilities.Terminal {
 		t.Fatalf("initialize params: %s", m.Params)
 	}
@@ -123,11 +124,11 @@ func open(t *testing.T, resume string, replay func(f *fake)) (*Session, *fake) {
 	}
 	m = f.expect(method)
 	var np struct {
-		Cwd        string            `json:"cwd"`
-		MCPServers []json.RawMessage `json:"mcpServers"`
-		SessionID  string            `json:"sessionId"`
+		Cwd        string           `json:"cwd"`
+		MCPServers []jsontext.Value `json:"mcpServers"`
+		SessionID  string           `json:"sessionId"`
 	}
-	_ = json.Unmarshal(m.Params, &np)
+	_ = jsonx.Unmarshal(m.Params, &np)
 	if !filepath.IsAbs(np.Cwd) || np.MCPServers == nil || np.SessionID != resume {
 		t.Fatalf("%s params: %s", method, m.Params)
 	}
@@ -191,7 +192,7 @@ func TestTurn(t *testing.T) {
 		SessionID string         `json:"sessionId"`
 		Prompt    []contentBlock `json:"prompt"`
 	}
-	_ = json.Unmarshal(prompt.Params, &pp)
+	_ = jsonx.Unmarshal(prompt.Params, &pp)
 	if pp.SessionID != "s1" || len(pp.Prompt) != 1 || pp.Prompt[0].Text != "hi" {
 		t.Fatalf("prompt: %s", prompt.Params)
 	}
@@ -448,7 +449,7 @@ func TestReadInput(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := readInput(tt.kind, json.RawMessage(tt.raw), tt.locs, tt.content); !reflect.DeepEqual(got, tt.want) {
+			if got := readInput(tt.kind, jsontext.Value(tt.raw), tt.locs, tt.content); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("got %+v, want %+v", got, tt.want)
 			}
 		})

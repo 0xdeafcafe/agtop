@@ -3,7 +3,7 @@ package codex
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"io"
 	"os"
 	"reflect"
@@ -14,6 +14,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // fake is an app-server on the far end of two pipes.
@@ -29,7 +30,7 @@ func (f *fake) line() []byte {
 	f.t.Helper()
 	for f.in.Scan() {
 		var m message
-		if err := json.Unmarshal(f.in.Bytes(), &m); err != nil {
+		if err := jsonx.Unmarshal(f.in.Bytes(), &m); err != nil {
 			f.t.Fatalf("bad line %q: %v", f.in.Text(), err)
 		}
 		if m.Method == "account/rateLimits/read" {
@@ -47,7 +48,7 @@ func (f *fake) expect(method string) message {
 	f.t.Helper()
 	b := f.line()
 	var m message
-	_ = json.Unmarshal(b, &m)
+	_ = jsonx.Unmarshal(b, &m)
 	if m.Method != method {
 		f.t.Fatalf("got %s, want %s", b, method)
 	}
@@ -56,13 +57,13 @@ func (f *fake) expect(method string) message {
 
 func (f *fake) write(v any) {
 	f.t.Helper()
-	b, _ := json.Marshal(v)
+	b, _ := jsonx.Marshal(v)
 	if _, err := f.out.Write(append(b, '\n')); err != nil {
 		f.t.Fatal(err)
 	}
 }
 
-func (f *fake) respond(id json.RawMessage, result any) {
+func (f *fake) respond(id jsontext.Value, result any) {
 	f.write(map[string]any{"id": id, "result": result})
 }
 
@@ -121,7 +122,7 @@ func next(t *testing.T, c *Conn) event.Event {
 func params(t *testing.T, m message) map[string]any {
 	t.Helper()
 	var p map[string]any
-	if err := json.Unmarshal(m.Params, &p); err != nil {
+	if err := jsonx.Unmarshal(m.Params, &p); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -289,7 +290,7 @@ func TestCommandApproval(t *testing.T) {
 			Decision string `json:"decision"`
 		} `json:"result"`
 	}
-	if b := f.line(); json.Unmarshal(b, &reply) != nil || reply.ID != "req-7" || reply.Result.Decision != "acceptForSession" {
+	if b := f.line(); jsonx.Unmarshal(b, &reply) != nil || reply.ID != "req-7" || reply.Result.Decision != "acceptForSession" {
 		t.Errorf("reply = %s", b)
 	}
 	if err := c.Answer("req-7", "accept"); err == nil {
@@ -332,7 +333,7 @@ func TestPermissionsAndQuestion(t *testing.T) {
 			Scope       string         `json:"scope"`
 		} `json:"result"`
 	}
-	_ = json.Unmarshal(b, &perm)
+	_ = jsonx.Unmarshal(b, &perm)
 	if perm.Result.Scope != "session" || perm.Result.Permissions["fileSystem"] == nil || len(perm.Result.Permissions) != 1 {
 		t.Errorf("permissions reply = %s", b)
 	}
@@ -356,7 +357,7 @@ func TestPermissionsAndQuestion(t *testing.T) {
 			Answers map[string]struct{ Answers []string } `json:"answers"`
 		} `json:"result"`
 	}
-	_ = json.Unmarshal(b, &ans)
+	_ = jsonx.Unmarshal(b, &ans)
 	if got := ans.Result.Answers["color"].Answers; !reflect.DeepEqual(got, []string{"Blue"}) {
 		t.Errorf("answer reply = %s", b)
 	}
@@ -365,7 +366,7 @@ func TestPermissionsAndQuestion(t *testing.T) {
 	f.request(3, "item/tool/call", map[string]any{})
 	b = f.line()
 	var ref message
-	_ = json.Unmarshal(b, &ref)
+	_ = jsonx.Unmarshal(b, &ref)
 	if string(ref.ID) != "3" || ref.Error == nil {
 		t.Errorf("refusal = %s", b)
 	}
@@ -409,14 +410,14 @@ func TestCallOf(t *testing.T) {
 		{"move", `{"type":"fileChange","id":"c","changes":[{"path":"/w/a","kind":{"type":"update","move_path":"/w/b"},"diff":""}]}`,
 			tool.Call{ID: "c", Name: "apply_patch", Kind: tool.Move, Input: tool.Input{Path: "/w/a", To: "/w/b"}}},
 		{"mcp", `{"type":"mcpToolCall","id":"d","server":"linear","tool":"get_issue","arguments":{"id":1}}`,
-			tool.Call{ID: "d", Name: "get_issue", Kind: tool.MCP, Input: tool.Input{Server: "linear", Tool: "get_issue"}, Raw: json.RawMessage(`{"id":1}`)}},
+			tool.Call{ID: "d", Name: "get_issue", Kind: tool.MCP, Input: tool.Input{Server: "linear", Tool: "get_issue"}, Raw: jsontext.Value(`{"id":1}`)}},
 		{"search", `{"type":"webSearch","id":"e","query":"","action":{"type":"search","query":"go generics"}}`,
 			tool.Call{ID: "e", Name: "web_search", Kind: tool.WebSearch, Input: tool.Input{Query: "go generics"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var it threadItem
-			if err := json.Unmarshal([]byte(tt.item), &it); err != nil {
+			if err := jsonx.Unmarshal([]byte(tt.item), &it); err != nil {
 				t.Fatal(err)
 			}
 			got, ok := callOf(it, nil)
@@ -500,7 +501,7 @@ func TestQuotaFromResponse(t *testing.T) {
 		"rateLimitsByLimitId":{"codex":{"limitId":"codex","primary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1},"secondary":null,"planType":"pro"},
 		"other":{"limitId":"other","normalModelSlug":"gpt-x","primary":{"usedPercent":50,"windowDurationMins":300,"resetsAt":null},"secondary":null}},
 		"accountId":"acct-1"}`
-	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+	if err := jsonx.Unmarshal([]byte(raw), &r); err != nil {
 		t.Fatal(err)
 	}
 	q := quotaFromResponse(r)
