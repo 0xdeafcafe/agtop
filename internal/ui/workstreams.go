@@ -10,43 +10,34 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 )
 
-// The Workstreams place: what is happening across every repo, said the way
-// you ask about it. Top, what is waiting on you: questions, turns that died
-// on an error, and turns that finished without asking. Below, each repo:
-// what its sessions are at, the last count they reported moving, how full
-// their context is, and what heavy work is running in the checkout.
+// The Overview place: what is happening, over time. Top, what is going
+// on now: each working session, what every subagent it runs last said,
+// and the heavy work in its checkout. Below, what happened, newest first:
+// what you asked, tasks ticked off, subagents started and finished (with
+// what they reported), turns ended, questions, commits, PRs and errors.
+// It is read from the transcripts, only while the place is open.
+
+// workSince is how far back the overview looks.
+const workSince = 24 * time.Hour
 
 type workState struct {
-	// pos is the row picked; an agent can be on two (waiting, and in its
-	// repo). sel is who that was, so a reshuffle keeps them picked.
+	// pos is the row picked; sel is its id, so new rows above it keep it
+	// picked.
 	pos  int
 	sel  string
-	args map[string]args // command lines looked up, by pid and start
-}
+	only string // show only this session's history, by key
 
-// workPick finds the row picked in order, following its agent if the rows
-// moved.
-func (m *Model) workPick(order []*fleet.Agent) int {
-	w := &m.work
-	if len(order) == 0 {
-		return -1
-	}
-	if w.pos < len(order) && order[w.pos].Key == w.sel {
-		return w.pos
-	}
-	for i, a := range order {
-		if a.Key == w.sel {
-			w.pos = i
-			return i
-		}
-	}
-	w.pos = min(w.pos, len(order)-1)
-	w.sel = order[w.pos].Key
-	return w.pos
+	tls     map[string]*claude.Timeline // by transcript path; the loader's alone
+	views   map[string]claude.TimelineView
+	loading bool
+	loaded  time.Time
+
+	args map[string]args // command lines looked up, by pid and start
 }
 
 type args struct {
@@ -54,8 +45,60 @@ type args struct {
 	at   time.Time
 }
 
-// workAgents are the sessions worth a row: open, busy or finished within
-// a day, not put away, and not a subagent.
+type workTimelinesMsg struct {
+	tls   map[string]*claude.Timeline
+	views map[string]claude.TimelineView
+}
+
+// workLoad reads what the open sessions' transcripts have gained.
+func (m *Model) workLoad() tea.Cmd {
+	w := &m.work
+	if w.loading {
+		return nil
+	}
+	w.loading = true
+	tls := w.tls
+	paths := map[string]string{}
+	for _, a := range m.workAgents() {
+		if a.TranscriptPath != "" {
+			paths[a.Key] = a.TranscriptPath
+		}
+	}
+	return func() tea.Msg {
+		if tls == nil {
+			tls = map[string]*claude.Timeline{}
+		}
+		since := time.Now().Add(-workSince)
+		views := map[string]claude.TimelineView{}
+		for key, p := range paths {
+			tl := tls[p]
+			if tl == nil {
+				tl = &claude.Timeline{}
+				tls[p] = tl
+			}
+			tl.Update(p, since)
+			views[key] = tl.View(since)
+		}
+		return workTimelinesMsg{tls: tls, views: views}
+	}
+}
+
+func (m *Model) onWorkTimelines(msg workTimelinesMsg) {
+	w := &m.work
+	w.loading, w.loaded = false, time.Now()
+	w.tls, w.views = msg.tls, msg.views
+}
+
+// workTick reads again every few seconds while the place is open.
+func (m *Model) workTick() tea.Cmd {
+	if m.mode != modeWork || time.Since(m.work.loaded) < 4*time.Second {
+		return nil
+	}
+	return m.workLoad()
+}
+
+// workAgents are the sessions worth reading: open, busy or at work within
+// the window, and not put away.
 func (m *Model) workAgents() []*fleet.Agent {
 	now := m.snap.At
 	var out []*fleet.Agent
@@ -63,192 +106,167 @@ func (m *Model) workAgents() []*fleet.Agent {
 		if a.Done || a.Past {
 			continue
 		}
-		if a.Live() || a.Busy() || a.PID != 0 || now.Sub(a.UpdatedAt) < 24*time.Hour {
+		if a.Live() || a.Busy() || a.PID != 0 || now.Sub(a.UpdatedAt) < workSince {
 			out = append(out, a)
 		}
 	}
 	return out
 }
 
-// waitingOnYou is what can't go on without you, the most stuck first:
-// turns that died, then questions, then turns that finished.
-func (m *Model) waitingOnYou(agents []*fleet.Agent) []*fleet.Agent {
-	now := m.snap.At
-	rank := func(a *fleet.Agent) int {
-		switch {
-		case a.Halted():
-			return 0
-		case a.NeedsYou() || a.Waiting():
-			return 1
-		case a.YourTurn(now):
-			return 2
-		}
-		return -1
-	}
-	var out []*fleet.Agent
-	for _, a := range agents {
-		if rank(a) >= 0 {
-			out = append(out, a)
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if ri, rj := rank(out[i]), rank(out[j]); ri != rj {
-			return ri < rj
-		}
-		return out[i].UpdatedAt.Before(out[j].UpdatedAt) // the longest waiting first
-	})
-	return out
+// workRow is one line of the place; a row with an agent can be picked.
+type workRow struct {
+	id   string
+	a    *fleet.Agent
+	line string
 }
 
-// workOrder is every selectable row, top to bottom.
-func (m *Model) workOrder() []*fleet.Agent {
-	agents := m.workAgents()
-	order := m.waitingOnYou(agents)
-	for _, g := range m.workRepos(agents) {
-		order = append(order, g.agents...)
+// running is whether a subagent is still at work, as far as the
+// transcripts tell: not ended, lately written, its session still there.
+func running(r claude.Run, a *fleet.Agent, now time.Time) bool {
+	return !r.Ended && now.Sub(r.Mod) < claude.RunStale && (a.Live() || a.Busy() || a.PID != 0)
+}
+
+// workNow is whether a session goes in Now: it is working, has work
+// running, or waits on you.
+func (m *Model) workNow(a *fleet.Agent, now time.Time) bool {
+	if a.Live() || a.Busy() || a.Halted() || a.NeedsYou() || a.Waiting() || a.YourTurn(now) {
+		return true
 	}
-	return order
-}
-
-type workRepo struct {
-	name, path string
-	agents     []*fleet.Agent
-	recent     time.Time
-}
-
-// workRepos groups sessions by repo, the busiest first.
-func (m *Model) workRepos(agents []*fleet.Agent) []workRepo {
-	by := map[string]*workRepo{}
-	for _, a := range agents {
-		g := by[a.Repo]
-		if g == nil {
-			name := filepath.Base(a.Repo)
-			if a.Repo == "" {
-				name = "No repository"
-			}
-			g = &workRepo{name: name, path: a.Repo}
-			by[a.Repo] = g
-		}
-		g.agents = append(g.agents, a)
-		if a.UpdatedAt.After(g.recent) {
-			g.recent = a.UpdatedAt
+	for _, r := range m.work.views[a.Key].Runs {
+		if running(r, a, now) {
+			return true
 		}
 	}
-	out := make([]workRepo, 0, len(by))
-	for _, g := range by {
-		sort.SliceStable(g.agents, func(i, j int) bool {
-			li, lj := g.agents[i].Live() || g.agents[i].Busy(), g.agents[j].Live() || g.agents[j].Busy()
-			if li != lj {
-				return li
-			}
-			return g.agents[i].UpdatedAt.After(g.agents[j].UpdatedAt)
-		})
-		out = append(out, *g)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].recent.After(out[j].recent) })
-	return out
+	return false
 }
 
-func (m *Model) workBody() []string {
+func (m *Model) workRows() []workRow {
 	w := min(m.w-4, 170)
 	now := m.snap.At
 	agents := m.workAgents()
-	pick := m.workPick(m.workOrder())
-	row := 0
-	next := func() bool { row++; return row-1 == pick }
-	var out []string
-	waiting := m.waitingOnYou(agents)
-	meta := "nothing"
-	if n := len(waiting); n > 0 {
-		meta = fmt.Sprint(n)
-	}
-	out = append(out, rule("Waiting on you", meta, w), "")
-	for _, a := range waiting {
-		out = append(out, m.workWaitingRow(a, w, next()))
-	}
-	if len(waiting) == 0 {
-		out = append(out, dim("  every session is working, or put away"))
-	}
-	for _, g := range m.workRepos(agents) {
-		out = append(out, "", rule(g.name, m.workRepoMeta(g), w))
-		for _, p := range m.workHeavy(g) {
-			out = append(out, "  "+p)
+	var rows []workRow
+	text := func(s string) { rows = append(rows, workRow{line: s}) }
+
+	var live []*fleet.Agent
+	for _, a := range agents {
+		if m.workNow(a, now) {
+			live = append(live, a)
 		}
-		out = append(out, "")
-		for _, a := range g.agents {
-			out = append(out, m.workRow(a, w, now, next()))
+	}
+	sort.SliceStable(live, func(i, j int) bool { return live[i].UpdatedAt.After(live[j].UpdatedAt) })
+	lanes := 0
+	for _, a := range live {
+		for _, r := range m.work.views[a.Key].Runs {
+			if running(r, a, now) {
+				lanes++
+			}
+		}
+	}
+	meta := "nothing running"
+	if len(live) > 0 {
+		meta = fmt.Sprintf("%d session%s", len(live), plural(len(live)))
+		if lanes > 0 {
+			meta += fmt.Sprintf(" · %d subagent%s working", lanes, plural(lanes))
+		}
+	}
+	text(rule("Now", meta, w))
+	text("")
+	for _, a := range live {
+		rows = append(rows, workRow{id: "s" + a.Key, a: a, line: m.workSession(a, w, now)})
+		for _, h := range m.workHeavy(a) {
+			text("     " + h)
+		}
+		for _, r := range m.workRuns(a, now) {
+			rows = append(rows, workRow{id: "r" + a.Key + r.ID, a: a, line: m.workRun(a, r, w, now)})
+		}
+	}
+	if len(live) == 0 {
+		text(dim("  no session is working, and none waits on you"))
+	}
+
+	type item struct {
+		a *fleet.Agent
+		e claude.Happening
+	}
+	var feed []item
+	for _, a := range agents {
+		if m.work.only != "" && a.Key != m.work.only {
+			continue
+		}
+		for _, e := range m.work.views[a.Key].Events {
+			if workShown(e) {
+				feed = append(feed, item{a, e})
+			}
+		}
+	}
+	sort.SliceStable(feed, func(i, j int) bool { return feed[i].e.At.After(feed[j].e.At) })
+	meta = "the last day"
+	if o := m.agentByKey(m.work.only); o != nil {
+		meta = "the last day of " + oneLine(o.DisplayName) + " · f for everyone"
+	}
+	text("")
+	text(rule("What happened", meta, w))
+	text("")
+	if len(feed) == 0 {
+		switch {
+		case m.work.views == nil:
+			text(dim("  reading transcripts…"))
+		default:
+			text(dim("  nothing yet"))
+		}
+	}
+	day := now.Local().YearDay()
+	for i, it := range feed {
+		if d := it.e.At.Local().YearDay(); d != day {
+			day = d
+			text(faint("  " + it.e.At.Local().Format("Monday 2 January")))
+		}
+		id := fmt.Sprintf("e%s%d%d", it.a.Key, it.e.At.UnixNano(), it.e.Kind)
+		rows = append(rows, workRow{id: id, a: it.a, line: m.workEvent(it.a, it.e, w)})
+		if i == 400 {
+			text(faint(fmt.Sprintf("  …and %d earlier", len(feed)-i-1)))
+			break
+		}
+	}
+	return rows
+}
+
+// workShown leaves out what says nothing: monitors ticking.
+func workShown(e claude.Happening) bool {
+	return !(e.Kind == claude.EvEnd && e.Run == "" && strings.HasPrefix(e.Text, "Monitor "))
+}
+
+// workRuns are a session's subagents worth a row: those working, and those
+// that ended in the last half hour.
+func (m *Model) workRuns(a *fleet.Agent, now time.Time) []claude.Run {
+	var out []claude.Run
+	for _, r := range m.work.views[a.Key].Runs {
+		if running(r, a, now) || r.Ended && now.Sub(r.EndedAt) < 30*time.Minute {
+			out = append(out, r)
 		}
 	}
 	return out
 }
 
-// workWaitingRow is one thing waiting on you: what it is, what it said,
-// how long it has waited, and the key that answers it.
-func (m *Model) workWaitingRow(a *fleet.Agent, w int, sel bool) string {
-	now := m.snap.At
-	var marker, what, key string
+// workSession is a session in Now: its state, then how far through its
+// tasks it is and how full its context.
+func (m *Model) workSession(a *fleet.Agent, w int, now time.Time) string {
+	marker := dim("◦")
+	state := dim("idle")
 	switch {
 	case a.Halted():
-		marker, what, key = paint(cRed, "✗"), paint(cRed, "stopped · "+oneLine(a.HaltReason())), "alt+g continue"
+		marker, state = paint(cRed, "✗"), paint(cRed, "stopped · "+oneLine(a.HaltReason()))
 	case a.NeedsYou() || a.Waiting():
 		q := oneLine(a.Needs)
 		if q == "" {
 			q = oneLine(a.Detail)
 		}
-		marker, what, key = paint(cYellow, "?"), paint(cText, q), "enter answer"
-	default:
-		d := oneLine(a.Detail)
-		if d == "" {
-			d = "finished its turn"
-		}
-		marker, what, key = paint(cGreen, "◆"), paint(cSub, d), "alt+g keep going"
-	}
-	tail := faint(right(age(now.Sub(a.UpdatedAt)), 6))
-	if sel {
-		tail = dim(right(key, 18)) + tail
-	}
-	left := " " + marker + " " + paint(cText+bold, fit(oneLine(a.DisplayName), 24)) + "  "
-	line := left + fit(what, w-cellw.String(left)-cellw.String(tail)-1) + " " + tail
-	if sel {
-		return highlight(line, w)
-	}
-	return line
-}
-
-// workRepoMeta says how many sessions share the repo, and warns when more
-// than one works in the same checkout, where they tread on each other.
-func (m *Model) workRepoMeta(g workRepo) string {
-	running, shared := 0, 0
-	for _, a := range g.agents {
-		if a.Live() || a.Busy() {
-			running++
-		}
-		if (a.Live() || a.Busy()) && g.path != "" && !strings.Contains(a.Cwd, "/.claude/worktrees/") && strings.HasPrefix(a.Cwd, g.path) {
-			shared++
-		}
-	}
-	meta := fmt.Sprintf("%d session%s · %d running", len(g.agents), plural(len(g.agents)), running)
-	if shared > 1 {
-		meta += paint(cYellow, fmt.Sprintf(" · %d in one checkout", shared))
-	}
-	return meta
-}
-
-// workRow is a session in its repo: its state, the last count it reported
-// moving, how full its context is and its PR.
-func (m *Model) workRow(a *fleet.Agent, w int, now time.Time, sel bool) string {
-	marker := dim("◦")
-	state := dim("idle " + age(now.Sub(a.UpdatedAt)))
-	switch {
-	case a.Halted():
-		marker, state = paint(cRed, "✗"), paint(cRed, "stopped · "+oneLine(a.HaltReason()))
-	case a.NeedsYou() || a.Waiting():
-		marker, state = paint(cYellow, "?"), paint(cYellow, "asking you")
+		marker, state = paint(cYellow, "?"), paint(cYellow, "asks: ")+paint(cText, q)
 	case a.YourTurn(now):
-		marker, state = paint(cGreen, "◆"), paint(cGreen, "your turn")
+		marker, state = paint(cGreen, "◆"), paint(cGreen, "your turn · ")+paint(cSub, m.workSaid(a))
 	case a.Live():
 		marker = paint(cOrange, spinner[(m.tick+len(a.ID))%len(spinner)])
-		state = oneLine(a.Detail)
+		state = m.workSaid(a)
 		if p := m.previews[a.Key].p; p.Doing != "" {
 			state = oneLine(p.Doing)
 		}
@@ -258,61 +276,280 @@ func (m *Model) workRow(a *fleet.Agent, w int, now time.Time, sel bool) string {
 		state = paint(cText, state)
 	case a.Busy():
 		marker, state = paint(cBlue, "◎"), paint(cBlue, lanesLine(a))
-	case a.PID == 0:
-		marker, state = faint("·"), faint("ended "+age(now.Sub(a.UpdatedAt))+" ago")
 	}
-	if n := a.Subagents; n > 0 && !a.Busy() {
-		state += dim(fmt.Sprintf(" · %d lane%s running", n, plural(n)))
+	var tail []string
+	planned, ticked := 0, 0
+	for _, e := range m.work.views[a.Key].Events {
+		if e.Run == "" && e.Kind == claude.EvPlan {
+			planned += e.N
+		}
+		if e.Run == "" && e.Kind == claude.EvTick {
+			ticked++
+		}
 	}
-
-	const ctxW, prW, ageW = 24, 10, 6
-	progW := min(46, max(24, w/3))
-	prog := ""
-	if p := a.Spend.Progress; p != "" && now.Sub(a.Spend.ProgressAt) < 24*time.Hour {
-		prog = paint(cSub, fit(p, progW-8)) + faint(right(age(now.Sub(a.Spend.ProgressAt)), 7))
+	if planned > 0 {
+		tail = append(tail, paint(cGreen, fmt.Sprintf("✓ %d/%d", min(ticked, planned), planned)))
 	}
-	ctx := ""
 	if a.Spend.Context > 0 {
 		pc := int(100 * a.Spend.Context / contextWindow(a))
 		c := dim
 		if pc >= 80 {
 			c = func(s string) string { return paint(cYellow, s) }
 		}
-		ctx = c(fmt.Sprintf("ctx %d%%", pc))
-		if a.Spend.Compacts > 0 {
-			ctx += faint(fmt.Sprintf(" · %d× compacted", a.Spend.Compacts))
+		tail = append(tail, c(fmt.Sprintf("ctx %d%%", pc)))
+	}
+	tail = append(tail, faint(right(age(now.Sub(a.UpdatedAt)), 5)))
+	t := strings.Join(tail, "  ")
+	left := " " + marker + " " + paint(cText+bold, fit(oneLine(a.DisplayName), 26)) + " "
+	return left + fit(state, w-cellw.String(left)-cellw.String(t)-2) + "  " + t
+}
+
+// workSaid is what a session last said: Claude Code's summary of it, or
+// its last turn's words when that summary is only a synthetic reply.
+func (m *Model) workSaid(a *fleet.Agent) string {
+	d := oneLine(a.Detail)
+	if d != "" && d != "No response requested." {
+		return d
+	}
+	ev := m.work.views[a.Key].Events
+	for i := len(ev) - 1; i >= 0; i-- {
+		if ev[i].Kind == claude.EvTurn && ev[i].Run == "" {
+			return oneLine(ev[i].Text)
 		}
 	}
-	pr := ""
-	if len(a.PRs) > 0 {
-		p := a.PRs[len(a.PRs)-1]
-		pr = dim(fmt.Sprintf("#%d", p.Number))
+	return ""
+}
+
+// ansiTrim cuts s to w cells, marking the cut.
+func ansiTrim(s string, w int) string {
+	if cellw.String(s) <= w {
+		return s
+	}
+	return fit(s, w)
+}
+
+// workRun is a subagent under its session: what it last said, and what it
+// is doing now if that came after.
+func (m *Model) workRun(a *fleet.Agent, r claude.Run, w int, now time.Time) string {
+	name := r.Name
+	if name == "" {
+		name = r.Type
+	}
+	indent := strings.Repeat("  ", r.Depth)
+	var marker, what, when string
+	switch {
+	case running(r, a, now):
+		marker = paint(cOrange, spinner[(m.tick+len(r.ID))%len(spinner)])
+		what = paint(cText, oneLine(r.Said))
+		if r.DoingAt.After(r.SaidAt) && r.Doing != "" {
+			if r.Said == "" {
+				what = paint(cSub, r.Doing)
+			} else {
+				what += dim(" · " + r.Doing)
+			}
+		}
+		last := r.SaidAt
+		if r.DoingAt.After(last) {
+			last = r.DoingAt
+		}
+		when = age(now.Sub(last))
+	default:
+		marker = workEndMark(r.Status)
+		what = paint(cSub, oneLine(r.Said))
+		when = "ended " + age(now.Sub(r.EndedAt))
+	}
+	if what == "" {
+		what = dim("starting")
+	}
+	tail := faint(right(when, 9))
+	left := "   " + indent + marker + " " + paint(cSub, fit(oneLine(name), 30)) + " "
+	return left + fit(what, w-cellw.String(left)-cellw.String(tail)-1) + " " + tail
+}
+
+func workEndMark(status string) string {
+	switch status {
+	case "failed":
+		return paint(cRed, "✗")
+	case "stopped":
+		return paint(cYellow, "⏸")
+	}
+	return paint(cGreen, "✓")
+}
+
+// workEvent is one thing that happened: when, whose, and what.
+func (m *Model) workEvent(a *fleet.Agent, e claude.Happening, w int) string {
+	whoW := min(46, max(20, w/3))
+	who := oneLine(a.DisplayName)
+	if e.Run != "" {
+		for _, r := range m.work.views[a.Key].Runs {
+			if r.ID == e.Run {
+				n := r.Name
+				if n == "" {
+					n = r.Type
+				}
+				// The subagent says more than its session, which the rows
+				// around it name.
+				sw := min(cellw.String(who), max(8, whoW*2/5))
+				who = strings.TrimRight(ansiTrim(who, sw), " ") + " › " + oneLine(n)
+			}
+		}
+	}
+	var mark, what string
+	text := oneLine(e.Text)
+	switch e.Kind {
+	case claude.EvPrompt:
+		mark, what = paint(cBlue, "›"), paint(cBlue, "you: ")+paint(cText, text)
+	case claude.EvTurn:
+		mark, what = dim("●"), paint(cSub, text)
+	case claude.EvPlan:
+		n := fmt.Sprintf("planned %d task%s", e.N, plural(e.N))
+		mark, what = dim("☐"), dim(n+": ")+paint(cSub, text)
+	case claude.EvTick:
+		mark, what = paint(cGreen, "✓"), paint(cText, text)
+	case claude.EvStart:
+		mark, what = paint(cBlue, "⇢"), dim("started ")+paint(cText, text)
+	case claude.EvEnd:
+		mark = workEndMark(e.Status)
 		switch {
-		case p.Checks.Failed > 0:
-			pr += paint(cRed, " ✗")
-		case p.Checks.Pending > 0:
-			pr += paint(cYellow, " ◌")
-		case p.Checks.Passed > 0:
-			pr += paint(cGreen, " ✓")
+		case e.Run == "":
+			mark, what = faint("·"), faint(text) // a background command
+		case e.Status == "failed":
+			what = paint(cRed, "failed: ") + paint(cText, text)
+		case e.Status == "stopped":
+			what = paint(cYellow, "stopped ") + paint(cSub, text)
+		default:
+			what = paint(cGreen, "done: ") + paint(cText, text)
+		}
+	case claude.EvAsk:
+		mark, what = paint(cYellow, "?"), paint(cYellow, "asked: ")+paint(cText, text)
+	case claude.EvCommit:
+		mark, what = paint(cOrange, "⎇"), paint(cText, text)
+	case claude.EvPR:
+		mark, what = paint(cBlue, "⇡"), paint(cBlue, "opened ")+paint(cText, text)
+	case claude.EvError:
+		mark, what = paint(cRed, "✗"), paint(cRed, "stopped: ")+paint(cText, text)
+	case claude.EvCompact:
+		mark, what = faint("↺"), faint("context compacted")
+	}
+	left := "  " + faint(e.At.Local().Format("15:04")) + "  " + paint(cSub, fit(who, whoW)) + " " + mark + " "
+	return left + fit(what, w-cellw.String(left))
+}
+
+// workPick finds the row picked, following it if rows moved; rows
+// without an agent can't be picked.
+func (m *Model) workPick(rows []workRow) int {
+	w := &m.work
+	if w.pos < len(rows) && rows[w.pos].id == w.sel && rows[w.pos].a != nil {
+		return w.pos
+	}
+	for i, r := range rows {
+		if r.id == w.sel && r.a != nil {
+			w.pos = i
+			return i
 		}
 	}
-	left := " " + marker + " " + paint(cText, fit(oneLine(a.DisplayName), 24)) + "  "
-	// Narrow, the columns go least useful first: the PR, the context, then
-	// the progress, so the state always has room.
-	cols := []string{fit(prog, progW), fit(ctx, ctxW), fit(pr, prW)}
-	var tail string
-	room := 0
-	for n := len(cols); n >= 0; n-- {
-		tail = strings.Join(cols[:n], "") + faint(right(age(now.Sub(a.UpdatedAt)), ageW))
-		if room = w - cellw.String(left) - cellw.String(tail) - 1; room >= 24 {
-			break
+	for d := 0; d < len(rows); d++ {
+		for _, i := range []int{w.pos + d, w.pos - d} {
+			if i >= 0 && i < len(rows) && rows[i].a != nil {
+				w.pos, w.sel = i, rows[i].id
+				return i
+			}
 		}
 	}
-	line := left + fit(state, room) + " " + tail
-	if sel {
-		return highlight(line, w)
+	return -1
+}
+
+func (m *Model) workBody() []string {
+	rows := m.workRows()
+	pick := m.workPick(rows)
+	w := min(m.w-4, 170)
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.line
+		if i == pick {
+			out[i] = highlight(r.line, w)
+		}
 	}
-	return line
+	return out
+}
+
+func (m *Model) workSelected() *fleet.Agent {
+	rows := m.workRows()
+	if i := m.workPick(rows); i >= 0 {
+		return rows[i].a
+	}
+	return nil
+}
+
+func (m *Model) workHint() string {
+	pairs := []string{"↑↓", "move", "enter", "open", "f", "only this session", "alt+g", "keep going", "esc", "back"}
+	if m.work.only != "" {
+		pairs[5] = "everyone"
+	}
+	if a := m.workSelected(); a != nil && a.Halted() {
+		pairs[7] = "continue"
+	}
+	return keysFit(m.w-4, pairs...)
+}
+
+func (m *Model) workKey(s string) tea.Cmd {
+	rows := m.workRows()
+	i := m.workPick(rows)
+	var a *fleet.Agent
+	if i >= 0 {
+		a = rows[i].a
+	}
+	move := func(d int) {
+		last := -1
+		for j, n := i+sign(d), 0; i >= 0 && j >= 0 && j < len(rows); j += sign(d) {
+			if rows[j].a != nil {
+				last = j
+				if n++; n == abs(d) {
+					break
+				}
+			}
+		}
+		if last >= 0 {
+			m.work.pos, m.work.sel = last, rows[last].id
+		}
+	}
+	switch s {
+	case "esc", "q", "left":
+		m.setView(placeAgents)
+	case "up", "k":
+		move(-1)
+	case "down", "j":
+		move(1)
+	case "pgup":
+		move(-10)
+	case "pgdown":
+		move(10)
+	case "f":
+		if m.work.only != "" || a == nil {
+			m.work.only = ""
+		} else {
+			m.work.only = a.Key
+		}
+	case "enter", "right":
+		if a != nil {
+			m.setView(placeAgents)
+			m.sel = a.Key
+			m.rebuild()
+			return m.focusPane(a)
+		}
+	case "alt+g", "g":
+		return m.keepGoing(a)
+	case "alt+d":
+		return m.markDone(a)
+	}
+	return nil
+}
+
+func sign(d int) int {
+	if d < 0 {
+		return -1
+	}
+	return 1
 }
 
 // lanesLine is a finished turn still waiting on its background work.
@@ -327,7 +564,7 @@ func lanesLine(a *fleet.Agent) string {
 	}
 	var parts []string
 	if agents > 0 {
-		parts = append(parts, fmt.Sprintf("%d lane%s running", agents, plural(agents)))
+		parts = append(parts, fmt.Sprintf("%d subagent%s running", agents, plural(agents)))
 	}
 	if other > 0 {
 		parts = append(parts, fmt.Sprintf("%d task%s running", other, plural(other)))
@@ -350,53 +587,44 @@ func contextWindow(a *fleet.Agent) int64 {
 var heavyTools = map[string]bool{"node": true, "pnpm": true, "npm": true, "npx": true, "bun": true, "yarn": true,
 	"go": true, "tsc": true, "tsgo": true, "vitest": true, "jest": true, "haven": true, "cargo": true, "make": true, "python3": true, "docker": true}
 
-// workHeavy lists the heavy work under a repo's live sessions: what it is,
-// whose it is, how long it has run and the cpu it takes.
-func (m *Model) workHeavy(g workRepo) []string {
+// workHeavy lists the heavy work under a live session: what it is, how
+// long it has run and the cpu it takes.
+func (m *Model) workHeavy(a *fleet.Agent) []string {
 	tab := m.snap.Table
-	if tab == nil {
+	if tab == nil || a.PID == 0 || !(a.Live() || a.Busy()) {
 		return nil
 	}
 	type heavy struct {
-		what, who string
-		cpu       float64
-		start     time.Time
+		what  string
+		cpu   float64
+		start time.Time
 	}
 	var found []heavy
 	seen := map[string]bool{}
-	for _, a := range g.agents {
-		if a.PID == 0 || !(a.Live() || a.Busy()) {
+	for _, n := range tab.Tree(a.PID) {
+		if n.Depth == 0 || !heavyTools[n.Comm] {
 			continue
 		}
-		for _, n := range tab.Tree(a.PID) {
-			if n.Depth == 0 || !heavyTools[n.Comm] {
-				continue
-			}
-			what := m.heavyWhat(n.PID, n.Start, n.Comm)
-			if what == "" {
-				continue
-			}
-			k := a.Key + what
-			if seen[k] {
-				continue // one line per kind of work per agent
-			}
-			seen[k] = true
-			found = append(found, heavy{what, oneLine(a.DisplayName), n.CPU, n.Start})
+		what := m.heavyWhat(n.PID, n.Start, n.Comm)
+		if what == "" || seen[what] {
+			continue // one line per kind of work
 		}
+		seen[what] = true
+		found = append(found, heavy{what, n.CPU, n.Start})
 	}
 	sort.Slice(found, func(i, j int) bool { return found[i].cpu > found[j].cpu })
 	var out []string
 	now := m.snap.At
 	for i, h := range found {
-		if i == 4 {
-			out = append(out, faint(fmt.Sprintf("  …and %d more", len(found)-4)))
+		if i == 3 {
+			out = append(out, faint(fmt.Sprintf("…and %d more", len(found)-3)))
 			break
 		}
 		cpu := dim(fmt.Sprintf("%.0f%%", h.cpu))
 		if h.cpu >= 100 {
 			cpu = paint(cYellow, fmt.Sprintf("%.0f%%", h.cpu))
 		}
-		out = append(out, paint(cOrange, "⚙ ")+paint(cText, h.what)+dim(" · "+h.who+" · "+age(now.Sub(h.start))+" · ")+cpu)
+		out = append(out, paint(cOrange, "⚙ ")+paint(cText, h.what)+dim(" · "+age(now.Sub(h.start))+" · ")+cpu)
 	}
 	return out
 }
@@ -442,52 +670,4 @@ func (m *Model) heavyWhat(pid int, start time.Time, comm string) string {
 		}
 	}
 	return ""
-}
-
-func (m *Model) workHint() string {
-	pairs := []string{"↑↓", "move", "enter", "open", "alt+g", "keep going", "alt+d", "done", "esc", "back"}
-	if a := m.workSelected(); a != nil && a.Halted() {
-		pairs[5] = "continue"
-	}
-	return keysFit(m.w-4, pairs...)
-}
-
-func (m *Model) workSelected() *fleet.Agent {
-	order := m.workOrder()
-	if i := m.workPick(order); i >= 0 {
-		return order[i]
-	}
-	return nil
-}
-
-func (m *Model) workKey(s string) tea.Cmd {
-	order := m.workOrder()
-	i := m.workPick(order)
-	a := m.workSelected()
-	move := func(d int) {
-		if i >= 0 {
-			m.work.pos = roundMove(i, d, len(order))
-			m.work.sel = order[m.work.pos].Key
-		}
-	}
-	switch s {
-	case "esc", "q", "left":
-		m.setView(placeAgents)
-	case "up", "k":
-		move(-1)
-	case "down", "j":
-		move(1)
-	case "enter", "right":
-		if a != nil {
-			m.setView(placeAgents)
-			m.sel = a.Key
-			m.rebuild()
-			return m.focusPane(a)
-		}
-	case "alt+g", "g":
-		return m.keepGoing(a)
-	case "alt+d":
-		return m.markDone(a)
-	}
-	return nil
 }

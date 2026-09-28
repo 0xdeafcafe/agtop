@@ -617,7 +617,7 @@ func (m *Model) barPlaces(q string) []barItem {
 		m.setZen(!m.zen)
 		return nil
 	})
-	add(paint(cSub, "◇"), "Workstreams", "what's waiting on you, and each repo's sessions", "workstreams waiting stuck progress repos", func(m *Model) tea.Cmd {
+	add(paint(cSub, "◇"), "Overview", "what's happening now, and what happened: tasks ticked, subagents' reports", "overview workstreams timeline history happened subagents tasks", func(m *Model) tea.Cmd {
 		m.goView(placeWork)
 		return nil
 	})
@@ -950,7 +950,7 @@ func (m *Model) here() *spot {
 func (s *spot) where() string {
 	switch s.view {
 	case placeWork:
-		return "Workstreams"
+		return "Overview"
 	case placeEff:
 		return "Efficiency › " + effPages[s.effPage%len(effPages)]
 	case placeMachine:

@@ -211,7 +211,7 @@ type Model struct {
 	measuring bool            // temp work is being measured in the background
 	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
 	eff       effState        // the Efficiency place
-	work      workState       // the Workstreams place
+	work      workState       // the Overview place
 	reaper    fleet.Reaper    // ends what agents leave running when they stop
 	squeezing bool            // transcripts are being compressed in the background
 
@@ -670,6 +670,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeEff && !m.eff.loading && time.Since(m.eff.loaded) > 30*time.Second {
 			cmds = append(cmds, m.effLoad(true)) // new transcript lines, every 30s while it's open
 		}
+		if c := m.workTick(); c != nil {
+			cmds = append(cmds, c) // the overview reads on while it's open
+		}
 		if m.mode == modeCleanup && time.Since(m.clean.checked) > 2*time.Minute {
 			cmds = append(cmds, m.scanWorktrees()) // looked at when the view opens, and every 2 minutes while it's open
 		}
@@ -693,6 +696,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case effLoadedMsg:
 		m.onEffLoaded(msg)
+		return m, nil
+	case workTimelinesMsg:
+		m.onWorkTimelines(msg)
 		return m, nil
 	case effRanMsg:
 		return m, m.onEffRan(msg)
@@ -1065,7 +1071,7 @@ func (m *Model) pointerShape(want string) tea.Cmd {
 
 // viewNames are the places at the top: ctrl+\ moves between them, and tab
 // moves within one (the list and its Session, or a place's pages).
-var viewNames = []string{"Agents", "Workstreams", "Efficiency", "Machine", "Settings"}
+var viewNames = []string{"Agents", "Overview", "Efficiency", "Machine", "Settings"}
 
 // The places, in viewNames' order.
 const (
