@@ -5,6 +5,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 )
@@ -25,5 +26,30 @@ func BenchmarkPastReal(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		Adapter{}.Past(p)
+	}
+}
+
+// BenchmarkReadHeadReal reads every rollout's head afresh, as agtop does
+// for each as it starts.
+func BenchmarkReadHeadReal(b *testing.B) {
+	u, err := user.Current()
+	if err != nil {
+		b.Skip(err)
+	}
+	var paths []string
+	filepath.WalkDir(filepath.Join(u.HomeDir, ".codex", "sessions"), func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && filepath.Ext(p) == ".jsonl" {
+			paths = append(paths, p)
+		}
+		return nil
+	})
+	if len(paths) == 0 {
+		b.Skip("no rollouts")
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		for _, p := range paths {
+			readHead(p, time.Time{})
+		}
 	}
 }

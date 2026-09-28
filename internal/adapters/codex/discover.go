@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
@@ -138,8 +140,13 @@ func readHead(path string, mod time.Time) (agent.Session, bool) {
 	defer f.Close()
 	s := agent.Session{ID: idFromName(filepath.Base(path)), Transcript: path, UpdatedAt: mod}
 	meta, sub, n := false, false, 0
-	_ = readLines(f, func(b []byte) bool {
+	_ = readHeadLines(f, func(b []byte) bool {
 		n++
+		// Most lines are ones a head doesn't need, some of them big: those
+		// are passed over on their type alone, never decoded.
+		if n > 1 && !headWants(b, meta, s) {
+			return n < headLines && (s.Name == "" || s.Model == "")
+		}
 		var l rolloutLine
 		if jsonx.Unmarshal(b, &l) != nil {
 			return n < headLines
@@ -193,6 +200,35 @@ func readHead(path string, mod time.Time) (agent.Session, bool) {
 	return s, true
 }
 
+var (
+	typeMark     = []byte(`"type":"`)
+	payloadMark  = []byte(`"payload":`)
+	userRoleMark = []byte(`"role":"user"`)
+)
+
+// headWants is whether readHead needs a rollout line, from its type: the
+// session's meta once, a turn's context until the model is known, and a
+// user's message until the session is named.
+func headWants(b []byte, meta bool, s agent.Session) bool {
+	// Codex writes the line's type before its payload; a line that isn't
+	// written so is decoded to see.
+	head := b[:min(len(b), 160)]
+	i := bytes.Index(head, typeMark)
+	if p := bytes.Index(head, payloadMark); i < 0 || p >= 0 && p < i {
+		return true
+	}
+	t := b[i+len(typeMark):]
+	switch {
+	case bytes.HasPrefix(t, []byte(`session_meta"`)):
+		return !meta
+	case bytes.HasPrefix(t, []byte(`turn_context"`)):
+		return s.Model == ""
+	case bytes.HasPrefix(t, []byte(`response_item"`)):
+		return s.Name == "" && bytes.Contains(b, userRoleMark)
+	}
+	return false
+}
+
 // idFromName is the thread id at the end of a rollout's file name,
 // rollout-2026-09-22T17-01-09-<uuid>.jsonl.
 func idFromName(name string) string {
@@ -229,7 +265,25 @@ const nameLen = 80
 
 // oneLine is text on one line, cut to nameLen characters.
 func oneLine(text string) string {
-	s := strings.Join(strings.Fields(text), " ")
+	// Only as much as could show is collapsed: a prompt can be a whole
+	// pasted file.
+	var b strings.Builder
+	n, gap := 0, false
+	for _, c := range text {
+		if unicode.IsSpace(c) {
+			gap = b.Len() > 0
+			continue
+		}
+		if gap {
+			b.WriteByte(' ')
+			n, gap = n+1, false
+		}
+		b.WriteRune(c)
+		if n++; n > nameLen {
+			break
+		}
+	}
+	s := b.String()
 	if r := []rune(s); len(r) > nameLen {
 		return strings.TrimSpace(string(r[:nameLen-1])) + "…"
 	}

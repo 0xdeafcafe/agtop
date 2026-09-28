@@ -497,3 +497,25 @@ func TestLiveIsWhatWasWrittenLately(t *testing.T) {
 		t.Errorf("live = %v", states)
 	}
 }
+
+// oneLine collapses only the start of a prompt, and names it just as
+// collapsing the whole of it would.
+func TestOneLineMatchesWhole(t *testing.T) {
+	whole := func(text string) string {
+		s := strings.Join(strings.Fields(text), " ")
+		if r := []rune(s); len(r) > nameLen {
+			return strings.TrimSpace(string(r[:nameLen-1])) + "…"
+		}
+		return s
+	}
+	words := []string{"fix", "the", " ", "\n\n", "\t", "é", "日本語", "x", "  very  ", "long-word-" + strings.Repeat("y", 70)}
+	for i := range 2000 {
+		var b strings.Builder
+		for j := range i % 60 {
+			b.WriteString(words[(i*7+j*13)%len(words)])
+		}
+		if got, want := oneLine(b.String()), whole(b.String()); got != want {
+			t.Fatalf("oneLine(%q) = %q, want %q", b.String(), got, want)
+		}
+	}
+}

@@ -41,21 +41,31 @@ type rolloutLine struct {
 // command outputs can run to several megabytes.
 const maxLine = 256 << 20
 
-// readers keeps readLines' 1MB buffers: listing past threads reads the
-// head of every rollout, and a fresh buffer each was most of what agtop
-// allocated.
-var readers sync.Pool
+// readers keeps readLines' 1MB buffers, and headReaders readHeadLines'
+// 64KB ones: listing past threads reads the head of every rollout, and a
+// fresh buffer each was most of what agtop allocated. A head stops after a
+// few hundred lines, so a smaller buffer reads less past them.
+var readers, headReaders sync.Pool
 
 // readLines calls fn with each line of r, however long, until fn says to
 // stop.
 func readLines(r io.Reader, fn func([]byte) bool) error {
-	br, _ := readers.Get().(*bufio.Reader)
+	return readLinesWith(&readers, 1<<20, r, fn)
+}
+
+// readHeadLines is readLines for reading only the start of r.
+func readHeadLines(r io.Reader, fn func([]byte) bool) error {
+	return readLinesWith(&headReaders, 64<<10, r, fn)
+}
+
+func readLinesWith(pool *sync.Pool, size int, r io.Reader, fn func([]byte) bool) error {
+	br, _ := pool.Get().(*bufio.Reader)
 	if br == nil {
-		br = bufio.NewReaderSize(r, 1<<20)
+		br = bufio.NewReaderSize(r, size)
 	} else {
 		br.Reset(r)
 	}
-	defer func() { br.Reset(nil); readers.Put(br) }()
+	defer func() { br.Reset(nil); pool.Put(br) }()
 	var long []byte
 	for {
 		chunk, err := br.ReadSlice('\n')
