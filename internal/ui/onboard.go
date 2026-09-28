@@ -26,6 +26,16 @@ var steps = []struct{ id, what, key string }{
 	{"zen", "Try zen", "ctrl+z"},
 	{"keys", "See all the keys", "?"},
 	{"advisor", "Let the advisor find savings", "#advisor on"},
+	{"mackeys", "Give Terminal.app the ⌘ keys", "#mackeys on"},
+}
+
+// activeSteps are the steps that apply here: the ⌘ keys only in
+// Terminal.app, which keeps them for itself.
+func activeSteps() []struct{ id, what, key string } {
+	if inAppleTerminal() {
+		return steps
+	}
+	return slices.DeleteFunc(slices.Clone(steps), func(s struct{ id, what, key string }) bool { return s.id == "mackeys" })
 }
 
 // didStep ticks off a Getting started step.
@@ -39,14 +49,14 @@ func (m *Model) didStep(id string) {
 	}
 	o.Steps = append(o.Steps, id)
 	_ = m.store.SaveConfig()
-	if m.stepsDone() == len(steps) && !o.Hidden {
+	if m.stepsDone() == len(activeSteps()) && !o.Hidden {
 		m.flash("✓ all set · ? for keys", false)
 	}
 }
 
 func (m *Model) stepsDone() int {
 	n := 0
-	for _, s := range steps {
+	for _, s := range activeSteps() {
 		if slices.Contains(m.store.Config.Onboarding.Steps, s.id) {
 			n++
 		}
@@ -57,15 +67,16 @@ func (m *Model) stepsDone() int {
 // showCard is whether Getting started is under the list: until every step
 // is done, or you put it away (#tips off).
 func (m *Model) showCard() bool {
-	return m.onboard && !m.store.Config.Onboarding.Hidden && m.stepsDone() < len(steps)
+	return m.onboard && !m.store.Config.Onboarding.Hidden && m.stepsDone() < len(activeSteps())
 }
 
 // startedLines is Getting started, w wide, with a blank line above.
 func (m *Model) startedLines(w int) []string {
 	w -= 4 // the keys end where the box's top-right label does
 	done := m.store.Config.Onboarding.Steps
-	out := []string{"", " " + paint(cOrange+bold, "✦ Getting started") + faint(fmt.Sprintf("  %d/%d", m.stepsDone(), len(steps)))}
-	for _, s := range steps {
+	active := activeSteps()
+	out := []string{"", " " + paint(cOrange+bold, "✦ Getting started") + faint(fmt.Sprintf("  %d/%d", m.stepsDone(), len(active)))}
+	for _, s := range active {
 		gap := w - cellw.String(s.what) - cellw.String(s.key) - 2
 		if slices.Contains(done, s.id) {
 			out = append(out, " "+paint(cGreen, "✓ ")+faint(s.what))

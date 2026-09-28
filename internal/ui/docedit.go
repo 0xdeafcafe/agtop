@@ -438,7 +438,7 @@ func (e *docEditor) key(k tea.KeyPressMsg, s string) (act, copied string, used b
 		return "", "", true
 	case "ctrl+s", "super+s":
 		return "save", "", true
-	case "ctrl+z", "super+z":
+	case "ctrl+z", "super+z", "ctrl+_", "ctrl+/":
 		e.undoStep(&e.undo, &e.redo)
 		return "", "", true
 	case "ctrl+y", "ctrl+shift+z", "super+shift+z":

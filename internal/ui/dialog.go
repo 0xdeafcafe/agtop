@@ -538,7 +538,7 @@ func (m *Model) dialogEdit(k tea.KeyPressMsg, s string) {
 		if len(d.input) > 0 {
 			d.input = d.input[:len(d.input)-1]
 		}
-	case "ctrl+u":
+	case "ctrl+u", "super+backspace":
 		d.input = nil
 	default:
 		if k.Text != "" && k.Mod&^tea.ModShift == 0 {

@@ -41,6 +41,7 @@ var fleetCommands = []headless.Command{
 	{Name: "profile", Description: "the profile the next session starts under: which providers it runs, and what it does at a limit; alone says which", ArgumentHint: "[name]"},
 	{Name: "efficiency", Description: "where tokens go, and the savers that cut them (#eff, #savers)", ArgumentHint: "[timeline|savers|findings]"},
 	{Name: "advisor", Description: "let Haiku look over your agents' figures now and then for what would save tokens or time, with Opus checking; now looks at once", ArgumentHint: "[on|off|now]"},
+	{Name: "mackeys", Description: "send Terminal.app's ⌘← → ⌘⌫ ⌘⌦ ⌘Z on to agtop through Hammerspoon, installed with brew if need be; alone says whether it's on", ArgumentHint: "[on|off]"},
 	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
 	{Name: "account", Description: "switch to another account, of any agent; alone opens Accounts", ArgumentHint: "[name]"},
 	{Name: "hibernate", Description: "stop finished agents after this many idle minutes; 0 turns it off", ArgumentHint: "<minutes>"},

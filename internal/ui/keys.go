@@ -216,7 +216,7 @@ func (m *Model) editKey(k tea.KeyPressMsg, s string) bool {
 		if len(m.input) > 0 {
 			m.input = m.input[:len(m.input)-1]
 		}
-	case "ctrl+u":
+	case "ctrl+u", "super+backspace":
 		m.input = m.input[:0]
 	case "ctrl+w", "alt+backspace":
 		t := strings.TrimRight(string(m.input), " ")
@@ -985,6 +985,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		m.openDirPicker()
 	case "advisor":
 		return m.advCommand(arg)
+	case "mackeys":
+		return m.macKeysCommand(arg)
 	case "statusline":
 		m.openTopBar(a)
 	case "efficiency":
