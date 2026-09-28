@@ -15,7 +15,14 @@ type Input struct {
 	Found    map[string]efficiency.Found
 	Findings []efficiency.Finding // what the Efficiency place already says
 	Top      []efficiency.SessionCost
+	Briefs   []string // a brief of each of Top, by index; "" where there's none
 	Known    []string // the advisor's own findings so far
+	// Settled are the IDs Opus decided on or you put away: never checked
+	// again.
+	Settled []string
+	// Reserve, when set, counts each review against the day's cap before
+	// it runs; an error stops the reviews.
+	Reserve func() error
 	// Pending are earlier candidates Opus hasn't checked yet: checked
 	// before new ones worth less.
 	Pending []Finding
@@ -99,7 +106,7 @@ func Digest(in Input) string {
 		}
 	}
 
-	p("\n## Costliest sessions (transcripts are JSONL; grep them, read slices)")
+	p("\n## Costliest sessions")
 	for i, s := range in.Top {
 		kind := ""
 		if s.Sub {
@@ -111,7 +118,10 @@ func Digest(in Input) string {
 		if s.WorstReads >= efficiency.RereadAt {
 			p("   read %s ×%d", s.WorstRead, s.WorstReads)
 		}
-		p("   %s", s.Path)
+		if i < len(in.Briefs) && in.Briefs[i] != "" {
+			p("   brief: %s", in.Briefs[i])
+		}
+		p("   transcript: %s", s.Path)
 	}
 	return b.String()
 }

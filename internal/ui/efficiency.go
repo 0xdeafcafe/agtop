@@ -166,7 +166,7 @@ func (m *Model) onEffLoaded(msg effLoadedMsg) {
 		e.gains, e.gainsAt = msg.gains, msg.gainsAt
 	}
 	e.base = append(efficiency.Findings(e.view, e.found), msg.memory...)
-	e.findings = m.withAdvice(e.base)
+	m.advRefresh()
 	e.finding = min(e.finding, max(0, len(e.findings)-1))
 	if e.cursor >= len(e.view.Points) {
 		e.cursor = -1

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,13 +19,14 @@ import (
 type advState struct {
 	rec     *advisor.Record
 	running bool
-	checked time.Time // when the tick last asked whether a pass is due
+	checked time.Time          // when the tick last asked whether a pass is due
+	cancel  context.CancelFunc // stops the pass running
 }
 
 type advRanMsg struct {
-	store   *efficiency.Store
-	skipped bool // not due: nothing ran
-	res     advisor.Result
+	rec   *advisor.Record // as saved, when a pass ran
+	fresh []advisor.Finding
+	err   error
 }
 
 // advCheck is how often the tick asks whether a pass is due; the question
@@ -39,37 +41,72 @@ func (m *Model) advRecord() *advisor.Record {
 	return a.rec
 }
 
-// advTick starts a pass when the advisor is on and one is due.
+// advTick starts a pass when the advisor is on and one may be due.
 func (m *Model) advTick() tea.Cmd {
-	if !m.store.Config.Advisor || m.solo != "" {
+	if !m.store.Config.Advisor || m.solo != "" || m.offline {
 		return nil
 	}
 	a := &m.eff.adv
-	rec := m.advRecord()
-	if a.running || time.Since(a.checked) < advCheck || !rec.LastRun.IsZero() && time.Since(rec.LastRun) < advisor.Gap {
+	if a.checked.IsZero() {
+		a.checked = time.Now() // not while agtop is still starting up
+	}
+	if a.running || time.Since(a.checked) < advCheck {
 		return nil
 	}
 	a.checked = time.Now()
-	return m.advRun(false)
+	if !advisor.Enabled() {
+		// Turned off in another agtop: don't run, and don't write it back
+		// on when this one saves its config.
+		m.store.Config.Advisor = false
+		return nil
+	}
+	// Read again: another agtop may have run one since.
+	a.rec = advisor.Load()
+	if !a.rec.LastRun.IsZero() && time.Since(a.rec.LastRun) < advisor.Gap {
+		return nil
+	}
+	cmd, _ := m.advRun(false)
+	return cmd
 }
 
-// advRun runs a pass: when it's due, or regardless when force is set.
-func (m *Model) advRun(force bool) tea.Cmd {
+// advRun runs a pass: when it's due, or regardless when force is set. It
+// says why not when it can't start one.
+func (m *Model) advRun(force bool) (tea.Cmd, string) {
 	a := &m.eff.adv
+	if a.running {
+		return nil, "the advisor is already looking"
+	}
+	if m.offline {
+		return nil, "the advisor doesn't run offline"
+	}
 	// It runs Claude Code, as whoever ~/.claude is signed in as: only when
 	// the profile here lists Claude Code and one of its logins has room.
 	// Another login can't be used without switching ~/.claude.
 	_, ok := m.store.Config.ProfileFor(m.launchDir, "").PickFor(string(loginsKind), m.room())
 	acct := m.store.Config.ActiveAccount()
-	if a.running || !ok || acct.ConfigDir == "" {
-		return nil
+	if !ok || acct.ConfigDir == "" {
+		return nil, "the advisor runs on Claude Code: it isn't in this profile, or every login is nearly out"
 	}
 	a.running = true
-	rec := m.advRecord()
-	since, known, pending, reviews := rec.LastRun, rec.Known(), rec.Pending(), rec.ReviewsLeft(time.Now())
-	due := advisor.Record{LastRun: since} // the goroutine's own, not the one the UI changes
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancel = cancel
+	// The Efficiency place's figures when it has them; otherwise read for
+	// this pass and let go after, so the advisor keeps nothing in memory.
 	store := m.eff.store
 	return func() tea.Msg {
+		defer cancel()
+		unlock, ok := advisor.Lock()
+		if !ok {
+			if force {
+				return advRanMsg{err: errors.New("another agtop is already looking")}
+			}
+			return advRanMsg{} // another agtop is running one
+		}
+		defer unlock()
+		rec := advisor.Load()
+		if !force && (!rec.LastRun.IsZero() && time.Since(rec.LastRun) < advisor.Gap || !advisor.Active(acct, rec.LastRun)) {
+			return advRanMsg{}
+		}
 		if store == nil {
 			store = efficiency.Open()
 		}
@@ -78,37 +115,68 @@ func (m *Model) advRun(force bool) tea.Cmd {
 		week := efficiency.NewQuery(efficiency.Ranges[1], now)
 		week.Accounts = []string{acct.ConfigDir}
 		fresh := week
-		if since.After(fresh.From) {
-			fresh.From, fresh.Daily = since, false
+		if rec.LastRun.After(fresh.From) {
+			fresh.From, fresh.Daily = rec.LastRun, false
 		}
-		if !force && !due.Due(now, store.View(fresh).Total.Req) {
-			return advRanMsg{store: store, skipped: true}
+		if !force && !rec.Due(now, store.View(fresh).Total.Req) {
+			return advRanMsg{}
 		}
 		v := store.View(week)
+		if v.Total.Req == 0 {
+			return advRanMsg{err: errors.New("nothing to look at in the last week")}
+		}
+		if err := advisor.Begin(now); err != nil {
+			return advRanMsg{err: err}
+		}
 		found := efficiency.Observe(efficiency.LoadEnv(acct))
-		in := advisor.Input{View: v, Found: found, Findings: efficiency.Findings(v, found), Top: store.TopSessions(week, 8), Known: known, Pending: pending}
-		return advRanMsg{store: store, res: advisor.Pass(context.Background(), acct, in, reviews)}
-	}
+		in := advisor.Input{View: v, Found: found, Findings: efficiency.Findings(v, found), Top: store.TopSessions(week, 8),
+			Known: rec.Known(), Settled: rec.Settled(), Pending: rec.Pending(),
+			Reserve: func() error { return advisor.Reserve(time.Now()) }}
+		res := advisor.Pass(ctx, acct, in, rec.ReviewsLeft(now))
+		// Merged into what's on disk now, under the lock: you may have put
+		// one away while it ran.
+		rec = advisor.Load()
+		got := rec.Merge(res)
+		if err := rec.Save(); err != nil && res.Err == nil {
+			res.Err = err
+		}
+		return advRanMsg{rec: rec, fresh: got, err: res.Err}
+	}, ""
 }
 
 func (m *Model) onAdvRan(msg advRanMsg) {
 	a := &m.eff.adv
-	a.running = false
-	if m.eff.store == nil {
-		m.eff.store = msg.store
+	a.running, a.cancel = false, nil
+	if msg.rec == nil {
+		if msg.err != nil {
+			m.flash("advisor: "+msg.err.Error(), true)
+		}
+		return // nothing ran
 	}
-	if msg.skipped {
-		return
-	}
-	rec := m.advRecord()
-	fresh := rec.Merge(msg.res)
-	_ = rec.Save()
-	m.eff.findings = m.withAdvice(m.eff.base)
+	a.rec = msg.rec
+	m.advRefresh()
 	switch {
-	case len(fresh) > 0:
-		m.flash("✦ advisor: "+fresh[0].Title+" · #eff findings", false)
-	case msg.res.Err != nil && m.mode == modeEff:
-		m.flash("advisor: "+msg.res.Err.Error(), true)
+	case len(msg.fresh) > 0:
+		m.flash("✦ advisor: "+msg.fresh[0].Title+" · #eff findings", false)
+	case msg.err != nil && m.mode == modeEff:
+		m.flash("advisor: "+msg.err.Error(), true)
+	}
+}
+
+// advRefresh puts the advisor's findings in again, keeping the one chosen:
+// new ones go first, and x mustn't put away one you didn't pick.
+func (m *Model) advRefresh() {
+	e := &m.eff
+	var was string
+	if e.finding < len(e.findings) {
+		was = e.findings[e.finding].Title
+	}
+	e.findings = m.withAdvice(e.base)
+	e.finding = min(e.finding, max(0, len(e.findings)-1))
+	for i, f := range e.findings {
+		if f.Title == was {
+			e.finding = i
+		}
 	}
 }
 
@@ -147,9 +215,10 @@ func (m *Model) advDismiss() {
 	if e.finding >= len(e.findings) || e.findings[e.finding].Advice == "" {
 		return
 	}
-	rec := m.advRecord()
+	rec := advisor.Load() // another agtop may have added to it
 	rec.Dismiss(e.findings[e.finding].Advice)
 	_ = rec.Save()
+	m.eff.adv.rec = rec
 	e.findings = m.withAdvice(e.base)
 	e.finding = min(e.finding, max(0, len(e.findings)-1))
 	m.flash("put away · the advisor won't raise it again", false)
@@ -187,26 +256,36 @@ func (m *Model) advCommand(arg string) tea.Cmd {
 		c.Advisor = true
 		_ = m.store.SaveConfig()
 		m.didStep("advisor")
-		m.flash("✦ advisor on · it looks after your agents have done some work, at most every 3h", false)
-		m.eff.findings = m.withAdvice(m.eff.base)
+		m.advRefresh()
 		m.eff.adv.checked = time.Now()
-		return m.advRun(false)
+		cmd, why := m.advRun(false)
+		if why != "" {
+			m.flash("✦ advisor on · but "+why, true)
+			return nil
+		}
+		m.flash("✦ advisor on · it looks after your agents have done some work, at most every 3h", false)
+		return cmd
 	case "off":
 		c.Advisor = false
 		_ = m.store.SaveConfig()
-		m.eff.findings = m.withAdvice(m.eff.base)
+		m.didStep("advisor") // a no is an answer too: Getting started stops asking
+		if cancel := m.eff.adv.cancel; cancel != nil {
+			cancel() // what it has already spent is counted; nothing more
+		}
+		m.advRefresh()
 		m.flash("advisor off", false)
 	case "now":
 		if !c.Advisor {
 			m.flash("the advisor is off · #advisor on", true)
 			return nil
 		}
-		if m.eff.adv.running {
-			m.flash("the advisor is already looking", false)
+		cmd, why := m.advRun(true)
+		if why != "" {
+			m.flash(why, true)
 			return nil
 		}
 		m.flash("✦ advisor looking · its findings land in #eff findings", false)
-		return m.advRun(true)
+		return cmd
 	case "":
 		if !c.Advisor {
 			m.flash("the advisor is off · #advisor on", false)

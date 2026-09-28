@@ -13,6 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/advisor"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -136,6 +137,7 @@ func main() {
 	here := menubar.Here() // so the menu bar app comes back to this terminal
 	var err error
 	profiled(func() { _, err = p.Run() })
+	advisor.Stop() // a pass still running would spend on an answer nobody reads
 	here()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "agtop:", err)

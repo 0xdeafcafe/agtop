@@ -2,8 +2,10 @@ package advisor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -156,7 +158,7 @@ func TestPass(t *testing.T) {
 	}
 	b, _ := os.ReadFile(log)
 	calls := string(b)
-	for _, want := range []string{"--no-session-persistence", "--tools Read,Grep,Glob", "--max-budget-usd 0.15", "--max-budget-usd 1.50", "--model opus"} {
+	for _, want := range []string{"--no-session-persistence", "--tools Read,Grep,Glob", "--restricted", "--permission-prompts none", "Read(", "--max-budget-usd 0.30", "--max-budget-usd 1.50", "--model opus"} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("no %q in the calls:\n%s", want, calls)
 		}
@@ -176,5 +178,171 @@ func TestPassFails(t *testing.T) {
 	res := Pass(context.Background(), claude.Account{ConfigDir: t.TempDir()}, in, 3)
 	if res.Err == nil || !strings.Contains(res.Err.Error(), "budget") || res.Spent != 0.15 {
 		t.Fatalf("err %v spent %v: want the failure said, and its cost counted", res.Err, res.Spent)
+	}
+}
+
+func TestSettledAndEviction(t *testing.T) {
+	r := &Record{}
+	old := time.Now().Add(-time.Hour)
+	var fs []Finding
+	for i := range Keep {
+		fs = append(fs, Finding{ID: fmt.Sprint("c", i), Title: fmt.Sprint("confirmed ", i), Status: Confirmed, At: old})
+	}
+	fs = append(fs, Finding{ID: "r", Title: "rejected", Status: Rejected, At: time.Now()})
+	r.Merge(Result{At: time.Now(), Findings: fs})
+	if len(r.Findings) != Keep || slices.ContainsFunc(r.Findings, func(f Finding) bool { return f.ID == "r" }) {
+		t.Fatal("over Keep, a rejected one should go before any confirmed one, however new")
+	}
+	r.Findings = append(r.Findings, Finding{ID: "x", Status: Rejected})
+	r.Dismiss("d")
+	if s := r.Settled(); !slices.Contains(s, "x") || !slices.Contains(s, "d") || !slices.Contains(s, "c0") {
+		t.Fatalf("settled %v: want rejected, confirmed and put away", s)
+	}
+	// Re-proposed, a rejected one isn't reopened.
+	r.Merge(Result{At: time.Now(), Findings: []Finding{{ID: "x", Status: Candidate}}})
+	if i := slices.IndexFunc(r.Findings, func(f Finding) bool { return f.ID == "x" }); i >= 0 && r.Findings[i].Status != Rejected {
+		t.Fatal("a candidate reopened what Opus rejected")
+	}
+}
+
+func TestPassSkipsSettled(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	log := fakeClaude(t,
+		`{"type":"result","total_cost_usd":0.01,"structured_output":{"findings":[{"title":"Old news","detail":"","evidence":[],"weeklyCost":9,"fix":"","open":""}]}}`,
+		`{"type":"result","total_cost_usd":0.5,"structured_output":{"confirmed":true,"note":"","title":"x","detail":"","evidence":[],"weeklyCost":9,"fix":"","open":""}}`)
+	now := time.Now()
+	in := Input{View: &efficiency.View{Q: efficiency.Query{From: now, To: now}}, Settled: []string{idOf("old  NEWS")}}
+	res := Pass(context.Background(), claude.Account{ConfigDir: t.TempDir()}, in, 3)
+	if len(res.Findings) != 0 || len(res.Reviewed) != 0 {
+		t.Fatalf("a settled finding was proposed or reviewed again: %+v", res)
+	}
+	if b, _ := os.ReadFile(log); strings.Contains(string(b), "--model opus") {
+		t.Fatal("Opus was paid to look at it again")
+	}
+}
+
+func TestLock(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	unlock, ok := Lock()
+	if !ok {
+		t.Fatal("no lock")
+	}
+	if _, ok := Lock(); ok {
+		t.Fatal("two agtops both hold the pass")
+	}
+	unlock()
+	unlock2, ok := Lock()
+	if !ok {
+		t.Fatal("the lock wasn't let go")
+	}
+	unlock2()
+	// A lock left by a process that died is taken over once stale.
+	p := filepath.Join(Dir(), "pass.lock")
+	_ = os.WriteFile(p, nil, 0o600)
+	_ = os.Chtimes(p, time.Now(), time.Now().Add(-lockStale-time.Minute))
+	if _, ok := Lock(); !ok {
+		t.Fatal("a stale lock blocks for good")
+	}
+}
+
+func TestActive(t *testing.T) {
+	acct := claude.Account{ConfigDir: t.TempDir()}
+	since := time.Now().Add(-time.Minute)
+	if Active(acct, since) {
+		t.Fatal("active with no transcripts")
+	}
+	dir := filepath.Join(acct.ProjectsDir(), "proj")
+	_ = os.MkdirAll(dir, 0o700)
+	p := filepath.Join(dir, "s.jsonl")
+	_ = os.WriteFile(p, []byte("{}"), 0o600)
+	_ = os.Chtimes(p, time.Now(), since.Add(-time.Hour))
+	if Active(acct, since) {
+		t.Fatal("an old transcript counts as new work")
+	}
+	_ = os.Chtimes(p, time.Now(), time.Now())
+	if !Active(acct, since) {
+		t.Fatal("a transcript written since isn't new work")
+	}
+}
+
+func TestFailedReviews(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	fakeClaude(t,
+		`{"type":"result","total_cost_usd":0.01,"structured_output":{"findings":[{"title":"Flaky","detail":"","evidence":[],"weeklyCost":9,"fix":"","open":""}]}}`,
+		`not json`)
+	now := time.Now()
+	reserved := 0
+	in := Input{View: &efficiency.View{Q: efficiency.Query{From: now, To: now}},
+		Pending: []Finding{{ID: idOf("Flaky"), Title: "Flaky", Weekly: 9, Status: Candidate, Tries: Tries - 1}},
+		Reserve: func() error { reserved++; return nil }}
+	res := Pass(context.Background(), claude.Account{ConfigDir: t.TempDir()}, in, 3)
+	if reserved != 1 || len(res.Reviewed) != 1 {
+		t.Fatalf("%d reserved, %d reviewed: want each review reserved before it runs", reserved, len(res.Reviewed))
+	}
+	if res.Findings[0].Tries != Tries {
+		t.Fatalf("tries %d: a failed review must count, carried over from before", res.Findings[0].Tries)
+	}
+	if res.Spent < reviewBudget {
+		t.Fatalf("spent %v: a review that broke counts what it may have spent", res.Spent)
+	}
+	r := &Record{}
+	r.Merge(res)
+	if len(r.Pending()) != 0 {
+		t.Fatal("a candidate that keeps failing is reviewed again")
+	}
+}
+
+func TestReserveAndBegin(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	now := time.Now()
+	if err := Begin(now); err != nil {
+		t.Fatal(err)
+	}
+	_ = Reserve(now)
+	_ = Reserve(now)
+	r := Load()
+	if !r.LastRun.Equal(now) || r.ReviewsLeft(now) != ReviewsPerDay-2 {
+		t.Fatalf("a pass and its reviews must be on disk before they spend: %+v", r)
+	}
+	r.Merge(Result{At: now, Reviewed: []time.Time{now, now}})
+	if r.ReviewsLeft(now) != ReviewsPerDay-2 {
+		t.Fatal("merging counted the reviews twice")
+	}
+}
+
+func TestCorruptRecord(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	_ = os.MkdirAll(Dir(), 0o700)
+	_ = os.WriteFile(recordPath(), []byte("{broken"), 0o600)
+	r := Load()
+	if r.Due(time.Now(), 1_000_000) {
+		t.Fatal("a broken record lets a pass run at once")
+	}
+	if _, err := os.Stat(recordPath() + ".bad"); err != nil {
+		t.Fatal("the broken record wasn't kept aside")
+	}
+}
+
+func TestCheckOpen(t *testing.T) {
+	root := t.TempDir()
+	in := filepath.Join(root, "CLAUDE.md")
+	_ = os.WriteFile(in, nil, 0o600)
+	out := filepath.Join(t.TempDir(), "secret")
+	_ = os.WriteFile(out, nil, 0o600)
+	for p, want := range map[string]string{in: in, out: "", "CLAUDE.md": "", filepath.Join(root, "..", filepath.Base(root), "CLAUDE.md"): in, filepath.Join(root, "missing.md"): ""} {
+		if got := checkOpen(p, []string{root}); got != want {
+			t.Errorf("checkOpen(%q) = %q, want %q", p, got, want)
+		}
+	}
+}
+
+func TestEnabled(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	if Enabled() {
+		t.Fatal("on with no config")
+	}
+	_ = os.WriteFile(filepath.Join(os.Getenv("AGTOP_HOME"), "config.json"), []byte(`{"advisor":true}`), 0o600)
+	if !Enabled() {
+		t.Fatal("off with it on in the config")
 	}
 }
