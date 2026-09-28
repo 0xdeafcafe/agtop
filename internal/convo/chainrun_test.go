@@ -1,0 +1,87 @@
+package convo
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
+)
+
+func TestPartOf(t *testing.T) {
+	segs := segments("cd /x && FOO=1 go build ./... && go test ./internal/ui 2>&1 | tail -5 && ./deploy.sh prod && git status")
+	for _, c := range []struct {
+		args []string
+		want int
+	}{
+		{[]string{"/usr/local/go/bin/go", "build", "./..."}, 1},
+		{[]string{"go", "test", "./internal/ui"}, 2},
+		{[]string{"tail", "-5"}, 2},
+		{[]string{"rtk", "go", "test", "./internal/ui"}, 2},
+		{[]string{"/bin/bash", "./deploy.sh", "prod"}, 3},
+		{[]string{"git", "status"}, 4},
+		{[]string{"/tmp/go-build123/ui.test"}, -1},
+	} {
+		if got := partOf(segs, c.args, 0); got != c.want {
+			t.Errorf("partOf(%q) = %d, want %d", c.args, got, c.want)
+		}
+	}
+	// The same command twice: the one the chain has reached.
+	twice := segments("make && sleep 5 && make")
+	if got := partOf(twice, []string{"make"}, 1); got != 2 {
+		t.Errorf("a repeated command should be the one from the chain's place on, got %d", got)
+	}
+}
+
+func runningChain(cmd string, start time.Time) (*Session, *Step) {
+	s := New()
+	in, _ := json.Marshal(map[string]string{"command": cmd})
+	st := &Step{ID: "b1", Tool: "Bash", Input: in, Status: Running, Start: start}
+	s.Turns = append(s.Turns, &Turn{Live: true, Items: []*Item{{Kind: KStep, Step: st}}})
+	return s, st
+}
+
+func TestWatchShellsTimesEachPart(t *testing.T) {
+	t0 := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	cmd := "go build ./... && go test ./... && git status"
+	s, st := runningChain(cmd, t0)
+	shell := func(kids ...ShellProc) []Shell {
+		return []Shell{{Cmd: "/bin/zsh -c source x && eval '" + cmd + "' < /dev/null", Start: t0, Kids: kids}}
+	}
+	// make's own git is make's, not the chain's.
+	s.WatchShells(shell(ShellProc{Args: []string{"go", "build", "./..."}, Start: t0, Kids: []ShellProc{{Args: []string{"git", "status"}, Start: t0}}}), t0.Add(time.Second))
+	s.WatchShells(shell(ShellProc{Args: []string{"go", "build", "./..."}, Start: t0}), t0.Add(2*time.Second))
+	s.WatchShells(shell(ShellProc{Args: []string{"go", "test", "./..."}, Start: t0.Add(2500 * time.Millisecond)}), t0.Add(3*time.Second))
+	if r := st.parts[0]; r == nil || r.end != t0.Add(2500*time.Millisecond) {
+		t.Fatalf("the build should end when the test starts: %+v", r)
+	}
+	if st.parts[2] != nil {
+		t.Fatalf("git under go build isn't the chain's git status")
+	}
+	if got := st.runningPart(); got != "2/3 go test" {
+		t.Errorf("runningPart = %q", got)
+	}
+
+	d := &drawer{s: s, t: s.Turns[0], o: Options{Width: 120, Now: t0.Add(10 * time.Second), Open: map[string]bool{}}, cw: 120}
+	d.shellBody(st, cmd, 4)
+	var rows []string
+	for _, l := range d.lines {
+		rows = append(rows, ansi.Strip(l.Text))
+	}
+	out := strings.Join(rows, "\n")
+	if len(rows) != 3 || !strings.Contains(rows[0], "✓ 2.5s") || !strings.Contains(rows[1], "7.5s") || strings.Contains(rows[2], "✓") {
+		t.Errorf("each part should say how long it ran, the running one still counting:\n%s", out)
+	}
+}
+
+// A hook that rewrote the command still finds its shell, by when it started.
+func TestWatchShellsRewrittenCommand(t *testing.T) {
+	t0 := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	s, st := runningChain("git status && go vet ./...", t0)
+	s.WatchShells([]Shell{{Cmd: "/bin/zsh -c eval 'rtk git status && rtk go vet ./...'", Start: t0.Add(200 * time.Millisecond),
+		Kids: []ShellProc{{Args: []string{"rtk", "go", "vet", "./..."}, Start: t0.Add(time.Second)}}}}, t0.Add(2*time.Second))
+	if st.parts[1] == nil {
+		t.Fatalf("go vet should be seen running: %+v", st.parts)
+	}
+}

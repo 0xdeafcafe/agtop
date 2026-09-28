@@ -54,6 +54,10 @@ type Step struct {
 
 	parent *Step
 	turn   *Turn // the turn whose steps hold it
+	// A Bash chain's commands as seen running (chainrun.go), and the
+	// furthest of them seen.
+	parts map[int]*partRun
+	at    int
 }
 
 // flight is a light session's tool call waiting for its result.

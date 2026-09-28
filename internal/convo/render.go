@@ -1496,6 +1496,9 @@ func (d *drawer) cells(st *Step) string {
 	}
 	switch {
 	case st.Status == Running && !st.Start.IsZero():
+		if p := st.runningPart(); p != "" {
+			parts = append(parts, paint(cSub, p))
+		}
 		parts = append(parts, paint(cOrange, dur(d.o.Now.Sub(st.Start))))
 	case !st.End.IsZero() && !st.Start.IsZero() && st.End.Sub(st.Start) >= 100*time.Millisecond:
 		parts = append(parts, faint(dur(st.End.Sub(st.Start))))
@@ -2064,7 +2067,7 @@ func (d *drawer) body(st *Step, indent int) {
 		}
 	case st.kind() == tool.Shell:
 		if cmd := strings.TrimSpace(readInput(st.Input).str("command")); cmd != "" {
-			d.shellBody(cmd, indent)
+			d.shellBody(st, cmd, indent)
 			d.marks = echoMarks(cmd)
 			defer func() { d.marks = nil }()
 		}
@@ -2097,10 +2100,16 @@ func (d *drawer) body(st *Step, indent int) {
 
 // shellBody is an opened shell step's command: on one line when it fits,
 // else laid out a command a line; a heredoc's body shows its first lines.
-func (d *drawer) shellBody(cmd string, indent int) {
+// A chain seen running says, beside each command, how long it ran, and
+// the one running now reads brighter.
+func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 	pad := d.spine() + strings.Repeat(" ", indent-1)
 	room := d.cw - indent - 4
-	if !strings.Contains(cmd, "\n") && cellw.String(cmd) <= room {
+	marks := d.partMarks(st, len(segments(cmd)))
+	if marks != nil {
+		room -= 10
+	}
+	if marks == nil && !strings.Contains(cmd, "\n") && cellw.String(cmd) <= room {
 		d.add("", bgWell, pad+faint("$ ")+quietTint(expandTabs(cmd)), "")
 		return
 	}
@@ -2128,7 +2137,15 @@ func (d *drawer) shellBody(cmd string, indent int) {
 	blank := strings.Repeat(" ", gutter)
 	var lg *lang
 	var hs hlState
+	part := -1
 	for i, l := range lines {
+		mark := ""
+		if !l.verbatim && l.depth == 0 {
+			if part++; part < len(marks) {
+				mark = marks[part]
+			}
+		}
+		now := st.Status == Running && part == st.at && st.parts[part] != nil && st.parts[part].end.IsZero()
 		lead := faint("$") + blank[1:] // the command, not each line of a heredoc
 		if i > 0 {
 			lead = blank
@@ -2152,6 +2169,12 @@ func (d *drawer) shellBody(cmd string, indent int) {
 		}
 		hang := strings.Repeat(" ", l.depth*2)
 		colored := quietTint(expandTabs(l.text))
+		if now && !l.verbatim {
+			colored = paint(cText+bold, expandTabs(l.text))
+			if lead == blank {
+				lead = paint(cOrange, "▸") + blank[1:]
+			}
+		}
 		if l.verbatim {
 			colored = highlight(lg, &hs, expandTabs(l.text), cOut, nil)
 			if bodyShown == body {
@@ -2160,9 +2183,9 @@ func (d *drawer) shellBody(cmd string, indent int) {
 		}
 		for j, r := range wrap(colored, room-len(hang)) {
 			if j > 0 {
-				lead, r = blank, "  "+r // a wrapped line hangs under its own start
+				lead, r, mark = blank, "  "+r, "" // a wrapped line hangs under its own start
 			}
-			d.add("", bgWell, pad+lead+hang+r, "")
+			d.add("", bgWell, pad+lead+hang+r, mark)
 			if j > 0 {
 				d.wrapped()
 			}

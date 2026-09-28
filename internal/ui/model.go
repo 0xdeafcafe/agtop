@@ -655,6 +655,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.tick++
 		m.refresh()
+		m.watchShells()
 		m.zenPick()
 		m.followTail()
 		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues()}
