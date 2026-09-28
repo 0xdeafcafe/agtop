@@ -61,13 +61,31 @@ func RecordUsage(path, key string, u Usage) error {
 // started, but only while the folder still is: once it's switched to
 // another, Claude Code picks up the new sign-in as it goes, and whose
 // reading it sent can't be told, so it's left out rather than written
-// onto the wrong login.
+// onto the wrong login. The folder's name alone won't do: a Claude Code
+// started as startedAs writes its name back over a switch, beside the
+// other login's sign-in it has since picked up, so the sign-in has to be
+// startedAs's too.
 func RecordLiveUsage(path string, a Account, startedAs string, u Usage) error {
 	if startedAs == "" || SignedInAs(a) != startedAs {
 		return nil
 	}
+	if id, err := signInOwner(a); err != nil || id != startedAs {
+		return nil
+	}
 	u.AccountID = startedAs
 	return RecordUsage(path, Login{ID: startedAs}.UsageKey(), u)
+}
+
+// signInOwner is whose the sign-in a's folder holds is, asked of
+// Anthropic once per token.
+var signInOwner = func(a Account) (string, error) {
+	raw, err := readCreds(a)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return Owner(ctx, raw)
 }
 
 // updateFetchedUsage changes the readings at path under a lock: every

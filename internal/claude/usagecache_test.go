@@ -87,6 +87,10 @@ func TestRecordLiveUsageOnlyWhileStillSignedIn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	owner := "alex"
+	was := signInOwner
+	signInOwner = func(Account) (string, error) { return owner, nil }
+	t.Cleanup(func() { signInOwner = was })
 	now := time.Now()
 	signIn("alex")
 	if err := RecordLiveUsage(path, a, "alex", Usage{FetchedAt: now, FiveHour: Window{Present: true, Percent: 10}}); err != nil {
@@ -102,5 +106,29 @@ func TestRecordLiveUsageOnlyWhileStillSignedIn(t *testing.T) {
 	}
 	if _, ok := all[Login{ID: "borrowed"}.UsageKey()]; ok {
 		t.Fatal("a reading whose account can't be told was kept as borrowed's")
+	}
+}
+
+// A Claude Code started as one login, running on another's sign-in since a
+// switch, writes its own name back into the folder: the folder names the
+// login it started as, but the readings are the other's.
+func TestRecordLiveUsageNotOnAnotherLoginsSignIn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "usage.json")
+	a := Account{ConfigDir: filepath.Join(dir, "cfg")}
+	if err := os.MkdirAll(a.ConfigDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.StatePath(), []byte(`{"oauthAccount":{"accountUuid":"personal"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	was := signInOwner
+	signInOwner = func(Account) (string, error) { return "alex", nil }
+	t.Cleanup(func() { signInOwner = was })
+	if err := RecordLiveUsage(path, a, "personal", Usage{FetchedAt: time.Now(), FiveHour: Window{Present: true, Percent: 53}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := LoadFetchedUsage(path)[Login{ID: "personal"}.UsageKey()]; ok {
+		t.Fatal("alex's reading was kept as personal's")
 	}
 }
