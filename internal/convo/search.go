@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 )
 
 // Hit is one search result: where it is and the text around the match.
@@ -146,7 +148,12 @@ func (p query) step(st *Step, turnRef string) (Hit, bool) {
 	if hidden(st) {
 		return Hit{}, false
 	}
-	in := readInput(st.Input)
+	x := st.in()
+	// A search's or glob's path is where it looked, not a file it's about.
+	file := x.Path
+	if k := st.kind(); k == tool.Search || k == tool.Glob {
+		file = ""
+	}
 	g := glyphFor(st)
 	switch {
 	case p.kinds["failed"] && st.Status != Failed:
@@ -157,11 +164,11 @@ func (p query) step(st *Step, turnRef string) (Hit, bool) {
 		return Hit{}, false
 	case p.kinds["read"] && g != "◧":
 		return Hit{}, false
-	case p.file != "" && !strings.Contains(strings.ToLower(in.str("file_path")+" "+in.str("path")+" "+in.str("command")), p.file):
+	case p.file != "" && !strings.Contains(strings.ToLower(x.Path+" "+x.Command), p.file):
 		return Hit{}, false
 	}
-	label := firstNonEmpty(in.str("description"), in.str("command"), in.str("file_path"), in.str("pattern"), in.str("url"), in.str("query"), st.Tool)
-	hay := label + "\n" + in.str("command") + "\n" + in.str("file_path") + "\n" + st.Output
+	label := firstNonEmpty(x.Description, x.Command, file, x.Pattern, x.URL, x.Query, st.Tool)
+	hay := label + "\n" + x.Command + "\n" + file + "\n" + st.Output
 	if !p.matches(hay) {
 		return Hit{}, false
 	}
