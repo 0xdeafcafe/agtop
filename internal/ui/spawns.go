@@ -45,6 +45,7 @@ type spawnRun struct {
 	born   time.Time
 	looked time.Time // when it was last looked for, while not found
 	lost   bool      // looked for past its command's end, and not found
+	fresh  bool      // its session was just read again, to give its step
 }
 
 // view is the spawned agent's conversation as a Tail, for the subagent
@@ -99,8 +100,7 @@ func (m *Model) refreshSpawns() tea.Cmd {
 			c.spawns[st.ID] = r
 		}
 		if r.path != "" {
-			m.readSpawn(c, st, r)
-			continue
+			continue // read with the pane's transcripts: refreshSubs
 		}
 		if r.lost || c.spawnLooking || now.Sub(r.looked) < spawnEvery {
 			continue
@@ -166,34 +166,34 @@ func (m *Model) onSpawnFound(msg spawnFoundMsg) {
 		} else {
 			r.hist = &history{kind: s.Kind, s: s}
 		}
-		m.readSpawn(c, st, r)
+		c.paneKick = true // read it now, in the background
 	}
 }
 
-// readSpawn reads what a found agent has written since, and draws it
-// under its row when anything has.
-// The conversation read again has new steps, which are given it too.
-func (m *Model) readSpawn(c *hostConn, st *convo.Step, r *spawnRun) {
-	grew := r.sess == nil
-	switch {
-	case r.tail != nil:
-		before := r.tail.Size()
-		_, _ = r.tail.Read()
-		grew = grew || r.tail.Size() != before
-		r.sess = r.tail.Sess
-	case r.hist != nil:
-		if r.sess == nil {
-			r.hist.stat()
+// takeSpawns takes in what the found agents the shell ran have written,
+// read by refreshSubs (grew are the tails that took in something), and
+// draws each under its row when anything has.
+func (m *Model) takeSpawns(c *hostConn, grew map[*convo.Tail]bool, hists []spawnHist) {
+	for _, sh := range hists {
+		if sh.sess != nil {
+			sh.r.sess = sh.sess
+			sh.r.fresh = true
 		}
-		if r.sess == nil || time.Since(r.hist.at) >= historyEvery && r.hist.stat() {
-			r.hist.at = time.Now()
-			r.sess, grew = agentHistory(r.hist.kind, r.hist.s, time.Time{}), true
-		}
-	default:
-		return
 	}
-	if grew || st.Child() != r.sess {
-		c.sess.SetChild(st, r.sess)
+	for _, st := range c.sess.Spawns() {
+		r := c.spawns[st.ID]
+		if r == nil || r.path == "" {
+			continue
+		}
+		changed := r.fresh
+		if r.tail != nil {
+			changed = changed || r.sess == nil || grew[r.tail]
+			r.sess = r.tail.Sess
+		}
+		r.fresh = false
+		if r.sess != nil && (changed || st.Child() != r.sess) {
+			c.sess.SetChild(st, r.sess)
+		}
 	}
 }
 

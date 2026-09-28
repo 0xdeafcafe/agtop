@@ -49,6 +49,7 @@ func TestSpawnFollowed(t *testing.T) {
 		t.Fatal("nothing looked for")
 	}
 	m.onSpawnFound(cmd().(spawnFoundMsg))
+	m.drain(m.refreshSubs()) // what it wrote is read in the background
 	r := c.spawns["b1"]
 	if r == nil || filepath.Base(r.path) != "kid.jsonl" {
 		t.Fatalf("found %+v", r)

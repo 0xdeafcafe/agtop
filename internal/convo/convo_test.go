@@ -975,3 +975,23 @@ func TestRenderWide(t *testing.T) {
 		t.Fatalf("wide rows ran to %d of 200", w)
 	}
 }
+
+// The UI asks a tail's Size (to watch its file) while a Fetch runs in the
+// background: run with -race, this fails if that's a race.
+func TestTailSizeDuringFetch(t *testing.T) {
+	path := t.TempDir() + "/s.jsonl"
+	os.WriteFile(path, []byte(strings.Repeat(`{"type":"user","message":{"role":"user","content":"hi"}}`+"\n", 2000)), 0o644)
+	tl := NewTail(path)
+	done := make(chan Fresh)
+	go func() {
+		f, _ := tl.Fetch()
+		done <- f
+	}()
+	for range 1000 {
+		_ = tl.Size()
+	}
+	tl.Take(<-done)
+	if st, _ := os.Stat(path); tl.Size() != st.Size() {
+		t.Fatalf("size %d, file %d", tl.Size(), st.Size())
+	}
+}

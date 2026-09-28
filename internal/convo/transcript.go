@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
@@ -24,7 +25,7 @@ type Tail struct {
 	Path string
 	Sess *Session
 
-	off       int64
+	off       atomic.Int64 // Size asks it while a Fetch may be moving it
 	partial   []byte
 	sidechain bool      // a subagent's own transcript: its lines are the story
 	before    time.Time // History: only lines from before this
@@ -35,7 +36,7 @@ var readBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b 
 func NewTail(path string) *Tail { return &Tail{Path: path, Sess: New()} }
 
 // Size is how far into the file Read has got.
-func (t *Tail) Size() int64 { return t.off }
+func (t *Tail) Size() int64 { return t.off.Load() }
 
 // History is the conversation a transcript holds from before a moment: what
 // an agtop session that resumed one had already said before its host
@@ -79,12 +80,13 @@ func (t *Tail) Read() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if st.Size() < t.off { // rewritten from scratch: start over
+	if st.Size() < t.off.Load() { // rewritten from scratch: start over
 		// Reset in place: whoever holds the Session keeps following it.
-		t.off, t.partial = 0, nil
+		t.off.Store(0)
+		t.partial = nil
 		*t.Sess = *New()
 	}
-	if st.Size() == t.off {
+	if st.Size() == t.off.Load() {
 		return false, nil
 	}
 	f, err := os.Open(t.Path)
@@ -92,7 +94,7 @@ func (t *Tail) Read() (bool, error) {
 		return false, err
 	}
 	defer f.Close()
-	if _, err := f.Seek(t.off, io.SeekStart); err != nil {
+	if _, err := f.Seek(t.off.Load(), io.SeekStart); err != nil {
 		return false, err
 	}
 	// One read buffer shared by every tail: a session can follow hundreds
@@ -103,7 +105,7 @@ func (t *Tail) Read() (bool, error) {
 	changed := false
 	for {
 		n, err := f.Read(buf)
-		t.off += int64(n)
+		t.off.Add(int64(n))
 		chunk := buf[:n]
 		for len(chunk) > 0 {
 			i := bytes.IndexByte(chunk, '\n')
@@ -148,10 +150,12 @@ func (t *Tail) Fetch() (Fresh, error) {
 	if err != nil {
 		return f, err
 	}
-	if st.Size() < t.off {
-		f.reset, t.off, t.partial = true, 0, nil
+	off := t.off.Load()
+	if st.Size() < off {
+		f.reset, off, t.partial = true, 0, nil
+		t.off.Store(0)
 	}
-	if st.Size() == t.off {
+	if st.Size() == off {
 		return f, nil
 	}
 	fh, err := os.Open(t.Path)
@@ -159,13 +163,13 @@ func (t *Tail) Fetch() (Fresh, error) {
 		return f, err
 	}
 	defer fh.Close()
-	buf := make([]byte, len(t.partial), len(t.partial)+int(st.Size()-t.off))
+	buf := make([]byte, len(t.partial), len(t.partial)+int(st.Size()-off))
 	copy(buf, t.partial)
-	n, err := fh.ReadAt(buf[len(buf):cap(buf)], t.off)
+	n, err := fh.ReadAt(buf[len(buf):cap(buf)], off)
 	if err != nil && err != io.EOF {
 		return f, err
 	}
-	t.off += int64(n)
+	t.off.Store(off + int64(n))
 	buf = buf[:len(buf)+n]
 	// An unfinished last line waits for the rest of it.
 	i := bytes.LastIndexByte(buf, '\n')

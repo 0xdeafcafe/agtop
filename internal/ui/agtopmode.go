@@ -98,7 +98,18 @@ func (m *Model) refreshSubs() tea.Cmd {
 	if hist != nil && time.Since(hist.at) < historyEvery {
 		hist = nil
 	}
-	if c.path == "" && len(tails) == 0 && hist == nil {
+	// The agents the session's shell ran, once found, are read as they grow.
+	var spawnHists []spawnHist
+	for _, r := range c.spawns {
+		switch {
+		case r.path == "":
+		case r.tail != nil:
+			add(r.tail)
+		case r.hist != nil && (r.sess == nil || time.Since(r.hist.at) >= historyEvery):
+			spawnHists = append(spawnHists, spawnHist{r: r, first: r.sess == nil})
+		}
+	}
+	if c.path == "" && len(tails) == 0 && hist == nil && len(spawnHists) == 0 {
 		return m.readUnread(c)
 	}
 	if c.subReader == nil {
@@ -127,6 +138,13 @@ func (m *Model) refreshSubs() tea.Cmd {
 			f, err := t.Fetch()
 			msg.got[i] = fetched{t: t, f: f, err: err}
 		}
+		for _, sh := range spawnHists {
+			if h := sh.r.hist; sh.first || h.stat() {
+				h.at = time.Now()
+				sh.sess = agentHistory(h.kind, h.s, time.Time{})
+				msg.spawnHists = append(msg.spawnHists, sh)
+			}
+		}
 		return msg
 	}
 }
@@ -140,6 +158,14 @@ type paneMsg struct {
 	hist     *history
 	histSess *convo.Session // hist read again, when it had grown
 	got      []fetched
+	// spawnHists are another agent's sessions the shell ran, read again.
+	spawnHists []spawnHist
+}
+
+type spawnHist struct {
+	r     *spawnRun
+	first bool // never read yet
+	sess  *convo.Session
 }
 
 type fetched struct {
@@ -155,11 +181,13 @@ func (m *Model) onPane(msg paneMsg) tea.Cmd {
 		return nil
 	}
 	c.paneReading = false
+	grew := map[*convo.Tail]bool{}
 	for _, g := range msg.got {
-		if g.err == nil {
-			g.t.Take(g.f)
+		if g.err == nil && g.t.Take(g.f) {
+			grew[g.t] = true
 		}
 	}
+	m.takeSpawns(c, grew, msg.spawnHists)
 	if msg.histSess != nil && c.hist == msg.hist {
 		c.sess = msg.histSess
 	}
