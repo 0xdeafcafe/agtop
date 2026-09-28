@@ -9,7 +9,9 @@
     {"key": "wait", "title": "Wait before continuing", "type": "choice", "choices": ["5s", "15s", "60s"], "default": "15s",
      "description": "After a retryable error, and the backoff's first step: each try waits twice as long as the one before."},
     {"key": "tries", "title": "Tries before giving up", "type": "choice", "choices": ["3", "5", "8"], "default": "5",
-     "description": "How many times it sends continue before it stops and tells you."}
+     "description": "How many times it sends continue before it stops and tells you."},
+    {"key": "alongside", "title": "Retry what agtop retries", "type": "bool", "default": "false",
+     "description": "agtop continues its own sessions, and others for a day, after these errors. Off leaves those to agtop, so a session isn't told to continue twice."}
   ],
   "memoryMB": 32
 }

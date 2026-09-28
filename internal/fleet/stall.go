@@ -31,6 +31,12 @@ func (a *Agent) Continues(now time.Time) bool {
 	return host.IsOffline(t) || host.IsRetryable(t)
 }
 
+// Retryable is a halt trying again gets past that isn't the network: the
+// connection dropped or stalled, or the API failing.
+func (a *Agent) Retryable() bool {
+	return a.Spend.Halt != nil && host.IsRetryable(strings.ToLower(a.Spend.Halt.Text))
+}
+
 // Offline is a halt the network being down caused.
 func (a *Agent) Offline() bool {
 	return a.Spend.Halt != nil && host.IsOffline(strings.ToLower(a.Spend.Halt.Text))

@@ -99,7 +99,7 @@ Something happened in one of agtop's windows. Sent without waiting for the plugi
 | `session.seen` | `events` | a session agtop shows: each open or at work today when the plugin connects (up to 150), then each new one |
 | `session.opened` / `session.left` | `events` | its Session came into or went out of view |
 | `turn.started` / `turn.ended` | `events` | |
-| `session.stopped` | `events` | `error: {kind, message}` when an error did it; `kind` is `limit`, `auth`, `offline`, `retryable`, `too-long` or `other` |
+| `session.stopped` | `events` | `error: {kind, message, retrying}` when an error did it; `kind` is `limit`, `auth`, `offline`, `retryable`, `too-long` or `other`; `retrying` is agtop continuing the session itself (its own sessions, and others for a day, after `offline` or `retryable`), so a plugin needn't |
 | `network.down` / `network.up` | `events` | no `session` |
 | `input.changed` / `input.sent` / `input.cleared` | `input` | `text`, the message box |
 
@@ -248,7 +248,7 @@ Replaces the plugin's sections in that session's overview; `[]` removes them. `s
 
 ### `ui.notify` — needs `ui` `notify`
 
-`{"ui": "main", "text": "…", "tone": "warn"}`: a message at the bottom of the screen, at most 200 characters; without `ui`, in every window. Three at once, then one a second. Returns `{}`.
+`{"ui": "main", "session": "…", "text": "…", "tone": "warn"}`: a message at the bottom of the screen, at most 200 characters, after the plugin's name and, with `session`, that session's; without `ui`, in every window. Three at once, then one a second. Returns `{}`.
 
 ### `ui.input.set` — needs `ui` `input`
 

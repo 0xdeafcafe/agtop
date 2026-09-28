@@ -17,10 +17,12 @@ func Retryable(kind string) bool { return kind == "offline" || kind == "retryabl
 type Config struct {
 	Wait  time.Duration // before the first try, and the backoff's base
 	Tries int           // continues sent before giving up
+	// Alongside is retrying sessions agtop says it's retrying itself.
+	Alongside bool
 }
 
-// ParseConfig reads the "wait" and "tries" settings, falling back to
-// their defaults.
+// ParseConfig reads the "wait", "tries" and "alongside" settings, falling
+// back to their defaults.
 func ParseConfig(v map[string]string) Config {
 	c := Config{Wait: 15 * time.Second, Tries: 5}
 	if d, err := time.ParseDuration(v["wait"]); err == nil && d > 0 {
@@ -29,6 +31,7 @@ func ParseConfig(v map[string]string) Config {
 	if n, err := strconv.Atoi(v["tries"]); err == nil && n > 0 {
 		c.Tries = n
 	}
+	c.Alongside = v["alongside"] == "true"
 	return c
 }
 

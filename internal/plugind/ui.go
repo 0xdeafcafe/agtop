@@ -665,7 +665,7 @@ func (h *uiHub) notice(name string, in *uiParams) error {
 		return plugin.Limited("notices, one a second")
 	}
 	tone := plugin.CleanStatus(plugin.Status{Tone: in.Tone}).Tone
-	h.do(plugin.UIDo{Plugin: name, UI: in.UI, Kind: "notify", Text: text, Tone: tone})
+	h.do(plugin.UIDo{Plugin: name, UI: in.UI, Kind: "notify", Session: in.Session, Text: text, Tone: tone})
 	return nil
 }
 

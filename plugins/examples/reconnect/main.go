@@ -33,8 +33,9 @@ type event struct {
 	Kind    string   `json:"kind"`
 	Session *session `json:"session"`
 	Error   *struct {
-		Kind    string `json:"kind"`
-		Message string `json:"message"`
+		Kind     string `json:"kind"`
+		Message  string `json:"message"`
+		Retrying bool   `json:"retrying"` // agtop continues it itself
 	} `json:"error"`
 }
 
@@ -100,7 +101,7 @@ func (a *app) event(ev event) {
 	case "session.stopped":
 		if ev.Session != nil {
 			kind := ""
-			if ev.Error != nil {
+			if ev.Error != nil && (!ev.Error.Retrying || a.r.Alongside) {
 				kind = ev.Error.Kind
 			}
 			a.r.Stopped(ev.Session.ID, ev.Session.Name, kind, now)
@@ -143,28 +144,25 @@ func (a *app) loop() {
 }
 
 func (a *app) do(d Action) {
-	who := d.Name
-	if who == "" {
-		who = d.Session
-	}
 	if d.GiveUp {
-		a.notify(fmt.Sprintf("reconnect: gave up on %s after %d tries", who, d.Try))
+		a.notify(d.Session, fmt.Sprintf("gave up after %d tries", d.Try))
 		return
 	}
 	err := a.c.call("ui.send", map[string]any{"session": d.Session, "text": "continue"}, nil)
 	if err != nil {
 		// Refused (outside the workspaces, a mode that doesn't ask, or
-		// over ten a minute) or gone. The refusals share one error code,
-		// so the rare rate case is given up with the rest.
+		// over ten a minute) or gone. The rate case (-32002) could go
+		// later, but it's rare enough to give up with the rest.
 		a.mu.Lock()
 		a.r.Forget(d.Session)
 		a.mu.Unlock()
-		a.notify(fmt.Sprintf("reconnect: can't continue %s: %v", who, err))
+		a.notify(d.Session, fmt.Sprintf("can't continue it: %v", err))
 		return
 	}
 	fmt.Fprintf(os.Stderr, "continued %s (try %d)\n", d.Session, d.Try)
 }
 
-func (a *app) notify(text string) {
-	_ = a.c.call("ui.notify", map[string]any{"text": text, "tone": "warn"}, nil)
+// notify says something about a session; agtop names the plugin and it.
+func (a *app) notify(session, text string) {
+	_ = a.c.call("ui.notify", map[string]any{"session": session, "text": text, "tone": "warn"}, nil)
 }

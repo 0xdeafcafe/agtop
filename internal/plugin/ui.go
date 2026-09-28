@@ -235,6 +235,9 @@ type UIEvent struct {
 type UIError struct {
 	Kind    string `json:"kind"`
 	Message string `json:"message,omitempty"`
+	// Retrying is agtop telling the session to continue itself, as it does
+	// after an offline or retryable error; a plugin needn't too.
+	Retrying bool `json:"retrying,omitempty"`
 }
 
 // InputEvent is whether the event carries what you typed.
