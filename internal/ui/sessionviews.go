@@ -407,6 +407,7 @@ var agtopCommands = []headless.Command{
 	{Name: "btw", Description: "a side question in a panel over the chat (ctrl+b): not added to the conversation; ctrl+f makes it a chat of its own", ArgumentHint: "[question]"},
 	{Name: "export", Description: "the conversation as text: copy it, or save it to a file", ArgumentHint: "[file]"},
 	{Name: "subtask", Description: "send a subagent off with the task; Claude carries on, and reports back when it's done", ArgumentHint: "<task>"},
+	{Name: "handoff", Description: "carry this conversation on with another agent, in a new session (this one stays as it is)", ArgumentHint: "<agent>"},
 }
 
 // agtopAliases are Claude Code's other names for commands agtop does.
@@ -851,6 +852,11 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		}
 		m.openFork(c, a, arg)
 		return nil, true
+	case "handoff":
+		if a == nil {
+			return nil, true
+		}
+		return m.handoffTo(c, a, arg), true
 	case "rewind":
 		if a == nil {
 			return nil, true
