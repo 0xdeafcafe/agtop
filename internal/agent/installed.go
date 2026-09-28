@@ -138,3 +138,17 @@ func InstalledAll() []Adapter {
 	}
 	return out
 }
+
+// ProgramKind is the agent whose program a shell runs as name (a bare name
+// or a path to it), when one is registered.
+func ProgramKind(name string) (Kind, bool) {
+	name = filepath.Base(name)
+	for _, a := range All() {
+		if p, ok := a.(Programmer); ok {
+			if n, _ := p.Program(); n != "" && n == name {
+				return a.Kind(), true
+			}
+		}
+	}
+	return "", false
+}

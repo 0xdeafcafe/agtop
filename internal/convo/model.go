@@ -58,6 +58,11 @@ type Step struct {
 	// furthest of them seen.
 	parts map[int]*partRun
 	at    int
+	// The agent the command ran, as of an input spawnAt-1 long, and the
+	// session it wrote, once found.
+	spawn   *Spawn
+	spawnAt int
+	child   *Session
 }
 
 // flight is a light session's tool call waiting for its result.

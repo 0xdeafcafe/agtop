@@ -611,9 +611,15 @@ func (s *Session) LastWords() string {
 	return ""
 }
 
-// Doing is what a light session (SubagentStats) is doing now: its latest
-// tool call still out, in words, and since when; "" when none is out.
+// Doing is what a session is doing now: its latest tool call still out,
+// in words, and since when; "" when none is out.
 func (s *Session) Doing() (string, time.Time) {
+	if !s.light {
+		if st := s.lastStep(func(st *Step) bool { return st.Status == Running }); st != nil {
+			return firstNonEmpty(claude.Doing(st.Tool, st.Input), st.Tool), st.Start
+		}
+		return "", time.Time{}
+	}
 	var f flight
 	for _, c := range s.inFlight {
 		if c.start.After(f.start) || f.tool == "" {
@@ -626,9 +632,19 @@ func (s *Session) Doing() (string, time.Time) {
 	return firstNonEmpty(f.doing, f.tool), f.start
 }
 
-// Did is what a light session (SubagentStats) did last: its latest calls to
-// have come back, in words, newest first.
+// Did is what a session did last: its latest calls to have come back, in
+// words, newest first.
 func (s *Session) Did() []string {
+	if !s.light {
+		var out []string
+		s.lastStep(func(st *Step) bool {
+			if st.Status != Running && st.Status != Waiting {
+				out = append(out, firstNonEmpty(claude.Doing(st.Tool, st.Input), st.Tool))
+			}
+			return len(out) == 3
+		})
+		return out
+	}
 	out := slices.Clone(s.done)
 	slices.Reverse(out)
 	return out
@@ -684,4 +700,18 @@ func (s *Session) turnCosts() map[*Turn]float64 {
 		}
 	}
 	return out
+}
+
+// lastStep is the latest top-level step f is true of, walking back from
+// the newest.
+func (s *Session) lastStep(f func(*Step) bool) *Step {
+	for i := len(s.Turns) - 1; i >= 0; i-- {
+		items := s.Turns[i].Items
+		for j := len(items) - 1; j >= 0; j-- {
+			if st := items[j].Step; items[j].Kind == KStep && st != nil && f(st) {
+				return st
+			}
+		}
+	}
+	return nil
 }

@@ -434,6 +434,13 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			oursPID[info.ClaudePID] = true
 		}
 	}
+	// Processes of sessions a row stands for: a claude -p run under one of
+	// them is its spawn, counted with its subagents rather than a row.
+	parents := map[int]bool{}
+	for _, info := range hosted {
+		parents[info.ClaudePID], parents[info.HostPID] = true, true
+	}
+	var spawned []int
 	// Conversations a row already stands for: the rest are past ones.
 	claimed := map[string]bool{}
 	for id := range ours {
@@ -456,6 +463,9 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		av.Quota = av.Usage.Quota(claude.UsageKey(acct, av.Usage))
 		sessions := l.sessions(acct)
 		byJob := map[string]claude.Session{}
+		for _, ss := range sessions {
+			parents[ss.PID] = true
+		}
 		for _, ss := range sessions {
 			claimed[ss.SessionID] = true
 			if ss.JobID != "" {
@@ -551,6 +561,10 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(ss.Cwd), ss.SessionID+".jsonl"),
 			}
 			headless := l.isPrint(tab, ss.PID)
+			if headless && spawnOf(tab, ss.PID, parents) != 0 {
+				spawned = append(spawned, ss.PID)
+				continue
+			}
 			if st == "idle" {
 				j.Detail = "open in a terminal"
 				if headless {
@@ -606,6 +620,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		}
 	}
 	snap.Agents = append(snap.Agents, l.otherAgents(claimed, seen, now)...)
+	countSpawns(tab, snap.Agents, spawned)
 	if len(snap.Accounts) > 0 {
 		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
 	}
@@ -1049,4 +1064,47 @@ func (a *Agent) Where() string {
 		return "on GitHub"
 	}
 	return "open in a terminal"
+}
+
+// spawnOf is the nearest process above pid that is one of parents: the
+// session whose shell ran it. Zero when none is.
+func spawnOf(tab *proc.Table, pid int, parents map[int]bool) int {
+	if tab == nil || tab.Procs[pid] == nil || parents[tab.Procs[pid].PPID] {
+		// Run straight from a session's process is no shell's: a host's
+		// own Claude Code, before the host says which it is.
+		return 0
+	}
+	for i, p := 0, tab.Procs[pid]; p != nil && i < 12; i++ {
+		if p.PPID <= 1 {
+			return 0
+		}
+		if parents[p.PPID] && p.PPID != pid {
+			return p.PPID
+		}
+		p = tab.Procs[p.PPID]
+	}
+	return 0
+}
+
+// countSpawns counts each agent run from a session's shell among that
+// session's working subagents: its row's process is above it.
+func countSpawns(tab *proc.Table, agents []*Agent, spawned []int) {
+	if len(spawned) == 0 {
+		return
+	}
+	byPID := map[int]*Agent{}
+	for _, a := range agents {
+		if a.PID != 0 {
+			byPID[a.PID] = a
+		}
+	}
+	for _, pid := range spawned {
+		for i, p := 0, tab.Procs[pid]; p != nil && i < 12; i, p = i+1, tab.Procs[p.PPID] {
+			if a := byPID[p.PPID]; a != nil {
+				a.Subs.Direct++
+				a.Subs.Spawned++
+				break
+			}
+		}
+	}
 }

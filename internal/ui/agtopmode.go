@@ -69,9 +69,11 @@ func (m *Model) refreshSubs() tea.Cmd {
 	}
 	m.followSessionID(c)
 	if c.path == "" {
+		// No transcript to list runs beside: only the agents the shell ran.
+		c.subs = append(slices.DeleteFunc(c.subs, func(sa convo.Subagent) bool { return strings.HasPrefix(sa.ID, spawnPrefix) }), c.spawnSubs()...)
 		return nil
 	}
-	c.subs = c.subList.List(c.path)
+	c.subs = append(c.subList.List(c.path), c.spawnSubs()...)
 	if len(c.subs) > 0 {
 		// Which runs are still working, from the transcripts' word; none
 		// is when the session's process is known to have exited.
@@ -100,6 +102,10 @@ func (m *Model) refreshSubs() tea.Cmd {
 	}
 	var unread []convo.Subagent
 	for _, sa := range follow {
+		if r := c.spawnRunFor(sa.ID); r != nil {
+			c.subTails[sa.ID] = r.view() // read as it's drawn: refreshSpawns
+			continue
+		}
 		switch t := c.subTails[sa.ID]; {
 		case t == nil:
 			unread = append(unread, sa)
@@ -182,6 +188,10 @@ func (c *hostConn) subDetail(id string) *convo.Tail {
 	if c.subPeek != nil && c.subPeekID == id {
 		return c.subPeek
 	}
+	if r := c.spawnRunFor(id); r != nil {
+		c.subPeek, c.subPeekID = r.view(), id
+		return c.subPeek
+	}
 	for _, sa := range c.subs {
 		if sa.ID == id {
 			c.subPeek, c.subPeekID = convo.SubagentTail(sa.Path), id
@@ -228,7 +238,7 @@ func (m *Model) syncWatch() tea.Cmd {
 	if c.tail != nil {
 		want = append(want, watched{c.tail.Path, c.tail.Size()})
 	}
-	if c.subTail != nil {
+	if c.subTail != nil && c.subTail.Path != "" {
 		want = append(want, watched{c.subTail.Path, c.subTail.Size()})
 	}
 	if c.stopWatch != nil && slices.Equal(want, c.watching) {
@@ -270,6 +280,9 @@ func (m *Model) onGrow(msg growMsg) {
 // subState is how a subagent run stands: the status its task-finished
 // notice gave (or failed), and whether it is still working.
 func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
+	if strings.HasPrefix(sa.ID, spawnPrefix) {
+		return c.spawnState(sa)
+	}
 	// When its transcript last grew: known without reading it.
 	var last time.Time
 	if sa.Mod > 0 {
@@ -369,6 +382,11 @@ func (c *hostConn) subToolUse() string {
 
 // openSub drills into one subagent's own conversation.
 func (m *Model) openSub(c *hostConn, id string) {
+	if r := c.spawnRunFor(id); r != nil {
+		c.subTail, c.subOpen, c.subSel, c.subBack = r.view(), id, "", false
+		c.sel, c.scroll = "", 0
+		return
+	}
 	for _, sa := range c.subs {
 		if sa.ID == id {
 			t := convo.SubagentTail(sa.Path)
@@ -877,6 +895,10 @@ type hostConn struct {
 	taskDirFor string                // the conversation it was found for
 	tails      map[string]*jobTailed // each task's output as last read, by file
 	subHoverAt time.Time
+	// Agents the session's shell ran, by the step that ran each, and
+	// whether any are being looked for.
+	spawns       map[string]*spawnRun
+	spawnLooking bool
 }
 
 type hostOpenMsg struct {

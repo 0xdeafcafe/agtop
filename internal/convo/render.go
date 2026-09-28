@@ -680,6 +680,9 @@ func (d *drawer) liveLine() {
 func (d *drawer) verb(st *Step) string {
 	switch {
 	case st.kind() == tool.Shell:
+		if sp, ok := st.Spawn(); ok {
+			return sp.Name
+		}
 		// A chain that committed or pushed is named for that, not its git add.
 		if cs := d.stepCards(st); len(cs) > 0 {
 			return cs[0].verb()
@@ -1461,9 +1464,17 @@ func (d *drawer) step(st *Step, depth int) {
 	}
 	d.cards(st, indent+2)
 	d.denial(st, indent+2)
-	// A subagent shows its own steps while it works, or when opened.
+	// A subagent shows its own steps while it works, or when opened; an
+	// agent the shell ran, only its latest few until it's opened, as its
+	// runs go long.
 	if len(st.Children) > 0 && (st.Status == Running || open) {
-		for _, c := range st.Children {
+		kids := st.Children
+		// Open only for being the latest step isn't opened.
+		if st.child != nil && !d.o.Verbose && !d.o.Open[ref] && len(kids) > spawnShown {
+			d.add("", "", d.spine()+strings.Repeat(" ", indent+3)+faint(fmt.Sprintf("⋯ %s before", plural(len(kids)-spawnShown, "step"))), "")
+			kids = kids[len(kids)-spawnShown:]
+		}
+		for _, c := range kids {
 			d.step(c, depth+1)
 		}
 	}
@@ -1587,6 +1598,9 @@ func (d *drawer) label(st *Step) string {
 	lbl := func(s string) string { return paint(base, s) }
 	switch {
 	case st.kind() == tool.Shell:
+		if sp, ok := st.Spawn(); ok {
+			return spawnLabel(sp, oneLine(in.str("description")), lbl)
+		}
 		cmd := in.str("command")
 		// What the command is for reads faster than the command; the command
 		// itself follows, quieter, and shows whole when the row is opened.
@@ -1904,6 +1918,9 @@ var (
 )
 
 func (d *drawer) summary(st *Step) string {
+	if _, ok := st.Spawn(); ok {
+		return spawnSummary(st)
+	}
 	switch {
 	case st.kind() == tool.Shell:
 		out := bashOut(st)

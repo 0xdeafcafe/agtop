@@ -579,6 +579,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case subStatsMsg:
 		m.onSubStats(msg)
 		return m, nil
+	case spawnFoundMsg:
+		m.onSpawnFound(msg)
+		return m, nil
 	case tempMsg:
 		m.onTemp(msg)
 		return m, nil
@@ -662,7 +665,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.watchShells()
 		m.zenPick()
 		m.followTail()
-		cmds := []tea.Cmd{tick(), m.refreshSubs(), m.flushLocalQueues()}
+		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshSubs(), m.flushLocalQueues()}
 		if m.solo == "" {
 			// autoSwitch too: a session's usage reading arrives with the
 			// snapshot, not with a fetch.
