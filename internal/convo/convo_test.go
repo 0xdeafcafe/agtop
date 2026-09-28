@@ -680,6 +680,26 @@ func TestAnswerTable(t *testing.T) {
 	}
 }
 
+// Narration, words with steps after them, draws its tables too.
+func TestNarrationTable(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "audit"}, at(0))
+	s.Apply(say("Found:\n\n| # | Screen |\n|---|---|\n| 1 | **Every page** |"), at(1))
+	s.Apply(toolUse("b1", "Bash", map[string]any{"command": "go build ./..."}), at(2))
+	s.Apply(toolResult("b1", "", false, nil), at(3))
+	s.Apply(say("Done."), at(4))
+	s.Apply(headless.Result{Subtype: "success"}, at(5))
+	out := plain(s.Render(Options{Width: 100, Now: at(6), Open: map[string]bool{"t1": true}}))
+	for _, want := range []string{"#   Screen", "1   Every page", "───"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "|---") || strings.Contains(out, "| 1 |") {
+		t.Fatalf("narration table drawn raw:\n%s", out)
+	}
+}
+
 func TestCompactDivider(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	lines := []string{

@@ -772,26 +772,7 @@ func (d *drawer) isBlank(i int) bool {
 
 // prose is Claude's narration: the work axis, secondary colour.
 func (d *drawer) prose(s string, indent int, c string) {
-	for _, para := range strings.Split(strings.TrimSpace(s), "\n") {
-		if strings.TrimSpace(para) == "" {
-			continue
-		}
-		// A paragraph already drawn this way comes from the memo, so text
-		// streaming in only wraps its last paragraph again.
-		k := memoKey{text: para, style: c, spine: d.spine(), n: indent, width: d.o.Width, cw: d.cw}
-		if ls, ok := d.s.memoGet(k); ok {
-			d.lines = append(d.lines, ls...)
-			continue
-		}
-		from := len(d.lines)
-		for k, r := range wrap(paint(c, inline(para, c)), min(d.cw-indent-1, capProse)) {
-			d.add("", "", d.spine()+blanks(indent-1)+r, "")
-			if k > 0 {
-				d.wrapped()
-			}
-		}
-		d.s.memoPut(k, d.lines[from:])
-	}
+	d.markdown(strings.TrimSpace(s), indent, c, false)
 }
 
 // answer is the turn's final words: the conversation axis, full text colour,
@@ -802,11 +783,18 @@ func (d *drawer) answer(s string) {
 	if d.worked {
 		d.blank()
 	}
-	w := min(d.cw-5, capProse)
-	lines := strings.Split(strings.TrimRight(s, " \t\n"), "\n")
+	d.markdown(strings.TrimRight(s, " \t\n"), 4, cText, true)
+}
+
+// markdown draws text indent columns in, in colour c, with light markdown:
+// tables, fenced code, headings and lists. keepBlank keeps its empty lines;
+// without it paragraphs close up.
+func (d *drawer) markdown(s string, indent int, c string, keepBlank bool) {
+	w := min(d.cw-indent-1, capProse)
+	pad := d.spine() + blanks(indent-1)
+	lines := strings.Split(s, "\n")
 	for li := 0; li < len(lines); li++ {
-		ln := lines[li]
-		trim := strings.TrimSpace(ln)
+		trim := strings.TrimSpace(lines[li])
 		if strings.HasPrefix(trim, "|") {
 			// A markdown table: every row up to the first that isn't one.
 			end := li
@@ -814,12 +802,11 @@ func (d *drawer) answer(s string) {
 				end++
 			}
 			if end-li >= 2 {
-				d.table(lines[li:end], d.spine()+"   ", min(d.cw-5, d.o.rowCap()))
+				d.table(lines[li:end], pad, min(d.cw-indent-1, d.o.rowCap()), c)
 				li = end - 1
 				continue
 			}
 		}
-		pad := d.spine() + "   "
 		if strings.HasPrefix(trim, "```") {
 			// A code block: every line to the fence that closes it.
 			end := li + 1
@@ -832,13 +819,17 @@ func (d *drawer) answer(s string) {
 		}
 		switch {
 		case trim == "":
-			d.blank()
+			if keepBlank {
+				d.blank()
+			}
 			continue
 		case strings.HasPrefix(trim, "#"):
-			d.add("", "", pad+paint(cWhite+bold, strings.TrimSpace(strings.TrimLeft(trim, "#"))), "")
+			d.add("", "", pad+paint(strong(c), strings.TrimSpace(strings.TrimLeft(trim, "#"))), "")
 			continue
 		}
-		k := memoKey{text: trim, style: "answer", spine: d.spine(), width: d.o.Width, cw: d.cw}
+		// A paragraph already drawn this way comes from the memo, so text
+		// streaming in only wraps its last paragraph again.
+		k := memoKey{text: trim, style: c, spine: d.spine(), n: indent, width: d.o.Width, cw: d.cw}
 		if ls, ok := d.s.memoGet(k); ok {
 			d.lines = append(d.lines, ls...)
 			continue
@@ -851,7 +842,7 @@ func (d *drawer) answer(s string) {
 			lead, body = dim(m[1])+" ", m[2]
 		}
 		leadW := len([]rune(stripANSI(lead)))
-		for k, r := range wrap(text(inline(body, cText)), w-leadW) {
+		for k, r := range wrap(paint(c, inline(body, c)), w-leadW) {
 			if k > 0 && lead != "" {
 				r = blanks(leadW) + r
 			} else {
@@ -864,6 +855,15 @@ func (d *drawer) answer(s string) {
 		}
 		d.s.memoPut(k, d.lines[from:])
 	}
+}
+
+// strong is the bold colour for headings drawn in c: white over body text,
+// c itself over quieter text.
+func strong(c string) string {
+	if c == cText {
+		return cWhite + bold
+	}
+	return c + bold
 }
 
 // Answer draws text the way a turn's final words are drawn (headings,
@@ -911,7 +911,7 @@ var tableSep = regexp.MustCompile(`^:?-{2,}:?$`)
 
 // table draws markdown table rows as aligned columns: the header bold over
 // a rule, cells shortened when the table is wider than the room.
-func (d *drawer) table(rows []string, pad string, w int) {
+func (d *drawer) table(rows []string, pad string, w int, col string) {
 	var cells [][]string
 	head := -1
 	for _, r := range rows {
@@ -941,7 +941,7 @@ func (d *drawer) table(rows []string, pad string, w int) {
 	width := make([]int, cols)
 	for _, r := range cells {
 		for i, c := range r {
-			width[i] = max(width[i], cellw.String(stripMarkdown(c)))
+			width[i] = max(width[i], cellw.String(mdMarks.Replace(c)))
 		}
 	}
 	// Too wide: take room from the widest column until it fits.
@@ -963,14 +963,14 @@ func (d *drawer) table(rows []string, pad string, w int) {
 		for i := range cols {
 			c := ""
 			if i < len(r) {
-				c = stripMarkdown(r[i])
+				c = mdMarks.Replace(r[i]) // inline marks only: a cell may start "#" or "-"
 			}
 			c = truncateCells(c, width[i])
 			switch {
 			case ri == head:
-				b.WriteString(paint(cWhite+bold, c))
+				b.WriteString(paint(strong(col), c))
 			default:
-				b.WriteString(text(c))
+				b.WriteString(paint(col, c))
 			}
 			if i < cols-1 {
 				b.WriteString(blanks(width[i] - cellw.String(c) + gap))
