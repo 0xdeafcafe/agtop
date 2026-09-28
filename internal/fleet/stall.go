@@ -3,6 +3,8 @@ package fleet
 import (
 	"strings"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
 // A finished turn is one of three things: an answer, a question, or an
@@ -14,6 +16,24 @@ import (
 func (a *Agent) Halted() bool {
 	return a.Spend.Halt != nil && !a.Live() && !a.Busy() && !a.Checking && !a.Past && !a.Done && !a.Interactive &&
 		a.State != "stopped"
+}
+
+// Continues is a halted Claude Code session agtop isn't hosting whose
+// turn, in the last day, died on an error trying again gets past: the
+// network down, a connection dropped or stalled, the API failing. agtop
+// tells it to continue once the API can be reached, as its own sessions
+// do.
+func (a *Agent) Continues(now time.Time) bool {
+	if !a.Halted() || a.Agtop || now.Sub(a.Spend.Halt.At) >= 24*time.Hour {
+		return false
+	}
+	t := strings.ToLower(a.Spend.Halt.Text)
+	return host.IsOffline(t) || host.IsRetryable(t)
+}
+
+// Offline is a halt the network being down caused.
+func (a *Agent) Offline() bool {
+	return a.Spend.Halt != nil && host.IsOffline(strings.ToLower(a.Spend.Halt.Text))
 }
 
 // YourTurn is an agent that finished its turn without asking anything and
@@ -40,6 +60,10 @@ func (a *Agent) HaltReason() string {
 		if i := strings.Index(t, " ("); i > 0 {
 			t = t[:i]
 		}
+	case a.Continues(time.Now()) && a.Offline():
+		t = "offline · continues when the network is back"
+	case a.Continues(time.Now()):
+		t += " · continues by itself"
 	}
 	return t
 }

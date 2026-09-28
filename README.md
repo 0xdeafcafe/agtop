@@ -66,7 +66,7 @@ Getting started sits at the foot of the list until you've tried the basics, tick
 
 The list is every agent you have, with what it's doing right now: "running pnpm test", "reading view.go", "searching for PrettyModel". Working agents stand out; idle, stopped and done ones step back.
 
-- **Needs you** comes first: an agent whose turn died says why, with a ✗ ("session limit · resets 5am", "Response stalled mid-stream"), and one with a question waits there too. One that finished without asking waits in **Your turn**. `alt+g` tells either to go on.
+- **Needs you** comes first: an agent whose turn died says why, with a ✗ ("session limit · resets 5am"), and one with a question waits there too. One that finished without asking waits in **Your turn**. `alt+g` tells either to go on. A turn that died on the network or a flaky API ("Connection dropped", "Response stalled mid-stream") is told to continue by itself once the API can be reached.
 - **Cost, tokens and time** for each agent, estimated from its transcript at list prices (subagents included), and today's spend per account.
 - **CPU and RAM** for everything an agent started, not just the agent itself.
 - **Preview** (`tab`): the agent's own screen, live, or what it's doing, its last message and its process tree. Type to reply without opening it.

@@ -872,10 +872,10 @@ func (s *server) stalled(r headless.Result) bool {
 	case strings.Contains(text, "too long") || strings.Contains(text, "too large"):
 		s.info.State, s.info.Error = "idle", firstLine(r.Text)+" · /compact may help"
 		return true
-	case isOffline(text):
+	case IsOffline(text):
 		s.waitOnline(firstLine(r.Text))
 		return true
-	case isRetryable(text):
+	case IsRetryable(text):
 		s.retry(firstLine(r.Text))
 		return true
 	}
@@ -891,7 +891,9 @@ func isAuthError(t string) bool {
 	return false
 }
 
-func isRetryable(t string) bool {
+// IsRetryable is an API error, lowercased, that trying again gets past: a
+// connection that dropped or stalled, the API overloaded or failing.
+func IsRetryable(t string) bool {
 	for _, k := range []string{"529", "overloaded", "api error: 5", "internal server error", "temporarily", "service unavailable", "timed out", "connection", "mid-response", "mid-stream", "stopped arriving"} {
 		if strings.Contains(t, k) {
 			return true
@@ -900,9 +902,9 @@ func isRetryable(t string) bool {
 	return false
 }
 
-// isOffline is an API error that says the network is down (or the machine
-// slept), rather than that the API failed.
-func isOffline(t string) bool {
+// IsOffline is an API error, lowercased, that says the network is down (or
+// the machine slept), rather than that the API failed.
+func IsOffline(t string) bool {
 	for _, k := range []string{"can't reach the api", "unable to connect to api", "no response from api", "went to sleep", "internet", "enotfound", "eai_again", "econnrefused", "enetunreach", "ehostunreach", "enetdown"} {
 		if strings.Contains(t, k) {
 			return true
@@ -1046,6 +1048,9 @@ var reachable = func() bool {
 	_ = c.Close()
 	return true
 }
+
+// Reachable is whether the API answers a connection now.
+func Reachable() bool { return reachable() }
 
 // waitOnline handles a turn the network cut off. Trying again while it's
 // down would only fail, so it waits until the API can be reached, however

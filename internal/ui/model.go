@@ -174,6 +174,7 @@ type Model struct {
 	// skips those for a while rather than sticking on one it can't show.
 	openFailed   map[string]time.Time
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
+	online       onlineWatch            // sessions an API error stopped, told to continue once it can be reached
 	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
 	ptrX, ptrY   int                    // where the mouse was last seen
@@ -665,7 +666,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.watchShells()
 		m.zenPick()
 		m.followTail()
-		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshSubs(), m.flushLocalQueues()}
+		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshSubs(), m.flushLocalQueues(), m.watchOnline()}
 		if m.solo == "" {
 			// autoSwitch too: a session's usage reading arrives with the
 			// snapshot, not with a fetch.
@@ -699,6 +700,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadLivePreviews())
 		}
 		return m, tea.Batch(cmds...)
+	case onlineMsg:
+		return m, m.onOnline(msg)
 	case effLoadedMsg:
 		m.onEffLoaded(msg)
 		return m, nil

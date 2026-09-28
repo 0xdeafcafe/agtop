@@ -407,11 +407,11 @@ func TestOfflineErrors(t *testing.T) {
 		"API Error: 529 Overloaded":                                                      false,
 		"API Error: Connection lost mid-response.":                                       false,
 	} {
-		if got := isOffline(strings.ToLower(text)); got != want {
-			t.Errorf("isOffline(%q) = %v", text, got)
+		if got := IsOffline(strings.ToLower(text)); got != want {
+			t.Errorf("IsOffline(%q) = %v", text, got)
 		}
 	}
-	if !isRetryable(strings.ToLower("API Error: Response stalled mid-stream.")) {
+	if !IsRetryable(strings.ToLower("API Error: Response stalled mid-stream.")) {
 		t.Error("a stalled stream should be retried")
 	}
 }

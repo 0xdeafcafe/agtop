@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -55,5 +56,52 @@ func TestAFinishedTurnIsAnAnswerOrAnError(t *testing.T) {
 	}
 	if old := finished(); func() bool { old.UpdatedAt = now.Add(-25 * time.Hour); return old.YourTurn(now) }() {
 		t.Fatal("a day-old finish is still your turn")
+	}
+}
+
+// A session an API error stopped today continues once the API can be
+// reached; one a limit stopped, one agtop hosts (its host retries itself),
+// or one stopped days ago doesn't.
+func TestAPIErrorsContinue(t *testing.T) {
+	now := time.Now()
+	halted := func(text string, at time.Time) *Agent {
+		a := &Agent{PID: 1}
+		a.State, a.UpdatedAt = "done", at
+		a.Spend.Halt = &claude.Halt{Kind: "server_error", Text: text, At: at}
+		return a
+	}
+	a := halted("API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", now.Add(-time.Minute))
+	if !a.Continues(now) {
+		t.Fatal("ENOTFOUND should be cut off")
+	}
+	if got := a.HaltReason(); got != "offline · continues when the network is back" {
+		t.Fatalf("reason %q", got)
+	}
+	for _, text := range []string{"API Error: Connection dropped (ECONNRESET)", "API Error: Response stalled mid-stream. The response above may be incomplete."} {
+		a := halted(text, now)
+		if !a.Continues(now) || a.Offline() {
+			t.Fatalf("%q should continue, online", text)
+		}
+		if got, want := a.HaltReason(), strings.TrimPrefix(text, "API Error: ")+" · continues by itself"; got != want {
+			t.Fatalf("reason %q", got)
+		}
+	}
+	a = halted("You've hit your session limit · resets 5am (Europe/London)", now)
+	a.Spend.Halt.Kind = "rate_limit"
+	if a.Continues(now) {
+		t.Fatal("a limit waits for its reset")
+	}
+	a = halted("Not logged in · Please run /login", now)
+	a.Spend.Halt.Kind = "authentication_failed"
+	if a.Continues(now) {
+		t.Fatal("logging in is yours to do")
+	}
+	if a := halted("API Error: Unable to connect to API (ENOTFOUND)", now.Add(-48*time.Hour)); a.Continues(now) {
+		t.Fatal("two days ago is too long ago")
+	}
+	a = halted("API Error: Unable to connect to API (ENOTFOUND)", now)
+	a.Agtop = true
+	if a.Continues(now) {
+		t.Fatal("agtop's own sessions wait for the network themselves")
 	}
 }
