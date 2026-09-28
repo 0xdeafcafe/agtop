@@ -345,10 +345,29 @@ func Run(id string) error {
 		}
 	}
 	go s.accept()
+	go s.watchSock(sock)
 	<-s.quit
 	_ = ln.Close()
 	_ = os.Remove(sock)
 	return nil
+}
+
+// watchSock stops the host once its socket is gone, as when its folder was
+// deleted: no client can reach it again, so it would only linger.
+func (s *server) watchSock(sock string) {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.quit:
+			return
+		case <-t.C:
+			if _, err := os.Stat(sock); errors.Is(err, os.ErrNotExist) {
+				_ = s.do(op{Op: "stop"})
+				return
+			}
+		}
+	}
 }
 
 func (s *server) accept() {
