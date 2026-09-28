@@ -650,3 +650,7 @@ func (c *CostCache) Save() error {
 	}
 	return os.Rename(path+".tmp", path)
 }
+
+// WriteJSON writes v to path as indented JSON, all at once: a reader sees
+// the old file or the new one, never half of either.
+func WriteJSON(path string, v any) error { return writeJSON(path, v) }
