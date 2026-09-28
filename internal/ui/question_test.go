@@ -357,7 +357,7 @@ func TestArgPicker(t *testing.T) {
 	c.sess.Info.Model = "claude-sonnet-5"
 	c.input = []rune("/model ")
 	got := argMatches(c)
-	if len(got) != 6 {
+	if len(got) != len(modelChoices) {
 		t.Fatalf("all models offered: %v", got)
 	}
 	for _, g := range got {

@@ -393,7 +393,7 @@ var agtopCommands = []headless.Command{
 	{Name: "clear", Description: "start a fresh session in the same folder (this one stays in the list)"},
 	{Name: "fork", Description: "carry on in a copy of this conversation, as a new agent (this one stays as it is)", ArgumentHint: "[name]"},
 	{Name: "rewind", Description: "go back to before one of your messages and try again; the path you leave is kept as a branch"},
-	{Name: "model", Description: "switch model for the next turn: /model opus, sonnet, haiku, fable", ArgumentHint: "<model>"},
+	{Name: "model", Description: "pick the model for the next turn, or /model opus, sonnet, haiku, fable", ArgumentHint: "[model]"},
 	{Name: "effort", Description: "change effort (applies from the next start): low, medium, high, xhigh, max", ArgumentHint: "<level>"},
 	{Name: "plan", Description: "plan mode on, or off again: Claude plans and asks before it changes anything"},
 	{Name: "diff", Description: "what changed: this session's edits and the working tree (the changes view)"},
@@ -622,14 +622,7 @@ func (m *Model) loadLocal(c *hostConn) {
 
 // argChoices are what /model and /effort offer once you've typed a space.
 var argChoices = map[string][]headless.Command{
-	"model": {
-		{Name: "opus", Description: "most capable"},
-		{Name: "opus[1m]", Description: "Opus with a 1M-token context"},
-		{Name: "sonnet", Description: "fast and capable"},
-		{Name: "haiku", Description: "fastest and cheapest"},
-		{Name: "fable", Description: "Fable"},
-		{Name: "default", Description: "the account's default"},
-	},
+	"model": modelArgs(),
 	"effort": {
 		{Name: "low"}, {Name: "medium"}, {Name: "high"}, {Name: "xhigh"}, {Name: "max"},
 	},
@@ -647,7 +640,7 @@ func argMatches(c *hostConn) []headless.Command {
 	if !ok || opts == nil || strings.Contains(q, " ") {
 		return nil
 	}
-	now := c.sess.Info.Model
+	now := currentModel(c)
 	if name == "effort" {
 		now = c.sess.Info.Effort
 	}
@@ -657,7 +650,7 @@ func argMatches(c *hostConn) []headless.Command {
 			continue
 		}
 		d := o.Description
-		if now != "" && (now == o.Name || name == "model" && strings.Contains(now, strings.TrimSuffix(o.Name, "[1m]"))) {
+		if now != "" && now == o.Name {
 			d = strings.TrimPrefix(d+" · now", " · ")
 		}
 		out = append(out, headless.Command{Name: name + " " + o.Name, Description: d})
@@ -928,12 +921,11 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		m.flash("past conversations are in Agents: pick one, and a message carries it on", false)
 		return nil, true
 	case "model":
-		if c.client == nil {
-			m.flash("/model works in agtop-mode sessions · /agtop moves this one over", true)
+		if arg == "" && c.client != nil {
+			m.openModels(c)
 			return nil, true
 		}
-		m.flash("model: "+firstNonEmpty(arg, "default")+" from the next turn", false)
-		return hostCmd(func() error { return c.client.SetModel(arg) }), true
+		return m.setModel(c, arg), true
 	case "effort":
 		if c.client == nil {
 			m.flash("/effort works in agtop-mode sessions · /agtop moves this one over", true)

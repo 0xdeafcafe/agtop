@@ -698,9 +698,11 @@ type hostConn struct {
 	key    string
 	id     string
 	client *host.Client // an agtop session's host; nil when read from a transcript
-	tail   *convo.Tail  // a Claude Code session's transcript, followed as it grows
-	sess   *convo.Session
-	ready  bool // the replay has been drawn at least once
+	// modelPick is the model last switched to from agtop, /model's alias.
+	modelPick string
+	tail      *convo.Tail // a Claude Code session's transcript, followed as it grows
+	sess      *convo.Session
+	ready     bool // the replay has been drawn at least once
 
 	view    int
 	sel     string
