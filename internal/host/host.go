@@ -89,6 +89,9 @@ type Config struct {
 	// Kind is the agent the session runs, through its adapter: empty is
 	// Claude Code, run by headless.
 	Kind string `json:"kind,omitempty"`
+	// Profile is the profile the session was started under: which
+	// providers it may move to, and what it does at a usage limit.
+	Profile string `json:"profile,omitempty"`
 }
 
 // Branch is a path of the conversation that /rewind left: its own
@@ -150,6 +153,8 @@ type Info struct {
 	Proto int `json:"proto,omitempty"`
 	// Kind is the agent it runs: empty is Claude Code.
 	Kind string `json:"kind,omitempty"`
+	// Profile is the config's: the profile it was started under.
+	Profile string `json:"profile,omitempty"`
 	// StartedBy is the plugin that started it, if one did.
 	StartedBy string `json:"startedBy,omitempty"`
 	// Meta is the config's, as it started with.
@@ -338,7 +343,7 @@ func Run(id string) error {
 		quit: make(chan struct{}),
 		info: Info{ID: cfg.ID, Kind: cfg.Kind, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
 			HostPID: os.Getpid(), State: "idle", Proto: Proto, Model: cfg.Model, Effort: cfg.Effort, PermissionMode: cfg.PermissionMode,
-			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta},
+			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta, Profile: cfg.Profile},
 	}
 	s.publish()
 	if cfg.Prompt != "" || len(cfg.Images) > 0 {

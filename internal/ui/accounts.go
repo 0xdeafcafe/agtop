@@ -30,17 +30,30 @@ type accountsState struct {
 	now map[string]string
 	// why is why who an agent is signed in as isn't known, by kind.
 	why map[string]string
-	// spill is the agent new sessions run instead of the default, while
-	// every account of the default is nearly out.
+	// spill is the agent new sessions run instead of the default
+	// profile's first, while every account of that is nearly out.
 	spill string
 	// switchedAt is when agtop last switched an agent's account itself.
 	switchedAt map[string]time.Time
+	// profile is the profile picked for the next session started from the
+	// Prompt (#profile): it goes once used.
+	profile string
+	// handedOff are the sessions a usage limit stopped that agtop handed
+	// to another provider, or tried to, by key: each is handed on once.
+	handedOff map[string]bool
 }
+
+// loginsKind is the provider whose accounts are Config.Logins, switched in
+// its one home by the vault rather than through its adapter.
+var loginsKind = agent.Kind(state.KindOf(""))
 
 // ready makes the maps, for a Model made without New.
 func (s *accountsState) ready() {
 	if s.now == nil {
 		s.now, s.why, s.switchedAt = map[string]string{}, map[string]string{}, map[string]time.Time{}
+	}
+	if s.handedOff == nil {
+		s.handedOff = map[string]bool{}
 	}
 }
 
@@ -74,10 +87,10 @@ func (r acctRow) email() string {
 	return firstNonEmpty(r.acct.Email, r.q.Email)
 }
 
-// agentOrder is every installed agent, in the order you put them, which
-// is the order new sessions move on through when an agent's accounts are
-// all nearly out. Those you haven't placed follow: Claude Code, then by
-// name.
+// agentOrder is every installed agent, in the default profile's order,
+// which is the order new sessions move on through when an agent's
+// accounts are all nearly out. Those it doesn't list follow: Claude Code,
+// then by name.
 func (m *Model) agentOrder() []agent.Adapter {
 	inst := agent.InstalledAll()
 	by := map[string]agent.Adapter{}
@@ -85,7 +98,7 @@ func (m *Model) agentOrder() []agent.Adapter {
 		by[string(a.Kind())] = a
 	}
 	var out []agent.Adapter
-	for _, k := range m.store.Config.AgentOrder {
+	for _, k := range m.store.Config.Default().Providers {
 		if a, ok := by[k]; ok {
 			out = append(out, a)
 			delete(by, k)
@@ -97,15 +110,15 @@ func (m *Model) agentOrder() []agent.Adapter {
 			rest = append(rest, a)
 		}
 	}
-	sort.SliceStable(rest, func(i, j int) bool { return rest[i].Kind() == "claude" && rest[j].Kind() != "claude" })
+	sort.SliceStable(rest, func(i, j int) bool { return rest[i].Kind() == loginsKind && rest[j].Kind() != loginsKind })
 	return append(out, rest...)
 }
 
 // profileOf is the home an agent runs from.
 func (m *Model) profileOf(a agent.Adapter) (agent.Profile, bool) {
-	if a.Kind() == "claude" {
+	if a.Kind() == loginsKind {
 		acct := m.store.Config.ActiveAccount()
-		return agent.Profile{Kind: "claude", Name: acct.Name, Dir: acct.ConfigDir}, true
+		return agent.Profile{Kind: loginsKind, Name: acct.Name, Dir: acct.ConfigDir}, true
 	}
 	ps := a.Profiles()
 	if len(ps) == 0 {
@@ -135,7 +148,7 @@ func (m *Model) accountRows() []acctRow {
 		k := ad.Kind()
 		head := acctRow{kind: k, head: true}
 		switch _, switches := ad.(agent.Accounts); {
-		case k == "claude":
+		case k == loginsKind:
 			if len(m.snap.Accounts) > 0 {
 				head.q = m.snap.Accounts[0].Quota
 			}
@@ -168,7 +181,7 @@ func (m *Model) accountRows() []acctRow {
 
 // switches is whether agtop can switch agent k between accounts.
 func switches(k agent.Kind) bool {
-	if k == "claude" {
+	if k == loginsKind {
 		return true
 	}
 	ad, _ := agent.Get(k)
@@ -187,21 +200,24 @@ func accountsOf(rows []acctRow, k agent.Kind) []acctRow {
 	return out
 }
 
-// startKind is the agent new sessions run: the default one, unless every
-// account of it is nearly out and you let agtop move on to the next.
-func (m *Model) startKind() string {
-	def := m.store.Config.DefaultAgent()
-	if m.store.Config.SwitchOnLimit == state.OnLimitAgent && m.accts.spill != "" {
-		return m.accts.spill
+// startKind is the agent new sessions from the Prompt run: their
+// profile's first, unless every account of it is nearly out and the
+// profile moves on to the next.
+func (m *Model) startKind() string { return m.startKindIn(m.startDir()) }
+
+// startKindIn is the agent a new session in dir runs.
+func (m *Model) startKindIn(dir string) string {
+	if p, ok := m.startPick(dir); ok {
+		return p.Kind
 	}
-	return def
+	return m.store.Config.DefaultAgent()
 }
 
 // startAccount is the agent and account new sessions start on, for the
 // top bar.
 func (m *Model) startAccount() string {
 	k := m.startKind()
-	if k == "claude" {
+	if agent.Kind(k) == loginsKind {
 		return m.inUse()
 	}
 	name := agentName(k)
@@ -217,7 +233,7 @@ func (m *Model) startAccount() string {
 // they run an agent other than Claude Code.
 func (m *Model) startQuota() (usage.Quota, bool) {
 	k := m.startKind()
-	if k == "claude" {
+	if agent.Kind(k) == loginsKind {
 		return usage.Quota{}, false
 	}
 	for _, r := range m.accountRows() {
@@ -237,7 +253,7 @@ func (m *Model) findSignIns() tea.Cmd {
 	var cmds []tea.Cmd
 	for _, ad := range agent.InstalledAll() {
 		acc, ok := ad.(agent.Accounts)
-		if !ok || ad.Kind() == "claude" {
+		if !ok || ad.Kind() == loginsKind {
 			continue
 		}
 		p, ok := m.profileOf(ad)
@@ -354,7 +370,7 @@ func (msg acctSwitchedMsg) applyTo(m *Model) tea.Cmd {
 
 // addAccount signs in to another account of agent k.
 func (m *Model) addAccount(k agent.Kind) tea.Cmd {
-	if k == "claude" {
+	if k == loginsKind {
 		m.ask("login name", "")
 		return nil
 	}
@@ -443,7 +459,10 @@ func (m *Model) moveAgent(k agent.Kind, d int) {
 		return
 	}
 	kinds[at], kinds[to] = kinds[to], kinds[at]
-	m.store.Config.AgentOrder = kinds
+	cfg := &m.store.Config
+	p := cfg.Default()
+	p.Providers = kinds
+	cfg.SetProfile(p.Name, p)
 	_ = m.store.SaveConfig()
 	// The cursor follows the agent.
 	for i, r := range m.accountRows() {
@@ -455,6 +474,22 @@ func (m *Model) moveAgent(k agent.Kind, d int) {
 
 // onLimitChoices are what agtop can do when an account is nearly out.
 var onLimitChoices = []string{state.OnLimitAccount, state.OnLimitAgent, state.OnLimitOff}
+
+// setSwitchOnLimit sets the default profile's policy from one of
+// onLimitChoices: switch account and stay on the provider, move on to the
+// next provider too, or wait.
+func (m *Model) setSwitchOnLimit(v string) {
+	cfg := &m.store.Config
+	p := cfg.Default()
+	p.Mix, p.OnLimit = state.MixStay, state.LimitAccount
+	switch v {
+	case state.OnLimitAgent:
+		p.Mix = state.MixMix
+	case state.OnLimitOff:
+		p.OnLimit = state.LimitWait
+	}
+	cfg.SetProfile(p.Name, p)
+}
 
 func onLimitWords(v string) string {
 	switch v {
@@ -478,7 +513,7 @@ func (m *Model) accountsKey(s string) tea.Cmd {
 				i = j
 			}
 		}
-		cfg.SetSwitchOnLimit(onLimitChoices[(i+1)%len(onLimitChoices)])
+		m.setSwitchOnLimit(onLimitChoices[(i+1)%len(onLimitChoices)])
 		_ = m.store.SaveConfig()
 		switch cfg.SwitchOnLimit {
 		case state.OnLimitAgent:
@@ -642,7 +677,7 @@ func (m *Model) accountLine(r acctRow, n int, cols []int) string {
 		}
 		live := 0
 		for _, a := range m.snap.Agents {
-			if a.Live() && firstNonEmpty(a.Kind, "claude") == string(r.kind) {
+			if a.Live() && state.KindOf(a.Kind) == string(r.kind) {
 				live++
 			}
 		}
@@ -656,16 +691,16 @@ func (m *Model) accountLine(r acctRow, n int, cols []int) string {
 			note = faint(fmt.Sprintf("%d accounts · without its CLI: sessions on GitHub only", len(cfg.SignInsOf(k))))
 		case k == m.startKind() && k != cfg.DefaultAgent():
 			note = paint(cYellow, "new sessions run it for now")
-		case k == "claude" && len(m.snap.Logins) == 0:
+		case r.kind == loginsKind && len(m.snap.Logins) == 0:
 			note = faint("no account kept yet · a adds one")
-		case k != "claude" && switches(r.kind) && len(cfg.SignInsOf(k)) == 0:
+		case r.kind != loginsKind && switches(r.kind) && len(cfg.SignInsOf(k)) == 0:
 			note = faint(firstNonEmpty(m.accts.why[k], "who it's signed in as isn't known yet"))
 		case !switches(r.kind):
 			// One sign-in, the agent's own: its limits are the agent's.
 			note = dim(fit(r.q.Email, cols[1])) + faint(fit(r.q.Plan, cols[2])) + m.limits(r, cols[3], cols[4])
 		default:
 			c := len(cfg.SignInsOf(k))
-			if k == "claude" {
+			if r.kind == loginsKind {
 				c = len(m.snap.Logins)
 			}
 			note = faint(fmt.Sprintf("%d accounts", c))
@@ -714,7 +749,7 @@ func (m *Model) limits(r acctRow, w1, w2 int) string {
 			}
 		case q.Problem != "":
 			msg = paint(cYellow, q.Problem)
-		case r.kind != "claude":
+		case r.kind != loginsKind:
 			ad, _ := agent.Get(r.kind)
 			if _, ok := ad.(agent.QuotaSource); !ok {
 				msg = faint("doesn't report its limits")
@@ -781,7 +816,7 @@ func (m *Model) accountDetail(r acctRow, w int) []string {
 		var live, total int
 		var today float64
 		for _, ag := range m.snap.Agents {
-			if firstNonEmpty(ag.Kind, "claude") != string(r.kind) {
+			if state.KindOf(ag.Kind) != string(r.kind) {
 				continue
 			}
 			total++

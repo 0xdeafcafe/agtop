@@ -38,6 +38,7 @@ var fleetCommands = []headless.Command{
 	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", ") + ", or plugin:<name> for a plugin's sections", ArgumentHint: "<group>"},
 	{Name: "folder", Description: "choose the folder new sessions start in"},
 	{Name: "with", Description: "the agent new sessions run by default, of those installed; alone says which", ArgumentHint: "[agent]"},
+	{Name: "profile", Description: "the profile the next session starts under: which providers it runs, and what it does at a limit; alone says which", ArgumentHint: "[name]"},
 	{Name: "efficiency", Description: "where tokens go, and the savers that cut them (#eff, #savers)", ArgumentHint: "[timeline|savers|findings]"},
 	{Name: "advisor", Description: "let Haiku look over your agents' figures now and then for what would save tokens or time, with Opus checking; now looks at once", ArgumentHint: "[on|off|now]"},
 	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
@@ -109,6 +110,11 @@ func (m *Model) fleetArgs(name string) (opts []string, now string) {
 			opts = append(opts, string(a.Kind()))
 		}
 		return opts, m.store.Config.DefaultAgent()
+	case "profile":
+		for _, p := range m.store.Config.Profiles {
+			opts = append(opts, p.Name)
+		}
+		return opts, m.startProfile(m.startDir()).Name
 	case "clean":
 		return []string{"all"}, ""
 	case "view":

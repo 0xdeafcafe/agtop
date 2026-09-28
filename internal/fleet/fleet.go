@@ -52,6 +52,8 @@ type Agent struct {
 	Temp int64
 	// Kind is the agent an agtop session runs: empty is Claude Code.
 	Kind string
+	// Profile is the profile an agtop session was started under.
+	Profile string
 	// History is another agent's transcript, read through its adapter:
 	// TranscriptPath is only ever Claude Code's.
 	History string
@@ -724,7 +726,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 	case info.Error != "" && st == "done":
 		j.Detail = "stopped mid-turn · your next message resumes it"
 	}
-	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: acct, DisplayName: name, Agtop: true, Kind: info.Kind}
+	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: acct, DisplayName: name, Agtop: true, Kind: info.Kind, Profile: info.Profile}
 	if info.State != "stopped" && info.HostPID > 0 && (tab == nil || tab.Procs[info.HostPID] != nil) {
 		a.PID = info.HostPID
 	}

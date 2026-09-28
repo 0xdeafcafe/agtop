@@ -943,6 +943,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "with":
 		m.withAgent(arg)
+	case "profile":
+		m.usePickedProfile(arg)
 	case "hibernate":
 		var n int
 		fmt.Sscanf(arg, "%d", &n)

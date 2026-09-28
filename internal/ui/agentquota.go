@@ -27,7 +27,7 @@ func (m *Model) fetchQuotas() tea.Cmd {
 	cfg := m.store.Config
 	cmds := []tea.Cmd{m.findSignIns(), func() tea.Msg { return quotaMsg(usage.Load(host.QuotasPath())) }}
 	for _, ad := range agent.InstalledAll() {
-		if ad.Kind() == "claude" {
+		if ad.Kind() == loginsKind {
 			continue
 		}
 		src, ok := ad.(agent.QuotaSource)
@@ -85,20 +85,23 @@ func (msg quotaMsg) applyTo(m *Model) tea.Cmd {
 const fresh = 15 * time.Minute
 
 // checkLimits switches another agent to another of its accounts when the
-// one in use is nearly out, and, when you let it move on to the next
-// agent, picks which agent new sessions run.
+// one in use is nearly out, unless the default profile waits; says when
+// new sessions move on to another provider; and hands on conversations a
+// limit stopped whose profile says to.
 func (m *Model) checkLimits() tea.Cmd {
 	cfg := m.store.Config
-	if m.offline || cfg.SwitchOnLimit == state.OnLimitOff {
-		m.accts.spill = ""
+	m.accts.ready()
+	if m.offline {
 		return nil
 	}
-	m.accts.ready()
 	rows := m.accountRows()
 	var cmds []tea.Cmd
 	for _, ad := range m.agentOrder() {
 		k := ad.Kind()
-		if k == "claude" || !switches(k) || time.Since(m.accts.switchedAt[string(k)]) < switchGap {
+		if cfg.Default().Limit() == state.LimitWait && !m.limitStopped(k) {
+			continue
+		}
+		if k == loginsKind || !switches(k) || time.Since(m.accts.switchedAt[string(k)]) < switchGap {
 			continue
 		}
 		if to, why, ok := nextAccount(accountsOf(rows, k)); ok {
@@ -106,8 +109,8 @@ func (m *Model) checkLimits() tea.Cmd {
 			cmds = append(cmds, m.switchAccount(to.acct, why))
 		}
 	}
-	m.spillTo(rows)
-	return tea.Batch(cmds...)
+	m.spillTo()
+	return tea.Batch(append(cmds, m.handOffStopped())...)
 }
 
 // nextAccount is the account to switch to when the one in use is nearly
@@ -143,43 +146,21 @@ func nearlyOut(q usage.Quota) bool {
 	return len(q.Windows) > 0 && time.Since(q.FetchedAt) < fresh && q.Used("") >= state.SwitchAt
 }
 
-// agentOut is whether every account of agent k agtop has a reading of is
-// nearly out: its default can't start anything.
-func agentOut(rows []acctRow, k agent.Kind) bool {
-	accts := accountsOf(rows, k)
-	if len(accts) == 0 {
-		for _, r := range rows {
-			if r.head && r.kind == k {
-				return nearlyOut(r.q)
-			}
-		}
-		return false
-	}
-	for _, r := range accts {
-		if !nearlyOut(r.q) {
-			return false
-		}
-	}
-	return true
-}
-
-// spillTo picks the agent new sessions run while the default's accounts
-// are all nearly out: the next in your order that isn't. Running sessions
-// stay where they are.
-func (m *Model) spillTo(rows []acctRow) {
-	cfg := m.store.Config
+// spillTo says when new sessions move on from the default profile's
+// first provider, because its accounts are all nearly out and the profile
+// mixes, and when they come back. Running sessions stay where they are.
+func (m *Model) spillTo() {
+	p := m.store.Config.Default()
 	was := m.accts.spill
 	m.accts.spill = ""
-	def := cfg.DefaultAgent()
-	if cfg.SwitchOnLimit == state.OnLimitAgent && (agentOut(rows, agent.Kind(def)) || !agent.Installed(agent.Kind(def))) {
-		for _, ad := range m.agentOrder() {
-			if k := ad.Kind(); string(k) != def && !agentOut(rows, k) {
-				if _, ok := ad.(agent.Driver); ok && agent.Runs(k) {
-					m.accts.spill = string(k)
-					break
-				}
-			}
-		}
+	inst := p.Installed()
+	pick, ok := p.Pick(m.room())
+	if !ok {
+		return
+	}
+	def := inst[0]
+	if pick.Kind != def {
+		m.accts.spill = pick.Kind
 	}
 	switch {
 	case m.accts.spill == was:

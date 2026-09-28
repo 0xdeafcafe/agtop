@@ -1,0 +1,74 @@
+package ui
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/state"
+)
+
+// A session's provider comes from its profile: its folder's rule, or the
+// one picked with #profile, which is for one session.
+func TestStartUnderProfile(t *testing.T) {
+	m, _ := accountsModel(t)
+	cfg := &m.store.Config
+	cfg.SetProfile("", state.Profile{Name: "Default", Providers: []string{"claude", "zcodex"}})
+	cfg.SetProfile("", state.Profile{Name: "plain", Providers: []string{"zplain"}})
+	cfg.SetRule("/work", "plain")
+	if k := m.startKindIn("/elsewhere"); k != "claude" {
+		t.Fatalf("outside the rule, new sessions run %q", k)
+	}
+	if k := m.startKindIn(filepath.Join("/work", "repo")); k != "zplain" {
+		t.Fatalf("under the rule, new sessions run %q", k)
+	}
+	m.usePickedProfile("PLAIN")
+	if k := m.startKindIn("/elsewhere"); k != "zplain" || m.accts.profile != "plain" {
+		t.Fatalf("after #profile plain, new sessions run %q", k)
+	}
+	m.usePickedProfile("nope")
+	if m.accts.profile != "plain" {
+		t.Fatal("an unknown profile was taken")
+	}
+}
+
+// A profile that mixes moves new sessions on once every account of its
+// first provider is nearly out; one that stays waits on it.
+func TestPickFollowsRoom(t *testing.T) {
+	m, _ := accountsModel(t)
+	cfg := &m.store.Config
+	cfg.SetProfile("", state.Profile{Name: "Default", Providers: []string{"zcodex", "zplain"}, Mix: state.MixMix})
+	if k := m.startKindIn("/x"); k != "zcodex" {
+		t.Fatalf("with room, new sessions run %q", k)
+	}
+	m.quotas["zcodex:a2"] = m.quotas["zcodex:a1"] // both at 97%
+	if k := m.startKindIn("/x"); k != "zplain" {
+		t.Fatalf("mixing with zcodex out, new sessions run %q", k)
+	}
+	p := cfg.Default()
+	p.Mix = state.MixStay
+	cfg.SetProfile(p.Name, p)
+	if pick, _ := m.startPick("/x"); pick.Kind != "zcodex" || !pick.Wait {
+		t.Fatalf("staying with zcodex out, picked %+v", pick)
+	}
+}
+
+// A conversation a limit stopped under a profile that hands on is handed
+// to the next provider once its own has no room, and only once.
+func TestHandOffStopped(t *testing.T) {
+	m, _ := accountsModel(t)
+	cfg := &m.store.Config
+	cfg.SetProfile("", state.Profile{Name: "Default", Providers: []string{"zcodex", "zplain"}, OnLimit: state.LimitHandoff})
+	a := &fleet.Agent{Key: "k1", DisplayName: "fixer", Agtop: true, Kind: "zcodex", Profile: "Default", Cwd: "/x"}
+	a.Detail = "usage limit · resets 15:00"
+	m.snap.Agents = []*fleet.Agent{a}
+	m.handOffStopped()
+	if m.accts.handedOff["k1"] {
+		t.Fatal("handed on while another zcodex account has room")
+	}
+	m.quotas["zcodex:a2"] = m.quotas["zcodex:a1"]
+	m.handOffStopped()
+	if !m.accts.handedOff["k1"] {
+		t.Fatal("not handed on with every zcodex account out")
+	}
+}

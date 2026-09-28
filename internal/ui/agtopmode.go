@@ -2877,14 +2877,17 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 	if name == "" {
 		name = "fresh session in " + filepath.Base(dir)
 	}
+	kind, profile := m.startKindIn(dir), m.startProfile(dir).Name
+	m.accts.profile = "" // a profile picked with #profile is for one session
 	cfg := host.Config{
 		Account: m.store.Config.ActiveAccount(), Cwd: dir, Prompt: text, Images: images, Name: name,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
+		Profile: profile,
 	}
-	if kind := m.startKind(); kind != "claude" {
+	if kind != "claude" {
 		// The model, effort and mode in Settings are Claude Code's: another
 		// agent starts with its own.
-		cfg = host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, IdleStop: host.Duration(d.Rest())}
+		cfg = host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, IdleStop: host.Duration(d.Rest()), Profile: profile}
 		if err := cfg.UseAgent(kind); err != nil {
 			m.flash(err.Error(), true)
 			return nil

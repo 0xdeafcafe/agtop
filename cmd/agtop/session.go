@@ -21,12 +21,13 @@ import (
 
 const sessionUsage = `agtop session: run agtop-mode sessions without the view
 
-  agtop session start --cwd DIR [--agent KIND] [--session-id UUID] [--resume] [--name N]
+  agtop session start --cwd DIR [--agent KIND] [--profile P] [--session-id UUID] [--resume] [--name N]
         [--prompt-file F] [--image PATH]... [--env K=V]... [--meta k=v]...
         [--binary PATH] [--model M] [--effort E] [--permission-mode M] [--json]
 
-  --agent is the agent to run: claude (the default), codex, copilot, gemini,
-  kimi, opencode or vibe.
+  --agent is the agent to run: claude, codex, copilot, gemini, kimi, opencode
+  or vibe. Without it, the session's profile picks: --profile names one,
+  else the folder's rule or the default profile says.
   agtop session send <id> [--now] [--image PATH]...   message text on stdin
   agtop session interrupt <id>
   agtop session stop <id>
@@ -166,12 +167,13 @@ func waitInfo(id string) (host.Info, error) {
 func sessionStart(args []string, stdout io.Writer) (bool, error) {
 	fs := newFlags("start")
 	var (
-		cwd, sessionID, name, promptFile, binary, model, effort, mode, kind string
-		resume, asJSON                                                      bool
-		images, env, meta                                                   multi
+		cwd, sessionID, name, promptFile, binary, model, effort, mode, kind, profile string
+		resume, asJSON                                                               bool
+		images, env, meta                                                            multi
 	)
 	fs.StringVar(&cwd, "cwd", "", "")
 	fs.StringVar(&kind, "agent", "", "")
+	fs.StringVar(&profile, "profile", "", "")
 	fs.StringVar(&sessionID, "session-id", "", "")
 	fs.BoolVar(&resume, "resume", false, "")
 	fs.StringVar(&name, "name", "", "")
@@ -268,6 +270,22 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 	}
 	if st, err := os.Stat(cfg.Cwd); err != nil || !st.IsDir() {
 		return asJSON, fmt.Errorf("--cwd %s is not a folder", cfg.Cwd)
+	}
+	if profile != "" {
+		if _, ok := st.Config.ProfileNamed(profile); !ok {
+			return asJSON, fmt.Errorf("no profile named %q", profile)
+		}
+	}
+	if !cfg.Resume || cfg.Profile == "" {
+		p := st.Config.ProfileFor(cfg.Cwd, profile)
+		cfg.Profile = p.Name
+		if kind == "" && !cfg.Resume {
+			// The profile's first provider installed here: without the view's
+			// readings of each account, it can't tell which are nearly out.
+			if pick, ok := p.Pick(nil); ok {
+				kind = pick.Kind
+			}
+		}
 	}
 	if kind != "" && kind != "claude" {
 		if err := cfg.UseAgent(kind); err != nil {

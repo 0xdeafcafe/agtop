@@ -30,10 +30,8 @@ func (m *Model) withAgent(kind string) {
 		m.flash(err.Error(), true)
 		return
 	}
-	if kind == "claude" {
-		kind = ""
-	}
-	d.Kind = kind
+	// New sessions run it: first in the default profile.
+	m.store.Config.SetDefaultProvider(kind)
 	_ = m.store.SaveConfig()
 	m.flash("new sessions run "+agentName(kind), false)
 }

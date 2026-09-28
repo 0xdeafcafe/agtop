@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -173,7 +174,7 @@ func (m *Model) inUse() string {
 
 // inUseOf is the name of the account agent k is signed in as.
 func (m *Model) inUseOf(k string) string {
-	if k == "claude" {
+	if agent.Kind(k) == loginsKind {
 		return m.inUse()
 	}
 	for _, s := range m.store.Config.SignInsOf(k) {
@@ -213,27 +214,38 @@ func (m *Model) loginName(f fleet.Found) string {
 
 // autoSwitch signs ~/.claude in as another login when the one in use is
 // nearly out of its 5-hour or weekly usage, or an agtop session was
-// stopped by a limit on it, unless you asked to stay.
+// stopped by a limit on it, unless the default profile waits and so do
+// the sessions a limit stopped. With no login left with room, sessions
+// whose profile hands on go to the next provider.
 func (m *Model) autoSwitch() tea.Cmd {
 	cfg := m.store.Config
-	if cfg.SwitchOnLimit == state.OnLimitOff || m.offline || m.switching || time.Since(m.switchedAt) < switchGap || len(m.snap.Logins) < 2 {
+	if m.offline || m.switching || time.Since(m.switchedAt) < switchGap {
 		return nil
 	}
 	root := cfg.ActiveAccount()
 	stopped := false
 	for _, a := range m.snap.Agents {
-		if a.Agtop && a.Account == root.Name && strings.HasPrefix(a.Detail, "usage limit") {
+		if a.Agtop && a.Account == root.Name && strings.HasPrefix(a.Detail, "usage limit") && m.sessionProfile(a).Limit() != state.LimitWait {
 			stopped = true
 		}
 	}
+	if cfg.Default().Limit() == state.LimitWait && !stopped {
+		return nil
+	}
 	to, ok := fleet.NextLogin(m.snap.Logins, stopped)
-	if !ok {
+	if len(m.snap.Logins) < 2 || !ok {
+		if stopped && !m.hasRoom() {
+			return m.handOffStopped()
+		}
+		if len(m.snap.Logins) < 2 {
+			return nil
+		}
 		if stopped && m.hasRoom() && time.Since(m.resumedAt) > time.Minute {
 			// Stopped under a login ~/.claude has been switched away from
 			// since (by another agtop, or before this one could say).
 			m.resumedAt = time.Now()
 			return func() tea.Msg {
-				n := reloginHosts(root)
+				n := reloginHosts(root, cfg)
 				if n == 0 {
 					return nil
 				}
@@ -258,12 +270,13 @@ func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 		return nil
 	}
 	m.switching = true
-	root := m.store.Config.ActiveAccount()
+	cfg := m.store.Config
+	root := cfg.ActiveAccount()
 	return func() tea.Msg {
 		if err := state.Vault().Use(root, to); err != nil {
 			return switchedMsg{to: to, err: err}
 		}
-		return switchedMsg{to: to, why: why, resumed: reloginHosts(root)}
+		return switchedMsg{to: to, why: why, resumed: reloginHosts(root, cfg)}
 	}
 }
 
@@ -283,11 +296,14 @@ func (m *Model) hasRoom() bool {
 // host from before agtop could switch ignores the message: one of those a
 // limit stopped is still stopped after it, so its Claude Code (which holds
 // the old sign-in) is stopped, and it's told to continue, which starts a
-// fresh one.
-func reloginHosts(root claude.Account) int {
+// fresh one. A session whose profile waits at a limit is left to wait.
+func reloginHosts(root claude.Account, cfg state.Config) int {
 	n := 0
 	for _, info := range host.List() {
 		if (info.Account != root.Name && info.Account != "") || info.State == "stopped" {
+			continue
+		}
+		if info.Limit != nil && cfg.ProfileFor(info.Cwd, info.Profile).Limit() == state.LimitWait {
 			continue
 		}
 		c, err := host.Dial(info.ID)
