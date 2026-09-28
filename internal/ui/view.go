@@ -20,6 +20,7 @@ import (
 )
 
 func (m *Model) View() tea.View {
+	defer uiBusy("frame")()
 	frame := m.lastFrame
 	if !m.sameFrame || frame == "" {
 		frame = m.render()

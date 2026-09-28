@@ -5,6 +5,7 @@ package state
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -436,6 +437,20 @@ func Load() *Store {
 		s.Overlay.Seen = map[string]time.Time{}
 	}
 	return s
+}
+
+// Copy is the config and overlay as they are now, sharing nothing with s:
+// for reading off the UI's goroutine while the UI goes on changing s.
+func (s *Store) Copy() *Store {
+	c := &Store{Overlay: Overlay{
+		Done: maps.Clone(s.Overlay.Done), Names: maps.Clone(s.Overlay.Names),
+		Groups: maps.Clone(s.Overlay.Groups), Moved: maps.Clone(s.Overlay.Moved),
+		Seen: maps.Clone(s.Overlay.Seen),
+	}}
+	if b, err := jsonx.Marshal(s.Config); err == nil {
+		_ = jsonx.Unmarshal(b, &c.Config)
+	}
+	return c
 }
 
 func (s *Store) SaveOverlay() error {

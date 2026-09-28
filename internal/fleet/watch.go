@@ -30,6 +30,8 @@ type watching struct {
 // least every "every", for what isn't watched (other agents' folders, the
 // time-based parts of a row).
 func (l *Loader) Watch(every time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.watching = &watching{w: fswait.NewWatcher(), every: every}
 }
 
@@ -37,6 +39,8 @@ func (l *Loader) Watch(every time.Duration) {
 // changed since. A refresh on a timer settles; one after something you did
 // doesn't, so it always reads afresh.
 func (l *Loader) Settle() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.watching != nil {
 		l.watching.settle = true
 	}
@@ -69,7 +73,7 @@ func (l *Loader) reuse(now time.Time) (*Snapshot, bool) {
 		}
 		c := *a
 		l.sample(tab, &c)
-		c.Temp = l.Temp.Sizes[c.Key].Bytes
+		c.Temp = l.Temp.Bytes(c.Key)
 		snap.Agents = append(snap.Agents, &c)
 	}
 	snap.Machine = l.machine(tab, snap)

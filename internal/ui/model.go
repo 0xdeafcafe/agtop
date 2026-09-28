@@ -224,6 +224,10 @@ type Model struct {
 	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
 	// its agent's key once the snapshot has it.
 	solo, soloKey string
+	// snapWanted is a reading of the fleet asked for, snapLoading one
+	// being made; selectOnLoad is an agent to select once one has it.
+	snapWanted, snapLoading bool
+	selectOnLoad            string
 	// keysDisambiguated is when the terminal said it tells ctrl+enter
 	// from enter.
 	keysDisambiguated bool
@@ -312,6 +316,7 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) Init() tea.Cmd {
+	watchUI()
 	if m.solo != "" {
 		// Only the one session: nothing about the app as a whole.
 		return tea.Batch(tick(), m.scan(), m.loadPreview(), askColours)
@@ -545,6 +550,7 @@ func (m *Model) flash(s string, err bool) {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	defer uiBusy(msg)()
 	_, cmd := m.update(msg)
 	m.pinSolo()
 	m.applyJump()
@@ -558,7 +564,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.fxKick {
 		fxCmd, m.fxKick = fxTick(), false
 	}
-	return m, tea.Batch(cmd, copyCmd, fxCmd, m.syncLive(), m.syncHost(), m.syncWatch())
+	return m, tea.Batch(cmd, copyCmd, fxCmd, m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -647,15 +653,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flash("started "+msg.name+" · it's in agtop's Agents", false)
 			return m, nil
 		}
-		// Select the new session and give it the keys.
+		// Select the new session, once a reading has it, and give it the keys.
 		m.refresh()
-		m.sel = state.Key(msg.acct, "a:"+msg.id)
-		m.rebuild()
+		m.selectOnLoad = state.Key(msg.acct, "a:"+msg.id)
 		m.preview, m.paneFocus = true, true
 		m.flash("started "+msg.name, false)
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
+		return m, nil
+	case snapMsg:
+		m.onSnap(msg)
 		return m, nil
 	case peekCheckMsg:
 		return m, m.peekCheck()
@@ -663,7 +671,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tick++
 		m.loader.Settle() // nothing new on disk: the last reading, processes sampled again
 		m.refresh()
-		m.watchShells()
 		m.zenPick()
 		m.followTail()
 		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshSubs(), m.flushLocalQueues(), m.watchOnline()}
@@ -689,12 +696,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, m.advTick())
 		m.clkBeat(m.mood(m.tally()))
-		if m.solo != "" {
-			// A notification's jump is for a view that shows every agent.
-		} else if k := menubar.Goto(); k != "" && m.agentByKey(k) != nil {
-			m.sel = k // a notification or the menu bar's menu was clicked
-			m.rebuild()
-		}
 		cmds = append(cmds, m.loadPreview())
 		if m.tick%2 == 0 {
 			cmds = append(cmds, m.loadLivePreviews())
@@ -1178,16 +1179,6 @@ func (m *Model) acceptsText() bool {
 	return m.confirm == nil && m.sheet == nil && (m.dialog == nil || m.dialog.asking != "") && (m.mode == modeList || m.mode == modeCwd)
 }
 
-func (m *Model) refresh() {
-	m.snap = m.loadSnap()
-	m.notify()
-	if m.solo == "" {
-		m.hibernate()
-		m.reap()
-	}
-	m.loadSidebars()
-	m.rebuild()
-}
 
 // notify posts a notification when an agent starts waiting on the user,
 // and has clanker react to that and to agents answered, finished or failing.

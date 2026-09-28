@@ -12,9 +12,9 @@ import (
 func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	m.Update(scanMsg(m.scanner.Run(m.targets())))
-	m.snap = m.loadSnap()
+	m.refreshNow()
 	time.Sleep(500 * time.Millisecond)
-	m.refresh()
+	m.refreshNow()
 	// AGTOP_RENDER_SELECT picks an agent by name, for checking one pane.
 	if want := os.Getenv("AGTOP_RENDER_SELECT"); want != "" {
 		for _, a := range m.order {
@@ -57,7 +57,7 @@ func (m *Model) Offline() { m.offline = true }
 // Select picks the first agent whose name contains part and shows its
 // Session, for --soak.
 func (m *Model) Select(part string) {
-	m.refresh()
+	m.refreshNow()
 	for _, a := range m.order {
 		if strings.Contains(strings.ToLower(a.DisplayName), strings.ToLower(part)) {
 			m.sel, m.preview = a.Key, true

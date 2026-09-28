@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -93,7 +94,12 @@ func (a *Agent) applyStatus(ss claude.Session) {
 
 // Nudge marks agents the user just sent something to as working until their
 // own files catch up.
-func (l *Loader) Nudge(key string) { l.nudged[key] = time.Now(); l.changedSince() }
+func (l *Loader) Nudge(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.nudged[key] = time.Now()
+	l.changedSince()
+}
 
 // JustFinished is a turn that ended moments ago; it lingers in Working so a
 // finish is noticed rather than vanishing into history.
@@ -214,6 +220,9 @@ type Snapshot struct {
 
 // Loader keeps the cheap caches between refreshes.
 type Loader struct {
+	// mu is held by Load and by everything handed in, so the UI can load
+	// off its own goroutine while it goes on handing things in.
+	mu      sync.Mutex
 	store   *state.Store
 	jobs    map[string]claude.Job // by key, reloaded on mtime change
 	mtimes  map[string]time.Time
@@ -252,6 +261,8 @@ type printEntry struct {
 
 // SetFetched stores a usage reading fetched from Anthropic for an account.
 func (l *Loader) SetFetched(configDir string, u claude.Usage) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.changedSince()
 	if old, ok := l.fetched[configDir]; ok && u.FetchedAt.IsZero() {
 		old.Problem = u.Problem // keep the last good numbers, note why they're not refreshing
@@ -395,6 +406,8 @@ func NewLoader(s *state.Store) *Loader {
 
 // SetSpend receives cost totals from the background scanner.
 func (l *Loader) SetSpend(m map[string]Spend) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if len(m) > 0 {
 		l.changedSince()
 	}
@@ -405,6 +418,21 @@ func (l *Loader) SetSpend(m map[string]Spend) {
 }
 
 func (l *Loader) Load(sampleProcs bool) *Snapshot {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.load(sampleProcs)
+}
+
+// LoadFrom is Load reading the config and overlay from s, a copy the UI
+// made (state.Store.Copy), rather than the store it goes on changing.
+func (l *Loader) LoadFrom(s *state.Store, sampleProcs bool) *Snapshot {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.store = s
+	return l.load(sampleProcs)
+}
+
+func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,maintidx // Load's body as it was, moved under the lock
 	now := time.Now()
 	if sampleProcs {
 		if snap, ok := l.reuse(now); ok {
@@ -620,6 +648,13 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		}
 	}
 	snap.Agents = append(snap.Agents, l.otherAgents(claimed, seen, now)...)
+	// Rows kept from one reading to the next (past conversations) are
+	// the loader's: the snapshot gets its own, which the UI may change
+	// while the next reading is made.
+	for i, a := range snap.Agents {
+		c := *a
+		snap.Agents[i] = &c
+	}
 	countSpawns(tab, snap.Agents, spawned)
 	if len(snap.Accounts) > 0 {
 		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
@@ -636,9 +671,10 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		l.prevTab = tab
 		snap.Table = tab
 	}
+	l.Temp.Save()
 	listed := make(map[string]bool, len(snap.Agents))
 	for _, a := range snap.Agents {
-		a.Temp = l.Temp.Sizes[a.Key].Bytes
+		a.Temp = l.Temp.Bytes(a.Key)
 		listed[a.Key] = true
 	}
 	for k := range l.subs {

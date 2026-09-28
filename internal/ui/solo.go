@@ -17,16 +17,15 @@ func NewSolo(store *state.Store, version, id string) *Model {
 	m := New(store, version)
 	m.solo = id
 	m.onboard = false
-	m.snap = m.loadSnap()
+	m.snap = m.soloSnap(m.loader.Load(true))
 	m.rebuild()
 	m.pinSolo()
 	return m
 }
 
-// loadSnap is a fresh snapshot of every agent; in solo only the one
-// session is in it, so nothing else is listed, counted or acted on.
-func (m *Model) loadSnap() *fleet.Snapshot {
-	snap := m.loader.Load(true)
+// soloSnap is a snapshot of every agent as the view takes it; in solo only
+// the one session is in it, so nothing else is listed, counted or acted on.
+func (m *Model) soloSnap(snap *fleet.Snapshot) *fleet.Snapshot {
 	if m.solo == "" {
 		return snap
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -140,8 +141,16 @@ const tempShare = 50
 // restarts, so the folders are walked again only when an agent has done
 // something since.
 type TempSizes struct {
+	mu    sync.Mutex
 	Sizes map[string]TempSize `json:"sizes"`
 	dirty bool
+}
+
+// Bytes is what an agent's temp work measured last.
+func (t *TempSizes) Bytes(key string) int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.Sizes[key].Bytes
 }
 
 func tempPath() string { return state.CachePath("temp.json") }
@@ -162,6 +171,8 @@ func LoadTempSizes() *TempSizes {
 // busy since, or running and not measured for a while (a minute, longer
 // for one that's slow to walk).
 func (t *TempSizes) Due(agents []*Agent, now time.Time) []*Agent {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	var out []*Agent
 	for _, a := range agents {
 		e, ok := t.Sizes[a.Key]
@@ -177,17 +188,22 @@ func (t *TempSizes) Due(agents []*Agent, now time.Time) []*Agent {
 	return out
 }
 
-// Set records measurements and saves them.
+// Set records measurements.
+// They're saved by the next Load, off the UI's goroutine, which hands
+// them in.
 func (t *TempSizes) Set(m map[string]TempSize) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	for k, v := range m {
 		t.Sizes[k] = v
 	}
 	t.dirty = true
-	t.Save()
 }
 
 // Save writes the measurements if they changed.
 func (t *TempSizes) Save() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if !t.dirty {
 		return
 	}

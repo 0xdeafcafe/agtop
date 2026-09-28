@@ -56,7 +56,7 @@ func TestSidebarArrangesTheList(t *testing.T) {
 	}
 	m.store.Overlay.Names[cKey] = "my own name"
 	m.store.Config.GroupBy = "plugin:kanban"
-	m.refresh()
+	m.refreshNow()
 
 	var got []string
 	for _, l := range m.lines {
@@ -125,7 +125,7 @@ func TestSidebarIgnoredWhenRevokedOrSolo(t *testing.T) {
 	delete(a, "kanban")
 	b, _ := jsonx.Marshal(a)
 	_ = os.WriteFile(filepath.Join(plugin.Root(), "approved.json"), b, 0o600)
-	m.refresh()
+	m.refreshNow()
 	if m.activeSidebar() != nil || len(m.groupModes()) != len(groupModes) {
 		t.Fatal("a revoked plugin still arranges the list")
 	}
