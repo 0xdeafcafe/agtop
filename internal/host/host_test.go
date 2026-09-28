@@ -336,17 +336,21 @@ func TestRetryAndLimit(t *testing.T) {
 	_ = c.Stop()
 }
 
-func TestRetryGivesUpPastTheCache(t *testing.T) {
-	s := &server{cfg: Config{ID: "x", RetryBase: Duration(time.Minute)}, clients: map[*conn]struct{}{}}
+// A retry carries on past the prompt cache expiring, and gives up only
+// once RetryMax attempts are used.
+func TestRetryCarriesOnPastTheCache(t *testing.T) {
+	s := &server{cfg: Config{ID: "x", RetryBase: Duration(time.Minute), RetryMax: 2}, clients: map[*conn]struct{}{}}
 	s.info.CacheWarm = time.Now().Add(90 * time.Second)
-	s.retry("API Error: 529")
-	if s.info.Retry.GaveUp || s.info.Retry.Attempt != 1 {
-		t.Fatalf("first retry fits in the cache window: %+v", s.info.Retry)
+	s.retry("API Error: Connection dropped (ECONNRESET)")
+	s.wake.Stop()
+	s.retry("API Error: Connection dropped (ECONNRESET)") // waits 2m, past the cache
+	if s.info.Retry.GaveUp || s.info.Retry.Attempt != 2 || s.info.Retry.Next.IsZero() {
+		t.Fatalf("should retry past the cache: %+v", s.info.Retry)
 	}
 	s.wake.Stop()
-	s.retry("API Error: 529") // the second would wait 2m, past the cache
-	if !s.info.Retry.GaveUp || !strings.Contains(s.info.Retry.Why, "cache") {
-		t.Fatalf("should give up past the cache: %+v", s.info.Retry)
+	s.retry("API Error: Connection dropped (ECONNRESET)")
+	if !s.info.Retry.GaveUp || !strings.Contains(s.info.Retry.Why, "2 retries used") {
+		t.Fatalf("should give up once the retries are used: %+v", s.info.Retry)
 	}
 }
 

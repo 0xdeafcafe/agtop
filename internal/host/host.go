@@ -955,9 +955,10 @@ func limitWindow(raw jsontext.Value) string {
 }
 
 // retry schedules the next attempt after an API error: 15s, then double
-// each time. It gives up after RetryMax attempts, or when the next attempt
-// would land after the prompt cache expired, since that attempt re-reads
-// the whole context at full price; a message from you then retries.
+// each time. It carries on past the prompt cache expiring (that attempt
+// re-reads the whole context at full price, but what you asked for still
+// gets done), and gives up after RetryMax attempts; a message from you
+// then retries.
 func (s *server) retry(reason string) {
 	base, most := time.Duration(s.cfg.RetryBase), s.cfg.RetryMax
 	if base <= 0 {
@@ -973,11 +974,8 @@ func (s *server) retry(reason string) {
 	r.Reason, r.Attempt = reason, r.Attempt+1
 	wait := base << (r.Attempt - 1)
 	r.Next = time.Now().Add(wait)
-	switch {
-	case r.Attempt > most:
+	if r.Attempt > most {
 		r.GaveUp, r.Why, r.Next = true, fmt.Sprintf("%d retries used", most), time.Time{}
-	case !s.info.CacheWarm.IsZero() && r.Next.After(s.info.CacheWarm):
-		r.GaveUp, r.Why, r.Next = true, "the next try would come after the cache expires", time.Time{}
 	}
 	s.info.Retry = r
 	s.info.State = "idle"
