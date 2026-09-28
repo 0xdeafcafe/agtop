@@ -478,8 +478,9 @@ func (m *Model) clearPrompt() {
 // text as it's wrapped, keeping its column. Past the first row it goes to
 // the start; past the last, the end. shift extends the selection.
 func (m *Model) boxVert(c *hostConn, d int, shift bool) {
-	lw := c.box.leadW()
-	segs := wrapSegs(c.input, max(20, c.box.w)-4-lw)
+	b := c.box
+	b.text = c.input
+	segs := b.segs()
 	pos := len(c.input) - c.back
 	row := len(segs) - 1
 	for i, sg := range segs {

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/0xdeafcafe/agtop/internal/cellw"
+
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/mattn/go-runewidth"
 )
@@ -60,7 +62,7 @@ func oldWrapSegs(text []rune, w int) []seg {
 // oldContent drew the box's rows with the colour before every character.
 func oldContent(b box, w int) []string {
 	lw := b.leadW()
-	segs := wrapSegs(b.text, w-lw)
+	segs := b.segs()
 	start, end := b.window(segs)
 	from, to := -1, -1
 	if b.anchor >= 0 && b.anchor != b.cursor {
@@ -157,5 +159,22 @@ func TestChipMask(t *testing.T) {
 	}
 	if chipMask([]rune("no chips here")) != nil {
 		t.Fatal("a box without chips has no mask")
+	}
+}
+
+// Every line of a box is exactly its width, with the cursor after a row
+// that fills it and edge labels too long to fit.
+func TestBoxStaysInItsEdge(t *testing.T) {
+	for n := 0; n < 90; n++ {
+		for _, lead := range []string{"", "❯ "} {
+			text := []rune(strings.Repeat("x", n))
+			b := box{w: 40, focused: true, text: text, cursor: len(text), anchor: -1, lead: lead, maxRows: 5,
+				topL: strings.Repeat("label ", n/3), topR: "right", footR: strings.Repeat("r", n/2), holder: strings.Repeat("hold ", n)}
+			for i, l := range b.lines() {
+				if w := cellw.String(l); w != 40 {
+					t.Fatalf("%d x's, lead %q: line %d is %d wide: %q", n, lead, i, w, l)
+				}
+			}
+		}
 	}
 }

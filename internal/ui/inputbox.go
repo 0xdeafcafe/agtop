@@ -76,9 +76,15 @@ func (b box) rows() int {
 	if len(b.text) == 0 {
 		return 1
 	}
-	start, end := b.window(wrapSegs(b.text, max(20, b.w)-4-b.leadW()))
+	start, end := b.window(b.segs())
 	return end - start
 }
+
+// segs is the text wrapped as lines() draws it. A row leaves a cell spare,
+// so the cursor after a full row sits inside the edge rather than on it.
+func (b box) segs() []seg { return wrapSegs(b.text, b.textW()) }
+
+func (b box) textW() int { return max(20, b.w) - 4 - b.leadW() - 1 }
 
 // seg is one wrapped row of the text, as rune offsets [from, to).
 type seg struct{ from, to int }
@@ -163,7 +169,7 @@ func (b box) content(w int) []string {
 		}
 		return []string{b.lead + cur + faint(ansi.Truncate(b.holder, max(1, w-lw-1), "…"))}
 	}
-	segs := wrapSegs(b.text, w-lw)
+	segs := b.segs()
 	start, end := b.window(segs)
 	inChip := chipMask(b.text)
 	from, to := -1, -1
@@ -244,8 +250,7 @@ func reverse(s string) string { return "\x1b[7m" + s + "\x1b[27m" }
 // at maps a click inside the box's text area (row from the first text row,
 // col from the box's left edge) to a position in the text.
 func (b box) at(row, col int) int {
-	lw := b.leadW()
-	segs := wrapSegs(b.text, b.w-4-lw)
+	segs := b.segs()
 	start, end := b.window(segs)
 	i := start + row
 	if i < start || i >= end {
@@ -257,7 +262,7 @@ func (b box) at(row, col int) int {
 // near is at for a drag, which can leave the box: above its first row is
 // that row's start, below its last row is that row's end.
 func (b box) near(row, col int) int {
-	segs := wrapSegs(b.text, b.w-4-b.leadW())
+	segs := b.segs()
 	start, end := b.window(segs)
 	switch {
 	case len(segs) == 0:
