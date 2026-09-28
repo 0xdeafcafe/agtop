@@ -27,7 +27,7 @@ func TestConversation(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success"}, at(4))
 
 	c := s.Conversation("claude")
-	if c.First != "fix the flaky test" || len(c.Done) < 2 || len(c.Todos) != 2 {
+	if c.First != "fix the flaky test" || len(c.Steps) < 2 || len(c.Todos) != 2 {
 		t.Fatalf("conversation = %+v", c)
 	}
 	if len(c.Recent) != 2 || c.Recent[1].Role != "assistant" || !strings.Contains(c.Recent[1].Text, "Fixed the race") {

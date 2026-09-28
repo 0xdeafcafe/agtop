@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 )
 
 // A long conversation is handed on cut down: its latest steps and turns,
@@ -11,7 +13,7 @@ import (
 func TestHandoffKeepsTheLatest(t *testing.T) {
 	c := Conversation{From: "nosuch", Cwd: "/r", First: strings.Repeat("word ", 2000)}
 	for i := range 50 {
-		c.Done = append(c.Done, fmt.Sprintf("step %d", i))
+		c.Steps = append(c.Steps, Step{Call: tool.Call{Kind: tool.Shell, Input: tool.Input{Description: fmt.Sprintf("step %d", i)}}})
 	}
 	for i := range 10 {
 		c.Recent = append(c.Recent, Line{Role: "user", Text: fmt.Sprintf("turn %d", i)})

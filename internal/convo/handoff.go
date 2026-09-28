@@ -2,11 +2,10 @@ package convo
 
 import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 )
 
 // Conversation is the session told for a hand-off to another agent
-// (agent.Handoff): how it began, its steps in words, the files it changed,
+// (agent.Handoff): how it began, its calls, the files it changed,
 // its last turns and its todo list.
 func (s *Session) Conversation(from agent.Kind) agent.Conversation {
 	c := agent.Conversation{From: from, Name: s.Info.Name, Cwd: s.Cwd}
@@ -21,13 +20,7 @@ func (s *Session) Conversation(from agent.Kind) agent.Conversation {
 			if it.Kind != KStep || it.Step == nil {
 				continue
 			}
-			d := claude.Doing(it.Step.Tool, it.Step.Input)
-			if it.Step.Status == Failed {
-				d += " (failed)"
-			}
-			if n := len(c.Done); d != "" && (n == 0 || c.Done[n-1] != d) {
-				c.Done = append(c.Done, d)
-			}
+			c.Steps = append(c.Steps, agent.Step{Call: it.Step.Call(), Failed: it.Step.Status == Failed})
 		}
 	}
 	for _, f := range s.Changes() {

@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"strings"
+
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 )
 
 // Conversation is a session told for a hand-off: what another agent needs
@@ -12,10 +14,16 @@ type Conversation struct {
 	Name    string // what it's called
 	Cwd     string
 	First   string   // the message that started it
-	Done    []string // what was done, in words, oldest first: "ran go test", "editing view.go"
+	Steps   []Step   // the calls it made, oldest first
 	Changed []string // the files it changed
 	Recent  []Line   // its last turns: your messages (user) and its answers (assistant)
 	Todos   []Todo   // its todo list as it stands
+}
+
+// Step is one call a conversation made, and whether it failed.
+type Step struct {
+	Call   tool.Call
+	Failed bool
 }
 
 // How much of a conversation a hand-off carries: enough to go on with,
@@ -49,9 +57,8 @@ func Handoff(c Conversation) Input {
 		b.WriteString("\nIt started with this message:\n")
 		quote(&b, first)
 	}
-	if len(c.Done) > 0 {
+	if done := doneWords(c.Steps); len(done) > 0 {
 		b.WriteString("\nWhat it did:\n")
-		done := c.Done
 		if n := len(done) - handoffDone; n > 0 {
 			fmt.Fprintf(&b, "- (%d earlier steps)\n", n)
 			done = done[n:]
@@ -102,6 +109,27 @@ func Handoff(c Conversation) Input {
 	b.WriteString("\nThe files are as it left them: look at them before changing anything again. Carry on with what the user asked.")
 	return Input{Text: b.String()}
 }
+
+// doneWords are steps in words, a run of the same said once.
+func doneWords(steps []Step) []string {
+	var out []string
+	for i := range steps {
+		d := tool.Doing(steps[i].Call)
+		if d == "" {
+			continue
+		}
+		if steps[i].Failed {
+			d = failed(d)
+		}
+		if n := len(out); n == 0 || out[n-1] != d {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// failed is a step's words, said to have failed.
+func failed(d string) string { return d + " (failed)" }
 
 // quote writes s as a quoted block.
 func quote(b *strings.Builder, s string) {

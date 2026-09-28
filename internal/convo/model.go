@@ -915,6 +915,15 @@ func slimResult(k tool.Kind, raw jsontext.Value) jsontext.Value {
 	return b
 }
 
+// Call is the step's call as agtop's own: its input read from Claude Code's
+// words, which a step keeps whichever agent made it, and the kind its agent
+// gave it.
+func (st *Step) Call() tool.Call {
+	c := claude.Call(st.ID, st.Tool, st.Input)
+	c.Kind = st.kind()
+	return c
+}
+
 // kind is what the step's call does: the kind its agent gave it, or else
 // what Claude Code's tool of its name does.
 func (st *Step) kind() tool.Kind {
