@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
@@ -30,17 +31,22 @@ const (
 
 var ToolNames = [NTools]string{"Bash", "Read", "Grep/Glob", "Edit/Write", "MCP", "other"}
 
-func toolClass(name string) uint8 {
-	switch {
-	case name == "Bash":
+// toolClass is the class a call of this kind is counted in; name is the
+// agent's own name for the tool, for an MCP tool's.
+func toolClass(k tool.Kind, name string) uint8 {
+	switch k {
+	case tool.Shell:
 		return ToolBash
-	case name == "Read":
+	case tool.Read:
 		return ToolRead
-	case name == "Grep" || name == "Glob":
+	case tool.Search, tool.Glob:
 		return ToolSearch
-	case name == "Edit" || name == "Write" || name == "MultiEdit" || name == "NotebookEdit":
+	case tool.Edit, tool.Write, tool.Notebook:
 		return ToolEdit
-	case strings.HasPrefix(name, "mcp__"):
+	case tool.MCP:
+		return ToolMCP
+	}
+	if strings.HasPrefix(name, "mcp__") {
 		return ToolMCP
 	}
 	return ToolOther
@@ -522,35 +528,29 @@ func (f *File) assistant(l *rawLine, at time.Time) {
 		if bl.Type != "tool_use" {
 			continue
 		}
-		c := toolClass(bl.Name)
+		k := claude.KindOf(bl.Name)
+		c := toolClass(k, bl.Name)
 		if f.Open == nil {
 			f.Open = map[string]uint8{}
 		}
 		switch {
-		case bl.Name == "Bash":
-			var in struct {
-				Command string `json:"command"`
+		case k == tool.Shell:
+			cmd := claude.Call(bl.ID, bl.Name, bl.Input).Input.Command
+			if Looks(cmd) {
+				c |= lookFlag
 			}
-			if jsonx.Unmarshal(bl.Input, &in) == nil {
-				if Looks(in.Command) {
-					c |= lookFlag
-				}
-				if w, admin := firstWord(in.Command); w != "" && admin {
-					f.use("bash:"+w+"/admin", at)
-				} else if w != "" {
-					f.use("bash:"+w, at)
-				}
+			if w, admin := firstWord(cmd); w != "" && admin {
+				f.use("bash:"+w+"/admin", at)
+			} else if w != "" {
+				f.use("bash:"+w, at)
 			}
-		case bl.Name == "Read":
-			var in struct {
-				Path string `json:"file_path"`
-			}
-			if jsonx.Unmarshal(bl.Input, &in) == nil && in.Path != "" {
+		case k == tool.Read:
+			if path := claude.Call(bl.ID, bl.Name, bl.Input).Input.Path; path != "" {
 				if f.Reads == nil {
 					f.Reads = map[string]int{}
 				}
-				if _, ok := f.Reads[in.Path]; ok || len(f.Reads) < maxReads {
-					f.Reads[in.Path]++
+				if _, ok := f.Reads[path]; ok || len(f.Reads) < maxReads {
+					f.Reads[path]++
 				}
 			}
 		case bl.Name == "Skill":
