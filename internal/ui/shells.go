@@ -1,9 +1,13 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 )
@@ -64,7 +68,98 @@ func (m *Model) shellKids(tab *proc.Table, pid, depth int) []convo.ShellProc {
 		if len(args) == 0 {
 			args = []string{p.Comm}
 		}
-		out = append(out, convo.ShellProc{Args: args, Start: p.Start, Kids: m.shellKids(tab, k, depth+1)})
+		out = append(out, convo.ShellProc{PID: k, Args: args, Start: p.Start, Kids: m.shellKids(tab, k, depth+1)})
 	}
 	return out
+}
+
+// pickedShell is the tool call ID of the running Bash call picked: its
+// task in the dock or the background view, or its step in the conversation.
+func (m *Model) pickedShell(c *hostConn) string {
+	if j := m.pickedJob(c); j != nil && j.Running() && c.sess.JobKind(j) == "shell" {
+		return j.ToolUseID
+	}
+	if _, id, ok := strings.Cut(c.sel, ":s:"); ok {
+		if st := c.sess.Step(id); st != nil && st.Status == convo.Running && st.Tool == "Bash" {
+			return id
+		}
+	}
+	return ""
+}
+
+// shellKey acts on a picked running Bash call: k kills the command of its
+// chain that runs now and lets the chain go on, and on its step in the
+// conversation, b and x do what they do on its task.
+func (m *Model) shellKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
+	if !empty || s != "k" && s != "b" && s != "x" {
+		return nil, false
+	}
+	id := m.pickedShell(c)
+	if id == "" {
+		return nil, false
+	}
+	if s == "k" {
+		return m.killPart(c, id), true
+	}
+	if !strings.Contains(c.sel, ":s:") {
+		return nil, false // the task's own keys
+	}
+	var job *convo.Job
+	for _, j := range c.sess.RunningJobs() {
+		if j.ToolUseID == id {
+			job = j
+		}
+	}
+	switch {
+	case c.client == nil:
+		m.flash("agtop can background or stop a call only in a session it runs · k still kills the command running now", true)
+		return nil, true
+	case s == "b" && job != nil && job.Background:
+		m.flash("that's already in the background", false)
+		return nil, true
+	case s == "b" && job != nil:
+		return m.backgroundJob(c, job), true
+	case s == "b":
+		// Claude Code hasn't said it's a task yet; the call's ID will do.
+		if c.sess.Info.Proto < 3 {
+			return m.backgroundJob(c, nil), true
+		}
+		m.flash("moved the shell to the background · the turn carries on", false)
+		cl := c.client
+		return hostCmd(func() error { return cl.Background(id) }), true
+	case job != nil:
+		return m.stopJob(c, job), true
+	}
+	m.flash("Claude Code hasn't said it's a task yet · try again in a moment", false)
+	return nil, true
+}
+
+// killPart ends the command of a running chain that runs now, and all it
+// started, leaving the shell to go on as it would after a failure.
+func (m *Model) killPart(c *hostConn, id string) tea.Cmd {
+	rp, ok := c.sess.RunningPart(id)
+	if !ok {
+		m.flash("agtop hasn't seen which command of it runs yet · x stops the whole call", true)
+		return nil
+	}
+	what := rp.Command
+	if f := strings.Fields(what); len(f) > 3 {
+		what = strings.Join(f[:3], " ") + " …"
+	}
+	then := map[string]string{
+		"stops":      "the chain stops there (&&) and Claude hears it failed",
+		"carries on": "the chain carries on with the next command",
+		"ends":       "it was the last command, so the call ends",
+	}[rp.Then]
+	m.flash("killing "+what+" · "+then, false)
+	procs := rp.Procs
+	return hostCmd(func() error {
+		var errs []error
+		for _, p := range procs {
+			if _, err := actions.EndTree(p.PID, p.Start, 3*time.Second); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	})
 }

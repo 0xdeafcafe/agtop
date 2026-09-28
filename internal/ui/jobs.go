@@ -115,7 +115,11 @@ func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
 	hint := ""
 	switch {
 	case picked >= 0 && !jobs[picked].Background:
-		hint = keys("b", "background", "x", "stop", "enter", "output")
+		if rp, ok := c.sess.RunningPart(jobs[picked].ToolUseID); ok {
+			hint = keys("k", "kill "+firstWord(rp.Command), "b", "background", "x", "stop")
+		} else {
+			hint = keys("b", "background", "x", "stop", "enter", "output")
+		}
 	case picked >= 0:
 		hint = keys("x", "stop", "enter", "output")
 	case m.paneFocus && fg > 0:
@@ -249,6 +253,9 @@ func (m *Model) jobKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 			return m.backgroundJob(c, j), true
 		}
 		return m.backgroundJob(c, nil), true
+	}
+	if cmd, used := m.shellKey(c, s, empty); used {
+		return cmd, true
 	}
 	j := m.pickedJob(c)
 	if j == nil {
@@ -458,4 +465,14 @@ func tailLines(path string, n int) []string {
 		out = out[1:] // cut mid-line
 	}
 	return out[max(0, len(out)-n):]
+}
+
+// firstWord is a command's program.
+func firstWord(cmd string) string {
+	for _, f := range strings.Fields(cmd) {
+		if !strings.Contains(f, "=") {
+			return f
+		}
+	}
+	return cmd
 }

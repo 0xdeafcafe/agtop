@@ -85,3 +85,24 @@ func TestWatchShellsRewrittenCommand(t *testing.T) {
 		t.Fatalf("go vet should be seen running: %+v", st.parts)
 	}
 }
+
+func TestRunningPart(t *testing.T) {
+	t0 := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		cmd, then string
+	}{
+		{"go build ./... && go test ./...", "stops"},
+		{"go build ./...; go test ./...", "carries on"},
+		{"go build ./... || echo failed", "carries on"},
+		{"cd x && go build ./...", "ends"},
+	} {
+		s, st := runningChain(c.cmd, t0)
+		s.byID = map[string]*Step{st.ID: st}
+		s.WatchShells([]Shell{{Cmd: "eval '" + c.cmd + "'", Start: t0,
+			Kids: []ShellProc{{PID: 42, Args: []string{"go", "build", "./..."}, Start: t0}}}}, t0.Add(time.Second))
+		rp, ok := s.RunningPart(st.ID)
+		if !ok || rp.Command != "go build ./..." || rp.Then != c.then || len(rp.Procs) != 1 || rp.Procs[0].PID != 42 {
+			t.Errorf("%q: RunningPart = %+v, %v; want then %q", c.cmd, rp, ok, c.then)
+		}
+	}
+}

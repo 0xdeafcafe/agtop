@@ -21,6 +21,7 @@ type Shell struct {
 
 // ShellProc is a process under a Bash call's shell, and its own children.
 type ShellProc struct {
+	PID   int
 	Args  []string
 	Start time.Time
 	Kids  []ShellProc
@@ -30,6 +31,14 @@ type ShellProc struct {
 // process's start until it was gone, or the next command's start.
 type partRun struct {
 	start, end, seen time.Time
+	procs            []PartProc // its processes when last seen
+}
+
+// PartProc is a process running a command of a chain, and its start, which
+// tells it from a later process given the same pid.
+type PartProc struct {
+	PID   int
+	Start time.Time
 }
 
 // WatchShells matches the shells Claude Code has running to the Bash calls
@@ -107,6 +116,7 @@ func (st *Step) watch(sh Shell, now time.Time) {
 	// A process that is one of the chain's commands stands for all it
 	// starts: make's git is make's, not the chain's git status.
 	seen := map[int]time.Time{}
+	procs := map[int][]PartProc{}
 	var walk func([]ShellProc)
 	walk = func(ps []ShellProc) {
 		for _, p := range ps {
@@ -114,6 +124,7 @@ func (st *Step) watch(sh Shell, now time.Time) {
 				if t, ok := seen[k]; !ok || p.Start.Before(t) {
 					seen[k] = p.Start
 				}
+				procs[k] = append(procs[k], PartProc{PID: p.PID, Start: p.Start})
 				continue
 			}
 			walk(p.Kids)
@@ -132,7 +143,7 @@ func (st *Step) watch(sh Shell, now time.Time) {
 		if t.Before(r.start) {
 			r.start = t
 		}
-		r.seen, r.end = now, time.Time{}
+		r.seen, r.end, r.procs = now, time.Time{}, procs[k]
 		st.at = max(st.at, k)
 	}
 	// A command no longer seen ended when the next one started, or else
@@ -141,7 +152,7 @@ func (st *Step) watch(sh Shell, now time.Time) {
 		if _, ok := seen[k]; ok || !r.end.IsZero() {
 			continue
 		}
-		r.end = now
+		r.end, r.procs = now, nil
 		for j, t := range seen {
 			if j > k && t.After(r.seen) && t.Before(r.end) {
 				r.end = t
@@ -284,4 +295,53 @@ func (st *Step) runningPart() string {
 	}
 	w := bare(fieldsOf(segs[k].text))
 	return strings.Join(append([]string{strconv.Itoa(k+1) + "/" + strconv.Itoa(len(segs))}, w[:min(2, len(w))]...), " ")
+}
+
+// RunningPart is the command of a Bash call's chain that runs now.
+type RunningPart struct {
+	Command string     // as written: go test ./internal/ui
+	Procs   []PartProc // the processes running it
+	// Then is what the chain does once it's gone: "stops" (the next
+	// command runs only if it succeeded), "carries on", or "ends" (it was
+	// the last).
+	Then string
+}
+
+// RunningPart is what the Bash call with this tool call ID runs now, if
+// it's a chain seen running.
+func (s *Session) RunningPart(id string) (RunningPart, bool) {
+	st := s.Step(id)
+	if st == nil || st.Status != Running {
+		return RunningPart{}, false
+	}
+	k := -1
+	for i, r := range st.parts {
+		if r.end.IsZero() && len(r.procs) > 0 && i > k {
+			k = i
+		}
+	}
+	if k < 0 {
+		return RunningPart{}, false
+	}
+	cmd := readInput(st.Input).str("command")
+	segs := segments(cmd)
+	if k >= len(segs) {
+		return RunningPart{}, false
+	}
+	rp := RunningPart{Command: segs[k].text, Procs: st.parts[k].procs, Then: "ends"}
+	// The next command's line starts with what joins it on.
+	n := -1
+	for _, l := range shellLines(cmd) {
+		if l.verbatim || l.depth > 0 {
+			continue
+		}
+		if n++; n == k+1 {
+			rp.Then = "carries on"
+			if strings.HasPrefix(l.text, "&& ") {
+				rp.Then = "stops"
+			}
+			break
+		}
+	}
+	return rp, true
 }
