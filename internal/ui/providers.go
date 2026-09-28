@@ -123,3 +123,91 @@ func (m *Model) startTag() string {
 	}
 	return strings.Join(parts, faint(" · "))
 }
+
+// levelWords say what each support level means.
+var levelWords = map[agent.Level]string{
+	agent.LevelFull:    "everything agtop does, used every day",
+	agent.LevelTested:  "tried against its real program",
+	agent.LevelPreview: "built, not yet tried against its real program",
+}
+
+// levelChip is provider k's support level, coloured: full green, tested
+// blue, preview yellow.
+func levelChip(k agent.Kind) string {
+	lv := agent.LevelOf(k)
+	c := map[agent.Level]string{agent.LevelFull: cGreen, agent.LevelTested: cBlue, agent.LevelPreview: cYellow}[lv]
+	return paint(c, fit(lv.String(), 8))
+}
+
+// chain is a profile's installed providers, glyph and name, in order: an
+// arrow between them when new sessions move on, "only" when they stay.
+func (m *Model) chain(p state.Profile) string {
+	inst := p.Installed()
+	if len(inst) == 0 {
+		return paint(cYellow, "none of its providers is installed")
+	}
+	if !p.Mixes() {
+		return providerTag(agent.Kind(inst[0])) + dim(" only")
+	}
+	var parts []string
+	for _, k := range inst {
+		parts = append(parts, providerTag(agent.Kind(k)))
+	}
+	return strings.Join(parts, faint(" → "))
+}
+
+// notInstalled are the providers agtop has an adapter for that aren't
+// installed here, each with its support level.
+func (m *Model) notInstalled() string {
+	var out []string
+	for _, a := range agent.All() {
+		if !agent.Installed(a.Kind()) {
+			out = append(out, glyph(a.Kind())+" "+dim(a.Name())+faint(" "+agent.LevelOf(a.Kind()).String()))
+		}
+	}
+	return strings.Join(out, faint(" · "))
+}
+
+// featureGrid is what agtop can do with provider k, feature by feature, in
+// as many columns as fit: ✓ it can, – it can't, ◌ planned. A feature's
+// note follows the grid.
+func (m *Model) featureGrid(k agent.Kind, w int, label func(string) string) []string {
+	const cell = 24
+	cols := max(1, (w-12)/cell)
+	all := agent.AllFeatures()
+	rows := (len(all) + cols - 1) / cols
+	var out, notes []string
+	for r := range rows {
+		line := label("")
+		if r == 0 {
+			line = label("features")
+		}
+		for c := range cols {
+			i := c*rows + r // down the columns, so related features stay together
+			if i >= len(all) {
+				break
+			}
+			f := all[i]
+			s := agent.FeatureOf(k, f.Feature)
+			var mark string
+			switch s.Is {
+			case agent.StateYes:
+				mark = paint(cGreen, "✓ ") + paint(cText, fit(f.Label, cell-2))
+			case agent.StatePlanned:
+				mark = paint(cYellow, "◌ ") + dim(fit(f.Label, cell-2))
+			default:
+				mark = faint("– " + fit(f.Label, cell-2))
+			}
+			line += mark
+			if s.Note != "" {
+				notes = append(notes, f.Label+": "+s.Note)
+			}
+		}
+		out = append(out, line)
+	}
+	out = append(out, label("")+faint("✓ yes   – no   ◌ planned"))
+	for _, n := range notes {
+		out = append(out, label("")+faint(n))
+	}
+	return out
+}

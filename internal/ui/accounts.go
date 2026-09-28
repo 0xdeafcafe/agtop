@@ -18,10 +18,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// Accounts lists every installed agent, in the order agtop moves between
-// them, each with the accounts it can be signed in as. Every agent runs
-// from its own home (~/.claude, ~/.codex…); an account is a sign-in agtop
-// puts in that home when you switch to it.
+// Providers lists every installed agent (a provider: Claude Code, Codex,
+// Copilot…), in the default profile's order, each with the accounts it
+// can be signed in as, how far agtop's support for it has been tried, and
+// what agtop can do with it. Every agent runs from its own home
+// (~/.claude, ~/.codex…); an account is a sign-in agtop puts in that home
+// when you switch to it.
 
 // accountsState is what Accounts knows beyond the snapshot.
 type accountsState struct {
@@ -601,16 +603,15 @@ func (m *Model) accountsBody(w int) []string {
 		}
 		return "  " + s
 	}
-	start := agentName(m.startKind())
-	line := dim("New sessions run ") + paint(cText, agentName(cfg.DefaultAgent())) + dim(" (p)")
-	if m.startKind() != cfg.DefaultAgent() {
-		line += dim(" · for now ") + paint(cYellow, start) + dim(": its accounts are all nearly out")
+	def := cfg.Default()
+	line := dim("New sessions: ") + paint(cText, def.Name) + dim(" · ") + m.chain(def) + dim("   ·   at a limit: ") + paint(cText, limitWords(def.Limit())) + faint("   (Profiles changes it)")
+	if m.accts.spill != "" {
+		line += dim(" · for now ") + glyph(agent.Kind(m.accts.spill)) + " " + paint(cYellow, agentName(m.accts.spill)) + dim(": the first's accounts are all nearly out")
 	}
-	line += dim("   ·   nearly out: ") + paint(cText, onLimitWords(cfg.SwitchOnLimit)) + dim(" (s)")
 	out = append(out, line, "")
 	// Name, email, plan, two limit windows, running: the email gives way
 	// first, then the second window.
-	cols := []int{22, 28, 12, 19, 19, 8}
+	cols := []int{28, 28, 12, 19, 19, 8}
 	if w < 116 {
 		cols[4] = 0
 	}
@@ -619,12 +620,17 @@ func (m *Model) accountsBody(w int) []string {
 		cols[2] = 0
 	}
 	cols[1] = max(8, min(32, room()))
-	head := faint(fit("AGENT / ACCOUNT", cols[0]+2) + fit("EMAIL", cols[1]) + fit("PLAN", cols[2]) + fit("LIMITS", cols[3]+cols[4]) + right("RUNNING", cols[5]))
+	head := faint(fit("PROVIDER / ACCOUNT", cols[0]+2) + fit("EMAIL", cols[1]) + fit("PLAN", cols[2]) + fit("LIMITS", cols[3]+cols[4]) + right("RUNNING", cols[5]))
 	out = append(out, "  "+head)
 	rows := m.accountRows()
 	if len(rows) == 0 {
 		out = append(out, "", dim("  No coding agent is installed where agtop looks: install Claude Code, Codex or another, and it shows here."))
 	}
+	defer func() {
+		if missing := m.notInstalled(); missing != "" {
+			out = append(out, "", faint("  Not installed here: ")+missing)
+		}
+	}()
 	n := 0
 	for i, r := range rows {
 		if r.head {
@@ -671,7 +677,8 @@ func (m *Model) accountLine(r acctRow, n int, cols []int) string {
 	cfg := m.store.Config
 	if r.head {
 		mark := faint(fmt.Sprintf("%d", n))
-		name := paint(cText+bold, fit(r.name(), cols[0]))
+		// Its glyph, its name, and how far its support has been tried.
+		name := glyph(r.kind) + " " + paint(cText+bold, fit(r.name(), cols[0]-11)) + " " + levelChip(r.kind)
 		if string(r.kind) == cfg.DefaultAgent() {
 			mark = paint(cOrange, "★")
 		}
@@ -807,6 +814,9 @@ func (m *Model) accountDetail(r acctRow, w int) []string {
 			order += " · the default: new sessions run it"
 		}
 		out = append(out, label("order")+faint(order))
+		lv := agent.LevelOf(r.kind)
+		out = append(out, label("support")+levelChip(r.kind)+faint(levelWords[lv]))
+		out = append(out, m.featureGrid(r.kind, w, label)...)
 		if hint := agent.Hint(r.kind); hint != "" && !agent.Runs(r.kind) {
 			out = append(out, label("can't run")+faint(hint))
 		}

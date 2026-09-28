@@ -28,7 +28,7 @@ const (
 	tabClaude
 )
 
-var tabNames = []string{"Accounts", "Coding agents", "General", "Claude"}
+var tabNames = []string{"Providers", "Coding agents", "General", "Claude"}
 
 type dialog struct {
 	tab     int
