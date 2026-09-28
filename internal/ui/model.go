@@ -683,6 +683,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tick%60 == 0 && m.solo == "" {
 			cmds = append(cmds, m.fetchUsage(), m.findLogins(), m.fetchQuotas())
 		}
+		cmds = append(cmds, m.advTick())
 		m.clkBeat(m.mood(m.tally()))
 		if m.solo != "" {
 			// A notification's jump is for a view that shows every agent.
@@ -703,6 +704,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case effRanMsg:
 		return m, m.onEffRan(msg)
+	case advRanMsg:
+		m.onAdvRan(msg)
+		return m, nil
 	case scanMsg:
 		m.scanning = false
 		m.loader.SetSpend(msg)

@@ -980,6 +980,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "folder":
 		m.openDirPicker()
+	case "advisor":
+		return m.advCommand(arg)
 	case "statusline":
 		m.openTopBar(a)
 	case "efficiency":

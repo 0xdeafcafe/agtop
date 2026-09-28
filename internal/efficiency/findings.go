@@ -20,7 +20,9 @@ type Finding struct {
 	// Open is the file to change for it, when there's no saver: enter
 	// opens it.
 	Open string
-	rank int // lower first among findings without a cost; below 0 goes first of all
+	// Advice is the advisor finding's ID, on the advisor's.
+	Advice string
+	rank   int // lower first among findings without a cost; below 0 goes first of all
 }
 
 // Findings are the view's findings, most at stake first.

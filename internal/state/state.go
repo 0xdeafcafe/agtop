@@ -120,6 +120,10 @@ type Config struct {
 	// they've done, which one-time tips have shown, and whether they've put
 	// Getting started away.
 	Onboarding Onboarding `json:"onboarding"`
+	// Advisor lets agtop's advisor look over your agents' figures now and
+	// then, on Haiku, with Opus checking what it finds, to say what would
+	// cut tokens or time. Off until you turn it on.
+	Advisor bool `json:"advisor,omitempty"`
 }
 
 // SignIn is an account of an agent other than Claude Code: who it is, and

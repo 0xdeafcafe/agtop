@@ -48,6 +48,7 @@ type effState struct {
 	view     *efficiency.View
 	found    map[string]efficiency.Found
 	findings []efficiency.Finding
+	base     []efficiency.Finding // findings without the advisor's
 	events   []efficiency.Event
 	gains    []efficiency.Gain
 	gainsAt  time.Time
@@ -64,6 +65,8 @@ type effState struct {
 
 	noting bool
 	note   []rune
+
+	adv advState
 }
 
 // typing is whether keys go into a note being written.
@@ -162,7 +165,8 @@ func (m *Model) onEffLoaded(msg effLoadedMsg) {
 	if !msg.gainsAt.IsZero() {
 		e.gains, e.gainsAt = msg.gains, msg.gainsAt
 	}
-	e.findings = append(efficiency.Findings(e.view, e.found), msg.memory...)
+	e.base = append(efficiency.Findings(e.view, e.found), msg.memory...)
+	e.findings = m.withAdvice(e.base)
 	e.finding = min(e.finding, max(0, len(e.findings)-1))
 	if e.cursor >= len(e.view.Points) {
 		e.cursor = -1
@@ -444,6 +448,8 @@ func (m *Model) effKey(k tea.KeyPressMsg, s string) tea.Cmd {
 					return editFile(p)
 				}
 			}
+		case "x":
+			m.advDismiss()
 		}
 	}
 	return nil
@@ -588,10 +594,21 @@ func (m *Model) effHint() string {
 		}
 		return keysFit(w, append([]string{"↑↓", "choose", "enter", "set up", "x", "remove", "e", order, "o", "its page"}, common...)...)
 	}
-	if e.finding < len(e.findings) && e.findings[e.finding].Open != "" {
-		return keysFit(w, append([]string{"↑↓", "choose", "enter", "open the file"}, common...)...)
+	keys := []string{"↑↓", "choose", "enter", "fix it"}
+	if e.finding < len(e.findings) {
+		f := e.findings[e.finding]
+		switch {
+		case efficiency.Find(f.Fix) != nil:
+		case f.Open != "":
+			keys[3] = "open the file"
+		default:
+			keys = keys[:2]
+		}
+		if f.Advice != "" {
+			keys = append(keys, "x", "put away")
+		}
 	}
-	return keysFit(w, append([]string{"↑↓", "choose", "enter", "fix it"}, common...)...)
+	return keysFit(w, append(keys, common...)...)
 }
 
 // effBody is the page's lines.
@@ -1227,10 +1244,10 @@ func effShare(c *efficiency.Cut) string {
 
 func (m *Model) effFindingsBody(w int) []string {
 	e := &m.eff
+	out := append(wrap(m.advLine(), w), "")
 	if len(e.findings) == 0 {
-		return []string{dim("Nothing stands out in these days.")}
+		return append(out, dim("Nothing stands out in these days."))
 	}
-	var out []string
 	for i, f := range e.findings {
 		line := " " + m.effFindingLine(f, w-1)
 		if i == e.finding {
