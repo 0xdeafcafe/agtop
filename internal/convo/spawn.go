@@ -400,7 +400,7 @@ func (st *Step) Spawn() (Spawn, bool) {
 	if st.spawnAt != len(st.Input)+1 {
 		st.spawnAt = len(st.Input) + 1
 		st.spawn = nil
-		if sp, ok := SpawnOf(readInput(st.Input).str("command")); ok {
+		if sp, ok := SpawnOf(st.in().Command); ok {
 			st.spawn = &sp
 		}
 	}
