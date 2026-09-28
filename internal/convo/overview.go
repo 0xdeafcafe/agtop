@@ -258,7 +258,7 @@ func (s *Session) Overview(o Options) []Line {
 		dim("   in ")+text(tokens(t.In+t.CacheRead+t.CacheOut))+dim(" · out ")+text(tokens(t.Out))+dim(fmt.Sprintf(" · %d requests", t.Requests)), "")
 	for _, st := range s.byID {
 		if st.kind() == tool.Subagent && st.Status == Running {
-			add("  "+paint(cOrange, "⇉ ")+text(agentName(st))+dim("   "+oneLine(readInput(st.Input).str("description"))),
+			add("  "+paint(cOrange, "⇉ ")+text(agentName(st))+dim("   "+oneLine(st.in().Description)),
 				paint(cOrange, dur(o.Now.Sub(st.Start))))
 		}
 	}
@@ -616,7 +616,7 @@ func (s *Session) LastWords() string {
 func (s *Session) Doing() (string, time.Time) {
 	if !s.light {
 		if st := s.lastStep(func(st *Step) bool { return st.Status == Running }); st != nil {
-			return firstNonEmpty(claude.Doing(st.Tool, st.Input), st.Tool), st.Start
+			return firstNonEmpty(tool.Doing(st.Call()), st.Tool), st.Start
 		}
 		return "", time.Time{}
 	}
@@ -639,7 +639,7 @@ func (s *Session) Did() []string {
 		var out []string
 		s.lastStep(func(st *Step) bool {
 			if st.Status != Running && st.Status != Waiting {
-				out = append(out, firstNonEmpty(claude.Doing(st.Tool, st.Input), st.Tool))
+				out = append(out, firstNonEmpty(tool.Doing(st.Call()), st.Tool))
 			}
 			return len(out) == 3
 		})
