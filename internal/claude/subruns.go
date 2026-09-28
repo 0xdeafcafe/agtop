@@ -135,29 +135,34 @@ func (r *SubagentRuns) list() []SubagentRun {
 		r.names = nil
 		return nil
 	}
-	if !st.ModTime().Equal(r.dirMod) || time.Since(r.listed) > 10*time.Second {
+	fresh := st.ModTime().Equal(r.dirMod) && time.Since(r.listed) <= 10*time.Second
+	if !fresh {
 		r.names, _ = filepath.Glob(filepath.Join(dir, "agent-*.meta.json"))
 		r.dirMod, r.listed = st.ModTime(), time.Now()
 	}
 	out := make([]SubagentRun, 0, len(r.names))
 	for _, p := range r.names {
-		fi, err := os.Stat(p)
-		if err != nil {
-			continue
-		}
 		m, ok := r.metas[p]
-		if !ok || !m.mod.Equal(fi.ModTime()) || m.size != fi.Size() {
-			m = runMeta{mod: fi.ModTime(), size: fi.Size(), depth: 1,
-				id: strings.TrimSuffix(strings.TrimPrefix(filepath.Base(p), "agent-"), ".meta.json")}
-			var v struct {
-				ToolUse string `json:"toolUseId"`
-				Depth   int    `json:"spawnDepth"`
+		// A meta file is written once, as its run starts: one read whole
+		// is looked at again only with the folder, every 10s.
+		if !ok || !fresh || m.toolUse == "" {
+			fi, err := os.Stat(p)
+			if err != nil {
+				continue
 			}
-			if b, err := os.ReadFile(p); err == nil && json.Unmarshal(b, &v) == nil {
-				m.toolUse = v.ToolUse
-				m.depth = max(1, v.Depth)
+			if !ok || !m.mod.Equal(fi.ModTime()) || m.size != fi.Size() {
+				m = runMeta{mod: fi.ModTime(), size: fi.Size(), depth: 1,
+					id: strings.TrimSuffix(strings.TrimPrefix(filepath.Base(p), "agent-"), ".meta.json")}
+				var v struct {
+					ToolUse string `json:"toolUseId"`
+					Depth   int    `json:"spawnDepth"`
+				}
+				if b, err := os.ReadFile(p); err == nil && json.Unmarshal(b, &v) == nil {
+					m.toolUse = v.ToolUse
+					m.depth = max(1, v.Depth)
+				}
+				r.metas[p] = m
 			}
-			r.metas[p] = m
 		}
 		run := SubagentRun{ID: m.id, ToolUseID: m.toolUse, Depth: m.depth}
 		if fi, err := os.Stat(filepath.Join(dir, "agent-"+m.id+".jsonl")); err == nil {

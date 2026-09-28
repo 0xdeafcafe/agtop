@@ -1,6 +1,7 @@
 package convo
 
 import (
+	"bytes"
 	"encoding/json"
 	"regexp"
 	"strconv"
@@ -34,8 +35,11 @@ func (d *drawer) recipient(st *Step) string {
 	if to == "" {
 		return "an agent"
 	}
+	toB := []byte(to)
 	for _, a := range d.s.byID {
-		if a.Tool != "Task" && a.Tool != "Agent" {
+		// Only a call whose JSON names it can match: most are passed over
+		// without decoding their prompt and report.
+		if a.Tool != "Task" && a.Tool != "Agent" || !bytes.Contains(a.Result, toB) && !bytes.Contains(a.Input, toB) {
 			continue
 		}
 		var r struct {

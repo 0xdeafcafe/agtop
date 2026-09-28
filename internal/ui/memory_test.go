@@ -94,7 +94,7 @@ func TestMemoryView(t *testing.T) {
 	// The view draws them under their groups, the picked one open below.
 	m := &Model{snap: &fleet.Snapshot{}}
 	c := &hostConn{sess: convo.New(), open: map[string]bool{}, mem: files, memAt: time.Now()}
-	memReports[c] = &report
+	c.memReport = &report
 	for i, v := range m.views(c) {
 		if v == "memory" {
 			c.view = i

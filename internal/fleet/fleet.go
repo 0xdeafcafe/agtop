@@ -604,8 +604,15 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 		l.prevTab = tab
 		snap.Table = tab
 	}
+	listed := make(map[string]bool, len(snap.Agents))
 	for _, a := range snap.Agents {
 		a.Temp = l.Temp.Sizes[a.Key].Bytes
+		listed[a.Key] = true
+	}
+	for k := range l.subs {
+		if !listed[k] {
+			delete(l.subs, k) // an agent no longer listed: its runs' reader goes
+		}
 	}
 	sort.SliceStable(snap.Agents, func(i, j int) bool {
 		return snap.Agents[i].Age(now) < snap.Agents[j].Age(now)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+	"weak"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -25,8 +26,8 @@ type btwThread struct {
 	qa      []btwQA
 	input   []rune
 	pos     int
-	waiting time.Time // when the question out was asked; zero when none
-	asked   *hostConn // the connection it was asked on: its answer comes there
+	waiting time.Time              // when the question out was asked; zero when none
+	asked   weak.Pointer[hostConn] // the connection it was asked on: its answer comes there; weak, so a closed one isn't kept
 	err     string
 	scroll  int    // rows up from the latest
 	focused bool   // it has the keys, not the message box
@@ -85,7 +86,7 @@ func (t *btwThread) ask(m *Model, c *hostConn, q string) tea.Cmd {
 		return nil // askClaude said why
 	}
 	t.qa = append(t.qa, btwQA{Question: q})
-	t.waiting, t.asked, t.err, t.scroll = time.Now(), c, "", 0
+	t.waiting, t.asked, t.err, t.scroll = time.Now(), weak.Make(c), "", 0
 	return cmd
 }
 
@@ -202,7 +203,7 @@ func (m *Model) btwOverlay(c *hostConn, out []string, top, room, w int) {
 		delete(m.btws, c.key) // nothing asked, and you've gone back to the chat
 		return
 	}
-	if !t.waiting.IsZero() && t.asked != c {
+	if !t.waiting.IsZero() && t.asked.Value() != c {
 		// Asked on a connection since closed (you went to another agent):
 		// its answer went with it.
 		t.waiting, t.err = time.Time{}, "the answer was lost when you left this agent: ask again"

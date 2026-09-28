@@ -178,15 +178,13 @@ func background(gogc string) {
 // viewGC tunes the collector for the view. Most of the time it holds
 // 10-20 MB and allocates a few MB a second, so collecting at half again the
 // live heap rather than double keeps some 8 MB less resident for about a
-// collection a second more. A soft ceiling makes the collector give memory
-// back after a big session is let go, without working harder the rest of
-// the time.
+// collection a second more. There's no memory limit: with a few long
+// sessions open the live heap passes any fixed one, and past it the
+// collector runs without pause, on up to half the machine's cores. Memory
+// goes back when a big session is let go (freeSoon, in the ui).
 func viewGC() {
 	if os.Getenv("GOGC") == "" {
 		debug.SetGCPercent(50)
-	}
-	if os.Getenv("GOMEMLIMIT") == "" {
-		debug.SetMemoryLimit(128 << 20)
 	}
 }
 

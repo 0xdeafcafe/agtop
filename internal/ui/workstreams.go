@@ -70,6 +70,15 @@ func (m *Model) workLoad() tea.Cmd {
 		}
 		since := time.Now().Add(-workSince)
 		views := map[string]claude.TimelineView{}
+		want := make(map[string]bool, len(paths))
+		for _, p := range paths {
+			want[p] = true
+		}
+		for p := range tls {
+			if !want[p] {
+				delete(tls, p) // a session that's aged out of the overview
+			}
+		}
 		for key, p := range paths {
 			tl := tls[p]
 			if tl == nil {

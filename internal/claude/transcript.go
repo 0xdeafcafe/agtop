@@ -479,7 +479,8 @@ func recentEvents(lines [][]byte, n int) []Event {
 		}
 	}
 	if len(out) > n {
-		out = out[len(out)-n:]
+		// A copy, so the events before these aren't kept by the array.
+		out = append([]Event(nil), out[len(out)-n:]...)
 	}
 	return out
 }

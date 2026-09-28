@@ -56,9 +56,6 @@ var memWhen = map[string]string{
 	"Output styles": "only the one in use",
 }
 
-// memReports are the memory view's checks, read with its files.
-var memReports = map[*hostConn]*claude.MemReport{}
-
 // memoryOf is memoryFiles for the session, read again at most every two
 // seconds, or at once after an edit.
 func (m *Model) memoryOf(c *hostConn) []memFile {
@@ -77,7 +74,7 @@ func (m *Model) memoryOf(c *hostConn) []memFile {
 	}
 	var r claude.MemReport
 	c.mem, r = memoryFiles(cfg, cwd, proj)
-	c.memAt, memReports[c] = time.Now(), &r
+	c.memAt, c.memReport = time.Now(), &r
 	return c.mem
 }
 
@@ -318,7 +315,7 @@ func (m *Model) memoryLines(c *hostConn, o convo.Options, h int) []convo.Line {
 			paint(cSub, "≈"+efficiency.Tokens(up))+dim(" tokens every session · "+fmt.Sprintf("%d files", len(files)))+"  ", w), "")
 		line("  "+faint(strings.Repeat("─", max(0, w-4))), "")
 		head := len(out)
-		if r := memReports[c]; r != nil && len(r.Problems) > 0 {
+		if r := c.memReport; r != nil && len(r.Problems) > 0 {
 			key := "#efficiency findings"
 			if strings.HasPrefix(c.sel, "mem:") {
 				key = "f"
@@ -614,7 +611,7 @@ func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bo
 	switch s {
 	case "f":
 		// What's untidy, in Efficiency's findings.
-		if r := memReports[c]; r == nil || len(r.Problems) == 0 {
+		if r := c.memReport; r == nil || len(r.Problems) == 0 {
 			return nil, false
 		}
 		m.setView(placeEff)

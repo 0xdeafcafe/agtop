@@ -427,22 +427,30 @@ func firstNonEmpty(xs ...string) string {
 	return ""
 }
 
+// diffs holds each file's latest diff, by root and path: one per file, not
+// one per reading of the tree.
 var diffs = struct {
 	sync.Mutex
-	m       map[string][]string
+	m       map[string]treeDiffs
 	reading map[string]bool
-}{m: map[string][]string{}, reading: map[string]bool{}}
+}{m: map[string]treeDiffs{}, reading: map[string]bool{}}
+
+type treeDiffs struct {
+	at    int64 // the reading of the tree it's of
+	lines []string
+}
 
 // treeDiff is git's own diff of one working-tree file against HEAD (or the
 // file itself when it's untracked), read in the background: the first call
 // says so and the next frame has it. It is read again with each new
-// reading of the tree.
+// reading of the tree, and the last one shows until that's in.
 func treeDiff(t *Tree, f TreeFile) []string {
-	key := fmt.Sprint(t.Root, "\x00", f.Path, "\x00", t.at.UnixNano())
+	key, at := t.Root+"\x00"+f.Path, t.at.UnixNano()
 	diffs.Lock()
 	defer diffs.Unlock()
-	if d, ok := diffs.m[key]; ok {
-		return d
+	d, ok := diffs.m[key]
+	if ok && d.at == at {
+		return d.lines
 	}
 	if !diffs.reading[key] {
 		diffs.reading[key] = true
@@ -466,9 +474,13 @@ func treeDiff(t *Tree, f TreeFile) []string {
 				lines = append(lines[:400], fmt.Sprintf("… %d more lines", len(lines)-400))
 			}
 			diffs.Lock()
-			diffs.m[key], diffs.reading[key] = lines, false
+			diffs.m[key] = treeDiffs{at: at, lines: lines}
+			delete(diffs.reading, key)
 			diffs.Unlock()
 		}()
+	}
+	if ok {
+		return d.lines
 	}
 	return []string{"reading the diff…"}
 }

@@ -624,7 +624,7 @@ func (s *Session) results(m headless.Message, now time.Time) {
 		if st == nil {
 			continue
 		}
-		st.Output, st.Result, st.End = b.Text, m.ToolResult, now
+		st.Output, st.Result, st.End = b.Text, slimResult(st.kind(), m.ToolResult), now
 		st.Approval = nil
 		switch {
 		case st.Status == Denied:
@@ -857,6 +857,52 @@ func firstPlain(s string) string {
 		s = rest
 	}
 	return ""
+}
+
+// slimResult drops from a tool's result what nothing draws: the whole file
+// an edit or write was made to, and a read file's text, which its Output
+// already has. Else a long session holds a copy of every file it touched.
+func slimResult(k tool.Kind, raw json.RawMessage) json.RawMessage {
+	if len(raw) < 2<<10 {
+		return raw
+	}
+	var drop func(map[string]json.RawMessage) bool
+	switch k {
+	case tool.Edit, tool.Write:
+		drop = func(m map[string]json.RawMessage) bool {
+			_, ok := m["originalFile"]
+			delete(m, "originalFile")
+			return ok
+		}
+	case tool.Read:
+		drop = func(m map[string]json.RawMessage) bool {
+			var f map[string]json.RawMessage
+			if json.Unmarshal(m["file"], &f) != nil {
+				return false
+			}
+			_, text := f["content"]
+			_, image := f["base64"]
+			delete(f, "content")
+			delete(f, "base64")
+			b, err := json.Marshal(f)
+			if err != nil || !text && !image {
+				return false
+			}
+			m["file"] = b
+			return true
+		}
+	default:
+		return raw
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil || !drop(m) {
+		return raw
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 // kind is what the step's call does: the kind its agent gave it, or else

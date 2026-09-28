@@ -91,11 +91,14 @@ func (s *Scanner) Run(targets []Target) map[string]Spend {
 			continue
 		}
 		changed := false
-		for _, f := range files {
+		sizes := make([]int64, len(files))
+		for i, f := range files {
+			sizes[i] = -1
 			st, err := os.Stat(f)
 			if err != nil {
 				continue
 			}
+			sizes[i] = st.Size()
 			if s.sizes[f] != st.Size() {
 				changed = true
 			}
@@ -106,12 +109,17 @@ func (s *Scanner) Run(targets []Target) map[string]Spend {
 			}
 		}
 		var sp Spend
-		for _, f := range files {
+		for i, f := range files {
 			tot := s.cache.Get(f)
-			before := tot.Offset
-			s.buf, _ = claude.Scan(f, tot, s.buf)
-			if tot.Offset != before {
-				s.cache.MarkDirty()
+			// Of a session's many subagent transcripts, most haven't grown
+			// since they were last read: their totals stand without opening
+			// them again.
+			if sizes[i] < 0 || tot.Size != sizes[i] {
+				before := tot.Offset
+				s.buf, _ = claude.Scan(f, tot, s.buf)
+				if tot.Offset != before {
+					s.cache.MarkDirty()
+				}
 			}
 			s.sizes[f] = tot.Size
 			c, u := tot.Spend()
