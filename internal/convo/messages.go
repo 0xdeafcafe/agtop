@@ -2,6 +2,7 @@ package convo
 
 import (
 	"bytes"
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"regexp"
 	"strconv"
@@ -39,7 +40,7 @@ func (d *drawer) recipient(st *Step) string {
 	for _, a := range d.s.byID {
 		// Only a call whose JSON names it can match: most are passed over
 		// without decoding their prompt and report.
-		if a.Tool != "Task" && a.Tool != "Agent" || !bytes.Contains(a.Result, toB) && !bytes.Contains(a.Input, toB) {
+		if a.kind() != tool.Subagent || !bytes.Contains(a.Result, toB) && !bytes.Contains(a.Input, toB) {
 			continue
 		}
 		var r struct {
@@ -49,7 +50,7 @@ func (d *drawer) recipient(st *Step) string {
 		_ = jsonx.Unmarshal(a.Result, &r)
 		ain := readInput(a.Input)
 		if r.AgentID == to || ain.str("name") == to {
-			return firstNonEmpty(oneLine(ain.str("description")), oneLine(r.Description), to)
+			return firstNonEmpty(oneLine(a.in().Description), oneLine(r.Description), to)
 		}
 	}
 	if hexID.MatchString(to) {
