@@ -61,31 +61,6 @@ func DiskUsage(dirs []TempDir) int64 {
 	return n
 }
 
-// dirUsage is what's inside a folder, each entry looked at through the
-// folder's own descriptor: a temp folder can hold a node_modules or two, and
-// a whole path and a FileInfo for every file made walks allocate megabytes.
-func dirUsage(dir string) int64 {
-	f, err := os.Open(dir)
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-	names, _ := f.Readdirnames(-1)
-	fd := int(f.Fd())
-	var n int64
-	for _, name := range names {
-		var st unix.Stat_t
-		if unix.Fstatat(fd, name, &st, unix.AT_SYMLINK_NOFOLLOW) != nil {
-			continue
-		}
-		n += st.Blocks * 512
-		if st.Mode&unix.S_IFMT == unix.S_IFDIR {
-			n += dirUsage(dir + "/" + name)
-		}
-	}
-	return n
-}
-
 // CleanTemp deletes an agent's temp work. It refuses while the agent has a
 // process, since whatever it's running may be using it.
 func CleanTemp(a *Agent) error {
