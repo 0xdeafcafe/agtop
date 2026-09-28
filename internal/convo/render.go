@@ -884,7 +884,8 @@ func (d *drawer) code(lines []string, tag, pad string) {
 		return
 	}
 	from := len(d.lines)
-	w := min(d.cw-7, d.o.rowCap())
+	defer d.widen(lines, 7)()
+	w := d.cw - 7
 	lg := langFor(tag)
 	if f := strings.Fields(tag); lg == nil && len(f) > 0 {
 		lg = langFor(f[0]) // ```go title="x.go"
@@ -892,16 +893,16 @@ func (d *drawer) code(lines []string, tag, pad string) {
 	isDiff := tag == "diff" || tag == "patch"
 	var st hlState
 	for _, l := range lines {
-		l = truncateCells(expandTabs(l), w)
+		l = expandTabs(l)
 		switch {
 		case isDiff && strings.HasPrefix(l, "+") && !strings.HasPrefix(l, "+++"):
-			d.add("", bgAdd, pad+" "+plusSign()+text(l[1:]), "")
+			d.addRows(bgAdd, pad+" ", plusSign(), text(l[1:]), w-1, 0)
 		case isDiff && strings.HasPrefix(l, "-") && !strings.HasPrefix(l, "---"):
-			d.add("", bgDel, pad+" "+minusSign()+text(l[1:]), "")
+			d.addRows(bgDel, pad+" ", minusSign(), text(l[1:]), w-1, 0)
 		case isDiff && strings.HasPrefix(l, "@@"):
-			d.add("", bgWell, pad+" "+paint(cBlue, l), "")
+			d.addRows(bgWell, pad+" ", "", paint(cBlue, l), w, 0)
 		default:
-			d.add("", bgWell, pad+" "+highlight(lg, &st, l, cSub, nil), "")
+			d.addRows(bgWell, pad+" ", "", highlight(lg, &st, l, cSub, nil), w, 0)
 		}
 	}
 	d.s.memoPut(k, d.lines[from:])
@@ -2276,7 +2277,11 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		b, edge = bgErr, paint(cRed, "▎")
 	}
 	pad := d.spine() + strings.Repeat(" ", indent-1)
+	defer d.widen(lines, indent+2)()
 	w := d.cw - indent - 2
+	put := func(b, lead, body string) {
+		d.addRows(b, pad+edge, lead, body, w-cellw.String(lead), 6)
+	}
 	// What a tool printed is quieter than anything Claude says, and plain
 	// text: a heading or a list in a file never passes for Claude's own.
 	// A failure's error lines stay red.
@@ -2305,27 +2310,26 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		if i == 0 || spanOf[i-1] != spanOf[i] {
 			diffLg = d.spans[spanOf[i]].lg
 		}
-		l = truncateCells(l, w)
 		switch {
 		case strings.HasPrefix(l, "+++ "):
 			if p := strings.TrimPrefix(strings.Fields(l[4:] + " ")[0], "b/"); langFor(p) != nil {
 				diffLg = langFor(p)
 			}
 			d.resetHL()
-			d.add("", b, pad+edge+faint(l), "")
+			put(b, "", faint(l))
 		case strings.HasPrefix(l, "diff ") || strings.HasPrefix(l, "index ") || strings.HasPrefix(l, "--- "):
-			d.add("", b, pad+edge+faint(l), "")
+			put(b, "", faint(l))
 		case strings.HasPrefix(l, "@@"):
 			d.resetHL()
-			d.add("", b, pad+edge+paint(cBlue, l), "")
+			put(b, "", paint(cBlue, l))
 		case strings.HasPrefix(l, "+"):
-			d.add("", bgAdd, pad+edge+plusSign()+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
+			put(bgAdd, plusSign(), highlight(diffLg, &d.hs, l[1:], cOut, nil))
 		case strings.HasPrefix(l, "-"):
-			d.add("", bgDel, pad+edge+minusSign()+highlight(diffLg, &d.hs, l[1:], cOut, nil), "")
+			put(bgDel, minusSign(), highlight(diffLg, &d.hs, l[1:], cOut, nil))
 		case d.spans[spanOf[i]].git != "":
-			d.add("", b, pad+edge+d.gitLine(d.spans[spanOf[i]].git, l), "")
+			put(b, "", d.gitLine(d.spans[spanOf[i]].git, l))
 		default:
-			d.add("", b, pad+edge+highlight(diffLg, &d.hs, l, cOut, nil), "")
+			put(b, "", highlight(diffLg, &d.hs, l, cOut, nil))
 		}
 		return true
 	}
@@ -2381,7 +2385,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		// reach the terminal or throw widths off; agtop does the colour.
 		l = expandTabs(cleanOutput(l))
 		if d.marks[strings.TrimSpace(l)] {
-			d.add("", b, pad+edge+markHeading(strings.TrimSpace(l), w), "")
+			put(b, "", markHeading(strings.TrimSpace(l), w))
 			return
 		}
 		if i < len(spanOf) && !failed {
@@ -2401,28 +2405,26 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			if sh := shared[g]; sh > 0 && len(body)-len(strings.TrimLeft(body, " ")) >= sh {
 				body = body[sh:]
 			}
-			body = truncateCells(body, max(4, w-cellw.String(pre)))
-			d.add("", b, pad+edge+faint(pre)+highlight(lg, &d.hs, body, cOut, nil), "")
+			put(b, faint(pre), highlight(lg, &d.hs, body, cOut, nil))
 			return
 		}
-		l = truncateCells(l, w)
 		if i < len(spanOf) && !failed && d.spans[spanOf[i]].git != "" {
-			d.add("", b, pad+edge+d.gitLine(d.spans[spanOf[i]].git, l), "")
+			put(b, "", d.gitLine(d.spans[spanOf[i]].git, l))
 			return
 		}
 		if isJSON {
-			d.add("", b, pad+edge+highlight(langJSON, &d.hs, l, cOut, nil), "")
+			put(b, "", highlight(langJSON, &d.hs, l, cOut, nil))
 			return
 		}
 		c := cOut
 		if failed && errRe.MatchString(l) {
 			c = cRed
 		}
-		d.add("", b, pad+edge+paint(c, l), "")
+		put(b, "", paint(c, l))
 	}
 	more := func(n int) {
 		d.resetHL() // what follows the gap doesn't go on from what came before it
-		d.add("", b, pad+edge+folded(n), "")
+		put(b, "", folded(n))
 	}
 	if !d.o.Verbose && len(lines) > 8 {
 		// The top and the end, where results and errors land; a failure
@@ -2455,7 +2457,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	}
 	for i, l := range lines {
 		if i >= 2000 {
-			d.add("", b, pad+edge+faint(fmt.Sprintf("… %d more lines", len(lines)-i)), "")
+			put(b, "", faint(fmt.Sprintf("… %d more lines", len(lines)-i)))
 			break
 		}
 		emit(i, l)
@@ -2592,7 +2594,7 @@ func (d *drawer) diff(st *Step, indent int) bool {
 				newN++
 				continue
 			}
-			for i, r := range d.codeRows(highlight(lg, &newSt, expandTabs(l[1:]), cSub, nil), w) {
+			for i, r := range d.codeRows(highlight(lg, &newSt, expandTabs(l[1:]), cSub, nil), w, 6) {
 				if i == 0 {
 					d.add("", bgWell, pad+faint(fmt.Sprintf("%5d ", newN))+"  "+r, "")
 				} else {
@@ -2626,7 +2628,7 @@ func (d *drawer) diffLine(pad string, w int, lg *lang, st *hlState, sign byte, n
 			em = &emph{from: from, to: to, on: hi, off: row}
 		}
 	}
-	for i, r := range d.codeRows(paintCode(lg, st, body, cText, em, showSpace), w) {
+	for i, r := range d.codeRows(paintCode(lg, st, body, cText, em, showSpace), w, 6) {
 		if i == 0 {
 			d.add("", row, pad+faint(fmt.Sprintf("%5d ", n))+mark+" "+r, "")
 		} else {
@@ -2636,17 +2638,46 @@ func (d *drawer) diffLine(pad string, w int, lg *lang, st *hlState, sign byte, n
 	}
 }
 
+// widen lets a block whose lines don't fit where rows usually stop use the
+// pane's whole width, lead cells taken before each line; call what it
+// returns when the block is drawn.
+func (d *drawer) widen(lines []string, lead int) func() {
+	cw := d.cw
+	if cw >= d.o.Width {
+		return func() {}
+	}
+	for _, l := range lines {
+		if cellw.String(expandTabs(l))+lead > cw {
+			d.cw = d.o.Width
+			break
+		}
+	}
+	return func() { d.cw = cw }
+}
+
+// addRows adds body after pad and lead, wrapped to w cells with the rows it
+// carries on to lined up under its start, most rows at most.
+func (d *drawer) addRows(b, pad, lead, body string, w, most int) {
+	for i, r := range d.codeRows(body, w, most) {
+		if i == 0 {
+			d.add("", b, pad+lead+r, "")
+			continue
+		}
+		d.add("", b, pad+blanks(cellw.String(lead))+r, "")
+		d.wrapped()
+	}
+}
+
 // codeRows wraps a highlighted line of code to rows w cells wide, keeping
-// its colours across the breaks. Past a few rows the rest is cut, unless
-// verbose.
-func (d *drawer) codeRows(s string, w int) []string {
+// its colours across the breaks. Past most rows the rest is cut, unless
+// verbose or most is 0.
+func (d *drawer) codeRows(s string, w, most int) []string {
 	w = max(w, 4)
 	n := cellw.String(s)
 	if n <= w {
 		return []string{s}
 	}
-	most := 6
-	if d.o.Verbose {
+	if d.o.Verbose || most <= 0 {
 		most = n
 	}
 	var rows []string
