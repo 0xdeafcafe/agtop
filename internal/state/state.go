@@ -49,6 +49,14 @@ type Config struct {
 	// Using is the account an agent runs on where agtop picks it rather
 	// than the agent's home saying: a SignIn's ID, by kind.
 	Using map[string]string `json:"using,omitempty"`
+	// Profiles are the named lists of providers sessions run, with what
+	// happens when they run out; DefaultProfile names the one a session
+	// gets when neither you nor a FolderRule picked one. The Default
+	// profile is made once from DefaultAgent, SwitchOnLimit and
+	// AgentOrder, which are still written from it for older agtops.
+	Profiles       []Profile    `json:"profiles,omitempty"`
+	DefaultProfile string       `json:"defaultProfile,omitempty"`
+	FolderRules    []FolderRule `json:"folderRules,omitempty"`
 	// SwitchOnLimit is what agtop does when the account in use is nearly out:
 	// "" (or "account") switches to another account of the same agent, and
 	// sessions carry on; "agent" does that, then starts new sessions on
@@ -141,6 +149,7 @@ func (c *Config) migrate() {
 		// Folders are gone; sessions group by the agent they run.
 		c.GroupBy = "agent"
 	}
+	c.migrateProfiles()
 }
 
 // SetSwitchOnLimit sets what agtop does when an account is nearly out.
