@@ -221,19 +221,15 @@ func (s *Session) syncJobs(info host.Info, now time.Time) {
 	s.backgroundNow(list, now)
 }
 
-// endJobs ends the tasks a finished turn was waiting on: they ran in the
-// foreground, so they were done by the time it was.
 // wakeWindow is how soon after a task ends or fires a turn with no message
 // is put down to it.
 const wakeWindow = 2 * time.Minute
 
-// noteWake remembers a task that ended or fired while no turn ran: Claude
-// Code wakes the agent for it without a message, and the turn it starts
-// says so.
+// noteWake remembers a task that ended or fired: Claude Code wakes the
+// agent for it without a message, and the turn it starts says so. One that
+// comes while a turn runs is held until the turn ends, and wakes it then.
 func (s *Session) noteWake(j *Job, now time.Time) {
-	if s.Live() == nil {
-		s.woke, s.wokeAt = j, now
-	}
+	s.woke, s.wokeAt = j, now
 }
 
 // wakeFrom is who started a turn a task woke: "background shell ·
@@ -253,6 +249,8 @@ func (s *Session) wakeFrom(j *Job) string {
 	return from
 }
 
+// endJobs ends the tasks a finished turn was waiting on: they ran in the
+// foreground, so they were done by the time it was.
 func (s *Session) endJobs(now time.Time) {
 	for _, j := range s.jobs {
 		if j.Running() && !j.Background {

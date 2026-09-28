@@ -164,3 +164,49 @@ func TestWokenByABackgroundTask(t *testing.T) {
 		t.Fatalf("turn %d: from %q, cause %q", len(s.Turns), tn.From, tn.Cause)
 	}
 }
+
+// A task that finishes while a turn runs is held: Claude Code wakes the
+// agent for it once the turn ends, and that turn is put down to it.
+func TestWokenByATaskThatEndedMidTurn(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.Apply(host.Sent{Text: "run the tests in the background"}, now)
+	for _, l := range []string{
+		`{"type":"system","subtype":"task_started","task_id":"b1","tool_use_id":"toolu_09","description":"go test ./...","is_backgrounded":true,"task_type":"local_bash"}`,
+		`{"type":"system","subtype":"task_notification","task_id":"b1","tool_use_id":"toolu_09","status":"completed","summary":"go test ./..."}`,
+	} {
+		ev, _ := headless.Decode([]byte(l))
+		s.Apply(ev, now)
+	}
+	s.Apply(headless.Result{Subtype: "success"}, now.Add(5*time.Minute))
+	s.Apply(headless.Delta{Text: "The tests pass."}, now.Add(5*time.Minute+time.Second))
+	tn := s.Turns[len(s.Turns)-1]
+	if len(s.Turns) != 2 || tn.Cause != "go test ./..." {
+		t.Fatalf("turn %d: from %q, cause %q", len(s.Turns), tn.From, tn.Cause)
+	}
+
+	// Your next message starts afresh: nothing held is put down to it.
+	s.Apply(headless.Result{Subtype: "success"}, now.Add(6*time.Minute))
+	s.Apply(host.Sent{Text: "thanks"}, now.Add(6*time.Minute))
+	if tn := s.Turns[len(s.Turns)-1]; tn.Cause != "" {
+		t.Fatalf("your turn put down to %q", tn.Cause)
+	}
+}
+
+// A background subagent working on after the turn that started it ended
+// opens no turn: its steps stay with the turn it runs under.
+func TestSubagentAfterItsTurnOpensNoTurn(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.Apply(host.Sent{Text: "look into it in the background"}, now)
+	s.Apply(headless.Message{Role: "assistant", ID: "m1", Blocks: []headless.Block{{Type: "tool_use", ID: "toolu_A", Name: "Agent", Input: []byte(`{"description":"dig","run_in_background":true}`)}}}, now)
+	s.Apply(headless.Result{Subtype: "success"}, now)
+	s.Apply(headless.Message{Role: "assistant", ID: "m2", ParentToolUseID: "toolu_A", Blocks: []headless.Block{{Type: "tool_use", ID: "toolu_B", Name: "Bash", Input: []byte(`{"command":"ls"}`)}}}, now.Add(time.Second))
+	s.Apply(headless.Message{Role: "assistant", ID: "m3", ParentToolUseID: "toolu_unknown", Blocks: []headless.Block{{Type: "tool_use", ID: "toolu_C", Name: "Bash", Input: []byte(`{"command":"pwd"}`)}}}, now.Add(time.Second))
+	if len(s.Turns) != 1 || s.Live() != nil {
+		t.Fatalf("%d turns, live %v", len(s.Turns), s.Live() != nil)
+	}
+	if a := s.byID["toolu_A"]; len(a.Children) != 1 || s.Turns[0].Steps() != 2 {
+		t.Fatalf("children %d, steps %d", len(a.Children), s.Turns[0].Steps())
+	}
+}

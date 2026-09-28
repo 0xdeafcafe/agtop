@@ -203,8 +203,8 @@ type Session struct {
 	Tools    map[string]*ToolStat
 
 	streaming  *Item
-	woke       *Job      // the background task that ended or fired while nothing ran
-	wokeAt     time.Time // when
+	woke       *Job      // the background task that last ended or fired
+	wokeAt     time.Time // when, or when the turn it came during ended
 	spent      float64   // the process's cost total at its last result
 	byID       map[string]*Step
 	cache      map[*Turn]cached
@@ -284,7 +284,7 @@ func (s *Session) turnFor(now time.Time) *Turn {
 	// work, or a replay that starts mid-turn.
 	t := &Turn{N: len(s.Turns) + 1, Live: true, Start: now, steps: map[string]*Step{}}
 	if j := s.woke; j != nil && now.Sub(s.wokeAt) < wakeWindow {
-		t.From, t.Cause = s.wakeFrom(j), firstNonEmpty(j.Label, s.JobCommand(j), j.ID)
+		t.From, t.Cause = s.wakeFrom(j), firstNonEmpty(j.Label, j.Summary, s.JobCommand(j), j.ID)
 	}
 	s.woke = nil
 	s.Turns = append(s.Turns, t)
@@ -311,7 +311,7 @@ func (s *Session) Apply(ev any, now time.Time) {
 			t.touch()
 			return
 		}
-		s.streaming = nil
+		s.streaming, s.woke = nil, nil
 		s.Turns = append(s.Turns, &Turn{N: len(s.Turns) + 1, Prompt: ev.Text, Start: now, Live: true, steps: map[string]*Step{}, Effort: s.Info.Effort, Images: ev.Images})
 	case host.InfoEvent:
 		s.Info = ev.Info
@@ -409,6 +409,9 @@ func (s *Session) Apply(ev any, now time.Time) {
 		s.applyNeutral(ev, now)
 	case headless.Result:
 		s.endJobs(now)
+		if s.woke != nil {
+			s.wokeAt = now // held until now: this is when it wakes the agent
+		}
 		if t := s.Live(); t != nil {
 			s.endTurn(t, now)
 			t.Cost = host.TurnCost(&s.spent, ev.CostUSD)
@@ -471,13 +474,24 @@ func (s *Session) message(m headless.Message, now time.Time) {
 		s.results(m, now)
 		return
 	}
-	t := s.turnFor(now)
-	defer t.touch()
+	parent := s.byID[m.ParentToolUseID]
+	// A subagent's message whose run we never saw start still isn't
+	// the main agent's: it mustn't land in the turn or its numbers.
+	sub := m.ParentToolUseID != ""
+	// Only the main agent opens a turn. A background subagent working on
+	// after the turn that started it ended stays with that turn; one we
+	// never saw start, with nothing running, is in no turn at all.
+	t := s.Live()
+	switch {
+	case !sub:
+		t = s.turnFor(now)
+	case t == nil && parent != nil:
+		t = parent.turn
+	}
+	if t != nil {
+		defer t.touch()
+	}
 	{
-		parent := s.byID[m.ParentToolUseID]
-		// A subagent's message whose run we never saw start still isn't
-		// the main agent's: it mustn't land in the turn or its numbers.
-		sub := m.ParentToolUseID != ""
 		if m.Usage != nil {
 			s.request(m, parent, now)
 			if !sub {
@@ -526,7 +540,9 @@ func (s *Session) message(m headless.Message, now time.Time) {
 				}
 				st := &Step{ID: b.ID, Tool: b.Name, Kind: claude.KindOf(b.Name), Input: b.Input, Start: now, Exit: -1, parent: parent, turn: t}
 				s.byID[b.ID] = st
-				t.steps[b.ID] = st
+				if t != nil {
+					t.steps[b.ID] = st
+				}
 				s.stepVer++
 				switch {
 				case parent != nil:
