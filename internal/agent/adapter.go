@@ -35,38 +35,11 @@ type Account struct {
 	Plan  string
 }
 
-// Caps is what an agent can do beyond talking and running tools. The
-// interface hides what an agent can't do rather than faking it.
-type Caps uint64
-
-const (
-	CapResume Caps = 1 << iota
-	CapFork
-	CapRewind
-	CapImages
-	CapEffort
-	CapModes // permission modes, such as plan and accept-edits
-	CapSubagents
-	CapBackground // background tasks it can list and stop
-	CapQuestions  // structured questions with choices
-	CapContext    // a breakdown of what fills the context
-	CapCompact
-	CapMCP
-	CapHooks
-	CapPlugins
-	CapStatusLine // runs agtop as its statusline
-	CapScreen     // has its own TUI to show beside agtop's
-)
-
-// Has is whether c has every capability in want.
-func (c Caps) Has(want Caps) bool { return c&want == want }
-
 // Adapter is one agent as agtop knows it. The optional parts below are
 // found with a type assertion; an adapter has only those it can do.
 type Adapter interface {
 	Kind() Kind
 	Name() string // "Claude Code"
-	Caps() Caps
 	// Features is what agtop can do with it, feature by feature. A
 	// feature it leaves out is No.
 	Features() map[Feature]Support

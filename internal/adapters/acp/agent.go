@@ -75,10 +75,6 @@ func (a Agent) Features() map[agent.Feature]agent.Support {
 
 func (a Agent) Level() agent.Level { return a.Tried }
 
-func (Agent) Caps() agent.Caps {
-	return agent.CapResume | agent.CapImages | agent.CapModes | agent.CapQuestions | agent.CapMCP
-}
-
 // Program is its program, which its installer may put in its config
 // folder's bin.
 func (a Agent) Program() (string, []string) {

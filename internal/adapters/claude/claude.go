@@ -38,12 +38,6 @@ func (Adapter) Name() string     { return "Claude Code" }
 // ~/.claude/local.
 func (Adapter) Program() (string, []string) { return "claude", []string{".claude/local"} }
 
-func (Adapter) Caps() agent.Caps {
-	return agent.CapResume | agent.CapFork | agent.CapRewind | agent.CapImages | agent.CapEffort | agent.CapModes |
-		agent.CapSubagents | agent.CapBackground | agent.CapQuestions | agent.CapContext | agent.CapCompact |
-		agent.CapMCP | agent.CapHooks | agent.CapPlugins | agent.CapStatusLine | agent.CapScreen
-}
-
 // features: Claude Code does everything agtop does, bar sessions on
 // Anthropic's servers. Its running and past sessions are found by fleet
 // and read by convo directly, until they move behind this adapter.

@@ -26,11 +26,6 @@ func (Adapter) Name() string     { return "Codex" }
 // Program is codex.
 func (Adapter) Program() (string, []string) { return "codex", []string{".codex/bin"} }
 
-func (Adapter) Caps() agent.Caps {
-	return agent.CapResume | agent.CapFork | agent.CapImages | agent.CapEffort | agent.CapModes |
-		agent.CapQuestions | agent.CapContext | agent.CapMCP
-}
-
 // features are what app-server gives agtop. Codex has no subagents, no
 // plan mode among its approval presets, and nothing to rewind to.
 var features = map[agent.Feature]agent.Support{

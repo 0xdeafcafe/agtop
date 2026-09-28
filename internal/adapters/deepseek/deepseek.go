@@ -32,11 +32,6 @@ func (Adapter) Name() string     { return "DeepSeek" }
 // Program is dsh, which npm puts on PATH.
 func (Adapter) Program() (string, []string) { return "dsh", []string{".dsh/bin"} }
 
-// Caps are what dsh's ACP server offers: resuming a session (without
-// replaying it), images on models that take them, and MCP servers. It has
-// no modes and asks no questions over ACP.
-func (Adapter) Caps() agent.Caps { return agent.CapResume | agent.CapImages | agent.CapMCP }
-
 // features are dsh's over ACP: it resumes without replaying, has no modes
 // and asks no questions. Its money left is read, not a window.
 var features = map[agent.Feature]agent.Support{

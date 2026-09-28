@@ -29,7 +29,6 @@ type fakeAgent struct {
 
 func (f fakeAgent) Kind() agent.Kind                                            { return f.kind }
 func (f fakeAgent) Name() string                                                { return f.title }
-func (fakeAgent) Caps() agent.Caps                                              { return 0 }
 func (fakeAgent) Features() map[agent.Feature]agent.Support                     { return nil }
 func (fakeAgent) Level() agent.Level                                            { return agent.LevelPreview }
 func (f fakeAgent) Profiles() []agent.Profile                                   { return []agent.Profile{{Kind: f.kind, Dir: f.dir}} }

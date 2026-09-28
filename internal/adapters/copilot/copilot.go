@@ -46,7 +46,6 @@ const Hint = "install the Copilot CLI (npm i -g @github/copilot) to run Copilot 
 // Lesser is gh: with it alone, agtop lists Copilot's coding agent's
 // sessions on GitHub, its accounts and their premium requests.
 func (Adapter) Lesser() (string, []string, string) { return "gh", nil, Hint }
-func (Adapter) Caps() agent.Caps                   { return cli.Caps() }
 
 // Features are the CLI's over ACP, and the coding agent's on GitHub. It's
 // been tried lightly against the real CLI.

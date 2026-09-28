@@ -59,7 +59,7 @@ An adapter is a set of optional parts. The core asks for each one and hides the 
 
 The interfaces are in `internal/agent/adapter.go`. In short:
 
-- **Adapter** (every adapter has this part): `Kind`, `Name`, `Caps`, `Profiles`.
+- **Adapter** (every adapter has this part): `Kind`, `Name`, `Features`, `Level`, `Profiles`.
 - **Discoverer**: sessions running outside agtop, and past ones.
 - **Driver**: `Start(ctx, StartOptions) (Conn, error)`. A `Conn` gives `Events`, `Send`, `Answer(approvalID, optionID)`, `Interrupt`, `SetModel`, `SetMode` and `Close`. An **Answerer** also takes answers to questions.
 - **HistoryReader**: a transcript read back as the same events.
@@ -68,7 +68,7 @@ The interfaces are in `internal/agent/adapter.go`. In short:
 - **Pricer**: `Cost(model, TokenUsage)`.
 - **Commander**: slash commands and skills.
 
-`Caps` is a bit set for everything smaller than a whole interface: `Rewind`, `Fork`, `Resume`, `Images`, `Effort`, `PermissionModes`, `PlanMode`, `Subagents`, `BackgroundTasks`, `StructuredQuestions`, `ContextUsage`, `Compact`, `MCP`, `Hooks`, `Plugins`, `StatusLineHook`, `NativeScreen`. `sessionviews.go`'s command registry becomes `{command, needs Caps}`, so `/rewind` only shows for agents that can.
+`Features` says, for every agtop feature, whether the adapter has it (`agent.Supports(kind, feature)`), whole interfaces and smaller things alike: `Rewind`, `Fork`, `Resume`, `Images`, `Effort`, `Modes`, `Plan`, `Subagents`, `Background`, `Questions`, `Context`, `Compact`, `MCP`, `Hooks`, `Plugins`, `StatusLine`, `Screen` and the rest. `ui/caps.go` maps each agtop command to the feature it needs, so `/rewind` only shows for agents that can. (It was a `Caps` bit set until 2026-09-28.)
 
 ### The event model
 
@@ -225,7 +225,7 @@ The core isn't isolated yet. Claude Code is the implicit default: `canRun` lets 
 
 Track A as built:
 
-- **Features** (2026-09-28). `internal/agent/feature.go` has `Feature`, `Support{Is, Note}` (`Yes`, `No`, `Planned`, and `.With(note)`), `Level` (`LevelFull`, `LevelTested`, `LevelPreview`), `AllFeatures()` in display order with labels, `Features(kind)`, `FeatureOf`, `Supports` and `LevelOf`. Every adapter declares its features and level: Claude is full, Codex and Copilot tested, the rest preview. `internal/adapters/features_test.go` checks each feature that is an interface against the adapter; Claude's running and past sessions are the one exception, found by fleet and convo until step 4 moves them.
+- **Features** (2026-09-28). `internal/agent/feature.go` has `Feature`, `Support{Is, Note}` (`Yes`, `No`, `Planned`, and `.With(note)`), `Level` (`LevelFull`, `LevelTested`, `LevelPreview`), `AllFeatures()` in display order with labels, `Features(kind)`, `FeatureOf`, `Supports` and `LevelOf`. Every adapter declares its features and level: Claude is full, Codex and Copilot tested, the rest preview. `internal/adapters/features_test.go` checks each feature that is an interface against the adapter; Claude's running and past sessions are the one exception, found by fleet and convo until step 4 moves them. `Caps` is gone: agtop's commands are gated on features, and `/btw`, `/cd` and `/add-dir` on theirs rather than on being Claude's.
 
 ### Track B: providers and profiles
 

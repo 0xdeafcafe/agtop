@@ -33,12 +33,9 @@ func (Adapter) Name() string     { return "GLM" }
 // Program is the ACP bridge, what agtop runs.
 func (Adapter) Program() (string, []string) { return "zcode-acp-server", nil }
 
-// Caps are the bridge's: ZCode's modes (plan, build, edit, yolo, auto),
-// its questions, resume, images and MCP.
-func (Adapter) Caps() agent.Caps { return cli.Caps() }
-
-// Features are the bridge's over ACP, and the Coding Plan's limits. It's
-// been tried only against recorded fixtures.
+// Features are the bridge's over ACP (ZCode's modes: plan, build, edit,
+// yolo, auto), and the Coding Plan's limits. It's been tried only against
+// recorded fixtures.
 func (Adapter) Features() map[agent.Feature]agent.Support { return cli.Features() }
 func (Adapter) Level() agent.Level                        { return cli.Level() }
 

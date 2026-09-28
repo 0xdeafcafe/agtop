@@ -27,7 +27,6 @@ func init() { agent.Register(installedAgent{}) }
 
 func (installedAgent) Kind() agent.Kind                          { return "installed" }
 func (installedAgent) Name() string                              { return "Installed" }
-func (installedAgent) Caps() agent.Caps                          { return 0 }
 func (installedAgent) Features() map[agent.Feature]agent.Support { return nil }
 func (installedAgent) Level() agent.Level                        { return agent.LevelPreview }
 func (installedAgent) Profiles() []agent.Profile {

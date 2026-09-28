@@ -17,7 +17,7 @@ import (
 
 func TestRegistered(t *testing.T) {
 	a, ok := agent.Get(Kind)
-	if !ok || a.Name() != "Claude Code" || !a.Caps().Has(agent.CapRewind|agent.CapQuestions) {
+	if !ok || a.Name() != "Claude Code" || !agent.Supports(a.Kind(), agent.FeatureRewind) || !agent.Supports(a.Kind(), agent.FeatureQuestions) {
 		t.Fatalf("Get(claude) = %v, %v", a, ok)
 	}
 	if _, ok := a.(agent.Driver); !ok {
