@@ -215,7 +215,7 @@ func (m *Model) editInput(k tea.KeyPressMsg, s string) bool {
 	return ok
 }
 
-// copyText puts text on the clipboard through the terminal (OSC 52).
+// copyText puts text on the clipboard with the next update.
 func (m *Model) copyText(t string) {
 	m.pendingCopy = t
 	m.flash(fmt.Sprintf("copied %d characters", len([]rune(t))), false)

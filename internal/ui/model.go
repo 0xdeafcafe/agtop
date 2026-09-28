@@ -551,7 +551,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.noteProgress(isTick)
 	var copyCmd tea.Cmd
 	if m.pendingCopy != "" {
-		copyCmd, m.pendingCopy = tea.SetClipboard(m.pendingCopy), ""
+		copyCmd, m.pendingCopy = setClipboard(m.pendingCopy), ""
 	}
 	var fxCmd tea.Cmd
 	if m.fxKick {

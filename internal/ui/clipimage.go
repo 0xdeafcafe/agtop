@@ -12,6 +12,22 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// setClipboard puts text on the clipboard through the terminal (OSC 52),
+// and on a Mac agtop runs on, through pbcopy as well: Terminal.app ignores
+// OSC 52, so a copy there would otherwise go nowhere.
+func setClipboard(text string) tea.Cmd {
+	osc := tea.SetClipboard(text)
+	if runtime.GOOS != "darwin" || os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != "" {
+		return osc
+	}
+	return tea.Batch(osc, func() tea.Msg {
+		c := exec.Command("pbcopy")
+		c.Stdin = strings.NewReader(text)
+		_ = c.Run()
+		return nil
+	})
+}
+
 // clipImageMsg is an image read off the clipboard and saved to a file;
 // path is empty when the clipboard held none.
 type clipImageMsg struct {
