@@ -10,8 +10,9 @@ Plugins run on macOS only for now. Elsewhere agtop won't run them rather than ru
 |---|---|
 | [Using plugins](#using-plugins) | install, approve, list, revoke |
 | [What a plugin can't do](#what-a-plugin-cant-do) | the sandbox, in short |
+| [Taking part in agtop's screen](#taking-part-in-agtops-screen) | events, overview sections, commands, settings, intercepts |
 | [Writing one](#writing-one) | with Claude and the skill, or by hand |
-| [Examples](examples) | `neighbours`, `kanban`, `delegate` and `memory` |
+| [Examples](examples) | `neighbours`, `kanban`, `delegate`, `memory`, and `autodrafts` and `reconnect` (UI hooks) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | the processes, the boundaries, why it's built this way |
 | [Protocol](skills/write-agtop-plugin/references/protocol.md) · [Manifest](skills/write-agtop-plugin/references/manifest.md) · [Sandbox](skills/write-agtop-plugin/references/sandbox.md) | the reference |
 
@@ -45,6 +46,21 @@ Plugins run under `agtop plugind`, one small process agtop starts once a plugin 
 
 The full list is in [the sandbox reference](skills/write-agtop-plugin/references/sandbox.md), and how each rule is enforced is in [ARCHITECTURE.md](ARCHITECTURE.md#the-boundaries).
 
+## Taking part in agtop's screen
+
+A plugin can also take part in agtop's own window, as far as its manifest's `ui` list says, and approval names each:
+
+- **`events`**: hear what the agent list shows happen: a session opened or left, a turn started or ended, a session stopped by an error and of what kind, the network going away and coming back. Never what was said.
+- **`input`**: see what you type in a message box, and set it. It's everything you type, so approve it with care.
+- **`intercept`** (needs `input`): be asked before a message you send goes, and change it or hold it back with a reason. All plugins together get 400 ms; after that the message goes as it was, and one that misses three times in a row isn't asked again until it restarts.
+- **`overview`**: add sections to a session's overview, and a short status to its row.
+- **`notify`**: show a short message at the bottom of the screen, a few at a time.
+- **`send`** (needs `events`): send a message as if you'd typed it, only to sessions in its workspaces that still ask you before acting, ten a minute at most.
+
+`commands` adds commands to the `#` commands, the command bar and the keymap, as `plugin:<name>.<command>`. `settings` adds settings under Settings, Plugins; agtop keeps their values where the plugin can't write, and tells it when you change one.
+
+None of it can slow agtop down. agtop hands the broker events without waiting, draws what plugins added from a copy it already holds, and a plugin that falls behind only loses its own oldest events. What a plugin added goes when it stops.
+
 ## Writing one
 
 ### With Claude
@@ -65,7 +81,7 @@ Then ask: *"write me an agtop plugin that …"*.
 3. Put it in `~/.config/agtop/plugins/<name>/`, run `agtop plugin check <name>`, then `agtop plugin approve <name>`.
 4. Call its tools without a session: `python3 skills/write-agtop-plugin/scripts/call.py <name> list`, then `… call <tool> '{"arg": "value"}'`.
 
-In short, it talks to agtop on **fd 3**, one end of a socket pair agtop made for it. Each message is JSON-RPC 2.0 behind a 4-byte big-endian length. agtop calls `initialize`, `tools.list` and `tools.call`; the plugin can call `sessions.list`, `sessions.watch`, `sessions.start`, `sessions.send`, `sessions.queue`, `sessions.subscribe`, `sessions.stop`, `exec` and `sidebar.set`, if its manifest asks for them. A manifest with `"protocol": "mcp"` makes it an ordinary MCP server on stdin and stdout instead.
+In short, it talks to agtop on **fd 3**, one end of a socket pair agtop made for it. Each message is JSON-RPC 2.0 behind a 4-byte big-endian length. agtop calls `initialize`, `tools.list` and `tools.call`; the plugin can call `sessions.list`, `sessions.watch`, `sessions.start`, `sessions.send`, `sessions.queue`, `sessions.subscribe`, `sessions.stop`, `exec`, `sidebar.set` and the `ui.*` methods, if its manifest asks for them. A manifest with `"protocol": "mcp"` makes it an ordinary MCP server on stdin and stdout instead.
 
 ```jsonc
 {
@@ -129,3 +145,5 @@ On Apple Silicon, build with `GOARCH=arm64` if `go env GOARCH` says `amd64`: an 
   cp <agtop>/plugins/examples/memory/plugin.json .
   agtop plugin approve memory
   ```
+
+- [`autodrafts`](examples/autodrafts) and [`reconnect`](examples/reconnect) rebuild two of agtop's own features with the UI hooks, to show they're enough: `autodrafts` keeps what you typed and didn't send and puts it back (`ui: events, input, notify`; it sees everything you type), and `reconnect` sends `continue` to a session an outage stopped once the network is back, with backoff (`ui: events, send, notify`). agtop's built-in drafts and retry stay as they are. Each has its own `go.mod`, uses only the standard library, and says how to install it in its README.

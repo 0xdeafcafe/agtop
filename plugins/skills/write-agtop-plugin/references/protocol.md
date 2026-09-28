@@ -33,11 +33,14 @@ JSON-RPC 2.0 throughout: a request has `id`, `method`, `params`; a reply has the
   "sessions": ["list"],
   "workspaces": ["/Users/you/Source"],
   "network": [],
-  "exec": []
+  "exec": [],
+  "ui": ["events", "overview"],
+  "commands": ["summarize"],
+  "settings": {"verbose": "false"}
 }}
 ```
 
-Answer `{}` (anything but an error). `sessions`, `workspaces`, `network` and `exec` (the names of the programs it may run) are what the plugin was approved for; `workspaces` are resolved to real paths.
+Answer `{}` (anything but an error). `sessions`, `workspaces`, `network`, `exec` (the names of the programs it may run), `ui` and `commands` (their names) are what the plugin was approved for; `workspaces` are resolved to real paths. `settings` is each setting's value: what the user set, or its default.
 
 ### `tools.list` (request)
 
@@ -80,6 +83,47 @@ This is sent for each session the plugin follows with `sessions.subscribe`. It c
 | `tool` | `name`, `doing` | Claude used a tool; `doing` says what, in words. The tool's output is never sent. |
 | `result` | `text`, `isError`, `costUsd`, `turns` | A turn ended; `text` is Claude's final answer. |
 | `closed` | | The session's host went away; subscribe again once it's back if needed. |
+
+### `ui.event` (notification) — needs `events` or `input`
+
+Something happened in one of agtop's windows. Sent without waiting for the plugin: one that falls behind loses its oldest events, and `input.changed` for the same box is sent only as its latest.
+
+```json
+{"kind": "turn.ended", "ui": "main", "at": "2026-09-28T10:00:00Z",
+ "session": {"id": "a1b2c3d4", "sessionId": "5f0c…", "name": "fix the flaky test", "agent": "claude",
+             "cwd": "/Users/you/Source/app", "repo": "/Users/you/Source/app", "branch": "main", "state": "idle", "hosted": true}}
+```
+
+| `kind` | Needs | Other fields |
+|---|---|---|
+| `session.seen` | `events` | a session agtop shows: each open or at work today when the plugin connects (up to 150), then each new one |
+| `session.opened` / `session.left` | `events` | its Session came into or went out of view |
+| `turn.started` / `turn.ended` | `events` | |
+| `session.stopped` | `events` | `error: {kind, message}` when an error did it; `kind` is `limit`, `auth`, `offline`, `retryable`, `too-long` or `other` |
+| `network.down` / `network.up` | `events` | no `session` |
+| `input.changed` / `input.sent` / `input.cleared` | `input` | `text`, the message box |
+
+`ui` names the agtop window. Only `input` events carry `text`; a `session` absent from one means the Prompt's box. `input.changed` with empty `text` is a box emptied by hand (`input.sent` and `input.cleared` say so themselves). A plugin that connects while the API is unreachable hears `network.down` at once.
+
+### `ui.command` (request)
+
+`{"plugin": "…", "command": "summarize", "ui": "main", "session": {…}, "box": "a1b2c3d4"}`: the user ran one of its `commands`, on `session` if one was selected (as in `ui.event`, or absent). `box` is whose message box had the keys: a session's id, or `""` for the Prompt (where new sessions start). Answer `{}` within 10 seconds; the work may go on after.
+
+### `ui.intercept` (request) — needs `intercept`
+
+`{"hook": "before-send", "ui": "main", "session": {…}, "text": "…"}`: a message is about to go. Answer one of:
+
+```json
+{"action": "allow"}
+{"action": "rewrite", "text": "the message, changed"}
+{"action": "block", "reason": "shown to the user"}
+```
+
+Plugins are asked in name order, each seeing the text as the ones before left it; a `block` stops it. Each has 250 ms, and all together 400 ms. No answer in time, or an error, counts as `allow`; three in a row and the plugin isn't asked again until it restarts.
+
+### `ui.settings` (notification)
+
+`{"values": {"verbose": "true"}}`: the user changed a setting; these are all its values now.
 
 ## plugin → agtop
 
@@ -189,6 +233,37 @@ The list offers it as a group-by mode, `plugin:<name>`, labelled with `title`. I
 
 agtop keeps it in `~/.config/agtop/plugin-sidebar/<name>.json`, outside the plugin's reach, and removes it when the plugin is revoked. It only labels agents agtop shows anyway: it grants the plugin nothing.
 
+### `ui.overview.set` — needs `ui` `overview`
+
+```json
+{"session": "a1b2c3d4", "sections": [
+  {"id": "ci", "title": "CI", "lines": [{"text": "3 checks failing", "tone": "bad", "url": "https://github.com/…"}]}]}
+```
+
+Replaces the plugin's sections in that session's overview; `[]` removes them. `session` is the `id` from `ui.event`. At most 4 sections, ids as `^[a-z][a-z0-9-]{0,30}$` and unique, titles 60 characters, 24 lines of 200. `tone` is `dim`, `good`, `warn`, `bad`, `accent` or empty; `url` only `http(s)`, opened with enter. Returns `{}`.
+
+### `ui.status.set` — needs `ui` `overview`
+
+`{"session": "…", "text": "CI red", "tone": "bad"}`: a short status on the session's row, at most 24 characters; empty `text` removes it. Returns `{}`.
+
+### `ui.notify` — needs `ui` `notify`
+
+`{"ui": "main", "text": "…", "tone": "warn"}`: a message at the bottom of the screen, at most 200 characters; without `ui`, in every window. Three at once, then one a second. Returns `{}`.
+
+### `ui.input.set` — needs `ui` `input`
+
+`{"ui": "main", "session": "…", "text": "…"}`: sets that message box, at most 100 KB: the session's, or with `session` `""` the Prompt's. The window sets it only while that box is on its screen (a session's Session open, or the Prompt taking a new session), else it's dropped. Returns `{}`.
+
+### `ui.send` — needs `ui` `send`
+
+`{"session": "…", "text": "…"}`: the window sends it as if the user had typed it and pressed enter, or continues a session an error stopped. The session must have come in a `ui.event`, with its `cwd` in the plugin's workspaces, and ask before acting (not `bypassPermissions` or `auto`). Text is 1 byte to 100 KB; ten a minute. Returns `{}`.
+
+### `ui.settings.get`
+
+No params. Returns `{"values": {…}}`, as in `initialize`.
+
+Everything a plugin adds to the screen is cleaned of escapes and control characters, and goes when it stops or restarts.
+
 ### `log`
 
 `{"message": "…"}`. This writes a line (at most 1 KB) to the broker's log. It works as a request or a notification. Plain stderr works too, and goes to the plugin's own log.
@@ -201,4 +276,5 @@ agtop keeps it in `~/.config/agtop/plugin-sidebar/<name>.json`, outside the plug
 | -32601 | method not found |
 | -32602 | bad params (bad id, cwd doesn't exist, text too long …) |
 | -32000 | something failed (the session isn't running …) |
-| -32001 | not permitted: the capability (or `sidebar`) wasn't approved, the session isn't the plugin's, the cwd is outside its workspaces, the program isn't in `exec`, a limit was hit |
+| -32001 | not permitted: the capability (or `sidebar`, or the `ui` one) wasn't approved, the session isn't the plugin's, the cwd is outside its workspaces, the program isn't in `exec`, a limit was hit |
+| -32002 | too often: `ui.notify` or `ui.send` past its rate; the same call may go later |

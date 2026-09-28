@@ -26,12 +26,16 @@ func BrokerLock() string { return filepath.Join(Root(), "broker.lock") }
 func BrokerLog() string { return filepath.Join(Root(), "broker.log") }
 
 // DialBroker connects to the running broker.
-func DialBroker() (*Conn, error) {
+func DialBroker() (*Conn, error) { return DialBrokerWith(nil) }
+
+// DialBrokerWith connects to the running broker, answering what it sends
+// with h: how an agtop window hears from its plugins.
+func DialBrokerWith(h Handler) (*Conn, error) {
 	c, err := net.DialTimeout("unix", BrokerSock(), time.Second)
 	if err != nil {
 		return nil, err
 	}
-	return NewConn(c, nil), nil
+	return NewConn(c, h), nil
 }
 
 // EnsureBroker starts the broker if any plugin is approved and it isn't

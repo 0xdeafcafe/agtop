@@ -15,12 +15,14 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -39,6 +41,7 @@ type broker struct {
 
 	mu      sync.Mutex
 	plugins map[string]*runner
+	ui      *uiHub
 	quit    chan struct{}
 	once    sync.Once
 }
@@ -72,6 +75,7 @@ func Run() error {
 	defer os.Remove(sock)
 
 	b := &broker{log: log.New(os.Stderr, "plugind ", log.LstdFlags), plugins: map[string]*runner{}, quit: make(chan struct{})}
+	b.ui = newUIHub(b)
 	b.log.Printf("started, pid %d", os.Getpid())
 	b.reload()
 	go b.watch()
@@ -92,8 +96,7 @@ func Run() error {
 			if err != nil {
 				return
 			}
-			conn := plugin.NewConn(c, b.fromAgtop)
-			go func() { <-conn.Done() }()
+			b.accept(c)
 		}
 	}()
 	<-b.quit
@@ -112,6 +115,22 @@ func Run() error {
 	wg.Wait()
 	b.log.Printf("stopped")
 	return nil
+}
+
+// accept answers one connection on broker.sock. A UI's calls need its
+// connection, to send it what changes.
+func (b *broker) accept(c io.ReadWriteCloser) *plugin.Conn {
+	var conn *plugin.Conn
+	ready := make(chan struct{})
+	conn = plugin.NewConn(c, func(ctx context.Context, method string, params jsontext.Value) (any, error) {
+		<-ready
+		if strings.HasPrefix(method, "ui.") {
+			return b.ui.fromUI(ctx, conn, method, params)
+		}
+		return b.fromAgtop(ctx, method, params)
+	})
+	close(ready)
+	return conn
 }
 
 func (b *broker) stop() { b.once.Do(func() { close(b.quit) }) }

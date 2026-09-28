@@ -40,7 +40,13 @@ const (
 	CodeInvalidParams  = -32602
 	CodeServer         = -32000
 	CodeDenied         = -32001 // the plugin lacks the capability
+	CodeLimited        = -32002 // allowed, but not so often: try again later
 )
+
+// Limited is the error for a call made too often: it may go again later.
+func Limited(what string) *Error {
+	return &Error{Code: CodeLimited, Message: "too often: " + what}
+}
 
 // Denied is the error for a call the plugin was not approved to make.
 func Denied(what string) *Error {

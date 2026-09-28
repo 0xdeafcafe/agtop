@@ -89,6 +89,12 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params jsontext.
 		}
 		return nil
 	}
+	if strings.HasPrefix(method, "ui.") {
+		if r.b == nil || r.b.ui == nil {
+			return nil, errors.New("agtop's screen isn't reachable")
+		}
+		return r.b.ui.fromPlugin(&p, method, params)
+	}
 	var in struct {
 		ID             string            `json:"id"`
 		Text           string            `json:"text"`

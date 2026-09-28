@@ -41,6 +41,7 @@ type runner struct {
 	lastErr  string
 	subs     map[string]*sub // followed sessions, by id
 	unwatch  func()          // ends sessions.watch
+	out      *outbox         // notifications to it, while it runs
 	execs    chan struct{}   // programs it's running, see exec
 	quit     chan struct{}
 	quitOnce sync.Once
@@ -195,21 +196,7 @@ func (r *runner) run(p plugin.Plugin) error {
 	r.mu.Lock()
 	r.cmd, r.exited, r.pid = cmd, exited, cmd.Process.Pid
 	r.mu.Unlock()
-	defer func() {
-		conn.Close()
-		r.mu.Lock()
-		r.conn, r.cmd, r.pid, r.mcpInit = nil, nil, 0, nil
-		r.ready = make(chan struct{})
-		for id, s := range r.subs {
-			s.cancel()
-			delete(r.subs, id)
-		}
-		if r.unwatch != nil {
-			r.unwatch()
-			r.unwatch = nil
-		}
-		r.mu.Unlock()
-	}()
+	defer r.down(conn)
 
 	if err := r.handshake(p, conn); err != nil {
 		kill(cmd, exited)
@@ -217,9 +204,15 @@ func (r *runner) run(p plugin.Plugin) error {
 	}
 	r.mu.Lock()
 	r.conn = conn
+	if p.Proto() == plugin.ProtoAgtop {
+		r.out = newOutbox(conn, pluginQueue)
+	}
 	close(r.ready)
 	r.mu.Unlock()
 	r.setState("running", "")
+	if r.b != nil && r.b.ui != nil {
+		r.b.ui.changed()
+	}
 	r.log.Printf("running, pid %d", cmd.Process.Pid)
 
 	select {
@@ -232,6 +225,30 @@ func (r *runner) run(p plugin.Plugin) error {
 		return errStopped
 	}
 	return waitErr
+}
+
+// down forgets a run that ended: its connection, what it followed, and what
+// it added to agtop's screen.
+func (r *runner) down(conn *plugin.Conn) {
+	conn.Close()
+	r.mu.Lock()
+	r.conn, r.cmd, r.pid, r.mcpInit = nil, nil, 0, nil
+	r.ready = make(chan struct{})
+	r.out.close()
+	r.out = nil
+	for id, s := range r.subs {
+		s.cancel()
+		delete(r.subs, id)
+	}
+	if r.unwatch != nil {
+		r.unwatch()
+		r.unwatch = nil
+	}
+	r.mu.Unlock()
+	// What it added to agtop's screen goes with it.
+	if r.b != nil && r.b.ui != nil {
+		r.b.ui.gone(r.name)
+	}
 }
 
 // socketPair is a connected pair of unix sockets, neither passed on to any
@@ -271,8 +288,34 @@ func (r *runner) handshake(p plugin.Plugin, conn *plugin.Conn) error {
 	return conn.Call(ctx, "initialize", map[string]any{
 		"protocol": Version, "name": p.Name, "dataDir": plugin.DataDir(p.Name),
 		"sessions": p.Sessions, "workspaces": p.WorkspaceDirs(), "network": p.Network,
-		"exec": slices.Sorted(maps.Keys(p.Exec)),
+		"exec": slices.Sorted(maps.Keys(p.Exec)), "ui": p.UI, "commands": commandNames(p.Commands),
+		"settings": plugin.SettingValuesOf(&p.Manifest),
 	}, nil)
+}
+
+func commandNames(cs []plugin.CommandSpec) []string {
+	out := make([]string, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, c.Name)
+	}
+	return out
+}
+
+// live is the plugin's manifest, and its connection if it's up.
+func (r *runner) live() (plugin.Plugin, *plugin.Conn) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.p, r.conn
+}
+
+// notify queues a notification to the plugin, without waiting: when the
+// plugin falls behind, the oldest waiting is dropped, and one with a key
+// replaces the one waiting with the same key.
+func (r *runner) notify(method string, params any, key string) {
+	r.mu.Lock()
+	out := r.out
+	r.mu.Unlock()
+	out.put(method, params, key)
 }
 
 // fromMCPServer answers what an MCP server asks of its client: nothing it

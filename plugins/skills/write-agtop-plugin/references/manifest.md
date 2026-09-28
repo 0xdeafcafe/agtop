@@ -20,6 +20,9 @@ The manifest lives at `<plugins>/<name>/plugin.json`. Unknown fields are an erro
 | `memoryMB` | int | 256 | 1–8192. The broker kills it above this footprint. |
 | `agents` | object | | Subagents for every agtop-mode session, keyed by name (`^[a-z][a-z0-9-]{0,40}$`), each as Claude Code's `--agents` takes them. `description` and `prompt` are required; optional `tools`, `model`. They appear as `<plugin>:<name>`. 64 KB in all. |
 | `sidebar` | bool | false | May arrange agtop's agent list with `sidebar.set`: its own sections, and a name for each agent. The list offers it as a group-by mode named after the plugin. Not for `mcp` plugins. |
+| `ui` | string[] | | Any of `events`, `input`, `intercept`, `overview`, `notify`, `send`: what it may do in agtop's own screen. See `protocol.md`. `intercept` needs `input`; `send` needs `events` and a workspace. Not for `mcp` plugins. |
+| `commands` | object[] | | At most 32, each `{"name", "description", "key"?}`: `name` as `^[a-z][a-z0-9-]{0,30}$`, unique; `description` at most 200 characters; `key` a key it suggests, taken only if free. Shown as `plugin:<name>.<command>`; run as a `ui.command` request. Not for `mcp` plugins. |
+| `settings` | object[] | | At most 32, each `{"key", "title", "description"?, "type", "choices"?, "default"?}`: `key` as a command name, unique; `title` at most 60 characters; `type` `bool` (default `"true"`/`"false"`), `choice` (2–16 `choices`, default one of them) or `text` (at most 1000 bytes). Shown under Settings, Plugins; values come in `initialize` and `ui.settings`. Not for `mcp` plugins. |
 | `prompt` | string | | Added to every agtop-mode session's system prompt under a heading naming the plugin. 16 KB at most. |
 
 Agents, prompt text and tools reach sessions **as approved**. Editing `plugin.json` changes nothing until the user approves again, and until then the plugin doesn't run.

@@ -242,6 +242,42 @@ func describe(p plugin.Plugin) string {
 	if p.Sidebar {
 		grants = append(grants, "arranges your agent list: groups and names agents in sections of its own, offered as a group-by mode")
 	}
+	if p.CanUI(plugin.UIInput) {
+		grants = append(grants, "SEES EVERYTHING YOU TYPE in agtop's message boxes, as you type it and when you send or clear it, and may set what's in them")
+	}
+	if p.CanUI(plugin.UIIntercept) {
+		grants = append(grants, fmt.Sprintf("is asked before each message you send goes, and may change it or hold it back (it has %v; after that it goes as it was)", plugin.InterceptBudget))
+	}
+	if p.CanUI(plugin.UIEvents) {
+		grants = append(grants, "hears what happens in agtop's screen: sessions seen, opened and left, turns starting and ending, why a session stopped, the network going and coming back; with each, what the agent list shows of the session (never what was said)")
+	}
+	if p.CanUI(plugin.UISend) {
+		grants = append(grants, fmt.Sprintf("sends messages, as if you'd typed them, to sessions in %s that ask you before acting", strings.Join(p.Workspaces, ", ")))
+	}
+	if p.CanUI(plugin.UIOverview) {
+		grants = append(grants, "adds sections to a Session's overview, and a word or two to its row in the list")
+	}
+	if p.CanUI(plugin.UINotify) {
+		grants = append(grants, "shows short notices at the bottom of agtop's screen")
+	}
+	if len(p.Commands) > 0 {
+		cs := make([]string, 0, len(p.Commands))
+		for _, c := range p.Commands {
+			k := ""
+			if c.Key != "" {
+				k = " (" + c.Key + ", if it's free)"
+			}
+			cs = append(cs, c.Name+k)
+		}
+		grants = append(grants, "adds commands you can run and bind to keys: "+strings.Join(cs, ", "))
+	}
+	if len(p.Settings) > 0 {
+		ss := make([]string, 0, len(p.Settings))
+		for _, st := range p.Settings {
+			ss = append(ss, st.Title)
+		}
+		grants = append(grants, "offers settings under Settings, Plugins: "+strings.Join(ss, ", "))
+	}
 	if len(grants) > 0 {
 		w("\nIt:\n")
 		for _, g := range grants {

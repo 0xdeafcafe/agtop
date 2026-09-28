@@ -125,6 +125,12 @@ type Manifest struct {
 	// Sidebar lets it arrange agtop's agent list with sidebar.set: its own
 	// sections, and a name for each agent. See Sidebar.
 	Sidebar bool `json:"sidebar,omitzero"`
+	// UI is what it may do in agtop's own screen. See UI*.
+	UI []string `json:"ui,omitempty"`
+	// Commands it adds to the # commands, the command bar and the keymap.
+	Commands []CommandSpec `json:"commands,omitempty"`
+	// Settings it offers under Settings, Plugins.
+	Settings []SettingSpec `json:"settings,omitempty"`
 }
 
 // DefaultMemoryMB is the memory limit a manifest doesn't set.
@@ -262,6 +268,9 @@ func (m Manifest) Validate(dir string) error {
 	}
 	if m.Sidebar && m.Proto() != ProtoAgtop {
 		return errors.New("an MCP plugin cannot be given the sidebar: it has no way to set it")
+	}
+	if err := m.validateUI(); err != nil {
+		return err
 	}
 	if len(m.Prompt) > maxPrompt {
 		return fmt.Errorf("prompt is over %d bytes", maxPrompt)

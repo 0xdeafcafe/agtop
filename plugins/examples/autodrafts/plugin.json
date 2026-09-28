@@ -1,0 +1,16 @@
+{
+  "name": "autodrafts",
+  "description": "Keeps what you typed in a message box and didn't send, when you leave the Session or clear the box, and puts it back when you ask. Sees everything you type in agtop; keeps it only in its data folder. An example of the UI hooks: agtop's own drafts do this already.",
+  "version": "1",
+  "command": ["autodrafts"],
+  "ui": ["events", "input", "notify"],
+  "commands": [
+    {"name": "restore", "description": "put back the newest draft kept for this box (again for the one before)", "key": "alt+b"},
+    {"name": "list", "description": "say how many drafts are kept for this box"}
+  ],
+  "settings": [
+    {"key": "keep", "title": "Drafts kept per box", "type": "choice", "choices": ["10", "50", "200"], "default": "50",
+     "description": "The oldest go first once a Session (or the Prompt) has more."}
+  ],
+  "memoryMB": 32
+}
