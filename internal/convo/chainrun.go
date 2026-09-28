@@ -70,7 +70,7 @@ func (s *Session) WatchShells(shells []Shell, now time.Time) {
 	used := make([]bool, len(shells))
 	var left []*Step
 	for _, st := range steps {
-		q := "'" + strings.ReplaceAll(readInput(st.Input).str("command"), "'", `'\''`) + "'"
+		q := "'" + strings.ReplaceAll(st.in().Command, "'", `'\''`) + "'"
 		found := false
 		for i, sh := range shells {
 			if !used[i] && strings.Contains(sh.Cmd, q) {
@@ -109,7 +109,7 @@ func absDur(d time.Duration) time.Duration {
 
 // watch notes which commands of the step's chain sh has running now.
 func (st *Step) watch(sh Shell, now time.Time) {
-	segs := segments(readInput(st.Input).str("command"))
+	segs := segments(st.in().Command)
 	if len(segs) < 2 {
 		return
 	}
@@ -288,7 +288,7 @@ func (st *Step) runningPart() string {
 		return ""
 	}
 	sort.Ints(at)
-	segs := segments(readInput(st.Input).str("command"))
+	segs := segments(st.in().Command)
 	k := at[len(at)-1]
 	if k >= len(segs) {
 		return ""
@@ -323,7 +323,7 @@ func (s *Session) RunningPart(id string) (RunningPart, bool) {
 	if k < 0 {
 		return RunningPart{}, false
 	}
-	cmd := readInput(st.Input).str("command")
+	cmd := st.in().Command
 	segs := segments(cmd)
 	if k >= len(segs) {
 		return RunningPart{}, false
