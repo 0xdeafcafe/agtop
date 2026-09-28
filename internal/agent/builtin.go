@@ -47,10 +47,13 @@ func IsBuiltin(k Kind) bool {
 }
 
 // ProgramOf is what agent k's program is called; empty when it has none,
-// or isn't registered.
+// isn't registered, or rides another's.
 func ProgramOf(k Kind) string {
 	a, ok := Get(k)
 	if !ok {
+		return ""
+	}
+	if _, ok := a.(Rider); ok {
 		return ""
 	}
 	p, ok := a.(Programmer)

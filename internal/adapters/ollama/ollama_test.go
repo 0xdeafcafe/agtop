@@ -122,3 +122,14 @@ func TestLive(t *testing.T) {
 	}
 	t.Fatal("the session ended before its turn did")
 }
+
+// A shell running ollama isn't an agent starting: `ollama pull` is
+// only a download.
+func TestOllamaIsNoAgentsProgram(t *testing.T) {
+	if k, ok := agent.ProgramKind("/opt/homebrew/bin/ollama"); ok {
+		t.Errorf("ollama taken for %s's program", k)
+	}
+	if agent.IsProgram("ollama") {
+		t.Error("an ollama process taken for an agent's own")
+	}
+}

@@ -23,6 +23,13 @@ type Lesser interface {
 	Lesser() (name string, dirs []string, hint string)
 }
 
+// Rider is an adapter that runs on another agent's program: Ollama's
+// runs Claude Code. Its own Program is only what else it needs, so it's
+// installed when both are, and a shell running that program isn't it.
+type Rider interface {
+	Rides() Kind
+}
+
 // commonDirs are where agents' installers put their programs, for an
 // agtop started with a thin PATH (from the Dock, launchd or a menu bar).
 var commonDirs = []string{
@@ -85,6 +92,13 @@ func look() map[Kind]string {
 			}
 		}
 	}
+	for _, a := range All() {
+		if r, ok := a.(Rider); ok {
+			if p := paths[r.Rides()]; p == "" || strings.HasPrefix(p, "~") {
+				paths[a.Kind()] = ""
+			}
+		}
+	}
 	found.paths, found.at = paths, time.Now()
 	return paths
 }
@@ -144,6 +158,9 @@ func InstalledAll() []Adapter {
 func ProgramKind(name string) (Kind, bool) {
 	name = filepath.Base(name)
 	for _, a := range All() {
+		if _, ok := a.(Rider); ok {
+			continue
+		}
 		if p, ok := a.(Programmer); ok {
 			if n, _ := p.Program(); n != "" && n == name {
 				return a.Kind(), true

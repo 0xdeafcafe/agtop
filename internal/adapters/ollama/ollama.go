@@ -27,8 +27,7 @@ type Adapter struct{}
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Ollama" }
 
-// Program is ollama. Claude Code, which does the work, is checked for in
-// Profiles.
+// Program is ollama, which it needs beside Claude Code.
 func (Adapter) Program() (string, []string) {
 	return "ollama", []string{"/Applications/Ollama.app/Contents/Resources"}
 }
@@ -50,10 +49,13 @@ var features = map[agent.Feature]agent.Support{
 func (Adapter) Features() map[agent.Feature]agent.Support { return features }
 func (Adapter) Level() agent.Level                        { return agent.LevelTested }
 
+// Rides Claude Code: its sessions are claude's.
+func (Adapter) Rides() agent.Kind { return claudead.Kind }
+
 // Profiles is agtop's own Claude folder for Ollama, when ollama and
 // Claude Code are both here.
 func (Adapter) Profiles() []agent.Profile {
-	if !agent.Installed(Kind) || !agent.Runs(claudead.Kind) {
+	if !agent.Installed(Kind) {
 		return nil
 	}
 	return []agent.Profile{{Kind: Kind, Name: "Ollama", Dir: home()}}
@@ -77,8 +79,11 @@ func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 	if o.Profile.Dir == "" {
 		o.Profile.Dir = home()
 	}
-	// The host hands over the adapter's own program, which is ollama's.
-	o.Binary = agent.Path(claudead.Kind)
+	// The host hands over the adapter's own program, which is ollama's,
+	// unless it was told of a claude to run.
+	if o.Binary == "" || filepath.Base(o.Binary) == "ollama" {
+		o.Binary = agent.Path(claudead.Kind)
+	}
 	return claudead.Adapter{}.Start(ctx, o)
 }
 
@@ -87,4 +92,5 @@ var (
 	_ agent.Driver     = Adapter{}
 	_ agent.Programmer = Adapter{}
 	_ agent.Pricer     = Adapter{}
+	_ agent.Rider      = Adapter{}
 )

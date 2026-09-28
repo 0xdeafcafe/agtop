@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -114,6 +115,12 @@ func (m *Model) fleetArgs(name string) (opts []string, now string) {
 	case "profile":
 		for _, p := range m.store.Config.Profiles {
 			opts = append(opts, p.Name)
+		}
+		// Each provider is a profile of its own, for a session beside the rest.
+		for _, a := range m.agentOrder() {
+			if _, ok := m.store.Config.ProfileNamed(string(a.Kind())); ok && !slices.Contains(opts, string(a.Kind())) {
+				opts = append(opts, string(a.Kind()))
+			}
 		}
 		return opts, m.startProfile(m.startDir()).Name
 	case "clean":

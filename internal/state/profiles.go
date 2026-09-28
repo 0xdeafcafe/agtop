@@ -92,11 +92,18 @@ func (p Profile) Installed() []string {
 	return out
 }
 
-// ProfileNamed is the profile called name, ignoring case.
+// ProfileNamed is the profile called name, ignoring case. A provider
+// that no profile is named after is a profile of its own, of it alone:
+// "#profile ollama" runs the next session there, beside the rest.
 func (c Config) ProfileNamed(name string) (Profile, bool) {
 	for _, p := range c.Profiles {
 		if strings.EqualFold(p.Name, name) {
 			return p, true
+		}
+	}
+	if k := agent.Kind(strings.ToLower(name)); name != "" {
+		if _, ok := agent.Get(k); ok {
+			return Profile{Name: string(k), Providers: []string{string(k)}}, true
 		}
 	}
 	return Profile{}, false
