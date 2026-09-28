@@ -29,6 +29,7 @@ type Tail struct {
 	partial   []byte
 	sidechain bool      // a subagent's own transcript: its lines are the story
 	before    time.Time // History: only lines from before this
+	past      bool      // History: read past before, so there's nothing more to take
 }
 
 var readBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
@@ -125,6 +126,9 @@ func (t *Tail) Read() (bool, error) {
 			if t.apply(bytes.TrimSpace(line)) {
 				changed = true
 			}
+			if t.past {
+				return changed, nil
+			}
 		}
 		if err != nil || n == 0 {
 			break
@@ -213,6 +217,11 @@ func (t *Tail) apply(b []byte) bool {
 		return false
 	}
 	if !t.before.IsZero() && !l.Timestamp.IsZero() && !l.Timestamp.Before(t.before) {
+		// A transcript is written in order: once well past before (a
+		// minute, for lines written a little out of it), the rest is
+		// after it too, and needn't be read. A resumed session's host can
+		// have run for days, and all it wrote since was read to be dropped.
+		t.past = l.Timestamp.After(t.before.Add(time.Minute))
 		return false
 	}
 	s := t.Sess

@@ -995,3 +995,29 @@ func TestTailSizeDuringFetch(t *testing.T) {
 		t.Fatalf("size %d, file %d", tl.Size(), st.Size())
 	}
 }
+
+// History keeps what was said before its moment, and stops reading once
+// the transcript is well past it.
+func TestHistoryStopsPastItsMoment(t *testing.T) {
+	path := t.TempDir() + "/s.jsonl"
+	line := func(at, text string) string {
+		return `{"type":"user","timestamp":"` + at + `","message":{"role":"user","content":"` + text + `"}}`
+	}
+	os.WriteFile(path, []byte(strings.Join([]string{
+		line("2026-09-23T20:00:00Z", "before"),
+		line("2026-09-23T20:10:00Z", "after"),
+		line("2026-09-23T20:30:00Z", "long after"),
+		"not json at all, never reached",
+	}, "\n")+"\n"), 0o644)
+	tl := NewTail(path)
+	tl.before = time.Date(2026, 9, 23, 20, 5, 0, 0, time.UTC)
+	if _, err := tl.Read(); err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Sess.Turns) != 1 || tl.Sess.Turns[0].Prompt != "before" {
+		t.Fatalf("turns: %+v", tl.Sess.Turns)
+	}
+	if !tl.past {
+		t.Error("it read on past its moment")
+	}
+}
