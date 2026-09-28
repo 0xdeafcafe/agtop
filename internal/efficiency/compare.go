@@ -43,6 +43,13 @@ type sideAcc struct {
 	n     int
 }
 
+func (a *sideAcc) add(f *File, t *Bucket) {
+	a.b.Add(t)
+	a.n++
+	a.costs = append(a.costs, t.Cost())
+	a.start = append(a.start, f.Start())
+}
+
 func (a *sideAcc) side() Side {
 	s := Side{Sessions: a.n, Req: a.b.Req, Cost: a.b.Cost(), StartMedian: quantile(a.start, 0.5)}
 	if a.b.Req > 0 {
@@ -109,10 +116,7 @@ func (s *Store) Compare(q Query, at time.Time, days int, saver *Saver) Compare {
 		if used {
 			split = &with
 		}
-		split.b.Add(&t)
-		split.n++
-		split.costs = append(split.costs, t.Cost())
-		split.start = append(split.start, f.Start())
+		split.add(f, &t)
 	}
 	c.Before, c.After = before.side(), after.side()
 	c.With, c.Without = with.side(), without.side()

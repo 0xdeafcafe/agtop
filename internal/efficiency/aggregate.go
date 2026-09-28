@@ -88,6 +88,9 @@ type View struct {
 	// Carry estimates what each tool's output cost to keep in context:
 	// every token of it is read again by the requests after it.
 	Carry [NTools]float64
+	// LookCarry is the same for shell output that searched or read code,
+	// and FatCarry for context past FatContext.
+	LookCarry, FatCarry float64
 
 	Uses map[string]*SaverUse // by saver ID, inside the view
 	// FirstUse is when each saver was first seen at all, in any
@@ -95,6 +98,8 @@ type View struct {
 	FirstUse map[string]time.Time
 	// Scanned is how many transcripts the store knows.
 	Scanned int
+
+	split map[string]*[2]sideAcc // by saver ID: sessions with it, without
 }
 
 const (
@@ -164,6 +169,11 @@ func (s *Store) View(q Query) *View {
 	}
 	fromH, toH := hourOf(q.From), hourOf(q.To)
 	var starts, peaks []int64
+	type session struct {
+		f *File
+		b Bucket
+	}
+	var sessions []session
 
 	firstUse := func(key string, u *Use) {
 		for i := range Catalog {
@@ -210,8 +220,13 @@ func (s *Store) View(q Query) *View {
 			if p := slot(f.First); p != nil && f.Start() > 0 {
 				p.Starts = append(p.Starts, f.Start())
 			}
-			if f.Peak() > FatContext {
+			sessions = append(sessions, session{f, fileB})
+			if peak := f.Peak(); peak > FatContext {
 				v.Fat++
+				// Context grows roughly steadily, so the requests after
+				// it passed FatContext carried half the excess on average.
+				over := float64(peak - FatContext)
+				v.FatCarry += over / 2 * float64(fileB.Req) * over / float64(peak) * cacheReadPrice(f.Model) / 1e6
 			}
 			worst, worstN := "", 0
 			for path, n := range f.Reads {
@@ -242,6 +257,7 @@ func (s *Store) View(q Query) *View {
 			for c := range NTools {
 				v.Carry[c] += float64(fileB.Bytes[c]) / 4 * float64(fileB.Req) / 2 * read / 1e6
 			}
+			v.LookCarry += float64(fileB.Look) / 4 * float64(fileB.Req) / 2 * read / 1e6
 		}
 		for k, u := range f.Uses {
 			if u.Last.Before(q.From) || u.First.After(q.To) {
@@ -284,6 +300,30 @@ func (s *Store) View(q Query) *View {
 				v.Total.Add(b)
 			}
 		}
+	}
+	v.split = map[string]*[2]sideAcc{}
+	for i := range Catalog {
+		sv := &Catalog[i]
+		first, ok := v.FirstUse[sv.ID]
+		if !ok || len(sv.Uses) == 0 {
+			continue
+		}
+		sp := &[2]sideAcc{}
+		for _, ss := range sessions {
+			if ss.f.First.Before(first) {
+				continue
+			}
+			used := false
+			for k := range ss.f.Uses {
+				used = used || sv.Matches(k)
+			}
+			side := &sp[1]
+			if used {
+				side = &sp[0]
+			}
+			side.add(ss.f, &ss.b)
+		}
+		v.split[sv.ID] = sp
 	}
 	v.StartMedian, v.StartP90 = quantile(starts, 0.5), quantile(starts, 0.9)
 	v.PeakMedian = quantile(peaks, 0.5)

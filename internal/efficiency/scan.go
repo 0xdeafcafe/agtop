@@ -62,6 +62,11 @@ type Bucket struct {
 
 	Calls [NTools]int32 `json:"k"`
 	Bytes [NTools]int64 `json:"b"`
+	// Look is the part of Bash's output that came from searching and
+	// reading code (grep, rg, find, cat, sed -n…): what code-graph and
+	// retrieval savers stand in for.
+	LookCalls int32 `json:"lk,omitempty"`
+	Look      int64 `json:"lb,omitempty"`
 }
 
 func (b *Bucket) Cost() float64 { return b.CIn + b.COut + b.CCR + b.CCW }
@@ -84,6 +89,8 @@ func (b *Bucket) Add(o *Bucket) {
 		b.Calls[i] += o.Calls[i]
 		b.Bytes[i] += o.Bytes[i]
 	}
+	b.LookCalls += o.LookCalls
+	b.Look += o.Look
 }
 
 // Use is how often something was seen in a transcript, and when first and
@@ -145,7 +152,8 @@ type File struct {
 	PendThink int64             `json:"pt,omitempty"`
 	PendFast  bool              `json:"pf,omitempty"`
 	PendAt    time.Time         `json:"pa"`
-	// Tool calls whose results haven't come back yet: id → class.
+	// Tool calls whose results haven't come back yet: id → class, with
+	// lookFlag for a shell command that searches or reads code.
 	Open map[string]uint8 `json:"op,omitempty"`
 }
 
@@ -517,15 +525,15 @@ func (f *File) assistant(l *rawLine, at time.Time) {
 		if f.Open == nil {
 			f.Open = map[string]uint8{}
 		}
-		if len(f.Open) < maxOpen {
-			f.Open[bl.ID] = c
-		}
 		switch {
 		case bl.Name == "Bash":
 			var in struct {
 				Command string `json:"command"`
 			}
 			if json.Unmarshal(bl.Input, &in) == nil {
+				if Looks(in.Command) {
+					c |= lookFlag
+				}
 				if w, admin := firstWord(in.Command); w != "" && admin {
 					f.use("bash:"+w+"/admin", at)
 				} else if w != "" {
@@ -555,7 +563,60 @@ func (f *File) assistant(l *rawLine, at time.Time) {
 			server, _, _ := strings.Cut(strings.TrimPrefix(bl.Name, "mcp__"), "__")
 			f.use("mcp:"+server, at)
 		}
+		if len(f.Open) < maxOpen {
+			f.Open[bl.ID] = c
+		}
 	}
+}
+
+const lookFlag = 0x80
+
+// lookPrograms search or read code: what a code graph answers instead.
+var lookPrograms = map[string]bool{
+	"grep": true, "rg": true, "ag": true, "ack": true, "egrep": true, "fgrep": true,
+	"find": true, "fd": true, "ls": true, "tree": true, "eza": true,
+	"cat": true, "bat": true, "head": true, "tail": true, "less": true, "nl": true, "wc": true,
+	"sg": true, "ast-grep": true,
+}
+
+// Looks is whether a shell command searches or reads code, going by the
+// program of its last step that isn't a cd, echo or true, past rtk and
+// VAR=x, and not redirected to a file. sed and awk count with -n, git with grep, ls-files or show.
+func Looks(cmd string) bool {
+	steps := strings.FieldsFunc(strings.NewReplacer("&&", ";", "||", ";", "\n", ";").Replace(cmd), func(r rune) bool { return r == ';' })
+	for i := len(steps) - 1; i >= 0; i-- {
+		step, _, _ := strings.Cut(steps[i], "|")
+		fields := strings.Fields(step)
+		for len(fields) > 0 && (strings.Contains(fields[0], "=") || fields[0] == "rtk" || fields[0] == "command" || fields[0] == "env") {
+			fields = fields[1:]
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		w := strings.Trim(fields[0], "'\"(")
+		if j := strings.LastIndexByte(w, '/'); j >= 0 {
+			w = w[j+1:]
+		}
+		arg := ""
+		if len(fields) > 1 {
+			arg = fields[1]
+		}
+		for _, f := range fields[1:] {
+			if strings.HasPrefix(f, ">") || strings.HasPrefix(f, "1>") {
+				w = "" // written to a file, not read back
+			}
+		}
+		switch w {
+		case "cd", "echo", "true", ":", "printf", "pushd", "popd", "set", "export":
+			continue
+		case "sed", "awk":
+			return arg == "-n"
+		case "git":
+			return arg == "grep" || arg == "ls-files" || arg == "show"
+		}
+		return lookPrograms[w]
+	}
+	return false
 }
 
 // firstWord is the program a shell command runs, past any VAR=x, and
@@ -616,6 +677,11 @@ func (f *File) user(l *rawLine, at time.Time) {
 		delete(f.Open, bl.ToolUseID)
 		n := resultSize(bl.Content)
 		b := f.hour(at)
+		if cl&lookFlag != 0 {
+			cl &^= lookFlag
+			b.LookCalls++
+			b.Look += n
+		}
 		b.Calls[cl]++
 		b.Bytes[cl] += n
 		if n > BigResult {

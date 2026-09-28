@@ -14,7 +14,7 @@ import (
 
 // cacheVersion is bumped when File changes shape: the transcripts are then
 // read again from the start.
-const cacheVersion = 1
+const cacheVersion = 2
 
 // Retired is what's kept of transcripts Claude Code has deleted (after 30
 // days, by default), so the graphs reach back further than they do.

@@ -197,7 +197,7 @@ func (e *Env) detectSetting(st *Setting) Found {
 	} else if e.Settings.Get(st.Key, &raw) {
 		ok, f.Value = true, strings.Trim(string(raw), `"`)
 	}
-	if !ok {
+	if !ok || st.Exact && f.Value != fmt.Sprint(st.Value) {
 		return f
 	}
 	f.Status = On

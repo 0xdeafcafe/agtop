@@ -220,3 +220,25 @@ func TestFirstWord(t *testing.T) {
 		t.Error("rtk --version is looking after rtk, not using it")
 	}
 }
+
+func TestLooks(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		`rg -n foo internal`:                      true,
+		`cd /x && grep -rn foo . | head -20`:      true,
+		`rtk grep foo`:                            true,
+		`sed -n 10,40p a.go`:                      true,
+		`sed -i s/a/b/ a.go`:                      false,
+		`git grep foo`:                            true,
+		`git status`:                              false,
+		`find . -name '*.go' 2>/dev/null || true`: true,
+		`go test ./... && echo done`:              false,
+		`LC_ALL=C cat a.go`:                       true,
+		"cd /x\nls -la":                           true,
+		`python3 - <<'EOF'`:                       false,
+		`cat > a.go <<'EOF'`:                      false,
+	} {
+		if got := Looks(cmd); got != want {
+			t.Errorf("Looks(%q) = %v, want %v", cmd, got, want)
+		}
+	}
+}

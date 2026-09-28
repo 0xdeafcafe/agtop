@@ -37,9 +37,10 @@ type effState struct {
 	scope   int
 	rng     int // efficiency.Ranges
 	metric  efficiency.Metric
-	cursor  int // Timeline: the bar under the cursor; -1 is the newest
-	saver   int // Savers: the row
-	finding int // Findings: the row
+	cursor  int  // Timeline: the bar under the cursor; -1 is the newest
+	saver   int  // Savers: the row
+	byEst   bool // Savers: ordered by what they might save
+	finding int  // Findings: the row
 
 	store    *efficiency.Store
 	loading  bool
@@ -168,13 +169,17 @@ func (m *Model) onEffLoaded(msg effLoadedMsg) {
 	}
 }
 
-// effSavers are the catalog in the Savers page's order: by kind.
-func effSavers() []*efficiency.Saver {
+// effSavers are the catalog in the Savers page's order: by kind, or by
+// what they might save.
+func (m *Model) effSavers() []*efficiency.Saver {
 	out := make([]*efficiency.Saver, len(efficiency.Catalog))
 	for i := range efficiency.Catalog {
 		out[i] = &efficiency.Catalog[i]
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
+	if m.eff.byEst && m.eff.view != nil {
+		m.eff.view.ByEstimate(out, m.effOn)
+	}
 	return out
 }
 
@@ -392,8 +397,16 @@ func (m *Model) effKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case effTimeline:
 		return m.effTimelineKey(s)
 	case effSaversPage:
-		list := effSavers()
+		list := m.effSavers()
 		switch s {
+		case "e":
+			id := list[e.saver].ID
+			e.byEst = !e.byEst
+			for i, sv := range m.effSavers() {
+				if sv.ID == id {
+					e.saver = i
+				}
+			}
 		case "up", "k":
 			e.saver = roundMove(e.saver, -1, len(list))
 		case "down", "j":
@@ -569,7 +582,11 @@ func (m *Model) effHint() string {
 		}
 		return keysFit(w, append([]string{"←→", "move", "m", "metric", "e", "next event", "b", "before/after", "n", "note"}, common...)...)
 	case effSaversPage:
-		return keysFit(w, append([]string{"↑↓", "choose", "enter", "set up", "x", "remove", "o", "its page"}, common...)...)
+		order := "by saving"
+		if e.byEst {
+			order = "by kind"
+		}
+		return keysFit(w, append([]string{"↑↓", "choose", "enter", "set up", "x", "remove", "e", order, "o", "its page"}, common...)...)
 	}
 	if e.finding < len(e.findings) && e.findings[e.finding].Open != "" {
 		return keysFit(w, append([]string{"↑↓", "choose", "enter", "open the file"}, common...)...)
@@ -700,7 +717,7 @@ func (m *Model) effOverview(w int) []string {
 
 	out = append(out, rule("Savers", "", w))
 	var on []string
-	for _, sv := range effSavers() {
+	for _, sv := range m.effSavers() {
 		f := e.found[sv.ID]
 		if f.Status == efficiency.Off {
 			continue
@@ -716,6 +733,9 @@ func (m *Model) effOverview(w int) []string {
 	} else {
 		out = append(out, "  "+strings.Join(on, "   "))
 	}
+	if best := m.effBest(3); len(best) > 0 {
+		out = append(out, "  "+dim("might save most here: ")+strings.Join(best, dim(" · ")))
+	}
 	out = append(out, "")
 
 	out = append(out, rule("Worth doing", fmt.Sprintf("%d findings", len(e.findings)), w))
@@ -730,6 +750,44 @@ func (m *Model) effOverview(w int) []string {
 		out = append(out, dim("  nothing stands out"))
 	}
 	return out
+}
+
+// effBest are the savers not set up that might save most over the view,
+// with their estimates.
+func (m *Model) effBest(n int) []string {
+	e := &m.eff
+	list := m.effSavers()
+	e.view.ByEstimate(list, m.effOn)
+	var out []string
+	for _, sv := range list {
+		est, ok := e.view.Estimate(sv)
+		if !ok || m.effOn(sv) || len(out) == n {
+			break
+		}
+		if est.High < 1 {
+			continue
+		}
+		out = append(out, sv.Name+" "+paint(cYellow, effRange(est)))
+	}
+	return out
+}
+
+// effOn is whether a saver is on, so has no estimate of its own.
+func (m *Model) effOn(sv *efficiency.Saver) bool { return m.eff.found[sv.ID].Status == efficiency.On }
+
+// effRange is an estimate's range in dollars.
+func effRange(est efficiency.Estimate) string {
+	lo, hi := math.Max(est.Low, 0), est.High
+	if est.Low < 0 {
+		return "≈−" + efficiency.Money(-est.Low) + " to +" + efficiency.Money(hi)
+	}
+	if lo < 0.5 {
+		return "up to " + efficiency.Money(hi)
+	}
+	if efficiency.Money(lo) == efficiency.Money(hi) {
+		return "≈" + efficiency.Money(hi)
+	}
+	return "≈" + efficiency.Money(lo) + "–" + efficiency.Money(hi)
 }
 
 func effWrap(vals []float64) [][]float64 {
@@ -1028,12 +1086,15 @@ func (m *Model) effCompareBody(w int) []string {
 
 func (m *Model) effSaversBody(w int) []string {
 	e := &m.eff
-	list := effSavers()
+	list := m.effSavers()
 	e.saver = min(max(e.saver, 0), len(list)-1)
 	var out []string
+	if e.byEst {
+		out = append(out, dim("What each might have saved over these days, had it been on throughout: its measured cut of your own spend on what it acts on"))
+	}
 	kind := efficiency.Kind(-1)
 	for i, sv := range list {
-		if sv.Kind != kind {
+		if !e.byEst && sv.Kind != kind {
 			kind = sv.Kind
 			if i > 0 {
 				out = append(out, "")
@@ -1060,7 +1121,11 @@ func (m *Model) effSaversBody(w int) []string {
 		if u := e.view.Uses[sv.ID]; u != nil {
 			use = dim(fmt.Sprintf("%d× in %d sessions", u.N, u.Sessions))
 		}
-		line := " " + effStatusGlyph(f.Status) + " " + fit(sv.Name, 28) + fit(state, 9) + fit(dim(sv.About), max(10, w-70)) + "  " + use
+		est := ""
+		if x, ok := e.view.Estimate(sv); ok && f.Status != efficiency.On {
+			est = paint(cYellow, effRange(x))
+		}
+		line := " " + effStatusGlyph(f.Status) + " " + fit(sv.Name, 28) + fit(state, 9) + fit(est, 16) + fit(dim(sv.About), max(10, w-86)) + "  " + use
 		if i == e.saver {
 			line = highlight(paint(cOrange, "▍")+line[1:], w)
 		}
@@ -1096,6 +1161,28 @@ func (m *Model) effSaverDetail(sv *efficiency.Saver, w int) []string {
 	}
 	add("they say", sv.Claim)
 	add("measured", sv.Measured)
+	if c := sv.Cut; c != nil {
+		if est, ok := e.view.Estimate(sv); ok && f.Status == efficiency.On {
+			add("estimate", fmt.Sprintf("it's on, so the %s that went on %s already has it in. %s", money(est.Base), c.Of, c.Basis))
+		} else if ok {
+			add("estimate", fmt.Sprintf("%s over these days went on %s; at a %s cut it might have saved %s. %s",
+				money(est.Base), c.Of, effShare(c), effRange(est), c.Basis))
+		} else {
+			add("estimate", fmt.Sprintf("nothing went on %s in these days", c.Of))
+		}
+	}
+	if mz, ok := e.view.Measured(sv.ID); ok && mz.With.Sessions > 0 && mz.Without.Sessions > 0 {
+		w, wo := mz.With, mz.Without
+		txt := fmt.Sprintf("sessions using it %s/request, %s context, %s per tool call (%d sessions) · without it since %s %s/request, %s, %s (%d)",
+			money(w.CostPerReq), tokens(int64(w.CtxPerReq)), efficiency.Bytes(int64(w.ToolPerCall)), w.Sessions,
+			mz.Since.Local().Format("2 Jan"), money(wo.CostPerReq), tokens(int64(wo.CtxPerReq)), efficiency.Bytes(int64(wo.ToolPerCall)), wo.Sessions)
+		if w.Sessions < efficiency.FewSessions || wo.Sessions < efficiency.FewSessions {
+			txt += " · too few sessions to say much"
+		} else {
+			txt += " · not a controlled test: the work differs too"
+		}
+		add("yours", txt)
+	}
 	add("careful", sv.Note)
 	switch f.Status {
 	case efficiency.Off:
@@ -1128,6 +1215,14 @@ func (m *Model) effSaverDetail(sv *efficiency.Saver, w int) []string {
 		add("by hand", strings.Join(sv.Manual, "  ·  "))
 	}
 	return out
+}
+
+// effShare is a cut's range as percentages.
+func effShare(c *efficiency.Cut) string {
+	if c.Low == c.High {
+		return fmt.Sprintf("%.0f%%", c.High*100)
+	}
+	return fmt.Sprintf("%.0f–%.0f%%", c.Low*100, c.High*100)
 }
 
 func (m *Model) effFindingsBody(w int) []string {
