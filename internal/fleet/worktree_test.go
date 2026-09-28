@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
 func run(t *testing.T, dir string, args ...string) {
@@ -118,4 +118,4 @@ func TestWorktreeForce(t *testing.T) {
 	}
 }
 
-func jobIn(dir string) claude.Job { return claude.Job{Cwd: dir} }
+func jobIn(dir string) agent.Job { return agent.Job{Cwd: dir} }

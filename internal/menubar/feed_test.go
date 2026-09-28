@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
@@ -64,7 +64,7 @@ func fakeHost(t *testing.T, id string, replay ...string) <-chan map[string]any {
 
 func TestQuestionAnsweredFromOutside(t *testing.T) {
 	ops := fakeHost(t, "h1", lineOld, lineQuestion, lineAnswered, lineInfo)
-	a := &fleet.Agent{Job: claude.Job{ID: "h1", State: "blocked", Needs: "asks: Which database?"}, Key: "acct/a:h1", Agtop: true, PID: 1, DisplayName: "db"}
+	a := &fleet.Agent{Job: agent.Job{ID: "h1", State: "blocked", Needs: "asks: Which database?"}, Key: "acct/a:h1", Agtop: true, PID: 1, DisplayName: "db"}
 	asked := map[string]*pending{}
 	s := build(&fleet.Snapshot{Agents: []*fleet.Agent{a}}, asked)
 	if len(s.Waiting) != 1 {
@@ -102,13 +102,13 @@ func TestQuestionAnsweredFromOutside(t *testing.T) {
 
 func TestPermissionAndLimit(t *testing.T) {
 	fakeHost(t, "h2", lineOld, `{"type":"agtop_info","info":{"id":"h2","state":"blocked","limit":{"ask":true}}}`)
-	a := &fleet.Agent{Job: claude.Job{ID: "h2", State: "blocked", Needs: "continue?"}, Key: "acct/a:h2", Agtop: true, PID: 1}
+	a := &fleet.Agent{Job: agent.Job{ID: "h2", State: "blocked", Needs: "continue?"}, Key: "acct/a:h2", Agtop: true, PID: 1}
 	s := build(&fleet.Snapshot{Agents: []*fleet.Agent{a}}, map[string]*pending{})
 	if w := s.Waiting[0]; w.Kind != "limit" {
 		t.Fatalf("wait = %+v", w)
 	}
 	// A Claude Code agent's question is shown but can't be answered here.
-	b := &fleet.Agent{Job: claude.Job{ID: "j", State: "blocked", Needs: "pick one"}, Key: "acct/j", PID: 1}
+	b := &fleet.Agent{Job: agent.Job{ID: "j", State: "blocked", Needs: "pick one"}, Key: "acct/j", PID: 1}
 	s = build(&fleet.Snapshot{Agents: []*fleet.Agent{b}}, map[string]*pending{})
 	if w := s.Waiting[0]; w.Kind != "" || w.Needs != "pick one" {
 		t.Fatalf("wait = %+v", w)

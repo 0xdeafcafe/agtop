@@ -11,48 +11,18 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
-// Job is one background session as Claude Code records it under jobs/<short>.
+// Job is one background session as Claude Code records it under
+// jobs/<short>: the row agtop shows, and what Claude Code needs to start
+// it again.
 type Job struct {
-	ID             string
-	Account        string
-	Name           string
-	NameSource     string
-	State          string // working, blocked, done, stopped
-	Detail         string
-	Tempo          string
-	Needs          string
-	Intent         string
-	Cwd            string
-	SessionID      string
-	TranscriptPath string
-	CLIVersion     string
-	RespawnFlags   []string
-	WorktreePath   string
-	WorktreeBranch string
-	Children       int
-	InFlight       int      // background tasks running or queued
-	Background     []string // what they are: shell commands, subagent names
-	Subagents      int      // subagents still running
-	Running        []Task   // subagents, shells and monitors not yet finished
-	TodosDone      int
-	Todos          int
-	TodoItems      []Todo
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	ModTime        time.Time
+	agent.Job
+	CLIVersion   string
+	RespawnFlags []string
 }
-
-func (j Job) Live() bool { return j.State == "working" || j.State == "blocked" }
 
 type Todo = agent.Todo
 
 type Task = agent.Task
-
-// Busy is a finished turn whose background work is still running.
-func (j Job) Busy() bool { return !j.Live() && j.InFlight > 0 && len(j.Background) > 0 }
-
-// Open is true for anything with a live process, including idle terminals.
-func (j Job) Open() bool { return j.Live() || j.State == "idle" }
 
 type jobFile struct {
 	State          string          `json:"state"`
@@ -99,14 +69,13 @@ func LoadJob(a Account, id string) (Job, error) {
 	if err := json.Unmarshal(b, &f); err != nil {
 		return Job{}, err
 	}
-	j := Job{
+	j := Job{Job: agent.Job{
 		ID: id, Account: a.Name, Name: f.Name, NameSource: f.NameSource,
 		State: f.State, Detail: f.Detail, Tempo: f.Tempo, Intent: f.Intent,
 		Cwd: f.Cwd, SessionID: f.SessionID, TranscriptPath: f.LinkScanPath,
-		CLIVersion: f.CLIVersion, RespawnFlags: f.RespawnFlags,
 		WorktreePath: f.WorktreePath, WorktreeBranch: f.WorktreeBranch,
 		CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt, ModTime: st.ModTime(),
-	}
+	}, CLIVersion: f.CLIVersion, RespawnFlags: f.RespawnFlags}
 	if f.DisplayIntent != "" {
 		j.Intent = f.DisplayIntent
 	}

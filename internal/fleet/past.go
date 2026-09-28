@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -124,7 +125,7 @@ func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, 
 			out = append(out, r.a)
 			continue
 		}
-		j := claude.Job{
+		j := agent.Job{
 			ID: sid[:8], Account: acct.Name, Name: f.c.Title, State: "stopped", Cwd: f.c.Cwd,
 			SessionID: sid, CreatedAt: f.c.Started, UpdatedAt: f.mod, TranscriptPath: f.path,
 		}

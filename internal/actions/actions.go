@@ -216,7 +216,7 @@ func Screen(acct claude.Account, dir, command, hint string) *exec.Cmd {
 type Relaunch struct {
 	From    claude.Account
 	To      claude.Account
-	Job     claude.Job
+	Job     claude.Job // its job file, for the flags it started with
 	Dir     string   // new working folder; empty keeps the old one
 	AddDirs []string // extra folders to grant
 	Note    string   // first message after resuming

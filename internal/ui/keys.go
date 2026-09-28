@@ -1033,7 +1033,10 @@ func (m *Model) relaunch(a *fleet.Agent, dir string, addDirs []string, to claude
 	if to.Name != a.Acct.Name && note == "" {
 		note = "This conversation moved to another account; carry on where you left off."
 	}
-	r := actions.Relaunch{From: a.Acct, To: to, Job: a.Job, Dir: dir, AddDirs: addDirs, Note: note}
+	// Claude Code's job file, when it has one, has the flags it started with.
+	j, _ := a.Extra.(claude.Job)
+	j.Job = a.Job
+	r := actions.Relaunch{From: a.Acct, To: to, Job: j, Dir: dir, AddDirs: addDirs, Note: note}
 	m.flash("relaunching "+a.DisplayName+"…", false)
 	return func() tea.Msg {
 		id, err := r.Run()

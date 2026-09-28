@@ -75,7 +75,7 @@ func (l *Loader) otherAgents(claimed, seen map[string]bool, now time.Time) []*Ag
 // otherRow is another agent's session as a row, with what you've set on it.
 func (l *Loader) otherRow(a agent.Adapter, p agent.Profile, s agent.Session, key string, now time.Time) *Agent {
 	ov := l.store.Overlay
-	j := claude.Job{ID: s.ID[:8], Account: p.Name, Name: s.Name, State: "stopped", Cwd: s.Cwd,
+	j := agent.Job{ID: s.ID[:8], Account: p.Name, Name: s.Name, State: "stopped", Cwd: s.Cwd,
 		SessionID: s.ID, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt}
 	ag := &Agent{Job: j, Key: key, Acct: claude.Account{Name: p.Name, ConfigDir: p.Dir}, DisplayName: s.Name,
 		Kind: string(a.Kind()), History: s.Transcript, Remote: s.Remote, PRs: s.PRs}

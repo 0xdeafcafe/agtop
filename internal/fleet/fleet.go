@@ -20,7 +20,10 @@ import (
 )
 
 type Agent struct {
-	claude.Job
+	agent.Job
+	// Extra is the adapter's own record of it: Claude Code's job file
+	// (claude.Job) for its background sessions.
+	Extra       any
 	Key         string
 	Acct        claude.Account
 	DisplayName string
@@ -467,7 +470,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 				continue
 			}
 			claimed[j.SessionID] = true
-			a := &Agent{Job: j, Key: key, Acct: acct, DisplayName: j.Name}
+			a := &Agent{Job: j.Job, Extra: j, Key: key, Acct: acct, DisplayName: j.Name}
 			if ss, ok := byJob[id]; ok {
 				a.applyStatus(ss)
 			}
@@ -542,7 +545,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 			if ss.Status == "busy" || ss.Status == "shell" {
 				st = "working"
 			}
-			j := claude.Job{
+			j := agent.Job{
 				ID: ss.SessionID[:8], Account: acct.Name, Name: ss.Name, State: st, Cwd: ss.Cwd,
 				SessionID: ss.SessionID, CreatedAt: ss.StartedAt(), UpdatedAt: ss.UpdatedAt(),
 				TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(ss.Cwd), ss.SessionID+".jsonl"),
@@ -692,7 +695,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 	if name == "" {
 		name = "agtop session " + info.ID
 	}
-	j := claude.Job{
+	j := agent.Job{
 		ID: info.ID, Account: acct.Name, Name: name, State: st, Detail: info.Detail, Needs: info.Needs,
 		Cwd: info.Cwd, SessionID: info.SessionID, CreatedAt: info.StartedAt, UpdatedAt: info.UpdatedAt,
 	}
