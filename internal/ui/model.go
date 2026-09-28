@@ -603,7 +603,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Messages still waiting for the old row go to the new session.
 		var carry tea.Cmd
 		if q := m.localQ[msg.from]; q != nil && len(q.items) > 0 {
-			text, id := strings.Join(q.items, "\n\n"), msg.started.id
+			text, id := host.JoinQueue(q.items), msg.started.id
 			delete(m.localQ, msg.from)
 			carry = cmdErr("queued messages moved over", func() error {
 				// The new host may still be coming up.

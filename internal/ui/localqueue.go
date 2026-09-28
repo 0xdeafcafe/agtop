@@ -11,6 +11,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
 // localQueue holds messages for a Claude Code session agtop doesn't run
@@ -138,7 +139,7 @@ func (m *Model) flushLocalQueues() tea.Cmd {
 
 // sendLocal sends a Claude Code session's whole queue as one message.
 func (m *Model) sendLocal(key string, a *fleet.Agent, q *localQueue) tea.Cmd {
-	text := strings.Join(q.items, "\n\n")
+	text := host.JoinQueue(q.items)
 	items := q.items
 	q.items, q.sentAt = nil, time.Now()
 	acct, id, name := a.Acct, a.ID, a.DisplayName

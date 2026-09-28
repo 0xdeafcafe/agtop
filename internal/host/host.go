@@ -1250,7 +1250,7 @@ func (s *server) send(text string, images []string, now bool) error {
 // queue. Called with mu held.
 func (s *server) sendQueue() {
 	q := s.info.Queue
-	next, rest := strings.Join(q, "\n\n"), []string(nil)
+	next, rest := JoinQueue(q), []string(nil)
 	if s.info.QueueSeparate {
 		next, rest = q[0], q[1:]
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
 // --- queue view ---
@@ -305,21 +306,18 @@ func (m *Model) sendQueueNow(c *hostConn, extra string) tea.Cmd {
 		if n == 0 {
 			return cl.SendNow(extra)
 		}
-		// Folded into the first, what's in the box last, then sent.
-		was := items[0]
-		for k, next := range items[1:] {
-			var err error
-			if k+1 < n {
-				err = cl.MergeQueued(0, was)
-			} else {
-				err = cl.EditQueued(0, was, was+"\n\n"+next)
-			}
-			if err != nil {
+		// The rest dropped, all of it written into the first, what's in
+		// the box last, then sent.
+		for _, it := range queued[1:] {
+			if err := cl.RemoveQueued(1, it); err != nil {
 				return err
 			}
-			was += "\n\n" + next
 		}
-		return cl.SendQueued(0, was)
+		text := host.JoinQueue(items)
+		if err := cl.EditQueued(0, items[0], text); err != nil {
+			return err
+		}
+		return cl.SendQueued(0, text)
 	})
 }
 
