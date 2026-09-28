@@ -349,7 +349,7 @@ func jsonProblems(text string) []docDiag {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	dec := jsontext.NewDecoder(strings.NewReader(text))
+	dec := jsontext.NewDecoder(strings.NewReader(text)) //nolint:agtop // strict on purpose: it reports names given twice
 	_, err := dec.ReadValue()
 	if err == nil {
 		if rest := text[dec.InputOffset():]; strings.TrimSpace(rest) != "" {

@@ -1,0 +1,10 @@
+# Builds golangci-lint with agtop's own checks in it (tools/lint):
+#   golangci-lint custom        → ./bin/agtop-lint
+#   ./bin/agtop-lint run
+version: v2.13.2
+name: agtop-lint
+destination: ./bin
+plugins:
+  - module: github.com/0xdeafcafe/agtop/tools/lint
+    import: github.com/0xdeafcafe/agtop/tools/lint
+    path: ./tools/lint
