@@ -59,42 +59,138 @@ func (m *Model) views(c *hostConn) []string {
 	return v
 }
 
-// refreshSubs looks for new subagent runs and follows the one opened. The
-// runs' rows need each one's numbers, read only while the subagents view is
-// on screen (the running ones' while the conversation is): what has grown is read here, and runs never read yet are read
-// in the background by the command it returns.
+// refreshSubs reads what the pane's transcripts have gained: the
+// session's own, the runs beside it and the one opened or picked, and the
+// runs' rows' numbers while the subagents view is on screen (the running
+// ones' while the conversation is). All of it is read off the UI's
+// goroutine, by the command it returns, and taken in by onPane; one read
+// is out at a time, and the tails it reads aren't read here meanwhile.
 func (m *Model) refreshSubs() tea.Cmd {
 	c := m.host
-	if c == nil {
+	if c == nil || c.paneReading {
 		return nil
 	}
 	m.followSessionID(c)
 	if c.path == "" {
 		// No transcript to list runs beside: only the agents the shell ran.
 		c.subs = append(slices.DeleteFunc(c.subs, func(sa convo.Subagent) bool { return strings.HasPrefix(sa.ID, spawnPrefix) }), c.spawnSubs()...)
+	}
+	var tails []*convo.Tail
+	add := func(t *convo.Tail) {
+		if t != nil && !slices.Contains(tails, t) {
+			tails = append(tails, t)
+		}
+	}
+	add(c.tail)
+	// A run the shell started is read as it's drawn (refreshSpawns).
+	if c.subTail != nil && c.spawnRunFor(c.subOpen) == nil {
+		add(c.subTail)
+	}
+	if c.subPeek != nil && c.spawnRunFor(c.subPeekID) == nil {
+		add(c.subPeek)
+	}
+	for _, sa := range m.followedSubs(c) {
+		if t := c.subTails[sa.ID]; t != nil && c.spawnRunFor(sa.ID) == nil && t.Size() != sa.Size {
+			add(t)
+		}
+	}
+	hist := c.hist
+	if hist != nil && time.Since(hist.at) < historyEvery {
+		hist = nil
+	}
+	if c.path == "" && len(tails) == 0 && hist == nil {
+		return m.readUnread(c)
+	}
+	if c.subReader == nil {
+		c.subReader = &claude.SubagentRuns{}
+	}
+	c.paneReading = true
+	msg := paneMsg{key: c.key, path: c.path, hist: hist}
+	reader, list, gone := c.subReader, &c.subList, m.sessionGone(c)
+	return func() tea.Msg {
+		if msg.path != "" {
+			msg.subs = list.List(msg.path)
+			if len(msg.subs) > 0 {
+				reader.Gone = gone
+				reader.Update(msg.path)
+				msg.runs = reader.Clone()
+			}
+		}
+		if h := msg.hist; h != nil {
+			h.at = time.Now()
+			if h.stat() {
+				msg.histSess = agentHistory(h.kind, h.s, time.Time{})
+			}
+		}
+		msg.got = make([]fetched, len(tails))
+		for i, t := range tails {
+			f, err := t.Fetch()
+			msg.got[i] = fetched{t: t, f: f, err: err}
+		}
+		return msg
+	}
+}
+
+// paneMsg brings what refreshSubs read in the background.
+type paneMsg struct {
+	key      string
+	path     string
+	subs     []convo.Subagent
+	runs     claude.SubagentRuns
+	hist     *history
+	histSess *convo.Session // hist read again, when it had grown
+	got      []fetched
+}
+
+type fetched struct {
+	t   *convo.Tail
+	f   convo.Fresh
+	err error
+}
+
+// onPane takes in what refreshSubs read.
+func (m *Model) onPane(msg paneMsg) tea.Cmd {
+	c := m.host
+	if c == nil || c.key != msg.key {
 		return nil
 	}
-	c.subs = append(c.subList.List(c.path), c.spawnSubs()...)
-	if len(c.subs) > 0 {
-		// Which runs are still working, from the transcripts' word; none
-		// is when the session's process is known to have exited.
-		c.subRuns.Gone = m.sessionGone(c)
-		c.subRuns.Update(c.path)
+	c.paneReading = false
+	for _, g := range msg.got {
+		if g.err == nil {
+			g.t.Take(g.f)
+		}
 	}
-	if c.subPeek != nil {
-		_, _ = c.subPeek.Read()
+	if msg.histSess != nil && c.hist == msg.hist {
+		c.sess = msg.histSess
 	}
+	if msg.path != "" && msg.path == c.path {
+		c.subs = append(msg.subs, c.spawnSubs()...)
+		if len(msg.subs) > 0 {
+			c.subRuns = msg.runs
+		}
+	}
+	m.followTail()
 	m.readSub()
-	// The conversation shows what each running one is doing, so those are
-	// followed there too.
-	follow := c.subs
+	return m.readUnread(c)
+}
+
+// followedSubs are the runs whose rows' numbers are followed: every run
+// while the subagents view is on screen, the running ones while the
+// conversation is.
+func (m *Model) followedSubs(c *hostConn) []convo.Subagent {
 	switch m.viewName(c) {
 	case "subagents":
+		return c.subs
 	case "conversation":
-		follow = c.runningSubs()
-	default:
-		follow = nil
+		return c.runningSubs()
 	}
+	return nil
+}
+
+// readUnread reads, in the background, the numbers of followed runs never
+// read yet.
+func (m *Model) readUnread(c *hostConn) tea.Cmd {
+	follow := m.followedSubs(c)
 	if len(follow) == 0 {
 		return nil
 	}
@@ -107,11 +203,8 @@ func (m *Model) refreshSubs() tea.Cmd {
 			c.subTails[sa.ID] = r.view() // read as it's drawn: refreshSpawns
 			continue
 		}
-		switch t := c.subTails[sa.ID]; {
-		case t == nil:
+		if c.subTails[sa.ID] == nil {
 			unread = append(unread, sa)
-		case t.Size() != sa.Size:
-			_, _ = t.Read()
 		}
 	}
 	if len(unread) == 0 || c.subReading {
@@ -195,22 +288,21 @@ func (c *hostConn) subDetail(id string) *convo.Tail {
 	}
 	for _, sa := range c.subs {
 		if sa.ID == id {
-			c.subPeek, c.subPeekID = convo.SubagentTail(sa.Path), id
-			_, _ = c.subPeek.Read()
+			// Read by refreshSubs, not here in the middle of a frame.
+			c.subPeek, c.subPeekID, c.paneKick = convo.SubagentTail(sa.Path), id, true
 			return c.subPeek
 		}
 	}
 	return nil
 }
 
-// readSub takes in what the opened subagent has written, and closes its
-// last turn once its step has finished.
+// readSub closes the opened subagent's last turn once its step has
+// finished; refreshSubs reads what it writes.
 func (m *Model) readSub() {
 	c := m.host
 	if c == nil || c.subTail == nil {
 		return
 	}
-	_, _ = c.subTail.Read()
 	if st := c.sess.Step(c.subToolUse()); st != nil && st.Status != convo.Running {
 		if live := c.subTail.Sess.Live(); live != nil {
 			c.subTail.Sess.Apply(headless.Result{Subtype: "success"}, time.Now())
@@ -270,12 +362,12 @@ func (c *hostConn) unwatch() {
 	c.stopWatch, c.watching = nil, nil
 }
 
-func (m *Model) onGrow(msg growMsg) {
+func (m *Model) onGrow(msg growMsg) tea.Cmd {
 	if c := m.host; c != nil && c.key == msg.key {
 		c.unwatch() // that watch is over; the next update starts another
-		m.followTail()
-		m.readSub()
+		return m.refreshSubs()
 	}
+	return nil
 }
 
 // subState is how a subagent run stands: the status its task-finished
@@ -390,11 +482,9 @@ func (m *Model) openSub(c *hostConn, id string) {
 	}
 	for _, sa := range c.subs {
 		if sa.ID == id {
-			t := convo.SubagentTail(sa.Path)
-			_, _ = t.Read()
-			c.subTail, c.subOpen, c.subSel, c.subBack = t, id, "", false
-			c.sel, c.scroll = "", 0
-			m.refreshSubs() // numbers for the list come on the next tick
+			// Read by refreshSubs, at once rather than on the next tick.
+			c.subTail, c.subOpen, c.subSel, c.subBack = convo.SubagentTail(sa.Path), id, "", false
+			c.sel, c.scroll, c.paneKick = "", 0, true
 			return
 		}
 	}
@@ -885,17 +975,22 @@ type hostConn struct {
 	subPeek    *convo.Tail            // the run picked in the list, in full, shown beside it
 	subPeekID  string
 	subReading bool // runs' numbers are being read in the background
-	subOpen    string
-	subList    convo.Subagents       // finds the runs, reading each one's meta once
-	subRuns    claude.SubagentRuns   // which runs the transcripts say are still working
-	subSel     string                // selection inside the opened subagent
-	subHover   string                // the run under the pointer, or "subback" for the banner
-	runPick    int                   // where the pick last was among the dock's running subagents
-	taskDir    string                // the session's tasks folder, once found
-	taskDirAt  time.Time             // when it was last looked for
-	taskDirFor string                // the conversation it was found for
-	tails      map[string]*jobTailed // each task's output as last read, by file
-	subHoverAt time.Time
+	// paneReading: refreshSubs is reading the pane's transcripts in the
+	// background, with subReader and subList, which only it touches.
+	paneReading bool
+	paneKick    bool // a tail was opened: read it now, not on the next tick
+	subReader   *claude.SubagentRuns
+	subOpen     string
+	subList     convo.Subagents       // finds the runs, reading each one's meta once
+	subRuns     claude.SubagentRuns   // which runs the transcripts say are still working: subReader's, as last read
+	subSel      string                // selection inside the opened subagent
+	subHover    string                // the run under the pointer, or "subback" for the banner
+	runPick     int                   // where the pick last was among the dock's running subagents
+	taskDir     string                // the session's tasks folder, once found
+	taskDirAt   time.Time             // when it was last looked for
+	taskDirFor  string                // the conversation it was found for
+	tails       map[string]*jobTailed // each task's output as last read, by file
+	subHoverAt  time.Time
 	// Agents the session's shell ran, by the step that ran each, and
 	// whether any are being looked for.
 	spawns       map[string]*spawnRun
@@ -1156,17 +1251,13 @@ func openTail(a *fleet.Agent) tea.Cmd {
 	}
 }
 
-// followTail takes in new transcript lines, and closes the last turn once
-// the agent has stopped working (transcripts don't always mark it).
+// followTail closes the last turn once the agent has stopped working
+// (transcripts don't always mark it); refreshSubs reads the transcript.
 func (m *Model) followTail() {
 	c := m.host
-	if c != nil && c.hist != nil {
-		c.followHistory()
-	}
 	if c == nil || c.tail == nil {
 		return
 	}
-	_, _ = c.tail.Read()
 	a := m.agentByKey(c.key)
 	if a == nil {
 		return

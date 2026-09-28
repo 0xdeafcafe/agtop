@@ -564,7 +564,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.fxKick {
 		fxCmd, m.fxKick = fxTick(), false
 	}
-	return m, tea.Batch(cmd, copyCmd, fxCmd, m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd())
+	var paneCmd tea.Cmd
+	if c := m.host; c != nil && c.paneKick && !c.paneReading {
+		c.paneKick, paneCmd = false, m.refreshSubs()
+	}
+	return m, tea.Batch(cmd, copyCmd, fxCmd, paneCmd, m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -581,8 +585,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostLinesMsg:
 		return m, m.onHostLines(msg)
 	case growMsg:
-		m.onGrow(msg)
-		return m, nil
+		return m, m.onGrow(msg)
+	case paneMsg:
+		return m, m.onPane(msg)
 	case subStatsMsg:
 		m.onSubStats(msg)
 		return m, nil
@@ -674,7 +679,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loader.Settle() // nothing new on disk: the last reading, processes sampled again
 		m.refresh()
 		m.zenPick()
-		m.followTail()
 		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshSubs(), m.flushLocalQueues(), m.watchOnline()}
 		if m.solo == "" {
 			// autoSwitch too: a session's usage reading arrives with the
@@ -1180,7 +1184,6 @@ func (m *Model) focusAt(x, y int) {
 func (m *Model) acceptsText() bool {
 	return m.confirm == nil && m.sheet == nil && (m.dialog == nil || m.dialog.asking != "") && (m.mode == modeList || m.mode == modeCwd)
 }
-
 
 // notify posts a notification when an agent starts waiting on the user,
 // and has clanker react to that and to agents answered, finished or failing.

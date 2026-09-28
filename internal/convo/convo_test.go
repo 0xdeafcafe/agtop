@@ -305,7 +305,20 @@ func TestOverview(t *testing.T) {
 	}
 }
 
-func TestTailTranscript(t *testing.T) {
+func TestTailTranscript(t *testing.T) { tailTranscript(t, (*Tail).Read) }
+
+// Fetch then Take, as the UI follows a transcript, reads the same as Read.
+func TestTailFetchTake(t *testing.T) {
+	tailTranscript(t, func(tl *Tail) (bool, error) {
+		f, err := tl.Fetch()
+		if err != nil {
+			return false, err
+		}
+		return tl.Take(f), nil
+	})
+}
+
+func tailTranscript(t *testing.T, read func(*Tail) (bool, error)) {
 	dir := t.TempDir()
 	path := dir + "/s.jsonl"
 	lines := []string{
@@ -321,7 +334,7 @@ func TestTailTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 	tl := NewTail(path)
-	if ch, err := tl.Read(); err != nil || !ch {
+	if ch, err := read(tl); err != nil || !ch {
 		t.Fatalf("first read: %v %v", ch, err)
 	}
 	if len(tl.Sess.Turns) != 1 || tl.Sess.byID["t1"].Status != Failed || tl.Sess.Turns[0].Effort != "high" {
@@ -331,15 +344,22 @@ func TestTailTranscript(t *testing.T) {
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	f.WriteString(lines[3][20:] + "\n" + strings.Join(lines[4:], "\n") + "\n")
 	f.Close()
-	if ch, _ := tl.Read(); !ch {
+	if ch, _ := read(tl); !ch {
 		t.Fatal("second read saw nothing")
 	}
 	s := tl.Sess
 	if len(s.Turns) != 2 || s.Turns[0].Live || s.Turns[0].Outcome() != "Fixed it." || s.Turns[1].Prompt != "/compact" {
 		t.Fatalf("turns: %d, first live=%v outcome=%q second=%q", len(s.Turns), s.Turns[0].Live, s.Turns[0].Outcome(), s.Turns[1].Prompt)
 	}
-	if ch, _ := tl.Read(); ch {
+	if ch, _ := read(tl); ch {
 		t.Error("nothing new should mean no change")
+	}
+	// Rewritten shorter: the conversation starts over.
+	if err := os.WriteFile(path, []byte(lines[0]+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ch, _ := read(tl); !ch || len(tl.Sess.Turns) != 1 || tl.Sess.Turns[0].Prompt != "fix the test" {
+		t.Fatalf("after a rewrite: changed=%v turns=%d", ch, len(tl.Sess.Turns))
 	}
 }
 

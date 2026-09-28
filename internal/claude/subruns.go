@@ -6,6 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,6 +121,18 @@ func (r *SubagentRuns) Update(path string) []SubagentRun {
 		}
 	}
 	return runs
+}
+
+// Clone is a copy that answers State and Going as r does now, for the
+// UI to ask while r goes on reading elsewhere.
+func (r *SubagentRuns) Clone() SubagentRuns {
+	c := SubagentRuns{Gone: r.Gone, path: r.path, seq: r.seq,
+		calls: make(map[string]*agentCall, len(r.calls)), ends: maps.Clone(r.ends), woken: maps.Clone(r.woken)}
+	for k, v := range r.calls {
+		cp := *v
+		c.calls[k] = &cp
+	}
+	return c
 }
 
 func (r *SubagentRuns) dir() string {

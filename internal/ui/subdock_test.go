@@ -52,6 +52,7 @@ func TestSubagentDock(t *testing.T) {
 		t.Fatalf("↑ picked %q", c.sel)
 	}
 	m.paneKey(tea.KeyPressMsg{}, "enter")
+	m.drain(m.refreshSubs()) // the run opened is read in the background
 	if c.subOpen != "a1" || m.viewName(c) != "subagents" {
 		t.Fatalf("enter: open %q in %s", c.subOpen, m.viewName(c))
 	}
@@ -163,6 +164,11 @@ func TestSubagentHover(t *testing.T) {
 	}
 	o.Width = 160
 	side := func() string {
+		m.subagentLines(c, o)
+		// A run picked is read in the background, then drawn. The Update
+		// above let go of c (the snapshot has no agent "k"), so it's put back.
+		m.host, c.paneReading = c, false
+		m.drain(m.refreshSubs())
 		var b strings.Builder
 		for _, l := range m.subagentLines(c, o) {
 			b.WriteString(ansi.Strip(l.Text) + "\n")
@@ -358,12 +364,12 @@ func TestSubagentsFollowTheSessionID(t *testing.T) {
 	s := convo.New()
 	c := &hostConn{key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}, path: old}
 	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{{Key: "k", Acct: acct}}}, host: c}
-	m.refreshSubs()
+	m.drain(m.refreshSubs())
 	if len(c.subs) != 0 {
 		t.Fatalf("found runs under the old id: %v", c.subs)
 	}
 	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 1, SessionID: "new", Cwd: "/w"}}, time.Now())
-	m.refreshSubs()
+	m.drain(m.refreshSubs())
 	if len(c.subs) != 1 || c.subs[0].ID != "a1" || c.path != acct.TranscriptPath("/w", "new") {
 		t.Fatalf("after the id changed: path %s, runs %v", c.path, c.subs)
 	}
@@ -387,13 +393,13 @@ func TestQuietSubagentOfATerminalSession(t *testing.T) {
 
 	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}, path: main}
 	m := &Model{snap: &fleet.Snapshot{}, host: c}
-	m.refreshSubs()
+	m.drain(m.refreshSubs())
 	if len(c.subs) != 1 || len(c.runningSubs()) != 1 {
 		t.Fatalf("runs %v, running %v", c.subs, c.runningSubs())
 	}
 	// Its process exits with the run unfinished: the run ended with it.
 	m.snap.Agents = []*fleet.Agent{{Key: "k", Interactive: true}}
-	m.refreshSubs()
+	m.drain(m.refreshSubs())
 	if st, live := c.subState(c.subs[0]); live || st != "ended" {
 		t.Fatalf("process gone: %q live %v", st, live)
 	}
@@ -401,7 +407,7 @@ func TestQuietSubagentOfATerminalSession(t *testing.T) {
 	f, _ := os.OpenFile(main, os.O_APPEND|os.O_WRONLY, 0o644)
 	f.WriteString(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tA","content":"dug"}]}}` + "\n")
 	f.Close()
-	m.refreshSubs()
+	m.drain(m.refreshSubs())
 	if st, live := c.subState(c.subs[0]); live || st != "completed" {
 		t.Fatalf("after its answer: %q live %v", st, live)
 	}

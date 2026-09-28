@@ -59,7 +59,7 @@ func TestSpawnFollowed(t *testing.T) {
 			t.Errorf("missing %q in\n%s", w, out)
 		}
 	}
-	m.refreshSubs()
+	m.drain(m.refreshSubs())
 	if len(c.subs) != 1 || c.subs[0].ID != spawnPrefix+"b1" || c.subs[0].Type != "Claude Code" {
 		t.Fatalf("subs %+v", c.subs)
 	}

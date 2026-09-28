@@ -74,7 +74,7 @@ func TestTranscriptWatch(t *testing.T) {
 		if _, ok := msg.(growMsg); !ok || time.Since(start) > 200*time.Millisecond {
 			t.Fatalf("got %T after %v", msg, time.Since(start))
 		}
-		m.onGrow(msg.(growMsg))
+		m.drain(m.onGrow(msg.(growMsg)))
 	case <-time.After(time.Second):
 		t.Fatal("the watch never fired")
 	}

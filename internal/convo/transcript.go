@@ -131,6 +131,72 @@ func (t *Tail) Read() (bool, error) {
 	return changed, nil
 }
 
+// Fresh is what a transcript gained since its Tail last fetched: whole
+// lines, not yet applied.
+type Fresh struct {
+	reset bool // the file was rewritten: start the conversation over
+	lines []byte
+}
+
+// Fetch reads what the file has gained without applying it. It touches
+// only where the tail is in the file, never Sess, so it can run off the
+// UI's goroutine while Sess is drawn; Take then applies what it read.
+// Only one Fetch or Read of a tail may run at a time.
+func (t *Tail) Fetch() (Fresh, error) {
+	var f Fresh
+	st, err := os.Stat(t.Path)
+	if err != nil {
+		return f, err
+	}
+	if st.Size() < t.off {
+		f.reset, t.off, t.partial = true, 0, nil
+	}
+	if st.Size() == t.off {
+		return f, nil
+	}
+	fh, err := os.Open(t.Path)
+	if err != nil {
+		return f, err
+	}
+	defer fh.Close()
+	buf := make([]byte, len(t.partial), len(t.partial)+int(st.Size()-t.off))
+	copy(buf, t.partial)
+	n, err := fh.ReadAt(buf[len(buf):cap(buf)], t.off)
+	if err != nil && err != io.EOF {
+		return f, err
+	}
+	t.off += int64(n)
+	buf = buf[:len(buf)+n]
+	// An unfinished last line waits for the rest of it.
+	i := bytes.LastIndexByte(buf, '\n')
+	t.partial = nil
+	if i+1 < len(buf) {
+		t.partial = bytes.Clone(buf[i+1:])
+	}
+	f.lines = buf[:i+1]
+	return f, nil
+}
+
+// Take applies what Fetch read, and reports whether anything changed.
+func (t *Tail) Take(f Fresh) bool {
+	changed := f.reset
+	if f.reset {
+		*t.Sess = *New() // in place: whoever holds the Session keeps following it
+	}
+	for rest := f.lines; len(rest) > 0; {
+		line := rest
+		if i := bytes.IndexByte(rest, '\n'); i >= 0 {
+			line, rest = rest[:i], rest[i+1:]
+		} else {
+			rest = nil
+		}
+		if t.apply(bytes.TrimSpace(line)) {
+			changed = true
+		}
+	}
+	return changed
+}
+
 func (t *Tail) apply(b []byte) bool {
 	if len(b) == 0 {
 		return false

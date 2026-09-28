@@ -76,5 +76,7 @@ func (m *Model) drain(cmd tea.Cmd) {
 		m.drain(m.onHostOpen(msg))
 	case hostLinesMsg:
 		m.onHostLines(msg)
+	case paneMsg:
+		m.drain(m.onPane(msg))
 	}
 }
