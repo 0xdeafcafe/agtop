@@ -48,9 +48,34 @@ func TestNetworkBackContinuesWhatItStopped(t *testing.T) {
 		t.Fatalf("told past onlineMost: %v", got)
 	}
 	a.Spend.Halt = nil
-	m.continueWaiting()
-	if m.online.tries["a"] != 0 {
-		t.Fatal("answering should give its tries back")
+	if l := m.look(); !l.answered || m.online.tries["a"] != 0 {
+		t.Fatal("answering should give its tries back, and prove the API answers")
+	}
+}
+
+// A look shares each new halt once, and says whether each waiting session
+// is still warm: its cache dates from its first halt in a row, not from
+// the tries after.
+func TestLookSharesHaltsAndWarmth(t *testing.T) {
+	now := time.Now()
+	cut := func(key string, at time.Time) *fleet.Agent {
+		a := &fleet.Agent{Key: key, DisplayName: key, PID: 7}
+		a.State, a.UpdatedAt = "done", at
+		a.Spend.Halt = &claude.Halt{Kind: "server_error", Text: "API Error: Connection dropped (ECONNRESET)", At: at}
+		return a
+	}
+	warm, cold := cut("warm", now.Add(-time.Minute)), cut("cold", now.Add(-2*time.Hour))
+	cold.UpdatedAt = now // the day's limit on Continues goes by the halt
+	cold.Spend.Halt.At = now.Add(-2 * time.Minute)
+	m := &Model{}
+	m.online.first = map[string]time.Time{"cold": now.Add(-2 * time.Hour)}
+	m.snap = &fleet.Snapshot{At: now, Agents: []*fleet.Agent{warm, cold}}
+	l := m.look()
+	if len(l.failed) != 2 || !l.waiting["warm"] || l.waiting["cold"] {
+		t.Fatalf("look %+v", l)
+	}
+	if l := m.look(); len(l.failed) != 0 {
+		t.Fatalf("halts shared twice: %+v", l.failed)
 	}
 }
 

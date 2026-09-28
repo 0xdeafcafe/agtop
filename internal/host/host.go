@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +33,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/netproof"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -204,6 +204,9 @@ type Retry struct {
 	// Offline is set while the API can't be reached: it continues once it
 	// can, however long that takes.
 	Offline bool `json:"offline,omitzero"`
+	// Proof is set while its prompt cache has expired and it waits for
+	// proof the connection holds before trying again (see netproof).
+	Proof bool `json:"proof,omitzero"`
 }
 
 // cacheLife is how long the prompt cache lasts. Claude Code writes the
@@ -705,6 +708,7 @@ func (s *server) onEvent(ev headless.Event) {
 	case headless.Message:
 		if ev.Role == "assistant" && ev.Usage != nil {
 			s.info.CacheWarm = time.Now().Add(cacheLife)
+			go netproof.Answer(s.target(), time.Now())
 			if ev.ParentToolUseID == "" {
 				u := ev.Usage
 				s.info.ContextTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
@@ -873,10 +877,10 @@ func (s *server) stalled(r headless.Result) bool {
 		s.info.State, s.info.Error = "idle", firstLine(r.Text)+" · /compact may help"
 		return true
 	case IsOffline(text):
-		s.waitOnline(firstLine(r.Text))
+		s.retry(firstLine(r.Text), true)
 		return true
 	case IsRetryable(text):
-		s.retry(firstLine(r.Text))
+		s.retry(firstLine(r.Text), false)
 		return true
 	}
 	return false
@@ -954,12 +958,14 @@ func limitWindow(raw jsontext.Value) string {
 	return r.Type
 }
 
-// retry schedules the next attempt after an API error: 15s, then double
-// each time. It carries on past the prompt cache expiring (that attempt
-// re-reads the whole context at full price, but what you asked for still
-// gets done), and gives up after RetryMax attempts; a message from you
-// then retries.
-func (s *server) retry(reason string) {
+// retry handles a turn an API error stopped. While its prompt cache
+// stays warm, a try costs little: it tries again 15s later, then doubling
+// (once the API can be reached, if the network is down). A try after the
+// cache expires re-reads the whole conversation at full price, so then it
+// waits with every other session for proof the connection holds (see
+// netproof), however long that takes. It gives up after RetryMax tries; a
+// message from you then retries. Called with mu held.
+func (s *server) retry(reason string, offline bool) {
 	base, most := time.Duration(s.cfg.RetryBase), s.cfg.RetryMax
 	if base <= 0 {
 		base = 15 * time.Second
@@ -971,19 +977,38 @@ func (s *server) retry(reason string) {
 	if r == nil || r.GaveUp {
 		r = &Retry{Max: most}
 	}
-	r.Reason, r.Attempt = reason, r.Attempt+1
-	wait := base << (r.Attempt - 1)
-	r.Next = time.Now().Add(wait)
+	now := time.Now()
+	r.Reason, r.Attempt, r.Offline, r.Proof, r.Next = reason, r.Attempt+1, false, false, time.Time{}
+	s.info.Retry, s.info.State = r, "idle"
+	target := s.target()
+	go netproofFail(target, now)
 	if r.Attempt > most {
-		r.GaveUp, r.Why, r.Next = true, fmt.Sprintf("%d retries used", most), time.Time{}
-	}
-	s.info.Retry = r
-	s.info.State = "idle"
-	if r.GaveUp {
+		r.GaveUp, r.Why = true, fmt.Sprintf("%d retries used", most)
 		return
 	}
+	wait := base << (r.Attempt - 1)
+	if !s.warmAt(now.Add(wait)) {
+		r.Offline, r.Proof = offline, true
+		s.pollOnline(r)
+		return
+	}
+	if offline {
+		r.Offline = true
+		s.pollOnline(r)
+		return
+	}
+	r.Next = now.Add(wait)
 	s.after(wait, func() { _ = s.sendLocked("continue") })
 }
+
+// warmAt is whether the prompt cache is still warm at t. Not knowing
+// counts as cold. Called with mu held.
+func (s *server) warmAt(t time.Time) bool {
+	return !s.info.CacheWarm.IsZero() && t.Before(s.info.CacheWarm)
+}
+
+// target is the API this session's requests go to.
+func (s *server) target() string { return netproof.Target(s.cfg.Env...) }
 
 // scheduleContinue arms the continue at a usage limit's reset, a few
 // seconds apart per session so they don't all hit the fresh limit at once.
@@ -1021,78 +1046,40 @@ func (s *server) resume() {
 	_ = s.sendLocked("continue")
 }
 
-// onlineEvery is how often a session the network cut off checks whether
-// the API can be reached again.
+// onlineEvery is how often a session an API error stopped looks at
+// whether it may try again.
 var onlineEvery = 5 * time.Second
 
-// reachable is whether the API answers a connection: DNS resolves and the
-// TCP handshake completes.
-var reachable = func() bool {
-	addr := "api.anthropic.com:443"
-	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && u.Hostname() != "" {
-		port := u.Port()
-		if port == "" {
-			port = map[string]string{"http": "80"}[u.Scheme]
-		}
-		if port == "" {
-			port = "443"
-		}
-		addr = net.JoinHostPort(u.Hostname(), port)
-	}
-	c, err := net.DialTimeout("tcp", addr, 5*time.Second)
-	if err != nil {
-		return false
-	}
-	_ = c.Close()
-	return true
-}
+// mayGo and netproofFail are netproof's, replaced in tests.
+var (
+	mayGo        = netproof.MayGo
+	netproofFail = netproof.Fail
+)
 
-// Reachable is whether the API answers a connection now.
-func Reachable() bool { return reachable() }
-
-// waitOnline handles a turn the network cut off. Trying again while it's
-// down would only fail, so it waits until the API can be reached, however
-// long that is (the cache may be gone by then, but what you asked for
-// still gets done), then continues. A continue that fails again counts as
-// an attempt, so a network that only looks up still gives up in the end.
-// Called with mu held.
-func (s *server) waitOnline(reason string) {
-	most := s.cfg.RetryMax
-	if most <= 0 {
-		most = 8
-	}
-	r := s.info.Retry
-	if r == nil || r.GaveUp {
-		r = &Retry{Max: most}
-	}
-	r.Reason, r.Attempt, r.Offline, r.Next = reason, r.Attempt+1, true, time.Time{}
-	s.info.Retry, s.info.State = r, "idle"
-	if r.Attempt > most {
-		r.GaveUp, r.Why, r.Offline = true, fmt.Sprintf("%d retries used", most), false
-		return
-	}
-	s.pollOnline(r)
-}
-
-// pollOnline checks the network every few seconds until the API can be
-// reached, then continues. The check runs without mu held: a dial can take
+// pollOnline looks every few seconds at whether the session may try
+// again: warm, once the API can be reached; cold, on proof it holds, and
+// first only if it's the one going first. Then it continues, a few seconds
+// apart from the others. The look runs without mu held: a check can take
 // seconds. Called with mu held.
 func (s *server) pollOnline(r *Retry) {
 	s.after(onlineEvery, func() {
-		g := s.gen
+		g, target, id, warm := s.gen, s.target(), s.cfg.ID, s.warmAt(time.Now())
 		go func() {
-			up := reachable()
+			ok := mayGo(target, id, warm)
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			if s.gen != g || s.info.Retry != r {
 				return // you sent something meanwhile
 			}
-			if !up {
+			if !ok {
+				if r.Offline && !r.Proof {
+					r.Proof = !s.warmAt(time.Now()) // the cache ran out while it waited
+				}
 				s.pollOnline(r)
 				return
 			}
 			wait := s.jitter()
-			r.Offline, r.Next = false, time.Now().Add(wait)
+			r.Offline, r.Proof, r.Next = false, false, time.Now().Add(wait)
 			s.publish()
 			s.after(wait, s.resume)
 		}()

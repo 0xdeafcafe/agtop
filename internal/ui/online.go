@@ -11,23 +11,29 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/netproof"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // A Claude Code session agtop isn't hosting stops for good when its turn
 // dies on an API error: the network down, a connection dropped or stalled,
-// the API overloaded. While one is stopped like that, agtop checks every
-// few seconds whether the API can be reached, and once it can tells each to
-// continue, as its own sessions do by themselves.
+// the API overloaded. agtop tells each to continue, waiting on the API with
+// every other session through netproof: one whose prompt cache is still
+// warm once the API can be reached, one whose cache has expired (its next
+// try re-reads the whole conversation at full price) only on proof the
+// connection holds, and then one first.
 
-// onlineEvery is how often agtop checks the network while a session waits
-// on it.
+// onlineEvery is how often agtop looks at whether a waiting session may
+// try again.
 var onlineEvery = 5 * time.Second
 
 // onlineMost is how many times one session is told to continue before
 // agtop leaves it to you: an API that keeps failing gives up in the end.
 const onlineMost = 8
+
+// cacheLife is how long Claude Code's prompt cache lasts: it writes the
+// one-hour cache.
+const cacheLife = time.Hour
 
 // onlineBackoff is how long after a halt a session is told to continue,
 // once it has been told tries times since it last answered: at once the
@@ -45,20 +51,30 @@ type onlineWatch struct {
 	checked  time.Time
 	sent     map[string]time.Time // agent key → the halt it was told to continue from
 	tries    map[string]int       // agent key → continues sent since it last answered
+	// first is when each agent's first halt in a row was: its cache was
+	// last warmed before then, whatever its later tries did.
+	first    map[string]time.Time
+	recorded map[string]time.Time // agent key → the halt last told to netproof
 }
 
-type onlineMsg struct{ up bool }
+// onlineMsg says which waiting agents may try again.
+type onlineMsg struct{ goes map[string]bool }
+
+// onlineLook is what one look needs, taken from the model for the look's
+// goroutine.
+type onlineLook struct {
+	failed   []time.Time
+	answered bool
+	waiting  map[string]bool // agent key → its cache is still warm
+}
 
 // continueWaiting is the agents an API error stopped that are due to be
-// told to continue.
+// told to continue, once they may.
 func (m *Model) continueWaiting() []*fleet.Agent {
 	w := &m.online
 	var out []*fleet.Agent
 	for _, a := range m.snap.Agents {
 		if !a.Continues(m.snap.At) {
-			if a.Spend.Halt == nil {
-				delete(w.tries, a.Key) // it answered: it gets its tries back
-			}
 			continue
 		}
 		if w.sent[a.Key].Equal(a.Spend.Halt.At) || w.tries[a.Key] >= onlineMost {
@@ -75,35 +91,94 @@ func (m *Model) continueWaiting() []*fleet.Agent {
 	return out
 }
 
-// watchOnline checks the network when a session waits on it. Offline
+// look gathers what the next look needs: halts not yet shared, whether a
+// session told to continue has answered, and who waits, warm or not.
+func (m *Model) look() onlineLook {
+	w := &m.online
+	for _, mp := range []*map[string]time.Time{&w.sent, &w.first, &w.recorded} {
+		if *mp == nil {
+			*mp = map[string]time.Time{}
+		}
+	}
+	if w.tries == nil {
+		w.tries = map[string]int{}
+	}
+	l := onlineLook{waiting: map[string]bool{}}
+	for _, a := range m.snap.Agents {
+		h := a.Spend.Halt
+		if h == nil {
+			if w.tries[a.Key] > 0 {
+				l.answered = true // it answered: proof for every other
+			}
+			delete(w.tries, a.Key)
+			delete(w.first, a.Key)
+			continue
+		}
+		if !a.Continues(m.snap.At) {
+			continue
+		}
+		if !w.recorded[a.Key].Equal(h.At) {
+			w.recorded[a.Key] = h.At
+			l.failed = append(l.failed, h.At)
+		}
+		if _, ok := w.first[a.Key]; !ok {
+			w.first[a.Key] = h.At
+		}
+	}
+	for _, a := range m.continueWaiting() {
+		l.waiting[a.Key] = m.snap.At.Before(w.first[a.Key].Add(cacheLife - 5*time.Minute))
+	}
+	return l
+}
+
+// watchOnline shares what's new about the API with every agtop process,
+// and looks at whether each waiting session may try again. Offline
 // (--soak) never does.
 func (m *Model) watchOnline() tea.Cmd {
 	w := &m.online
-	if m.offline || w.checking || time.Since(w.checked) < onlineEvery || len(m.continueWaiting()) == 0 {
+	if m.offline || w.checking || time.Since(w.checked) < onlineEvery {
+		return nil
+	}
+	l := m.look()
+	if len(l.failed) == 0 && !l.answered && len(l.waiting) == 0 {
 		return nil
 	}
 	w.checking = true
-	return func() tea.Msg { return onlineMsg{up: host.Reachable()} }
+	return func() tea.Msg {
+		target := netproof.Target()
+		for _, at := range l.failed {
+			netproof.Fail(target, at)
+		}
+		if l.answered {
+			netproof.Answer(target, time.Now())
+		}
+		goes := map[string]bool{}
+		for key, warm := range l.waiting {
+			if netproof.MayGo(target, key, warm) {
+				goes[key] = true
+			}
+		}
+		return onlineMsg{goes: goes}
+	}
 }
 
-// onOnline tells each session an API error stopped to continue, once the
-// API can be reached: a few seconds apart, so they don't all send in the same moment.
+// onOnline tells each session that may try again to continue: a few
+// seconds apart, so they don't all send in the same moment.
 func (m *Model) onOnline(msg onlineMsg) tea.Cmd {
 	w := &m.online
 	w.checking, w.checked = false, time.Now()
-	if !msg.up {
-		return nil
-	}
-	if w.sent == nil {
-		w.sent, w.tries = map[string]time.Time{}, map[string]int{}
-	}
 	var cmds []tea.Cmd
-	for i, a := range m.continueWaiting() {
+	i := 0
+	for _, a := range m.continueWaiting() {
+		if !msg.goes[a.Key] {
+			continue
+		}
 		w.sent[a.Key] = a.Spend.Halt.At
 		w.tries[a.Key]++
 		m.loader.Nudge(a.Key)
 		key, acct, id, name, wait := a.Key, a.Acct, a.ID, a.DisplayName, time.Duration(i)*3*time.Second
 		at := a.Spend.Halt.At
+		i++
 		cmds = append(cmds, func() tea.Msg {
 			if !claimContinue(key, at) {
 				return nil // another agtop told it

@@ -336,68 +336,128 @@ func TestRetryAndLimit(t *testing.T) {
 	_ = c.Stop()
 }
 
-// A retry carries on past the prompt cache expiring, and gives up only
-// once RetryMax attempts are used.
-func TestRetryCarriesOnPastTheCache(t *testing.T) {
-	s := &server{cfg: Config{ID: "x", RetryBase: Duration(time.Minute), RetryMax: 2}, clients: map[*conn]struct{}{}}
-	s.info.CacheWarm = time.Now().Add(90 * time.Second)
-	s.retry("API Error: Connection dropped (ECONNRESET)")
-	s.wake.Stop()
-	s.retry("API Error: Connection dropped (ECONNRESET)") // waits 2m, past the cache
-	if s.info.Retry.GaveUp || s.info.Retry.Attempt != 2 || s.info.Retry.Next.IsZero() {
-		t.Fatalf("should retry past the cache: %+v", s.info.Retry)
+// fakeProof stands in for netproof: go says whether a session may try
+// again, and warm is what the last asked for.
+type fakeProof struct {
+	looks atomic.Int32
+	goes  atomic.Bool
+	cold  atomic.Bool // a cold session asked
+	fails atomic.Int32
+}
+
+func (f *fakeProof) install(t *testing.T) {
+	was, wasFail, wasEvery := mayGo, netproofFail, onlineEvery
+	t.Cleanup(func() { mayGo, netproofFail, onlineEvery = was, wasFail, wasEvery })
+	mayGo = func(_, _ string, warm bool) bool {
+		f.looks.Add(1)
+		if !warm {
+			f.cold.Store(true)
+		}
+		return f.goes.Load()
 	}
-	s.wake.Stop()
-	s.retry("API Error: Connection dropped (ECONNRESET)")
-	if !s.info.Retry.GaveUp || !strings.Contains(s.info.Retry.Why, "2 retries used") {
-		t.Fatalf("should give up once the retries are used: %+v", s.info.Retry)
+	netproofFail = func(string, time.Time) { f.fails.Add(1) }
+	onlineEvery = 10 * time.Millisecond
+}
+
+// continued waits for the session's continue to go (it fails to start the
+// fake claude, which sets Error).
+func continued(t *testing.T, s *server) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		tried := s.info.Error != ""
+		s.mu.Unlock()
+		if tried {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never continued")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-// Cut off by the network, a session waits until the API can be reached,
-// however long, then continues.
+// While the prompt cache stays warm, a retry just waits its turn; once the
+// next try would land after it expires, the session waits for proof the
+// connection holds instead, and each failure is shared.
+func TestRetryWaitsForProofPastTheCache(t *testing.T) {
+	setup(t)
+	var f fakeProof
+	f.install(t)
+	// "q" is the ID that waits no jitter.
+	s := &server{cfg: Config{ID: "q", Binary: "/nonexistent/claude", RetryBase: Duration(time.Minute), RetryMax: 3}, clients: map[*conn]struct{}{}}
+	s.info.CacheWarm = time.Now().Add(90 * time.Second)
+	s.mu.Lock()
+	s.retry("API Error: Connection dropped (ECONNRESET)", false)
+	r := s.info.Retry
+	if r.Proof || r.Next.IsZero() || r.Attempt != 1 {
+		t.Fatalf("the first try fits in the cache: %+v", r)
+	}
+	s.wake.Stop()
+	s.retry("API Error: Connection dropped (ECONNRESET)", false) // waits 2m, past the cache
+	if !r.Proof || !r.Next.IsZero() || r.GaveUp {
+		t.Fatalf("past the cache it should wait for proof: %+v", r)
+	}
+	s.mu.Unlock()
+	for f.looks.Load() < 3 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if s.info.Error != "" {
+		t.Fatal("went without proof")
+	}
+	f.goes.Store(true)
+	continued(t, s)
+	if f.fails.Load() != 2 {
+		t.Fatalf("each failure should be shared: %d", f.fails.Load())
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.retry("x", false)
+	s.retry("x", false)
+	if !r.GaveUp || !strings.Contains(r.Why, "3 retries used") {
+		t.Fatalf("should give up once the retries are used: %+v", r)
+	}
+}
+
+// Cut off by the network, a warm session waits until the API can be
+// reached, however long, then continues; one whose cache ran out while it
+// waited asks for proof instead.
 func TestOfflineWaitsForTheNetwork(t *testing.T) {
 	setup(t)
-	up := make(chan bool, 1)
-	defer func(r func() bool, e time.Duration) { reachable, onlineEvery = r, e }(reachable, onlineEvery)
-	var checks atomic.Int32
-	reachable = func() bool { checks.Add(1); return len(up) > 0 }
-	onlineEvery = 10 * time.Millisecond
-	// "q" is the ID that waits no jitter once the network is back.
+	var f fakeProof
+	f.install(t)
 	s := &server{cfg: Config{ID: "q", Binary: "/nonexistent/claude"}, clients: map[*conn]struct{}{}}
-	s.info.CacheWarm = time.Now().Add(time.Second) // expiring doesn't make it give up
+	s.info.CacheWarm = time.Now().Add(time.Hour)
 	s.mu.Lock()
 	if !s.stalled(headless.Result{Text: "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"}) {
 		t.Fatal("an unreachable API should stall the turn")
 	}
 	r := s.info.Retry
-	if r == nil || !r.Offline || r.GaveUp || r.Attempt != 1 {
+	if r == nil || !r.Offline || r.Proof || r.GaveUp || r.Attempt != 1 {
 		t.Fatalf("waiting for the network: %+v", r)
 	}
 	s.mu.Unlock()
-	for checks.Load() < 3 {
+	for f.looks.Load() < 3 {
 		time.Sleep(5 * time.Millisecond)
 	}
 	s.mu.Lock()
-	if !r.Offline || s.info.Error != "" {
-		t.Fatalf("still offline: %+v %q", r, s.info.Error)
+	if !r.Offline || s.info.Error != "" || f.cold.Load() {
+		t.Fatalf("still offline, warm: %+v %q cold %v", r, s.info.Error, f.cold.Load())
+	}
+	s.info.CacheWarm = time.Now() // the cache runs out
+	s.mu.Unlock()
+	for !f.cold.Load() {
+		time.Sleep(5 * time.Millisecond)
+	}
+	s.mu.Lock()
+	if !r.Proof {
+		t.Fatalf("a cold session waits for proof: %+v", r)
 	}
 	s.mu.Unlock()
-	up <- true
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		s.mu.Lock()
-		tried := s.info.Error != "" // the continue went, and failed to start the fake claude
-		s.mu.Unlock()
-		if tried {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("never continued once the network was back")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if r.Offline {
+	f.goes.Store(true)
+	continued(t, s)
+	if r.Offline || r.Proof {
 		t.Fatalf("back online: %+v", r)
 	}
 }
