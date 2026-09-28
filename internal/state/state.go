@@ -101,6 +101,10 @@ type Config struct {
 	// before its worktree (clean and pushed) and temp work are removed on
 	// their own; 0 is the default, and a negative number turns it off.
 	CleanupHours int `json:"cleanupHours,omitzero"`
+	// TrimRunningTemp lets a running agtop session clear its own old temp
+	// work when the disk runs low: what's been untouched for three hours
+	// and is open in no process. Off unless set.
+	TrimRunningTemp bool `json:"trimRunningTemp,omitzero"`
 	// KeepTranscriptsPlain turns off storing idle transcripts compressed.
 	KeepTranscriptsPlain bool `json:"keepTranscriptsPlain,omitzero"`
 	// ColorBlind draws added and removed, done and failed in sky blue and

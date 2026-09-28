@@ -357,6 +357,7 @@ func Run(id string) error {
 	}
 	go s.accept()
 	go s.watchSock(sock)
+	go s.trimLoop()
 	<-s.quit
 	_ = ln.Close()
 	_ = os.Remove(sock)
