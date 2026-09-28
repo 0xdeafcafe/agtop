@@ -218,8 +218,10 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// DefaultIdleStop is how long an idle session keeps Claude Code running.
-const DefaultIdleStop = 5 * time.Minute
+// DefaultIdleStop is how long an idle session keeps Claude Code running:
+// only a moment, since starting it again takes about a second and the
+// prompt cache isn't lost, while a running one holds 150-200 MB.
+const DefaultIdleStop = 3 * time.Second
 
 // Root holds one directory per session.
 func Root() string { return filepath.Join(state.Dir(), "sessions") }
@@ -757,6 +759,9 @@ func (s *server) onEvent(ev headless.Event) {
 		return
 	case headless.BackgroundTasks:
 		s.info.Background = background(s.info.Background, ev.Tasks, s.taskStart, time.Now())
+		if len(s.info.Background) == 0 && s.info.State == "idle" && s.sess != nil {
+			s.armIdle() // the last of it ended: rest from now
+		}
 	case headless.TaskDone:
 		delete(s.taskStart, ev.ID)
 		return
@@ -1116,6 +1121,14 @@ func (s *server) answered(id string) {
 	}
 }
 
+// stillWorking is whether an idle Claude Code has work of its own going:
+// tasks in the background, or a question you asked it (a side question
+// takes a model call). The context reading asked at each turn's end comes
+// back well inside the rest, so it isn't waited on. Called with mu held.
+func (s *server) stillWorking() bool {
+	return len(s.info.Background) > 0 || len(s.asks) > 0
+}
+
 func (s *server) armIdle() {
 	if s.idle != nil {
 		s.idle.Stop()
@@ -1131,9 +1144,13 @@ func (s *server) armIdle() {
 			s.mu.Unlock()
 			return
 		}
-		// Work Claude left running in the background (a test run, a build)
-		// would be cut off, and never reported back: rest once it's done.
-		if sess != nil && runsShells(sess.PID()) {
+		// Work Claude left running in the background (a test run, a build,
+		// a subagent, a monitor) would be cut off, and never reported back,
+		// as would a question it's still answering: rest once it's done.
+		s.mu.Lock()
+		busy := s.stillWorking()
+		s.mu.Unlock()
+		if sess != nil && (busy || runsShells(sess.PID())) {
 			s.mu.Lock()
 			if s.sess == sess && s.info.State == "idle" {
 				s.armIdle()
