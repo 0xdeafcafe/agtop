@@ -687,7 +687,7 @@ func (d *drawer) verb(st *Step) string {
 		if cs := d.stepCards(st); len(cs) > 0 {
 			return cs[0].verb()
 		}
-		cmd := readInput(st.Input).str("command")
+		cmd := st.in().Command
 		switch sh := d.shellShape(cmd); sh.kind {
 		case "read", "search", "write":
 			return sh.kind
@@ -1543,7 +1543,7 @@ func agentName(st *Step) string {
 	if len(st.Result) > 0 && jsonx.Unmarshal(st.Result, &r) == nil && r.AgentType != "" {
 		return r.AgentType
 	}
-	return firstNonEmpty(readInput(st.Input).str("subagent_type"), "subagent")
+	return firstNonEmpty(st.in().Agent, "subagent")
 }
 
 func glyphFor(st *Step) string {
@@ -1587,7 +1587,7 @@ func (d *drawer) rel(p string) string {
 }
 
 func (d *drawer) label(st *Step) string {
-	in := readInput(st.Input)
+	x := st.in()
 	g := glyphColor(glyphFor(st))
 	// A step is the log's quiet voice; one still going, waiting or failed
 	// reads a shade up.
@@ -1599,12 +1599,12 @@ func (d *drawer) label(st *Step) string {
 	switch {
 	case st.kind() == tool.Shell:
 		if sp, ok := st.Spawn(); ok {
-			return spawnLabel(sp, oneLine(in.str("description")), lbl)
+			return spawnLabel(sp, oneLine(x.Description), lbl)
 		}
-		cmd := in.str("command")
+		cmd := x.Command
 		// What the command is for reads faster than the command; the command
 		// itself follows, quieter, and shows whole when the row is opened.
-		if desc := oneLine(in.str("description")); desc != "" {
+		if desc := oneLine(x.Description); desc != "" {
 			return g + " " + lbl(desc) + "  " + faint(program(cmd))
 		}
 		// A read, a search or a write says so, as the tool it stands in for.
@@ -1622,41 +1622,36 @@ func (d *drawer) label(st *Step) string {
 		}
 		return g + " " + d.command(cmd, base)
 	case st.kind() == tool.Edit || st.kind() == tool.Write || st.kind() == tool.Notebook || st.kind() == tool.Delete || st.kind() == tool.Move:
-		p := in.str("file_path")
-		if p == "" {
-			p = in.str("notebook_path")
-		}
-		return g + " " + lbl(d.rel(p))
+		return g + " " + lbl(d.rel(x.Path))
 	case st.kind() == tool.Read:
-		return g + " " + lbl(d.rel(in.str("file_path")))
+		return g + " " + lbl(d.rel(x.Path))
 	case st.kind() == tool.Search:
-		l := g + " " + lbl(in.str("pattern"))
-		if p := in.str("path"); p != "" {
+		l := g + " " + lbl(x.Pattern)
+		if p := x.Path; p != "" {
 			l += faint(" in ") + lbl(d.rel(p))
 		}
 		return l
 	case st.kind() == tool.Glob:
-		return g + " " + lbl(in.str("pattern"))
+		return g + " " + lbl(x.Pattern)
 	case st.kind() == tool.Subagent:
-		return g + " " + lbl(agentName(st)) + "  " + faint(oneLine(in.str("description")))
+		return g + " " + lbl(agentName(st)) + "  " + faint(oneLine(x.Description))
 	case st.kind() == tool.Fetch:
-		return g + " " + lbl(in.str("url"))
+		return g + " " + lbl(x.URL)
 	case st.kind() == tool.WebSearch:
-		return g + " " + lbl(in.str("query"))
-	case st.Tool == "Skill" || st.Tool == "SlashCommand":
+		return g + " " + lbl(x.Query)
+	case st.kind() == tool.Question:
+		return paint(cYellow, "?") + " " + text(oneLine(st.Call().Title))
+	}
+	// The rest are drawn by name, from their input as their agent sent it:
+	// Claude Code's own tools (Skill, Show, Artifact) and anything else.
+	in := readInput(st.Input)
+	switch st.Tool {
+	case "Skill", "SlashCommand":
 		name := firstNonEmpty(in.str("skill"), in.str("command"), in.str("name"))
 		return g + " " + lbl(name) + "  " + faint(oneLine(in.str("args")))
-	case st.kind() == tool.Question:
-		q := ""
-		if qs, ok := in["questions"].([]any); ok && len(qs) > 0 {
-			if m, ok := qs[0].(map[string]any); ok {
-				q, _ = m["question"].(string)
-			}
-		}
-		return paint(cYellow, "?") + " " + text(oneLine(q))
-	case st.Tool == agtools.Show:
+	case agtools.Show:
 		return g + " " + lbl(firstNonEmpty(oneLine(in.str("title")), "drawing"))
-	case st.Tool == "Artifact":
+	case "Artifact":
 		t := in.str("title")
 		if t == "" {
 			t = filepath.Base(in.str("file_path"))
@@ -1950,7 +1945,7 @@ func (d *drawer) summary(st *Step) string {
 		if st.Status != OK {
 			return ""
 		}
-		sh := d.shellShape(readInput(st.Input).str("command"))
+		sh := d.shellShape(st.in().Command)
 		n := countLines(out)
 		switch {
 		case sh.kind == "commit":
@@ -2059,14 +2054,14 @@ func (d *drawer) body(st *Step, indent int) {
 	d.lg, d.byPath = nil, false
 	d.resetHL()
 	defer func() { d.lg, d.byPath, d.spans = nil, false, nil }()
-	in := readInput(st.Input)
+	x := st.in()
 	switch {
 	case st.kind() == tool.Read:
-		d.lg = langFor(in.str("file_path"))
+		d.lg = langFor(x.Path)
 	case st.kind() == tool.Search:
 		d.byPath = true
 	case st.kind() == tool.Shell:
-		switch sh := d.shellShape(in.str("command")); sh.kind {
+		switch sh := d.shellShape(x.Command); sh.kind {
 		case "read":
 			d.lg = langFor(sh.what)
 		case "search":
@@ -2075,7 +2070,7 @@ func (d *drawer) body(st *Step, indent int) {
 				d.lg = langFor(strings.Split(p, ", ")[0])
 			}
 		case "":
-			d.spans = d.chainSpans(in.str("command"))
+			d.spans = d.chainSpans(x.Command)
 		}
 	}
 	switch {
@@ -2084,7 +2079,7 @@ func (d *drawer) body(st *Step, indent int) {
 			return
 		}
 	case st.kind() == tool.Shell:
-		if cmd := strings.TrimSpace(readInput(st.Input).str("command")); cmd != "" {
+		if cmd := strings.TrimSpace(st.in().Command); cmd != "" {
 			d.shellBody(st, cmd, indent)
 			d.marks = echoMarks(cmd)
 			defer func() { d.marks = nil }()
@@ -2524,8 +2519,7 @@ func (d *drawer) diff(st *Step, indent int) bool {
 		Content string `json:"content"`
 	}
 	_ = jsonx.Unmarshal(st.Result, &r)
-	in := readInput(st.Input)
-	lg := langFor(firstNonEmpty(in.str("file_path"), in.str("notebook_path")))
+	lg := langFor(st.in().Path)
 	pad := d.spine() + strings.Repeat(" ", indent-1)
 	w := d.cw - indent - 9
 	if r.Type == "create" {

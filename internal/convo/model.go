@@ -924,6 +924,10 @@ func (st *Step) Call() tool.Call {
 	return c
 }
 
+// in is what the step's call works on, as agtop's own: the path, command,
+// pattern and the rest, whichever agent's words its input is in.
+func (st *Step) in() tool.Input { return st.Call().Input }
+
 // kind is what the step's call does: the kind its agent gave it, or else
 // what Claude Code's tool of its name does.
 func (st *Step) kind() tool.Kind {
