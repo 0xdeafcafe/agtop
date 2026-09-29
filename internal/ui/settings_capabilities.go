@@ -9,7 +9,7 @@ import (
 // Capabilities sets every installed agent side by side: how far each has
 // been tried, then a row for each feature rush has, ✓ where it can do it,
 // – where it can't and ◌ where it's planned, a * where there's more to
-// say, said below; then what each agent's models take. ↑↓ go down the
+// say, said under the table for the feature the cursor is on; then what each agent's models take. ↑↓ go down the
 // features and the models, so a long page scrolls.
 
 // capabilitiesLen is the features, then every agent's models.
@@ -30,26 +30,34 @@ func (m *Model) capabilitiesBody(w int) []string {
 	if len(kinds) == 0 {
 		return []string{dim("No coding agent is installed where rush looks: install Claude Code, Codex or another, and it shows here.")}
 	}
-	const labelW = 26
-	col := max(6, min(14, (w-4-labelW)/len(kinds)))
-	row, i := func(line string) string { return "  " + line }, 0
-	// cursor is the row the cursor goes through next, highlighted when on.
-	cursor := func(line string) string {
-		defer func() { i++ }()
-		if i == d.cursor {
-			return highlight(paint(cOrange, "▍")+" "+line, w)
+	const labelW = 24
+	col := max(6, min(16, (w-8-labelW)/len(kinds)))
+	inner := 2 + labelW + 2 + col*len(kinds) // gutter, label, split, marks
+	i := 0
+	edge := func(l, fill, r string) string { return paint(cEdge, l+strings.Repeat(fill, inner+2)+r) }
+	// row boxes line on bg after a gutter of two: the cursor's bar when on
+	// it.
+	row := func(line, bg string) string {
+		gutter := "  "
+		if bg == selBG {
+			gutter = paint(cOrange, "▍") + " "
 		}
-		return row(line)
+		s := fit(gutter+line, inner)
+		if bg != "" {
+			s = bg + strings.ReplaceAll(s, reset, reset+bg) + reset
+		}
+		return paint(cEdge, "│") + " " + s + " " + paint(cEdge, "│")
 	}
-	head, level := fit("", labelW), dim(fit("support", labelW))
+	split := paint(cEdge, "│") + " "
+	head, level := fit("", labelW)+split, dim(fit("support", labelW))+split
 	for _, k := range kinds {
-		head += fit(glyph(k)+" "+paint(cText+bold, kindName(k)), col)
+		head += fit(glyph(k)+" "+paint(cText+bold, kindName(k)), col-1) + " "
 		level += fit(levelChip(k), col)
 	}
-	out := []string{row(head), row(level), ""}
-	var notes []string
-	for _, f := range agent.AllFeatures() {
-		line := paint(cText, fit(f.Label, labelW))
+	out := []string{edge("╭", "─", "╮"), row(head, ""), row(level, ""), edge("├", "─", "┤")}
+	features := agent.AllFeatures()
+	for n, f := range features {
+		line := paint(cText, fit(f.Label, labelW)) + split
 		for _, k := range kinds {
 			s := agent.FeatureOf(k, f.Feature)
 			mark := faint("–")
@@ -60,16 +68,34 @@ func (m *Model) capabilitiesBody(w int) []string {
 				mark = paint(cYellow, "◌")
 			}
 			if s.Note != "" {
-				mark += faint("*")
-				notes = append(notes, glyph(k)+" "+dim(kindName(k)+" · "+f.Label+": ")+faint(s.Note))
+				mark += paint(cYellow, "*")
 			}
-			line += fit(" "+mark, col)
+			line += fit(mark, col)
 		}
-		out = append(out, cursor(line))
+		bg := ""
+		if n%2 == 1 {
+			bg = hoverBG
+		}
+		if i == d.cursor {
+			bg = selBG
+		}
+		out = append(out, row(line, bg))
+		i++
 	}
-	out = append(out, row(faint("✓ yes   – no   ◌ planned   * see below")))
-	for _, n := range notes {
-		out = append(out, row(n))
+	out = append(out, edge("╰", "─", "╯"), "  "+dim("✓ yes   – no   ◌ planned   ")+paint(cYellow, "*")+dim(" more to say: put the cursor on it"))
+	// What the * say, for the feature under the cursor only.
+	if d.cursor < len(features) {
+		f := features[d.cursor]
+		var notes []string
+		for _, k := range kinds {
+			if s := agent.FeatureOf(k, f.Feature); s.Note != "" {
+				notes = append(notes, "  "+fit(glyph(k)+" "+paint(cText, kindName(k)), 18)+dim(s.Note))
+			}
+		}
+		if len(notes) > 0 {
+			out = append(out, "", rule(f.Label, "", w))
+			out = append(out, notes...)
+		}
 	}
 
 	out = append(out, "", rule("Models", "what each takes", w))
@@ -77,7 +103,10 @@ func (m *Model) capabilitiesBody(w int) []string {
 		models := m.agentModels(k)
 		for j, l := range modelTable(k, models) {
 			if j >= 2 && j < 2+len(models) {
-				l = cursor(strings.TrimPrefix(l, "  "))
+				if i == d.cursor {
+					l = highlight(paint(cOrange, "▍")+" "+strings.TrimPrefix(l, "  "), w)
+				}
+				i++
 			}
 			out = append(out, l)
 		}
