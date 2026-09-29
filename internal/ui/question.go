@@ -234,6 +234,9 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 	if own {
 		ownText = paint(cText+bold, "Something else") + "  " + paint(cSub, "enter, then type it below")
 	}
+	if ownAnswer(q, prev) {
+		ownText += "  " + paint(cGreen, "✓ ") + paint(cText, ansi.Truncate(shownAnswer(prev), max(8, lw-40), "…"))
+	}
 	rows = append(rows, orow{" " + bar + " " + keycap("✎", own) + " " + ownText, own})
 	if q.MultiSelect {
 		// Enter on an option only ticks it; moving on is this button.
@@ -308,6 +311,19 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 		cl("  " + paint(cSub, "↑") + dim(" to choose   ·   or type your own answer below and press ") + paint(cSub, "enter"))
 	}
 	return out
+}
+
+// ownAnswer is whether a is an answer in your own words, not an option.
+func ownAnswer(q question, a string) bool {
+	if a == "" || q.MultiSelect {
+		return false
+	}
+	for _, o := range q.Options {
+		if o.Label == a {
+			return false
+		}
+	}
+	return true
 }
 
 // splitAsk parts a question into its lead-in and the ask: Claude often
@@ -426,8 +442,12 @@ type heldBox struct {
 func (m *Model) holdForQuestion(c *hostConn) {
 	asking := isQuestion(c.sess.Pending())
 	switch {
-	case asking && c.qHeld == nil && len(c.input) > 0:
-		m.keepDraft(c, state.KindDraft)
+	case asking && c.qHeld == nil:
+		// Held even when empty, or what's typed as the answer would be
+		// taken for a draft on the next pass and set aside too.
+		if len(c.input) > 0 {
+			m.keepDraft(c, state.KindDraft)
+		}
 		c.qHeld = &heldBox{input: c.input, back: c.back, undo: c.undo, editQ: c.editQ, editWas: c.editWas, editHeld: c.editHeld}
 		c.input, c.back, c.anchor, c.undo = nil, 0, 0, undoStack{}
 		c.editQ, c.editWas, c.editHeld = 0, "", false

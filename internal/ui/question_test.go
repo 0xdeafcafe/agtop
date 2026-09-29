@@ -803,6 +803,45 @@ func TestQuestionHoldsTheBox(t *testing.T) {
 	}
 }
 
+// An answer typed while a question waits stays in the box when more of
+// the conversation arrives, goes with its question as you move between
+// them, and one sent in your own words is shown on the card and back in
+// the box on returning to it.
+func TestQuestionKeepsTypedAnswer(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	c := m.host
+	ask(m)
+	m.holdForQuestion(c) // the box was empty when it came
+	c.input = []rune("both, promises first")
+	m.holdForQuestion(c) // more arrives while typing
+	if string(c.input) != "both, promises first" {
+		t.Fatalf("typed answer wiped: %q", string(c.input))
+	}
+	req := c.sess.Pending()[0].Approval.Question
+	m.questionKey(c, req, "enter", false)
+	if c.qIdx != 1 || len(c.input) != 0 {
+		t.Fatalf("answered, on to the next: idx=%d box=%q", c.qIdx, string(c.input))
+	}
+	c.input = []rune("only mc")
+	c.cardFocus = true
+	m.questionKey(c, req, "left", true)
+	if string(c.input) != "both, promises first" {
+		t.Fatalf("back on question 1, its answer is in the box: %q", string(c.input))
+	}
+	if out := ansi.Strip(strings.Join(drawQuestion(c, "", qsOf(req), 120, 0), "\n")); !strings.Contains(out, "✓ both, promises first") {
+		t.Errorf("the card should show the answer in your own words:\n%s", out)
+	}
+	m.questionKey(c, req, "right", true)
+	if string(c.input) != "only mc" {
+		t.Fatalf("back on question 2, what was typed there: %q", string(c.input))
+	}
+}
+
+func qsOf(req *event.Question) []question {
+	_, qs := questions(req)
+	return qs
+}
+
 // With enter set to send, a message ending in a command typed in full
 // sends: completing it would only add a space. A partial word still
 // completes, and by default a full one does too.

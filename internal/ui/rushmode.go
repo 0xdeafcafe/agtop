@@ -1099,6 +1099,7 @@ type hostConn struct {
 	qCursor   int                  // the option ↑↓ is on while the card has the keys
 	qPicks    map[int]map[int]bool // ticked options, by question
 	qAnswer   map[string]string
+	qTyped    map[int][]rune // typed in the box on each question and not yet sent
 	qHeld     *heldBox // what was in the box when a question came, back once it's answered
 	stopArmed time.Time
 	lastSend  time.Time
@@ -3536,6 +3537,7 @@ func questions(req *event.Question) (title string, qs []question) {
 func (c *hostConn) syncQuestion(req *event.Question) {
 	if c.qFor != req.ID {
 		c.qFor, c.qIdx, c.qCursor, c.qPicks, c.qAnswer = req.ID, 0, 0, map[int]map[int]bool{}, map[string]string{}
+		c.qTyped = map[int][]rune{}
 	}
 }
 
@@ -3679,10 +3681,24 @@ func (m *Model) goQuestion(c *hostConn, qs []question, i int) {
 	if len(qs) < 2 {
 		i = min(i, len(qs)-1)
 	}
-	c.qIdx, c.qCursor = max(0, min(i, len(qs))), 0
+	// What's typed goes with its question, and comes back with it: an
+	// answer in your own words is back in the box to change.
+	if c.qTyped == nil {
+		c.qTyped = map[int][]rune{}
+	}
 	if c.qIdx < len(qs) {
-		for j, o := range qs[c.qIdx].Options {
-			if c.qAnswer[qs[c.qIdx].Question] == o.Label {
+		c.qTyped[c.qIdx] = slices.Clone(c.input)
+	}
+	c.qIdx, c.qCursor = max(0, min(i, len(qs))), 0
+	c.input, c.back = nil, 0
+	if c.qIdx < len(qs) {
+		q := qs[c.qIdx]
+		c.input = c.qTyped[c.qIdx]
+		if a := c.qAnswer[q.Question]; len(c.input) == 0 && ownAnswer(q, a) {
+			c.input = []rune(a)
+		}
+		for j, o := range q.Options {
+			if c.qAnswer[q.Question] == o.Label {
 				c.qCursor = j
 			}
 		}
