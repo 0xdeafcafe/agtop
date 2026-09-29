@@ -2768,6 +2768,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		}
 	}
 	last := -1
+	head := "" // the path last put above its matches, when prefixes are too wide to go beside them
 	emit := func(i int, l string) {
 		// A tool's own escape codes (colours, cursor moves, titles) would
 		// reach the terminal or throw widths off; rush does the colour.
@@ -2793,6 +2794,15 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			if sh := shared[g]; sh > 0 && len(body)-len(strings.TrimLeft(body, " ")) >= sh {
 				body = body[sh:]
 			}
+			if path != "" && prefixW[g] > w/2 {
+				// Long paths would leave the code a sliver at the edge: each
+				// file's path goes above its matches, and they're numbered.
+				if path != head {
+					put(b, "", paint(cSub, path))
+					head = path
+				}
+				pre = fmt.Sprintf("%5d  ", lineNo(l[:n]))
+			}
 			put(b, faint(pre), highlight(lg, &d.hs, body, cOut, nil))
 			return
 		}
@@ -2812,6 +2822,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	}
 	more := func(n int) {
 		d.resetHL() // what follows the gap doesn't go on from what came before it
+		head = ""
 		put(b, "", folded(n))
 	}
 	if !d.o.Verbose && ud != nil && ud.whole {

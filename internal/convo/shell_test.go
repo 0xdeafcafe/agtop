@@ -135,6 +135,29 @@ func TestSearchHitsAligned(t *testing.T) {
 	}
 }
 
+// Hits whose paths would leave the code a sliver put each file's path
+// above its hits, numbered.
+func TestSearchHitsLongPaths(t *testing.T) {
+	s := New()
+	s.Info.Cwd = "/work"
+	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 80, Verbose: true, Open: map[string]bool{}}, cw: 80}
+	in, _ := jsonx.Marshal(map[string]string{"command": `grep -rn "x" .`})
+	p := "enterprise/modules/governance/process/src/services/cli.service.ts"
+	out := p + ":166:  async x(input) {\n" + p + ":170:    return x;\n"
+	res, _ := jsonx.Marshal(map[string]string{"stdout": out})
+	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
+	var got []string
+	for _, l := range d.lines {
+		if t := strings.TrimSpace(strings.TrimLeft(stripANSI(l.Text), " ▏")); t != "" && !strings.HasPrefix(t, "$") && !strings.HasPrefix(t, "✓") {
+			got = append(got, t)
+		}
+	}
+	want := []string{p, "166  async x(input) {", "170    return x;"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("hits = %q, want %q", got, want)
+	}
+}
+
 // Two greps on their own lines, the second with lines around its match:
 // each part is highlighted in its own file's language, and a string one
 // match leaves open doesn't colour the next.
