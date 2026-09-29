@@ -440,7 +440,11 @@ func (m *Model) wallSubTile(it wallItem, w, h int, picked bool) []string {
 	if a.Repo == "" {
 		where = filepath.Base(a.Cwd)
 	}
-	inner = append(inner, wallSpread(paint(cSub, where)+faint(" · ")+dim(typ), "", iw))
+	loc := paint(cSub, where)
+	if sub.Worktree != "" {
+		loc += faint(" ⎇ ") + dim(sub.Worktree) // its own checkout, not its session's
+	}
+	inner = append(inner, wallSpread(loc+faint(" · ")+dim(typ), "", iw))
 
 	foot := wallSpread(paint(cOrange, "running")+dim(" · ")+paint(cText, oneLine(firstNonEmpty(sub.Description, "…"))), "", iw)
 
