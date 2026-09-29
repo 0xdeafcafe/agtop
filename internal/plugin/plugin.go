@@ -217,13 +217,13 @@ func (r Requires) validate() error {
 	return nil
 }
 
-// osNames are runtime.GOOS values as people say them.
-var osNames = map[string]string{"darwin": "macOS", "linux": "Linux", "windows": "Windows", "freebsd": "FreeBSD"}
+// OSNames are runtime.GOOS values as people say them.
+var OSNames = map[string]string{"darwin": "macOS", "linux": "Linux", "windows": "Windows", "freebsd": "FreeBSD"}
 
 func osWords(os []string) string {
 	ws := make([]string, len(os))
 	for i, o := range os {
-		ws[i] = cmp.Or(osNames[o], o)
+		ws[i] = cmp.Or(OSNames[o], o)
 	}
 	return strings.Join(ws, " or ")
 }

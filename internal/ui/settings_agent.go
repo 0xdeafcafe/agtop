@@ -2,11 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
@@ -20,7 +22,7 @@ var agentExtras = map[agent.Kind]func(m *Model) []section{}
 
 var agentsPage = page{
 	name: "Agents",
-	keys: []string{"1-9", "agent", "f", "what rush can do with it"},
+	keys: []string{"1-9", "agent"},
 	head: func(m *Model, w int) []string {
 		k := m.settingsAgent()
 		return append([]string{"", m.agentStrip(k, w)}, m.agentHead(k, w)...)
@@ -31,10 +33,6 @@ var agentsPage = page{
 			if order := m.agentOrder(); n <= len(order) {
 				d.agent, d.cursor = order[n-1].Kind(), 0
 			}
-			return nil, true
-		}
-		if s == "f" {
-			d.features = !d.features
 			return nil, true
 		}
 		return nil, false
@@ -128,15 +126,15 @@ func (m *Model) agentStrip(cur agent.Kind, w int) string {
 	return strings.Join(out, faint("   "))
 }
 
-// agentHead is the agent's name, how far it's been tried, where it lives
-// and what it's doing now.
+// agentHead is the agent's name, how far it's been tried, where it lives,
+// what it's doing now, what rush can do with it and what its models take.
 func (m *Model) agentHead(k agent.Kind, w int) []string {
 	if k == "" {
 		return nil
 	}
 	label := func(s string) string { return dim(fit(s, 10)) }
 	ad, _ := agent.Get(k)
-	name := glyph(k) + " " + paint(cText+bold, agentName(string(k))) + " " + levelChip(k)
+	name := glyph(k) + " " + paint(cText+bold, agentName(string(k))) + " " + levelChip(k) + faint(levelWords[agent.LevelOf(k)])
 	if string(k) == m.store.Config.DefaultAgent() {
 		name += paint(cOrange, "  ★ the default")
 	}
@@ -161,11 +159,86 @@ func (m *Model) agentHead(k agent.Kind, w int) []string {
 		}
 	}
 	out = append(out, label("sessions")+faint(fmt.Sprintf("%d running · %d in all", live, total))+faint("   ·   Accounts has its sign-ins"))
-	if m.dialog != nil && m.dialog.features {
-		out = append(out, label("support")+levelChip(k)+faint(levelWords[agent.LevelOf(k)]))
-		out = append(out, m.featureGrid(k, w, label)...)
+	out = append(out, "", dim("what rush can do with it"))
+	out = append(out, m.featureGrid(k, w)...)
+	return append(out, modelTable(k, m.agentModels(k))...)
+}
+
+// modelTable is what each of models takes, a row each: images and PDFs
+// as its agent's MediaReader says, its context window, and the efforts
+// it starts with. What the agent doesn't know shows ?, and a footnote
+// says so. Nothing here waits: Ollama's Reads asks in the background.
+func modelTable(k agent.Kind, models []agent.Choice) []string {
+	if len(models) == 0 {
+		return nil
+	}
+	width := 17
+	for _, c := range models {
+		width = max(width, len(c.ID)+2)
+	}
+	unknown := false
+	cell := func(s string, w int) string {
+		switch s {
+		case "✓":
+			return paint(cGreen, fit(s, w))
+		case "?":
+			unknown = true
+			return paint(cYellow, fit(s, w))
+		case "–":
+			return faint(fit(s, w))
+		}
+		return dim(fit(s, w))
+	}
+	effort := "–"
+	if ch, _ := agent.ChoicesOf(k); agent.Supports(k, agent.FeatureEffort) && len(ch.Efforts) > 0 {
+		effort = ch.Efforts[0].ID + "–" + ch.Efforts[len(ch.Efforts)-1].ID
+	}
+	reader, reads := agent.As[agent.MediaReader](k)
+	windower, windows := agent.As[agent.ContextWindower](k)
+	out := []string{"", dim(fit("models", 2+width) + "  " + fit("images", 8) + fit("pdf", 5) + fit("context", 9) + "effort")}
+	for _, c := range models {
+		img, pdf := "?", "?"
+		if reads {
+			if has, ok := reader.Reads(c.ID); ok {
+				img, pdf = "–", "–"
+				if has&agent.MediaImage != 0 {
+					img = "✓"
+				}
+				if has&agent.MediaPDF != 0 {
+					pdf = "✓"
+				}
+			}
+		}
+		window := "?"
+		if windows {
+			if n := windower.ContextWindow(c.ID); n > 0 {
+				window = tokens(n)
+			}
+		}
+		out = append(out, "  "+paint(cText, fit(c.ID, width))+"  "+cell(img, 8)+cell(pdf, 5)+cell(window, 9)+cell(effort, cellw.String(effort)))
+	}
+	if unknown {
+		out = append(out, "  "+paint(cYellow, "? ")+faint("unknown to rush until it's used"))
 	}
 	return out
+}
+
+// agentModels are the models agent k's adapter offers, then any your
+// sessions have run that it didn't list.
+func (m *Model) agentModels(k agent.Kind) []agent.Choice {
+	ch, _ := agent.ChoicesOf(k)
+	models := append([]agent.Choice(nil), ch.Models...)
+	seen := map[string]bool{}
+	for _, c := range models {
+		seen[c.ID] = true
+	}
+	for _, a := range m.snap.Agents {
+		if model := a.Spend.Model; model != "" && !seen[model] && a.Kind == string(k) && !strings.HasPrefix(model, "<") {
+			seen[model] = true
+			models = append(models, agent.Choice{ID: model, Note: "one your " + agentName(string(k)) + " sessions have run."})
+		}
+	}
+	return models
 }
 
 // startSection is what agent k's new sessions start with: a model, an
@@ -206,20 +279,9 @@ func (m *Model) startSection(k agent.Kind) section {
 		return r
 	}
 
-	// Models: the adapter's, then any your sessions have run that it
-	// didn't list, then one you type.
-	models := append([]agent.Choice(nil), ch.Models...)
-	seen := map[string]bool{}
-	for _, c := range models {
-		seen[c.ID] = true
-	}
-	for _, a := range m.snap.Agents {
-		if model := a.Spend.Model; model != "" && !seen[model] && a.Kind == kind && !strings.HasPrefix(model, "<") {
-			seen[model] = true
-			models = append(models, agent.Choice{ID: model, Note: "one your " + name + " sessions have run."})
-		}
-	}
-	if st.Model != "" && !seen[st.Model] {
+	// Models: the adapter's and your sessions', then one you type.
+	models := m.agentModels(k)
+	if st.Model != "" && !slices.ContainsFunc(models, func(c agent.Choice) bool { return c.ID == st.Model }) {
 		models = append(models, agent.Choice{ID: st.Model, Note: "typed in."})
 	}
 	model := row("Model", st.Model, "The model a new "+name+" session starts with. You can change a running session's with /model.", models,

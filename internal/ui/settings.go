@@ -84,7 +84,6 @@ type dialog struct {
 	agent  agent.Kind // the one Agents shows
 
 	profile  string // the profile Profiles is editing; empty lists them
-	features bool   // Agents shows what rush can do with the agent
 	advanced bool   // Agents shows the agent's advanced sections
 	keyCtx   int    // which of keymap.Contexts Keys shows
 

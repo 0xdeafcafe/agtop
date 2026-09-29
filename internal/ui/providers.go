@@ -240,17 +240,14 @@ func (m *Model) notInstalled() string {
 // featureGrid is what rush can do with provider k, feature by feature, in
 // as many columns as fit: ✓ it can, – it can't, ◌ planned. A feature's
 // note follows the grid.
-func (m *Model) featureGrid(k agent.Kind, w int, label func(string) string) []string {
+func (m *Model) featureGrid(k agent.Kind, w int) []string {
 	const cell = 24
-	cols := max(1, (w-12)/cell)
+	cols := max(1, (w-2)/cell)
 	all := agent.AllFeatures()
 	rows := (len(all) + cols - 1) / cols
 	var out, notes []string
 	for r := range rows {
-		line := label("")
-		if r == 0 {
-			line = label("features")
-		}
+		line := "  "
 		for c := range cols {
 			i := c*rows + r // down the columns, so related features stay together
 			if i >= len(all) {
@@ -274,9 +271,9 @@ func (m *Model) featureGrid(k agent.Kind, w int, label func(string) string) []st
 		}
 		out = append(out, line)
 	}
-	out = append(out, label("")+faint("✓ yes   – no   ◌ planned"))
+	out = append(out, "  "+faint("✓ yes   – no   ◌ planned"))
 	for _, n := range notes {
-		out = append(out, label("")+faint(n))
+		out = append(out, "  "+faint(n))
 	}
 	return out
 }

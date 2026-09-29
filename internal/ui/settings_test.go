@@ -1,14 +1,18 @@
 package ui
 
 import (
+	"cmp"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
@@ -233,5 +237,33 @@ func TestTabTurnsPages(t *testing.T) {
 	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	if m.work.page != agentsWall {
 		t.Fatalf("tab on Projects went to page %d, not the Wall", m.work.page)
+	}
+}
+
+// An agent's models table has a row a model: what it reads, its window
+// and efforts, and ? with a footnote for what the agent doesn't know.
+func TestModelTable(t *testing.T) {
+	rows := ansi.Strip(strings.Join(modelTable("claude", []agent.Choice{{ID: "opus"}, {ID: "haiku"}}), "\n"))
+	for _, want := range []string{"\n  opus               ✓       ✓    1M       low–max\n", "\n  haiku              ✓       ✓    200k     low–max"} {
+		if !strings.Contains(rows+"\n", want) {
+			t.Errorf("no row %q in\n%s", want, rows)
+		}
+	}
+	if strings.Contains(rows, "unknown to rush") {
+		t.Errorf("a footnote with nothing unknown:\n%s", rows)
+	}
+	rows = ansi.Strip(strings.Join(modelTable("nobody", []agent.Choice{{ID: "m"}}), "\n"))
+	if !strings.Contains(rows, "\n  m                  ?       ?    ?        –\n") || !strings.Contains(rows, "? unknown to rush until it's used") {
+		t.Errorf("an agent that knows nothing of its model:\n%s", rows)
+	}
+}
+
+// A plugin's requirements are a cell each, met here or not.
+func TestNeedCells(t *testing.T) {
+	r := plugin.Requires{OS: []string{runtime.GOOS, "plan9"}, Arch: []string{runtime.GOARCH}, Bin: []string{"git", "nope"}}
+	got := ansi.Strip(needCells(r, []string{"nope"}))
+	want := "✓ " + cmp.Or(plugin.OSNames[runtime.GOOS], runtime.GOOS) + "  – plan9  ✓ " + runtime.GOARCH + "  ✓ git on PATH  – nope on PATH"
+	if got != want {
+		t.Fatalf("needCells = %q, want %q", got, want)
 	}
 }

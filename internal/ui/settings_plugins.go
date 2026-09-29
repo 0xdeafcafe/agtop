@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"cmp"
+	"os/exec"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -45,8 +48,9 @@ func pluginsPage() page {
 type pluginRow struct {
 	m       plugin.Manifest
 	bundled bool
-	runs    bool   // on, and able to run here
-	status  string // how it stands: on, off, not approved, why it can't run
+	runs    bool     // on, and able to run here
+	status  string   // how it stands: on, off, not approved, why it can't run
+	missing []string // the programs it requires that aren't on PATH
 }
 
 // readPlugins reads every plugin and how it stands. It reads their
@@ -57,7 +61,7 @@ func readPlugins() []pluginRow {
 	bundles := plugin.Bundles()
 	for i := range bundles {
 		b := &bundles[i]
-		r := pluginRow{m: b.Manifest, bundled: true, runs: true, status: "bundled, on"}
+		r := pluginRow{m: b.Manifest, bundled: true, runs: true, status: "bundled, on", missing: notOnPath(b.Manifest.Requires.Bin)}
 		switch why := b.Manifest.Unmet(); {
 		case why != "":
 			r.runs, r.status = false, "won't run: "+why
@@ -73,7 +77,7 @@ func readPlugins() []pluginRow {
 		if _, ok := plugin.BundleNamed(p.Name); ok {
 			continue // rush's own of that name runs instead
 		}
-		r := pluginRow{m: p.Manifest, runs: true, status: "on"}
+		r := pluginRow{m: p.Manifest, runs: true, status: "on", missing: notOnPath(p.Requires.Bin)}
 		a, ok := approved[p.Name]
 		d, _ := plugin.Digest(p.Dir)
 		switch why := p.Unmet(); {
@@ -95,6 +99,64 @@ func readPlugins() []pluginRow {
 		out = append(out, pluginRow{m: plugin.Manifest{Name: n, Description: bad[n].Error()}, status: "not a valid plugin"})
 	}
 	return out
+}
+
+// notOnPath are those of bins not found on PATH. It looks, so never on
+// the UI.
+func notOnPath(bins []string) []string {
+	var out []string
+	for _, b := range bins {
+		if _, err := exec.LookPath(b); err != nil {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// needCells are what a plugin requires, a cell each: ✓ met here, – not.
+// Its programs are met unless missing says otherwise.
+func needCells(r plugin.Requires, missing []string) string {
+	var cells []string
+	cell := func(words string, met bool) {
+		if met {
+			cells = append(cells, paint(cGreen, "✓ ")+paint(cText, words))
+		} else {
+			cells = append(cells, faint("– "+words))
+		}
+	}
+	for _, o := range r.OS {
+		cell(cmp.Or(plugin.OSNames[o], o), o == runtime.GOOS)
+	}
+	for _, a := range r.Arch {
+		cell(a, a == runtime.GOARCH)
+	}
+	for _, b := range r.Bin {
+		cell(b+" on PATH", !slices.Contains(missing, b))
+	}
+	if len(cells) == 0 {
+		return faint("nothing; it runs anywhere")
+	}
+	return strings.Join(cells, "  ")
+}
+
+// askCells are what a plugin asks rush for, a plain cell each: what it
+// does in rush's screen, whether it offers tools, and what it may do with
+// sessions.
+func askCells(p plugin.UIPlugin, mf *plugin.Manifest) string {
+	var cells []string
+	for _, c := range p.UI {
+		cells = append(cells, uiCapWords[c])
+	}
+	if mf.HasTools() {
+		cells = append(cells, "offers tools")
+	}
+	for _, c := range mf.Sessions {
+		cells = append(cells, "sessions: "+c)
+	}
+	if len(cells) == 0 {
+		return faint("commands and settings only")
+	}
+	return dim(strings.Join(cells, "   "))
 }
 
 // pluginNeeds is what a plugin needs to run, and where it starts sessions.
@@ -242,10 +304,18 @@ func (m *Model) pluginPage(name string) section {
 	sec.rows = append(sec.rows, setting{
 		label: "requires",
 		line: func(w int) string {
-			return fit("Requires", 16) + paint(cText, ansi.Truncate(needs, max(0, w-16), "…"))
+			return fit("Requires", 16) + ansi.Truncate(needCells(r.m.Requires, r.missing), max(0, w-16), "…")
 		},
 		about: func() (string, string, string) {
-			return "Requires", "What the system must offer for it to run, and the folders sessions it starts may run in.", needs
+			return "Requires", "What the system must offer for it to run, and the folders sessions it starts may run in: ✓ met here, – not.", needs
+		},
+	}, setting{
+		label: "asks for",
+		line: func(w int) string {
+			return fit("Asks for", 16) + ansi.Truncate(askCells(up, &r.m), max(0, w-16), "…")
+		},
+		about: func() (string, string, string) {
+			return "Asks for", "What it may do in rush's screen and with sessions, as its manifest asks.", capWords(up)
 		},
 	})
 	switch r.status {
