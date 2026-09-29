@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -94,14 +95,15 @@ func contextWhere(c keymap.Context) string {
 func (m *Model) keysLen() int { return len(m.keyRows()) }
 
 // keyCaps draws an action's keys as keycaps, a chord in one cap, the
-// alternatives side by side.
-func keyCaps(seqs []keymap.Seq) string {
+// alternatives side by side. lit, when it matches one, lights it: what's
+// being practiced.
+func keyCaps(seqs []keymap.Seq, lit string) string {
 	if len(seqs) == 0 {
 		return faint("no key")
 	}
 	var out []string
 	for _, s := range seqs {
-		out = append(out, keycap(s.String(), false))
+		out = append(out, keycap(s.String(), lit != "" && s.String() == lit))
 	}
 	return strings.Join(out, faint(" or "))
 }
@@ -173,13 +175,17 @@ func (m *Model) keysBody(w int) []string {
 	} else {
 		out = append(out, "")
 	}
+	practicing := ""
+	if len(m.practiced(d.practice)) > 0 {
+		practicing = d.practice.String()
+	}
 	for i := from; i < to; i++ {
 		a := rows[i]
 		var keys string
 		if kp := m.keysTaking(); kp != nil && kp.taking == a.ID {
 			keys = paint(cOrange, " press keys…")
 		} else {
-			keys = keyCaps(km.Keys(a.ID))
+			keys = keyCaps(km.Keys(a.ID), practicing)
 		}
 		title := paint(cText, a.Title)
 		if a.Source != "" {
@@ -231,7 +237,7 @@ func (m *Model) keysBody(w int) []string {
 			out = append(out, text("A key that types a character, p say, can't be one on its own here: start a chord with it instead.")...)
 		}
 	} else if cur.ID != "" {
-		out = append(out, rule(cur.Title, "", w), "", label("Keys")+keyCaps(km.Keys(cur.ID)))
+		out = append(out, rule(cur.Title, "", w), "", label("Keys")+keyCaps(km.Keys(cur.ID), ""))
 		if km.Changed(cur.ID) {
 			def := faint("none")
 			if len(cur.Keys) > 0 {
@@ -239,7 +245,7 @@ func (m *Model) keysBody(w int) []string {
 				for _, k := range cur.Keys {
 					seqs = append(seqs, keymap.Seq(strings.Fields(k)))
 				}
-				def = keyCaps(seqs)
+				def = keyCaps(seqs, "")
 			}
 			out = append(out, label("agtop's")+def+paint(cBlue, "   • yours now: r puts these back"))
 		}
@@ -285,6 +291,8 @@ func (m *Model) keysKey(s string) tea.Cmd {
 		return m.saveBinding(a.ID, []string{})
 	case "r":
 		return m.saveBinding(a.ID, nil)
+	default:
+		return m.practiceKey(s)
 	}
 	return nil
 }
@@ -350,4 +358,64 @@ func (m *Model) saveBinding(id string, keys []string) tea.Cmd {
 		}
 		return nil
 	})
+}
+
+// practiceKey is a key pressed on Keys that isn't the page's own: tried
+// against every action's keys (a chord's first key waits for the rest, up
+// to chordWait), so a key can be pressed to see, live, what it's bound to.
+// A match jumps the page to it and lights its chip; a miss clears back to
+// nothing, ready for the next key tried.
+func (m *Model) practiceKey(s string) tea.Cmd {
+	d := m.dialog
+	if time.Since(d.practiceAt) > chordWait {
+		d.practice = nil
+	}
+	d.practiceAt = time.Now()
+	try := func(seq keymap.Seq) bool {
+		if a := m.practiced(seq); len(a) > 0 {
+			d.practice = seq
+			m.showKey(a[0].ID)
+			return true
+		}
+		if len(seq) < 3 && m.practicedPrefix(seq) {
+			d.practice = seq
+			return true
+		}
+		return false
+	}
+	if !try(append(slices.Clone(d.practice), s)) && !try(keymap.Seq{s}) {
+		d.practice = nil
+	}
+	return nil
+}
+
+// practiced are the actions whose keys are seq, exactly.
+func (m *Model) practiced(seq keymap.Seq) []keymap.Action {
+	if len(seq) == 0 {
+		return nil
+	}
+	s := seq.String()
+	var out []keymap.Action
+	for _, a := range m.keyMap().Actions() {
+		for _, k := range m.keyMap().Keys(a.ID) {
+			if k.String() == s {
+				out = append(out, a)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// practicedPrefix is whether seq begins a longer chord bound to something.
+func (m *Model) practicedPrefix(seq keymap.Seq) bool {
+	s := seq.String()
+	for _, a := range m.keyMap().Actions() {
+		for _, k := range m.keyMap().Keys(a.ID) {
+			if full := k.String(); len(full) > len(s) && strings.HasPrefix(full, s) && full[len(s)] == ' ' {
+				return true
+			}
+		}
+	}
+	return false
 }

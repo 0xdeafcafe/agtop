@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -9,6 +10,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/keymap"
 )
 
 // Settings is a place of pages, and [ and ] go between them, as in every
@@ -85,6 +87,13 @@ type dialog struct {
 	features bool   // Agents shows what agtop can do with the agent
 	advanced bool   // Agents shows the agent's advanced sections
 	keyCtx   int    // which of keymap.Contexts Keys shows
+
+	// practice is a key sequence pressed on Keys, not the page's own, to
+	// try out: it jumps to and lights the chip it's bound to, so a key
+	// can be practiced without changing anything. practiceAt is when the
+	// last one came, to tell a chord from a fresh key.
+	practice   keymap.Seq
+	practiceAt time.Time
 
 	input    []rune
 	asking   string // what the input line is for; empty when not typing
