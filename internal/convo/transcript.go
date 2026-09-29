@@ -422,6 +422,7 @@ func (s *Session) shellResult(t *Turn, out shellOut, at time.Time) {
 	if strings.TrimSpace(out.stderr) != "" {
 		st.Status = Failed
 	}
+	st.readOutput(st.Status == Failed)
 	s.Apply(headless.Result{Subtype: "success"}, at)
 }
 

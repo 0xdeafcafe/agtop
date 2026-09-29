@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // FileChange is everything this session did to one file.
@@ -23,7 +21,7 @@ type FileChange struct {
 	Del     int
 	New     bool
 	Turns   []int
-	Patches []headless.Patch
+	Patches []tool.Patch
 	From    []string // for each patch, the step that made it ("t3:s:toolu_…")
 	Content string   // a new file's content
 	NewFrom string   // the step that created it
@@ -67,18 +65,15 @@ func (s *Session) changesNow() []*FileChange {
 			if n := len(fc.Turns); n == 0 || fc.Turns[n-1] != t.N {
 				fc.Turns = append(fc.Turns, t.N)
 			}
-			var r struct {
-				Type    string `json:"type"`
-				Content string `json:"content"`
-			}
-			_ = jsonx.Unmarshal(st.Result, &r)
+			o := st.out()
 			stepRef := fmt.Sprintf("t%d:s:%s", t.N, st.ID)
-			if r.Type == "create" {
-				fc.New, fc.Content, fc.NewFrom = true, r.Content, stepRef
-				fc.Add += countLines(r.Content)
+			if o.Created {
+				content := st.in().Content
+				fc.New, fc.Content, fc.NewFrom = true, content, stepRef
+				fc.Add += countLines(content)
 				continue
 			}
-			for _, p := range headless.Patches(st.Result) {
+			for _, p := range o.Patches {
 				fc.Patches = append(fc.Patches, p)
 				fc.From = append(fc.From, stepRef)
 				for _, l := range p.Lines {

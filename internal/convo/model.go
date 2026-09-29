@@ -56,7 +56,10 @@ type Step struct {
 	// call is the step's call as agtop's own, read once as the step is
 	// made: the agent's own when it spoke agtop's events, else Claude
 	// Code's words read.
-	call   *tool.Call
+	call *tool.Call
+	// output is how the call came out, as agtop's own: read once, as it
+	// comes back.
+	output *tool.Output
 	parent *Step
 	turn   *Turn // the turn whose steps hold it
 	// A Bash chain's commands as seen running (chainrun.go), and the
@@ -640,6 +643,7 @@ func (s *Session) results(m headless.Message, now time.Time) {
 			continue
 		}
 		st.Output, st.Result, st.End = b.Text, slimResult(st.kind(), m.ToolResult), now
+		st.readOutput(b.IsError)
 		st.Approval = nil
 		switch {
 		case st.Status == Denied:
@@ -946,6 +950,22 @@ func (st *Step) readCall() tool.Call {
 	c := claude.Call(st.ID, st.Tool, st.Input)
 	c.Kind = st.kind()
 	return c
+}
+
+// readOutput reads how the step's call came out, once, as it comes back.
+func (st *Step) readOutput(isError bool) {
+	o := claude.Output(st.Call(), st.Output, isError, st.Result)
+	st.output = &o
+}
+
+// out is how the step's call came out, as agtop's own: its streams, its
+// exit, the hunks it changed, the lines it read. Empty until it's back.
+func (st *Step) out() *tool.Output {
+	if st.output == nil {
+		o := claude.Output(st.Call(), st.Output, st.Status == Failed, st.Result)
+		return &o
+	}
+	return st.output
 }
 
 // in is what the step's call works on, as agtop's own: the path, command,

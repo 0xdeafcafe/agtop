@@ -20,7 +20,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 
 	"github.com/0xdeafcafe/agtop/internal/agtools"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
 // Line is one drawn row. Ref names what it belongs to, for selection and the
@@ -1971,16 +1970,12 @@ func (d *drawer) summary(st *Step) string {
 			return faint(fmt.Sprintf("%d lines", n))
 		}
 	case st.kind() == tool.Edit || st.kind() == tool.Write:
-		var r struct {
-			Type    string `json:"type"`
-			Content string `json:"content"`
-		}
-		_ = jsonx.Unmarshal(st.Result, &r)
-		if r.Type == "create" {
-			return paint(cGreen, fmt.Sprintf("new · %d lines", countLines(r.Content)))
+		o := st.out()
+		if o.Created {
+			return paint(cGreen, fmt.Sprintf("new · %d lines", countLines(st.in().Content)))
 		}
 		add, del := 0, 0
-		for _, p := range headless.Patches(st.Result) {
+		for _, p := range o.Patches {
 			for _, l := range p.Lines {
 				switch {
 				case strings.HasPrefix(l, "+"):
@@ -1994,19 +1989,11 @@ func (d *drawer) summary(st *Step) string {
 			return paint(cGreen, fmt.Sprintf("+%d", add)) + " " + paint(cRed, fmt.Sprintf("−%d", del))
 		}
 	case st.kind() == tool.Read:
-		var r struct {
-			File struct {
-				NumLines   int `json:"numLines"`
-				StartLine  int `json:"startLine"`
-				TotalLines int `json:"totalLines"`
-			} `json:"file"`
-		}
-		if jsonx.Unmarshal(st.Result, &r) == nil && r.File.NumLines > 0 {
-			f := r.File
-			if f.NumLines < f.TotalLines {
-				return faint(fmt.Sprintf("lines %d–%d", f.StartLine, f.StartLine+f.NumLines-1))
+		if f := st.out().Lines; f != nil && f.Count > 0 {
+			if f.Count < f.Total {
+				return faint(fmt.Sprintf("lines %d–%d", f.Start, f.Start+f.Count-1))
 			}
-			return faint(fmt.Sprintf("%d lines", f.TotalLines))
+			return faint(fmt.Sprintf("%d lines", f.Total))
 		}
 	case st.kind() == tool.Search || st.kind() == tool.Glob:
 		if st.Status == OK {
@@ -2029,12 +2016,8 @@ func (d *drawer) summary(st *Step) string {
 }
 
 func bashOut(st *Step) string {
-	var r struct {
-		Stdout string `json:"stdout"`
-		Stderr string `json:"stderr"`
-	}
-	if jsonx.Unmarshal(st.Result, &r) == nil && (r.Stdout != "" || r.Stderr != "") {
-		return r.Stdout + "\n" + r.Stderr
+	if o := st.out(); o.Stdout != "" || o.Stderr != "" {
+		return o.Stdout + "\n" + o.Stderr
 	}
 	return st.Output
 }
@@ -2084,11 +2067,7 @@ func (d *drawer) body(st *Step, indent int) {
 			d.marks = echoMarks(cmd)
 			defer func() { d.marks = nil }()
 		}
-		var r struct {
-			Stdout string `json:"stdout"`
-			Stderr string `json:"stderr"`
-		}
-		if jsonx.Unmarshal(st.Result, &r) == nil && (r.Stdout != "" || r.Stderr != "") {
+		if r := st.out(); r.Stdout != "" || r.Stderr != "" {
 			d.output(r.Stdout, indent, st.Status == Failed && r.Stderr == "")
 			d.spans = nil
 			if strings.TrimSpace(r.Stderr) != "" {
@@ -2221,12 +2200,10 @@ var (
 // in red on the failure's surface, with the way to see the rest.
 func (d *drawer) errorLine(st *Step, indent int, ref string) {
 	text := st.Output
-	var r struct {
-		Stdout string `json:"stdout"`
-		Stderr string `json:"stderr"`
-	}
-	if st.kind() == tool.Shell && jsonx.Unmarshal(st.Result, &r) == nil && r.Stdout+r.Stderr != "" {
-		text = r.Stdout + "\n" + r.Stderr
+	if st.kind() == tool.Shell {
+		if r := st.out(); r.Stdout+r.Stderr != "" {
+			text = r.Stdout + "\n" + r.Stderr
+		}
 	}
 	// The harness's refusal says why in its own words; its tags don't.
 	if m := blockedRe.FindStringSubmatch(st.Output); m != nil && st.Status == Failed {
@@ -2514,18 +2491,14 @@ func prettyJSON(s string) (string, bool) {
 }
 
 func (d *drawer) diff(st *Step, indent int) bool {
-	var r struct {
-		Type    string `json:"type"`
-		Content string `json:"content"`
-	}
-	_ = jsonx.Unmarshal(st.Result, &r)
+	o := st.out()
 	lg := langFor(st.in().Path)
 	pad := d.spine() + strings.Repeat(" ", indent-1)
 	w := d.cw - indent - 9
-	if r.Type == "create" {
+	if o.Created {
 		// A new file is a diff where every line is added.
 		var hs hlState
-		lines := strings.Split(strings.TrimRight(r.Content, "\n"), "\n")
+		lines := strings.Split(strings.TrimRight(st.in().Content, "\n"), "\n")
 		for i, l := range lines {
 			if i >= 30 && !d.o.Verbose {
 				d.add("", bgWell, pad+faint(fmt.Sprintf("  … %d more lines · ctrl+o shows the rest", len(lines)-i)), "")
@@ -2535,7 +2508,7 @@ func (d *drawer) diff(st *Step, indent int) bool {
 		}
 		return true
 	}
-	patches := headless.Patches(st.Result)
+	patches := o.Patches
 	if len(patches) == 0 {
 		return false
 	}

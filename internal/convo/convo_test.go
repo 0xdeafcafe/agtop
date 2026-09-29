@@ -67,7 +67,7 @@ func session() *Session {
 		{22, toolUse("b2", "Bash", map[string]any{"command": "cd /work/agtop/internal/ui && go vet ./... 2>&1 | head -50"})},
 		{23, toolResult("b2", "Exit code 1\ninternal/ui/editor.go:41:2: unreachable code", true,
 			map[string]any{"stdout": "internal/ui/editor.go:41:2: unreachable code", "stderr": ""})},
-		{24, toolUse("w1", "Write", map[string]any{"file_path": "/work/agtop/internal/ui/editor.go"})},
+		{24, toolUse("w1", "Write", map[string]any{"file_path": "/work/agtop/internal/ui/editor.go", "content": "package ui\n\nfunc x() {}\n"})},
 		{25, toolResult("w1", "ok", false, map[string]any{"type": "create", "content": "package ui\n\nfunc x() {}\n"})},
 		{26, toolUse("a1", "Task", map[string]any{"subagent_type": "Explore", "description": "find the preview pane"})},
 		{27, headless.Message{Role: "assistant", ParentToolUseID: "a1", Blocks: []headless.Block{{Type: "tool_use", ID: "a1g", Name: "Grep", Input: raw(map[string]any{"pattern": "previewLines"})}}}},
