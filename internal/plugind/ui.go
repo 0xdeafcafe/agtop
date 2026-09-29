@@ -51,6 +51,9 @@ type uiHub struct {
 	skipped  map[string]string
 	notices  map[string]*bucket
 	sends    map[string][]time.Time
+	// asked is when each plugin was last run by a UI, a command or a
+	// choice, by UI: what lets it show that UI a pick.
+	asked map[string]map[string]time.Time
 
 	pushing  bool
 	lastPush time.Time
@@ -64,7 +67,8 @@ type uiConn struct {
 func newUIHub(b *broker) *uiHub {
 	return &uiHub{b: b, uis: map[*plugin.Conn]*uiConn{}, sessions: map[string]plugin.UISession{},
 		sections: map[string]map[string][]plugin.Section{}, statuses: map[string]map[string]plugin.Status{}, notes: map[string]map[string]plugin.Status{},
-		strikes: map[string]int{}, skipped: map[string]string{}, notices: map[string]*bucket{}, sends: map[string][]time.Time{}}
+		strikes: map[string]int{}, skipped: map[string]string{}, notices: map[string]*bucket{}, sends: map[string][]time.Time{},
+		asked: map[string]map[string]time.Time{}}
 }
 
 // outbox sends notifications on one connection from its own goroutine, so a
@@ -239,9 +243,34 @@ func (h *uiHub) fromUI(ctx context.Context, conn *plugin.Conn, method string, pa
 		if !m.CanUI(plugin.UIInput) {
 			p.Input = nil
 		}
+		h.ask(p.Plugin, p.UI)
 		ctx, cancel := context.WithTimeout(ctx, commandWait)
 		defer cancel()
 		if _, err := callWithin(ctx, conn, "ui.command", p); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, nil
+
+	case "ui.picked":
+		var p plugin.Picked
+		if err := jsonx.Unmarshal(params, &p); err != nil {
+			return nil, badParams(err.Error())
+		}
+		r := h.b.runner(p.Plugin)
+		if r == nil {
+			return nil, fmt.Errorf("%s is not running", p.Plugin)
+		}
+		m, conn := r.live()
+		if conn == nil {
+			return nil, fmt.Errorf("%s is not running", p.Plugin)
+		}
+		if !m.CanUI(plugin.UIInput) {
+			p.Input = nil
+		}
+		h.ask(p.Plugin, p.UI)
+		ctx, cancel := context.WithTimeout(ctx, commandWait)
+		defer cancel()
+		if _, err := callWithin(ctx, conn, "ui.picked", p); err != nil {
 			return nil, err
 		}
 		return map[string]any{}, nil
@@ -330,6 +359,17 @@ func (h *uiHub) do(d plugin.UIDo) {
 			u.out.put("ui.do", d, "")
 		}
 	}
+}
+
+// ask notes that a UI just ran one of a plugin's commands, or chose from
+// its pick.
+func (h *uiHub) ask(name, ui string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.asked[name] == nil {
+		h.asked[name] = map[string]time.Time{}
+	}
+	h.asked[name][ui] = time.Now()
 }
 
 // running is every plugin up now, by name.
@@ -530,6 +570,7 @@ func (h *uiHub) gone(name string) {
 	}
 	delete(h.strikes, name)
 	delete(h.skipped, name)
+	delete(h.asked, name)
 	h.mu.Unlock()
 	h.changed()
 }
@@ -551,6 +592,7 @@ type uiParams struct {
 	Tone     string           `json:"tone"`
 	Box      *plugin.Box      `json:"box"`
 	If       *string          `json:"if"`
+	Pick     *plugin.Pick     `json:"pick"`
 }
 
 // uiNeeds is the capability each of a plugin's ui.* calls needs.
@@ -560,6 +602,7 @@ var uiNeeds = map[string]string{
 	"ui.notify":       plugin.UINotify,
 	"ui.input.set":    plugin.UIInput,
 	"ui.box.note":     plugin.UIInput,
+	"ui.pick":         "",
 	"ui.send":         plugin.UISend,
 	"ui.settings.get": "",
 }
@@ -592,6 +635,8 @@ func (h *uiHub) fromPlugin(p *plugin.Plugin, method string, params jsontext.Valu
 		err = h.setInput(p.Name, &in)
 	case "ui.box.note":
 		err = h.setNote(p.Name, &in)
+	case "ui.pick":
+		err = h.pick(p.Name, &in)
 	case "ui.send":
 		err = h.send(p, &in)
 	case "ui.settings.get":
@@ -717,6 +762,31 @@ func (h *uiHub) setInput(name string, in *uiParams) error {
 		}
 	}
 	h.do(plugin.UIDo{Plugin: name, UI: in.UI, Kind: "input.set", Session: in.Session, Text: in.Text, Box: in.Box, If: in.If})
+	return nil
+}
+
+// pick shows a UI a list to choose from, only in answer to the plugin's
+// command or pick there, within commandWait of it.
+func (h *uiHub) pick(name string, in *uiParams) error {
+	if in.Pick == nil {
+		return badParams("no pick")
+	}
+	h.mu.Lock()
+	at, ok := h.asked[name][in.UI]
+	h.mu.Unlock()
+	if !ok || time.Since(at) > commandWait {
+		return plugin.Denied("a pick is shown only in answer to the plugin's command, run in that window")
+	}
+	p, err := plugin.CleanPick(*in.Pick)
+	if err != nil {
+		return badParams(err.Error())
+	}
+	if p.Session != "" {
+		if err := sessionKey(p.Session); err != nil {
+			return err
+		}
+	}
+	h.do(plugin.UIDo{Plugin: name, UI: in.UI, Kind: "pick", Session: p.Session, Pick: &p})
 	return nil
 }
 

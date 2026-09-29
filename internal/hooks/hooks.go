@@ -182,6 +182,16 @@ func (c *Client) Command(name, command string, s *plugin.UISession, box string, 
 	}
 }
 
+// Picked tells a plugin what was chosen from its pick, off the UI.
+func (c *Client) Picked(p plugin.Picked, done func(error) tea.Msg) tea.Cmd {
+	p.UI = c.id
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		return done(c.call(ctx, "ui.picked", p, nil))
+	}
+}
+
 // Intercept asks the plugins about a message before it goes, off the UI.
 // done always gets an answer: when they can't be asked, or don't answer in
 // time, it's "allow".

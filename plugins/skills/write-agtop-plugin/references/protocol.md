@@ -113,6 +113,10 @@ Something happened in one of agtop's windows. Sent without waiting for the plugi
 
 `text` is as the box shows it, with a long paste as its chip and an image as its marker; `cursor` counts characters from the start; `pastes` and `images` are what each chip and marker stand for. The Prompt's images are attachments rather than markers in its text, numbered 1, 2, 3. Answer `{}` within 10 seconds; the work may go on after.
 
+### `ui.picked` (request)
+
+`{"plugin": "…", "pick": "history", "item": "a1", "action": "enter", "ui": "main", "box": "…", "input": {…}}`: the user chose `item` from the plugin's pick `pick` (see `ui.pick`) with the action on key `action`. `box` and `input` are as in `ui.command`. Answer `{}` within 10 seconds.
+
 ### `ui.intercept` (request) — needs `intercept`
 
 `{"hook": "before-send", "ui": "main", "session": {…}, "text": "…"}`: a message is about to go. Answer one of:
@@ -263,6 +267,10 @@ With `"box": {…}` instead of `text`, it sets the whole box as `ui.command` sho
 ### `ui.box.note` — needs `ui` `input`
 
 `{"session": "…", "text": "stashed · alt+s brings it back", "tone": "dim"}`: a short note, at most 60 characters, on the bottom edge of that session's message box, or with `session` `""` the Prompt's; the tones are as for `ui.status.set`. Empty `text` takes it off. It goes when the plugin stops. Returns `{}`.
+
+### `ui.pick`
+
+`{"ui": "main", "pick": {"id": "history", "title": "Drafts", "about": "…", "tabs": ["Sent", "Cleared"], "tab": 0, "items": [{"id": "a1", "tab": 0, "text": "first line is the row\nthe next two a preview", "meta": "2m ago"}], "actions": [{"key": "enter", "name": "put it back"}, {"key": "ctrl+d", "name": "forget it", "stay": true}], "empty": ["nothing sent yet", "nothing cleared"], "session": "…"}}`: shows that window a list to choose from, filtered as the user types, in tabs `[` and `]` go through. Each action is a key, `enter` or `ctrl+`/`alt+` with a letter or digit, and sends `ui.picked`; one that `stay`s keeps the list open without the item. `session` is whose message box it's about (`""` the Prompt). It's shown only in answer to the user: within 10 seconds of a `ui.command` or `ui.picked` for the plugin in that window, else refused. At most 500 items, 6 tabs and 6 actions. Returns `{}`.
 
 ### `ui.send` — needs `ui` `send`
 

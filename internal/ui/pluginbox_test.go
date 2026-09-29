@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/hooks"
@@ -56,4 +57,43 @@ func TestPluginNoteOnTheBox(t *testing.T) {
 	if m.boxNote("") != "" {
 		t.Fatal("the Prompt has no note")
 	}
+}
+
+// A plugin's pick: tabs, a filter, an action that keeps it open without the
+// row, and one that closes it.
+func TestPluginPick(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	m.hooks = hooks.Static(plugin.UIState{})
+	m.pluginDo(plugin.UIDo{Plugin: "drafts", Kind: "pick", Pick: &plugin.Pick{ID: "h", Title: "Drafts", Tabs: []string{"Sent", "Cleared"},
+		Items:   []plugin.PickItem{{ID: "1", Text: "fix the login"}, {ID: "2", Text: "add tests"}, {ID: "3", Tab: 1, Text: "gone"}},
+		Actions: []plugin.PickAction{{Key: "enter", Name: "put back"}, {Key: "ctrl+d", Name: "forget", Stay: true}}}})
+	s, ok := m.sheet.(*pickSheet)
+	if !ok {
+		t.Fatal("no pick shown")
+	}
+	if body := ansi.Strip(strings.Join(s.body(m, 100, 30), "\n")); !strings.Contains(body, "Sent 2") || !strings.Contains(body, "fix the login") || strings.Contains(body, "gone") {
+		t.Fatalf("body:\n%s", body)
+	}
+	pressKeys(m, "t", "e", "s", "t")
+	if l := s.shown(); len(l) != 1 || l[0].ID != "2" {
+		t.Fatalf("filtered: %+v", l)
+	}
+	if cmd := s.key(m, mustKey("ctrl+d"), "ctrl+d"); cmd == nil || m.sheet == nil || len(s.shown()) != 0 {
+		t.Fatal("forget should tell the plugin and keep the sheet, without the row")
+	}
+	pressKeys(m, "backspace", "backspace", "backspace", "backspace", "]")
+	if s.tab != 1 || len(s.shown()) != 1 {
+		t.Fatalf("tab %d: %+v", s.tab, s.shown())
+	}
+	if cmd := s.key(m, mustKey("enter"), "enter"); cmd == nil || m.sheet != nil {
+		t.Fatal("enter should tell the plugin and close the sheet")
+	}
+}
+
+func mustKey(s string) tea.KeyPressMsg {
+	k, ok := keyOf(s)
+	if !ok {
+		panic("no key " + s)
+	}
+	return k
 }

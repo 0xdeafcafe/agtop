@@ -426,7 +426,7 @@ type UIStatus struct {
 type UIDo struct {
 	Plugin  string `json:"plugin"`
 	UI      string `json:"ui,omitempty"`
-	Kind    string `json:"kind"` // notify, input.set, send
+	Kind    string `json:"kind"` // notify, input.set, send, pick
 	Session string `json:"session,omitempty"`
 	Text    string `json:"text,omitempty"`
 	Tone    string `json:"tone,omitempty"`
@@ -435,6 +435,8 @@ type UIDo struct {
 	// meanwhile is never lost.
 	Box *Box    `json:"box,omitempty"`
 	If  *string `json:"if,omitempty"`
+	// Pick, for pick, is the list to show.
+	Pick *Pick `json:"pick,omitempty"`
 }
 
 // Intercept is what a plugin is asked before a message goes.
@@ -453,4 +455,102 @@ type InterceptResult struct {
 	Reason string `json:"reason,omitempty"`
 	// Plugin is who changed or held it, filled in by the broker.
 	Plugin string `json:"plugin,omitempty"`
+}
+
+// Pick is a list a plugin asks a window to show, for you to choose from:
+// in tabs, filtered as you type, each action on its own key. It's shown
+// only in answer to one of the plugin's commands, soon after you ran it.
+type Pick struct {
+	ID      string       `json:"id"` // the plugin's name for it, given back with the choice
+	Title   string       `json:"title"`
+	About   string       `json:"about,omitempty"`
+	Tabs    []string     `json:"tabs,omitempty"` // none is one list
+	Tab     int          `json:"tab,omitzero"`   // the tab it opens on
+	Items   []PickItem   `json:"items"`
+	Actions []PickAction `json:"actions"`
+	// Empty is what each tab says with nothing in it.
+	Empty []string `json:"empty,omitempty"`
+	// Session is whose message box it's about: a session's id, or "" for
+	// the Prompt.
+	Session string `json:"session,omitempty"`
+}
+
+// PickItem is one row of a Pick.
+type PickItem struct {
+	ID   string `json:"id"`
+	Tab  int    `json:"tab,omitzero"`
+	Text string `json:"text"`           // its first line is the row, the next two a preview
+	Meta string `json:"meta,omitempty"` // on the row's right, faint
+}
+
+// PickAction is what a key does to the chosen item. Stay keeps the list
+// open, without the item, as for forgetting one.
+type PickAction struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	Stay bool   `json:"stay,omitzero"`
+}
+
+// Picked is what was chosen from a Pick, and how.
+type Picked struct {
+	Plugin string `json:"plugin"`
+	Pick   string `json:"pick"`
+	Item   string `json:"item"`
+	Action string `json:"action"` // its key
+	UI     string `json:"ui"`
+	// Box and Input are as in ui.command: whose box, and it whole, for
+	// "input" only.
+	Box   string `json:"box"`
+	Input *Box   `json:"input,omitempty"`
+}
+
+// Limits on a Pick.
+const (
+	MaxPickItems   = 500
+	MaxPickTabs    = 6
+	MaxPickActions = 6
+	MaxPickText    = 4000
+)
+
+// pickKeyRE is a key an action may take: enter, or a key with ctrl or
+// alt, since what's typed filters the list.
+var pickKeyRE = regexp.MustCompile(`^(enter|(ctrl|alt)\+(shift\+)?[a-z0-9])$`)
+
+// CleanPick makes a pick safe to draw, or says why it can't be.
+func CleanPick(p Pick) (Pick, error) {
+	if !cmdRE.MatchString(p.ID) {
+		return p, fmt.Errorf("pick id %q: use lowercase letters, digits and dashes", p.ID)
+	}
+	if len(p.Items) > MaxPickItems || len(p.Tabs) > MaxPickTabs || len(p.Actions) == 0 || len(p.Actions) > MaxPickActions {
+		return p, fmt.Errorf("a pick has 1 to %d actions, at most %d tabs and %d items", MaxPickActions, MaxPickTabs, MaxPickItems)
+	}
+	p.Title, p.About = clip(printable(p.Title), 40), clip(printable(p.About), MaxLineLen)
+	for i := range p.Tabs {
+		p.Tabs[i] = clip(printable(p.Tabs[i]), 20)
+	}
+	for i := range p.Empty {
+		p.Empty[i] = clip(printable(p.Empty[i]), MaxLineLen)
+	}
+	p.Tab = max(0, min(p.Tab, len(p.Tabs)-1))
+	seen := map[string]bool{}
+	for i, a := range p.Actions {
+		if !pickKeyRE.MatchString(a.Key) || a.Key == "ctrl+c" || seen[a.Key] {
+			return p, fmt.Errorf("action key %q: enter, or ctrl+ or alt+ a letter or digit, once each", a.Key)
+		}
+		seen[a.Key] = true
+		p.Actions[i].Name = clip(printable(a.Name), 30)
+	}
+	for i, it := range p.Items {
+		if it.ID == "" || len(it.ID) > 200 || it.Tab < 0 || it.Tab >= max(1, len(p.Tabs)) {
+			return p, fmt.Errorf("item %d: needs an id, and a tab it has", i)
+		}
+		// The text keeps its lines, for the preview; each is made safe.
+		lines := strings.Split(clip(it.Text, MaxPickText), "\n")
+		for j := range lines {
+			lines[j] = printable(lines[j])
+		}
+		p.Items[i].Text = strings.Join(lines, "\n")
+		p.Items[i].Meta = clip(printable(it.Meta), 40)
+	}
+	return p, nil
 }

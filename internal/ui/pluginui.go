@@ -100,6 +100,9 @@ func (m *Model) pluginDo(d plugin.UIDo) tea.Cmd {
 	case "input.set":
 		m.setBox(d)
 		return nil
+	case "pick":
+		m.openPick(d.Plugin, d.Pick)
+		return nil
 	case "send":
 		a := m.agentByKey(d.Session)
 		switch {

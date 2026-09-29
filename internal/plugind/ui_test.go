@@ -612,3 +612,41 @@ func TestUIBoxWhole(t *testing.T) {
 		t.Fatalf("the plugin without input: %s", got)
 	}
 }
+
+// A plugin shows a pick only in answer to its command in that window, and
+// hears what was chosen.
+func TestUIPickAnswersACommand(t *testing.T) {
+	b := testBroker(t)
+	f := addPlugin(t, b, &plugin.Manifest{Name: "pk", Commands: []plugin.CommandSpec{{Name: "go", Description: "Go."}}}, nil)
+	u := attachUI(t, b, "main")
+	pick := map[string]any{"id": "history", "title": "Drafts", "tabs": []string{"Sent", "Cleared"},
+		"items":   []map[string]any{{"id": "a", "text": "one\x1b[31m\ntwo", "tab": 1}},
+		"actions": []map[string]any{{"key": "enter", "name": "put back"}, {"key": "ctrl+d", "name": "forget", "stay": true}}}
+	if err := f.call("ui.pick", map[string]any{"ui": "main", "pick": pick}, nil); err == nil {
+		t.Fatal("a pick shown out of the blue")
+	}
+	if err := u.call("ui.command", map[string]any{"plugin": "pk", "command": "go", "ui": "main"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	<-f.other
+	if err := f.call("ui.pick", map[string]any{"ui": "other", "pick": pick}, nil); err == nil {
+		t.Fatal("a pick shown in a window that didn't ask")
+	}
+	if err := f.call("ui.pick", map[string]any{"ui": "main", "pick": pick}, nil); err != nil {
+		t.Fatal(err)
+	}
+	d := u.waitDo(t)
+	if d.Kind != "pick" || d.Pick == nil || d.Pick.ID != "history" || strings.Contains(d.Pick.Items[0].Text, "\x1b") || !strings.Contains(d.Pick.Items[0].Text, "\n") {
+		t.Fatalf("do: %+v", d)
+	}
+	badKey := map[string]any{"id": "x", "title": "X", "items": []any{}, "actions": []map[string]any{{"key": "q", "name": "quit"}}}
+	if err := f.call("ui.pick", map[string]any{"ui": "main", "pick": badKey}, nil); err == nil {
+		t.Fatal("an action on a key that types was taken")
+	}
+	if err := u.call("ui.picked", map[string]any{"plugin": "pk", "pick": "history", "item": "a", "action": "enter", "ui": "main", "input": map[string]any{"text": "secret"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-f.other; !strings.HasPrefix(got, "ui.picked ") || !strings.Contains(got, `"item":"a"`) || strings.Contains(got, "secret") {
+		t.Fatalf("plugin got %s", got)
+	}
+}
