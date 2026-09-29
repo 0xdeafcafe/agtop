@@ -258,9 +258,12 @@ type Loader struct {
 	UsagePath string
 	usageMod  time.Time
 	files     map[string]fileMemo
-	hosts     host.Lister
-	print     map[int]printEntry
-	Temp      *TempSizes
+	// moved are transcripts found away from where their session started,
+	// by session id: see transcriptOf.
+	moved map[string]string
+	hosts host.Lister
+	print map[int]printEntry
+	Temp  *TempSizes
 	// pastRows are past conversations' rows as last made, and spendVer
 	// counts each agent's spend updates, so an unchanged row is reused.
 	pastRows map[string]pastRow
@@ -475,7 +478,7 @@ func NewLoader(s *state.Store) *Loader {
 		store: s,
 		args:  map[int]argsEntry{}, git: map[string]gitInfo{}, roots: map[string]string{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
-		files: map[string]fileMemo{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{},
+		files: map[string]fileMemo{}, moved: map[string]string{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{},
 		Temp: NewTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"),
 	}
 }
@@ -706,7 +709,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			j := agent.Job{
 				ID: ss.SessionID[:8], Account: acct.Name, Name: ss.Name, State: st, Cwd: ss.Cwd,
 				SessionID: ss.SessionID, CreatedAt: ss.StartedAt(), UpdatedAt: ss.UpdatedAt(),
-				TranscriptPath: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(ss.Cwd), ss.SessionID+".jsonl"),
+				TranscriptPath: l.transcriptOf(acct, ss.Cwd, ss.SessionID),
 			}
 			headless := l.isPrint(tab, ss.PID)
 			if headless && spawnOf(tab, ss.PID, parents) != 0 {
@@ -881,6 +884,24 @@ func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Tabl
 	return a
 }
 
+// transcriptOf is where a session's conversation is now: under the
+// folder it started in, or, once entering a worktree has moved it,
+// wherever it was found, remembered so it's looked for only once.
+func (l *Loader) transcriptOf(acct claude.Account, cwd, sid string) string {
+	if p, ok := l.moved[sid]; ok {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	p := acct.FindTranscript(cwd, sid)
+	if p != acct.TranscriptPath(cwd, sid) {
+		l.moved[sid] = p
+	} else {
+		delete(l.moved, sid)
+	}
+	return p
+}
+
 func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, now time.Time) *Agent {
 	st := info.State
 	switch st {
@@ -901,7 +922,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 		Cwd: info.Cwd, SessionID: info.SessionID, CreatedAt: info.StartedAt, UpdatedAt: info.UpdatedAt,
 	}
 	if info.Kind == string(acct.Profile().Kind) {
-		j.TranscriptPath = filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(info.Cwd), info.SessionID+".jsonl")
+		j.TranscriptPath = l.transcriptOf(acct, info.Cwd, info.SessionID)
 	}
 	// What it runs in the background, as Claude Code's own background
 	// sessions record theirs, so the list says so alike.

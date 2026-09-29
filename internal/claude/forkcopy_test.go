@@ -34,3 +34,22 @@ func TestCopyCheckpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Entering a worktree moves the transcript to that folder's project; it's
+// found there by its session id.
+func TestFindTranscriptAfterAMove(t *testing.T) {
+	a := Account{ConfigDir: t.TempDir()}
+	if got, want := a.FindTranscript("/repo", "sid"), a.TranscriptPath("/repo", "sid"); got != want {
+		t.Fatalf("nowhere yet: %s, want %s", got, want)
+	}
+	moved := a.TranscriptPath("/repo/.claude/worktrees/x", "sid")
+	if err := os.MkdirAll(filepath.Dir(moved), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(moved, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.FindTranscript("/repo", "sid"); got != moved {
+		t.Fatalf("moved: %s, want %s", got, moved)
+	}
+}

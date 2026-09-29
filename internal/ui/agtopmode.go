@@ -254,16 +254,23 @@ func (m *Model) readUnread(c *hostConn) tea.Cmd {
 // conversation Claude Code is writing now. The id it was opened on can
 // change under it: a fork gets its own once Claude Code starts, and a
 // rewind or /clear starts another; the old path would never see the new
-// conversation's subagents.
+// conversation's subagents. Entering a worktree moves the file itself:
+// the fleet finds it again, off the UI, and the pane follows.
 func (m *Model) followSessionID(c *hostConn) {
 	i := c.sess.Info
 	if c.client == nil || i.SessionID == "" || i.Cwd == "" || !agent.ReadsAsClaude(sessionAgent(c)) {
 		return
 	}
-	if c.path != "" && strings.HasSuffix(c.path, string(filepath.Separator)+i.SessionID+".jsonl") {
+	a := m.agentByKey(c.key)
+	if a == nil {
 		return
 	}
-	if a := m.agentByKey(c.key); a != nil {
+	if p := a.TranscriptPath; filepath.Base(p) == i.SessionID+".jsonl" {
+		c.path = p
+		return
+	}
+	if !strings.HasSuffix(c.path, string(filepath.Separator)+i.SessionID+".jsonl") {
+		// A new id the fleet hasn't read yet.
 		c.path = claude.AccountOf(a.Acct).TranscriptPath(i.Cwd, i.SessionID)
 	}
 }

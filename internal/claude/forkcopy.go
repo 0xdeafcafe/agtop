@@ -71,6 +71,22 @@ func (a Account) TranscriptPath(cwd, sessionID string) string {
 	return filepath.Join(a.ProjectsDir(), ProjectSlug(cwd), sessionID+".jsonl")
 }
 
+// FindTranscript is where a session's conversation is now. Entering or
+// leaving a worktree moves it to that folder's project, so when it isn't
+// under the folder the session started in, it's looked for under every
+// project; TranscriptPath when it's nowhere yet. It reads the disk, so
+// never on the UI.
+func (a Account) FindTranscript(cwd, sessionID string) string {
+	p := a.TranscriptPath(cwd, sessionID)
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	if ms, _ := filepath.Glob(filepath.Join(a.ProjectsDir(), "*", sessionID+".jsonl")); len(ms) > 0 {
+		return ms[0]
+	}
+	return p
+}
+
 // CopyCheckpoints gives conversation to the file checkpoints (the files'
 // old contents) that conversation from kept, so a copy of it can still put
 // files back as they were. Claude Code only brings them over itself when
