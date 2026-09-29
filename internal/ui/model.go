@@ -21,7 +21,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/actions"
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/hooks"
@@ -352,8 +351,8 @@ func loadBars() tea.Msg { return barsMsg(statusline.LoadBars()) }
 
 type tickMsg time.Time
 type usageMsg struct {
-	key string // where the reading is kept: see claude.UsageKey
-	u   claude.Usage
+	key string // where the reading is kept: see fleet.ReadingKey
+	u   usage.Reading
 }
 type scanMsg map[string]fleet.Spend
 type previewMsg struct {
@@ -434,16 +433,20 @@ func (m *Model) startMenuBar() tea.Cmd {
 
 // fetchUsage refreshes every account's plan usage from Anthropic. Readings
 // are shared with every other rush through a file, so an account is asked
-// only when its last reading is older than claude.UsageEvery and Anthropic
+// only when its last reading is older than usage.Every and the provider
 // hasn't said to wait; offline (--soak) never asks.
 func (m *Model) fetchUsage() tea.Cmd {
 	path := filepath.Join(state.Dir(), "usage.json")
 	offline := m.offline
-	acct := claude.Active(m.store.Config)
-	return tea.Batch(append(m.fetchLoginUsage(), func() tea.Msg {
-		u := claude.RefreshUsage(path, acct, offline)
-		return usageMsg{key: claude.UsageKey(acct, u), u: u}
-	})...)
+	p := m.store.Config.ActiveAccount().Profile()
+	cmds := m.fetchLoginUsage()
+	if pr, ok := agent.As[agent.PlanReader](loginsKind); ok {
+		cmds = append(cmds, func() tea.Msg {
+			u := pr.RefreshPlan(path, p, offline)
+			return usageMsg{key: fleet.ReadingKey(p, u), u: u}
+		})
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) scan() tea.Cmd {

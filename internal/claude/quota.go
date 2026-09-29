@@ -39,3 +39,9 @@ func (u Usage) Quota(key string) usage.Quota {
 	}
 	return q
 }
+
+// Reading is u as rush's own reading of an account.
+func (u Usage) Reading() usage.Reading {
+	return usage.Reading{AccountID: u.AccountID, Email: u.Email, Org: u.Org, Plan: u.Plan, Role: u.Role, Billing: u.Billing,
+		OrgType: u.OrgType, Extra: u.Extra, Windows: u.Quota("").Windows, FetchedAt: u.FetchedAt, Problem: u.Problem, Fetched: u.Fetched}
+}

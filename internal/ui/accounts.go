@@ -12,7 +12,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/cellw"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/charmbracelet/x/ansi"
@@ -549,7 +548,7 @@ func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
 			return nil
 		}
 		m.confirmThen(fmt.Sprintf("Forget %s (%s)? rush drops its saved sign-in; sessions already on it keep going.", lv.Name, lv.Email), func() tea.Cmd {
-			var keep []claude.Login
+			var keep []state.Login
 			for _, l := range m.store.Config.Logins {
 				if l.ID != lv.ID {
 					keep = append(keep, l)
@@ -560,7 +559,12 @@ func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
 			m.refresh()
 			m.dialog.cursor = max(0, m.dialog.cursor-1)
 			id := lv.ID
-			return func() tea.Msg { _ = claude.ForgetLogin(id); return nil } // the keychain and its home
+			return func() tea.Msg { // the keychain and its home
+				if k, ok := state.Logins(); ok {
+					_ = k.ForgetLogin(id)
+				}
+				return nil
+			}
 		})
 	}
 	return nil
@@ -743,7 +747,7 @@ func (m *Model) limits(r acctRow, w1, w2 int) string {
 		}
 		return fit(msg, w1+w2)
 	}
-	stale := time.Since(q.FetchedAt) > 3*claude.UsageEvery
+	stale := time.Since(q.FetchedAt) > 3*usage.Every
 	var out string
 	for i, cw := range []int{w1, w2} {
 		if i >= len(q.Windows) {

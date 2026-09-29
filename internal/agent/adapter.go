@@ -143,6 +143,19 @@ type QuotaSource interface {
 	Quota(ctx context.Context, p Profile, a Account) (usage.Quota, error)
 }
 
+// PlanReader reads the plans of an agent's accounts, sharing each reading
+// with every rush process through a file.
+type PlanReader interface {
+	// Plan is who p is signed in as, and its limits, as the agent itself
+	// last saw them. It reads the disk only when that record changed.
+	Plan(p Profile) usage.Reading
+	// Readings are the readings shared through path, by key.
+	Readings(path string) map[string]usage.Reading
+	// RefreshPlan is p's reading, asked of the provider unless one shared
+	// through path is fresh enough; offline never asks.
+	RefreshPlan(path string, p Profile, offline bool) usage.Reading
+}
+
 // Accounts signs an agent's home in to one of several accounts. Which
 // accounts there are, and what they're called, is rush's to keep; the
 // adapter keeps their credentials.
