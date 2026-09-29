@@ -21,7 +21,6 @@ var namedYet = map[string]string{
 	// Accounts and state are being reworked into providers and profiles.
 	"internal/ui/settings_claude.go": "Claude Code's own page of Settings",
 	"internal/state/state.go":        "providers",
-	"internal/state/profiles.go":     "providers: an empty kind in older state",
 	// Search's word for what the agent said: who:claude.
 	"internal/convo/search.go": "search syntax",
 	// The efficiency savers are Claude Code plugins, installed with its CLI.

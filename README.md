@@ -104,10 +104,10 @@ Full is what I use every day, tested has been tried against the real program, an
 
 ### Accounts
 
-Settings › Providers lists each installed provider and, under it, the accounts it can run on: who each is, its plan, its limits, and which is in use. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
+Settings › Accounts lists each installed provider and, under it, the accounts it can run on: who each is, its plan, its limits, and which is in use. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
 
-- `enter` switches to an account, `p` makes a provider the default. `a` adds an account, `r` renames, `l` signs in again, `d` forgets.
-- `J` and `K` set the order of providers; `1`–`9` jump to one.
+- `enter` switches to an account. `a` adds an account, `r` renames, `l` signs in again, `d` forgets.
+- `1`–`9` jump to a provider, `o` opens its settings, and `p` goes to Profiles, where the order of providers is set.
 - Codex keeps several sign-ins in agtop's vault and swaps one into `~/.codex`. Copilot runs on whichever of `gh`'s GitHub accounts you pick, without changing `gh`'s own. DeepSeek shows its balance; GLM its Coding Plan's limits.
 
 The top bar shows which provider, account and profile new sessions start on, that account's limits, and the battery and free disk. Settings › Agents shows one installed agent at a time (`1`–`9` picks it) and sets the model, effort and permissions its new sessions start with, plus what's that agent's own (for Claude Code: agent definitions, settings.json and its environment). Settings › Overview shows every provider's account, limits, spend today and this week, and what needs you. Settings › Profiles makes and edits profiles: which agents new sessions run, in order, what happens when their accounts run low, and which folders get which profile.
@@ -133,6 +133,8 @@ A profile is a named list of providers plus what to do when they run out:
 - **At a limit**, for a conversation a usage limit stops: `wait` for the reset, move to another `account` of the same provider and carry on, or `handoff`, which tries another account first and then hands the conversation to the next provider in the list with room.
 
 A session gets the profile picked for it (`#profile <name>`, or `agtop session start --profile`), else the one for the longest folder rule its folder falls under, else the default. It keeps that profile when it's resumed. Your old default agent and switching order became a profile called Default the first time agtop loaded your config.
+
+`alt+w`, from anywhere, lists your profiles and installed providers: pick a profile to make it the default, or a provider to put it first in the default profile. Settings › Profiles does the rest: new profiles, renaming and deleting them, the order of their providers, what happens when accounts run low, and folders (`+ add a folder` starts from the selected session's folder).
 
 ## Sessions
 
@@ -324,6 +326,7 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `ctrl+x` | stop; twice on a stopped agent deletes it |
 | `ctrl+l` | change repo |
 | `ctrl+z` | Zen |
+| `alt+w` | the default profile or provider |
 | `#` | agtop's commands |
 | `/` | the agent's commands and skills |
 | `?` | the guide |
@@ -338,7 +341,6 @@ Every key can move. **Settings → Keys** lists every action, where it works (ev
 
 None of this is in agtop yet. Some of it is being built now, and the rest is next in line.
 
-- **A Profiles page**: create and rename profiles, order their providers, set what they do at a limit, and add a folder rule from the selected session's folder. A key to switch the default profile or provider from anywhere, with a picker.
 - **Limits and prices for everyone**: limits for Kimi and Vibe, prices for Codex and the ACP agents (Copilot's models already say their premium-request multiplier), and Efficiency for agents other than Claude Code.
 - **Copilot's coding agent**, started and steered from agtop rather than only watched.
 - **Codex accounts** read live when they aren't the one in use, rather than showing their last reading.

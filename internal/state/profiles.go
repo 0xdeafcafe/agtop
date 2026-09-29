@@ -47,7 +47,7 @@ const DefaultProfileName = "Default"
 
 // legacyKind is the agent an empty kind meant to older agtops: the one
 // whose accounts are Config.Logins.
-const legacyKind = "claude"
+const legacyKind = "claude" // migration: what older configs meant by no kind
 
 // KindOf is the provider a session's or setting's kind names, with an
 // empty one, as older agtops wrote it, made what it meant.
