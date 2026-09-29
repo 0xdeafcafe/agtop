@@ -24,7 +24,10 @@ func (m *Model) openPluginApproval(pending []plugin.Plugin) {
 	if len(pending) == 0 || m.sheet != nil || m.dialog != nil || m.confirm != nil || m.mode != modeList {
 		return
 	}
-	m.sheet = &pluginApprovalSheet{p: pending[0], rest: pending[1:]}
+	name := pending[0].Name
+	m.sheet = &pluginApprovalSheet{p: pending[0], rest: pending[1:],
+		// Whether it was approved before is read off the UI.
+		approved: goPending(func() bool { _, ok := plugin.Approvals()[name]; return ok })}
 }
 
 // pluginApprovalSheet is agtop plugin approve, without a terminal: what
@@ -36,13 +39,21 @@ type pluginApprovalSheet struct {
 	cur  int // 0 Approve, 1 Not now
 	busy bool
 	err  string
+
+	// approved says it was approved before, and has changed since: it's
+	// read when the sheet opens, and changed is set once it's in.
+	approved *pending[bool]
+	changed  bool
 }
 
 func (s *pluginApprovalSheet) width(*Model) int { return 100 }
 
 func (s *pluginApprovalSheet) body(m *Model, w, h int) []string {
+	if ok, in := s.approved.take(); in {
+		s.approved, s.changed = nil, ok
+	}
 	status := "found, not approved"
-	if _, ok := plugin.Approvals()[s.p.Name]; ok {
+	if s.changed {
 		status = "changed since it was approved"
 	}
 	out := []string{sheetTitle("Plugin", s.p.Name+" · "+status, w), ""}

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -202,11 +203,19 @@ func (m *Model) hashMatches(in []rune, back int) []event.Command {
 }
 
 // newSessionCommands are Claude's commands and skills on disk for the
-// account and folder a new session would start in.
+// account and folder a new session would start in, from memory: they're
+// read in the background, and none show until they have been.
 func (m *Model) newSessionCommands() []claude.Command {
 	acct := m.store.Config.ActiveAccount()
-	return claude.Commands(firstNonEmpty(acct.ConfigDir, claude.DefaultAccount().ConfigDir), m.startDir())
+	cmds, _ := claudeCmds.get(cmdsAt{firstNonEmpty(acct.ConfigDir, claude.DefaultAccount().ConfigDir), m.startDir()})
+	return cmds
 }
+
+// cmdsAt is an account's config folder and the folder a session is in.
+type cmdsAt struct{ dir, cwd string }
+
+// claudeCmds are Claude's commands and skills, read off the UI.
+var claudeCmds = newMemo(30*time.Second, func(k cmdsAt) []claude.Command { return claude.Commands(k.dir, k.cwd) })
 
 // promptPicker is what the Prompt's picker offers, and the prefix its
 // commands take: # for agtop's, / for a new session's.
