@@ -9,8 +9,8 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/keymap"
+	"github.com/0xdeafcafe/agtop/internal/settingsfile"
 )
 
 // Settings is a place of pages, and [ and ] go between them, as in every
@@ -102,8 +102,8 @@ type dialog struct {
 	confirm string
 	onYes   func() tea.Cmd
 
-	agents []agentDef       // Claude Code's agent definitions
-	claude *claude.Settings // Claude Code's settings.json
+	agents   []agent.AgentDef   // the signed-in agent's definitions
+	settings *settingsfile.File // the agent showing's own settings file
 }
 
 func (m *Model) openDialog(p int) {
@@ -113,7 +113,7 @@ func (m *Model) openDialog(p int) {
 
 func (m *Model) loadDialog() {
 	d := m.dialog
-	d.agents = m.agentDefs()
+	d.agents = m.agentDefs(loginsKind)
 	if d.page == pageAccounts || d.page == pageOverview {
 		agent.Recheck() // an agent installed since shows at once
 	}

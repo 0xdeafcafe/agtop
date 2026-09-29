@@ -46,13 +46,16 @@ var agentsPage = page{
 		}
 		secs := []section{m.startSection(k)}
 		var advanced []section
+		var extras []section
 		if extra := agentExtras[k]; extra != nil {
-			for _, s := range extra(m) {
-				if s.advanced {
-					advanced = append(advanced, s)
-				} else {
-					secs = append(secs, s)
-				}
+			extras = extra(m)
+		}
+		extras = append(extras, m.fileSections(k)...)
+		for _, s := range extras {
+			if s.advanced {
+				advanced = append(advanced, s)
+			} else {
+				secs = append(secs, s)
 			}
 		}
 		if len(advanced) == 0 {

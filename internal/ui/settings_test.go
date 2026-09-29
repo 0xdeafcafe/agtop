@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -176,5 +178,31 @@ func TestSettingsProfiles(t *testing.T) {
 	press("*")
 	if cfg.Default().Name != "client" {
 		t.Fatalf("* didn't make it the default: %s", cfg.Default().Name)
+	}
+}
+
+// An agent's own settings file shows as its adapter describes it, and a
+// row changed there is saved to that file; an agent with none shows none.
+func TestAgentFileSections(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, dialog: &dialog{}}
+	secs := m.fileSections("claude")
+	if len(secs) != 2 || secs[0].title != "settings.json" || secs[1].title != "Environment" {
+		t.Fatalf("sections: %+v", secs)
+	}
+	for _, st := range secs[0].rows {
+		if st.label == "Default model" {
+			st.set("opus")
+		}
+	}
+	b, err := os.ReadFile(m.dialog.settings.Path)
+	if err != nil || !strings.Contains(string(b), `"model": "opus"`) {
+		t.Fatalf("settings.json after a change: %s %v", b, err)
+	}
+	if defs := m.agentDefs("claude"); len(defs) == 0 || defs[0].Path != "" {
+		t.Fatalf("the built-in definition isn't first: %+v", defs)
+	}
+	if secs := m.fileSections("nosuch"); secs != nil {
+		t.Fatalf("an unknown agent has sections: %+v", secs)
 	}
 }

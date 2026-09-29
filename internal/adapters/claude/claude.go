@@ -111,6 +111,8 @@ var (
 	_ agent.Describer         = Adapter{}
 	_ agent.SettingsFiler     = Adapter{}
 	_ agent.StatusLiner       = Adapter{}
+	_ agent.SettingsPager     = Adapter{}
+	_ agent.Definer           = Adapter{}
 )
 
 // Doing is a call in a few words, with words of its own for Claude Code's
