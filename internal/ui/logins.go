@@ -299,13 +299,26 @@ func (m *Model) hasRoom() bool {
 // host from before agtop could switch ignores the message: one of those a
 // limit stopped is still stopped after it, so its Claude Code (which holds
 // the old sign-in) is stopped, and it's told to continue, which starts a
-// fresh one. A session whose profile waits at a limit is left to wait.
+// fresh one. A session whose profile waits at a limit is moved all the
+// same, but left to wait: one from homes on starts in the new home when
+// it next runs, and one from before is replaced without a continue.
 func reloginHosts(root claude.Account, cfg state.Config) (resumed, waiting int) {
 	for _, info := range host.List() {
 		if (info.Account != root.Name && info.Account != "") || info.State == "stopped" {
 			continue
 		}
-		if info.Limit != nil && cfg.ProfileFor(info.Cwd, info.Profile).Limit() == state.LimitWait {
+		wait := info.Limit != nil && cfg.ProfileFor(info.Cwd, info.Profile).Limit() == state.LimitWait
+		if !info.Homes && (info.Kind == "" || info.Kind == "claude") {
+			switch {
+			case hostBusy(info):
+				go replaceWhenIdle(info.ID)
+				waiting++
+			case replaceHost(info, !wait) == nil && info.Limit != nil && !wait:
+				resumed++
+			}
+			continue
+		}
+		if wait {
 			continue
 		}
 		c, err := host.Dial(info.ID)
@@ -320,7 +333,7 @@ func reloginHosts(root claude.Account, cfg state.Config) (resumed, waiting int) 
 		case err != nil:
 		case info.Limit != nil:
 			resumed++
-		case info.ClaudePID != 0 && (info.State == "working" || info.State == "blocked" || info.State == "starting"):
+		case hostBusy(info):
 			waiting++
 		}
 		c.Close()
@@ -435,6 +448,61 @@ func (m *Model) useLogin(name string) tea.Cmd {
 	}
 	m.flash("no account named "+name, true)
 	return nil
+}
+
+func hostBusy(info host.Info) bool {
+	return info.ClaudePID != 0 && (info.State == "working" || info.State == "blocked" || info.State == "starting")
+}
+
+// replaceHost stops a host from before homes and starts a new one on the
+// same conversation, which runs as the login in use. What it had queued,
+// or a continue if a limit stopped it and carryOn, is sent to the new one.
+func replaceHost(info host.Info, carryOn bool) error {
+	cfg, err := host.ReadConfig(info.ID)
+	if err != nil {
+		return err
+	}
+	c, err := host.Dial(info.ID)
+	if err != nil {
+		return err
+	}
+	_ = c.Stop()
+	c.Close()
+	for i := 0; i < 50 && syscall.Kill(info.HostPID, 0) == nil; i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	cfg.Resume, cfg.Prompt, cfg.Images = true, "", nil
+	if _, err := host.Spawn(cfg); err != nil {
+		return err
+	}
+	text := strings.Join(info.Queue, "\n\n")
+	if text == "" && info.Limit != nil && carryOn {
+		text = "continue"
+	}
+	if text == "" {
+		return nil
+	}
+	if c, err = host.Dial(info.ID); err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.Send(text)
+}
+
+// replaceWhenIdle replaces a busy host from before homes once its turn is
+// done, unless it stops first.
+func replaceWhenIdle(id string) {
+	for {
+		time.Sleep(2 * time.Second)
+		info, err := host.ReadInfo(id)
+		if err != nil || info.State == "stopped" || syscall.Kill(info.HostPID, 0) != nil {
+			return
+		}
+		if !hostBusy(info) {
+			_ = replaceHost(info, true)
+			return
+		}
+	}
 }
 
 // stillLimited waits up to 3s for a session a limit stopped to carry on.

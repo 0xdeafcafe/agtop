@@ -169,6 +169,10 @@ type Info struct {
 	// another account: it starts again on the new one at its next safe
 	// point, once its turn and the work it left running are done.
 	Relogin bool `json:"relogin,omitempty"`
+	// Homes: its agent starts in the home of the login in use, so it
+	// follows a switch. A host from before homes stays on ~/.claude's
+	// sign-in, and has to be replaced to move.
+	Homes bool `json:"homes,omitzero"`
 }
 
 // Task is one thing running in the background.
@@ -348,7 +352,7 @@ func Run(id string) error {
 		quit: make(chan struct{}),
 		info: Info{ID: cfg.ID, Kind: cfg.Kind, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
 			HostPID: os.Getpid(), State: "idle", Proto: Proto, Model: cfg.Model, Effort: cfg.Effort, PermissionMode: cfg.PermissionMode,
-			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta, Profile: cfg.Profile},
+			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta, Profile: cfg.Profile, Homes: true},
 	}
 	s.publish()
 	if cfg.Prompt != "" || len(cfg.Images) > 0 {
