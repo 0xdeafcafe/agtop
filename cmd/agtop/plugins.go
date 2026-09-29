@@ -114,7 +114,10 @@ func pluginList() error {
 	}
 	for _, b := range plugin.Bundles() {
 		status := "bundled, off: agtop plugin on " + b.Manifest.Name
-		if plugin.BundledOn(b.Manifest.Name) {
+		switch {
+		case b.Manifest.Unmet() != "":
+			status = "bundled, " + b.Manifest.Unmet()
+		case plugin.BundledOn(b.Manifest.Name):
 			status = "bundled, on"
 			if s, ok := running[b.Manifest.Name]; ok {
 				status += ", " + s.State
@@ -135,8 +138,11 @@ func pluginList() error {
 		fmt.Println(err)
 	}
 	for _, p := range installed {
+		_, bundledName := plugin.BundleNamed(p.Name)
 		status := "not approved"
-		if _, ok := plugin.BundleNamed(p.Name); ok {
+		if reason := p.Manifest.Unmet(); reason != "" {
+			status = reason
+		} else if bundledName {
 			status = "not run: a plugin bundled with agtop has this name"
 		} else if a, ok := approvals[p.Name]; ok {
 			status = "approved"

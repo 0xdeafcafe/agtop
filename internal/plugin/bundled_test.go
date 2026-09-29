@@ -33,6 +33,29 @@ func TestBundledOnUntilTurnedOff(t *testing.T) {
 	}
 }
 
+// A plugin's entitlements gate whether it ever runs, bundled or installed:
+// Enabled() leaves out one this system doesn't meet.
+func TestEnabledSkipsUnmetRequirements(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	defer RegisterBundle(Bundle{Manifest: Manifest{Name: "bundle-never", Command: []string{"agtop"},
+		Requires: Requires{OS: []string{"never-an-os"}}}, Run: func(io.ReadWriteCloser) error { return nil }})()
+	if _, ok := Enabled()["bundle-never"]; ok {
+		t.Fatal("a bundled plugin whose OS isn't this one should never be enabled")
+	}
+
+	dir := install(t, Manifest{Name: "p", Command: []string{"bin"}, Requires: Requires{Bin: []string{"never-a-real-binary-xyz"}}}, nil)
+	p, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Approve(p); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Enabled()["p"]; ok {
+		t.Fatal("an approved plugin whose binary is missing should never be enabled")
+	}
+}
+
 func TestBundledManifestIsChecked(t *testing.T) {
 	defer func() {
 		if recover() == nil {

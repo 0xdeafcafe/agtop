@@ -32,8 +32,10 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -137,6 +139,21 @@ type Manifest struct {
 	Settings []SettingSpec `json:"settings,omitempty"`
 	// CLI is the commands it adds to agtop's CLI: see CLISpec.
 	CLI []CLISpec `json:"cli,omitempty"`
+	// Requires is what the system must offer for it to run at all, on top
+	// of being approved: see Requires.
+	Requires Requires `json:"requires,omitempty"`
+}
+
+// Requires gates whether a plugin can run here. Empty fields don't
+// restrict; where several values are given, any one of them is enough,
+// but every field given must be satisfied.
+type Requires struct {
+	// OS is runtime.GOOS values it runs on, e.g. "darwin", "linux".
+	OS []string `json:"os,omitempty"`
+	// Arch is runtime.GOARCH values it runs on, e.g. "arm64", "amd64".
+	Arch []string `json:"arch,omitempty"`
+	// Bin is programs it needs on PATH.
+	Bin []string `json:"bin,omitempty"`
 }
 
 // DefaultMemoryMB is the memory limit a manifest doesn't set.
@@ -183,6 +200,37 @@ func (m Manifest) Memory() uint64 {
 
 // Server is the MCP server name its tools are offered under.
 func (m Manifest) Server() string { return ServerPrefix + m.Name }
+
+// lookPath finds a program on PATH; a test replaces it to check Unmet
+// without touching the real one.
+var lookPath = exec.LookPath
+
+// validate checks the shape of a Requires: bin names are bare program
+// names, not paths, since Unmet only ever looks them up on PATH.
+func (r Requires) validate() error {
+	for _, b := range r.Bin {
+		if b == "" || b != filepath.Base(b) {
+			return fmt.Errorf("requires.bin %q: use a bare program name, found on PATH", b)
+		}
+	}
+	return nil
+}
+
+// Unmet is why m.Requires isn't met here, "" when it is.
+func (m Manifest) Unmet() string {
+	if os := m.Requires.OS; len(os) > 0 && !slices.Contains(os, runtime.GOOS) {
+		return "needs " + strings.Join(os, " or ")
+	}
+	if arch := m.Requires.Arch; len(arch) > 0 && !slices.Contains(arch, runtime.GOARCH) {
+		return "needs " + strings.Join(arch, " or ") + " (this is " + runtime.GOARCH + ")"
+	}
+	for _, bin := range m.Requires.Bin {
+		if _, err := lookPath(bin); err != nil {
+			return "needs " + bin + " on PATH"
+		}
+	}
+	return ""
+}
 
 // ServerPrefix starts every plugin's MCP server name.
 const ServerPrefix = "agtop-"
@@ -283,6 +331,9 @@ func (m Manifest) Validate(dir string) error {
 		return err
 	}
 	if err := m.validateCLI(); err != nil {
+		return err
+	}
+	if err := m.Requires.validate(); err != nil {
 		return err
 	}
 	if len(m.Prompt) > maxPrompt {

@@ -128,10 +128,15 @@ func SetBundled(name string, on bool) error {
 // installed plugin of the same name doesn't run.
 func Enabled() map[string]Approval {
 	out := Approvals()
+	for name, a := range out {
+		if a.Manifest.Unmet() != "" {
+			delete(out, name)
+		}
+	}
 	off := BundledOff()
 	for _, b := range Bundles() {
 		delete(out, b.Manifest.Name)
-		if !slices.Contains(off, b.Manifest.Name) {
+		if !slices.Contains(off, b.Manifest.Name) && b.Manifest.Unmet() == "" {
 			out[b.Manifest.Name] = Approval{Digest: bundledDigest, Manifest: b.Manifest}
 		}
 	}

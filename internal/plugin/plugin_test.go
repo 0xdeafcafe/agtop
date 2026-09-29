@@ -4,6 +4,7 @@ import (
 	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -70,6 +71,8 @@ func TestValidate(t *testing.T) {
 		{"sidebar ok", func(m *Manifest) { m.Sidebar = true }, ""},
 		{"sidebar from mcp", func(m *Manifest) { m.Protocol = ProtoMCP; m.Sidebar = true }, "sidebar"},
 		{"exec ok", func(m *Manifest) { m.Exec = map[string][]string{"kanban": {"~/.local/bin/kanban", "--json"}} }, ""},
+		{"requires bin path", func(m *Manifest) { m.Requires.Bin = []string{"/usr/bin/rg"} }, "requires.bin"},
+		{"requires ok", func(m *Manifest) { m.Requires = Requires{OS: []string{"darwin", "linux"}, Bin: []string{"rg"}} }, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -197,5 +200,30 @@ func TestEnvIsCleanAndFixed(t *testing.T) {
 	}
 	if get("HTTPS_PROXY") != "http://127.0.0.1:4242" || get("AGTOP_IPC_FD") != "3" {
 		t.Fatalf("proxy/ipc env missing: %v", env)
+	}
+}
+
+func TestUnmet(t *testing.T) {
+	empty := Manifest{}
+	if r := empty.Unmet(); r != "" {
+		t.Fatalf("no requirements should always be met, got %q", r)
+	}
+	if r := (Manifest{Requires: Requires{OS: []string{"never-an-os"}}}).Unmet(); r == "" {
+		t.Fatal("an OS this isn't should be unmet")
+	}
+	if r := (Manifest{Requires: Requires{OS: []string{runtime.GOOS}}}).Unmet(); r != "" {
+		t.Fatalf("the running OS should be met, got %q", r)
+	}
+	if r := (Manifest{Requires: Requires{Arch: []string{"never-an-arch"}}}).Unmet(); r == "" {
+		t.Fatal("an arch this isn't should be unmet")
+	}
+	if r := (Manifest{Requires: Requires{Bin: []string{"never-a-real-binary-xyz"}}}).Unmet(); r == "" {
+		t.Fatal("a missing binary should be unmet")
+	}
+	old := lookPath
+	defer func() { lookPath = old }()
+	lookPath = func(string) (string, error) { return "/bin/found", nil }
+	if r := (Manifest{Requires: Requires{Bin: []string{"anything"}}}).Unmet(); r != "" {
+		t.Fatalf("a found binary should be met, got %q", r)
 	}
 }
