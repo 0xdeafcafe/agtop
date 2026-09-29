@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/headless"
 	"github.com/0xdeafcafe/rush/internal/convo"
-	"github.com/0xdeafcafe/rush/internal/headless"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/charmbracelet/x/ansi"
 )

@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
-	"github.com/0xdeafcafe/rush/internal/netwatch"
 	"os"
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/netwatch"
 )
 
 // Every is how old a reading may get before it's read again. Every rush

@@ -3,8 +3,9 @@ package event
 import (
 	"encoding/json/jsontext"
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"reflect"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // names are each event's name on the wire.

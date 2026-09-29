@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/headless"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
-	"github.com/0xdeafcafe/rush/internal/headless"
 )
 
 // A client that says it reads events gets a Claude Code session as rush's

@@ -5,8 +5,9 @@ import (
 	"time"
 
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/convo"
 	"testing"
+
+	"github.com/0xdeafcafe/rush/internal/convo"
 
 	tea "charm.land/bubbletea/v2"
 )

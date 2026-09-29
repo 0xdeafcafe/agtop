@@ -5,12 +5,13 @@ import (
 	"bytes"
 	"encoding/json/jsontext"
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // A brief is a transcript cut down to what the advisor needs: one short

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // SubagentRuns follows a session's subagent runs from its transcript and

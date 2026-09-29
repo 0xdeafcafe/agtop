@@ -1,9 +1,10 @@
 package convo
 
 import (
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"strings"
 	"testing"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 func TestChainLabel(t *testing.T) {

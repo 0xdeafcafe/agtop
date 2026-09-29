@@ -2,10 +2,11 @@ package codex
 
 import (
 	"encoding/base64"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // An auth.json says who it signs in as, from its id token, and an API

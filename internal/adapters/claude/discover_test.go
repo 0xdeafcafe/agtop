@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
-	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // A profile's running sessions and past conversations are found on disk,

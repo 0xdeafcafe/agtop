@@ -1,10 +1,11 @@
 package convo
 
 import (
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 func TestShellLines(t *testing.T) {

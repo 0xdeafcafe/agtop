@@ -2,12 +2,13 @@ package statusline
 
 import (
 	"bytes"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 
 	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
 )

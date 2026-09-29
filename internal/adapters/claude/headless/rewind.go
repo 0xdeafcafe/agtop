@@ -3,10 +3,11 @@ package headless
 import (
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // CheckpointEnv turns on Claude Code's file checkpoints for a headless

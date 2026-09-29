@@ -2,9 +2,10 @@ package agtools
 
 import (
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"strings"
 	"testing"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 func rpc(t *testing.T, msg string) map[string]any {

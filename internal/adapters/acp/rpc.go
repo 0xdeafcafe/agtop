@@ -7,11 +7,12 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // JSON-RPC error codes ACP uses.

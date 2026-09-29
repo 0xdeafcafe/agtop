@@ -1,8 +1,8 @@
 package claude
 
 import (
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // TranscriptPath is the session's file in p's projects folder.

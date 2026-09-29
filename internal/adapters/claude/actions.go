@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/daemon"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
-	"github.com/0xdeafcafe/rush/internal/daemon"
 	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
