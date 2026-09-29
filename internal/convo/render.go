@@ -190,8 +190,24 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	if d.latest != nil {
 		key.latest = d.latest.ID
 	}
-	if c, ok := s.cache[t]; ok && c.key == key {
+	c, ok := s.cache[t]
+	if ok && c.key == key {
 		return c.lines
+	}
+	if ok {
+		d.lines = make([]Line, 0, len(c.lines)+8) // about as long as it was
+	}
+	// A turn on the clock redraws every frame: what's finished in it comes
+	// from the unit memo, drawn as it was, so only what runs is drawn anew.
+	switch {
+	case key.clock && !noUnitMemo:
+		d.unit = &unitKey{base: s.Info.Cwd + "|" + s.Cwd, folds: key.folds, sel: key.sel, focused: key.focused, width: o.Width, cw: d.cw, verb: o.Verbose, pal: palette, gen: key.gen, spine: d.spine()}
+	case t.drawn:
+		// Done: the turn is kept whole now, so its parts needn't be.
+		for _, it := range t.Items {
+			it.drawn = nil
+		}
+		t.drawn = false
 	}
 	if open {
 		d.open()
@@ -263,6 +279,11 @@ type drawer struct {
 	// latest is the session's newest step when it's in this turn: it
 	// shows opened, and never folds into a run.
 	latest *Step
+	// unit is how the turn is being drawn, for the unit memo; nil when the
+	// turn isn't on the clock and is cached whole instead. above is the
+	// last row as a unit's key has it, while it's known: see rowAbove.
+	unit  *unitKey
+	above int8
 }
 
 func (d *drawer) spine() string {
@@ -459,16 +480,29 @@ func (d *drawer) open() {
 	}
 	rowW := min(headW-len([]rune(stripANSI(label)))+3, capProse)
 	// Open, the message is shown whole, line by line; a word longer than a
-	// row, a pasted URL say, is broken across rows.
+	// row, a pasted URL say, is broken across rows. A running turn draws it
+	// every frame, so it's kept as drawn.
 	var rows []string
-	for i, l := range strings.Split(strings.TrimSpace(ask), "\n") {
-		if l = strings.TrimSpace(l); l == "" {
-			if i > 0 && rows[len(rows)-1] != "" {
-				rows = append(rows, "")
-			}
-			continue
+	mk := memoKey{text: ask, style: "ask:" + t.From, n: rowW}
+	if ls, ok := d.s.memoGet(mk); ok {
+		for _, l := range ls {
+			rows = append(rows, l.Text)
 		}
-		rows = append(rows, wrap(style(oneLine(l)), rowW)...)
+	} else {
+		for i, l := range strings.Split(strings.TrimSpace(ask), "\n") {
+			if l = strings.TrimSpace(l); l == "" {
+				if i > 0 && rows[len(rows)-1] != "" {
+					rows = append(rows, "")
+				}
+				continue
+			}
+			rows = append(rows, wrap(style(oneLine(l)), rowW)...)
+		}
+		ls := make([]Line, len(rows))
+		for i, r := range rows {
+			ls[i].Text = r
+		}
+		d.s.memoPut(mk, ls)
 	}
 	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
 		rows, label = []string{dim(unasked(t))}, dim("◌")
@@ -518,92 +552,28 @@ func (d *drawer) open() {
 				j++
 			}
 			if j-i >= 2 {
-				runRef := fmt.Sprintf("%s:run:%d", d.ref, i)
-				if !d.o.Open[runRef] {
-					d.run(runRef, items[i:j])
-					// What the run did that you'd want to see stays out.
-					for _, x := range items[i:j] {
-						d.cards(x.Step, gutter+2)
+				run, runRef := items[i:j], d.ref+":run:"+strconv.Itoa(i)
+				d.memoized(run, runRef, func() {
+					if !d.o.Open[runRef] {
+						d.run(runRef, run)
+						// What the run did that you'd want to see stays out.
+						for _, x := range run {
+							d.cards(x.Step, gutter+2)
+						}
+						return
 					}
-					i = j - 1
-					continue
-				}
-				// Opened: every step of the run, under a row that folds it
-				// back, and nothing after it refolds.
-				d.add(runRef, "", d.spine()+blanks(gutter-1)+faint("▾ "+plural(j-i, "step")), "")
-				for _, x := range items[i:j] {
-					d.step(x.Step, 0)
-				}
+					// Opened: every step of the run, under a row that folds
+					// it back, and nothing after it refolds.
+					d.add(runRef, "", d.spine()+blanks(gutter-1)+faint("▾ "+plural(len(run), "step")), "")
+					for _, x := range run {
+						d.step(x.Step, 0)
+					}
+				})
 				i = j - 1
 				continue
 			}
 		}
-		switch it.Kind {
-		case KText:
-			if it.Answer {
-				d.answer(it.Text)
-			} else {
-				// Narration is the thread you read: set apart from the
-				// steps around it, which stay close together.
-				d.gap()
-				d.prose(it.Text, gutter, cSub)
-				d.gap()
-			}
-		case KThinking:
-			// Thinking shows while it happens; afterwards only in verbose.
-			// While it happens, the live line at the end says so.
-			switch {
-			case d.o.Verbose:
-				d.add("", "", d.spine()+strings.Repeat(" ", gutter-1)+dim("✻ thought"), "")
-				if strings.TrimSpace(it.Text) != "" {
-					d.prose(it.Text, gutter+2, cDim)
-				}
-			}
-		case KCompact:
-			d.compacted(it)
-		case KNotice:
-			col, mark := cDim, "·"
-			switch it.Level {
-			case "warning":
-				col, mark = cYellow, "●"
-			case "error":
-				col, mark = cRed, "●"
-			}
-			for k, r := range wrap(oneLine(it.Text), min(d.cw-10, capProse)) {
-				lead := paint(col, mark) + " "
-				if k > 0 {
-					lead = "  "
-				}
-				d.add("", "", d.spine()+"   "+lead+paint(col, r), "")
-				if k > 0 {
-					d.wrapped()
-				}
-			}
-		case KInterject:
-			// What you said mid-turn stands out from the steps around
-			// it: a band like the turn's own heading, with room either side.
-			rows := imageChips(imageNames(it.Images), min(d.cw-14, capProse))
-			if strings.TrimSpace(it.Text) != "" {
-				rows = append(wrap(styledAsk(oneLine(it.Text), cText+bold), min(d.cw-14, capProse)), rows...)
-			}
-			if n := len(d.lines); n > 0 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) != strings.TrimSpace(stripANSI(d.spine())) {
-				d.blank()
-			}
-			bar := paint(cOrange, "▍")
-			for k, r := range rows {
-				lead, right := paint(cOrange+bold, "you")+"  ", dim("mid-turn")
-				if k > 0 {
-					lead, right = "     ", ""
-				}
-				d.add("", bgLive, d.spine()+"  "+bar+" "+lead+r, right)
-				if k > 0 {
-					d.wrapped()
-				}
-			}
-			d.blank()
-		case KStep:
-			d.step(it.Step, 0)
-		}
+		d.memoized(items[i:i+1], "", func() { d.item(it) })
 	}
 	if t.Live {
 		d.liveLine()
@@ -618,6 +588,222 @@ func (d *drawer) open() {
 	for n := len(d.lines); n > 1 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) == strings.TrimSpace(stripANSI(d.spine())) && d.lines[n-1].Ref == ""; n-- {
 		d.lines = d.lines[:n-1]
 	}
+}
+
+// item draws one thing in an open turn.
+func (d *drawer) item(it *Item) {
+	switch it.Kind {
+	case KText:
+		if it.Answer {
+			d.answer(it.Text)
+		} else {
+			// Narration is the thread you read: set apart from the
+			// steps around it, which stay close together.
+			d.gap()
+			d.prose(it.Text, gutter, cSub)
+			d.gap()
+		}
+	case KThinking:
+		// Thinking shows while it happens; afterwards only in verbose.
+		// While it happens, the live line at the end says so.
+		if d.o.Verbose {
+			d.add("", "", d.spine()+strings.Repeat(" ", gutter-1)+dim("✻ thought"), "")
+			if strings.TrimSpace(it.Text) != "" {
+				d.prose(it.Text, gutter+2, cDim)
+			}
+		}
+	case KCompact:
+		d.compacted(it)
+	case KNotice:
+		d.notice(it)
+	case KInterject:
+		d.interject(it)
+	case KStep:
+		d.step(it.Step, 0)
+	}
+}
+
+// notice is Claude Code telling you something, as loudly as it says.
+func (d *drawer) notice(it *Item) {
+	col, mark := cDim, "·"
+	switch it.Level {
+	case "warning":
+		col, mark = cYellow, "●"
+	case "error":
+		col, mark = cRed, "●"
+	}
+	for k, r := range wrap(oneLine(it.Text), min(d.cw-10, capProse)) {
+		lead := paint(col, mark) + " "
+		if k > 0 {
+			lead = "  "
+		}
+		d.add("", "", d.spine()+"   "+lead+paint(col, r), "")
+		if k > 0 {
+			d.wrapped()
+		}
+	}
+}
+
+// interject is what you said mid-turn: it stands out from the steps
+// around it, a band like the turn's own heading, with room either side.
+func (d *drawer) interject(it *Item) {
+	rows := imageChips(imageNames(it.Images), min(d.cw-14, capProse))
+	if strings.TrimSpace(it.Text) != "" {
+		rows = append(wrap(styledAsk(oneLine(it.Text), cText+bold), min(d.cw-14, capProse)), rows...)
+	}
+	if n := len(d.lines); n > 0 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) != strings.TrimSpace(stripANSI(d.spine())) {
+		d.blank()
+	}
+	bar := paint(cOrange, "▍")
+	for k, r := range rows {
+		lead, right := paint(cOrange+bold, "you")+"  ", dim("mid-turn")
+		if k > 0 {
+			lead, right = "     ", ""
+		}
+		d.add("", bgLive, d.spine()+"  "+bar+" "+lead+r, right)
+		if k > 0 {
+			d.wrapped()
+		}
+	}
+	d.blank()
+}
+
+// unitKey names a finished part of a running turn as drawn: an item, or a
+// run of steps folded together, how far along it had got, and what of the
+// drawing before it that it reads: whether the row above is a gap, whether
+// work has been drawn yet, and the highlighter's state.
+type unitKey struct {
+	it     *Item
+	n      int    // items in it
+	ref    string // a folded run's
+	print  uint64 // what it had, from unitPrint
+	latest bool   // it holds the session's newest step
+	above  int8   // the row above: 0 none, 1 a gap, 2 anything else
+	// The drawer's state going in.
+	worked, subject bool
+	hs              hlState
+	hsPath          string
+	hsN             int
+	// How the turn is drawn: set once for it.
+	folds, sel, spine, base string
+	focused, verb           bool
+	width, cw, pal          int
+	gen                     int64
+}
+
+// unitDrawn is a unit as last drawn, kept on its first item: its rows,
+// the row above the next one, and the drawer's state coming out.
+type unitDrawn struct {
+	key             unitKey
+	lines           []Line
+	above           int8
+	worked, subject bool
+	hs              hlState
+	hsPath          string
+	hsN             int
+}
+
+// memoized draws items with draw, or copies how they were last drawn when
+// nothing they read has changed since. Only a turn on the clock uses it,
+// and only for what's done: a running or waiting step, or text still
+// streaming, reads the clock or changes, and is drawn every time.
+func (d *drawer) memoized(items []*Item, ref string, draw func()) {
+	if d.unit == nil {
+		draw()
+		return
+	}
+	print, ok := unitPrint(items)
+	if !ok {
+		draw()
+		d.above = 0
+		return
+	}
+	k := *d.unit
+	k.it, k.n, k.ref, k.print = items[0], len(items), ref, print
+	k.latest = d.latest != nil && items[0].Step == d.latest
+	k.above = d.rowAbove()
+	k.worked, k.subject, k.hs, k.hsPath, k.hsN = d.worked, d.subject, d.hs, d.hsPath, d.hsN
+	u := items[0].drawn
+	if u == nil || u.key != k {
+		from := len(d.lines)
+		draw()
+		u = &unitDrawn{key: k, lines: append([]Line(nil), d.lines[from:]...), worked: d.worked, subject: d.subject, hs: d.hs, hsPath: d.hsPath, hsN: d.hsN}
+		d.above = 0
+		u.above = d.rowAbove()
+		items[0].drawn = u
+		d.t.drawn = true
+	} else {
+		d.lines = append(d.lines, u.lines...)
+		d.worked, d.subject, d.hs, d.hsPath, d.hsN = u.worked, u.subject, u.hs, u.hsPath, u.hsN
+	}
+	d.above = u.above
+}
+
+// rowAbove is what the last row drawn is, as a unit's key has it: known
+// from the unit before when it came from the memo, as reading a row is
+// dearer than the lookup.
+func (d *drawer) rowAbove() int8 {
+	switch n := len(d.lines); {
+	case d.above != 0:
+		return d.above
+	case n == 0:
+		return 0
+	case d.isBlank(n - 1):
+		d.above = 1
+	default:
+		d.above = 2
+	}
+	return d.above
+}
+
+// unitPrint is a fingerprint of what items have, and whether they're done
+// changing with the clock: none of their steps (nor theirs) runs or waits.
+func unitPrint(items []*Item) (uint64, bool) {
+	h := uint64(14695981039346656037)
+	mix := func(v uint64) { h = (h ^ v) * 1099511628211 }
+	var step func(st *Step) bool
+	step = func(st *Step) bool {
+		if st.Status == Running || st.Status == Waiting {
+			return false
+		}
+		mix(uint64(st.Status))
+		mix(uint64(len(st.Input)))
+		mix(uint64(len(st.Output)))
+		mix(uint64(len(st.Result)))
+		mix(uint64(st.Exit))
+		mix(uint64(st.Start.UnixNano()))
+		mix(uint64(st.End.UnixNano()))
+		mix(uint64(len(st.Children)))
+		for _, c := range st.Children {
+			if !step(c) {
+				return false
+			}
+		}
+		return true
+	}
+	for _, it := range items {
+		mix(uint64(it.Kind))
+		switch it.Kind {
+		case KStep:
+			if !step(it.Step) {
+				return 0, false
+			}
+		case KText, KThinking, KInterject:
+			// Streamed text only grows: its length and how it ends say
+			// how far it's got.
+			mix(uint64(len(it.Text)))
+			for i := max(0, len(it.Text)-8); i < len(it.Text); i++ {
+				mix(uint64(it.Text[i]))
+			}
+			mix(uint64(len(it.Images)))
+			if it.Answer {
+				mix(1)
+			}
+		default:
+			return 0, false // cheap to draw, and read from what can change
+		}
+	}
+	return h, true
 }
 
 // compacted is the line where the conversation was compacted: what set it
@@ -2877,3 +3063,6 @@ func (d *drawer) addWide(ref, left string) {
 	}
 	d.lines = append(d.lines, Line{Text: row(b, left, "", d.o.Width, d.o.Width), Ref: ref})
 }
+
+// noUnitMemo draws every unit anew, for tests to compare against.
+var noUnitMemo bool

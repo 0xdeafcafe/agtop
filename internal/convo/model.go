@@ -125,6 +125,9 @@ type Item struct {
 	Images  []string         // files sent with an interjection
 	Step    *Step
 	Answer  bool // the turn's final words, promoted when the turn ends
+	// drawn is how it (and a run of steps from it) was last drawn, while
+	// its turn runs: see drawer.memoized.
+	drawn *unitDrawn
 }
 
 // Turn runs from your message to Claude's last word.
@@ -159,6 +162,7 @@ type Turn struct {
 	ref     string // "t13", made once
 	waits   bool   // a step waits on you, as of waitVer-1
 	waitVer int
+	drawn   bool // its items hold how they were drawn while it ran
 }
 
 // Outcome is the first line of the turn's answer.
