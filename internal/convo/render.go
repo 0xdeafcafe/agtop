@@ -453,20 +453,28 @@ func (d *drawer) open() {
 		ask = unasked(t)
 	}
 	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
-	styled, label := styledAsk(oneLine(ask), cText+bold), dim("you")
-	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
-		styled, label = dim(unasked(t)), dim("◌")
-	}
+	style, label := func(s string) string { return styledAsk(s, cText+bold) }, dim("you")
 	if t.From != "" {
-		styled, label = sub(oneLine(ask)), dim("◌ "+t.From)
+		style, label = sub, dim("◌ "+t.From)
 	}
 	rowW := min(headW-len([]rune(stripANSI(label)))+3, capProse)
-	rows := wrap(styled, rowW)
-	if strings.TrimSpace(t.Prompt) == "" && t.From == "" && imgs != nil {
-		rows, label, imgs = imageChips(imgs, rowW), dim("you"), nil
+	// Open, the message is shown whole, line by line; a word longer than a
+	// row, a pasted URL say, is broken across rows.
+	var rows []string
+	for i, l := range strings.Split(strings.TrimSpace(ask), "\n") {
+		if l = strings.TrimSpace(l); l == "" {
+			if i > 0 && rows[len(rows)-1] != "" {
+				rows = append(rows, "")
+			}
+			continue
+		}
+		rows = append(rows, wrap(style(oneLine(l)), rowW)...)
 	}
-	if len(rows) > 3 {
-		rows = append(rows[:2], rows[2]+dim(" …"))
+	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
+		rows, label = []string{dim(unasked(t))}, dim("◌")
+		if imgs != nil {
+			rows, label, imgs = imageChips(imgs, rowW), dim("you"), nil
+		}
 	}
 	for i, r := range rows {
 		if i == 0 {
