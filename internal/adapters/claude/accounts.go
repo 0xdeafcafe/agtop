@@ -129,7 +129,11 @@ func (a Adapter) Quota(ctx context.Context, _ agent.Profile, acct agent.Account)
 	return q, nil
 }
 
+// SignedInAs is the login p's folder is signed in as.
+func (Adapter) SignedInAs(p agent.Profile) string { return claude.SignedInAs(Account(p)) }
+
 var (
-	_ agent.Accounts    = Adapter{}
-	_ agent.QuotaSource = Adapter{}
+	_ agent.Accounts     = Adapter{}
+	_ agent.QuotaSource  = Adapter{}
+	_ agent.SignInReader = Adapter{}
 )

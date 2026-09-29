@@ -158,6 +158,12 @@ type Accounts interface {
 	Forget(a Account) error
 }
 
+// SignInReader is an agent whose profile says which account it's signed
+// in as: the account's own id, empty when none. It reads the disk.
+type SignInReader interface {
+	SignedInAs(p Profile) string
+}
+
 // Known is an Accounts whose agent keeps a list of its own sign-ins
 // (Copilot's are gh's): rush lists them as they are.
 type Known interface {

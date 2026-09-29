@@ -21,3 +21,10 @@ type StatusLiner interface {
 	// SetStatusLine makes command p's; "" takes it away.
 	SetStatusLine(p Profile, command string) error
 }
+
+// StatusLineProfiler is a StatusLiner whose command runs with the profile
+// it's for named in its environment: StatusLineProfile reads it, else it's
+// the agent's home.
+type StatusLineProfiler interface {
+	StatusLineProfile() Profile
+}

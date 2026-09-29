@@ -1,10 +1,12 @@
 package claude
 
 import (
+	"os"
 	"path/filepath"
 
 	"github.com/0xdeafcafe/rush/internal/actions"
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/settingsfile"
 )
 
@@ -48,3 +50,14 @@ func (Adapter) SetStatusLine(p agent.Profile, command string) error {
 	}
 	return s.Save()
 }
+
+// StatusLineProfile is the folder Claude Code ran the status line for:
+// CLAUDE_CONFIG_DIR's, else ~/.claude.
+func (Adapter) StatusLineProfile() agent.Profile {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return agent.Profile{Kind: Kind, Dir: dir}
+	}
+	return claude.DefaultAccount().Profile()
+}
+
+var _ agent.StatusLineProfiler = Adapter{}

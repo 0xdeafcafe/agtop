@@ -18,7 +18,6 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
@@ -452,7 +451,11 @@ func planUsage(configDir string) *usage.Quota {
 
 // accountName is the login the config folder at dir is signed in as.
 func accountName(dir string) string {
-	id := claude.SignedInAs(claude.Account{ConfigDir: dir})
+	var id string
+	k := agent.Kind(state.LoginsKind)
+	if r, ok := agent.As[agent.SignInReader](k); ok {
+		id = r.SignedInAs(agent.Profile{Kind: k, Dir: dir})
+	}
 	for _, l := range state.Load().Config.Logins {
 		if l.ID == id && id != "" {
 			return l.Name
@@ -518,9 +521,9 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 	in.raw = raw
-	dir := os.Getenv("CLAUDE_CONFIG_DIR")
-	if dir == "" {
-		dir = claude.DefaultAccount().ConfigDir
+	var dir string
+	if p, ok := agent.As[agent.StatusLineProfiler](agent.Kind(state.LoginsKind)); ok {
+		dir = p.StatusLineProfile().Dir
 	}
 	_, err = fmt.Fprint(stdout, Render(in, Load(), dir, time.Now()))
 	return err
