@@ -43,9 +43,9 @@ var features = map[agent.Feature]agent.Support{
 	agent.FeaturePlan:  agent.No.With("only as an extension"), agent.FeatureSubagents: agent.No.With("only as an extension"),
 	agent.FeatureMCP:      agent.No.With("only as an extension"),
 	agent.FeatureRewind:   agent.No.With("its /tree is its own screen's"),
-	agent.FeatureCommands: agent.Planned.With("prompt templates, skills and extensions' commands"),
+	agent.FeatureCommands: agent.Yes.With("prompt templates and skills; not packages' or extensions'"),
 	agent.FeaturePricing:  agent.No.With("Pi prices each turn itself"),
-	agent.FeatureMemory:   agent.Planned.With("its AGENTS.md files"), agent.FeatureSettings: agent.Planned.With("settings.json"),
+	agent.FeatureMemory:   agent.Yes.With("its AGENTS.md files"), agent.FeatureSettings: agent.Yes.With("settings.json, yours and the project's"),
 }
 
 func (Adapter) Features() map[agent.Feature]agent.Support { return features }

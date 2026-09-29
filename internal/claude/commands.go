@@ -196,3 +196,9 @@ func fileSize(p string) int64 {
 	}
 	return 0
 }
+
+// ReadSkills reads a folder of <name>/SKILL.md skills, and ReadCommands a
+// folder of markdown commands, for agents that keep theirs as Claude Code
+// does.
+func ReadSkills(dir, prefix string) []Command   { return readSkills(dir, prefix) }
+func ReadCommands(dir, prefix string) []Command { return readCommands(dir, prefix) }
