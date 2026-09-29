@@ -55,6 +55,21 @@ type Preview struct {
 	First    Line // the message that started the conversation
 }
 
+// Previewer is an agent that can read a Preview from the last window
+// bytes of a session's transcript at path.
+type Previewer interface {
+	Preview(path string, window int64) Preview
+}
+
+// ReadPreview is agent k's Preview of the transcript at path; empty when
+// k can't read one. It reads the disk, so never on the UI.
+func ReadPreview(k Kind, path string, window int64) Preview {
+	if pv, ok := As[Previewer](k); ok {
+		return pv.Preview(path, window)
+	}
+	return Preview{}
+}
+
 // Line is one message of a Preview.
 type Line struct {
 	Role string // user, assistant, tool

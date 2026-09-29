@@ -15,7 +15,6 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/cellw"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
@@ -478,7 +477,7 @@ func (m *Model) wallPrune(items []wallItem) {
 
 // wallStreamFor is wallStream for the tile key, as drawn last time when
 // nothing it's drawn from has changed since.
-func (m *Model) wallStreamFor(key string, p claude.Preview, live bool, intent string, w, room int) []string {
+func (m *Model) wallStreamFor(key string, p agent.Preview, live bool, intent string, w, room int) []string {
 	f := wallStreamFrom{at: p.At, n: len(p.Recent), live: live, intent: intent, ink: cText + cSub, w: w, room: room}
 	if n := len(p.Recent); n > 0 {
 		f.last = len(p.Recent[n-1].Text)
@@ -501,7 +500,7 @@ func (m *Model) wallStreamFor(key string, p claude.Preview, live bool, intent st
 // first. Lines fade with age: the newest two things bright, a few more dim,
 // the rest faint. live colours the latest tool call's dot; intent is what
 // to show instead, before anything has been said.
-func wallStream(p claude.Preview, live bool, intent string, w, room int) []string {
+func wallStream(p agent.Preview, live bool, intent string, w, room int) []string {
 	if len(p.Recent) == 0 {
 		// The foot already says its Detail; here, what it was asked.
 		say := intent
@@ -607,6 +606,7 @@ func (m *Model) wallTick() tea.Cmd {
 	}
 	type want struct {
 		key, path string
+		kind      agent.Kind
 		had       int64
 	}
 	var wants []want
@@ -619,7 +619,7 @@ func (m *Model) wallTick() tea.Cmd {
 			continue
 		}
 		m.wall.reading[it.key] = true
-		w := want{key: it.key, path: path, had: -1}
+		w := want{key: it.key, path: path, kind: it.a.Acct.Kind, had: -1}
 		if e, ok := m.previews[it.key]; ok {
 			w.had = e.size
 		}
@@ -638,7 +638,7 @@ func (m *Model) wallTick() tea.Cmd {
 				if err != nil || st.Size() == w.had {
 					return
 				}
-				out[i].ok, out[i].e = true, previewEntry{p: claude.ReadPreview(w.path, 128<<10), size: st.Size()}
+				out[i].ok, out[i].e = true, previewEntry{p: agent.ReadPreview(w.kind, w.path, 128<<10), size: st.Size()}
 			})
 		}
 		wg.Wait()

@@ -37,3 +37,6 @@ func (Adapter) ModelName(id string) string { return claude.ModelName(id) }
 func (Adapter) Stats(p agent.Profile) (agent.Stats, error) {
 	return claude.LoadStats(claude.AccountOf(p))
 }
+
+// Preview reads what a session is doing from its transcript's tail.
+func (Adapter) Preview(path string, window int64) agent.Preview { return claude.ReadPreview(path, window) }

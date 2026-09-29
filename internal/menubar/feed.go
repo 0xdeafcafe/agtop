@@ -319,7 +319,7 @@ func doing(a *fleet.Agent) string {
 		return d
 	}
 	if a.TranscriptPath != "" {
-		if p := claude.ReadPreview(a.TranscriptPath, 64<<10); p.Doing != "" {
+		if p := agent.ReadPreview(a.Acct.Kind, a.TranscriptPath, 64<<10); p.Doing != "" {
 			return oneLine(p.Doing)
 		}
 	}

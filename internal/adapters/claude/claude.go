@@ -129,6 +129,7 @@ var (
 	_ agent.Definer           = Adapter{}
 	_ agent.MemoryReader      = Adapter{}
 	_ agent.Brancher          = Adapter{}
+	_ agent.Previewer         = Adapter{}
 	_ agent.ModelNamer        = Adapter{}
 	_ agent.StatsReader       = Adapter{}
 	_ agent.DefaultModeler    = Adapter{}

@@ -13,7 +13,6 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/actions"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
@@ -785,7 +784,7 @@ func (m *Model) submit() tea.Cmd {
 	}
 	// The Prompt only starts new sessions; replies go through a Session's
 	// own message box.
-	if d := m.store.Config.Dispatch; m.startKind() != state.LoginsKind || d.RunIn != "daemon" && (d.Agent == "" || d.Agent == claude.DefaultAgent) {
+	if d := m.store.Config.Dispatch; m.startKind() != state.LoginsKind || d.RunIn != "daemon" && d.OwnAgent() {
 		return m.startHosted(tagged, m.startDir())
 	}
 	d, ok := agent.As[agent.Dispatcher](loginsKind)

@@ -4,13 +4,12 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
-	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // rush's own commands start with #, so / is always Claude's: in the
@@ -202,20 +201,18 @@ func (m *Model) hashMatches(in []rune, back int) []event.Command {
 	return out
 }
 
-// newSessionCommands are Claude's commands and skills on disk for the
-// account and folder a new session would start in, from memory: they're
-// read in the background, and none show until they have been.
-func (m *Model) newSessionCommands() []claude.Command {
-	acct := m.store.Config.ActiveAccount()
-	cmds, _ := claudeCmds.get(cmdsAt{firstNonEmpty(acct.ConfigDir, claude.DefaultAccount().ConfigDir), m.startDir()})
-	return cmds
+// newSessionCommands are the commands and skills on disk of the agent a
+// new session would run, for its profile and the folder it would start
+// in, from memory: they're read in the background, and none show until
+// they have been.
+func (m *Model) newSessionCommands() []agent.Command {
+	k := agent.Kind(m.startKind())
+	p, ok := m.agentProfile(k)
+	if !ok {
+		p = agent.Profile{Kind: k}
+	}
+	return m.commandsOf(k, p, m.startDir())
 }
-
-// cmdsAt is an account's config folder and the folder a session is in.
-type cmdsAt struct{ dir, cwd string }
-
-// claudeCmds are Claude's commands and skills, read off the UI.
-var claudeCmds = newMemo(30*time.Second, func(k cmdsAt) []claude.Command { return claude.Commands(k.dir, k.cwd) })
 
 // promptPicker is what the Prompt's picker offers, and the prefix its
 // commands take: # for rush's, / for a new session's.
