@@ -9,4 +9,5 @@ import (
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/deepseek"
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/glm"
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/ollama"
+	_ "github.com/0xdeafcafe/agtop/internal/adapters/pi"
 )
