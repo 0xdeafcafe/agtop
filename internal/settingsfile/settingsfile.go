@@ -8,11 +8,12 @@ import (
 	"bytes"
 	"encoding/json/jsontext"
 	"errors"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // File is a settings file, edited in place. Keys keep their order, keys

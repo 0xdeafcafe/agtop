@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 
 	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/settingsfile"
 )
 

@@ -3,11 +3,12 @@ package plugin
 import (
 	"encoding/json/jsontext"
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 const uuid = "8c76706f-1c00-4aed-9c6d-7509f3033943"

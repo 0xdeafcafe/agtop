@@ -6,8 +6,9 @@ package agtools
 
 import (
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"strings"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Server is the MCP server's name; Claude Code calls its tools mcp__rush__*.

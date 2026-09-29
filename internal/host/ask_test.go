@@ -1,11 +1,12 @@
 package host
 
 import (
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // fakeAsker answers control requests: a side question, and what fills the

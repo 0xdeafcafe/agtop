@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"errors"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"net"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 func pair(t *testing.T, a, b Handler) (*Conn, *Conn) {

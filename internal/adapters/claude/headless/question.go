@@ -2,6 +2,7 @@ package headless
 
 import (
 	"encoding/json/jsontext"
+
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 

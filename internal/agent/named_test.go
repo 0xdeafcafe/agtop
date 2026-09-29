@@ -11,8 +11,8 @@ import (
 )
 
 // namedOK are the packages that are Claude Code's own, and may call it by
-// name: its adapter, and what it wraps until that moves into the adapter.
-var namedOK = []string{"internal/claude/", "internal/adapters/claude/", "internal/headless/", "internal/daemon/"}
+// name: its adapter, and the packages under it.
+var namedOK = []string{"internal/adapters/claude/"}
 
 // namedYet are files that still name Claude Code, and why. The list only
 // shrinks: a new "claude" belongs behind the Claude adapter, or asks the

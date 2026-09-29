@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/state"
 )

@@ -12,7 +12,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/headless"
 	"github.com/0xdeafcafe/rush/internal/host"
 )
 

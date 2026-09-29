@@ -5,9 +5,9 @@ import (
 	"os/exec"
 	"slices"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/daemon"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
-	"github.com/0xdeafcafe/rush/internal/daemon"
 )
 
 // Claude Code's daemon keeps its background sessions' screens: rush opens

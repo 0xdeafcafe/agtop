@@ -10,10 +10,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
-	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/headless"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
-	"github.com/0xdeafcafe/rush/internal/headless"
 	"github.com/0xdeafcafe/rush/internal/host"
 )
 

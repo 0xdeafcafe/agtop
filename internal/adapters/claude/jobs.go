@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // memos are what was read from each file, kept until it changes.

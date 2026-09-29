@@ -3,8 +3,8 @@ package claude
 import (
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 var _ agent.Timeliner = Adapter{}

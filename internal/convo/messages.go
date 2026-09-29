@@ -2,15 +2,16 @@ package convo
 
 import (
 	"bytes"
-	"github.com/0xdeafcafe/rush/internal/agent/tool"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
-	"github.com/charmbracelet/x/ansi"
 	"maps"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // A message is something Claude said rather than something it ran: to a

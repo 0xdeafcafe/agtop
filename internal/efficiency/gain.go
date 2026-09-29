@@ -2,9 +2,10 @@ package efficiency
 
 import (
 	"context"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os/exec"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Gain is a day of a saver's own account of what it saved. It's the

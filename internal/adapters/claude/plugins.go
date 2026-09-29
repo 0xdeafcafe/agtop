@@ -3,8 +3,8 @@ package claude
 import (
 	"fmt"
 
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // Plugins are the installed plugins and what the marketplaces offer, from

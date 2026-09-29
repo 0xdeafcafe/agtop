@@ -8,11 +8,12 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"strconv"
 	"sync"
 	"sync/atomic"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // MaxFrame bounds one message. A tool result bigger than this is a bug, and

@@ -5,7 +5,6 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"maps"
 	"os"
 	"path/filepath"
@@ -15,6 +14,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // A plugin with the sidebar capability may arrange rush's agent list: its

@@ -1,12 +1,13 @@
 package convo
 
 import (
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Subagent is one run of a subagent, as Claude Code records it beside the

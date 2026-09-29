@@ -3,8 +3,9 @@ package convo
 import (
 	"strings"
 
-	"github.com/charmbracelet/x/ansi"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestMarkdownImagesAndLinks(t *testing.T) {

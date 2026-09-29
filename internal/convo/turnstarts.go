@@ -3,9 +3,10 @@ package convo
 import (
 	"bufio"
 	"bytes"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"os"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // TurnStart is where a turn begins in a transcript: the byte offset of the

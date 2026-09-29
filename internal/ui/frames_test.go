@@ -10,7 +10,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/headless"
 )
 
 // TestDumpFrames writes whole frames in a few states to $RUSH_FRAMES,

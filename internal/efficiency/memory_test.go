@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
+	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	. "github.com/0xdeafcafe/rush/internal/efficiency"
 )
 

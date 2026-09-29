@@ -2,12 +2,13 @@ package efficiency
 
 import (
 	"bufio"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Event is something that changed how tokens are spent: a saver installed
