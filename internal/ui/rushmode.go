@@ -898,7 +898,8 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 			s := t.Sess
 			if d, since := s.Doing(); d != "" {
 				doing = paint(cText, d)
-				if el := now.Sub(since); el >= 5*time.Second {
+				// A history read back has no times: no start, no elapsed.
+				if el := now.Sub(since); !since.IsZero() && el >= 5*time.Second {
 					doing += dim(" " + dur(el.Round(time.Second)))
 				}
 			} else {
