@@ -2,6 +2,7 @@ package ui
 
 import (
 	"cmp"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"os"
 	"runtime"
@@ -345,5 +346,25 @@ func TestSpacesPreviewShowsASession(t *testing.T) {
 	convo.SetShowWhitespace(false)
 	if s := shown(); strings.Contains(s, "→   →") || strings.Contains(s, "·send") {
 		t.Errorf("hidden: marks in the preview:\n%s", s)
+	}
+}
+
+// Clicking a tab in the header goes to its place, and a page's name under
+// it to that page.
+func TestClickingTabs(t *testing.T) {
+	m, _ := benchModel(200, 60)
+	col := func(line, name string) int {
+		before, _, _ := strings.Cut(ansi.Strip(line), name)
+		return cellw.String(before) + 1
+	}
+	m.setView(placeAgents)
+	if _, ok := m.clickTab(col(m.header()[3], "Settings"), 3); !ok || m.view != placeSettings || m.dialog == nil {
+		t.Fatalf("clicking Settings left the view at %d", m.view)
+	}
+	if _, ok := m.clickTab(col(m.underHead()[0], "Keys"), m.headH()); !ok || m.dialog.page != pageKeys {
+		t.Errorf("clicking Keys: page %d", m.dialog.page)
+	}
+	if _, ok := m.clickTab(2, m.headH()); ok {
+		t.Error("a click left of the pages turned one")
 	}
 }

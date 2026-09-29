@@ -213,28 +213,77 @@ func withTabHint(strip, keys, what, rest string, w int) string {
 	return strip + hint + rest
 }
 
-// pages are the pages of the place you're in, the one showing bright; [
-// and ] go through them. In Agents it says whether Zen is on.
-func (m *Model) pages() string {
-	var names []string
-	cur, hint := 0, "[ ]"
+// pageTabs are the pages of the place you're in, the one showing, and
+// what turns to one; none where the place has no pages.
+func (m *Model) pageTabs() (names []string, cur int, turn func(int) tea.Cmd) {
 	switch {
 	case m.dialog != nil:
 		for _, p := range m.settingsPages() {
 			names = append(names, p.name)
 		}
-		cur = m.dialog.page
+		return names, m.dialog.page, func(i int) tea.Cmd { m.setSettingsPage(i); return nil }
 	case m.mode == modeEff:
-		names, cur = effPages, m.eff.page
+		return effPages, m.eff.page, func(i int) tea.Cmd { m.setEffPage(i); return m.effOpen() }
 	case m.mode == modeProjects:
-		names, cur = m.projPageNames(), m.projTab()
+		return m.projPageNames(), m.projTab(), func(i int) tea.Cmd { m.setProjPage(i); return nil }
+	case m.zen || m.hosted != "":
+		return nil, 0, nil
+	case m.mode == modeWall || m.view == placeAgents:
+		return agentsPages, m.work.page, func(i int) tea.Cmd { m.setAgentsPage(i); return m.refreshFolders() }
+	}
+	return nil, 0, nil
+}
+
+// clickTab goes to the place or page whose tab is at x on row y of the
+// header, reporting whether there was one.
+func (m *Model) clickTab(x, y int) (tea.Cmd, bool) {
+	if m.zen || y >= m.topH() {
+		return nil, false
+	}
+	// at is which of names is drawn over x in line.
+	at := func(line string, names []string) int {
+		line = ansi.Strip(line)
+		for i, n := range names {
+			if j := strings.Index(line, n); j >= 0 {
+				if c := cellw.String(line[:j]); x >= c-1 && x <= c+cellw.String(n) {
+					return i
+				}
+			}
+		}
+		return -1
+	}
+	if y == m.headH() {
+		names, _, turn := m.pageTabs()
+		if i := at(m.underHead()[0], names); i >= 0 {
+			return turn(i), true
+		}
+		return nil, false
+	}
+	tabRow := 3 // under the text beside clanker; the last line of the narrow header
+	if m.w < narrowHead {
+		tabRow = 2
+	}
+	if y == tabRow {
+		if i := at(m.header()[y], viewNames); i >= 0 && (m.hosted == "" || i != placeProjects) {
+			m.setView(i)
+			return tea.Batch(m.loadPreview(), m.effOpen(), m.projectsOpen()), true
+		}
+	}
+	return nil, false
+}
+
+// pages are the pages of the place you're in, the one showing bright; [
+// and ] go through them. In Agents it says whether Zen is on.
+func (m *Model) pages() string {
+	hint := "[ ]"
+	switch {
 	case m.zen:
 		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
-	case m.hosted != "":
+	case m.dialog == nil && m.mode != modeEff && m.mode != modeProjects && m.hosted != "":
 		return "" // no zen in hosted
-	case m.mode == modeWall || m.view == placeAgents:
-		names, cur = agentsPages, m.work.page
-	default:
+	}
+	names, cur, _ := m.pageTabs()
+	if names == nil {
 		return faint("   ctrl+z zen")
 	}
 	out := make([]string, len(names))

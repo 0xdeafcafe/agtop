@@ -1280,6 +1280,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Button == tea.MouseLeft && m.clickBox(msg.X, msg.Y) {
 			return m, nil
 		}
+		if msg.Button == tea.MouseLeft {
+			if cmd, ok := m.clickTab(msg.X, msg.Y); ok {
+				return m, cmd
+			}
+		}
 		// Grabbing the edge between list and pane resizes the list.
 		if msg.Button == tea.MouseLeft && m.listW > 0 && m.mode == modeList && (msg.X == m.listW || msg.X == m.listW+1) {
 			m.dragging = true
