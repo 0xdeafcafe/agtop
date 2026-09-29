@@ -120,7 +120,6 @@ type Model struct {
 	liveFailedAt time.Time
 	hover        string
 	rowKeys      []string
-	headHits     []headHit // the list header's toggles, for clicks
 	listTop      int
 	lastClick    time.Time
 
@@ -606,22 +605,6 @@ func (m *Model) mouseMove(x, y int) tea.Cmd {
 func (m *Model) mouseClick(x, y int) tea.Cmd {
 	if m.mode == modeWall {
 		return m.wallClick(x, y)
-	}
-	if y == m.listTop-1 && x < m.listW && m.mode == modeList && m.dialog == nil {
-		for _, h := range m.headHits {
-			if x >= h.from && x < h.to {
-				if h.what == "split" {
-					m.toggleSplit()
-					return m.refreshFolders()
-				}
-				m.cycleGroupBy()
-				return nil
-			}
-		}
-		if col := m.headerColumn(x); col != "" {
-			m.setSort(col)
-		}
-		return nil
 	}
 	k := m.rowAt(x, y)
 	if k == "" {

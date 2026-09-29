@@ -1457,11 +1457,7 @@ func (m *Model) columnHeader(w int) string {
 	if !m.stacked(w, nameCol) {
 		left += dim("LATEST")
 	}
-	if sortBy == "recent" {
-		left += paint(cSub+bold, " · by recent activity")
-	}
 	rightW := wAct + wCPU + wRAM + wTok + wCost + wAge + 3
-	left = m.listToggles(left, w-rightW)
 	cols := dim(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("TOKENS", "tokens", wTok) + col("COST", "cost", wCost) + col("TIME", "time", wAge+2) + " "
 	gap := w - cellw.String(left) - rightW
 	if gap < 1 {
@@ -1497,64 +1493,6 @@ func (m *Model) listFilterHeader(f *listFilterState, w int) string {
 		return fit(left, w)
 	}
 	return left + strings.Repeat(" ", gap) + dim(meta) + " "
-}
-
-// listToggles adds to the column header how the list is arranged, each
-// part a click away: the grouping (ctrl+s goes to the next), and whether
-// sections are split by project (ctrl+p). Only where there's room.
-func (m *Model) listToggles(left string, room int) string {
-	m.headHits = m.headHits[:0]
-	if m.activeSidebar() != nil {
-		return left
-	}
-	group := dim("by ") + paint(cSub, m.groupLabel(m.store.Config.GroupBy))
-	split := faint("□ projects")
-	if m.splitProjects() {
-		split = paint(cOrange, "▣ ") + paint(cSub, "projects")
-	}
-	at := cellw.String(left) + 3
-	gw, sw := cellw.String(group), cellw.String(split)
-	if at+gw+3+sw+1 > room {
-		if at+sw+1 > room {
-			return left
-		}
-		m.headHits = append(m.headHits, headHit{at, at + sw, "split"})
-		return left + "   " + split
-	}
-	m.headHits = append(m.headHits, headHit{at, at + gw, "group"}, headHit{at + gw + 3, at + gw + 3 + sw, "split"})
-	return left + "   " + group + faint(" · ") + split
-}
-
-// headHit is a stretch of the column header a click toggles.
-type headHit struct {
-	from, to int
-	what     string
-}
-
-// headerColumn maps a click on the column header to the sort it selects.
-func (m *Model) headerColumn(x int) string {
-	w := m.listW
-	wAct, wCPU, wRAM, wTok, wCost := colWidths(w)
-	edges := []struct {
-		from int
-		mode string
-	}{
-		{w - 1 - (wAge + 2), "time"},
-		{w - 1 - (wAge + 2) - wCost, "cost"},
-		{w - 1 - (wAge + 2) - wCost - wTok, "tokens"},
-		{w - 1 - (wAge + 2) - wCost - wTok - wRAM, "ram"},
-		{w - 1 - (wAge + 2) - wCost - wTok - wRAM - wCPU, "cpu"},
-		{w - 1 - (wAge + 2) - wCost - wTok - wRAM - wCPU - wAct, ""},
-	}
-	for _, e := range edges {
-		if x >= e.from {
-			return e.mode
-		}
-	}
-	if x < 3+m.nameColumn(w)+2 {
-		return "name"
-	}
-	return "recent"
 }
 
 // nameColumn is where summaries start: wide enough for most names, never
