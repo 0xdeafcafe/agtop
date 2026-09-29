@@ -403,6 +403,12 @@ func (m *Model) onGrow(msg growMsg) tea.Cmd {
 // subState is how a subagent run stands: the status its task-finished
 // notice gave (or failed), and whether it is still working.
 func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
+	return c.subStateIn(sa, nil)
+}
+
+// subStateIn is subState with the session's SubagentJobs, for asking of
+// many runs at once; nil looks each one up.
+func (c *hostConn) subStateIn(sa convo.Subagent, jobs map[string]*convo.Job) (status string, live bool) {
 	if strings.HasPrefix(sa.ID, spawnPrefix) {
 		return c.spawnState(sa)
 	}
@@ -420,7 +426,13 @@ func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
 	// hears otherwise, however long the run goes quiet (a long command, a
 	// long think), and one launched in the background has no step still
 	// running to say so.
-	if j := c.sess.SubagentJob(sa.ID, sa.ToolUseID); j != nil {
+	var j *convo.Job
+	if jobs == nil {
+		j = c.sess.SubagentJob(sa.ID, sa.ToolUseID)
+	} else if j = jobs[sa.ID]; j == nil && sa.ToolUseID != "" {
+		j = jobs["call:"+sa.ToolUseID]
+	}
+	if j != nil {
 		if !j.Running() && status == "" && j.Status != "ended" {
 			status = j.Status
 		}
@@ -446,8 +458,9 @@ func (c *hostConn) subState(sa convo.Subagent) (status string, live bool) {
 // first: one writing doesn't move it, so the dock's rows stay put.
 func (c *hostConn) runningSubs() []convo.Subagent {
 	var out []convo.Subagent
+	jobs := c.sess.SubagentJobs()
 	for i := len(c.subs) - 1; i >= 0; i-- {
-		if _, live := c.subState(c.subs[i]); live {
+		if _, live := c.subStateIn(c.subs[i], jobs); live {
 			out = append(out, c.subs[i])
 		}
 	}
@@ -713,13 +726,14 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		live   bool
 	}
 	var rows []row
+	jobs := c.sess.SubagentJobs()
 	for i := len(c.subs) - 1; i >= 0; i-- { // newest first
 		sa := c.subs[i]
 		r := row{sa: sa, t: noSession}
 		if t := c.subTails[sa.ID]; t != nil {
 			r.t = t.Sess
 		}
-		r.status, r.live = c.subState(sa)
+		r.status, r.live = c.subStateIn(sa, jobs)
 		if r.live {
 			running++
 		}

@@ -44,7 +44,7 @@ func (m *Model) loadSnapCmd() tea.Cmd {
 }
 
 // onSnap applies a reading of the fleet.
-func (m *Model) onSnap(msg snapMsg) {
+func (m *Model) onSnap(msg snapMsg) tea.Cmd {
 	m.snapLoading = false
 	m.applySnap(msg.snap, msg.sidebars)
 	if k := msg.jump; k != "" && m.agentByKey(k) != nil {
@@ -56,7 +56,7 @@ func (m *Model) onSnap(msg snapMsg) {
 		m.sel = k
 		m.rebuild()
 	}
-	m.watchShells()
+	return m.watchShells()
 }
 
 // refreshNow reads the fleet on the calling goroutine: for --render and

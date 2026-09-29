@@ -73,6 +73,30 @@ func (s *Session) SubagentJob(id, toolUseID string) *Job {
 	return nil
 }
 
+// SubagentJobs are the subagent runs' tasks by agent id and by the tool
+// call that started each: SubagentJob for many runs at once, as a view
+// asks for every run's on every frame.
+func (s *Session) SubagentJobs() map[string]*Job {
+	if s == nil {
+		return map[string]*Job{}
+	}
+	out := map[string]*Job{}
+	for _, j := range s.jobs {
+		if s.JobKind(j) != "subagent" {
+			continue
+		}
+		if _, ok := out[j.ID]; !ok {
+			out[j.ID] = j
+		}
+		if j.ToolUseID != "" {
+			if _, ok := out["call:"+j.ToolUseID]; !ok {
+				out["call:"+j.ToolUseID] = j
+			}
+		}
+	}
+	return out
+}
+
 // RunningJobs are the tasks still running, in the order they started.
 func (s *Session) RunningJobs() []*Job {
 	var out []*Job

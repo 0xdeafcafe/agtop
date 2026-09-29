@@ -14,11 +14,12 @@ import (
 
 // watchShells shows the open conversation what its Bash calls have
 // running: the shells Claude Code runs them in and every process under
-// them, so a chain can say which of its commands runs now.
-func (m *Model) watchShells() {
+// them, so a chain can say which of its commands runs now. Each process's
+// words are read off the UI's goroutine; they land as a shellsMsg.
+func (m *Model) watchShells() tea.Cmd {
 	c := m.host
 	if c == nil || c.sess == nil || m.snap == nil || m.snap.Table == nil || c.sess.Live() == nil {
-		return
+		return nil
 	}
 	pid := c.sess.Info.ClaudePID
 	if pid == 0 {
@@ -27,22 +28,37 @@ func (m *Model) watchShells() {
 		}
 	}
 	if pid == 0 {
-		return
+		return nil
 	}
-	tab := m.snap.Table
-	var shells []convo.Shell
-	for _, k := range tab.Children[pid] {
-		p := tab.Procs[k]
-		if p == nil || !shellComm(p.Comm) {
-			continue
+	tab, key := m.snap.Table, c.key
+	return func() tea.Msg {
+		var shells []convo.Shell
+		for _, k := range tab.Children[pid] {
+			p := tab.Procs[k]
+			if p == nil || !shellComm(p.Comm) {
+				continue
+			}
+			cmd := proc.CommandLine(k)
+			if !strings.Contains(cmd, " eval ") {
+				continue // an MCP server or hook run through a shell, not a Bash call
+			}
+			shells = append(shells, convo.Shell{Cmd: cmd, Start: p.Start, Kids: shellKids(tab, k, 0)})
 		}
-		cmd := proc.CommandLine(k)
-		if !strings.Contains(cmd, " eval ") {
-			continue // an MCP server or hook run through a shell, not a Bash call
-		}
-		shells = append(shells, convo.Shell{Cmd: cmd, Start: p.Start, Kids: m.shellKids(tab, k, 0)})
+		return shellsMsg{key: key, shells: shells}
 	}
-	c.sess.WatchShells(shells, time.Now())
+}
+
+// shellsMsg is what the open conversation's shells run, read by watchShells.
+type shellsMsg struct {
+	key    string
+	shells []convo.Shell
+}
+
+// onShells hands the conversation still open what its shells run.
+func (m *Model) onShells(msg shellsMsg) {
+	if c := m.host; c != nil && c.sess != nil && c.key == msg.key {
+		c.sess.WatchShells(msg.shells, time.Now())
+	}
 }
 
 func shellComm(c string) bool {
@@ -54,7 +70,7 @@ func shellComm(c string) bool {
 }
 
 // shellKids is the process tree under pid, with each process's words.
-func (m *Model) shellKids(tab *proc.Table, pid, depth int) []convo.ShellProc {
+func shellKids(tab *proc.Table, pid, depth int) []convo.ShellProc {
 	if depth > 6 {
 		return nil
 	}
@@ -68,7 +84,7 @@ func (m *Model) shellKids(tab *proc.Table, pid, depth int) []convo.ShellProc {
 		if len(args) == 0 {
 			args = []string{p.Comm}
 		}
-		out = append(out, convo.ShellProc{PID: k, Args: args, Start: p.Start, Kids: m.shellKids(tab, k, depth+1)})
+		out = append(out, convo.ShellProc{PID: k, Args: args, Start: p.Start, Kids: shellKids(tab, k, depth+1)})
 	}
 	return out
 }

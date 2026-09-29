@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
@@ -154,11 +155,46 @@ var (
 	logOneline = regexp.MustCompile(`^([0-9a-f]{7,40}) (?:\([^)]*\) )?(.*)$`)
 )
 
+// textMemo keeps what was worked out of commands' text: a frame reads the
+// same few again and again. It starts again past a few thousand.
+type textMemo[T any] struct {
+	sync.Mutex
+	m map[string]T
+}
+
+var (
+	gitCallsMemo textMemo[[]gitCall]
+	heredocsMemo textMemo[string]
+)
+
+func memo[T any](c *textMemo[T], k string, f func(string) T) T {
+	c.Lock()
+	v, ok := c.m[k]
+	c.Unlock()
+	if ok {
+		return v
+	}
+	v = f(k)
+	c.Lock()
+	if c.m == nil || len(c.m) >= 4096 {
+		c.m = map[string]T{}
+	}
+	c.m[k] = v
+	c.Unlock()
+	return v
+}
+
 // gitCall is one git command of a chain: what it was, and its arguments up
 // to the end of that command.
 type gitCall struct{ verb, args string }
 
+// gitCalls are cmd's git commands. A command never changes and every frame
+// asks again of each one drawn, so what it found is kept.
 func gitCalls(cmd string) []gitCall {
+	return memo(&gitCallsMemo, cmd, parseGitCalls)
+}
+
+func parseGitCalls(cmd string) []gitCall {
 	var out []gitCall
 	// A heredoc is what a command is fed, not what it runs: a script that
 	// mentions git commit doesn't commit.
@@ -408,6 +444,13 @@ func flagValues(s string, flag *regexp.Regexp) []string {
 // blankHeredocs is s with each heredoc's lines blanked out, byte for byte,
 // so what's found in it is where it is in s.
 func blankHeredocs(s string) string {
+	if !strings.Contains(s, "<<") {
+		return s
+	}
+	return memo(&heredocsMemo, s, blankHeredocsOf)
+}
+
+func blankHeredocsOf(s string) string {
 	b := []byte(s)
 	for _, m := range stdinDoc.FindAllStringSubmatchIndex(s, -1) {
 		nl := strings.IndexByte(s[m[1]:], '\n')
