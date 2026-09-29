@@ -25,7 +25,8 @@ func (m *Model) relayout() tea.Cmd {
 		return nil
 	}
 	_, paneW, _ := m.layout()
-	if !c.stale && (!c.drewConvo || c.paneW == paneW) {
+	// The pane draws the Session 3 columns in from its edge (listView).
+	if !c.stale && (!c.drewConvo || c.paneW == paneW-3) {
 		return nil
 	}
 	m.relayPending = true
