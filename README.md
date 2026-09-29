@@ -182,7 +182,7 @@ Running shells, monitors, workflows and subagents sit in the dock under the conv
 
 - `/fork` a conversation, from any turn, into the same folder or a new worktree, with its own model, effort and permissions.
 - `/rewind` to before one of your messages, keeping the code or putting the files back, with a note of what the dropped turns learned.
-- `/btw` asks a side question in a panel while the agent keeps working.
+- `/btw` asks a side question in a panel while the agent keeps working. Its text drags to copy, as the conversation's does.
 - `/context`, `/status`, `/usage` and `/stats` open as one sheet: what fills the context, the limits, and your history by day, hour and model.
 - `/plugins`, `/skills`, `/permissions`, `/hooks` and `/statusline`, and `/model` and `/effort` pickers.
 

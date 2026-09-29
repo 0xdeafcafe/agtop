@@ -1146,6 +1146,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(m.sheetMouse(mouseDrag, msg.X, msg.Y), m.pointerShape("grabbing"))
 		}
+		if t := m.btwDragging(); t != nil {
+			if msg.Button == tea.MouseLeft {
+				t.drag(msg.X, msg.Y)
+				return m, nil
+			}
+			m.endBtwDrag(t)
+		}
 		if c := m.host; c != nil && c.txt.drag {
 			if msg.Button == tea.MouseLeft {
 				m.dragTextSel(c, msg.X, msg.Y)
@@ -1189,6 +1196,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseReleaseMsg:
 		if m.sheet != nil {
 			return m, tea.Batch(m.sheetMouse(mouseRelease, msg.X, msg.Y), m.pointerShape("default"))
+		}
+		if t := m.btwDragging(); t != nil {
+			m.endBtwDrag(t)
 		}
 		if c := m.host; c != nil && c.txt.drag {
 			m.endTextSel(c)
