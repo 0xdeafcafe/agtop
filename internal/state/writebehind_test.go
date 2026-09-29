@@ -42,3 +42,24 @@ func TestWriteBehind(t *testing.T) {
 		t.Errorf("the copy kept before is %s, want the config as it was", got)
 	}
 }
+
+// The writer encodes state.json from the overlay as it was saved: the view
+// changing its maps meanwhile neither shows in that save nor races it.
+func TestWriteBehindOverlay(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	WriteBehind()
+	defer func() { behind.Lock(); behind.on = false; behind.Unlock() }()
+
+	s := &Store{Overlay: Overlay{Names: map[string]string{"a": "saved"}}}
+	if err := s.SaveOverlay(); err != nil {
+		t.Fatal(err)
+	}
+	s.Overlay.Names["a"] = "after"
+	if err := Flush(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(Dir(), "state.json"))
+	if !strings.Contains(string(b), `"saved"`) {
+		t.Errorf("state.json is %s, want the overlay as saved", b)
+	}
+}

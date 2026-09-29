@@ -526,11 +526,7 @@ func Load() *Store {
 // for reading, and only reading, off the UI's goroutine while the UI goes
 // on changing s. Copies made while the config is unchanged share theirs.
 func (s *Store) Copy() *Store {
-	c := &Store{Overlay: Overlay{
-		Done: maps.Clone(s.Overlay.Done), Names: maps.Clone(s.Overlay.Names),
-		Groups: maps.Clone(s.Overlay.Groups), Moved: maps.Clone(s.Overlay.Moved),
-		Seen: maps.Clone(s.Overlay.Seen),
-	}}
+	c := &Store{Overlay: s.Overlay.clone()}
 	// The config is read only, off the UI's goroutine, so copies can share
 	// one while it's the same.
 	cp := &s.copied
@@ -550,11 +546,31 @@ func (s *Store) Copy() *Store {
 	return c
 }
 
+// clone is o sharing nothing with it: its maps hold only strings and
+// times, so copying them copies it all.
+func (o Overlay) clone() Overlay {
+	return Overlay{
+		Done: maps.Clone(o.Done), Names: maps.Clone(o.Names),
+		Groups: maps.Clone(o.Groups), Moved: maps.Clone(o.Moved),
+		Seen: maps.Clone(o.Seen),
+	}
+}
+
+// SaveOverlay writes state.json. With WriteBehind on, the writer encodes
+// it too, from a clone: the view saves it on every seen mark and rename,
+// and encoding it is dearer than copying its maps.
+//
 //uiblock:nowait the view turns WriteBehind on: its goroutine writes
 func (s *Store) SaveOverlay() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return save(filepath.Join(Dir(), "state.json"), s.Overlay)
+	path := filepath.Join(Dir(), "state.json")
+	if !behindOn() {
+		return writeJSON(path, s.Overlay)
+	}
+	o := s.Overlay.clone()
+	queueWrite(path, func() error { return writeJSON(path, o) })
+	return nil
 }
 
 //uiblock:nowait the view turns WriteBehind on: its goroutine writes
