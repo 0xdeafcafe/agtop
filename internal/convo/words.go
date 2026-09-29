@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
@@ -27,7 +27,48 @@ func stepTool(c *tool.Call) (string, jsontext.Value) {
 // claudes says a call is Claude Code's own: one of its tools, of that
 // tool's kind, with the input it sent.
 func claudes(c *tool.Call) bool {
-	return len(c.Raw) > 0 && c.Raw[0] == '{' && claude.KindOf(c.Name) == c.Kind
+	return len(c.Raw) > 0 && c.Raw[0] == '{' && kindOf(c.Name) == c.Kind
+}
+
+// The native agent (agent.Native) is Claude Code: what its tools do, and
+// its calls as rush's own, come from it.
+
+func native() agent.Native {
+	n, _ := agent.NativeAgent()
+	return n
+}
+
+// kindOf is what the native agent's tool of this name does.
+func kindOf(name string) tool.Kind {
+	if n := native(); n != nil {
+		return n.KindOf(name)
+	}
+	return tool.Other
+}
+
+// nativeCall is a call in the native agent's words as rush's own.
+func nativeCall(id, name string, input jsontext.Value) tool.Call {
+	if n := native(); n != nil {
+		return n.Call(id, name, input)
+	}
+	return tool.Call{ID: id, Name: name, Raw: input}
+}
+
+// nativeOutput is how call c came out, from what the native agent said.
+func nativeOutput(c tool.Call, text string, isError bool, result jsontext.Value) tool.Output {
+	if n := native(); n != nil {
+		return n.Output(c, text, isError, result)
+	}
+	return tool.Output{CallID: c.ID, Text: text, IsError: isError}
+}
+
+// nativeDoing is a call in the native agent's words, in a few words.
+func nativeDoing(name string, input jsontext.Value) string {
+	c := tool.Call{Name: name, Raw: input}
+	if d, ok := native().(agent.Describer); ok {
+		return d.Doing(&c)
+	}
+	return tool.Doing(c)
 }
 
 // claudeNames are Claude Code's tools for each kind of call.

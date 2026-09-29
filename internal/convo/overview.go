@@ -16,8 +16,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/cellw"
-
-	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // ColdStart is a request that wrote the prompt cache instead of reading it.
@@ -461,7 +459,7 @@ func (s *Session) Overview(o Options) []Line {
 			// What the next message costs to re-read the context: a cache
 			// read while it's warm, a full rewrite once it's cold.
 			price := func(u usage.TokenUsage) string {
-				if c := claude.Cost(model, u, false); c > 0 {
+				if c := s.cost(model, u); c > 0 {
 					return " ≈ " + money(c)
 				}
 				return ""
@@ -571,11 +569,24 @@ func (s *Session) Overview(o Options) []Line {
 	return out
 }
 
+// cost is what model's tokens u cost at the session's agent's prices, or
+// at the native agent's where its own has none; 0 when neither can say.
+func (s *Session) cost(model string, u usage.TokenUsage) float64 {
+	pr, ok := agent.As[agent.Pricer](agent.Kind(s.Info.Kind))
+	if !ok {
+		if pr, ok = native().(agent.Pricer); !ok {
+			return 0
+		}
+	}
+	c, _ := pr.Cost(model, u)
+	return c
+}
+
 // Cost prices every model call in the session.
 func (s *Session) Cost() float64 {
 	var total float64
 	for _, r := range s.Requests {
-		total += claude.Cost(r.Model, r.Usage, false)
+		total += s.cost(r.Model, r.Usage)
 	}
 	return total
 }
@@ -686,7 +697,7 @@ func (s *Session) turnCosts() map[*Turn]float64 {
 			ti++
 		}
 		if ti < len(s.Turns) {
-			out[s.Turns[ti]] += claude.Cost(r.Model, r.Usage, false)
+			out[s.Turns[ti]] += s.cost(r.Model, r.Usage)
 		}
 	}
 	for _, t := range s.Turns {
