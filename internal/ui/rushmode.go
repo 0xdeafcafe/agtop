@@ -2636,6 +2636,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			c.scroll = 0
 			return nil
 		}
+	case "ctrl+l":
+		// Where the agent works: the same folders as #cd with no path.
+		if a := m.focused(); a != nil {
+			m.openMovePicker(a)
+		}
+		return nil
 	case "ctrl+x":
 		if c.client == nil {
 			return m.stopOrRemove(m.focused())

@@ -10,7 +10,7 @@ import (
 var commandNeeds = map[string]agent.Feature{
 	"fork": agent.FeatureFork, "rewind": agent.FeatureRewind, "effort": agent.FeatureEffort, "plan": agent.FeaturePlan,
 	"tasks": agent.FeatureBackground, "subtask": agent.FeatureSubagents,
-	"btw": agent.FeatureSideQuestion, "cd": agent.FeatureDirs, "add-dir": agent.FeatureDirs,
+	"btw": agent.FeatureSideQuestion, "cd": agent.FeatureDirs,
 	"model": agent.FeatureModel, "compact": agent.FeatureCompact,
 }
 

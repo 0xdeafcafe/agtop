@@ -28,7 +28,6 @@ var fleetCommands = []event.Command{
 	{Name: "restart", Description: "restart the agent's Claude Code on the account in use, resuming the conversation; text is sent first (#rs)", ArgumentHint: "[message]"},
 	{Name: "clean", Description: "delete the agent's temp work; all does every finished agent", ArgumentHint: "[all]"},
 	{Name: "cd", Description: "tell the agent to work in another folder from now on", ArgumentHint: "[path]"},
-	{Name: "add-dir", Description: "restart the agent with another folder added", ArgumentHint: "<path>"},
 	{Name: "rename", Description: "rename the agent, or type the new name", ArgumentHint: "[name]"},
 	{Name: "group", Description: "put the agent in a group; empty clears it", ArgumentHint: "[name]"},
 	{Name: "pin", Description: "pin the agent in Claude Code's list, or unpin it"},
@@ -67,7 +66,7 @@ var fleetAliases = map[string]string{"eff": "efficiency", "savers": "efficiency"
 // the bar offers them only once one's in view. The rest are rush-wide.
 var fleetNeedsAgent = map[string]bool{
 	"done": true, "go": true, "stop": true, "rm": true, "kill": true, "restart": true,
-	"clean": true, "cd": true, "add-dir": true, "rename": true, "group": true,
+	"clean": true, "cd": true, "rename": true, "group": true,
 	"pin": true, "pr": true, "full": true, "rush": true,
 }
 

@@ -893,14 +893,6 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			}
 			return m.moveTo(a, expand(arg))
 		}
-	case "add-dir":
-		if need() {
-			if expand(arg) == "" {
-				m.flash("which folder? /add-dir <path>", true)
-				return nil
-			}
-			return m.relaunch(a, "", []string{expand(arg)}, a.Acct)
-		}
 	case "account":
 		if arg == "" {
 			m.setView(placeSettings)
@@ -1069,15 +1061,10 @@ func expand(p string) string {
 	return filepath.Clean(p)
 }
 
-func (m *Model) relaunch(a *fleet.Agent, dir string, addDirs []string, to agent.Profile) tea.Cmd {
+// relaunch restarts an agent's conversation on account to.
+func (m *Model) relaunch(a *fleet.Agent, to agent.Profile) tea.Cmd {
 	note := ""
-	if dir != "" && dir != a.Cwd {
-		note = fmt.Sprintf("Your working directory is now %s (it was %s). Paths from earlier in this conversation point at the old folder.", dir, a.Cwd)
-	}
-	if len(addDirs) > 0 {
-		note = fmt.Sprintf("You now also have access to %s.", strings.Join(addDirs, ", "))
-	}
-	if to.Name != a.Acct.Name && note == "" {
+	if to.Name != a.Acct.Name {
 		note = "This conversation moved to another account; carry on where you left off."
 	}
 	mover, ok := agent.As[agent.Mover](agent.Kind(a.Kind))
@@ -1085,7 +1072,7 @@ func (m *Model) relaunch(a *fleet.Agent, dir string, addDirs []string, to agent.
 		m.flash(agentName(a.Kind)+" can't move a session outside rush mode · /rush moves it over first", true)
 		return nil
 	}
-	mv := agent.Move{From: a.Acct, To: to, Job: a.Job, Extra: a.Extra, Dir: dir, AddDirs: addDirs, Note: note}
+	mv := agent.Move{From: a.Acct, To: to, Job: a.Job, Extra: a.Extra, Note: note}
 	m.flash("relaunching "+a.DisplayName+"…", false)
 	return func() tea.Msg {
 		id, err := mover.Move(&mv)

@@ -307,7 +307,6 @@ var rushCommands = []event.Command{
 	{Name: "copy", Description: "copy Claude's last answer; /copy 2 the one before", ArgumentHint: "[n]"},
 	{Name: "rename", Description: "rename the agent, or type the new name", ArgumentHint: "[name]"},
 	{Name: "cd", Description: "tell the agent to work in another folder from now on", ArgumentHint: "[path]"},
-	{Name: "add-dir", Description: "give the agent another folder to work in (it restarts, conversation intact)", ArgumentHint: "<path>"},
 	{Name: "stop", Description: "stop the agent; its conversation stays, and a message wakes it"},
 	{Name: "background", Description: "leave it running in the background and go back to Agents"},
 	{Name: "resume", Description: "past conversations: they're in Agents, and a message carries one on"},
@@ -819,7 +818,7 @@ func (m *Model) runRushCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		m.copyText(t)
 		m.flash(fmt.Sprintf("copied Claude's answer · %d lines", strings.Count(t, "\n")+1), false)
 		return nil, true
-	case "rename", "stop", "add-dir", "help":
+	case "rename", "stop", "help":
 		if a == nil {
 			return nil, true
 		}

@@ -549,7 +549,7 @@ func restartClaude(c *host.Client, info host.Info, text string) error {
 // place; any other is relaunched on its account.
 func (m *Model) restart(a *fleet.Agent, text string) tea.Cmd {
 	if !a.Rush {
-		return m.relaunch(a, "", nil, a.Acct)
+		return m.relaunch(a, a.Acct)
 	}
 	if text == "" && (strings.HasPrefix(a.Detail, "usage limit") || strings.HasPrefix(a.Detail, "API error")) {
 		text = "continue"

@@ -410,13 +410,13 @@ func TestBarCommands(t *testing.T) {
 
 	// A command needing an argument goes into the Prompt to type it; one
 	// that doesn't runs at once, the way typing it would.
-	for _, it := range m.barCommands("add-dir") {
-		if it.title == "#add-dir" {
+	for _, it := range m.barCommands("hibernate") {
+		if it.title == "#hibernate" {
 			it.run(m)
 		}
 	}
-	if string(m.input) != "#add-dir " || m.inKind != inPrompt {
-		t.Fatalf("#add-dir should wait in the Prompt for its path: %q", string(m.input))
+	if string(m.input) != "#hibernate " || m.inKind != inPrompt {
+		t.Fatalf("#hibernate should wait in the Prompt for its minutes: %q", string(m.input))
 	}
 	m.input, m.inKind = m.input[:0], inPrompt
 	for _, it := range m.barCommands("help") {
