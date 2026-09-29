@@ -36,7 +36,7 @@ Plugins run under `agtop plugind`, one small process agtop starts once a plugin 
 
 ### Bundled plugins
 
-Some plugins come with agtop. Their code is agtop's own, so they need no approval and run without the sandbox, on every system, as `agtop plugin run <name>`; what they may do in agtop's screen is still their manifest's, checked by the broker as for any plugin. Each is on until you turn it off, in Settings, Plugins, or with `agtop plugin off <name>` (`on` to turn it back). A plugin you install with the name of a bundled one doesn't run.
+Some plugins come with agtop. Their code is agtop's own, so they need no approval and run without the sandbox, on every system, as `agtop plugin run <name>`; what they may do in agtop's screen and to your sessions is still their manifest's, checked by the broker as for any plugin. Each is on until you turn it off, in Settings, Plugins, or with `agtop plugin off <name>` (`on` to turn it back). A plugin you install with the name of a bundled one doesn't run.
 
 ## What a plugin can't do
 

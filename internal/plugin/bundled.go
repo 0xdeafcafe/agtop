@@ -53,8 +53,8 @@ func (m *Manifest) validateBundled() error {
 	if !nameRE.MatchString(m.Name) {
 		return errors.New("bad name")
 	}
-	if m.Proto() != ProtoAgtop || len(m.Network) > 0 || len(m.Exec) > 0 || len(m.Sessions) > 0 {
-		return errors.New("a bundled plugin speaks agtop's protocol, with no network, exec or sessions")
+	if m.Proto() != ProtoAgtop || len(m.Network) > 0 || len(m.Exec) > 0 {
+		return errors.New("a bundled plugin speaks agtop's protocol, with no network or exec")
 	}
 	if err := m.validateUI(); err != nil {
 		return err
