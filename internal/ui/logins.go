@@ -12,7 +12,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -350,7 +349,12 @@ func (m *Model) addLogin(name string) tea.Cmd {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	scratch := claude.Account{Name: name, ConfigDir: filepath.Join(state.Dir(), "signin-"+hex.EncodeToString(b))}
-	return tea.ExecProcess(actions.Login(scratch), func(err error) tea.Msg {
+	lg, ok := agent.As[agent.Loginer](loginsKind)
+	if !ok {
+		m.flash(agentName(string(loginsKind))+" can't sign in from agtop", true)
+		return nil
+	}
+	return tea.ExecProcess(lg.Login(scratch.Profile()), func(err error) tea.Msg {
 		if err != nil {
 			return addedLoginMsg{name: name, err: err}
 		}
@@ -454,7 +458,7 @@ func restartClaude(c *host.Client, info host.Info, text string) error {
 // place; any other is relaunched on its account.
 func (m *Model) restart(a *fleet.Agent, text string) tea.Cmd {
 	if !a.Agtop {
-		return m.relaunch(a, "", nil, claude.AccountOf(a.Acct))
+		return m.relaunch(a, "", nil, a.Acct)
 	}
 	if text == "" && (strings.HasPrefix(a.Detail, "usage limit") || strings.HasPrefix(a.Detail, "API error")) {
 		text = "continue"

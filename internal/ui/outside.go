@@ -1,0 +1,42 @@
+package ui
+
+import (
+	"fmt"
+
+	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/fleet"
+)
+
+// What agtop does to a session running outside agtop mode goes through its
+// agent's adapter (agent.Stopper and the rest): agtop knows no agent's
+// program itself.
+
+// stopOutside ends a's process and keeps its conversation, the agent's own
+// way; one whose agent has none gets a SIGTERM.
+func stopOutside(a *fleet.Agent) error {
+	if s, ok := agent.As[agent.Stopper](agent.Kind(a.Kind)); ok {
+		return s.Stop(a.Acct, a.ID, a.PID)
+	}
+	if a.PID != 0 {
+		return actions.Terminate(a.PID)
+	}
+	return fmt.Errorf("%s can't stop %s", agentName(a.Kind), a.DisplayName)
+}
+
+// removeOutside deletes a session its agent keeps.
+func removeOutside(a *fleet.Agent) error {
+	if r, ok := agent.As[agent.Remover](agent.Kind(a.Kind)); ok {
+		return r.Remove(a.Acct, a.ID)
+	}
+	return fmt.Errorf("%s keeps its sessions itself: agtop can't delete them", agentName(a.Kind))
+}
+
+// replyOutside sends text to a session of agent k's background service;
+// one it has let go of is agent.ErrGone.
+func replyOutside(k agent.Kind, p agent.Profile, id, text string) error {
+	if r, ok := agent.As[agent.Replier](k); ok {
+		return r.Reply(p, id, text)
+	}
+	return fmt.Errorf("%s takes no messages from outside it", agentName(string(k)))
+}

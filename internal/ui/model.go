@@ -17,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
@@ -931,7 +932,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Claude Code has let the job go; its conversation carries on here.
 				return m, m.moveToAgtop(a)
 			}
-			return m, tea.ExecProcess(actions.AttachFallback(claude.AccountOf(a.Acct), a.ID), func(err error) tea.Msg {
+			at, ok := agent.As[agent.Attacher](agent.Kind(a.Kind))
+			if !ok {
+				m.flash("couldn't open "+a.DisplayName+": "+msg.err.Error(), true)
+				return m, nil
+			}
+			return m, tea.ExecProcess(at.Attach(a.Acct, a.ID), func(err error) tea.Msg {
 				return doneMsg{err: err}
 			})
 		}
@@ -1315,7 +1321,7 @@ func (m *Model) hibernate() {
 	for _, a := range m.snap.Agents {
 		if a.Worker != nil && a.State == "done" && a.Age(m.snap.At) > time.Duration(after)*time.Minute && !m.hibernated[a.Key] {
 			m.hibernated[a.Key] = true // one try each; a failed stop is not retried every second
-			go actions.Stop(claude.AccountOf(a.Acct), a.ID, a.PID)
+			go func() { _ = stopOutside(a) }()
 		}
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 )
@@ -122,6 +124,8 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	agent.Recheck() // the advisor runs the claude found installed
+	t.Cleanup(agent.Recheck)
 	return log
 }
 

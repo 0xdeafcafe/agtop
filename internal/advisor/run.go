@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
@@ -238,7 +239,12 @@ func run(ctx context.Context, acct claude.Account, c call, out any) (float64, er
 		}
 	}
 	args = append(args, "--allowedTools", strings.Join(allow, ","))
-	cmd := exec.CommandContext(ctx, "claude", args...)
+	// The program is where the account's agent was found installed.
+	prog := agent.Path(acct.Profile().Kind)
+	if prog == "" {
+		return 0, fmt.Errorf("the advisor runs %s, which isn't installed", acct.Profile().Kind)
+	}
+	cmd := exec.CommandContext(ctx, prog, args...)
 	cmd.Dir = Dir()
 	cmd.Env = append(acct.Env(), "AGTOP_ADVISOR=1")
 	// Its own process group, so stopping it takes whatever it started too.

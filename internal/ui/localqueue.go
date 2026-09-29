@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -8,9 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/daemon"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
@@ -54,11 +53,11 @@ func canQueue(a *fleet.Agent) bool { return a != nil && !a.Agtop && !a.Interacti
 // has let go of (ENOJOB) still has its conversation on disk: it carries on
 // in agtop mode, with the message as its first turn.
 func reply(a *fleet.Agent, text string) tea.Cmd {
-	acct, id, key, name := a.Acct, a.ID, a.Key, a.DisplayName
+	kind, acct, id, key, name := agent.Kind(a.Kind), a.Acct, a.ID, a.Key, a.DisplayName
 	return func() tea.Msg {
-		err := actions.Reply(claude.AccountOf(acct), id, text)
+		err := replyOutside(kind, acct, id, text)
 		switch {
-		case daemon.IsRefusal(err, "ENOJOB"):
+		case errors.Is(err, agent.ErrGone):
 			return jobGoneMsg{key: key, text: text}
 		case err != nil:
 			return doneMsg{err: err}
@@ -143,10 +142,10 @@ func (m *Model) sendLocal(key string, a *fleet.Agent, q *localQueue) tea.Cmd {
 	text := host.JoinQueue(q.items)
 	items := q.items
 	q.items, q.sentAt = nil, time.Now()
-	acct, id, name := a.Acct, a.ID, a.DisplayName
+	kind, acct, id, name := agent.Kind(a.Kind), a.Acct, a.ID, a.DisplayName
 	return func() tea.Msg {
-		err := actions.Reply(claude.AccountOf(acct), id, text)
-		if daemon.IsRefusal(err, "ENOJOB") {
+		err := replyOutside(kind, acct, id, text)
+		if errors.Is(err, agent.ErrGone) {
 			return jobGoneMsg{key: key, text: text}
 		}
 		if err != nil {

@@ -6,8 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
@@ -203,7 +201,7 @@ func (m *Model) markDone(a *fleet.Agent) tea.Cmd {
 			})
 		}
 		m.flash("done: "+a.DisplayName+" · its process stopped, a message resumes it", false)
-		return cmdErr("", func() error { return actions.Stop(claude.AccountOf(a.Acct), a.ID, a.PID) })
+		return cmdErr("", func() error { return stopOutside(a) })
 	}
 	if !a.Live() && !a.Busy() {
 		return done()

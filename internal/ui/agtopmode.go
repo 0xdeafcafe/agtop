@@ -17,7 +17,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
@@ -3185,7 +3184,7 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 	m.flash("moving "+a.DisplayName+" to agtop mode…", false)
 	return func() tea.Msg {
 		if a.PID != 0 || a.Live() {
-			if err := actions.Stop(claude.AccountOf(a.Acct), a.ID, a.PID); err != nil {
+			if err := stopOutside(a); err != nil {
 				return doneMsg{err: fmt.Errorf("couldn't stop the Claude Code copy: %w", err)}
 			}
 		}

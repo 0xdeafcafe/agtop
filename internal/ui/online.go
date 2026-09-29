@@ -9,8 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/netproof"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -177,7 +176,7 @@ func (m *Model) onOnline(msg onlineMsg) tea.Cmd {
 		w.sent[a.Key] = a.Spend.Halt.At
 		w.tries[a.Key]++
 		m.loader.Nudge(a.Key)
-		key, acct, id, name, wait := a.Key, a.Acct, a.ID, a.DisplayName, time.Duration(i)*3*time.Second
+		key, kind, acct, id, name, wait := a.Key, agent.Kind(a.Kind), a.Acct, a.ID, a.DisplayName, time.Duration(i)*3*time.Second
 		at := a.Spend.Halt.At
 		i++
 		cmds = append(cmds, func() tea.Msg {
@@ -185,7 +184,7 @@ func (m *Model) onOnline(msg onlineMsg) tea.Cmd {
 				return nil // another agtop told it
 			}
 			time.Sleep(wait)
-			if err := actions.Reply(claude.AccountOf(acct), id, "continue"); err != nil {
+			if err := replyOutside(kind, acct, id, "continue"); err != nil {
 				return doneMsg{err: err}
 			}
 			return doneMsg{text: "the API is back · " + name + " continues"}

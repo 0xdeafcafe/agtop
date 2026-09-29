@@ -13,10 +13,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -1069,9 +1067,14 @@ func (m *Model) showView(c *hostConn, name string) bool {
 // for the agent's account and folder. Leaving it (esc, or ctrl+c twice)
 // brings agtop back; a hosted session reloads its plugins after /plugin.
 func (m *Model) openScreen(c *hostConn, a *fleet.Agent, screen string) tea.Cmd {
-	key := c.key
-	hint := "\033[2m  agtop · Claude Code's /" + screen + " · when you're done: esc, then ctrl+c twice to come back\033[0m"
-	cmd := actions.Screen(claude.AccountOf(a.Acct), firstNonEmpty(c.sess.Info.Cwd, a.Cwd), screen, hint)
+	key, k := c.key, sessionAgent(c)
+	sc, ok := agent.As[agent.Screener](k)
+	if !ok {
+		m.flash(agentName(string(k))+" has no screens of its own", true)
+		return nil
+	}
+	hint := "\033[2m  agtop · " + agentName(string(k)) + "'s /" + screen + " · when you're done: esc, then ctrl+c twice to come back\033[0m"
+	cmd := sc.Screen(a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd), screen, hint)
 	return tea.ExecProcess(cmd, func(err error) tea.Msg { return screenDoneMsg{key: key, screen: screen, err: err} })
 }
 
