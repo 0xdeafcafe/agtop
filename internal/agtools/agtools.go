@@ -54,6 +54,15 @@ var tools = []tool{{
 
 // Allowed is what to pass --allowedTools so the tools run without asking:
 // they only draw.
+// Names are agtop's tools by their own names, which all never ask.
+func Names() []string {
+	out := make([]string, len(tools))
+	for i, t := range tools {
+		out[i] = t.Name
+	}
+	return out
+}
+
 func Allowed() []string {
 	out := make([]string, len(tools))
 	for i, t := range tools {

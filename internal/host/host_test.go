@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
@@ -32,7 +33,8 @@ func TestMain(m *testing.M) {
 // arguments are appended to args.log.
 const fakeClaude = `#!/bin/sh
 printf '%s\n' "$*" >> "$(dirname "$0")/args.log"
-echo '{"type":"system","subtype":"init","session_id":"SID","model":"claude-haiku-4-5","permissionMode":"default","tools":["Bash"]}'
+sid=SID; prev=; for a in "$@"; do case "$prev" in --session-id|--resume) sid=$a ;; esac; prev=$a; done
+echo '{"type":"system","subtype":"init","session_id":"'"$sid"'","model":"claude-haiku-4-5","permissionMode":"default","tools":["Bash"]}'
 while read -r line; do
   case "$line" in
   *'"type":"user"'*)
@@ -269,7 +271,8 @@ func TestQueueEdits(t *testing.T) {
 // stallClaude fails its first turn with an API error or a usage limit, as
 // asked, and succeeds on "continue".
 const stallClaude = `#!/bin/sh
-echo '{"type":"system","subtype":"init","session_id":"SID","model":"claude-haiku-4-5"}'
+sid=SID; prev=; for a in "$@"; do case "$prev" in --session-id|--resume) sid=$a ;; esac; prev=$a; done
+echo '{"type":"system","subtype":"init","session_id":"'"$sid"'","model":"claude-haiku-4-5"}'
 while read -r line; do
   case "$line" in
   *overload*)
@@ -430,7 +433,7 @@ func TestOfflineWaitsForTheNetwork(t *testing.T) {
 	s := &server{cfg: Config{ID: "q", Binary: "/nonexistent/claude"}, clients: map[*conn]struct{}{}}
 	s.info.CacheWarm = time.Now().Add(time.Hour)
 	s.mu.Lock()
-	if !s.stalled(headless.Result{Text: "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"}) {
+	if !s.stalled(event.TurnEnd{Reason: "done", Text: "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"}) {
 		t.Fatal("an unreachable API should stall the turn")
 	}
 	r := s.info.Retry
@@ -477,20 +480,6 @@ func TestOfflineErrors(t *testing.T) {
 	}
 	if !IsRetryable(strings.ToLower("API Error: Response stalled mid-stream.")) {
 		t.Error("a stalled stream should be retried")
-	}
-}
-
-func TestOwnTrafficStaysInHost(t *testing.T) {
-	for line, want := range map[string]bool{
-		`{"type":"control_request","request_id":"1","request":{"subtype":"mcp_message","server_name":"agtop","message":{}}}`:         true,
-		`{"type":"control_request","request_id":"2","request":{"subtype":"can_use_tool","tool_name":"mcp__agtop__show","input":{}}}`: true,
-		`{"type":"control_request","request_id":"3","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}`:             false,
-		`{"type":"control_request","request_id":"4","request":{"subtype":"mcp_message","server_name":"other","message":{}}}`:         false,
-		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__agtop__show"}]}}`:                                 false,
-	} {
-		if got := ownTraffic([]byte(line)); got != want {
-			t.Errorf("ownTraffic(%s) = %v", line, got)
-		}
 	}
 }
 

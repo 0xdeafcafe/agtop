@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json/jsontext"
+
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 )
 
 // What a session agtop hosts can do beyond Conn: each is an optional
@@ -73,4 +75,26 @@ type Ender interface {
 // PIDer is a Conn whose agent is a process of its own.
 type PIDer interface {
 	PID() int
+}
+
+// Tapper is a Conn whose agent's lines reach StartOptions.Tap: the caller
+// has them there, and needn't keep its events too.
+type Tapper interface {
+	Taps() bool
+}
+
+// Describer is an adapter with words of its own for what its tools do.
+type Describer interface {
+	Doing(c *tool.Call) string
+}
+
+// Doing is a call in a few words ("reading view.go"), as agent k says it
+// where it has words of its own for its tools, else as tool.Doing does.
+func Doing(k Kind, c *tool.Call) string {
+	if a, ok := Get(k); ok {
+		if d, ok := a.(Describer); ok {
+			return d.Doing(c)
+		}
+	}
+	return tool.Doing(*c)
 }

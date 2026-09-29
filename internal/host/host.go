@@ -1,16 +1,18 @@
 // Package host keeps an agtop-mode session alive outside the agtop view.
 //
 // Each session gets one small detached `agtop host run <id>` process. It owns
-// Claude Code, run headless, and serves a unix socket: a client that
+// the session's agent, run headless through its adapter, and serves a unix
+// socket: a client that
 // connects is sent what the session has said so far, then everything live,
 // and can send messages, answer permission prompts, interrupt or stop. When
-// the session goes idle the host stops Claude Code and resumes the
+// the session goes idle the host stops the agent and resumes the
 // conversation on the next message, so an idle agent costs only the host.
 package host
 
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json/jsontext"
@@ -29,9 +31,6 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agtools"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/netproof"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
@@ -270,10 +269,9 @@ type server struct {
 	cfg Config
 	ln  net.Listener
 
-	mu   sync.Mutex
-	sess *headless.Session
-	// conn is the running session of an agent other than Claude Code, and
-	// options each of its approvals' answers.
+	mu sync.Mutex
+	// conn is the running session, and options each of its approvals'
+	// answers.
 	conn    agent.Conn
 	options map[string][]event.Option
 	began   bool     // the conversation has a transcript to resume
@@ -282,33 +280,25 @@ type server struct {
 	ringN   int      // the ring's size as written
 	pk      packer
 	clients map[*conn]struct{}
-	pending map[string]headless.PermissionRequest
+	pending map[string]asked
 	info    Info
-	// commands is the slash command list from Claude Code's initialize
-	// reply, kept apart from the ring so every client gets it.
+	// commands is the session's slash command list, kept apart from the
+	// ring so every client gets it.
 	commands []byte
-	initID   string
-	ctxID    string // the context-usage question out, if any
-	// taskStart is when each of Claude Code's tasks still running started.
+	ctxOut   bool // the context-usage question is out
+	// taskStart is when each of the agent's tasks still running started.
 	taskStart map[string]time.Time
-	asks      map[string]string // control requests out for clients: Claude's id → the client's
-	context   []byte            // the last answer, as the line clients get
-	stamped   time.Time         // when the last time mark went into the ring
-	limitRaw  headless.RateLimit
-	// login is the account the running Claude Code started signed in as:
-	// its plan usage readings are that login's, and once the folder is
-	// signed in as another it rests when its turn ends.
-	login     string
-	liveUsage claude.Usage // the last reading passed on
-	wake      *time.Timer  // a scheduled continue or retry
-	gen       int          // bumped by every send; a stale timer does nothing
+	asking    int            // control requests out for clients
+	context   []byte         // the last answer, as the line clients get
+	stamped   time.Time      // when the last time mark went into the ring
+	limited   *event.Limited // the limit that stopped this turn, if one did
+	wake      *time.Timer    // a scheduled continue or retry
+	gen       int            // bumped by every send; a stale timer does nothing
 	idle      *time.Timer
 	quit      chan struct{}
 	stopOnce  sync.Once
-	// plugins are the MCP servers of the approved plugins the running
-	// Claude Code was told about; broker reaches them.
-	plugins []string
-	broker  plugin.Broker
+	// broker reaches the approved plugins' MCP servers.
+	broker plugin.Broker
 }
 
 var lowGC sync.Once
@@ -345,7 +335,7 @@ func Run(id string) error {
 	now := time.Now()
 	s := &server{
 		cfg: cfg, ln: ln, began: cfg.Resume,
-		clients: map[*conn]struct{}{}, pending: map[string]headless.PermissionRequest{},
+		clients: map[*conn]struct{}{}, pending: map[string]asked{},
 		quit: make(chan struct{}),
 		info: Info{ID: cfg.ID, Kind: cfg.Kind, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
 			HostPID: os.Getpid(), State: "idle", Proto: Proto, Model: cfg.Model, Effort: cfg.Effort, PermissionMode: cfg.PermissionMode,
@@ -394,72 +384,6 @@ func (s *server) accept() {
 	}
 }
 
-// start launches Claude Code if it is not running. Called with mu held.
-func (s *server) start() error {
-	if s.sess != nil || s.conn != nil {
-		return nil
-	}
-	s.spent = 0 // a new process counts from zero
-	if s.cfg.other() {
-		return s.startAgent()
-	}
-	o := headless.Options{
-		Account: claude.AccountOf(s.cfg.Account), Dir: s.cfg.Cwd, Model: s.cfg.Model, Effort: s.cfg.Effort,
-		PermissionMode: s.cfg.PermissionMode, Binary: s.cfg.Binary, Tap: s.tap, Skip: relayOnly,
-		// agtop's own tools only draw, so they never ask.
-		Flags: []string{"--allowedTools", strings.Join(agtools.Allowed(), ",")},
-	}
-	// Approved plugins add subagents and prompt text, and their tools, which
-	// ask like any other.
-	pc := plugin.ForSession()
-	o.Flags = append(append(o.Flags, pc.Flags...), s.cfg.Flags...)
-	s.plugins = pc.Servers
-	if len(pc.Servers) > 0 {
-		go func() { _ = plugin.EnsureBroker() }()
-	}
-	// Its scratch goes in a folder of its own, as Claude Code's daemon does
-	// for its jobs, so what it leaves behind can be seen and cleaned up.
-	if tmp := TempDir(s.cfg.ID); os.MkdirAll(tmp, 0o700) == nil {
-		o.Env = append(o.Env, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp, "CLAUDE_CODE_TMPDIR="+tmp)
-	}
-	if s.cfg.Lean {
-		o.Env = append(o.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
-	}
-	// Checkpoints, as Claude Code keeps them in a terminal, so /rewind can
-	// put the files back too.
-	o.Env = append(o.Env, headless.CheckpointEnv)
-	o.Env = append(o.Env, s.cfg.Env...)
-	if s.began {
-		o.Resume = s.cfg.SessionID
-		if s.cfg.Fork {
-			o.Flags = append(append([]string{}, o.Flags...), "--fork-session")
-		}
-	} else {
-		o.SessionID = s.cfg.SessionID
-	}
-	s.login = claude.SignedInAs(claude.AccountOf(s.cfg.Account))
-	sess, err := headless.Start(o)
-	if err != nil {
-		return err
-	}
-	lowGC.Do(func() {
-		// Running turns, its heap is the ring and lines passing through:
-		// collecting at a quarter over what's live rather than double keeps
-		// a long session's high water down, for little CPU. Before the first
-		// turn it would only cost more collections while starting up.
-		if os.Getenv("GOGC") == "" {
-			debug.SetGCPercent(25)
-		}
-	})
-	s.sess = sess
-	s.info.ClaudePID = sess.PID()
-	s.info.Error = ""
-	// Every process needs agtop's tools registered before its first message.
-	s.initID, _ = sess.Initialize(append([]string{agtools.Server}, s.plugins...)...)
-	go s.watch(sess)
-	return nil
-}
-
 // TurnCost is what one turn cost. A process's results carry its running
 // total, not the turn's, so it is the rise since the last total, spent; a
 // total below that is a new process counting from zero.
@@ -472,19 +396,15 @@ func TurnCost(spent *float64, total float64) float64 {
 	return d
 }
 
-// detach forgets the running process so nothing more is sent to it, and
+// detach forgets the running session so nothing more is sent to it, and
 // returns it for stopping outside the lock. Called with mu held.
-func (s *server) detach() *headless.Session {
-	if c := s.conn; c != nil {
-		s.conn = nil
-		go stopAgent(c)
-	}
-	sess := s.sess
-	s.sess = nil
+func (s *server) detach() agent.Conn {
+	c := s.conn
+	s.conn = nil
 	s.info.ClaudePID = 0
 	s.info.Background = nil
-	s.pending = map[string]headless.PermissionRequest{}
-	return sess
+	s.pending = map[string]asked{}
+	return c
 }
 
 // saveConfig writes the config back, for what changes while running.
@@ -500,9 +420,9 @@ func (s *server) saveConfig() {
 	}
 }
 
-// background is the list Claude Code just sent, with when each one
-// started: as it said then, or as the list first had it.
-func background(was []Task, now []headless.BackgroundTask, started map[string]time.Time, at time.Time) []Task {
+// background is the list the agent just sent, with when each one started:
+// as it said then, or as the list first had it.
+func background(was []Task, now []event.BackgroundTask, started map[string]time.Time, at time.Time) []Task {
 	var out []Task
 	for _, t := range now {
 		started, ok := started[t.ID]
@@ -514,17 +434,14 @@ func background(was []Task, now []headless.BackgroundTask, started map[string]ti
 				started = w.StartedAt
 			}
 		}
-		out = append(out, Task{ID: t.ID, Type: t.Type, Label: t.Description, StartedAt: started})
+		out = append(out, Task{ID: t.ID, Type: t.Type, Label: t.Label, StartedAt: started})
 	}
 	return out
 }
 
-// tap records Claude Code's output for replay and passes it to clients.
-// Traffic with agtop's own tools is between Claude Code and the host alone.
+// tap records the agent's own lines for replay and passes them to clients:
+// its adapter keeps the traffic with agtop's own tools out of them.
 func (s *server) tap(line []byte) {
-	if ownTraffic(line) {
-		return
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.record(append([]byte(nil), line...))
@@ -625,34 +542,6 @@ func isEcho(line []byte) bool {
 	return bytes.HasPrefix(line, []byte(`{"agtop_`)) && bytes.Contains(line, []byte(`"agtop_sent":true`))
 }
 
-// ownTraffic is a control request for agtop's own tools: an MCP message, or
-// a permission check for one of them.
-func ownTraffic(l []byte) bool {
-	if !bytes.HasPrefix(l, []byte(`{"type":"control_request"`)) {
-		return false
-	}
-	var e struct {
-		Request struct {
-			Subtype string `json:"subtype"`
-			Server  string `json:"server_name"`
-			Tool    string `json:"tool_name"`
-		} `json:"request"`
-	}
-	if jsonx.Unmarshal(l, &e) != nil {
-		return false
-	}
-	r := e.Request
-	return r.Subtype == "mcp_message" && (r.Server == agtools.Server || strings.HasPrefix(r.Server, plugin.ServerPrefix)) ||
-		r.Subtype == "can_use_tool" && strings.HasPrefix(r.Tool, agtools.Prefix)
-}
-
-// relayOnly is output the host passes on without reading: streamed deltas
-// and tool results (user messages). They are most of what Claude Code
-// writes, and the biggest lines.
-func relayOnly(l []byte) bool {
-	return isStreamEvent(l) || bytes.HasPrefix(l, []byte(`{"type":"user"`))
-}
-
 func isStreamEvent(l []byte) bool {
 	return bytes.HasPrefix(l, []byte(`{"type":"stream_event"`)) || isEventLine(l, "delta", "part_start", "message_start")
 }
@@ -661,201 +550,22 @@ func isWholeMessage(l []byte) bool {
 	return bytes.HasPrefix(l, []byte(`{"type":"assistant"`)) || bytes.HasPrefix(l, []byte(`{"type":"user"`)) || isEventLine(l, "message")
 }
 
-// watch follows one Claude Code process until it exits.
-func (s *server) watch(sess *headless.Session) {
-	for ev := range sess.Events {
-		s.mu.Lock()
-		s.onEvent(ev)
-		s.mu.Unlock()
-	}
-	err := sess.Err()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.sess != sess {
-		return
-	}
-	s.sess = nil
-	s.info.ClaudePID = 0
-	s.info.Background = nil // they went with it
-	s.pending = map[string]headless.PermissionRequest{}
-	if s.info.State == "working" || s.info.State == "blocked" || s.info.State == "starting" {
-		// It died mid-turn; the next message resumes it.
-		s.info.State = "idle"
-		if err != nil {
-			s.info.Error = err.Error()
-		}
-		// Whatever was waiting for this turn to end goes now, rather than
-		// sitting in a queue nothing will ever drain.
-		if len(s.info.Queue) > 0 && !s.info.QueueHeld && s.info.Limit == nil {
-			s.sendQueue()
-			return
-		}
-	}
-	s.publish()
-}
-
-func (s *server) onEvent(ev headless.Event) {
-	switch ev := ev.(type) {
-	case headless.Init:
-		s.info.Model, s.info.PermissionMode = ev.Model, ev.PermissionMode
-		s.info.SessionID = ev.SessionID
-		if s.cfg.Fork && ev.SessionID != "" && ev.SessionID != s.cfg.SessionID {
-			// The copy has its own id now; later restarts resume that.
-			s.cfg.SessionID, s.cfg.Fork = ev.SessionID, false
-			s.saveConfig()
-		}
-	case headless.RateLimit:
-		s.limitRaw = ev
-		s.shareUsage(ev)
-		return
-	case headless.Message:
-		if ev.Role == "assistant" && ev.Usage != nil {
-			s.info.CacheWarm = time.Now().Add(cacheLife)
-			go netproof.Answer(s.target(), time.Now())
-			if ev.ParentToolUseID == "" {
-				u := ev.Usage
-				s.info.ContextTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
-			}
-		}
-		if ev.Role == "assistant" && s.info.State == "idle" {
-			// It picked up on its own (a background task finished).
-			s.info.State = "working"
-			if s.idle != nil {
-				s.idle.Stop()
-			}
-		}
-		if ev.Role == "assistant" && ev.ParentToolUseID == "" {
-			for _, b := range ev.Blocks {
-				switch b.Type {
-				case "tool_use":
-					s.info.Detail = claude.Doing(b.Name, b.Input)
-				case "text":
-					if t := strings.TrimSpace(b.Text); t != "" {
-						s.info.Detail = firstLine(t)
-					}
-				}
-			}
-		}
-	case headless.MCPRequest:
-		if s.sess != nil && ev.Server == agtools.Server {
-			_ = s.sess.ReplyMCP(ev.ID, agtools.Handle(ev.Message))
-		}
-		if name, ok := plugin.NameOf(ev.Server); ok && s.sess != nil && slices.Contains(s.plugins, ev.Server) {
-			// A plugin's tool may take a while; the session carries on.
-			sess, id := s.sess, s.cfg.ID
-			go func() { _ = sess.ReplyMCP(ev.ID, s.broker.MCP(name, id, ev.Message)) }()
-		}
-		return
-	case headless.PermissionRequest:
-		if strings.HasPrefix(ev.Tool, agtools.Prefix) && s.sess != nil {
-			// Asked despite --allowedTools (a mode that asks for
-			// everything): they only draw, so yes.
-			_ = s.sess.Allow(ev, nil, false)
-			return
-		}
-		s.pending[ev.ID] = ev
-		s.info.State = "blocked"
-		s.info.Needs = needs(ev)
-	case headless.PermissionCancelled:
-		s.answered(ev.ID)
-	case headless.TaskStarted:
-		// Backgrounded later, it still started now.
-		if s.taskStart == nil {
-			s.taskStart = map[string]time.Time{}
-		}
-		s.taskStart[ev.ID] = time.Now()
-		for i, t := range s.info.Background {
-			if t.ID == ev.ID {
-				s.info.Background[i].StartedAt = s.taskStart[ev.ID]
-			}
-		}
-		return
-	case headless.BackgroundTasks:
-		s.info.Background = background(s.info.Background, ev.Tasks, s.taskStart, time.Now())
-		if len(s.info.Background) == 0 && s.info.State == "idle" && s.sess != nil {
-			s.armIdle() // the last of it ended: rest from now
-		}
-	case headless.TaskDone:
-		delete(s.taskStart, ev.ID)
-		return
-	case headless.ControlReply:
-		if tag, ok := s.asks[ev.ID]; ok {
-			delete(s.asks, ev.ID)
-			line, _ := jsonx.Marshal(map[string]any{"type": typeReply, "id": tag, "reply": ev.Body, "error": ev.Error})
-			for c := range s.clients {
-				c.push(line)
-			}
-			return
-		}
-		if ev.ID == s.ctxID && ev.ID != "" {
-			s.ctxID = ""
-			if u, err := headless.ParseContextUsage(ev); err == nil && ev.Error == "" {
-				u.At = time.Now()
-				s.context, _ = jsonx.Marshal(map[string]any{"type": typeContext, "context": u})
-				for c := range s.clients {
-					c.push(s.context)
-				}
-			}
-			return
-		}
-		if ev.ID == s.initID && ev.Error == "" {
-			s.commands, _ = jsonx.Marshal(map[string]any{"type": typeCommands, "commands": headless.Commands(ev)})
-			for c := range s.clients {
-				c.push(s.commands)
-			}
-		}
-		return
-	case headless.Result:
-		s.began = true
-		s.info.CostUSD += TurnCost(&s.spent, ev.CostUSD)
-		s.askContext()
-		if s.stalled(ev) {
-			s.publish()
-			return
-		}
-		s.info.Retry = nil
-		s.info.Limit = nil
-		s.limitRaw = headless.RateLimit{}
-		if len(s.pending) == 0 {
-			s.info.State = "idle"
-			s.info.Needs = ""
-			if t := strings.TrimSpace(ev.Text); t != "" {
-				s.info.Detail = firstLine(t)
-			}
-			if len(s.info.Queue) > 0 && !s.info.QueueHeld {
-				// The whole queue goes as one message, unless you asked
-				// for them one per turn.
-				s.sendQueue()
-				return
-			}
-			s.armIdle()
-			if s.login != "" && claude.SignedInAs(claude.AccountOf(s.cfg.Account)) != s.login {
-				// Switched since it started: it rests now, rather than
-				// holding the old sign-in and writing it back as it
-				// refreshes it.
-				go func() {
-					s.mu.Lock()
-					s.relogin(s.sess)
-				}()
-			}
-			// Waiting for you now: give back what the turn used.
-			go debug.FreeOSMemory()
-		}
-	default:
-		return
-	}
-	s.publish()
-}
-
 // stalled handles a turn that ended on a usage limit or an API error,
 // scheduling a continue or a retry when that's allowed. It reports whether
 // the turn stalled. Called with mu held.
-func (s *server) stalled(r headless.Result) bool {
-	text := strings.ToLower(r.Text)
+func (s *server) stalled(e event.TurnEnd) bool {
+	isErr := e.Err != "" || e.Reason != "" && e.Reason != "done" && e.Reason != "interrupted"
+	said := e.Err
+	if said == "" {
+		said = e.Text
+	}
+	text := strings.ToLower(said)
 	switch {
-	case r.IsError && (s.limitRaw.Status == "rejected" || strings.Contains(text, "usage limit") || strings.Contains(text, "limit reached")):
-		l := &Limit{Window: limitWindow(s.limitRaw.Raw)}
-		l.ResetsAt = limitReset(s.limitRaw.Raw)
+	case isErr && (s.limited != nil || strings.Contains(text, "usage limit") || strings.Contains(text, "limit reached")):
+		l := &Limit{}
+		if s.limited != nil {
+			l.Window, l.ResetsAt = s.limited.Window, s.limited.ResetsAt
+		}
 		switch s.cfg.LimitMode {
 		case "auto":
 			l.Continue = true
@@ -871,19 +581,19 @@ func (s *server) stalled(r headless.Result) bool {
 		s.info.Detail = "usage limit reached"
 		s.scheduleContinue()
 		return true
-	case !r.IsError && !strings.HasPrefix(r.Text, "API Error:"):
+	case !isErr && !strings.HasPrefix(said, "API Error:"):
 		return false
 	case isAuthError(text):
-		s.info.State, s.info.Error = "idle", "log in to continue: "+firstLine(r.Text)
+		s.info.State, s.info.Error = "idle", "log in to continue: "+firstLine(said)
 		return true
 	case strings.Contains(text, "too long") || strings.Contains(text, "too large"):
-		s.info.State, s.info.Error = "idle", firstLine(r.Text)+" · /compact may help"
+		s.info.State, s.info.Error = "idle", firstLine(said)+" · /compact may help"
 		return true
 	case IsOffline(text):
-		s.retry(firstLine(r.Text), true)
+		s.retry(firstLine(said), true)
 		return true
 	case IsRetryable(text):
-		s.retry(firstLine(r.Text), false)
+		s.retry(firstLine(said), false)
 		return true
 	}
 	return false
@@ -918,47 +628,6 @@ func IsOffline(t string) bool {
 		}
 	}
 	return false
-}
-
-// shareUsage passes the plan usage Claude Code reports with each request
-// to every agtop, as a reading of the login it runs on: the header and
-// switching accounts then go by it, not by a fetch minutes old. A reading
-// like the last goes only every half minute. Called with mu held.
-func (s *server) shareUsage(ev headless.RateLimit) {
-	u, ok := claude.LiveUsage(ev.Raw, time.Now())
-	if !ok || s.login == "" {
-		return
-	}
-	last := s.liveUsage
-	if u.FiveHour == last.FiveHour && u.SevenDay == last.SevenDay && u.FetchedAt.Sub(last.FetchedAt) < 30*time.Second {
-		return
-	}
-	u.AccountID = s.login
-	s.liveUsage = u
-	acct := claude.AccountOf(s.cfg.Account)
-	go func() {
-		// Only while the folder is still signed in as it started: after a
-		// switch, the reading may be the new login's.
-		_ = claude.RecordLiveUsage(filepath.Join(state.Dir(), "usage.json"), acct, u.AccountID, u)
-	}()
-}
-
-func limitReset(raw jsontext.Value) time.Time {
-	var r struct {
-		ResetsAt int64 `json:"resetsAt"`
-	}
-	if jsonx.Unmarshal(raw, &r) == nil && r.ResetsAt > 0 {
-		return time.Unix(r.ResetsAt, 0)
-	}
-	return time.Time{}
-}
-
-func limitWindow(raw jsontext.Value) string {
-	var r struct {
-		Type string `json:"rateLimitType"`
-	}
-	_ = jsonx.Unmarshal(raw, &r)
-	return r.Type
 }
 
 // retry handles a turn an API error stopped. While its prompt cache
@@ -1120,78 +789,71 @@ func (s *server) answered(id string) {
 	}
 }
 
-// stillWorking is whether an idle Claude Code has work of its own going:
-// tasks in the background, or a question you asked it (a side question
-// takes a model call). The context reading asked at each turn's end comes
-// back well inside the rest, so it isn't waited on. Called with mu held.
+// stillWorking is whether an idle agent has work of its own going: tasks
+// in the background, or a question you asked it (a side question takes a
+// model call). The context reading asked at each turn's end comes back
+// well inside the rest, so it isn't waited on. Called with mu held.
 func (s *server) stillWorking() bool {
-	return len(s.info.Background) > 0 || len(s.asks) > 0
+	return len(s.info.Background) > 0 || s.asking > 0
 }
 
+// armIdle rests the agent once it has been idle for IdleStop. Called with
+// mu held.
 func (s *server) armIdle() {
 	if s.idle != nil {
 		s.idle.Stop()
 	}
-	sess, conn := s.sess, s.conn
+	conn := s.conn
 	s.idle = time.AfterFunc(time.Duration(s.cfg.IdleStop), func() {
-		if conn != nil {
-			s.mu.Lock()
-			if s.conn == conn && s.info.State == "idle" {
-				s.detach()
-				s.publish()
-			}
-			s.mu.Unlock()
-			return
-		}
-		// Work Claude left running in the background (a test run, a build,
-		// a subagent, a monitor) would be cut off, and never reported back,
+		// Work it left running in the background (a test run, a build, a
+		// subagent, a monitor) would be cut off, and never reported back,
 		// as would a question it's still answering: rest once it's done.
 		s.mu.Lock()
 		busy := s.stillWorking()
 		s.mu.Unlock()
-		if sess != nil && (busy || runsShells(sess.PID())) {
+		if conn != nil && (busy || runsShells(pidOf(conn))) {
 			s.mu.Lock()
-			if s.sess == sess && s.info.State == "idle" {
+			if s.conn == conn && s.info.State == "idle" {
 				s.armIdle()
 			}
 			s.mu.Unlock()
 			return
 		}
 		s.mu.Lock()
-		stop := sess != nil && s.sess == sess && s.info.State == "idle"
+		stop := conn != nil && s.conn == conn && s.info.State == "idle"
 		if stop {
 			s.detach()
 			s.publish()
 		}
 		s.mu.Unlock()
 		if stop {
-			_ = sess.Stop(10 * time.Second)
+			stopAgent(conn)
 			// Idle until the next message: give back what the turn used.
 			debug.FreeOSMemory()
 		}
 	})
 }
 
-// relogin follows ~/.claude being signed in as another account. A running
-// Claude Code keeps the account it started with, so one that's idle rests
-// now (your next message starts it on the new one) unless work it left
-// running would be cut off, and one a usage limit stopped carries on now
-// instead of waiting for the reset. A turn under way is left to finish.
-// Called with mu held; returns with it released.
-func (s *server) relogin(sess *headless.Session) {
+// relogin follows the profile being signed in as another account. A
+// running agent keeps the account it started with, so one that's idle
+// rests now (your next message starts it on the new one) unless work it
+// left running would be cut off, and one a usage limit stopped carries on
+// now instead of waiting for the reset. A turn under way is left to
+// finish. Called with mu held; returns with it released.
+func (s *server) relogin(conn agent.Conn) {
 	limited := s.info.Limit != nil
-	if s.info.State != "idle" || (sess == nil && !limited) || (!limited && runsShells(sess.PID())) {
+	if s.info.State != "idle" || (conn == nil && !limited) || (!limited && runsShells(pidOf(conn))) {
 		s.mu.Unlock()
 		return
 	}
-	if sess != nil {
+	if conn != nil {
 		s.detach()
 		s.publish()
 		s.mu.Unlock()
-		_ = sess.Stop(10 * time.Second)
+		stopAgent(conn)
 		s.mu.Lock()
 	}
-	if limited && s.sess == nil {
+	if limited && s.conn == nil {
 		s.info.Limit = nil
 		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
 			s.sendQueue()
@@ -1223,14 +885,14 @@ func (s *server) publish() {
 // send delivers a message, or queues it while the agent is busy. Images
 // always go now: a queued message is text only.
 func (s *server) send(text string, images []string, now bool) error {
-	// Images are read before taking the lock: they can be megabytes.
-	var pics []headless.Image
+	// Images are looked at before taking the lock: they can be megabytes.
+	var pics []string
 	for _, p := range images {
-		im, err := readImage(p)
+		pic, err := readImage(p, TempDir(s.cfg.ID))
 		if err != nil {
 			return err
 		}
-		pics = append(pics, im)
+		pics = append(pics, pic)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1260,26 +922,38 @@ func (s *server) sendQueue() {
 	}
 }
 
-// readImage loads a picture to attach, refusing what the API won't take.
-func readImage(path string) (headless.Image, error) {
+// readImage checks a picture to attach, refusing what the API won't take,
+// and is where it's read from: a PNG goes as a far smaller WebP, written
+// to dir, when cwebp can make one.
+func readImage(path, dir string) (string, error) {
 	types := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 	mt := types[strings.ToLower(filepath.Ext(path))]
 	if mt == "" {
-		return headless.Image{}, fmt.Errorf("%s isn't a png, jpeg, gif or webp image", filepath.Base(path))
+		return "", fmt.Errorf("%s isn't a png, jpeg, gif or webp image", filepath.Base(path))
 	}
-	b, err := os.ReadFile(path)
+	st, err := os.Stat(path)
 	if err != nil {
-		return headless.Image{}, err
+		return "", err
 	}
+	size := st.Size()
 	if mt == "image/png" {
-		if w := toWebP(path); w != nil && len(w) < len(b) {
-			mt, b = "image/webp", w
+		if w := toWebP(path); w != nil && int64(len(w)) < size && os.MkdirAll(dir, 0o700) == nil {
+			out := filepath.Join(dir, strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))+"-"+hex.EncodeToString(randBytes(4))+".webp")
+			if os.WriteFile(out, w, 0o600) == nil {
+				path, size = out, int64(len(w))
+			}
 		}
 	}
-	if len(b) > 5<<20 {
-		return headless.Image{}, fmt.Errorf("%s is %d MB; images must be under 5 MB", filepath.Base(path), len(b)>>20)
+	if size > 5<<20 {
+		return "", fmt.Errorf("%s is %d MB; images must be under 5 MB", filepath.Base(path), size>>20)
 	}
-	return headless.Image{MediaType: mt, Data: b}, nil
+	return path, nil
+}
+
+func randBytes(n int) []byte {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return b
 }
 
 // toWebP is a PNG, most often a screenshot, as a far smaller WebP, or nil
@@ -1296,12 +970,13 @@ func toWebP(path string) []byte {
 	return b
 }
 
-// sendLocked gives Claude Code a message now; mid-turn it is picked up at
+// sendLocked gives the agent a message now; mid-turn it is picked up at
 // the next step. Called with mu held.
 func (s *server) sendLocked(text string) error { return s.deliver(text, nil, nil) }
 
-// deliver is sendLocked with images already read. Called with mu held.
-func (s *server) deliver(text string, images []string, pics []headless.Image) error {
+// deliver is sendLocked with images: images as you attached them, pics
+// where they're read from. Called with mu held.
+func (s *server) deliver(text string, images, pics []string) error {
 	s.gen++ // any continue or retry waiting is now moot
 	s.info.Limit = nil
 	if s.idle != nil {
@@ -1333,20 +1008,33 @@ func (s *server) deliver(text string, images []string, pics []headless.Image) er
 	s.info.State = "working"
 	s.info.Detail = ""
 	s.publish()
-	if s.conn != nil {
-		return s.conn.Send(agent.Input{Text: text, Images: images})
-	}
-	return s.sess.SendWith(text, pics)
+	return s.conn.Send(agent.Input{Text: text, Images: pics})
 }
 
-// askContext asks Claude Code what fills the context window, unless it's
-// asleep or already asked; clients get the answer as a typeContext line.
-// Called with mu held.
+// askContext asks the agent what fills the context window, unless it's
+// asleep, can't say, or was already asked; clients get the answer as a
+// typeContext line. Called with mu held.
 func (s *server) askContext() {
-	if s.sess == nil || s.ctxID != "" {
+	cr, ok := s.conn.(agent.ContextReader)
+	if !ok || s.ctxOut {
 		return
 	}
-	s.ctxID, _ = s.sess.AskContextUsage()
+	s.ctxOut = true
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		u, err := cr.ContextUsage(ctx)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.ctxOut = false
+		if err != nil {
+			return
+		}
+		s.context, _ = jsonx.Marshal(map[string]any{"type": typeContext, "context": u})
+		for c := range s.clients {
+			c.push(s.context)
+		}
+	}()
 }
 
 // editQueue applies a queue op. Called with mu held.
@@ -1422,11 +1110,7 @@ func (s *server) do(o op) error {
 		return s.send(o.Text, o.Images, o.Now)
 	}
 	s.mu.Lock()
-	sess, conn := s.sess, s.conn
-	if s.cfg.other() && (o.Op == "ask" || o.Op == "rewind" || o.Op == "stop_task" || o.Op == "background") {
-		s.mu.Unlock()
-		return fmt.Errorf("%s isn't something this agent can do", o.Op)
-	}
+	conn := s.conn
 	switch o.Op {
 	case "ask":
 		// Asleep, it wakes to answer, and rests again once idle.
@@ -1434,18 +1118,18 @@ func (s *server) do(o op) error {
 			s.mu.Unlock()
 			return err
 		}
+		a, ok := s.conn.(agent.Asker)
+		if !ok {
+			s.mu.Unlock()
+			return fmt.Errorf("%s isn't something this agent can do", o.Op)
+		}
 		if s.info.State == "idle" {
 			s.armIdle()
 		}
-		id, err := s.sess.Ask(o.Request)
-		if err == nil {
-			if s.asks == nil {
-				s.asks = map[string]string{}
-			}
-			s.asks[id] = o.ID
-		}
+		s.asking++
 		s.mu.Unlock()
-		return err
+		go s.ask(a, &o)
+		return nil
 	case "context":
 		s.askContext()
 		s.mu.Unlock()
@@ -1463,7 +1147,7 @@ func (s *server) do(o op) error {
 		s.mu.Unlock()
 		return nil
 	case "relogin":
-		s.relogin(sess)
+		s.relogin(conn)
 		return nil
 	case "queue_hold", "queue_separate":
 		if o.Op == "queue_hold" {
@@ -1480,20 +1164,14 @@ func (s *server) do(o op) error {
 		return err
 	case "allow", "deny":
 		req, ok := s.pending[o.ID]
-		if !ok || (sess == nil && conn == nil) {
+		if !ok || conn == nil {
 			s.mu.Unlock()
 			return fmt.Errorf("no pending request %s", o.ID)
 		}
 		s.answered(o.ID)
 		s.publish()
 		s.mu.Unlock()
-		if conn != nil {
-			return s.answerAgent(conn, req, o)
-		}
-		if o.Op == "allow" {
-			return sess.Allow(req, o.Input, o.Always)
-		}
-		return sess.Deny(req, o.Message, o.Interrupt)
+		return s.answerAgent(conn, o.ID, req, &o)
 	case "mode":
 		s.cfg.PermissionMode = o.Mode
 		s.info.PermissionMode = o.Mode
@@ -1501,25 +1179,27 @@ func (s *server) do(o op) error {
 	case "model":
 		s.cfg.Model = o.Model
 	case "effort":
-		// Effort is fixed for a Claude Code process, so it takes hold the
-		// next time one starts: right away when idle, else after this turn.
+		// Effort is fixed for an agent's process, so it takes hold the next
+		// time one starts: right away when idle, else after this turn.
 		s.cfg.Effort = o.Effort
 		s.info.Effort = o.Effort
 		s.publish()
-		if (sess != nil || conn != nil) && s.info.State == "idle" {
+		if conn != nil && s.info.State == "idle" {
 			s.detach()
 			s.publish()
 			s.mu.Unlock()
-			if sess == nil {
-				return nil
-			}
-			return sess.Stop(10 * time.Second)
+			stopAgent(conn)
+			return nil
 		}
 	case "rewind":
+		if !agent.Supports(agent.KindOf(s.cfg.Kind), agent.FeatureRewind) {
+			s.mu.Unlock()
+			return fmt.Errorf("%s isn't something this agent can do", o.Op)
+		}
 		err := s.rewind(o.Text, o.Now, o.Branch)
 		s.mu.Unlock()
-		if err == nil && sess != nil {
-			_ = sess.Stop(10 * time.Second)
+		if err == nil && conn != nil {
+			stopAgent(conn)
 		}
 		return err
 	case "stop":
@@ -1527,40 +1207,52 @@ func (s *server) do(o op) error {
 		s.detach()
 		s.publish()
 		s.mu.Unlock()
-		if sess != nil {
-			_ = sess.Stop(10 * time.Second)
+		if conn != nil {
+			stopAgent(conn)
 		}
 		s.stopOnce.Do(func() { close(s.quit) })
 		return nil
 	}
 	s.mu.Unlock()
-	if conn != nil {
-		switch o.Op {
-		case "interrupt":
-			return conn.Interrupt()
-		case "mode":
-			return conn.SetMode(o.Mode)
-		case "model":
-			return conn.SetModel(o.Model)
-		}
-		return nil
-	}
-	if sess == nil {
+	if conn == nil {
 		return nil // applied on the next start
 	}
 	switch o.Op {
 	case "interrupt":
-		return sess.Interrupt()
-	case "stop_task":
-		return sess.StopTask(o.ID)
-	case "background":
-		return sess.Background(o.ID)
+		return conn.Interrupt()
 	case "mode":
-		return sess.SetPermissionMode(o.Mode)
+		return conn.SetMode(o.Mode)
 	case "model":
-		return sess.SetModel(o.Model)
+		return conn.SetModel(o.Model)
+	case "stop_task":
+		if t, ok := conn.(agent.TaskStopper); ok {
+			return t.StopTask(o.ID)
+		}
+		return fmt.Errorf("%s isn't something this agent can do", o.Op)
+	case "background":
+		if b, ok := conn.(agent.Backgrounder); ok {
+			return b.Background(o.ID)
+		}
+		return fmt.Errorf("%s isn't something this agent can do", o.Op)
 	}
 	return nil
+}
+
+// ask passes a client's control request through and sends every client
+// the reply, tagged with the client's id for it.
+func (s *server) ask(a agent.Asker, o *op) {
+	body, err := a.Ask(context.Background(), o.Request)
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	line, _ := jsonx.Marshal(map[string]any{"type": typeReply, "id": o.ID, "reply": body, "error": msg})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.asking--
+	for c := range s.clients {
+		c.push(line)
+	}
 }
 
 // rewind carries on from sessionID instead: a copy of the conversation
@@ -1724,23 +1416,6 @@ func (s *server) serve(nc net.Conn) {
 	}
 }
 
-// needs says what a waiting request wants, in words for the list.
-func needs(r headless.PermissionRequest) string {
-	if r.Tool == "AskUserQuestion" {
-		var in struct {
-			Questions []struct {
-				Question string `json:"question"`
-			} `json:"questions"`
-		}
-		_ = jsonx.Unmarshal(r.Input, &in)
-		if len(in.Questions) > 0 {
-			return "asks: " + firstLine(in.Questions[0].Question)
-		}
-		return "has a question"
-	}
-	return r.Tool + " " + toolSummary(r.Input)
-}
-
 // toolSummary picks the argument that says what a tool call does.
 func toolSummary(input jsontext.Value) string {
 	var m map[string]any
@@ -1796,6 +1471,9 @@ func alive(pid int) bool {
 // runsShells reports whether Claude Code (pid) has a Bash-tool shell still
 // running under it, which is how its background work runs.
 func runsShells(pid int) bool {
+	if pid <= 0 {
+		return false // not a process of its own
+	}
 	tab := proc.Snapshot(nil)
 	for _, c := range tab.Descendants(pid) {
 		if c != pid && strings.Contains(proc.CommandLine(c), "shell-snapshots") {

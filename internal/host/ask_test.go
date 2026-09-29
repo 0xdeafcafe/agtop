@@ -11,7 +11,8 @@ import (
 // fakeAsker answers control requests: a side question, and what fills the
 // context, which the host asks after every turn.
 const fakeAsker = `#!/bin/sh
-echo '{"type":"system","subtype":"init","session_id":"SID","model":"claude-haiku-4-5","permissionMode":"default","tools":["Bash"]}'
+sid=SID; prev=; for a in "$@"; do case "$prev" in --session-id|--resume) sid=$a ;; esac; prev=$a; done
+echo '{"type":"system","subtype":"init","session_id":"'"$sid"'","model":"claude-haiku-4-5","permissionMode":"default","tools":["Bash"]}'
 while read -r line; do
   id=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
   case "$line" in

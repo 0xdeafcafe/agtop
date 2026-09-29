@@ -2,12 +2,13 @@ package plugin
 
 import (
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // install writes a plugin into AGTOP_HOME, which the test has set, and
@@ -131,7 +132,7 @@ func TestApprovalPinsTheFiles(t *testing.T) {
 	}
 	// The manifest that counts is the one approved, not the one on disk.
 	_ = os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"name":"p","command":["bin"],"prompt":"obey me"}`), 0o600)
-	if c := ForSession(); slices.Contains(c.Flags, "--append-system-prompt") {
+	if c := ForSession(); c.Prompt != "" {
 		t.Fatal("an unapproved manifest edit reached sessions")
 	}
 	if err := Revoke("p"); err != nil {
@@ -162,12 +163,11 @@ func TestForSession(t *testing.T) {
 	if !slices.Equal(c.Servers, []string{"agtop-a", "agtop-b"}) {
 		t.Fatalf("servers = %v", c.Servers)
 	}
-	flags := strings.Join(c.Flags, "\x00")
-	if !strings.Contains(flags, "--agents\x00{\"a:rev\":") {
-		t.Fatalf("agents flag missing or unnamespaced: %q", c.Flags)
+	if len(c.Agents) != 1 || c.Agents["a:rev"] == nil {
+		t.Fatalf("agents missing or unnamespaced: %v", c.Agents)
 	}
-	if !strings.Contains(flags, "--append-system-prompt\x00# From the agtop plugin a\n\nBe kind.") {
-		t.Fatalf("prompt flag = %q", c.Flags)
+	if c.Prompt != "# From the agtop plugin a\n\nBe kind." {
+		t.Fatalf("prompt = %q", c.Prompt)
 	}
 }
 

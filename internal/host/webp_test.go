@@ -23,15 +23,15 @@ func TestReadImageWebP(t *testing.T) {
 	}
 	png.Encode(f, img)
 	f.Close()
-	im, err := readImage(p)
+	got, err := readImage(p, filepath.Join(t.TempDir(), "tmp"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "image/png"
+	want := ".png"
 	if _, err := exec.LookPath("cwebp"); err == nil {
-		want = "image/webp"
+		want = ".webp"
 	}
-	if im.MediaType != want {
-		t.Fatalf("media type %s, want %s", im.MediaType, want)
+	if filepath.Ext(got) != want {
+		t.Fatalf("sent %s, want a %s", got, want)
 	}
 }

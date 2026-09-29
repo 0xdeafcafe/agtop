@@ -4,6 +4,7 @@ package claude
 
 import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -100,4 +101,10 @@ var (
 	_ agent.QuotaKeeper   = (*conn)(nil)
 	_ agent.Ender         = (*conn)(nil)
 	_ agent.PIDer         = (*conn)(nil)
+	_ agent.Tapper        = (*conn)(nil)
+	_ agent.Describer     = Adapter{}
 )
+
+// Doing is a call in a few words, with words of its own for Claude Code's
+// tools that have no kind (Skill, SendMessage, Monitor, ...).
+func (Adapter) Doing(c *tool.Call) string { return claude.Doing(c.Name, c.Raw) }

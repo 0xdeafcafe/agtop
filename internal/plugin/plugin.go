@@ -496,9 +496,11 @@ func Verify(name string) (Plugin, error) {
 
 // Contributions is what approved plugins add to a session's Claude Code.
 type Contributions struct {
-	// Flags go on Claude Code's command line: --agents and
-	// --append-system-prompt.
-	Flags []string
+	// Agents are the plugins' subagents, by plugin:name, each defined as
+	// Claude Code's --agents takes it.
+	Agents map[string]jsontext.Value
+	// Prompt is what the plugins add to the system prompt.
+	Prompt string
 	// Servers are the plugins' MCP servers, to register at initialize.
 	Servers []string
 }
@@ -529,11 +531,8 @@ func ForSession() Contributions {
 		}
 	}
 	if len(agents) > 0 {
-		b, _ := jsonx.Marshal(agents)
-		c.Flags = append(c.Flags, "--agents", string(b))
+		c.Agents = agents
 	}
-	if len(prompts) > 0 {
-		c.Flags = append(c.Flags, "--append-system-prompt", strings.Join(prompts, "\n\n"))
-	}
+	c.Prompt = strings.Join(prompts, "\n\n")
 	return c
 }

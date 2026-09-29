@@ -1,11 +1,13 @@
 package host
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
@@ -24,12 +26,19 @@ func benchTurn(n int) [][]byte {
 	return out
 }
 
+// tapConn is a session whose lines reach the host through tap.
+type tapConn struct{ agent.Conn }
+
+func (tapConn) Taps() bool { return true }
+
 // BenchmarkHostTurn is a host taking in one turn's output: each line into
 // the replay ring and to a client, the ones it looks at decoded and acted
 // on (a whole message publishes the session's info).
 func BenchmarkHostTurn(b *testing.B) {
 	b.Setenv("AGTOP_HOME", b.TempDir())
-	s := &server{cfg: Config{ID: "bench"}, clients: map[*conn]struct{}{}, pending: map[string]headless.PermissionRequest{}}
+	s := &server{cfg: Config{ID: "bench"}, clients: map[*conn]struct{}{}, pending: map[string]asked{}}
+	tc := tapConn{}
+	var n headless.Neutral
 	_ = os.MkdirAll(dir(s.cfg.ID), 0o700)
 	c := &conn{out: make(chan []byte, 1<<16), gone: make(chan struct{})}
 	s.clients[c] = struct{}{}
@@ -42,15 +51,17 @@ func BenchmarkHostTurn(b *testing.B) {
 	for b.Loop() {
 		for _, l := range turns[i%len(turns)] {
 			s.tap(l)
-			if relayOnly(l) {
-				continue
+			if bytes.HasPrefix(l, []byte(`{"type":"stream_event"`)) || bytes.HasPrefix(l, []byte(`{"type":"user"`)) {
+				continue // what a conn started Lightly leaves out
 			}
 			ev, err := headless.Decode(l)
 			if err != nil {
 				b.Fatal(err)
 			}
 			s.mu.Lock()
-			s.onEvent(ev)
+			for _, e := range n.Event(ev) {
+				s.onAgentEvent(tc, e)
+			}
 			s.mu.Unlock()
 		}
 		for len(c.out) > 0 {

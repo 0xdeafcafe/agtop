@@ -28,7 +28,8 @@ func TestMain(m *testing.M) {
 // turn at once.
 const fakeClaude = `#!/bin/sh
 printf '%s\n' "$*" >> "$(dirname "$0")/args.log"
-echo '{"type":"system","subtype":"init","session_id":"SID","model":"claude-haiku-4-5","permissionMode":"default","tools":[]}'
+sid=SID; prev=; for a in "$@"; do case "$prev" in --session-id|--resume) sid=$a ;; esac; prev=$a; done
+echo '{"type":"system","subtype":"init","session_id":"'"$sid"'","model":"claude-haiku-4-5","permissionMode":"default","tools":[]}'
 while read -r line; do
   case "$line" in
   *'"type":"user"'*)

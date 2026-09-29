@@ -10,7 +10,8 @@ import (
 // A turn that leaves a task in the background ends with Claude Code still
 // needed: it rests only once the task is done.
 const fakeBackground = `#!/bin/sh
-echo '{"type":"system","subtype":"init","session_id":"SID","model":"claude-haiku-4-5","permissionMode":"default","tools":["Bash"]}'
+sid=SID; prev=; for a in "$@"; do case "$prev" in --session-id|--resume) sid=$a ;; esac; prev=$a; done
+echo '{"type":"system","subtype":"init","session_id":"'"$sid"'","model":"claude-haiku-4-5","permissionMode":"default","tools":["Bash"]}'
 while read -r line; do
   case "$line" in
   *'"type":"user"'*)

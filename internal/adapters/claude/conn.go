@@ -26,9 +26,10 @@ func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 
 	acct := Account(o.Profile)
 	c := &conn{events: make(chan event.Event, 64), asks: map[string]headless.PermissionRequest{},
-		waits: map[string]chan headless.ControlReply{}, acct: acct, tools: slices.Clone(o.Tools)}
+		waits: map[string]chan headless.ControlReply{}, acct: acct, tools: slices.Clone(o.Tools),
+		done: make(chan struct{}), taps: o.Tap != nil}
 	ho := headless.Options{Account: acct, Dir: o.Dir, Model: o.Model, Effort: o.Effort,
-		PermissionMode: o.Mode, Binary: o.Binary, Env: slices.Clone(o.Env)}
+		PermissionMode: o.Mode, Binary: o.Binary}
 	if allowed := c.trusted(); len(allowed) > 0 {
 		// agtop's own tools only draw, so they never ask.
 		ho.Flags = append(ho.Flags, "--allowedTools", strings.Join(allowed, ","))
@@ -58,8 +59,9 @@ func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 		ho.Env = append(ho.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	}
 	// Checkpoints, as Claude Code keeps them in a terminal, so a rewind can
-	// put the files back too.
-	ho.Env = append(ho.Env, headless.CheckpointEnv)
+	// put the files back too. The session's own environment goes last, to
+	// have the last word.
+	ho.Env = append(append(ho.Env, headless.CheckpointEnv), o.Env...)
 	if o.Tap != nil {
 		tap := o.Tap
 		ho.Tap = func(line []byte) {
@@ -107,6 +109,8 @@ type conn struct {
 	// login is the account it started signed in as: its plan usage
 	// readings are that login's.
 	login string
+	taps  bool          // its lines reach StartOptions.Tap
+	done  chan struct{} // closed once it has ended
 
 	mu    sync.Mutex
 	asks  map[string]headless.PermissionRequest // approvals and questions not yet answered
@@ -165,6 +169,7 @@ func (c *conn) ownTraffic(l []byte) bool {
 
 func (c *conn) relay(ctx context.Context) {
 	defer close(c.events)
+	defer close(c.done)
 	var n headless.Neutral
 	for {
 		select {
@@ -292,6 +297,8 @@ func (c *conn) await(ctx context.Context, send func() (string, error)) (headless
 		delete(c.waits, id)
 		c.mu.Unlock()
 		return headless.ControlReply{}, ctx.Err()
+	case <-c.done:
+		return headless.ControlReply{}, errors.New("the session ended before it answered")
 	}
 }
 
@@ -399,5 +406,6 @@ func (c *conn) SetMode(mode string) error      { return c.s.SetPermissionMode(mo
 func (c *conn) StopTask(id string) error       { return c.s.StopTask(id) }
 func (c *conn) Background(callID string) error { return c.s.Background(callID) }
 func (c *conn) Err() error                     { return c.s.Err() }
+func (c *conn) Taps() bool                     { return c.taps }
 func (c *conn) PID() int                       { return c.s.PID() }
 func (c *conn) Close() error                   { return c.s.Stop(3 * time.Second) }
