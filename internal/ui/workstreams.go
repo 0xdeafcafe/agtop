@@ -140,7 +140,7 @@ func (m *Model) workAgents() []*fleet.Agent {
 }
 
 // workRow is one line of the Projects page. A project's head, an agent, a
-// worktree or a System process can be picked; the rest is text.
+// worktree, temp work or a System process can be picked; the rest is text.
 type workRow struct {
 	id    string
 	line  string
@@ -148,13 +148,14 @@ type workRow struct {
 	a     *fleet.Agent
 	wt    *fleet.Worktree
 	proc  *procRow
-	tmp   bool   // the Scratch row
-	fold  bool   // a project's worktrees with nothing of their own, as one row
-	owner string // the project an agent or worktree row is inside
+	tmp   bool         // the /tmp row
+	temp  *fleet.Agent // a finished agent's temp work
+	fold  bool         // a project's worktrees with nothing of their own, as one row
+	owner string       // the project an agent or worktree row is inside
 }
 
 func (r workRow) pickable() bool {
-	return r.id != "" && (r.proj != nil || r.a != nil || r.wt != nil || r.proc != nil || r.tmp || r.fold)
+	return r.id != "" && (r.proj != nil || r.a != nil || r.wt != nil || r.proc != nil || r.tmp || r.temp != nil || r.fold)
 }
 
 // workSession is a session in Projects: its state, then how far through

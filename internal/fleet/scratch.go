@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +23,25 @@ type Scratch struct {
 	Items, StaleItems int
 	Size, Stale       int64
 	Checked           time.Time
+}
+
+// ScratchItem is one thing of yours at the top of /tmp.
+type ScratchItem struct {
+	Path string
+	Size int64
+}
+
+// StaleScratch is what ClearScratch would remove now, biggest first. It
+// walks each, like FindScratch: off the UI.
+func StaleScratch() []ScratchItem {
+	var out []ScratchItem
+	for _, p := range scratchEntries() {
+		if size, newest := scratchWalk(p); time.Since(newest) >= ScratchIdle {
+			out = append(out, ScratchItem{Path: p, Size: size})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Size > out[j].Size })
+	return out
 }
 
 // scratchDir is where agents leave things.

@@ -312,50 +312,24 @@ func (m *Model) running(keys []string) *fleet.Agent {
 	return nil
 }
 
-// askRemoveWorktree asks before removing a worktree, naming exactly what
-// would be lost; its branch always stays.
-func (m *Model) askRemoveWorktree(wt fleet.Worktree) {
-	name := filepath.Base(wt.Path)
-	if a := m.running(wt.Agents); a != nil {
-		m.flash(oneLine(a.DisplayName)+" is still running in "+name+"; stop it or mark it done first", true)
-		return
+// askRemoveWorktree opens Delete on a worktree: what goes, what's lost,
+// and who worked there. Its branch always stays.
+func (m *Model) askRemoveWorktree(wt fleet.Worktree) tea.Cmd {
+	if wt.Checked.IsZero() || wt.Repo == "" {
+		m.flash(filepath.Base(wt.Path)+" hasn't been looked at yet · a moment", false)
+		return nil
 	}
-	if wt.Checked.IsZero() {
-		m.flash(name+" hasn't been looked at yet · a moment", false)
-		return
-	}
-	branch := "its branch stays"
-	if wt.Branch != "" {
-		branch = wt.Branch + " stays as a branch"
-	}
-	if wt.Safe() {
-		m.confirm = &confirmation{
-			question: fmt.Sprintf("Remove worktree %s (%s)?", name, disk(wt.Size)),
-			detail:   "everything in it is committed and pushed · " + branch,
-			onYes:    func() tea.Cmd { return m.removeWorktree(wt, false) },
-		}
-		return
-	}
-	m.confirm = &confirmation{
-		question: fmt.Sprintf("Delete worktree %s and lose %s?", name, firstNonEmpty(wt.Losses(), wt.Err)),
-		detail:   "this can't be undone · " + branch,
-		onYes:    func() tea.Cmd { return m.removeWorktree(wt, true) },
-	}
+	return m.openDelete(nil, doomed{wt: &wt})
 }
 
-// askClearScratch asks before clearing what's yours in /tmp that nothing
-// has touched for a day.
-func (m *Model) askClearScratch() {
-	s := m.clean.tmp
-	if s.StaleItems == 0 {
+// askClearScratch opens Delete on what's yours in /tmp that nothing has
+// touched for a day.
+func (m *Model) askClearScratch() tea.Cmd {
+	if m.clean.tmp.StaleItems == 0 {
 		m.flash("everything of yours in /tmp was touched in the last day; it stays", false)
-		return
+		return nil
 	}
-	m.confirm = &confirmation{
-		question: fmt.Sprintf("Delete %d things in /tmp, freeing %s?", s.StaleItems, disk(s.Stale)),
-		detail:   "only yours, and only what nothing has touched for a day · each is looked at again first",
-		onYes:    m.clearScratch,
-	}
+	return m.openDelete(nil, doomed{tmp: true})
 }
 
 func (m *Model) clearScratch() tea.Cmd {

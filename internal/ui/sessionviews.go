@@ -763,8 +763,7 @@ func (m *Model) runRushCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		m.leavePane()
 		return cmd, true
 	case "clean":
-		m.askClean(a)
-		return nil, true
+		return m.askClean(a), true
 	case "rush":
 		if a == nil {
 			return nil, true

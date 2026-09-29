@@ -159,63 +159,88 @@ func (w *Worktree) Check() {
 // checkGit is Check without the size: only what git says, which is all
 // that says whether it's safe to remove.
 func (w *Worktree) checkGit() bool {
+	_, _, ok := w.look()
+	return ok
+}
+
+// Doomed looks at w afresh with git and says, line by line, what removing
+// it would lose: its uncommitted files as git status names them, and its
+// commits nowhere else, as "sha subject". It runs git several times:
+// never on the UI's goroutine.
+func (w *Worktree) Doomed() (files, commits []string) {
+	files, commits, _ = w.look()
+	return files, commits
+}
+
+// look is checkGit, with the files and commits behind its counts.
+func (w *Worktree) look() (files, commits []string, ok bool) {
 	w.Checked, w.Err = time.Now(), ""
 	status, err := git(w.Path, "status", "--porcelain", "--untracked-files=normal")
 	if err != nil {
 		w.Err = "git status failed"
-		return false
+		return nil, nil, false
 	}
 	w.Changed = 0
 	if status != "" {
-		w.Changed = strings.Count(status, "\n") + 1
+		files = strings.Split(status, "\n")
+		w.Changed = len(files)
 	}
 	remotes, _ := git(w.Path, "remote")
 	w.NoRemote = strings.TrimSpace(remotes) == ""
-	n, off, err := unkept(w.Path, w.Repo, w.NoRemote)
+	commits, off, err := unkept(w.Path, w.Repo, w.NoRemote)
 	if err != nil {
 		w.Err = "couldn't compare with the remote"
-		return false
+		return files, nil, false
 	}
-	w.Unpushed, w.OffRemote = n, off
-	return true
+	w.Unpushed, w.OffRemote = len(commits), off
+	return files, commits, true
 }
 
-// unkept counts the worktree's commits that are nowhere else: on no remote,
-// and not in the main checkout's branch, as themselves or cherry-picked.
-// Work an agent's branch handed back to main is kept there, pushed or not.
-// off is those on no remote, in main or not.
-func unkept(path, repo string, noRemote bool) (n, off int, err error) {
+// unkept is the worktree's commits that are nowhere else, as "sha
+// subject": on no remote, and not in the main checkout's branch, as
+// themselves or cherry-picked. Work an agent's branch handed back to main
+// is kept there, pushed or not. off counts those on no remote, in main or
+// not.
+func unkept(path, repo string, noRemote bool) (lost []string, off int, err error) {
 	args := []string{"rev-list", "HEAD"}
 	if !noRemote {
 		args = append(args, "--not", "--remotes")
 	}
 	out, err := git(path, args...)
 	if err != nil || out == "" {
-		return 0, 0, err
+		return nil, 0, err
 	}
 	shas := strings.Fields(out)
+	short := func(s string) string { return s[:min(7, len(s))] }
+	all := func() []string {
+		for i, s := range shas {
+			shas[i] = short(s)
+		}
+		return shas
+	}
 	base, err := git(repo, "rev-parse", "HEAD")
 	if err != nil {
-		return len(shas), len(shas), nil
+		return all(), len(shas), nil
 	}
 	// git cherry marks with + what base has no equivalent of, and doesn't
 	// list what base already contains.
-	cherry, err := git(path, "cherry", base, "HEAD")
+	cherry, err := git(path, "cherry", "-v", base, "HEAD")
 	if err != nil {
-		return len(shas), len(shas), nil
+		return all(), len(shas), nil
 	}
-	unique := map[string]bool{}
+	unique := map[string]string{}
 	for l := range strings.SplitSeq(cherry, "\n") {
-		if sha, ok := strings.CutPrefix(l, "+ "); ok {
-			unique[sha] = true
+		if rest, ok := strings.CutPrefix(l, "+ "); ok {
+			sha, subject, _ := strings.Cut(rest, " ")
+			unique[sha] = subject
 		}
 	}
 	for _, s := range shas {
-		if unique[s] {
-			n++
+		if subject, ok := unique[s]; ok {
+			lost = append(lost, short(s)+" "+subject)
 		}
 	}
-	return n, len(shas), nil
+	return lost, len(shas), nil
 }
 
 // RemoveWorktree removes a worktree through git, which also forgets it in

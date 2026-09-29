@@ -82,47 +82,37 @@ func disk(n int64) string {
 	return "–"
 }
 
-// askClean asks before deleting an agent's temp work.
-func (m *Model) askClean(a *fleet.Agent) {
+// askClean opens Delete on an agent's temp work.
+func (m *Model) askClean(a *fleet.Agent) tea.Cmd {
 	if a == nil {
 		m.flash("select an agent first", true)
-		return
+		return nil
 	}
 	if a.PID != 0 {
 		m.flash(a.DisplayName+" is still running; its temp work may be in use · stop it first (ctrl+x)", true)
-		return
+		return nil
 	}
 	if a.Temp < tempShown {
 		m.flash(a.DisplayName+" has no temp work to clean", false)
-		return
+		return nil
 	}
-	m.confirm = &confirmation{
-		question: fmt.Sprintf("Delete %s of %s's temp work?", disk(a.Temp), a.DisplayName),
-		detail:   "its scratch folders; the conversation, its files and any worktree stay",
-		onYes:    func() tea.Cmd { return m.cleanTemp([]*fleet.Agent{a}) },
-	}
+	return m.openDelete(nil, doomed{agents: []*fleet.Agent{a}})
 }
 
-// askCleanAll asks before deleting the temp work of every agent that has
-// finished.
-func (m *Model) askCleanAll() {
+// askCleanAll opens Delete on the temp work of every agent that has
+// finished; running agents are left alone.
+func (m *Model) askCleanAll() tea.Cmd {
 	var list []*fleet.Agent
-	var total int64
 	for _, a := range m.snap.Agents {
 		if a.PID == 0 && a.Temp >= tempShown {
 			list = append(list, a)
-			total += a.Temp
 		}
 	}
 	if len(list) == 0 {
 		m.flash("no finished agent has temp work to clean", false)
-		return
+		return nil
 	}
-	m.confirm = &confirmation{
-		question: fmt.Sprintf("Delete %s of temp work from %d finished agents?", disk(total), len(list)),
-		detail:   "their scratch folders; conversations, files and worktrees stay · running agents are left alone",
-		onYes:    func() tea.Cmd { return m.cleanTemp(list) },
-	}
+	return m.openDelete(nil, doomed{agents: list})
 }
 
 // cleanTemp deletes agents' temp work in the background, then measures it

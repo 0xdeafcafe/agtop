@@ -20,15 +20,17 @@ import (
 // over the last day, whole. Its branch and how far it is from pushed,
 // where it pushes to, its last commits, the pull requests its agents
 // opened, and every linked worktree with its own branch and changes, each
-// with the agents working in it. Folders that aren't repositories come
-// last.
+// with the agents working in it.
+//
+// Each kind of thing has its own section and mark: Projects (◆, with their
+// main checkout and ⎇ worktrees inside), Other folders (◇, not
+// repositories), Temporary (◌, /tmp and finished agents' temp work, none
+// of it anyone's work), and System, the processes no project owns.
 //
 // A project shows only its head until the cursor is on it or inside it;
 // then it opens to its worktrees and agents. ↑↓ go from head to head, and
-// within a project once enter has stepped into it. What's safe to remove
-// is said on the worktree or agent it belongs to, and processes no project
-// owns (orphans, and Claude processes that aren't agents) sit in a System
-// section at the end.
+// within a project once enter has stepped into it. Nothing is deleted
+// without the Delete sheet saying first what goes and what's lost.
 
 // project is one repository on the page, and its agents by worktree ("" for
 // the main checkout).
@@ -36,6 +38,7 @@ type project struct {
 	key, title string
 	agents     []*fleet.Agent
 	open       bool // an agent in it is running
+	repo       bool // a repository, not just a folder
 }
 
 func (m *Model) projects() []*project {
@@ -56,6 +59,7 @@ func (m *Model) projects() []*project {
 	out := make([]*project, 0, len(byKey))
 	for _, p := range byKey {
 		p.title = titles[p.key]
+		p.repo = filepath.IsAbs(p.key) && m.rootIsRepo(p.key)
 		sort.SliceStable(p.agents, func(i, j int) bool {
 			a, b := p.agents[i], p.agents[j]
 			if t, u := treeOf(a), treeOf(b); t != u {
@@ -69,8 +73,8 @@ func (m *Model) projects() []*project {
 	// first; then by name, so a project keeps its place.
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
-		if ra, rb := filepath.IsAbs(a.key) && m.rootIsRepo(a.key), filepath.IsAbs(b.key) && m.rootIsRepo(b.key); ra != rb {
-			return ra
+		if a.repo != b.repo {
+			return a.repo
 		}
 		if a.open != b.open {
 			return a.open
@@ -131,7 +135,10 @@ func (m *Model) projectRows() []workRow {
 		text(dim("  no agent has worked anywhere in the last day"))
 	}
 	open := m.openProject(list)
-	for _, p := range list {
+	for i, p := range list {
+		if i == 0 || p.repo != list[i-1].repo {
+			text(projectsRule(list, p.repo, w))
+		}
 		f := m.folders.byRoot[p.key]
 		head := m.projectHead(p, w)
 		rows = append(rows, workRow{id: "p" + p.key, proj: p, line: fit(head[0], w)})
@@ -143,21 +150,34 @@ func (m *Model) projectRows() []workRow {
 			continue
 		}
 		// The main checkout's agents, then each worktree's, every one
-		// the repository has once it's known whole.
+		// the repository has once it's known whole; each under a label
+		// once there are both.
+		trees := projectTrees(p, f)
+		indent := "  "
+		if p.repo && len(trees) > 0 {
+			indent = "    "
+			text("  " + dim("main checkout"))
+		}
 		for _, a := range p.agents {
 			if treeOf(a) == "" {
-				agentRow(a, "  ")
+				agentRow(a, indent)
 			}
+		}
+		if len(trees) > 0 {
+			text("  " + dim("worktrees") + faint(fmt.Sprintf("  %d", len(trees))))
 		}
 		// Worktrees with nothing of their own fold into one row, so the
 		// ones with work in them aren't lost among them.
 		var idle, asking int
 		var idleSize int64
-		for _, t := range projectTrees(p, f) {
-			n := 0
+		for _, t := range trees {
+			n, running := 0, 0
 			for _, a := range p.agents {
 				if treeOf(a) == t {
 					n++
+					if a.Open() || a.Busy() {
+						running++
+					}
 				}
 			}
 			wt := m.worktreeAt(t)
@@ -171,10 +191,10 @@ func (m *Model) projectRows() []workRow {
 				idleSize += wt.Size
 				continue
 			}
-			rows = append(rows, workRow{id: "w" + t, wt: &wt, owner: p.key, line: m.worktreeRow(t, st, wt, w)})
+			rows = append(rows, workRow{id: "w" + t, wt: &wt, owner: p.key, line: m.worktreeRow(t, st, wt, running, w)})
 			for _, a := range p.agents {
 				if treeOf(a) == t {
-					agentRow(a, "    ")
+					agentRow(a, "      ")
 				}
 			}
 		}
@@ -183,23 +203,71 @@ func (m *Model) projectRows() []workRow {
 		}
 		text("")
 	}
-	rows = append(rows, m.scratchRows(w)...)
+	rows = append(rows, m.tempRows(w, now)...)
 	return append(rows, m.systemRows(w, now)...)
 }
 
-// scratchRows are what's yours in /tmp: what agents wrote there and left.
-func (m *Model) scratchRows(w int) []workRow {
-	s := m.clean.tmp
-	if s.Checked.IsZero() || s.Items == 0 {
+// projectsRule heads the repositories, or the folders that aren't.
+func projectsRule(list []*project, repo bool, w int) string {
+	n, running := 0, 0
+	for _, p := range list {
+		if p.repo == repo {
+			n++
+			if p.open {
+				running++
+			}
+		}
+	}
+	meta := strconv.Itoa(n)
+	if running > 0 {
+		meta += fmt.Sprintf(" · %d with an agent running", running)
+	}
+	if repo {
+		return rule("Projects", meta+" · ◆ repository  ⎇ worktree", w)
+	}
+	return rule("Other folders", meta+" · ◇ not a repository", w)
+}
+
+// tempShownMax is how many agents' temp work Temporary lists; X takes all.
+const tempShownMax = 6
+
+// tempRows are what agents leave behind that's no project's: what's yours
+// in /tmp, and finished agents' temp work. None of it is anyone's work.
+func (m *Model) tempRows(w int, now time.Time) []workRow {
+	var rows []workRow
+	name := func(s string) string { return "  " + kindMark(kindTemp) + " " + fit(s, 30) }
+	if s := m.clean.tmp; !s.Checked.IsZero() && s.Items > 0 {
+		line := name(paint(cText, "/tmp")) + dim(fmt.Sprintf("%d of yours · %s", s.Items, disk(s.Size)))
+		if s.StaleItems > 0 {
+			line += "   " + paint(cGreen, "✓ "+disk(s.Stale)) + paint(cGreen, fmt.Sprintf(" in %d untouched for a day", s.StaleItems)) + dim(" · x clears them")
+		} else {
+			line += dim("   all touched in the last day")
+		}
+		rows = append(rows, workRow{id: "t", tmp: true, line: fit(line, w)})
+	}
+	var temp []*fleet.Agent
+	var more int64
+	for _, a := range m.snap.Agents {
+		if a.PID == 0 && a.Temp >= tempShown {
+			temp = append(temp, a)
+		}
+	}
+	sort.SliceStable(temp, func(i, j int) bool { return temp[i].Temp > temp[j].Temp })
+	for i, a := range temp {
+		if i >= tempShownMax {
+			more += a.Temp
+			continue
+		}
+		rows = append(rows, workRow{id: "T" + a.Key, temp: a, line: fit(name(paint(cSub, oneLine(a.DisplayName)))+m.tempTail(a, now), w)})
+	}
+	if n := len(temp) - tempShownMax; n > 0 {
+		rows = append(rows, workRow{line: fit("    "+faint(fmt.Sprintf("… %d more agents' temp work · %s · X clears every finished agent's", n, disk(more))), w)})
+	}
+	if len(rows) == 0 {
 		return nil
 	}
-	line := "  " + paint(cSub, "/tmp") + dim(fmt.Sprintf("  %d of yours · %s", s.Items, disk(s.Size)))
-	if s.StaleItems > 0 {
-		line += "   " + paint(cGreen, "✓ "+disk(s.Stale)) + paint(cGreen, fmt.Sprintf(" in %d untouched for a day", s.StaleItems)) + dim(" · x clears them")
-	} else {
-		line += dim("   all touched in the last day")
-	}
-	return []workRow{{line: rule("Scratch", "what agents left in /tmp", w)}, {id: "t", tmp: true, line: fit(line, w)}, {line: ""}}
+	head := workRow{line: rule("Temporary", "◌ scratch agents leave behind · deleting it loses none of their work", w)}
+	return append(append([]workRow{head}, rows...), workRow{})
 }
 
 // projectHead is what heads a project: its name and what its agents are
@@ -208,7 +276,11 @@ func (m *Model) scratchRows(w int) []workRow {
 func (m *Model) projectHead(p *project, w int) []string {
 	now := m.snap.At
 	f, known := m.folders.byRoot[p.key]
-	head := paint(cText+bold, p.title) + "  " + folderMeta(p.agents, now)
+	mark := kindMark(kindFolder)
+	if p.repo {
+		mark = kindMark(kindProject)
+	}
+	head := mark + " " + paint(cText+bold, p.title) + "  " + folderMeta(p.agents, now)
 	out := []string{head + " " + faint(strings.Repeat("─", max(0, w-cellw.String(head)-1)))}
 	if filepath.IsAbs(p.key) {
 		where := faint(tildify(p.key))
@@ -225,6 +297,9 @@ func (m *Model) projectHead(p *project, w int) []string {
 		g := gitBits(f.Git)
 		if f.Git.Branch != "" && !f.Git.Upstream && f.Git.Err == "" {
 			g = g + dim(" · ") + faint("not pushed anywhere")
+		}
+		if n := f.Worktrees; n > 0 {
+			g += dim(" · ") + paint(cBlue, "⎇ ") + dim(fmt.Sprintf("%d worktree%s", n, plural(n)))
 		}
 		out = append(out, "  "+g)
 		for _, c := range f.Recent {
@@ -258,15 +333,22 @@ func projectTrees(p *project, f fleet.Folder) []string {
 }
 
 // worktreeRow is a worktree with work in it on the Projects page: its
-// name, its branch when that says something more, what it has of its own
-// in words, and quietly, what it came from.
-func (m *Model) worktreeRow(t string, st fleet.GitState, wt fleet.Worktree, w int) string {
+// name, its branch when that says something more, the agents running in
+// it, what it has of its own in words or that it's clean, the disk it
+// takes once measured, and quietly, what it came from.
+func (m *Model) worktreeRow(t string, st fleet.GitState, wt fleet.Worktree, running, w int) string {
 	name := filepath.Base(t)
-	head := "  " + faint("⎇ ") + paint(cSub, name)
+	head := "    " + kindMark(kindWorktree) + " " + paint(cText, name)
 	if b := st.Branch; b != "" && b != name && b != "worktree-"+name {
 		head += "  " + dim(b)
 	}
 	var work []string
+	if running > 0 {
+		work = append(work, paint(cOrange, fmt.Sprintf("● %d running", running)))
+	}
+	if st.Err == "" && wt.Err == "" && st.Changed == 0 && ownCommits(st) == 0 {
+		work = append(work, paint(cGreen, "✓ clean"))
+	}
 	if st.Err != "" {
 		work = append(work, paint(cRed, st.Err))
 	}
@@ -286,7 +368,11 @@ func (m *Model) worktreeRow(t string, st fleet.GitState, wt fleet.Worktree, w in
 			from += fmt.Sprintf(", %d behind", st.BaseBehind)
 		}
 	}
-	return fit(fit(head, 34)+fit(strings.Join(work, dim(" · ")), 34)+faint(from), w)
+	size := ""
+	if wt.Size > 0 {
+		size = disk(wt.Size)
+	}
+	return fit(fit(head, 40)+fit(strings.Join(work, dim(" · ")), 40)+faint(right(size, 6))+"   "+faint(from), w)
 }
 
 // ownCommits are a worktree's commits past what it came from, or past its
@@ -312,7 +398,7 @@ func foldLine(idle, asking int, size int64) string {
 	if asking > 0 {
 		parts = append(parts, fmt.Sprintf("%d asking git…", asking))
 	}
-	out := "  " + faint("▸ ") + dim(strings.Join(parts, " · "))
+	out := "    " + faint("▸ ") + dim(strings.Join(parts, " · "))
 	if idle > 0 {
 		out += dim(" · ") + paint(cSub, "x") + dim(" cleans them up")
 	}
@@ -540,11 +626,13 @@ func (m *Model) projectsHint() string {
 		}
 		return keysFit(w, append(k, "esc", "back")...)
 	case r.wt != nil:
-		return keysFit(w, "↑↓", "move", "x", "remove", "c", "clean up", "r", "check again", "←", "the project", "esc", "back")
+		return keysFit(w, "↑↓", "move", "x", "remove…", "c", "clean up", "r", "check again", "←", "the project", "esc", "back")
 	case r.fold:
 		return keysFit(w, "↑↓", "move", "x", "clean them up", "r", "check again", "esc", "back")
 	case r.tmp:
-		return keysFit(w, "↑↓", "move", "x", "clear untouched", "c", "clean up", "r", "look again", "esc", "back")
+		return keysFit(w, "↑↓", "move", "x", "clear untouched…", "c", "clean up", "r", "look again", "esc", "back")
+	case r.temp != nil:
+		return keysFit(w, "↑↓", "move", "x", "delete it…", "X", "every finished agent's…", "c", "clean up", "esc", "back")
 	case r.proj != nil:
 		return keysFit(w, "↑↓", "move", "enter", "into it", "c", "clean up", "[ ]", "pages", "esc", "back")
 	}
@@ -616,9 +704,11 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			m.rebuild()
 			return m.focusPane(r.a)
 		case r.wt != nil:
-			m.askRemoveWorktree(*r.wt)
+			return m.askRemoveWorktree(*r.wt)
 		case r.tmp:
-			m.askClearScratch()
+			return m.askClearScratch()
+		case r.temp != nil:
+			return m.askClean(r.temp)
 		case r.fold:
 			return m.openCleanSheet()
 		}
@@ -629,15 +719,17 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 	case "x", "ctrl+x", "backspace", "delete":
 		switch {
 		case r.wt != nil:
-			m.askRemoveWorktree(*r.wt)
+			return m.askRemoveWorktree(*r.wt)
 		case r.proc != nil:
 			m.endProc(*r.proc)
 		case r.tmp:
-			m.askClearScratch()
+			return m.askClearScratch()
+		case r.temp != nil:
+			return m.askClean(r.temp)
 		case r.fold:
 			return m.openCleanSheet()
 		case r.a != nil && r.a.Temp >= tempShown:
-			m.askClean(r.a)
+			return m.askClean(r.a)
 		}
 	case "!":
 		if p := r.proc; p != nil {
@@ -648,6 +740,9 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			}
 		}
 	case "X":
+		if r.temp != nil {
+			return m.askCleanAll()
+		}
 		if mc := m.snap.Machine; mc.Orphans > 0 {
 			var ends []procRow
 			for _, o := range rows {

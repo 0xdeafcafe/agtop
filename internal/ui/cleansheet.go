@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -152,7 +151,7 @@ func (s *cleanSheet) key(m *Model, _ tea.KeyPressMsg, k string) tea.Cmd {
 			s.items[i].on = !all && s.safe(s.items[i])
 		}
 	case "enter":
-		s.confirm(m)
+		return s.confirm(m)
 	}
 	return nil
 }
@@ -161,44 +160,20 @@ func (s *cleanSheet) safe(it cleanItem) bool {
 	return it.busy == "" && (it.wt == nil || it.wt.Safe())
 }
 
-// confirm asks once for everything ticked, naming what would lose work.
-func (s *cleanSheet) confirm(m *Model) {
-	n, losing, size := s.ticked(m)
-	if n == 0 {
-		m.flash("nothing ticked · space ticks one, a ticks all that's safe", false)
-		return
-	}
-	var lose []string
-	var picked []cleanItem
+// confirm opens Delete on everything ticked, which says what each takes;
+// esc there comes back here.
+func (s *cleanSheet) confirm(m *Model) tea.Cmd {
+	var picked []doomed
 	for _, it := range s.items {
 		if it.on {
-			picked = append(picked, it)
-			if it.wt != nil && !it.wt.Safe() {
-				lose = append(lose, filepath.Base(it.wt.Path)+": "+firstNonEmpty(it.wt.Losses(), it.wt.Err))
-			}
+			picked = append(picked, doomed{wt: it.wt, tmp: it.wt == nil})
 		}
 	}
-	c := &confirmation{
-		question: fmt.Sprintf("Remove %d ticked, freeing %s?", n, disk(size)),
-		detail:   "branches stay · each safe one is checked with git again first",
-		onYes: func() tea.Cmd {
-			m.sheet = nil
-			var cmds []tea.Cmd
-			for _, it := range picked {
-				if it.wt == nil {
-					cmds = append(cmds, m.clearScratch())
-					continue
-				}
-				cmds = append(cmds, m.removeWorktree(*it.wt, !it.wt.Safe()))
-			}
-			return tea.Batch(cmds...)
-		},
+	if len(picked) == 0 {
+		m.flash("nothing ticked · space ticks one, a ticks all that's safe", false)
+		return nil
 	}
-	if losing > 0 {
-		c.question = fmt.Sprintf("Remove %d ticked, freeing %s, and lose work in %d?", n, disk(size), losing)
-		c.detail = "can't be undone: " + strings.Join(lose, " · ")
-	}
-	m.confirm = c
+	return m.openDelete(s, picked...)
 }
 
 // nudgeClean says, once a day at most, when there's a lot that could go:

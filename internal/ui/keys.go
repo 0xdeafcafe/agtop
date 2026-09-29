@@ -844,9 +844,10 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "clean":
 		if strings.TrimSpace(arg) == "all" {
-			m.askCleanAll()
-		} else if need() {
-			m.askClean(a)
+			return m.askCleanAll()
+		}
+		if need() {
+			return m.askClean(a)
 		}
 	case "stop":
 		if need() {
