@@ -13,6 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -595,7 +596,10 @@ func openHosted(args []string) error {
 		return fmt.Errorf("session %s %w", id, errNotFound)
 	}
 	viewGC()
+	state.WriteBehind() // the UI goroutine never waits on a save
+	agent.NeverWait()   // nor on looking for agents' programs
 	p := tea.NewProgram(ui.NewHosted(state.Load(), version, id), tea.WithFPS(120))
 	_, err = p.Run()
+	_ = state.Flush()
 	return err
 }

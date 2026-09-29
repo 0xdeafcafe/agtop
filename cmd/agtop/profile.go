@@ -13,6 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/ui"
 )
@@ -52,6 +53,9 @@ func soak(args []string) {
 		fmt.Sscanf(args[1], "%dx%d", &w, &h)
 	}
 	viewGC() // as the view runs
+	state.WriteBehind()
+	agent.NeverWait()
+	defer state.Flush() //nolint:errcheck
 	m := ui.New(state.Load(), version)
 	m.Offline()
 	if want := os.Getenv("AGTOP_RENDER_SELECT"); want != "" {

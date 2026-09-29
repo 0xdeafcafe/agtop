@@ -14,11 +14,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/advisor"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/plugind"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
@@ -61,7 +61,7 @@ func main() {
 			fmt.Println("agtop", version)
 			return
 		case "--help", "-h", "help":
-			fmt.Print(usage + pluginsUsage())
+			fmt.Print(usage)
 			return
 		case "--dump":
 			dump()
@@ -130,21 +130,22 @@ func main() {
 			}
 			return
 		}
-		// A plugin's own commands: its name, where agtop's commands take
-		// theirs first.
-		if m, ok := plugin.CLIPlugins()[args[0]]; ok {
-			os.Exit(pluginCLI(args[0], m, args[1:], os.Stdout, os.Stderr))
-		}
 	}
 	// 120 frames a second: a streamed delta reaches the terminal within
 	// about 8ms of being drawn, and nothing is drawn when nothing changed.
 	viewGC()
+	state.WriteBehind() // the UI goroutine never waits on a save
+	agent.NeverWait()   // nor on looking for agents' programs
 	p := tea.NewProgram(ui.New(state.Load(), version), tea.WithFPS(120))
-	here := menubar.Here() // so the menu bar app comes back to this terminal
+	// So the menu bar app comes back to this terminal: noted while the
+	// first frame draws, not before it.
+	here := make(chan func(), 1)
+	go func() { here <- menubar.Here() }()
 	var err error
 	profiled(func() { _, err = p.Run() })
 	advisor.Stop() // a pass still running would spend on an answer nobody reads
-	here()
+	_ = state.Flush()
+	(<-here)()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "agtop:", err)
 		os.Exit(1)
