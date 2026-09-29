@@ -100,7 +100,11 @@ func TestEveryFeatureGated(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		inAgent := f.Name.Name == "agent" // agent's own gates name features bare
 		ast.Inspect(f, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && inAgent && strings.HasPrefix(id.Name, "Feature") {
+				asked[id.Name] = true
+			}
 			if sel, ok := n.(*ast.SelectorExpr); ok {
 				if x, ok := sel.X.(*ast.Ident); ok && x.Name == "agent" && strings.HasPrefix(sel.Sel.Name, "Feature") {
 					asked[sel.Sel.Name] = true

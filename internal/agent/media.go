@@ -30,8 +30,8 @@ func (m Media) String() string {
 	return "text"
 }
 
-// Reader is an agent that knows what its models read besides text.
-type Reader interface {
+// MediaReader is an agent that knows what its models read besides text.
+type MediaReader interface {
 	// Reads is what model takes; false when the agent doesn't know it.
 	Reads(model string) (Media, bool)
 }
@@ -64,7 +64,7 @@ func Unreadable(k Kind, model string, files []string) string {
 	if need&MediaImage != 0 && !Supports(k, FeatureImages) {
 		return nameOf(k) + " can't take images"
 	}
-	r, ok := As[Reader](k)
+	r, ok := As[MediaReader](k)
 	if !ok {
 		return ""
 	}

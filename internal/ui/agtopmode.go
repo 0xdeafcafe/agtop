@@ -2844,8 +2844,8 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	if rest, imgs := extractImages(text, m.lookPath); imgs != nil {
 		images, text = append(images, imgs...), rest
 	}
-	if k := sessionAgent(c); len(images) > 0 && !agent.Supports(k, agent.FeatureImages) {
-		m.flash(agentName(string(k))+" can't take images", true)
+	if why := agent.Unreadable(sessionAgent(c), argRunning(c, "model"), images); why != "" {
+		m.flash(why, true)
 		return nil
 	}
 	m.keepSent(c, text)
@@ -3161,9 +3161,9 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 		name = "fresh session in " + filepath.Base(dir)
 	}
 	kind, profile := m.startKindIn(dir), m.startProfile(dir).Name
-	if len(images) > 0 && !agent.Supports(agent.Kind(kind), agent.FeatureImages) {
+	if why := agent.Unreadable(agent.Kind(kind), d.StartFor(kind).Model, images); why != "" {
 		m.images = images
-		m.flash(agentName(kind)+" can't take images", true)
+		m.flash(why, true)
 		return nil
 	}
 	m.accts.profile = "" // a profile picked with #profile is for one session
