@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/0xdeafcafe/agtop/internal/convo"
 )
@@ -94,17 +95,80 @@ func (r imageRefs) clone() imageRefs {
 // image's marker.
 var chipRe = regexp.MustCompile(convo.PasteChipRe.String() + `|\[Image #\d+\]`)
 
-// dropChipAfter deletes a whole chip or marker when delete lands on its
-// start.
-func dropChipAfter(buf []rune, pos int) ([]rune, bool) {
-	if pos >= len(buf) || buf[pos] != '[' {
-		return buf, false
+// chipSpans are where buf's chips are, as rune offsets.
+func chipSpans(buf []rune) []seg {
+	s := string(buf)
+	if !strings.Contains(s, "[") {
+		return nil
 	}
-	after := string(buf[pos:])
-	loc := chipRe.FindStringIndex(after)
-	if loc == nil || loc[0] != 0 {
-		return buf, false
+	var out []seg
+	for _, loc := range chipRe.FindAllStringIndex(s, -1) {
+		from := utf8.RuneCountInString(s[:loc[0]])
+		out = append(out, seg{from, from + utf8.RuneCountInString(s[loc[0]:loc[1]])})
 	}
-	n := len([]rune(after[:loc[1]]))
-	return append(append([]rune{}, buf[:pos]...), buf[pos+n:]...), true
+	return out
+}
+
+// chipOn is the chip with the character at p in it.
+func chipOn(buf []rune, p int) (seg, bool) {
+	for _, c := range chipSpans(buf) {
+		if p >= c.from && p < c.to {
+			return c, true
+		}
+	}
+	return seg{}, false
+}
+
+// outOfChip moves p, when it's inside a chip, to the chip's edge in the
+// direction it was going: forward to after it, else to its start.
+func outOfChip(spans []seg, p int, forward bool) int {
+	for _, c := range spans {
+		if p > c.from && p < c.to {
+			if forward {
+				return c.to
+			}
+			return c.from
+		}
+	}
+	return p
+}
+
+// shown is a Session's box text as drawn: each image's [Image #N] as its
+// name, [▣ shot.png]. at maps each drawn position back to the text's; a
+// place inside a name is inside its marker, so a click there picks it.
+func (r imageRefs) shown(buf []rune) (out []rune, at []int) {
+	s := string(buf)
+	if len(r.Path) == 0 || !strings.Contains(s, "[Image #") {
+		return buf, nil
+	}
+	p := 0 // in buf
+	for _, loc := range imageMarkerRe.FindAllStringSubmatchIndex(s, -1) {
+		id, _ := strconv.Atoi(s[loc[2]:loc[3]])
+		path, ok := r.Path[id]
+		if !ok {
+			continue
+		}
+		from := utf8.RuneCountInString(s[:loc[0]])
+		for ; p < from; p++ {
+			out, at = append(out, buf[p]), append(at, p)
+		}
+		for i, ch := range "[▣ " + chipName(path) + "]" {
+			out, at = append(out, ch), append(at, from+min(i, 1))
+		}
+		p = from + utf8.RuneCountInString(s[loc[0]:loc[1]])
+	}
+	for ; p < len(buf); p++ {
+		out, at = append(out, buf[p]), append(at, p)
+	}
+	return out, append(at, len(buf))
+}
+
+// chipName is an image's name in a box: its file's, cut short when long,
+// with nothing in it that would end the chip early.
+func chipName(path string) string {
+	n := []rune(strings.NewReplacer("]", ")", "\n", " ").Replace(convo.ImageLabel(path)))
+	if len(n) > 32 {
+		n = append(append(n[:20:20], '…'), n[len(n)-11:]...)
+	}
+	return string(n)
 }

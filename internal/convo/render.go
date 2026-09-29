@@ -407,8 +407,14 @@ func ImageLabel(path string) string {
 	if m := screenshotRe.FindStringSubmatch(strings.ReplaceAll(name, "\u202f", " ")); m != nil {
 		return "screenshot " + m[1]
 	}
+	// An image pasted as data is saved by agtop as clipboard-<time>.png.
+	if m := clipboardRe.FindStringSubmatch(name); m != nil {
+		return "screenshot " + m[1] + ":" + m[2]
+	}
 	return name
 }
+
+var clipboardRe = regexp.MustCompile(`^clipboard-\d{8}-(\d{2})(\d{2})\d{2}(?:\.\d+)?\.png$`)
 
 // imageChips lays images out as chips, as many to a row as fit in w, a
 // chip never broken across rows.

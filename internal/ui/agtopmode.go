@@ -2113,6 +2113,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	if m.chipHot.box == 1 {
 		b.hot = m.chipHot.at
 	}
+	b = b.named(c.imgs)
 	if mode := s.Info.PermissionMode; mode != "" {
 		b.topR = paint(cOrange, mode)
 	}
@@ -2655,22 +2656,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if m.undoKey(c, s) {
 		return nil
 	}
-	if (s == "backspace" || s == "ctrl+h") && c.anchor == 0 {
-		if buf, pos, ok := dropChip(c.input, len(c.input)-c.back); ok {
-			c.undo.save(c.input, c.back, false)
-			c.input, c.back = buf, len(buf)-pos
-			return nil
-		}
-	}
-	if s == "delete" && c.anchor == 0 {
-		if buf, ok := dropChipAfter(c.input, len(c.input)-c.back); ok {
-			c.undo.save(c.input, c.back, false)
-			c.input, c.back = buf, c.back-(len(c.input)-len(buf))
-			return nil
-		}
-	}
 	was, wasBack := c.input, c.back
-	buf, pos, anchor, copied, _ := editSel(c.input, max(0, len(c.input)-c.back), c.anchor-1, k, s)
+	buf, pos, anchor, copied, _ := editChips(c.input, max(0, len(c.input)-c.back), c.anchor-1, k, s)
 	if !slices.Equal(was, buf) {
 		// A run of letters typed is one step to undo; a space, a delete or
 		// anything else starts the next.
@@ -2701,10 +2688,19 @@ func (m *Model) clickBox(x, y int) bool {
 	switch c := m.host; {
 	case which == 1 && c != nil:
 		m.paneFocus = true
+		if sp, ok := chipOn(c.input, pos); ok {
+			c.back, c.anchor = len(c.input)-sp.to, sp.from+1 // a click on a chip selects it
+			return true
+		}
 		c.back, c.anchor = len(c.input)-pos, pos+1 // a drag from here selects
 		m.boxDrag = 1
 	case which == 2:
 		m.paneFocus, m.embedded = false, false
+		if sp, ok := chipOn(m.input, pos); ok {
+			m.setCursor(sp.to)
+			m.anchor = sp.from + 1
+			return true
+		}
 		m.setCursor(pos)
 		m.anchor = pos + 1 // a drag from here selects
 		m.boxDrag = 2

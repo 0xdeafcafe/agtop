@@ -243,12 +243,10 @@ func TestPasteChips(t *testing.T) {
 		t.Fatalf("expand = %q", got)
 	}
 	end := len([]rune("look at " + chip))
-	buf, pos, ok := dropChip(draft, end)
-	if !ok || string(buf) != "look at  please" || pos != len("look at ") {
-		t.Fatalf("dropChip = %q %d %v", string(buf), pos, ok)
-	}
-	if _, _, ok := dropChip(draft, end-1); ok {
-		t.Fatal("only a chip's end deletes it whole")
+	bs := tea.KeyPressMsg{Code: tea.KeyBackspace}
+	buf, pos, _, _, _ := editChips(draft, end, -1, bs, "backspace")
+	if string(buf) != "look at  please" || pos != len("look at ") {
+		t.Fatalf("backspace = %q %d", string(buf), pos)
 	}
 	if p.lastIn(draft) != 1 {
 		t.Fatal("lastIn")

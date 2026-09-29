@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -195,6 +196,63 @@ func editSel(buf []rune, pos, anchor int, k tea.KeyPressMsg, s string) (nbuf []r
 	return nb, np, -1, "", used
 }
 
+// editChips is editSel for a message box, where a paste's chip or an
+// image is one thing. An arrow onto a chip selects it whole, so typing
+// replaces it and backspace or delete takes it; the next arrow goes past
+// it. Backspace or delete right beside one takes all of it, and no other
+// move or word delete stops inside one.
+func editChips(buf []rune, pos, anchor int, k tea.KeyPressMsg, s string) ([]rune, int, int, string, bool) {
+	spans := chipSpans(buf)
+	if len(spans) == 0 {
+		return editSel(buf, pos, anchor, k, s)
+	}
+	pos = max(0, min(pos, len(buf)))
+	if anchor > len(buf) {
+		anchor = -1
+	}
+	if nb, np, na, ok := chipKey(spans, buf, pos, anchor, s); ok {
+		return nb, np, na, "", true
+	}
+	nb, np, na, copied, ok := editSel(buf, pos, anchor, k, s)
+	if ok && len(nb) == len(buf) && np != pos {
+		np = outOfChip(spans, np, np > pos)
+	}
+	return nb, np, na, copied, ok
+}
+
+// chipKey is a key that does something of its own beside or on a chip.
+func chipKey(spans []seg, buf []rune, pos, anchor int, s string) ([]rune, int, int, bool) {
+	picked := anchor >= 0 && anchor != pos
+	for _, c := range spans {
+		on := picked && min(anchor, pos) == c.from && max(anchor, pos) == c.to
+		switch {
+		case on && s == "right":
+			return buf, c.to, -1, true
+		case on && s == "left":
+			return buf, c.from, -1, true
+		case picked:
+		case s == "right" && pos == c.from:
+			return buf, c.to, c.from, true
+		case s == "left" && pos == c.to:
+			return buf, c.from, c.to, true
+		case (s == "backspace" || s == "ctrl+h" || s == "shift+backspace") && pos == c.to,
+			s == "delete" && pos == c.from:
+			return cut(buf, c.from, c.to), c.from, -1, true
+		}
+	}
+	if picked {
+		return buf, pos, anchor, false
+	}
+	switch s {
+	case "ctrl+w", "alt+backspace", "ctrl+backspace":
+		from := outOfChip(spans, wordLeft(buf, pos), false)
+		return cut(buf, from, pos), from, -1, true
+	case "alt+delete", "ctrl+delete", "alt+d":
+		return cut(buf, pos, outOfChip(spans, wordRight(buf, pos), true)), pos, -1, true
+	}
+	return buf, pos, anchor, false
+}
+
 // cursorPos is where the prompt's cursor sits. It's kept as a distance from
 // the end, so anything that replaces the input leaves the cursor at its end.
 func (m *Model) cursorPos() int { return max(0, len(m.input)-m.back) }
@@ -203,8 +261,11 @@ func (m *Model) setCursor(pos int) { m.back = max(0, len(m.input)-pos) }
 
 // editInput runs an editing key against the main prompt.
 func (m *Model) editInput(k tea.KeyPressMsg, s string) bool {
-	buf, pos, anchor, copied, ok := editSel(m.input, m.cursorPos(), m.anchor-1, k, s)
+	buf, pos, anchor, copied, ok := editChips(m.input, m.cursorPos(), m.anchor-1, k, s)
 	if ok {
+		if m.inKind == inPrompt && !slices.Equal(buf, m.input) {
+			m.undo.save(m.input, m.back, k.Text != "" && k.Text != " " && anchor < 0 && m.anchor == 0)
+		}
 		m.input = buf
 		m.setCursor(pos)
 		m.anchor = anchor + 1
