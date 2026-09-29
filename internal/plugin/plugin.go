@@ -65,7 +65,7 @@ func approvedPath() string { return filepath.Join(Root(), "approved.json") }
 // Protocols a plugin can speak.
 const (
 	ProtoRush = "rush" // framed JSON-RPC on fd 3; the default
-	ProtoMCP   = "mcp"   // an MCP server on stdio
+	ProtoMCP  = "mcp"  // an MCP server on stdio
 )
 
 // Capabilities a plugin can be given over sessions.

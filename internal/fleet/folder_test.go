@@ -71,7 +71,7 @@ func TestCheckFolder(t *testing.T) {
 
 func TestShortRemote(t *testing.T) {
 	for in, want := range map[string]string{
-		"git@github.com:0xdeafcafe/rush.git":          "github.com/0xdeafcafe/rush",
+		"git@github.com:0xdeafcafe/rush.git":           "github.com/0xdeafcafe/rush",
 		"https://github.com/langwatch/langwatch.git":   "github.com/langwatch/langwatch",
 		"ssh://git@gitlab.example.com:22/team/app.git": "gitlab.example.com/team/app",
 	} {

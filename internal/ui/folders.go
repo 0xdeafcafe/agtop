@@ -51,7 +51,7 @@ type foldersMsg fleet.Folder
 const (
 	scratchSection = "scratch"
 	noFolder       = "No folder"
-	rushSection   = "rush's own"
+	rushSection    = "rush's own"
 )
 
 // folderKey is the folder an agent's row sits under: its repository's

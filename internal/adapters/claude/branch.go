@@ -39,4 +39,6 @@ func (Adapter) Stats(p agent.Profile) (agent.Stats, error) {
 }
 
 // Preview reads what a session is doing from its transcript's tail.
-func (Adapter) Preview(path string, window int64) agent.Preview { return claude.ReadPreview(path, window) }
+func (Adapter) Preview(path string, window int64) agent.Preview {
+	return claude.ReadPreview(path, window)
+}
