@@ -2336,6 +2336,7 @@ var helpPages = []struct {
 		{"ctrl+n", "next one needing you"},
 		{"#done", "put it away"},
 		{"ctrl+x", "stop it"},
+		{"ctrl+p", "split the list by project"},
 	}},
 	{"◈ Around", [][2]string{
 		{"ctrl+z", "zen"},
