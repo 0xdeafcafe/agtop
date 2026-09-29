@@ -32,7 +32,7 @@ type watching struct {
 func (l *Loader) Watch(every time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.watching = &watching{w: fswait.NewWatcher(), every: every}
+	l.watching = &watching{every: every} // its watcher starts with the first load
 }
 
 // Settle lets the next Load reuse the last reading if nothing it reads has

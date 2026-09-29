@@ -16,6 +16,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
+	"github.com/0xdeafcafe/agtop/internal/fswait"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -471,7 +472,7 @@ func NewLoader(s *state.Store) *Loader {
 		args:  map[int]argsEntry{}, git: map[string]gitInfo{}, roots: map[string]string{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
 		files: map[string]fileMemo{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{},
-		Temp: LoadTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"),
+		Temp: NewTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"),
 	}
 }
 
@@ -522,6 +523,12 @@ func (l *Loader) LoadFrom(s *state.Store, sampleProcs bool) *Snapshot {
 }
 
 func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,maintidx // Load's body as it was, moved under the lock
+	// Nothing is read as the Loader is made, on the UI goroutine: the
+	// first load reads what's kept and starts watching.
+	l.Temp.Load()
+	if wt := l.watching; wt != nil && wt.w == nil {
+		wt.w = fswait.NewWatcher()
+	}
 	l.takeIn()
 	now := time.Now()
 	if sampleProcs {

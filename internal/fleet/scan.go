@@ -43,8 +43,10 @@ type seenTarget struct {
 	at     time.Time // when they were looked at
 }
 
+// NewScanner reads nothing: its cost cache is read as it first runs, off
+// the UI goroutine.
 func NewScanner() *Scanner {
-	return &Scanner{cache: state.LoadCostCache(), sizes: map[string]int64{}, seen: map[string]seenTarget{}, buf: make([]byte, 0, 64<<10)}
+	return &Scanner{sizes: map[string]int64{}, seen: map[string]seenTarget{}, buf: make([]byte, 0, 64<<10)}
 }
 
 // files lists a target's transcripts, and reports false when nothing about
@@ -79,6 +81,9 @@ func (s *Scanner) files(t Target) ([]string, bool) {
 func (s *Scanner) Run(targets []Target) map[string]Spend {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.cache == nil {
+		s.cache = state.LoadCostCache()
+	}
 	out := map[string]Spend{}
 	today := claude.Day(time.Now())
 	if today != s.day {
@@ -163,7 +168,9 @@ func (s *Scanner) Run(targets []Target) map[string]Spend {
 // itself every 30s, so skipping one save loses nothing.
 func (s *Scanner) Flush() {
 	if s.mu.TryLock() {
-		_ = s.cache.Save()
+		if s.cache != nil {
+			_ = s.cache.Save()
+		}
 		s.mu.Unlock()
 	}
 }

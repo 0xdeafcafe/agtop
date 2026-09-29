@@ -116,9 +116,10 @@ const tempShare = 50
 // restarts, so the folders are walked again only when an agent has done
 // something since.
 type TempSizes struct {
-	mu    sync.Mutex
-	Sizes map[string]TempSize `json:"sizes"`
-	dirty bool
+	mu     sync.Mutex
+	Sizes  map[string]TempSize `json:"sizes"`
+	dirty  bool
+	loaded bool // read from disk yet: see NewTempSizes
 }
 
 // Bytes is what an agent's temp work measured last.
@@ -132,14 +133,35 @@ func tempPath() string { return state.CachePath("temp.json") }
 
 // LoadTempSizes reads the last measurements.
 func LoadTempSizes() *TempSizes {
-	t := &TempSizes{}
-	if b, err := os.ReadFile(tempPath()); err == nil {
-		_ = jsonx.Unmarshal(b, t)
-	}
-	if t.Sizes == nil {
-		t.Sizes = map[string]TempSize{}
-	}
+	t := NewTempSizes()
+	t.Load()
 	return t
+}
+
+// NewTempSizes is none measured yet, not read from disk: Load reads them,
+// off the UI goroutine, keeping any set before it.
+func NewTempSizes() *TempSizes { return &TempSizes{Sizes: map[string]TempSize{}} }
+
+// Load reads the last measurements, once, under any set since.
+func (t *TempSizes) Load() {
+	t.mu.Lock()
+	done := t.loaded
+	t.mu.Unlock()
+	if done {
+		return
+	}
+	var disk TempSizes
+	if b, err := os.ReadFile(tempPath()); err == nil {
+		_ = jsonx.Unmarshal(b, &disk)
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for k, v := range disk.Sizes {
+		if _, ok := t.Sizes[k]; !ok {
+			t.Sizes[k] = v
+		}
+	}
+	t.loaded = true
 }
 
 // Due are the agents whose temp work should be measured: never measured,
@@ -179,8 +201,8 @@ func (t *TempSizes) Set(m map[string]TempSize) {
 func (t *TempSizes) Save() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.dirty {
-		return
+	if !t.dirty || !t.loaded {
+		return // unread, it would write over what's there
 	}
 	if b, err := jsonx.Marshal(t); err == nil {
 		_ = os.MkdirAll(filepath.Dir(tempPath()), 0o700)
