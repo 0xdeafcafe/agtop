@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
@@ -114,39 +114,38 @@ func jobStatus(st string) string {
 	return st
 }
 
-// applyJob takes in a task event.
-func (s *Session) applyJob(ev any, now time.Time) {
+func (s *Session) applyJob(ev event.Event, now time.Time) {
 	switch ev := ev.(type) {
-	case headless.TaskStarted:
+	case event.TaskStarted:
 		j := s.job(ev.ID, now)
 		s.reopenJob(j, now)
-		j.ToolUseID, j.Type, j.Background = ev.ToolUseID, ev.Type, ev.Backgrounded
-		j.Label = firstNonEmpty(ev.Description, ev.Workflow, j.Label)
-		j.Agent = firstNonEmpty(ev.SubagentType, j.Agent)
-	case headless.TaskUpdated:
+		j.ToolUseID, j.Type, j.Background = ev.CallID, taskType(ev.Kind), ev.Background
+		j.Label = firstNonEmpty(ev.Label, j.Label)
+		j.Agent = firstNonEmpty(ev.Agent, j.Agent)
+	case event.TaskUpdated:
 		j := s.job(ev.ID, now)
-		if ev.Backgrounded != nil {
-			j.Background = *ev.Backgrounded
+		if ev.Background != nil {
+			j.Background = *ev.Background
 		}
-		if ev.Description != "" {
-			j.Label = ev.Description
+		if ev.Label != "" {
+			j.Label = ev.Label
 		}
-		if ev.Error != "" {
-			j.Error = ev.Error
+		if ev.Err != "" {
+			j.Error = ev.Err
 		}
 		if st := jobStatus(ev.Status); st != "" && (j.Running() || j.Status == "ended") {
 			j.Status, j.End = st, now
 		}
-	case headless.TaskProgress:
+	case event.TaskProgress:
 		j := s.job(ev.ID, now)
 		j.Summary, j.LastTool = firstNonEmpty(ev.Summary, j.Summary), firstNonEmpty(ev.LastTool, j.LastTool)
 		j.Tokens, j.ToolUses = max(j.Tokens, ev.Tokens), max(j.ToolUses, ev.ToolUses)
 		if s.JobKind(j) == "monitor" {
 			s.noteWake(j, now) // each thing a monitor sees can wake the agent
 		}
-	case headless.TaskDone:
+	case event.TaskDone:
 		j := s.job(ev.ID, now)
-		j.ToolUseID = firstNonEmpty(j.ToolUseID, ev.ToolUseID)
+		j.ToolUseID = firstNonEmpty(j.ToolUseID, ev.CallID)
 		j.OutputFile = firstNonEmpty(ev.OutputFile, j.OutputFile)
 		if st := firstNonEmpty(jobStatus(ev.Status), "completed"); j.Running() || j.Status == "ended" {
 			j.Status = st
@@ -159,8 +158,15 @@ func (s *Session) applyJob(ev any, now time.Time) {
 		}
 		s.TaskStatus[ev.ID] = firstNonEmpty(j.Status, "completed")
 		s.noteWake(j, now)
-	case headless.BackgroundTasks:
-		s.backgroundNow(ev.Tasks, now)
+	case event.Background:
+		list := make([]event.BackgroundTask, 0, len(ev.Tasks))
+		for _, t := range ev.Tasks {
+			if t.Kind != event.OtherTask {
+				t.Type = taskType(t.Kind)
+			}
+			list = append(list, t)
+		}
+		s.backgroundNow(list, now)
 	}
 }
 
@@ -178,7 +184,7 @@ func (s *Session) reopenJob(j *Job, now time.Time) {
 // backgroundNow takes Claude Code's list of what runs in the background:
 // each one there is running and backgrounded, and a backgrounded one no
 // longer there has ended (how comes after, if Claude Code says).
-func (s *Session) backgroundNow(list []headless.BackgroundTask, now time.Time) {
+func (s *Session) backgroundNow(list []event.BackgroundTask, now time.Time) {
 	on := map[string]bool{}
 	for _, t := range list {
 		on[t.ID] = true
@@ -186,7 +192,7 @@ func (s *Session) backgroundNow(list []headless.BackgroundTask, now time.Time) {
 		s.reopenJob(j, now)
 		j.Background = true
 		j.Type = firstNonEmpty(j.Type, t.Type)
-		j.Label = firstNonEmpty(j.Label, t.Description)
+		j.Label = firstNonEmpty(j.Label, t.Label)
 	}
 	for _, j := range s.jobs {
 		if j.Running() && j.Background && !on[j.ID] {
@@ -211,9 +217,9 @@ func (s *Session) syncJobs(info host.Info, now time.Time) {
 		}
 		return
 	}
-	list := make([]headless.BackgroundTask, 0, len(info.Background))
+	list := make([]event.BackgroundTask, 0, len(info.Background))
 	for _, t := range info.Background {
-		list = append(list, headless.BackgroundTask{ID: t.ID, Type: t.Type, Description: t.Label})
+		list = append(list, event.BackgroundTask{ID: t.ID, Kind: event.OtherTask, Type: t.Type, Label: t.Label})
 		if s.Job(t.ID) == nil {
 			s.job(t.ID, t.StartedAt)
 		}

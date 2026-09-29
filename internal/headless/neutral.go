@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
@@ -120,7 +121,9 @@ func (n *Neutral) Event(ev Event) []event.Event {
 }
 
 func (n *Neutral) message(m Message) event.Message {
-	out := event.Message{Role: m.Role, ID: m.ID, Model: m.Model, Parent: m.ParentToolUseID}
+	// Claude Code's own user messages of text are never what you said:
+	// the host tells of that itself, and transcripts apart from these.
+	out := event.Message{Role: m.Role, ID: m.ID, Model: m.Model, Parent: m.ParentToolUseID, Injected: m.Role == "user"}
 	if m.Usage != nil {
 		t := tokens(*m.Usage)
 		out.Tokens = &t
@@ -166,9 +169,9 @@ func taskKind(t string) event.TaskKind {
 	switch t {
 	case "local_bash":
 		return event.ShellTask
-	case "local_agent":
+	case "local_agent", "remote_agent", "in_process_teammate":
 		return event.SubagentTask
-	case "monitor_mcp":
+	case "monitor_mcp", "monitor_ws":
 		return event.MonitorTask
 	case "local_workflow":
 		return event.WorkflowTask
@@ -186,12 +189,15 @@ func partKind(t string) event.PartKind {
 	return event.Text
 }
 
+// turnReason is how a turn of Claude Code's subtype ended: done, or what
+// went wrong in its words (max_turns, during_execution).
 func turnReason(subtype string) string {
 	switch subtype {
-	case "success":
+	case "success", "":
 		return "done"
-	case "error_max_turns":
-		return "max_turns"
+	}
+	if r := strings.TrimPrefix(subtype, "error_"); r != "" {
+		return r
 	}
 	return "error"
 }

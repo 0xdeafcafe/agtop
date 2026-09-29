@@ -557,7 +557,7 @@ func TestSubagentNumbers(t *testing.T) {
 			Blocks: []headless.Block{{Type: "text", Text: "hi"}}}, t0.Add(time.Duration(i)*time.Minute))
 	}
 	s.Apply(headless.Message{Role: "assistant", ID: "x", Model: "<synthetic>", Usage: &headless.Usage{InputTokens: 9}}, t0)
-	if len(s.Requests) != 1 || s.Requests[0].Usage.OutputTokens != 40 || s.Requests[0].Usage.InputTokens != 100 {
+	if len(s.Requests) != 1 || s.Requests[0].Usage.Output != 40 || s.Requests[0].Usage.Input != 100 {
 		t.Fatalf("requests = %+v", s.Requests)
 	}
 	if s.Last.Sub(s.First) != 2*time.Minute {

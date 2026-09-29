@@ -67,14 +67,18 @@ type Delta struct {
 }
 
 // Message is a whole message. Tool results come back as user messages.
-// Parent is the tool call of the subagent that wrote it, if one did.
+// Parent is the tool call of the subagent that wrote it, if one did. A
+// user message of text is something you said, unless it's Injected: put
+// in the conversation as yours by the agent itself (a task's report, the
+// mark an interrupt leaves, a command's output).
 type Message struct {
-	Role   string // user, assistant
-	ID     string
-	Model  string
-	Parent string
-	Parts  []Part
-	Tokens *usage.TokenUsage
+	Role     string // user, assistant
+	ID       string
+	Model    string
+	Parent   string
+	Parts    []Part
+	Tokens   *usage.TokenUsage
+	Injected bool `json:",omitzero"`
 }
 
 // Part is one part of a Message.

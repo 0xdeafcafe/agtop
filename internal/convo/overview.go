@@ -43,14 +43,15 @@ func (s *Session) ColdStarts() []ColdStart {
 	var out []ColdStart
 	for _, r := range s.Requests {
 		u := r.Usage
-		total := u.CacheReadInputTokens + u.CacheCreationInputTokens
-		cold := u.CacheCreationInputTokens > 4096 && u.CacheReadInputTokens*5 < total
+		written := int(u.CacheWrite5m + u.CacheWrite1h)
+		total := int(u.CacheRead) + written
+		cold := written > 4096 && int(u.CacheRead)*5 < total
 		p, seen := prev[r.Run]
 		prev[r.Run] = last{r.At, r.Model}
 		if !cold {
 			continue
 		}
-		c := ColdStart{At: r.At, Agent: r.Agent, Written: u.CacheCreationInputTokens}
+		c := ColdStart{At: r.At, Agent: r.Agent, Written: written}
 		switch {
 		case !seen && r.Run != "":
 			c.Reason, c.Expected = "new subagent: every subagent starts its own cache", true
@@ -123,10 +124,10 @@ func (s *Session) Totals(now time.Time) Totals {
 	}
 	for _, r := range s.Requests {
 		t.Requests++
-		t.In += r.Usage.InputTokens
-		t.Out += r.Usage.OutputTokens
-		t.CacheRead += r.Usage.CacheReadInputTokens
-		t.CacheOut += r.Usage.CacheCreationInputTokens
+		t.In += int(r.Usage.Input)
+		t.Out += int(r.Usage.Output)
+		t.CacheRead += int(r.Usage.CacheRead)
+		t.CacheOut += int(r.Usage.CacheWrite5m + r.Usage.CacheWrite1h)
 	}
 	return t
 }
@@ -572,11 +573,7 @@ func (s *Session) Overview(o Options) []Line {
 func (s *Session) Cost() float64 {
 	var total float64
 	for _, r := range s.Requests {
-		u := r.Usage
-		total += claude.Cost(r.Model, claude.TokenUsage{
-			Input: int64(u.InputTokens), Output: int64(u.OutputTokens),
-			CacheRead: int64(u.CacheReadInputTokens), CacheWrite1h: int64(u.CacheCreationInputTokens),
-		}, false)
+		total += claude.Cost(r.Model, r.Usage, false)
 	}
 	return total
 }
@@ -687,11 +684,7 @@ func (s *Session) turnCosts() map[*Turn]float64 {
 			ti++
 		}
 		if ti < len(s.Turns) {
-			u := r.Usage
-			out[s.Turns[ti]] += claude.Cost(r.Model, claude.TokenUsage{
-				Input: int64(u.InputTokens), Output: int64(u.OutputTokens),
-				CacheRead: int64(u.CacheReadInputTokens), CacheWrite1h: int64(u.CacheCreationInputTokens),
-			}, false)
+			out[s.Turns[ti]] += claude.Cost(r.Model, r.Usage, false)
 		}
 	}
 	for _, t := range s.Turns {

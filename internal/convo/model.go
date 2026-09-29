@@ -18,6 +18,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -117,7 +118,7 @@ func (it *Item) grow(x string) {
 type Item struct {
 	Kind    Kind
 	Text    string
-	Compact *headless.Compact
+	Compact *event.Compacted
 	buf     *strings.Builder // while it streams
 	Level   string           // a notice's: info, warning, error
 	Images  []string         // files sent with an interjection
@@ -199,7 +200,7 @@ type Request struct {
 	Model string
 	Agent string // "" for the main agent, else the subagent's type
 	Run   string // the tool call that started a subagent; "" for the main agent
-	Usage headless.Usage
+	Usage usage.TokenUsage
 }
 
 // ToolStat totals one tool's calls.
@@ -219,7 +220,7 @@ type Session struct {
 	Model    string
 	Cwd      string // where Claude Code says it's running
 	Version  string // Claude Code's, from its init
-	MCP      []headless.MCPServer
+	MCP      []event.MCPServer
 	// Usage is what fills the context window, as the host last counted
 	// it; nil until it has.
 	Usage    *headless.ContextUsage
@@ -359,94 +360,15 @@ func (s *Session) Apply(ev any, now time.Time) {
 	case host.Context:
 		u := ev.Usage
 		s.Usage = &u
-	case headless.Init:
-		s.Model, s.Cwd = ev.Model, ev.Cwd
-		s.Version, s.MCP, s.NTools = ev.Version, ev.MCPServers, len(ev.Tools)
-	case headless.RateLimit:
-		s.Limit = ev.Status
-	case headless.BlockStart:
-		t := s.turnFor(now)
-		t.Thinking = time.Time{}
-		if ev.Type == "thinking" || ev.Type == "redacted_thinking" {
-			t.Thinking = now
-			if n := len(t.Items); n == 0 || t.Items[n-1].Kind != KThinking {
-				t.Items = append(t.Items, &Item{Kind: KThinking})
-			}
-		}
-		if ev.Type != "text" {
-			s.streaming = nil
-		}
-		t.touch()
-	case headless.Compact:
-		// A divider in the turn it happened in (or the last one), and the
-		// context starts again from what the summary left.
-		t := s.Live()
-		if t == nil && len(s.Turns) > 0 {
-			t = s.Turns[len(s.Turns)-1]
-		}
-		if t == nil {
-			t = s.turnFor(now)
-		}
-		c := ev
-		t.Items = append(t.Items, &Item{Kind: KCompact, Compact: &c})
-		if ev.PostTokens > 0 {
-			s.Context = ev.PostTokens
-		}
-		t.touch()
-	case headless.Delta:
-		t := s.turnFor(now)
-		t.Streamed += len(ev.Text)
-		if ev.Input {
-			t.touch()
-			return
-		}
-		if ev.Thinking {
-			if n := len(t.Items); n == 0 || t.Items[n-1].Kind != KThinking {
-				t.Items = append(t.Items, &Item{Kind: KThinking})
-			}
-			t.Items[len(t.Items)-1].grow(ev.Text)
-		} else {
-			if s.streaming == nil {
-				s.streaming = &Item{Kind: KText}
-				t.Items = append(t.Items, s.streaming)
-			}
-			s.streaming.grow(ev.Text)
-		}
-		t.touch()
-	case headless.Message:
-		s.message(ev, now)
-	case headless.PermissionRequest:
+	case host.Answered:
+		s.settle(ev.ID)
+	case headless.Event:
+		// Claude Code's own, as a transcript or an older host has them.
 		for _, e := range s.nt.Event(ev) {
 			s.applyNeutral(e, now)
 		}
-	case host.Answered:
-		s.settle(ev.ID)
-	case headless.PermissionCancelled:
-		s.settle(ev.ID)
-	case headless.PermissionDenied:
-		if st := s.byID[ev.ToolUseID]; st != nil {
-			st.Status, st.Output, st.End = Denied, ev.Reason, now
-			s.touchStep(st)
-		}
-	case headless.TaskStarted, headless.TaskUpdated, headless.TaskProgress, headless.TaskDone, headless.BackgroundTasks:
-		s.applyJob(ev, now)
 	case event.Event:
 		s.applyNeutral(ev, now)
-	case headless.Result:
-		s.endJobs(now)
-		if s.woke != nil {
-			s.wokeAt = now // held until now: this is when it wakes the agent
-		}
-		if t := s.Live(); t != nil {
-			s.endTurn(t, now)
-			t.Cost = host.TurnCost(&s.spent, ev.CostUSD)
-			if ev.IsError || (ev.Subtype != "" && ev.Subtype != "success") {
-				t.Err = strings.ReplaceAll(strings.TrimPrefix(ev.Subtype, "error_"), "_", " ")
-				if t.Err == "" {
-					t.Err = firstLine(ev.Text)
-				}
-			}
-		}
 	}
 }
 
@@ -505,17 +427,17 @@ func (s *Session) touchStep(st *Step) {
 	}
 }
 
-func (s *Session) message(m headless.Message, now time.Time) {
+func (s *Session) message(m *event.Message, now time.Time) {
 	if m.Role != "assistant" {
 		// Tool results belong to the turn their call is in, however late
 		// they arrive; they never open a turn of their own.
 		s.results(m, now)
 		return
 	}
-	parent := s.byID[m.ParentToolUseID]
+	parent := s.byID[m.Parent]
 	// A subagent's message whose run we never saw start still isn't
 	// the main agent's: it mustn't land in the turn or its numbers.
-	sub := m.ParentToolUseID != ""
+	sub := m.Parent != ""
 	// Only the main agent opens a turn. A background subagent working on
 	// after the turn that started it ended stays with that turn; one we
 	// never saw start, with nothing running, is in no turn at all.
@@ -529,70 +451,79 @@ func (s *Session) message(m headless.Message, now time.Time) {
 	if t != nil {
 		defer t.touch()
 	}
-	{
-		if m.Usage != nil {
-			s.request(m, parent, now)
-			if !sub {
-				u := m.Usage
-				s.Context = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens
-				if m.Model != "" {
-					t.Model = m.Model
-				}
-			}
-		}
-		for _, b := range m.Blocks {
-			switch b.Type {
-			case "text":
-				if sub || strings.TrimSpace(b.Text) == "" {
-					continue // a subagent's words stay inside it
-				}
-				switch {
-				case s.light:
-					// Only the latest words are ever shown.
-					w := strings.Clone(firstPlain(b.Text))
-					if n := len(t.Items); n > 0 && t.Items[n-1].Kind == KText {
-						t.Items[n-1].Text = w
-					} else {
-						t.Items = append(t.Items, &Item{Kind: KText, Text: w})
-					}
-				case s.streaming != nil:
-					s.streaming.Text, s.streaming.buf = b.Text, nil
-					s.streaming = nil
-				default:
-					t.Items = append(t.Items, &Item{Kind: KText, Text: b.Text})
-				}
-			case "thinking":
-				if !sub && !s.light && (len(t.Items) == 0 || t.Items[len(t.Items)-1].Kind != KThinking) {
-					t.Items = append(t.Items, &Item{Kind: KThinking, Text: b.Text})
-				}
-			case "tool_use":
-				s.streaming = nil
-				s.tool(b.Name).Calls++
-				if s.light {
-					// Counted and timed, never drawn: only calls still out are kept.
-					if s.inFlight == nil {
-						s.inFlight = map[string]flight{}
-					}
-					s.inFlight[b.ID] = flight{b.Name, now, claude.Doing(b.Name, b.Input)}
-					continue
-				}
-				st := &Step{ID: b.ID, Tool: b.Name, Kind: claude.KindOf(b.Name), Input: b.Input, Start: now, Exit: -1, parent: parent, turn: t}
-				st.read()
-				s.byID[b.ID] = st
-				if t != nil {
-					t.steps[b.ID] = st
-				}
-				s.stepVer++
-				switch {
-				case parent != nil:
-					parent.Children = append(parent.Children, st)
-				case !sub:
-					t.Items = append(t.Items, &Item{Kind: KStep, Step: st})
-				}
-				s.tasksFromInput(st)
+	if u := m.Tokens; u != nil {
+		s.request(m, parent, now)
+		if !sub {
+			s.Context = int(u.Input + u.CacheRead + u.CacheWrite5m + u.CacheWrite1h + u.Output)
+			if m.Model != "" {
+				t.Model = m.Model
 			}
 		}
 	}
+	for _, p := range m.Parts {
+		switch p.Kind {
+		case event.Text:
+			if !sub && strings.TrimSpace(p.Text) != "" {
+				s.words(t, p.Text) // a subagent's words stay inside it
+			}
+		case event.Thinking:
+			if !sub && !s.light && (len(t.Items) == 0 || t.Items[len(t.Items)-1].Kind != KThinking) {
+				t.Items = append(t.Items, &Item{Kind: KThinking, Text: p.Text})
+			}
+		case event.ToolCall:
+			if p.Call != nil {
+				s.call(p.Call, parent, t, sub, now)
+			}
+		}
+	}
+}
+
+// words are the main agent's, in turn t: what streamed in, made whole.
+func (s *Session) words(t *Turn, text string) {
+	switch {
+	case s.light:
+		// Only the latest words are ever shown.
+		w := strings.Clone(firstPlain(text))
+		if n := len(t.Items); n > 0 && t.Items[n-1].Kind == KText {
+			t.Items[n-1].Text = w
+		} else {
+			t.Items = append(t.Items, &Item{Kind: KText, Text: w})
+		}
+	case s.streaming != nil:
+		s.streaming.Text, s.streaming.buf = text, nil
+		s.streaming = nil
+	default:
+		t.Items = append(t.Items, &Item{Kind: KText, Text: text})
+	}
+}
+
+// call makes a step of a tool call, in turn t under parent.
+func (s *Session) call(c *tool.Call, parent *Step, t *Turn, sub bool, now time.Time) {
+	name, input := stepTool(c)
+	s.streaming = nil
+	s.tool(name).Calls++
+	if s.light {
+		// Counted and timed, never drawn: only calls still out are kept.
+		if s.inFlight == nil {
+			s.inFlight = map[string]flight{}
+		}
+		s.inFlight[c.ID] = flight{name, now, claude.Doing(name, input)}
+		return
+	}
+	st := &Step{ID: c.ID, Tool: name, Input: input, Start: now, Exit: -1, parent: parent, turn: t}
+	st.setCall(c)
+	s.byID[c.ID] = st
+	if t != nil {
+		t.steps[c.ID] = st
+	}
+	s.stepVer++
+	switch {
+	case parent != nil:
+		parent.Children = append(parent.Children, st)
+	case !sub:
+		t.Items = append(t.Items, &Item{Kind: KStep, Step: st})
+	}
+	s.tasksFromInput(st)
 }
 
 // notice adds something Claude Code said to you (not the model) to the
@@ -624,71 +555,86 @@ func (s *Session) interrupted(now time.Time) {
 	}
 }
 
-func (s *Session) results(m headless.Message, now time.Time) {
-	for _, b := range m.Blocks {
-		if b.Type == "text" && strings.HasPrefix(strings.TrimSpace(b.Text), "[Request interrupted by user") {
+func (s *Session) results(m *event.Message, now time.Time) {
+	for _, p := range m.Parts {
+		if p.Kind == event.Text && strings.HasPrefix(strings.TrimSpace(p.Text), "[Request interrupted by user") {
 			s.interrupted(now)
 			return
 		}
 	}
 	// Text Claude Code injects as a user message (a background task
 	// finishing, another session's message) starts a turn of its own.
-	for _, b := range m.Blocks {
-		if b.Type == "text" && strings.HasPrefix(strings.TrimSpace(b.Text), "<") {
-			if from, text, ok := Injected(b.Text); ok && s.Live() == nil {
-				raw, _ := jsonx.Marshal(b.Text)
+	for _, p := range m.Parts {
+		if p.Kind == event.Text && strings.HasPrefix(strings.TrimSpace(p.Text), "<") {
+			if from, text, ok := Injected(p.Text); ok && s.Live() == nil {
+				raw, _ := jsonx.Marshal(p.Text)
 				s.noteTask(raw)
 				s.Apply(host.Sent{Text: text}, now)
 				s.Turns[len(s.Turns)-1].From = from
 			}
 		}
 	}
-	for _, b := range m.Blocks {
-		if b.Type != "tool_result" {
-			continue
+	for _, p := range m.Parts {
+		if p.Kind == event.ToolResult && p.Output != nil {
+			s.result(p.Output, now)
 		}
-		if f, ok := s.inFlight[b.ToolUseID]; ok {
-			delete(s.inFlight, b.ToolUseID)
-			if s.done = append(s.done, firstNonEmpty(f.doing, f.tool)); len(s.done) > 3 {
-				s.done = s.done[1:]
-			}
-			ts := s.tool(f.tool)
-			if b.IsError && !isRejection(b.Text) {
-				ts.Failed++
-			}
-			ts.Time += now.Sub(f.start)
-			continue
+	}
+}
+
+// result takes in how a call came out.
+func (s *Session) result(o *tool.Output, now time.Time) {
+	text := resultText(o)
+	if f, ok := s.inFlight[o.CallID]; ok {
+		delete(s.inFlight, o.CallID)
+		if s.done = append(s.done, firstNonEmpty(f.doing, f.tool)); len(s.done) > 3 {
+			s.done = s.done[1:]
 		}
-		st := s.byID[b.ToolUseID]
-		if st == nil {
-			continue
-		}
-		st.Output, st.Result, st.End = b.Text, slimResult(st.kind(), m.ToolResult), now
-		st.readOutput(b.IsError)
-		st.Approval = nil
-		switch {
-		case st.Status == Denied:
-		case b.IsError:
-			st.Status = Failed
-			if isRejection(b.Text) {
-				st.Status = Denied
-			}
-		default:
-			st.Status = OK
-		}
-		if st.kind() == tool.Shell {
-			st.Exit = exitCode(st)
-		}
-		s.touchStep(st)
-		ts := s.tool(st.Tool)
-		if st.Status == Failed {
+		ts := s.tool(f.tool)
+		if o.IsError && !isRejection(text) {
 			ts.Failed++
 		}
-		if !st.Start.IsZero() {
-			ts.Time += st.End.Sub(st.Start)
-		}
-		s.tasksFromResult(st)
+		ts.Time += now.Sub(f.start)
+		return
 	}
+	st := s.byID[o.CallID]
+	if st == nil {
+		return
+	}
+	// Claude Code's structured result is kept as it sent it; another
+	// agent's is put as Claude's would be, and its own output kept.
+	if c := st.Call(); claudes(&c) {
+		st.Output, st.Result = text, slimResult(st.kind(), o.Raw)
+		st.readOutput(o.IsError)
+	} else {
+		st.Output, st.Result = text, slimResult(st.kind(), claudeResult(o))
+		own := *o
+		own.Raw = nil // what's drawn is read from the rest
+		st.output = &own
+	}
+	st.End = now
+	st.Approval = nil
+	switch {
+	case st.Status == Denied:
+	case o.IsError:
+		st.Status = Failed
+		if isRejection(text) {
+			st.Status = Denied
+		}
+	default:
+		st.Status = OK
+	}
+	if st.kind() == tool.Shell {
+		st.Exit = exitCode(st)
+	}
+	s.touchStep(st)
+	ts := s.tool(st.Tool)
+	if st.Status == Failed {
+		ts.Failed++
+	}
+	if !st.Start.IsZero() {
+		ts.Time += st.End.Sub(st.Start)
+	}
+	s.tasksFromResult(st)
 }
 
 var exitRe = regexp.MustCompile(`(?m)^(?:Error: )?Exit code (\d+)`)
@@ -722,7 +668,7 @@ func isRejection(text string) bool {
 
 // request records a model call. Claude Code sends one message per content
 // block, all with the same id and usage, so a repeat replaces the last.
-func (s *Session) request(m headless.Message, parent *Step, now time.Time) {
+func (s *Session) request(m *event.Message, parent *Step, now time.Time) {
 	agent := ""
 	if parent != nil {
 		agent = agentName(parent)
@@ -730,13 +676,13 @@ func (s *Session) request(m headless.Message, parent *Step, now time.Time) {
 	if m.Model == "<synthetic>" {
 		return // Claude Code's own placeholder, not a model call
 	}
-	r := Request{ID: m.ID, At: now, Model: m.Model, Agent: agent, Run: m.ParentToolUseID, Usage: *m.Usage}
+	r := Request{ID: m.ID, At: now, Model: m.Model, Agent: agent, Run: m.Parent, Usage: *m.Tokens}
 	// One call arrives as several messages with the same id and usage; the
 	// output count can grow between them, so keep the largest.
 	if i, ok := s.reqIdx[m.ID]; ok && m.ID != "" {
 		prev := s.Requests[i]
 		r.At = prev.At
-		r.Usage.OutputTokens = max(r.Usage.OutputTokens, prev.Usage.OutputTokens)
+		r.Usage.Output = max(r.Usage.Output, prev.Usage.Output)
 		s.Requests[i] = r
 		return
 	}

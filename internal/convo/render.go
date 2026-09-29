@@ -622,10 +622,10 @@ func (d *drawer) compacted(it *Item) {
 		facts = append(facts, c.Trigger)
 	}
 	switch {
-	case c.PreTokens > 0 && c.PostTokens > 0:
-		facts = append(facts, tokens(c.PreTokens)+" → "+tokens(c.PostTokens)+" tokens")
-	case c.PreTokens > 0:
-		facts = append(facts, "from "+tokens(c.PreTokens)+" tokens")
+	case c.Before > 0 && c.After > 0:
+		facts = append(facts, tokens(c.Before)+" → "+tokens(c.After)+" tokens")
+	case c.Before > 0:
+		facts = append(facts, "from "+tokens(c.Before)+" tokens")
 	}
 	if it.Text != "" && !d.o.Verbose {
 		facts = append(facts, "ctrl+o shows the summary")

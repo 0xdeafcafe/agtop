@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -29,7 +30,7 @@ func infoModel(t *testing.T) (*Model, *hostConn) {
 		Accounts: []fleet.AccountView{{Account: acct, Usage: usage, Quota: usage.Quota(""), Today: 3.5, Current: true}}}}
 	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	c.sess.Model, c.sess.Version = "claude-opus-5-5", "2.1.280"
-	c.sess.MCP = []headless.MCPServer{{Name: "agtop", Status: "connected"}, {Name: "linear", Status: "failed"}}
+	c.sess.MCP = []event.MCPServer{{Name: "agtop", Status: "connected"}, {Name: "linear", Status: "failed"}}
 	c.sess.Commands = []headless.Command{{Name: "compact"}}
 	m.host = c
 	return m, c

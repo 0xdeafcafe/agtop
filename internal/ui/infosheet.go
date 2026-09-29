@@ -377,8 +377,9 @@ func usageLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 			if per[name] == nil {
 				per[name] = &byModel{name: name}
 			}
-			per[name].in += r.Usage.InputTokens + r.Usage.CacheReadInputTokens + r.Usage.CacheCreationInputTokens
-			per[name].out += r.Usage.OutputTokens
+			u := r.Usage
+			per[name].in += int(u.Input + u.CacheRead + u.CacheWrite5m + u.CacheWrite1h)
+			per[name].out += int(u.Output)
 		}
 		if len(per) > 1 {
 			var rows []*byModel
