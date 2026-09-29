@@ -2020,8 +2020,11 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		line("") // and one before the box
 	}
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
-	if m.watchingSub(c) {
-		// What you type goes to the main session; subagents take no messages.
+	if sa, ok := m.relaySub(c); ok {
+		// The main session passes it on with SendMessage.
+		top = dim("to the subagent ") + paint(cText, ansi.Truncate(oneLine(sa.Type), 28, "…")) + dim(", passed on by the main session")
+	} else if m.watchingSub(c) {
+		// A finished subagent takes no messages; the main session does.
 		top = dim("to the main session, ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(", not the subagent")
 	}
 	switch {
@@ -2134,7 +2137,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			back = "back to the conversation"
 		}
 		hint = keysFit(w-4, "enter", "send to the main session", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat", "ctrl+o", "show all")
-		if _, live, _ := m.pickedSub(c); live {
+		if _, ok := m.relaySub(c); ok {
+			hint = keysFit(w-4, "enter", "send to the subagent", "ctrl+x", "stop this subagent", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat")
+		} else if _, live, _ := m.pickedSub(c); live {
 			hint = keysFit(w-4, "enter", "send to the main session", "ctrl+x", "stop this subagent", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat")
 		}
 	}
@@ -2808,6 +2813,9 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	m.keepSent(c, text)
+	if sa, ok := m.relaySub(c); ok && len(images) == 0 {
+		text = relayPrompt(sa, text)
+	}
 	c.input, c.back, c.imgs = nil, 0, imageRefs{}
 	c.undo = undoStack{}
 	c.scroll = 0
@@ -3686,6 +3694,13 @@ func (m *Model) pickedSub(c *hostConn) (sa convo.Subagent, live, ok bool) {
 		}
 	}
 	return sa, false, false
+}
+
+// relaySub is the subagent you're watching when what you type goes to it,
+// through the main session: a live Claude subagent in a session agtop runs.
+func (m *Model) relaySub(c *hostConn) (convo.Subagent, bool) {
+	sa, live, ok := m.pickedSub(c)
+	return sa, ok && live && m.watchingSub(c) && c.client != nil && !strings.HasPrefix(sa.ID, spawnPrefix)
 }
 
 // stopSub stops one subagent, and nothing else: the turn and the other

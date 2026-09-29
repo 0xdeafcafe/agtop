@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
@@ -55,6 +56,13 @@ func (m *Model) sendAs(c *hostConn, text string) tea.Cmd {
 	m.markSending(c, text)
 	cl := c.client
 	return sendingVia(c.key, hostCmd(func() error { return cl.Send(text) }))
+}
+
+// relayPrompt asks Claude to pass msg on to its running subagent sa word
+// for word: Claude Code takes no message into a subagent but its own
+// SendMessage tool.
+func relayPrompt(sa convo.Subagent, msg string) string {
+	return "Pass this message on to your running subagent " + sa.ID + " (" + sa.Type + ") with SendMessage, word for word, then carry on with what you were doing. Don't act on it yourself.\n\nThe message: " + msg
 }
 
 // subtaskPrompt asks Claude to send a subagent off with the task, as
