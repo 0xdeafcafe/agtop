@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
@@ -40,40 +39,39 @@ func (l *Loader) branches(hosted []host.Info, claimed map[string]bool) {
 // pastAgents are an account's conversations nothing has open: a terminal
 // session that has closed keeps its row, and ones from before rush ran
 // are there too. A message resumes one in rush mode.
-func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, now time.Time) []*Agent {
+func (l *Loader) pastAgents(p agent.Profile, claimed, seen map[string]bool, now time.Time) []*Agent {
 	ov := l.store.Overlay
 	var out []*Agent
-	d, ok := discoverer(acct.Profile().Kind)
+	d, ok := discoverer(p.Kind)
 	if !ok {
 		return nil
 	}
 	if l.pastKeys == nil {
 		l.pastKeys = pastKeys{}
 	}
-	past := d.Past(acct.Profile())
+	past := d.Past(p)
 	for i := range past {
 		s := &past[i]
-		c, _ := s.Extra.(claude.Convo)
 		sid := s.ID
 		if len(sid) < 8 || claimed[sid] {
 			continue
 		}
 		key, ok := l.pastKeys[sid]
 		if !ok {
-			key = state.Key(acct.Name, "i:"+sid[:8])
+			key = state.Key(p.Name, "i:"+sid[:8])
 			l.pastKeys[sid] = key
 		}
-		f := pastFile{path: s.Transcript, mod: s.UpdatedAt, c: c}
+		f := pastFile{path: s.Transcript, mod: s.UpdatedAt, title: s.Name, cwd: s.Cwd, started: s.CreatedAt}
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 		_, done := ov.Done[key]
-		in := pastIn{acct: acct, path: f.path, c: f.c, mod: f.mod, name: ov.Names[key], done: done, group: ov.Groups[key],
+		in := pastIn{profile: p, pastFile: f, name: ov.Names[key], done: done, group: ov.Groups[key],
 			spend: l.spendVer[key], recent: now.Sub(f.mod) < 24*time.Hour}
-		in.repo, in.branch = l.gitFor(firstNonEmpty(l.spend[key].Dir, f.c.Cwd), now)
+		in.repo, in.branch = l.gitFor(firstNonEmpty(l.spend[key].Dir, f.cwd), now)
 		if in.recent {
-			in.subs = l.pastSubagents(key, f.path, now)
+			in.subs = l.pastSubagents(p.Kind, key, f.path, now)
 		}
 		// Most rows are just as they were a second ago: the same row does.
 		if r, ok := l.pastRows[key]; ok && r.in == in {
@@ -81,10 +79,10 @@ func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, 
 			continue
 		}
 		j := agent.Job{
-			ID: sid[:8], Account: acct.Name, Name: f.c.Title, State: "stopped", Cwd: f.c.Cwd,
-			SessionID: sid, CreatedAt: f.c.Started, UpdatedAt: f.mod, TranscriptPath: f.path,
+			ID: sid[:8], Account: p.Name, Name: f.title, State: "stopped", Cwd: f.cwd,
+			SessionID: sid, CreatedAt: f.started, UpdatedAt: f.mod, TranscriptPath: f.path,
 		}
-		a := &Agent{Job: j, Key: key, Acct: acct.Profile(), Kind: string(acct.Profile().Kind), DisplayName: f.c.Title, Past: true}
+		a := &Agent{Job: j, Key: key, Acct: p, Kind: string(p.Kind), DisplayName: f.title, Past: true}
 		if in.name != "" {
 			a.DisplayName = in.name
 		}
@@ -100,17 +98,14 @@ func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, 
 
 // pastFile is one transcript as the adapter lists it.
 type pastFile struct {
-	path string
-	mod  time.Time
-	c    claude.Convo
+	path, title, cwd string
+	mod, started     time.Time
 }
 
 // pastIn is everything a past conversation's row is made from.
 type pastIn struct {
-	acct                      claude.Account
-	path                      string
-	c                         claude.Convo
-	mod                       time.Time
+	profile agent.Profile
+	pastFile
 	name, group, repo, branch string
 	done, recent              bool
 	spend                     int // l.spendVer's
@@ -126,11 +121,15 @@ type pastRow struct {
 // start, so the folder is looked at again only as often as the listing,
 // and its transcript isn't read for which are working: only one still
 // writing is, its process gone or not.
-func (l *Loader) pastSubagents(key, transcript string, now time.Time) agent.SubagentStats {
+func (l *Loader) pastSubagents(k agent.Kind, key, transcript string, now time.Time) agent.SubagentStats {
 	if e, ok := l.subs[key]; ok && e.st.Direct+e.st.Nested == 0 && now.Sub(e.at) < pastEvery {
 		return e.st
 	}
-	st := claude.ReadSubagentStats(transcript, now)
+	f, ok := agent.As[agent.RunFollower](k)
+	if !ok {
+		return agent.SubagentStats{}
+	}
+	st := f.CountSubagents(transcript, now)
 	l.subs[key] = subsEntry{st: st, at: now}
 	return st
 }

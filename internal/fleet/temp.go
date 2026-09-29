@@ -9,40 +9,42 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// TempDir is a folder of an agent's scratch work, and whether cleaning it
-// empties it (a folder Claude Code expects to find) or removes it.
-type TempDir struct {
-	Path string
-	Keep bool
-}
+// TempDir is a folder of an agent's scratch work.
+type TempDir = agent.TempDir
 
 // TempDirs are where an agent's temp work is: what it cloned, built or
-// downloaded as scratch, which Claude Code leaves behind when it finishes.
-// A Claude Code background job has its own tmp folder; a rush session
-// has one rush gives it; and every session has Claude Code's own scratch
-// (task output and the like) under /tmp/claude-<uid>.
+// downloaded as scratch, which its agent leaves behind when it finishes.
+// A rush session has a folder rush gives it; the rest are its agent's
+// own (a background job's tmp folder, each session's scratch).
 func (a *Agent) TempDirs() []TempDir {
 	var out []TempDir
+	var job string
 	switch {
 	case a.Rush:
 		out = append(out, TempDir{Path: host.TempDir(a.ID), Keep: true})
 	case !a.Interactive && !a.Past && a.ID != "":
-		out = append(out, TempDir{Path: filepath.Join(claude.AccountOf(a.Acct).JobsDir(), a.ID, "tmp"), Keep: true})
+		job = a.ID
 	}
-	if a.SessionID != "" && a.Cwd != "" {
-		out = append(out, TempDir{Path: filepath.Join(ClaudeScratch(), claude.ProjectSlug(a.Cwd), a.SessionID)})
+	if s, ok := agent.As[agent.Scratcher](a.Acct.Kind); ok {
+		out = append(out, s.Scratch(a.Acct, job, a.SessionID, a.Cwd)...)
 	}
 	return out
 }
 
-// ClaudeScratch is where Claude Code keeps per-session scratch.
-func ClaudeScratch() string { return filepath.Join("/tmp", fmt.Sprintf("claude-%d", os.Getuid())) }
+// scratchRoot is the folder agent k's sessions' scratch folders are two
+// below, if it has one.
+func scratchRoot(k agent.Kind) string {
+	if s, ok := agent.As[agent.Scratcher](k); ok {
+		return s.ScratchRoot()
+	}
+	return ""
+}
 
 // DiskUsage is how much disk the folders take, counted as du does
 // (allocated blocks), without following links.
@@ -68,9 +70,9 @@ func CleanTemp(a *Agent) error {
 		return fmt.Errorf("%s is still running; stop it first", a.DisplayName)
 	}
 	for _, d := range a.TempDirs() {
-		// Only ever a tmp folder of rush's or Claude Code's, never
+		// Only ever a tmp folder of rush's or the agent's, never
 		// something a bad id could point elsewhere.
-		if filepath.Base(d.Path) != "tmp" && filepath.Dir(filepath.Dir(d.Path)) != ClaudeScratch() {
+		if root := scratchRoot(a.Acct.Kind); filepath.Base(d.Path) != "tmp" && (root == "" || filepath.Dir(filepath.Dir(d.Path)) != root) {
 			return fmt.Errorf("won't delete %s", d.Path)
 		}
 		if !d.Keep {

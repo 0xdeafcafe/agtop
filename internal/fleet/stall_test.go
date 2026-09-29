@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 func TestAFinishedTurnIsAnAnswerOrAnError(t *testing.T) {
@@ -26,14 +26,14 @@ func TestAFinishedTurnIsAnAnswerOrAnError(t *testing.T) {
 	}
 
 	a = finished()
-	a.Spend.Halt = &claude.Halt{Kind: "rate_limit", Text: "You've hit your session limit · resets 5am (Europe/London)"}
+	a.Spend.Halt = &agent.Halt{Kind: "rate_limit", Text: "You've hit your session limit · resets 5am (Europe/London)"}
 	if !a.Halted() || a.YourTurn(now) || a.ContinueText() != "continue" {
 		t.Fatalf("a limit: halted %v, your turn %v", a.Halted(), a.YourTurn(now))
 	}
 	if got := a.HaltReason(); got != "session limit · resets 5am" {
 		t.Fatalf("reason %q", got)
 	}
-	a.Spend.Halt = &claude.Halt{Kind: "server_error", Text: "API Error: Can't reach the API server — check your connection"}
+	a.Spend.Halt = &agent.Halt{Kind: "server_error", Text: "API Error: Can't reach the API server — check your connection"}
 	if got := a.HaltReason(); got != "Can't reach the API server — check your connection" {
 		t.Fatalf("reason %q", got)
 	}
@@ -46,7 +46,7 @@ func TestAFinishedTurnIsAnAnswerOrAnError(t *testing.T) {
 		func(a *Agent) { a.InFlight, a.Background = 1, []string{"agent\x00lane"} },
 	} {
 		a := finished()
-		a.Spend.Halt = &claude.Halt{Kind: "server_error"}
+		a.Spend.Halt = &agent.Halt{Kind: "server_error"}
 		mod(a)
 		b := finished()
 		mod(b)
@@ -67,7 +67,7 @@ func TestAPIErrorsContinue(t *testing.T) {
 	halted := func(text string, at time.Time) *Agent {
 		a := &Agent{PID: 1}
 		a.State, a.UpdatedAt = "done", at
-		a.Spend.Halt = &claude.Halt{Kind: "server_error", Text: text, At: at}
+		a.Spend.Halt = &agent.Halt{Kind: "server_error", Text: text, At: at}
 		return a
 	}
 	a := halted("API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", now.Add(-time.Minute))

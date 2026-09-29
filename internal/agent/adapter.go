@@ -228,6 +228,17 @@ type Session struct {
 	PRs    []PR
 	// Extra is the adapter's own, for its own use: Claude's job file.
 	Extra any
+	// Job is a background job's row, as its agent keeps it: set on the
+	// job, not on the session running it. JobID is the job a session
+	// runs, if it runs one.
+	Job   *Job
+	JobID string
+	// Interactive is a session opened in a terminal, not a job's.
+	Interactive bool
+	// Status is what its process last said it was doing (busy, idle,
+	// shell), and StatusAt when; zero when it hasn't said.
+	Status   string
+	StatusAt time.Time
 }
 
 var (
