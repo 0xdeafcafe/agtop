@@ -71,7 +71,7 @@ func (t *btwThread) ask(m *Model, c *hostConn, q string) tea.Cmd {
 		history = []map[string]string{}
 	}
 	cmd := m.askClaude(c, map[string]any{"subtype": "side_question", "question": q, "history": history}, func(m *Model, r host.Reply) tea.Cmd {
-		t.waiting = time.Time{}
+		t.waiting, t.sel = time.Time{}, textSel{} // the rows under it moved
 		var a struct {
 			Response string `json:"response"`
 		}
@@ -89,7 +89,7 @@ func (t *btwThread) ask(m *Model, c *hostConn, q string) tea.Cmd {
 		return nil // askClaude said why
 	}
 	t.qa = append(t.qa, btwQA{Question: q})
-	t.waiting, t.asked, t.err, t.scroll = time.Now(), weak.Make(c), "", 0
+	t.waiting, t.asked, t.err, t.scroll, t.sel = time.Now(), weak.Make(c), "", 0, textSel{}
 	return cmd
 }
 
@@ -119,7 +119,7 @@ func (m *Model) btwKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bool)
 	case "esc", "ctrl+b":
 		// Back to the conversation. A thread with something in it stays,
 		// tucked away; one never asked anything goes.
-		t.focused = false
+		t.focused, t.sel = false, textSel{}
 		if len(t.qa) == 0 {
 			delete(m.btws, c.key)
 		}
@@ -143,7 +143,7 @@ func (m *Model) btwKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bool)
 		if n := len(t.qa); n > 0 && t.qa[n-1].Response != "" {
 			last := t.qa[n-1]
 			c.input, c.back = []rune("About my side question (\""+last.Question+"\"), you said:\n\n"+last.Response+"\n\n"), 0
-			t.focused = false
+			t.focused, t.sel = false, textSel{}
 		}
 	case "up", "pgup":
 		t.scroll += map[string]int{"up": 1, "pgup": 8}[s]

@@ -1125,7 +1125,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if hot := m.chipHot; hot.box != 0 {
 			m.chipHot = chipHover{} // lit again only once the pointer moves
-			if msg.String() == "space" && m.dialog == nil && m.confirm == nil && m.openChip(hot) {
+			if msg.String() == "space" && m.boxesTakeKeys() && m.openChip(hot) {
 				return m, nil
 			}
 		}

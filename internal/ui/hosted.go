@@ -232,7 +232,7 @@ func (m *Model) hostedKeyGuard(s string) (tea.Cmd, bool) {
 		// Still opening: nothing to type into yet.
 		return nil, s != "ctrl+c"
 	}
-	if m.hostedAway && !m.paneFocus {
+	if m.hostedAway && !m.paneFocus && m.picker == nil && m.confirm == nil && m.sheet == nil && m.dialog == nil {
 		return m.hostedAwayKey(s)
 	}
 	if s == "tab" {

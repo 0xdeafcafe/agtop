@@ -139,8 +139,8 @@ func (m *Model) boxAt(x, y int) (int, int) {
 
 // chipUnder is the paste chip at screen x, y, if there's one to open.
 func (m *Model) chipUnder(x, y int) chipHover {
-	if m.mode != modeList {
-		return chipHover{} // the boxes aren't on screen
+	if !m.boxesTakeKeys() {
+		return chipHover{}
 	}
 	which, pos := m.boxAt(x, y)
 	var sp seg
@@ -155,6 +155,21 @@ func (m *Model) chipUnder(x, y int) chipHover {
 		return chipHover{}
 	}
 	return chipHover{which, sp}
+}
+
+// boxesTakeKeys is whether a key could go to an input box now: they're on
+// screen and nothing over them (a menu, the command bar, a question, a
+// dialog, an agent's own screen, the /btw panel) has the keys instead.
+func (m *Model) boxesTakeKeys() bool {
+	if m.mode != modeList || m.picker != nil || m.bar != nil || m.dialog != nil || m.confirm != nil || m.embedded {
+		return false
+	}
+	if c := m.host; c != nil {
+		if t := m.btwFor(c.key); t != nil && t.focused {
+			return false
+		}
+	}
+	return true
 }
 
 // hoverChip lights the paste chip under the pointer, and reports whether

@@ -797,7 +797,9 @@ func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
 			c.input, c.back = []rune("/"+cmds[c.slashSel].Name), 0
 			return m.sendPane(c, false), true
 		}
-		if strings.EqualFold(string(c.input[start:end]), "/"+cmds[c.slashSel].Name) && m.store.Config.EnterSendsCommand {
+		// Typed in full: its name, without claude:, or another name for it.
+		typed, name := strings.ToLower(string(c.input[start+1:end])), cmds[c.slashSel].Name
+		if (typed == strings.ToLower(name) || "claude:"+typed == strings.ToLower(name) || screenAliases[typed] == name) && m.store.Config.EnterSendsCommand {
 			return nil, false // typed in full, there's nothing to complete
 		}
 		complete(" ")

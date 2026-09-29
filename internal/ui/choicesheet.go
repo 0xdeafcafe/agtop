@@ -86,13 +86,31 @@ func (m *Model) setArg(c *hostConn, name, id string) tea.Cmd {
 	if c.picked == nil {
 		c.picked = map[string]string{}
 	}
+	was, had := c.picked[name]
 	c.picked[name] = id
 	set, when := c.client.SetModel, "the next turn"
 	if name == "effort" {
 		set, when = c.client.SetEffort, "the next start"
 	}
 	m.flash(name+": "+firstNonEmpty(id, "default")+" from "+when, false)
-	return hostCmd(func() error { return set(id) })
+	return func() tea.Msg {
+		err := set(id)
+		if err == nil {
+			return nil
+		}
+		// Not switched: the sheet marks what it runs with again.
+		return applyMsg(func(m *Model) tea.Cmd {
+			if c.picked[name] == id {
+				if had {
+					c.picked[name] = was
+				} else {
+					delete(c.picked, name)
+				}
+			}
+			m.flash(err.Error(), true)
+			return nil
+		})
+	}
 }
 
 // choiceSheet is /model or /effort with nothing named: the agent's list,

@@ -78,3 +78,24 @@ func TestClickOpensTheChip(t *testing.T) {
 		t.Fatalf("a click off the chip opened it: %q", string(c.input))
 	}
 }
+
+// A space typed into something over the boxes (a menu, here) is that
+// thing's, even with the pointer on a chip.
+func TestSpaceOverAMenuLeavesTheChip(t *testing.T) {
+	m := &Model{snap: &fleet.Snapshot{}, mode: modeList}
+	chip := m.pastes.add(pasted)
+	m.input = []rune("see " + chip)
+	m.promptBox, m.promptBoxY = box{w: 80, text: m.input, cursor: len(m.input), anchor: -1}, 10
+	m.picker = &picker{}
+	m.update(tea.MouseMotionMsg{X: 2 + 5, Y: 11})
+	if m.chipHot.box != 0 {
+		t.Fatal("a chip lit under an open menu")
+	}
+	m.picker = nil
+	m.update(tea.MouseMotionMsg{X: 2 + 5, Y: 11})
+	m.picker = &picker{}
+	m.update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	if !strings.Contains(string(m.input), chip) {
+		t.Fatal("space opened a chip while a menu had the keys")
+	}
+}

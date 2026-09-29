@@ -2120,20 +2120,20 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		hint = keysFit(w-4, "enter · →", "type here", "ctrl+n", "next needing you")
 		if m.hostedAlone() {
 			hint = keysFit(w-4, "enter · →", "type here", "esc", "stop the turn", "ctrl+q", "quit")
-			if c.sess.Live() == nil {
+			if c.client == nil || c.sess.Live() == nil || !agent.Supports(sessionAgent(c), agent.FeatureInterrupt) {
 				hint = keysFit(w-4, "enter · →", "type here", "ctrl+q", "quit")
 			}
 		}
 		b.holder = "enter or → to talk to this agent"
 		out = append(out[:len(out)-len(b.lines())], b.lines()...)
 	}
-	if m.zenFull() {
-		return out
-	}
-	if l, _ := m.widths(); l == 0 && m.confirm != nil && !m.confirm.modal {
+	if l, _ := m.widths(); (l == 0 || m.zenFull()) && m.confirm != nil && !m.confirm.modal {
 		// The list's hint row, where a question is asked, isn't on
 		// screen: ask it here, or the key it waits on looks swallowed.
 		return append(out, m.confirmLine(w))
+	}
+	if m.zenFull() {
+		return out
 	}
 	return append(out, "  "+hint)
 }
