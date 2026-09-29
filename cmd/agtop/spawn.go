@@ -91,7 +91,7 @@ func parseRun(prog string, args []string) (workRun, bool) {
 	switch sp.Kind {
 	case "codex":
 		return codexRun(args)
-	case "claude":
+	case "claude": // migration: per-agent CLI parsing and output move behind the adapters
 		return claudeRun(args)
 	}
 	return workRun{}, false
@@ -197,7 +197,7 @@ var (
 
 // claudeRun reads claude -p [flags] PROMPT.
 func claudeRun(args []string) (workRun, bool) {
-	r := workRun{kind: "claude", format: "text"}
+	r := workRun{kind: "claude", format: "text"} // migration: per-agent CLI parsing and output move behind the adapters
 	print, verbose := false, false
 	var words []string
 	ok := flagArgs(args, claudeValued, claudeBare, func(name, val string) bool {
@@ -300,7 +300,7 @@ func runReal(prog string, args []string, path string, fed io.Reader) int {
 }
 
 // configDirEnv is where each agent's program is told its config folder.
-var configDirEnv = map[agent.Kind]string{"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
+var configDirEnv = map[agent.Kind]string{"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"} // migration: per-agent CLI parsing and output move behind the adapters
 
 // hostRun runs r as an agtop session and prints it as its program would;
 // false when it couldn't start one, and nothing was printed.
@@ -342,7 +342,7 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 		return 0, false
 	}
 	dial := host.Dial
-	if r.kind == "claude" {
+	if r.kind == "claude" { // migration: per-agent CLI parsing and output move behind the adapters
 		dial = host.DialRaw // its own lines, as claude -p prints them
 	}
 	c, err := dial(started.ID)
