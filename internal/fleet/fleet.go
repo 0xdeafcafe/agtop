@@ -599,8 +599,16 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 				w := w
 				a.Worker = &w
 			}
-			a.Repo, a.Branch = l.gitFor(j.Cwd, now)
-			if j.WorktreeBranch != "" {
+			// A job's worktree, not its cwd, is where it actually runs:
+			// Claude Code doesn't always move cwd to match once a job's
+			// given a worktree.
+			a.Repo, a.Branch = l.gitFor(firstNonEmpty(j.WorktreePath, j.Cwd), now)
+			if a.Branch == "" && j.WorktreeBranch != "" {
+				// Claude Code's own record of the branch it made the
+				// worktree on, for before the checkout exists to read;
+				// once it does, what's actually checked out there wins,
+				// since a job's worktree can be re-pointed at another
+				// branch after Claude Code first recorded it.
 				a.Branch = j.WorktreeBranch
 			}
 			a.Spend = l.spend[key]
