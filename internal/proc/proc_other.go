@@ -1,10 +1,10 @@
-//go:build !darwin
+//go:build !darwin && !linux
 
 package proc
 
 import "syscall"
 
-// Linux support needs a /proc backend; until then the process columns stay empty.
+// Other systems have no process backend: the process columns stay empty.
 func list() []*Proc                          { return nil }
 func fillUsage(*Proc)                        {}
 func Args(int) []string                      { return nil }
