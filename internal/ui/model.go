@@ -1592,11 +1592,11 @@ func (m *Model) rebuild() {
 			add("Needs you", 0, a) // it stopped on an error and won't go on by itself
 		case a.Waiting() || a.Halted():
 			add("Waiting on you", 4, a)
+		case folderKey(a) == scratchSection:
+			add("Scratch", 10, a) // temp-folder runs finish on their own, not on your turn; folded
 		case a.YourTurn(now):
 			add("Your turn", 1, a) // finished without asking; often wants "keep going"
-		case folderKey(a) == scratchSection:
-			add("Scratch", 10, a) // temp-folder runs, mostly background; folded
-		case a.Checking || a.JustFinished(now):
+		case a.Checking || a.JustFinished(now) && !a.Seen: // once seen, a finish needn't linger
 			add("Working", 3, a)
 		case a.Pinned:
 			add("Pinned", 2, a)
