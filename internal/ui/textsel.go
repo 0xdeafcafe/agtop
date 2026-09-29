@@ -87,14 +87,18 @@ func (m *Model) dragTextSel(c *hostConn, x, y int) {
 	}
 }
 
-// endTextSel finishes a drag: what it covered goes to the clipboard. A
-// press that never moved is a click on the row.
+// endTextSel finishes a drag: what it covered goes to the clipboard, or,
+// with CopyOnSelect off, stays selected for cmd+c or ctrl+c. A press that
+// never moved is a click on the row.
 func (m *Model) endTextSel(c *hostConn) {
 	c.txt.drag = false
 	if !c.txt.moved {
 		y := c.txt.pressY
 		c.txt = textSel{}
 		m.clickRow(c, y)
+		return
+	}
+	if !m.store.Config.CopiesOnSelect() {
 		return
 	}
 	if t := selectedText(c.shown, c.txt.a, c.txt.b, c.paneW); t != "" {

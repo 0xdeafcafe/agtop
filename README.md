@@ -306,6 +306,8 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 - **Terminal.app** keeps ⌘ for its own menus. `#mackeys on` sets up Hammerspoon to send ⌘← → ⌘⌫ ⌘⌦ and ⌘Z on as editing keys, only while Terminal.app is in front; `#mackeys off` takes it out again.
 - **Status lines**: `/statusline` lays out the agent header, agtop's top bar and Claude Code's own status line, with a live preview.
 - **Colours** made from your terminal's own background and text, or set to dark or light, and a colour-blind palette, in Settings › Interface.
+- **Copy on select**: text you drag over goes to the clipboard as you let go, unless you turn it off in Settings › Interface; then it stays selected for cmd+c or ctrl+c.
+- **Settings from the environment**: any setting kept in `config.json` can be set for one run as `AGTOP_` and its key in upper snake case, a nested one after its parent's: `AGTOP_COPY_ON_SELECT=0`, `AGTOP_THEME=light`, `AGTOP_HIBERNATE_AFTER_MINUTES=30`. It isn't saved: `config.json` keeps what it had, unless you change the setting in agtop meanwhile. Lists and maps can't be set this way.
 - **Light**: about 40 MB with a session open, 56 MB for a 38-hour session with 342 subagent runs. Idle, it does almost nothing: the kernel says when a transcript changed, and only that file is read again. `agtop --soak 30s 200x50` measures it against your own agents.
 
 ## Keys

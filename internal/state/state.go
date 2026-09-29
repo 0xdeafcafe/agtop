@@ -126,6 +126,10 @@ type Config struct {
 	Theme string `json:"theme,omitempty"`
 	// ShowWhitespace marks spaces and tabs in diffs, as · and →.
 	ShowWhitespace bool `json:"showWhitespace,omitzero"`
+	// CopyOnSelect is whether text dragged over goes to the clipboard as
+	// the drag ends, as terminals do; off, it stays selected for cmd+c or
+	// ctrl+c. Unset is on.
+	CopyOnSelect *bool `json:"copyOnSelect,omitempty"`
 	// SearchTranscriptsOnKey keeps ctrl+k to agent names and commands while
 	// you type; ctrl+enter (or ctrl+j) then searches the transcripts.
 	SearchTranscriptsOnKey bool `json:"searchTranscriptsOnKey,omitzero"`
@@ -146,6 +150,9 @@ type Config struct {
 	// cut tokens or time. Off until you turn it on.
 	Advisor bool `json:"advisor,omitzero"`
 }
+
+// CopiesOnSelect is whether a drag copies as it ends: see CopyOnSelect.
+func (c Config) CopiesOnSelect() bool { return c.CopyOnSelect == nil || *c.CopyOnSelect }
 
 // SignIn is an account of an agent other than Claude Code: who it is, and
 // what agtop calls it.
@@ -479,6 +486,7 @@ type Store struct {
 	Config  Config
 	Overlay Overlay
 	copied  copied
+	env     []envSet // the settings the environment set: see applyEnv
 }
 
 // copied is the config as Copy last made it, and as JSON: while the
@@ -495,6 +503,7 @@ func Load() *Store {
 	loadJSON(filepath.Join(Dir(), "config.json"), &s.Config)
 	loadJSON(filepath.Join(Dir(), "state.json"), &s.Overlay)
 	s.Config.migrate()
+	s.env = applyEnv(&s.Config, lookupEnv)
 	if s.Overlay.Done == nil {
 		s.Overlay.Done = map[string]time.Time{}
 	}
@@ -552,7 +561,7 @@ func (s *Store) SaveOverlay() error {
 func (s *Store) SaveConfig() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return save(filepath.Join(Dir(), "config.json"), s.Config)
+	return save(filepath.Join(Dir(), "config.json"), forSaving(s.Config, s.env))
 }
 
 // KeepBefore copies config.json aside as config.json.<name>, once, before

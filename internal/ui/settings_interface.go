@@ -100,9 +100,19 @@ func (m *Model) interfaceSections() []section {
 			{"sends", "sends the message as it is; a command typed in part is still completed."},
 		}, func(v string) { c.EnterSendsCommand = v == "sends" })
 
+	copying := choiceSetting("Copy on select", map[bool]string{true: "on", false: "off"}[c.CopiesOnSelect()],
+		"Whether text you drag over, in a conversation or a message box, goes to the clipboard as you let go.",
+		[][2]string{
+			{"on", "it's copied as the drag ends, as terminals do."},
+			{"off", "it stays selected until cmd+c (where the terminal passes it on) or ctrl+c copies it; for a terminal that copies with cmd+c itself."},
+		}, func(v string) {
+			on := v == "on"
+			c.CopyOnSelect = &on
+		})
+
 	return []section{
 		{title: "Look", rows: []setting{view, theme, colours, spaces}},
 		{title: "Agents list", rows: []setting{group, split, sortBy, enter, search}},
-		{title: "Message box", rows: []setting{command}},
+		{title: "Message box", rows: []setting{command, copying}},
 	}
 }
