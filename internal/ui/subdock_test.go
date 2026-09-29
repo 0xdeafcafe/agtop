@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
@@ -424,5 +425,36 @@ func TestQuietSubagentOfATerminalSession(t *testing.T) {
 	m.drain(m.refreshSubs())
 	if st, live := c.subState(c.subs[0]); live || st != "completed" {
 		t.Fatalf("after its answer: %q live %v", st, live)
+	}
+}
+
+// A subagent run in the background returns its call at once: watching
+// it, its turn stays open while its task runs, rather than each line it
+// writes starting a turn of its own, and ends with the task.
+func TestBackgroundSubagentStaysOneTurn(t *testing.T) {
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{},
+		subs: []convo.Subagent{{ID: "a1", ToolUseID: "ag1"}}, subOpen: "a1", subTail: convo.SubagentTail("")}
+	now := time.Now()
+	for _, l := range []struct{ role, msg string }{
+		{"assistant", `{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"ag1","name":"Agent","input":{"prompt":"go","run_in_background":true}}]}`},
+		{"user", `{"role":"user","content":[{"type":"tool_result","tool_use_id":"ag1","content":"started"}]}`},
+	} {
+		ev, err := headless.DecodeMessage(l.role, []byte(l.msg), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.sess.Apply(ev, now)
+	}
+	c.sess.Apply(event.TaskStarted{ID: "a1", CallID: "ag1", Kind: event.SubagentTask, Background: true}, now)
+	c.subTail.Sess.Apply(host.Sent{Text: "go"}, now)
+	m := &Model{snap: &fleet.Snapshot{}, host: c}
+	m.readSub()
+	if c.subTail.Sess.Live() == nil {
+		t.Fatal("the turn ended while its task runs")
+	}
+	c.sess.Apply(event.TaskUpdated{ID: "a1", Status: "completed"}, now)
+	m.readSub()
+	if c.subTail.Sess.Live() != nil {
+		t.Error("the turn outlived its task")
 	}
 }

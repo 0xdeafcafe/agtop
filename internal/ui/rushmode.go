@@ -363,7 +363,13 @@ func (m *Model) readSub() {
 	if c == nil || c.subTail == nil {
 		return
 	}
-	if st := c.sess.Step(c.subToolUse()); st != nil && st.Status != convo.Running {
+	// One run in the background returned its call at once; it's done when
+	// its task is, or each line it writes would be a turn of its own.
+	id := c.subToolUse()
+	if j := c.sess.SubagentJob(c.subOpen, id); j != nil && j.Running() {
+		return
+	}
+	if st := c.sess.Step(id); st != nil && st.Status != convo.Running {
 		if live := c.subTail.Sess.Live(); live != nil {
 			c.subTail.Sess.Apply(event.TurnEnd{Reason: "done"}, time.Now())
 		}
