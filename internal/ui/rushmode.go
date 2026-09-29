@@ -1161,6 +1161,8 @@ type hostConn struct {
 	taskDirAt   time.Time             // when it was last looked for
 	taskDirFor  string                // the conversation it was found for
 	tails       map[string]*jobTailed // each task's output as last read, by file
+	writes      map[string][]string   // the files each task's command writes, by its tool call
+	jobRows     map[string]jobRowsMemo // a finished task's rows in the background view, by task
 	subHoverAt  time.Time
 	// Agents the session's shell ran, by the step that ran each, and
 	// whether any are being looked for.

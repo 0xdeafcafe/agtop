@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -147,4 +149,66 @@ func BenchmarkSwitch(b *testing.B) {
 			}
 		})
 	}
+}
+
+// BenchmarkBackgroundViewReal is the background view of a real long
+// transcript, its Bash calls made finished tasks: their commands, labels
+// and the files they write are what a frame works through.
+func BenchmarkBackgroundViewReal(b *testing.B) {
+	u, err := user.Current()
+	if err != nil {
+		b.Skip(err)
+	}
+	paths, _ := filepath.Glob(filepath.Join(u.HomeDir, ".claude", "projects", "*", "*.jsonl"))
+	idRe := regexp.MustCompile(`"id":"(toolu_[A-Za-z0-9_]+)","name":"Bash"`)
+	var best string
+	var ids []string
+	for _, p := range paths {
+		if st, err := os.Stat(p); err != nil || st.Size() > 9<<20 || st.Size() < 1<<20 {
+			continue
+		}
+		raw, _ := os.ReadFile(p)
+		if got := idRe.FindAllStringSubmatch(string(raw), -1); len(got) > len(ids) {
+			best, ids = p, nil
+			for _, g := range got {
+				ids = append(ids, g[1])
+			}
+		}
+	}
+	if len(ids) < 50 {
+		b.Skip("no transcript with many Bash calls")
+	}
+	m, _ := benchModel(200, 60)
+	t := convo.NewTail(best)
+	t.Read()
+	c := &hostConn{kind: "claude", key: m.host.key, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true}
+	m.host = c
+	t0 := time.Now().Add(-2 * time.Hour)
+	for i, id := range ids {
+		at := t0.Add(time.Duration(i) * time.Second)
+		jid := fmt.Sprintf("b%d", i)
+		c.sess.Apply(headless.TaskStarted{ID: jid, ToolUseID: id, Type: "local_bash", Description: "run " + jid, Backgrounded: true}, at)
+		c.sess.Apply(headless.TaskDone{ID: jid, Status: "completed"}, at.Add(time.Second))
+	}
+	for i, v := range m.views(c) {
+		if v == "background" {
+			c.view = i
+		}
+	}
+	m.View()
+	b.Logf("%d tasks from %s", len(ids), best)
+	b.Run("frame", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+			m.View()
+		}
+	})
+	b.Run("lines", func(b *testing.B) {
+		o := convo.Options{Width: 140, Now: time.Now(), Open: c.open}
+		b.ReportAllocs()
+		for b.Loop() {
+			m.jobLines(c, o)
+		}
+	})
 }

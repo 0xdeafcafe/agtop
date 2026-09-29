@@ -211,6 +211,28 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			if j.Running() && !j.Background {
 				mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
 			}
+			n := 1
+			if j.Running() {
+				n = 3
+			}
+			if c.open[ref] {
+				n = jobTailMost
+			}
+			tail, from := m.jobTailFrom(c, j, n)
+			// A finished task's rows stay as they were drawn until what
+			// they're drawn from changes: a long session has hundreds.
+			var key jobRowsKey
+			if memo := !j.Running() && !c.open[ref]; memo {
+				key = jobRowsKey{w: w, pal: cText + cSub, status: j.Status, end: j.End, from: from, tail: len(tail),
+					facts: fmt.Sprint(j.ToolUses, j.Tokens, len(j.Error), len(j.Summary))}
+				if len(tail) > 0 {
+					key.last = tail[len(tail)-1]
+				}
+				if e, ok := c.jobRows[j.ID]; ok && e.key == key {
+					emit(ref, e.rows, true)
+					continue
+				}
+			}
 			right := jobState(j, now) + "  "
 			// A shell says what it's for; its command comes under it.
 			label, cmd := jobLabel(c, j), ""
@@ -246,14 +268,6 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				rows = append(rows, ansi.Truncate("      "+faint("$ "+cmd), w-2, "…"))
 			}
 			top := len(rows)
-			n := 1
-			if j.Running() {
-				n = 3
-			}
-			if c.open[ref] {
-				n = jobTailMost
-			}
-			tail, from := m.jobTailFrom(c, j, n)
 			if len(tail) > 0 && from != c.jobOutput(j) {
 				rows = append(rows, "      "+faint("from "+tildify(from)))
 			}
@@ -273,6 +287,12 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 					none = "no output yet"
 				}
 				rows = append(rows, "      "+faint(none))
+			}
+			if key.w != 0 {
+				if c.jobRows == nil {
+					c.jobRows = map[string]jobRowsMemo{}
+				}
+				c.jobRows[j.ID] = jobRowsMemo{key: key, rows: rows}
 			}
 			emit(ref, rows[:top], true)
 			for _, l := range body {
@@ -417,12 +437,42 @@ func (m *Model) jobTailFrom(c *hostConn, j *convo.Job, n int) ([]string, string)
 	if lines := c.tailOf(p, j.Running(), n); len(lines) > 0 || c.sess.JobKind(j) != "shell" {
 		return lines, p
 	}
-	for _, w := range c.sess.JobWrites(j) {
+	for _, w := range c.jobWrites(j) {
 		if lines := c.tailOf(w, j.Running(), n); len(lines) > 0 {
 			return lines, w
 		}
 	}
 	return nil, ""
+}
+
+// jobWrites is the files a task's command writes to, worked out once: a
+// frame asks for every task's.
+func (c *hostConn) jobWrites(j *convo.Job) []string {
+	if w, ok := c.writes[j.ToolUseID]; ok {
+		return w
+	}
+	w := c.sess.JobWrites(j)
+	if c.sess.JobCommand(j) != "" { // its call may not be read yet
+		if c.writes == nil {
+			c.writes = map[string][]string{}
+		}
+		c.writes[j.ToolUseID] = w
+	}
+	return w
+}
+
+// jobRowsKey is what a finished task's rows are drawn from.
+type jobRowsKey struct {
+	w                              int
+	pal, status, from, last, facts string
+	end                            time.Time
+	tail                           int
+}
+
+// jobRowsMemo is a finished task's rows as last drawn, unpicked.
+type jobRowsMemo struct {
+	key  jobRowsKey
+	rows []string
 }
 
 // tailOf is the last n lines of the file at p, read as jobTail says.
