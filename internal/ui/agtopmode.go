@@ -2112,6 +2112,11 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	if m.zenFull() {
 		return out
 	}
+	if l, _ := m.widths(); l == 0 && m.confirm != nil && !m.confirm.modal {
+		// The list's hint row, where a question is asked, isn't on
+		// screen: ask it here, or the key it waits on looks swallowed.
+		return append(out, m.confirmLine(w))
+	}
 	return append(out, "  "+hint)
 }
 

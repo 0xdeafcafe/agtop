@@ -330,6 +330,19 @@ func TestPlacesMoveOutsideHosted(t *testing.T) {
 	}
 }
 
+// A question asked while the Session has the whole width is drawn under
+// its box: the list's hint row, where it's asked otherwise, isn't there.
+func TestHostedShowsAQuestion(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	writeSession(t, "aaaa1111", "the hosted session")
+	m := NewHosted(state.Load(), "test", "aaaa1111")
+	m.host = &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
+	m.confirm = &confirmation{question: "Send to a cold cache?"}
+	if out := ansi.Strip(m.Frame(160, 45)); !strings.Contains(out, "Send to a cold cache?") {
+		t.Fatalf("the question isn't on screen:\n%s", out)
+	}
+}
+
 // isQuit runs a command, batches included, looking for tea.Quit.
 func isQuit(cmd tea.Cmd) bool {
 	switch msg := cmd().(type) {
