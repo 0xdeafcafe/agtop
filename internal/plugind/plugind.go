@@ -49,9 +49,6 @@ type broker struct {
 // Run is `agtop plugind`. It returns at once if another broker holds the
 // lock.
 func Run() error {
-	if err := plugin.Supported(); err != nil {
-		return err
-	}
 	if err := os.MkdirAll(plugin.Root(), 0o700); err != nil {
 		return err
 	}
@@ -138,7 +135,7 @@ func (b *broker) stop() { b.once.Do(func() { close(b.quit) }) }
 // reload brings the running plugins in line with the approvals: new ones
 // start, revoked or re-approved ones stop (and the re-approved start again).
 func (b *broker) reload() {
-	approved := plugin.Approvals()
+	approved := plugin.Enabled()
 	b.mu.Lock()
 	var stopping []*runner
 	for name, r := range b.plugins {
@@ -163,7 +160,7 @@ func (b *broker) reload() {
 		r.shutdown()
 	}
 	if empty {
-		b.log.Printf("no plugins approved")
+		b.log.Printf("no plugins to run")
 		b.stop()
 	}
 }
@@ -215,7 +212,7 @@ func (b *broker) watch() {
 		// approved. Checked less often, as it reads every file.
 		if tick%6 == 5 {
 			for _, r := range rs {
-				if r.pidNow() > 0 {
+				if r.pidNow() > 0 && !r.p.Bundled {
 					if d, err := plugin.Digest(r.p.Dir); err != nil || d != r.digest {
 						r.fail("its files changed since it was approved")
 					}

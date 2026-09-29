@@ -88,6 +88,9 @@ func (r *runner) supervise() {
 		default:
 		}
 		p, err := plugin.Verify(r.name)
+		if err == nil && !p.Bundled {
+			err = plugin.Supported()
+		}
 		if err != nil {
 			// Not as approved: it waits for you, not for a timer.
 			r.log.Printf("refused: %v", err)
@@ -141,7 +144,7 @@ func (r *runner) run(p plugin.Plugin) error {
 	if proxy != nil {
 		l.ProxyPort = proxy.Port()
 	}
-	cmd, err := l.Command()
+	cmd, err := l.Process()
 	if err != nil {
 		return err
 	}

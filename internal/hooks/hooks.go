@@ -212,8 +212,8 @@ func (c *Client) SetSetting(name, key, value string, done func(error) tea.Msg) t
 	}
 }
 
-// Reload tells the running broker an approval changed, starting it if
-// this was the first plugin ever approved. It dials once and returns;
+// Reload tells the running broker an approval changed, or a bundled plugin
+// was turned on or off, starting it if nothing ran before. It dials once and returns;
 // run it off the UI, as its own tea.Cmd would.
 func Reload() error {
 	c, err := plugin.DialBroker()
@@ -237,7 +237,7 @@ func (c *Client) call(ctx context.Context, method string, params, out any) error
 }
 
 func dialBroker(h plugin.Handler) (*plugin.Conn, error) {
-	if len(plugin.Approvals()) == 0 || plugin.Supported() != nil {
+	if len(plugin.Enabled()) == 0 {
 		return nil, errOffline
 	}
 	cn, err := plugin.DialBrokerWith(h)

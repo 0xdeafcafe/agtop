@@ -79,6 +79,9 @@ type Model struct {
 	// pluginui.go.
 	hooks    *hooks.Client
 	hookSeen hookSeen
+	// bundledOff are the bundled plugins turned off, as last read; nil
+	// until then.
+	bundledOff []string
 
 	store     *state.Store
 	loader    *fleet.Loader
@@ -307,7 +310,7 @@ func New(store *state.Store, version string) *Model {
 	}
 	m.applyColors()
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
-	m.snap = m.loader.LoadQuick() // drawn at once; the first refresh counts subagents
+	m.snap = m.loader.Load(true)
 	m.loadSidebars()
 	m.rebuild()
 	m.onboard = true
@@ -727,9 +730,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.w, m.h = msg.Width, msg.Height
 		return m, nil
 	case snapMsg:
-		return m, m.onSnap(msg)
-	case shellsMsg:
-		m.onShells(msg)
+		m.onSnap(msg)
 		return m, nil
 	case netMsg:
 		return m, m.onNet()

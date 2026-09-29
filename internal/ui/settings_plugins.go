@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -27,16 +28,16 @@ func (m *Model) pluginSections() []section {
 	if m.hooks != nil {
 		ps = m.hooks.State().Plugins
 	}
+	out := m.bundledSections()
 	if len(ps) == 0 {
-		return []section{{title: "Plugins", rows: []setting{{
+		return append(out, section{title: "Plugins", rows: []setting{{
 			label: "none",
 			line: func(w int) string {
 				return dim("No plugin takes part in agtop's screen. ") + faint("agtop plugin list shows what's installed; approve one with agtop plugin approve <name>.")
 			},
 			what: "A plugin whose manifest asks for \"ui\", \"commands\" or \"settings\" shows here once approved and running.",
-		}}}}
+		}}})
 	}
-	var out []section
 	for _, p := range ps {
 		sec := section{title: p.Name, note: capWords(p)}
 		for _, spec := range p.Settings {
@@ -78,6 +79,29 @@ func (m *Model) pluginSections() []section {
 		out = append(out, sec)
 	}
 	return out
+}
+
+// bundledSections are the plugins that come with agtop, each on or off.
+func (m *Model) bundledSections() []section {
+	bs := plugin.Bundles()
+	if len(bs) == 0 {
+		return nil
+	}
+	sec := section{title: "Bundled", note: "come with agtop, and are on until you turn them off"}
+	for _, b := range bs {
+		name := b.Manifest.Name
+		v := "on"
+		if slices.Contains(m.bundledOff, name) {
+			v = "off"
+		}
+		sec.rows = append(sec.rows, setting{
+			label: name, value: v, choices: []string{"on", "off"},
+			what:  b.Manifest.Description,
+			means: map[string]string{"on": "it runs, and " + capWords(plugin.UIPlugin{UI: b.Manifest.UI}), "off": "it doesn't run"},
+			run:   func(v string) tea.Cmd { return m.setBundled(name, v == "on") },
+		})
+	}
+	return []section{sec}
 }
 
 func capWords(p plugin.UIPlugin) string {

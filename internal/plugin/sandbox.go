@@ -3,9 +3,11 @@ package plugin
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Launch is how to start one plugin.
@@ -59,6 +61,28 @@ func (l Launch) Env() []string {
 		out = append(out, k+"="+v)
 	}
 	return out
+}
+
+// Process is the plugin's process, its stdio and extra files for the caller
+// to wire up: a bundled plugin is agtop itself, `agtop plugin run <name>`,
+// in its data folder; any other is Command, sandboxed.
+func (l Launch) Process() (*exec.Cmd, error) {
+	if !l.Plugin.Bundled {
+		return l.Command()
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	data := DataDir(l.Plugin.Name)
+	if err := os.MkdirAll(filepath.Join(data, "tmp"), 0o700); err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(exe, "plugin", "run", l.Plugin.Name)
+	cmd.Dir = data
+	cmd.Env = l.Env()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd, nil
 }
 
 // Program is the path of the plugin's program, symlinks resolved.

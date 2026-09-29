@@ -4,7 +4,7 @@ A plugin adds to every agtop-mode session: tools Claude can call, subagents, tex
 
 Every plugin runs sandboxed and does only what you approved. It can't read your files, reach the internet (except hosts it named and you approved), start programs, or take over your agents.
 
-Plugins run on macOS only for now. Elsewhere agtop won't run them rather than run them unsandboxed.
+Plugins you install run on macOS only for now. Elsewhere agtop won't run them rather than run them unsandboxed. [Bundled plugins](#bundled-plugins) run everywhere.
 
 | | |
 |---|---|
@@ -32,7 +32,11 @@ Approving shows, in plain words, what the plugin can read, write and reach, and 
 
 New sessions pick up approved plugins. A running session picks them up the next time its Claude Code starts, which happens after it rests. Each of a plugin's tools asks you before it runs, like any tool, unless you allow it.
 
-Plugins run under `agtop plugind`, one small process agtop starts once a plugin is approved and that ends when none is.
+Plugins run under `agtop plugind`, one small process agtop starts once a plugin is approved or bundled and on, and that ends when none is.
+
+### Bundled plugins
+
+Some plugins come with agtop. Their code is agtop's own, so they need no approval and run without the sandbox, on every system, as `agtop plugin run <name>`; what they may do in agtop's screen is still their manifest's, checked by the broker as for any plugin. Each is on until you turn it off, in Settings, Plugins, or with `agtop plugin off <name>` (`on` to turn it back). A plugin you install with the name of a bundled one doesn't run.
 
 ## What a plugin can't do
 

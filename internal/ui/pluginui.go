@@ -35,7 +35,34 @@ func (m *Model) startHooks() tea.Cmd {
 		m.hooks = hooks.New()
 	}
 	m.hooks.Start()
-	return m.hooks.Next()
+	return tea.Batch(m.hooks.Next(), m.readBundled())
+}
+
+// readBundled reads which bundled plugins are off, off the UI.
+func (m *Model) readBundled() tea.Cmd {
+	return sheetDo(func() ([]string, error) { return plugin.BundledOff(), nil }, func(m *Model, off []string, _ error) tea.Cmd {
+		m.bundledOff = append([]string{}, off...)
+		return nil
+	})
+}
+
+// setBundled turns a bundled plugin on or off, off the UI, and has the
+// broker start or stop it.
+func (m *Model) setBundled(name string, on bool) tea.Cmd {
+	return sheetDo(func() ([]string, error) {
+		if err := plugin.SetBundled(name, on); err != nil {
+			return nil, err
+		}
+		return plugin.BundledOff(), hooks.Reload()
+	}, func(m *Model, off []string, err error) tea.Cmd {
+		if off != nil {
+			m.bundledOff = off
+		}
+		if err != nil {
+			m.flash(name+": "+err.Error(), true)
+		}
+		return nil
+	})
 }
 
 // onHooks takes what the broker sent, and waits for the next.

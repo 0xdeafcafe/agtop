@@ -149,7 +149,8 @@ var agentRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,40}$`)
 // Plugin is an installed plugin.
 type Plugin struct {
 	Manifest
-	Dir string // its folder
+	Dir     string // its folder; none for a bundled one
+	Bundled bool   // agtop's own: see Bundle
 }
 
 // Proto is the protocol it speaks.
@@ -386,6 +387,9 @@ func Pending() []Plugin {
 	approved, declined := Approvals(), declinedPlugins()
 	var out []Plugin
 	for _, p := range installed {
+		if _, ok := BundleNamed(p.Name); ok {
+			continue // agtop's own of that name runs instead
+		}
 		d, err := Digest(p.Dir)
 		if err != nil {
 			continue
@@ -503,6 +507,12 @@ func Revoke(name string) error {
 // Verify says whether the plugin on disk is the one approved, returning the
 // approved manifest to run it by.
 func Verify(name string) (Plugin, error) {
+	if b, ok := BundleNamed(name); ok {
+		if !BundledOn(name) {
+			return Plugin{}, fmt.Errorf("%s is turned off", name)
+		}
+		return Plugin{Manifest: b.Manifest, Bundled: true}, nil
+	}
 	a, ok := Approvals()[name]
 	if !ok {
 		return Plugin{}, fmt.Errorf("%s is not approved", name)
@@ -570,12 +580,12 @@ type Contributions struct {
 	Servers []string
 }
 
-// ForSession gathers the contributions of every approved plugin. It reads
-// only the approvals, so it costs one small file read, and what goes in is
-// what was approved.
+// ForSession gathers the contributions of every plugin that runs. It reads
+// only the approvals, so it costs a small file read or two, and what goes
+// in is what was approved or bundled.
 func ForSession() Contributions {
 	var c Contributions
-	a := Approvals()
+	a := Enabled()
 	names := make([]string, 0, len(a))
 	for n := range a {
 		names = append(names, n)

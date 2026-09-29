@@ -38,10 +38,10 @@ func DialBrokerWith(h Handler) (*Conn, error) {
 	return NewConn(c, h), nil
 }
 
-// EnsureBroker starts the broker if any plugin is approved and it isn't
-// running. It returns once the broker is starting, not started.
+// EnsureBroker starts the broker if any plugin runs and it isn't running.
+// It returns once the broker is starting, not started.
 func EnsureBroker() error {
-	if len(Approvals()) == 0 || Supported() != nil {
+	if len(Enabled()) == 0 {
 		return nil
 	}
 	if c, err := net.DialTimeout("unix", BrokerSock(), time.Second); err == nil {

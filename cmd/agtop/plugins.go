@@ -10,19 +10,23 @@ import (
 
 	"github.com/charmbracelet/x/term"
 
+	"github.com/0xdeafcafe/agtop/internal/hooks"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/plugind"
 )
 
-const pluginUsage = `agtop plugin — sandboxed plugins
+const pluginUsage = `agtop plugin — plugins, bundled and sandboxed
 
-  agtop plugin list            what's installed, approved and running
+  agtop plugin list            what's bundled, installed, approved and running
   agtop plugin check <name>    check a plugin and show what approving it allows
   agtop plugin approve <name>  read what a plugin may do, and let it run
   agtop plugin revoke <name>   stop it running
+  agtop plugin off <name>      turn a bundled plugin off
+  agtop plugin on <name>       and on again
   agtop plugin logs <name>     where its output goes
 
-Plugins live in %s/<name>, each with a plugin.json.
+Plugins you install live in %s/<name>, each with a plugin.json.
+Bundled plugins come with agtop and are on until you turn them off.
 `
 
 func pluginCmd(args []string) error {
@@ -33,6 +37,21 @@ func pluginCmd(args []string) error {
 	switch args[0] {
 	case "list", "ls":
 		return pluginList()
+	case "run":
+		// How the broker starts a bundled plugin; not meant to be run by hand.
+		if len(args) != 2 {
+			return fmt.Errorf("usage: agtop plugin run <name>")
+		}
+		return plugin.RunBundled(args[1])
+	case "on", "off":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: agtop plugin %s <name>", args[0])
+		}
+		if err := plugin.SetBundled(args[1], args[0] == "on"); err != nil {
+			return err
+		}
+		fmt.Printf("%s is %s.\n", args[1], args[0])
+		return hooks.Reload()
 	case "check":
 		if len(args) != 2 {
 			return fmt.Errorf("usage: agtop plugin check <name>")
@@ -93,15 +112,33 @@ func pluginList() error {
 			running[s.Name] = s
 		}
 	}
+	for _, b := range plugin.Bundles() {
+		status := "bundled, off: agtop plugin on " + b.Manifest.Name
+		if plugin.BundledOn(b.Manifest.Name) {
+			status = "bundled, on"
+			if s, ok := running[b.Manifest.Name]; ok {
+				status += ", " + s.State
+				if s.Error != "" && s.State != "running" {
+					status += ": " + s.Error
+				}
+			}
+		}
+		fmt.Printf("%-16s %s\n", b.Manifest.Name, status)
+		if b.Manifest.Description != "" {
+			fmt.Printf("%-16s %s\n", "", b.Manifest.Description)
+		}
+	}
 	if len(installed) == 0 && len(bad) == 0 {
-		fmt.Printf("No plugins. Put one in %s/<name>.\n", plugin.Root())
+		fmt.Printf("No plugins installed. Put one in %s/<name>.\n", plugin.Root())
 	}
 	if err := plugin.Supported(); err != nil {
 		fmt.Println(err)
 	}
 	for _, p := range installed {
 		status := "not approved"
-		if a, ok := approvals[p.Name]; ok {
+		if _, ok := plugin.BundleNamed(p.Name); ok {
+			status = "not run: a plugin bundled with agtop has this name"
+		} else if a, ok := approvals[p.Name]; ok {
 			status = "approved"
 			if d, err := plugin.Digest(p.Dir); err != nil || d != a.Digest {
 				status = "changed since approval: approve again to run it"
