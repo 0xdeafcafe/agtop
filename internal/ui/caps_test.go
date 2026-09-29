@@ -11,7 +11,7 @@ func TestOtherAgentsOnlyGetWhatTheyCanDo(t *testing.T) {
 	other := &hostConn{kind: "claude", sess: convo.New()}
 	other.sess.Info.Kind = "installed" // with_test's agent: no capabilities
 
-	for _, name := range []string{"rewind", "fork", "btw", "tasks"} {
+	for _, name := range []string{"rewind", "fork", "btw", "tasks", "model", "compact", "context", "plugin", "hooks", "memory"} {
 		if !canRun(claude, name) {
 			t.Errorf("Claude Code can't /%s", name)
 		}
@@ -19,7 +19,7 @@ func TestOtherAgentsOnlyGetWhatTheyCanDo(t *testing.T) {
 			t.Errorf("an agent without it can /%s", name)
 		}
 	}
-	for _, name := range []string{"model", "stop", "diff", "copy"} {
+	for _, name := range []string{"stop", "diff", "copy", "status", "config"} {
 		if !canRun(other, name) {
 			t.Errorf("any agent should /%s", name)
 		}

@@ -24,7 +24,7 @@ func infoModel(t *testing.T) (*Model, *hostConn) {
 	t.Setenv("HOME", t.TempDir())
 	now := time.Now()
 	acct := claude.Account{Name: "work", ConfigDir: t.TempDir()}
-	a := &fleet.Agent{Key: "k", Cwd: "/src/agtop", Acct: acct.Profile()}
+	a := &fleet.Agent{Key: "k", Kind: "claude", Cwd: "/src/agtop", Acct: acct.Profile()}
 	usage := claude.Usage{Email: "me@x", Plan: "Max", FiveHour: claude.Window{Present: true, Percent: 42, ResetsAt: now.Add(2 * time.Hour)}, SevenDay: claude.Window{Present: true, Percent: 12, ResetsAt: now.Add(3 * 24 * time.Hour)}}
 	m := &Model{store: &state.Store{}, w: 140, h: 50, snap: &fleet.Snapshot{At: now, Agents: []*fleet.Agent{a},
 		Accounts: []fleet.AccountView{{Account: acct, Usage: usage, Quota: usage.Quota(""), Today: 3.5, Current: true}}}}

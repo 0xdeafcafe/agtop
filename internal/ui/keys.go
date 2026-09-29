@@ -1032,6 +1032,11 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	case "network":
 		m.sheet = &netSheet{}
 	case "efficiency":
+		// It reads the transcripts of the accounts agtop switches between.
+		if !agent.Supports(loginsKind, agent.FeatureEfficiency) {
+			m.flash(agentName(string(loginsKind))+"'s efficiency isn't something agtop reads yet", true)
+			return nil
+		}
 		m.setView(placeEff)
 		if p := map[string]int{"timeline": effTimeline, "savers": effSaversPage, "findings": effFindings}[arg]; p > 0 {
 			m.setEffPage(p)

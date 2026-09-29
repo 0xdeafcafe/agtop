@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 )
 
 // --- what fills the context window ---
@@ -215,4 +216,13 @@ func ContextGrid(u *usage.Context, cols, rows int) []string {
 		out[r] = strings.Join(cells[r*cols:(r+1)*cols], " ")
 	}
 	return out
+}
+
+// ContextWindow is the size of the session's context window: as its agent
+// said, else as known for its model.
+func (s *Session) ContextWindow() int {
+	if s.Window > 0 {
+		return s.Window
+	}
+	return int(claude.ContextWindow(firstNonEmpty(s.Model, s.Info.Model)))
 }

@@ -32,6 +32,8 @@ const (
 	FeatureStatusLine   Feature = "statusline" // runs agtop as its statusline
 	FeatureScreen       Feature = "screen"     // its own TUI, shown beside agtop's
 	FeatureHandoffIn    Feature = "handoff"    // starts from another agent's conversation
+	FeatureSettings     Feature = "settings"   // its settings files: permission rules, env, what the Settings tab sums up
+	FeatureStats        Feature = "stats"      // its own record of the account's use, by day and model
 
 	// Finding sessions.
 	FeatureLive    Feature = "live"    // sessions running outside agtop: a Discoverer
@@ -44,7 +46,7 @@ const (
 	FeatureQuota      Feature = "quota"   // reads its limits: a QuotaSource
 	FeaturePricing    Feature = "pricing" // prices its tokens: a Pricer
 	FeatureEfficiency Feature = "efficiency"
-	FeatureMemory     Feature = "memory" // the memory report
+	FeatureMemory     Feature = "memory" // the files it reads as memory, and the memory report
 )
 
 // FeatureInfo is a feature and what it's called.
@@ -78,6 +80,8 @@ var allFeatures = []FeatureInfo{
 	{FeatureStatusLine, "Statusline"},
 	{FeatureScreen, "Its own screen"},
 	{FeatureHandoffIn, "Hand-off in"},
+	{FeatureSettings, "Settings files"},
+	{FeatureStats, "Usage history"},
 	{FeatureLive, "Running sessions"},
 	{FeatureHistory, "Past sessions"},
 	{FeatureRemote, "Remote sessions"},
@@ -86,7 +90,7 @@ var allFeatures = []FeatureInfo{
 	{FeatureQuota, "Limits"},
 	{FeaturePricing, "Pricing"},
 	{FeatureEfficiency, "Efficiency"},
-	{FeatureMemory, "Memory report"},
+	{FeatureMemory, "Memory"},
 }
 
 // AllFeatures is every feature, in the order they're shown.

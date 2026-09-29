@@ -226,6 +226,7 @@ type Session struct {
 	Usage    *usage.Context
 	NTools   int
 	Context  int // tokens in the context window after the last request
+	Window   int // the context window's size, when the agent says it
 	Limit    string
 	Requests []Request
 	Tools    map[string]*ToolStat

@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
@@ -513,6 +514,17 @@ var offCommands = func() map[string]string {
 	return out
 }()
 
+// openableScreens are the screens the session's agent can open.
+func openableScreens(c *hostConn) []event.Command {
+	var out []event.Command
+	for _, s := range claudeScreens {
+		if canScreen(c, s.Name) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // claudeScreen is the Claude Code screen a command opens, if it's one.
 func claudeScreen(name string) (string, bool) {
 	if n, ok := screenAliases[name]; ok {
@@ -555,17 +567,18 @@ func slashMatches(c *hostConn) []event.Command {
 	lists := [][]event.Command{c.sess.Commands, c.local}
 	switch {
 	case start == 0 && !ownScreens(c):
-		// Claude Code's screens are its own, not another agent's.
-		lists = append([][]event.Command{sessionCommands(c)}, lists...)
+		// Claude Code's own screens aren't another agent's; the ones agtop
+		// draws are, when its agent has what they show.
+		lists = append([][]event.Command{sessionCommands(c), openableScreens(c)}, lists...)
 	case start == 0:
-		lists = append([][]event.Command{sessionCommands(c), claudeScreens}, lists...)
+		lists = append([][]event.Command{sessionCommands(c), openableScreens(c)}, lists...)
 		lists = append(lists, claudeCloudPicks)
 	}
 	var out []event.Command
 	seen := map[string]bool{}
 	// Another name for one of Claude Code's screens (/plugins, /bug) finds
 	// it first.
-	if name, ok := screenAliases[q]; ok && start == 0 {
+	if name, ok := screenAliases[q]; ok && start == 0 && canScreen(c, name) {
 		if i := slices.IndexFunc(claudeScreens, func(c event.Command) bool { return c.Name == name }); i >= 0 {
 			seen[name] = true
 			out = append(out, claudeScreens[i])
@@ -613,8 +626,17 @@ func (m *Model) loadLocal(c *hostConn) {
 		return
 	}
 	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
-	found := claude.Commands(firstNonEmpty(a.Acct.Dir, claude.DefaultAccount().ConfigDir), cwd)
 	c.local, c.skills = c.local[:0], map[string]bool{}
+	ad, ok := agent.Get(sessionAgent(c))
+	cmdr, lists := ad.(agent.Commander)
+	if !ok || !lists {
+		return
+	}
+	p := a.Acct
+	if ps := ad.Profiles(); p.Dir == "" && len(ps) > 0 {
+		p = ps[0]
+	}
+	found := cmdr.Commands(p, cwd)
 	for _, f := range found {
 		c.local = append(c.local, event.Command{Name: f.Name, Description: f.Description, ArgumentHint: f.ArgumentHint})
 		if f.Skill {
@@ -809,11 +831,11 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		m.flash("/"+name+" isn't in agtop: "+why, true)
 		return nil, true
 	}
-	if !canRun(c, name) || agtopScreens[name] && !ownScreens(c) {
+	if _, cloud := claudeCloudName(name); !canRun(c, name) || cloud && !ownScreens(c) {
 		m.flash("/"+name+" isn't something "+agentName(string(sessionAgent(c)))+" can do", true)
 		return nil, true
 	}
-	if cloud, ok := claudeCloudName(name); ok && a != nil {
+	if cloud, ok := claudeCloudName(name); ok && a != nil { // ownScreens, above
 		m.sheet = &claudeSheet{conn: c.key, line: strings.TrimSpace(cloud + " " + arg)}
 		return nil, true
 	}
@@ -970,7 +992,8 @@ func (m *Model) askUnknown(c *hostConn, text string, send func() tea.Cmd) bool {
 	a := m.agentByKey(c.key)
 	// Claude Code sessions are typed into, and know their own commands;
 	// until the session has said which it has, there's nothing to go by.
-	if a == nil || c.client == nil || len(c.sess.Commands) == 0 {
+	// An agent with no screens of its own has none to open.
+	if a == nil || c.client == nil || len(c.sess.Commands) == 0 || !ownScreens(c) {
 		return false
 	}
 	line := strings.TrimSpace(strings.TrimPrefix(text, "/"))
@@ -1002,7 +1025,7 @@ func (m *Model) agtopScreen(c *hostConn, a *fleet.Agent, screen string) (tea.Cmd
 			return nil, true
 		}
 	case "config":
-		m.openAgentSettings(loginsKind)
+		m.openAgentSettings(sessionAgent(c))
 		return nil, true
 	case "statusline":
 		m.openStatusLine(c, a)

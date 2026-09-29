@@ -51,7 +51,9 @@ func (m *Model) views(c *hostConn) []string {
 	if len(c.artifactsOf()) > 0 {
 		v = append(v, "artifacts")
 	}
-	v = append(v, "memory")
+	if canScreen(c, "memory") {
+		v = append(v, "memory")
+	}
 	if c.client == nil {
 		if a := m.focused(); a != nil && liveCapable(a) {
 			v = append(v, "screen")
@@ -2479,7 +2481,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		if c.client == nil {
 			return m.stopOrRemove(m.focused())
 		}
-		if c.sess.Live() != nil && time.Since(c.stopArmed) > 2*time.Second {
+		if c.sess.Live() != nil && time.Since(c.stopArmed) > 2*time.Second && agent.Supports(sessionAgent(c), agent.FeatureInterrupt) {
 			c.stopArmed = time.Now()
 			m.flash("stopping the turn · ctrl+x again stops the session", false)
 			return hostCmd(func() error { return c.client.Interrupt() })
@@ -2712,6 +2714,10 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	// Paths typed or dropped without a paste become attachments too.
 	if rest, imgs := extractImages(text); imgs != nil {
 		images, text = append(images, imgs...), rest
+	}
+	if k := sessionAgent(c); len(images) > 0 && !agent.Supports(k, agent.FeatureImages) {
+		m.flash(agentName(string(k))+" can't take images", true)
+		return nil
 	}
 	m.keepSent(c, text)
 	c.input, c.back, c.images = nil, 0, nil
@@ -2966,6 +2972,9 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool)
 	case a.Past:
 		return m.moveToAgtopWith(a, withImages(text, images))
 	case a.Agtop:
+		if !m.canResume(a) {
+			return nil
+		}
 		cfg, err := host.ReadConfig(a.ID)
 		if err != nil {
 			cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
@@ -3009,6 +3018,9 @@ func jsonUnmarshal(b []byte, v any) error { return jsonx.Unmarshal(b, v) }
 // resume brings a stopped agtop-mode session back: a new host, the same
 // conversation, the model, effort and mode it last had.
 func (m *Model) resume(a *fleet.Agent) tea.Cmd {
+	if !m.canResume(a) {
+		return nil
+	}
 	cfg, err := host.ReadConfig(a.ID)
 	if err != nil {
 		cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
@@ -3023,6 +3035,16 @@ func (m *Model) resume(a *fleet.Agent) tea.Cmd {
 		}
 		return doneMsg{text: "resumed " + a.DisplayName}
 	}
+}
+
+// canResume is whether a's agent can pick its conversation up again, and
+// says so when it can't.
+func (m *Model) canResume(a *fleet.Agent) bool {
+	if agent.Supports(agent.Kind(a.Kind), agent.FeatureResume) {
+		return true
+	}
+	m.flash(agentName(a.Kind)+" can't pick a conversation up again", true)
+	return false
 }
 
 // startHosted starts a new agtop-mode session: agtop's own host running
@@ -3042,6 +3064,11 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 		name = "fresh session in " + filepath.Base(dir)
 	}
 	kind, profile := m.startKindIn(dir), m.startProfile(dir).Name
+	if len(images) > 0 && !agent.Supports(agent.Kind(kind), agent.FeatureImages) {
+		m.images = images
+		m.flash(agentName(kind)+" can't take images", true)
+		return nil
+	}
 	m.accts.profile = "" // a profile picked with #profile is for one session
 	// Each agent starts with what its own Settings page says.
 	st := d.StartFor(kind)
@@ -3109,6 +3136,8 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 	switch {
 	case a.Agtop:
 		m.flash(a.DisplayName+" already runs in agtop mode", false)
+		return nil
+	case !m.canResume(a):
 		return nil
 	case a.SessionID == "":
 		m.flash("can't find "+a.DisplayName+"'s conversation to resume", true)

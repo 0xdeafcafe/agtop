@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -26,18 +27,21 @@ func contextLines(c *hostConn, w int) []string {
 	if u == nil || u.Max <= 0 {
 		var out []string
 		if s.Context > 0 {
-			win := int(claude.ContextWindow(firstNonEmpty(s.Model, s.Info.Model)))
+			win := s.ContextWindow()
 			p := float64(s.Context) / float64(win) * 100
 			out = append(out, infoRow("context", ctxBar(p)+" "+paint(cSub, fmt.Sprintf("%.0f%%", p))+dim(" · "+convo.Tokens(s.Context)+" of "+convo.Tokens(win)), w), "")
 		}
 		why := "the breakdown comes when this turn ends"
+		if note := agent.FeatureOf(sessionAgent(c), agent.FeatureContext).Note; note != "" {
+			why = agentName(string(sessionAgent(c))) + " says " + note
+		}
 		switch {
 		case c.client == nil:
-			why = "a breakdown needs an agtop-mode session: Claude Code's own sessions only say how full it is"
+			why = "a breakdown needs an agtop-mode session: sessions outside agtop only say how full it is"
 		case s.Info.Proto < 2:
 			why = "this agent's host is older than the breakdown: it comes once the host restarts (it does after resting idle)"
 		case s.Info.ClaudePID == 0:
-			why = "Claude is asleep: the breakdown comes when it next wakes"
+			why = agentName(string(sessionAgent(c))) + " is asleep: the breakdown comes when it next wakes"
 		}
 		return append(out, dim("  "+why))
 	}
@@ -175,7 +179,8 @@ func hourSpark(h [24]int) string {
 // holds now, and the sheet that edits it.
 type settingsLink struct {
 	name, value, about string
-	claude             bool // opens Claude Code's own screen
+	screen             string // the screen it opens, whose features it needs
+	claude             bool   // opens Claude Code's own screen
 	open               func(m *Model) tea.Cmd
 }
 
@@ -263,24 +268,32 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 	if len(c.sess.MCP) > 0 {
 		mcp = fmt.Sprintf("%d of %d connected", connected, len(c.sess.MCP))
 	}
-	return []settingsLink{
-		{name: "Claude Code", value: join(model, count(env, "env var", "env vars")), about: "settings.json and the environment every session starts with",
-			open: func(m *Model) tea.Cmd { m.sheet = nil; m.openAgentSettings(loginsKind); return nil }},
-		{name: "Permissions", value: join(mode, count(allow, "allow", "allow"), count(ask, "ask", "ask"), count(deny, "deny", "deny")), about: "what tools may do without asking",
+	k := sessionAgent(c)
+	all := []settingsLink{
+		{name: agentName(string(k)), value: join(model, count(env, "env var", "env vars")), about: "settings.json and the environment every session starts with",
+			open: func(m *Model) tea.Cmd { m.sheet = nil; m.openAgentSettings(k); return nil }},
+		{name: "Permissions", screen: "permissions", value: join(mode, count(allow, "allow", "allow"), count(ask, "ask", "ask"), count(deny, "deny", "deny")), about: "what tools may do without asking",
 			open: func(m *Model) tea.Cmd { m.openPermissions(c, a); return nil }},
-		{name: "Hooks", value: count(hooks, "hook", "hooks"), about: "commands run around tools, prompts and sessions",
+		{name: "Hooks", screen: "hooks", value: count(hooks, "hook", "hooks"), about: "commands run around tools, prompts and sessions",
 			open: func(m *Model) tea.Cmd { return m.openHooks(c, a) }},
-		{name: "Plugins", value: count(plugins, "on", "on"), about: "installed plugins, discover more, marketplaces",
+		{name: "Plugins", screen: "plugin", value: count(plugins, "on", "on"), about: "installed plugins, discover more, marketplaces",
 			open: func(m *Model) tea.Cmd { return m.openPlugins(c, a) }},
-		{name: "Skills", value: join(count(skills, "skill", "skills"), count(cmds, "command", "commands")), about: "what Claude picks up, and your own / commands",
+		{name: "Skills", screen: "skills", value: join(count(skills, "skill", "skills"), count(cmds, "command", "commands")), about: "what Claude picks up, and your own / commands",
 			open: func(m *Model) tea.Cmd { m.openSkills(c, a); return nil }},
-		{name: "Status line", value: line, about: "this header, agtop's top bar, and Claude Code's",
+		{name: "Status line", screen: "statusline", value: line, about: "this header, agtop's top bar, and Claude Code's",
 			open: func(m *Model) tea.Cmd { m.openStatusLine(c, a); return nil }},
-		{name: "Memory", about: "CLAUDE.md and the other files Claude reads",
+		{name: "Memory", screen: "memory", about: "CLAUDE.md and the other files Claude reads",
 			open: func(m *Model) tea.Cmd { m.sheet = nil; m.showView(c, "memory"); return nil }},
-		{name: "MCP servers", value: mcp, about: "connect, sign in, tools", claude: true,
+		{name: "MCP servers", screen: "mcp", value: mcp, about: "connect, sign in, tools", claude: true,
 			open: func(m *Model) tea.Cmd { m.sheet = nil; return m.openScreen(c, a, "mcp") }},
 	}
+	var out []settingsLink
+	for _, l := range all {
+		if canScreen(c, l.screen) {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // settingsLines is the Settings tab.

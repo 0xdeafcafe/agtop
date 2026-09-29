@@ -42,6 +42,7 @@ var features = map[agent.Feature]agent.Support{
 	agent.FeatureCommands: agent.Yes, agent.FeatureSideQuestion: agent.Yes, agent.FeatureDirs: agent.Yes,
 	agent.FeatureMCP: agent.Yes, agent.FeatureHooks: agent.Yes, agent.FeaturePlugins: agent.Yes,
 	agent.FeatureStatusLine: agent.Yes, agent.FeatureScreen: agent.Yes, agent.FeatureHandoffIn: agent.Yes,
+	agent.FeatureSettings: agent.Yes, agent.FeatureStats: agent.Yes,
 	agent.FeatureLive: agent.Yes, agent.FeatureHistory: agent.Yes,
 	agent.FeatureSwitch: agent.Yes, agent.FeatureSignIn: agent.Yes, agent.FeatureQuota: agent.Yes,
 	agent.FeaturePricing: agent.Yes, agent.FeatureEfficiency: agent.Yes, agent.FeatureMemory: agent.Yes,

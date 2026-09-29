@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -9,9 +10,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
 // --- /status, /usage, /stats ---
@@ -27,9 +31,13 @@ type infoSheet struct {
 	scroll [infoTabs]int
 	cur    int // the Settings tab's row
 
+	shown    []int // the tabs the session's agent has
 	stats    claude.Stats
 	statsErr error
 	settings []settingsLink // the Settings tab's rows, read when it opens
+	// quota is the limits of an agent whose accounts aren't agtop's
+	// logins, as last read into quotas.json; read when it opens.
+	quota *usage.Quota
 }
 
 const (
@@ -43,18 +51,45 @@ const (
 
 var infoTabNames = [infoTabs]string{"Status", "Context", "Usage", "History", "Settings"}
 
-// openInfo opens the sheet on one of its tabs.
+// infoTabNeeds are the screens whose features each tab needs; Status is
+// every agent's.
+var infoTabNeeds = [infoTabs]string{infoContext: "context", infoUsage: "usage", infoHistory: "stats", infoSettings: "permissions"}
+
+// openInfo opens the sheet on one of its tabs, with the tabs the session's
+// agent has.
 func (m *Model) openInfo(c *hostConn, tab int) {
 	k := &infoSheet{conn: c.key, tab: tab}
+	for t := range infoTabs {
+		if need := infoTabNeeds[t]; need == "" || canScreen(c, need) {
+			k.shown = append(k.shown, t)
+		}
+	}
+	if !slices.Contains(k.shown, tab) {
+		k.tab = infoStatus
+	}
 	if a := m.agentByKey(c.key); a != nil {
-		k.stats, k.statsErr = claude.LoadStats(claude.AccountOf(a.Acct))
-		k.settings = m.settingsLinks(c, a)
+		if slices.Contains(k.shown, infoHistory) {
+			k.stats, k.statsErr = claude.LoadStats(claude.AccountOf(a.Acct))
+		}
+		if slices.Contains(k.shown, infoSettings) {
+			k.settings = m.settingsLinks(c, a)
+		}
+		if slices.Contains(k.shown, infoUsage) && agent.Kind(a.Kind) != loginsKind {
+			q := usage.Load(host.QuotasPath())[host.QuotaKey(a.Acct)]
+			k.quota = &q
+		}
 	}
 	m.sheet = k
 	// A fresh count of the context, from a host that can.
-	if cl := c.client; cl != nil && c.sess.Info.Proto >= 2 {
+	if cl := c.client; cl != nil && c.sess.Info.Proto >= 2 && slices.Contains(k.shown, infoContext) {
 		go func() { _ = cl.AskContext() }()
 	}
+}
+
+// step moves to the next tab shown, or the one before.
+func (k *infoSheet) step(by int) {
+	i := max(0, slices.Index(k.shown, k.tab))
+	k.tab = k.shown[(i+by+len(k.shown))%len(k.shown)]
 }
 
 func (k *infoSheet) width(*Model) int { return 100 }
@@ -91,9 +126,9 @@ func (k *infoSheet) key(m *Model, _ tea.KeyPressMsg, s string) tea.Cmd {
 	case "esc", "ctrl+c", "q":
 		m.sheet = nil
 	case "]", "right":
-		k.tab = (k.tab + 1) % infoTabs
+		k.step(1)
 	case "[", "left":
-		k.tab = (k.tab + infoTabs - 1) % infoTabs
+		k.step(-1)
 	case "up":
 		if k.tab == infoSettings {
 			k.cur = roundMove(k.cur, -1, len(k.settings))
@@ -124,7 +159,15 @@ func (k *infoSheet) body(m *Model, w, h int) []string {
 	if a != nil {
 		name = firstNonEmpty(a.DisplayName, a.Name, "this agent")
 	}
-	out := []string{sheetTitle(name, "the agent, its account, and Claude Code", w), "", sheetTabs(infoTabNames[:], k.tab), ""}
+	names := make([]string, 0, len(k.shown))
+	for _, t := range k.shown {
+		names = append(names, infoTabNames[t])
+	}
+	program := "its program"
+	if a != nil {
+		program = agentName(a.Kind)
+	}
+	out := []string{sheetTitle(name, "the agent, its account, and "+program, w), "", sheetTabs(names, slices.Index(k.shown, k.tab)), ""}
 	if c == nil || a == nil {
 		return append(out, dim("  this agent's Session is closed"), "", keysFit(w, "esc", "close"))
 	}
@@ -135,7 +178,7 @@ func (k *infoSheet) body(m *Model, w, h int) []string {
 	case infoContext:
 		lines = contextLines(c, w)
 	case infoUsage:
-		lines = usageLines(m, c, a, w)
+		lines = usageLines(m, c, a, k.quota, w)
 	case infoHistory:
 		lines = k.historyLines(a, w, h-len(out)-3)
 	case infoSettings:
@@ -168,6 +211,8 @@ func sessionID(c *hostConn, a *fleet.Agent) string {
 // Claude Code.
 func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 	s, now := c.sess, time.Now()
+	k := sessionAgent(c)
+	name, program := agentName(string(k)), firstNonEmpty(agent.ProgramOf(k), "agent")
 	out := []string{infoHead("Session")}
 	out = append(out, infoRow("name", paint(cText+bold, firstNonEmpty(s.Info.Name, a.DisplayName, a.Name)), w))
 	state := firstNonEmpty(s.Info.State, a.State)
@@ -186,14 +231,14 @@ func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 	case c.client != nil:
 		conn = paint(cOrange, "agtop") + dim(fmt.Sprintf(" · host pid %d", s.Info.HostPID))
 		if s.Info.ClaudePID != 0 {
-			conn += dim(fmt.Sprintf(" · claude pid %d", s.Info.ClaudePID))
+			conn += dim(fmt.Sprintf(" · %s pid %d", program, s.Info.ClaudePID))
 		} else {
-			conn += dim(" · claude asleep, wakes on the next message")
+			conn += dim(" · " + program + " asleep, wakes on the next message")
 		}
 	case a.Interactive:
-		conn = paint(cSub, "Claude Code") + dim(" · a terminal session, read from its transcript")
+		conn = paint(cSub, name) + dim(" · a terminal session, read from its transcript")
 	default:
-		conn = paint(cSub, "Claude Code") + dim(" · its daemon, read from the transcript")
+		conn = paint(cSub, name) + dim(" · its daemon, read from the transcript")
 	}
 	out = append(out, infoRow("connection", conn, w))
 	if a.TranscriptPath != "" {
@@ -205,7 +250,7 @@ func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 	out = append(out, infoRow("effort", paint(cText, s.Info.Effort), w))
 	out = append(out, infoRow("permissions", paint(cText, s.Info.PermissionMode), w))
 	if s.Context > 0 {
-		win := int(claude.ContextWindow(firstNonEmpty(s.Model, s.Info.Model)))
+		win := s.ContextWindow()
 		p := float64(s.Context) / float64(win) * 100
 		out = append(out, infoRow("context", ctxBar(p)+" "+paint(cSub, fmt.Sprintf("%.0f%%", p))+dim(" · "+convo.Tokens(s.Context)+" of "+convo.Tokens(win)), w))
 	}
@@ -224,9 +269,9 @@ func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 		}
 	}
 	out = append(out, infoRow("plan", paint(cText, strings.Join(plan, " · ")), w))
-	out = append(out, infoRow("config", dim(tildify(firstNonEmpty(a.Acct.Dir, claude.DefaultAccount().ConfigDir))), w))
+	out = append(out, infoRow("config", dim(tildify(a.Acct.Dir)), w))
 
-	out = append(out, "", infoHead("Claude Code"))
+	out = append(out, "", infoHead(name))
 	ver := s.Version
 	if ver == "" && c.client == nil {
 		ver = faint("not known from a transcript")
@@ -312,14 +357,20 @@ func bigMeter(pct float64, resets, now time.Time, window time.Duration, w int) s
 }
 
 // usageLines is the Usage tab: the plan's limits, what this agent has
-// spent, and every account's.
-func usageLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
+// spent, and every account's. other is the limits of an agent whose
+// accounts aren't agtop's logins, as last read.
+func usageLines(m *Model, c *hostConn, a *fleet.Agent, other *usage.Quota, w int) []string { //nolint:gocognit // one section after another, each a few rows
 	var out []string
 	now := m.snap.At
 	if now.IsZero() {
 		now = time.Now()
 	}
 	av, _ := m.accountView(a)
+	if other != nil {
+		av = fleet.AccountView{Quota: *other}
+		av.Usage.Plan = firstNonEmpty(other.Plan, other.Balance)
+		av.Usage.Email, av.Usage.Problem, av.Usage.FetchedAt = other.Email, other.Problem, other.FetchedAt
+	}
 	u := av.Usage
 	head := "Plan · " + firstNonEmpty(av.Name, a.Acct.Name)
 	if u.Plan != "" {
@@ -397,7 +448,7 @@ func usageLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 		}
 	}
 
-	if len(m.snap.Accounts) > 0 {
+	if len(m.snap.Accounts) > 0 && other == nil {
 		out = append(out, "", infoHead("Every account"))
 		for _, x := range m.snap.Accounts {
 			var parts []string

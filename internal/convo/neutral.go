@@ -22,6 +22,9 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 		s.Limit = "rejected"
 	case event.Context:
 		s.Context = e.Tokens
+		if e.Window > 0 {
+			s.Window = e.Window
+		}
 	case event.PartStart:
 		s.partStart(e.Kind, now)
 	case event.Delta:

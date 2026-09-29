@@ -138,7 +138,7 @@ func (m *Model) effLoad(scan bool) tea.Cmd {
 	active := m.store.Config.ActiveAccount()
 	q := m.effQuery()
 	gains := time.Since(e.gainsAt) > 15*time.Minute
-	memCfg, memDir := m.effMemoryPlace()
+	memCfg, memDir, memOK := m.effMemoryPlace()
 	return func() tea.Msg {
 		if store == nil {
 			store, scan = efficiency.Open(), true
@@ -149,7 +149,9 @@ func (m *Model) effLoad(scan bool) tea.Cmd {
 		msg := effLoadedMsg{store: store, view: store.View(q)}
 		msg.found = efficiency.Observe(efficiency.LoadEnv(active))
 		msg.events = efficiency.LoadEvents()
-		msg.memory = efficiency.MemoryFindings(memCfg, memDir)
+		if memOK {
+			msg.memory = efficiency.MemoryFindings(memCfg, memDir)
+		}
 		if gains {
 			msg.gains, _ = efficiency.RTKGains()
 			msg.gainsAt = time.Now()

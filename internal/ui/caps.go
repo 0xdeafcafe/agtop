@@ -11,6 +11,18 @@ var commandNeeds = map[string]agent.Feature{
 	"fork": agent.FeatureFork, "rewind": agent.FeatureRewind, "effort": agent.FeatureEffort, "plan": agent.FeaturePlan,
 	"tasks": agent.FeatureBackground, "subtask": agent.FeatureSubagents,
 	"btw": agent.FeatureSideQuestion, "cd": agent.FeatureDirs, "add-dir": agent.FeatureDirs,
+	"model": agent.FeatureModel, "compact": agent.FeatureCompact,
+}
+
+// screenNeeds are the screens a session opens and the features each needs.
+// A screen agtop draws works from agtop's own records or the agent's
+// adapter; one it doesn't (mcp) is the agent's own, so it needs its
+// screen too. status and config are every agent's.
+var screenNeeds = map[string][]agent.Feature{
+	"context": {agent.FeatureContext}, "usage": {agent.FeatureQuota}, "stats": {agent.FeatureStats},
+	"skills": {agent.FeatureCommands}, "plugin": {agent.FeaturePlugins}, "hooks": {agent.FeatureHooks},
+	"permissions": {agent.FeatureSettings}, "memory": {agent.FeatureMemory}, "statusline": {agent.FeatureStatusLine},
+	"mcp": {agent.FeatureMCP, agent.FeatureScreen},
 }
 
 // sessionAgent is the agent a session runs.
@@ -22,10 +34,23 @@ func sessionAgent(c *hostConn) agent.Kind {
 }
 
 // canRun is whether the session's agent can do the command agtop would
-// run for name.
+// run for name, or open the screen it names.
 func canRun(c *hostConn, name string) bool {
+	if screen, ok := claudeScreen(name); ok && !canScreen(c, screen) {
+		return false
+	}
 	need, gated := commandNeeds[name]
 	return !gated || agent.Supports(sessionAgent(c), need)
+}
+
+// canScreen is whether the session's agent can open screen.
+func canScreen(c *hostConn, screen string) bool {
+	for _, f := range screenNeeds[screen] {
+		if !agent.Supports(sessionAgent(c), f) {
+			return false
+		}
+	}
+	return true
 }
 
 // ownScreens is whether the session's agent has screens of its own, which

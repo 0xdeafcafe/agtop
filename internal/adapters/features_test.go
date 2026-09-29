@@ -2,6 +2,12 @@
 package adapters_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/acp"
@@ -59,6 +65,83 @@ func TestFeaturesKnown(t *testing.T) {
 			}
 		}
 	}
+}
+
+// eventBacked are features no path of agtop's asks for: they happen when
+// the agent does them, and what shows them waits for it.
+var eventBacked = map[agent.Feature]string{
+	agent.FeatureQuestions: "the question sheet opens when the agent asks one",
+	agent.FeatureRemote:    "remote sessions are listed as the Discoverer returns them",
+}
+
+// Every feature gates something: a command, a screen or a path outside
+// the adapters asks agent.Supports for it, or it is an interface (or an
+// event) the adapter has exactly when it has the feature.
+func TestEveryFeatureGated(t *testing.T) {
+	asked := map[string]bool{}
+	fset := token.NewFileSet()
+	root := filepath.Join("..", "..")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		slash := filepath.ToSlash(path)
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") && path != root || strings.HasSuffix(slash, "internal/adapters") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(slash, "internal/agent/feature.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if x, ok := sel.X.(*ast.Ident); ok && x.Name == "agent" && strings.HasPrefix(sel.Sel.Name, "Feature") {
+					asked[sel.Sel.Name] = true
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	consts := featureConsts(t, fset, filepath.Join(root, "internal", "agent", "feature.go"))
+	for _, i := range agent.AllFeatures() {
+		name := consts[i.Feature]
+		_, iface := implements[i.Feature]
+		_, event := eventBacked[i.Feature]
+		if !asked[name] && !iface && !event {
+			t.Errorf("%s (%s) gates nothing: ask agent.Supports for it where it's used, or list it as an interface or an event", i.Feature, name)
+		}
+	}
+}
+
+// featureConsts are the names of the Feature constants, by value.
+func featureConsts(t *testing.T, fset *token.FileSet, path string) map[agent.Feature]string {
+	t.Helper()
+	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[agent.Feature]string{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		vs, ok := n.(*ast.ValueSpec)
+		if !ok || len(vs.Names) != 1 || len(vs.Values) != 1 || !strings.HasPrefix(vs.Names[0].Name, "Feature") {
+			return true
+		}
+		if lit, ok := vs.Values[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			out[agent.Feature(strings.Trim(lit.Value, `"`))] = vs.Names[0].Name
+		}
+		return true
+	})
+	return out
 }
 
 // Each agent's level is as far as it has been tried.

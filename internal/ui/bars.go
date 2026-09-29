@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
@@ -134,7 +133,7 @@ var agentSegs = []barSeg{
 		if s.Context <= 0 {
 			return ""
 		}
-		win := int(claude.ContextWindow(firstNonEmpty(s.Model, s.Info.Model)))
+		win := s.ContextWindow()
 		p := float64(s.Context) / float64(win) * 100
 		return dim("ctx ") + ctxBar(p) + " " + paint(cSub, fmt.Sprintf("%.0f%%", p))
 	}},
