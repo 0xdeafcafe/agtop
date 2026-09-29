@@ -27,6 +27,8 @@ func TestSpawnOf(t *testing.T) {
 		{cmd: `claude -p < prompt.md`, ok: true, kind: "claude", from: "prompt.md"},
 		{cmd: `codex exec -m gpt-5 -C /work/x "port it to rust"`, ok: true, kind: "codex", prompt: "port it to rust", model: "gpt-5", dir: "/work/x"},
 		{cmd: `codex exec --full-auto "tidy up" 2>&1 | tail -20`, ok: true, kind: "codex", prompt: "tidy up"},
+		{cmd: `codex --search exec "look it up"`, ok: true, kind: "codex", prompt: "look it up"},
+		{cmd: `codex -m gpt-5 exec "tidy up"`, ok: true, kind: "codex", prompt: "tidy up", model: "gpt-5"},
 		{cmd: `copilot -p "explain main.go" --allow-all-tools`, ok: true, kind: "copilot", prompt: "explain main.go"},
 		{cmd: `CLAUDE_CONFIG_DIR=~/.claude-2 claude -p hi`, ok: true, kind: "claude", prompt: "hi"},
 		{cmd: "nohup codex exec --sandbox read-only - \\\n  < \"$JOB/tmp/l1-prompt.md\" > \"$JOB/l1.log\" 2>&1 &", ok: true, kind: "codex", from: "$JOB/tmp/l1-prompt.md"},
