@@ -449,3 +449,28 @@ func TestBarStartInProject(t *testing.T) {
 		t.Fatalf("picking it should start in %q, got %q", other, m.startDir())
 	}
 }
+
+// New sessions start where the selected agent works: a worktree agent's
+// main checkout, or with alt+l its worktree; a picked folder holds while
+// that agent stays selected.
+func TestStartDirFollowsSelection(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	a := m.snap.Agents[1]
+	a.Cwd, a.Repo, a.Root, a.Spend.Dir = "/r/.claude/worktrees/x", "/r/.claude/worktrees/x", "/r", ""
+	m.sel = a.Key
+	if d := m.startDir(); d != "/r" {
+		t.Fatalf("worktree agent selected: want its main checkout, got %q", d)
+	}
+	m.startInTree = true
+	if d := m.startDir(); d != a.Cwd {
+		t.Fatalf("alt+l: want the worktree, got %q", d)
+	}
+	m.setStartDir("/elsewhere")
+	if d := m.startDir(); d != "/elsewhere" {
+		t.Fatalf("a picked folder should hold, got %q", d)
+	}
+	m.sel = m.snap.Agents[0].Key
+	if d := m.startDir(); d != m.followDir(m.snap.Agents[0]) {
+		t.Fatalf("selecting another agent should follow it, got %q", d)
+	}
+}

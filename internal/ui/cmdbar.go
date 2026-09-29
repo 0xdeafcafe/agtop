@@ -735,7 +735,7 @@ func (m *Model) barPlaces(q string) []barItem {
 		}
 		i, base := i, filepath.Base(d)
 		add(paint(cGreen, "+"), "Start an agent › "+tildify(d), "", "start new agent session spawn "+base, func(m *Model) tea.Cmd {
-			m.dirIdx = i
+			m.pickStartDir(i)
 			m.toPrompt()
 			return nil
 		})

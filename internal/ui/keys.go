@@ -425,6 +425,12 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		m.openMovePicker(a)
 		return nil
+	case "alt+l":
+		// New sessions from an agent in a worktree: its main checkout or
+		// the worktree itself.
+		m.startInTree = !m.startInTree
+		m.flash("new sessions start in "+tildify(m.startDir()), false)
+		return nil
 	case "ctrl+y":
 		return m.openPR(a)
 	case "ctrl+t":
