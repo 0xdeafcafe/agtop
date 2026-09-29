@@ -75,6 +75,7 @@ type exportSheet struct {
 	cur      int // 0 copy, 1 save
 	err      string
 	loading  bool
+	saving   bool // written in the background; enter waits for it
 }
 
 func (k *exportSheet) width(*Model) int { return 76 }
@@ -115,15 +116,23 @@ func (k *exportSheet) save(m *Model, name string) tea.Cmd {
 		path = filepath.Join(k.dir, name)
 	}
 	path = expand(path)
-	if err := os.WriteFile(path, []byte(k.text), 0o644); err != nil {
-		m.flash("couldn't save it: "+err.Error(), true)
+	if k.saving {
 		return nil
 	}
-	if m.sheet == k {
-		m.sheet = nil
-	}
-	m.flash("saved the conversation to "+tildify(path), false)
-	return nil
+	k.saving = true
+	text := k.text
+	return later(func() error { return os.WriteFile(path, []byte(text), 0o644) }, func(m *Model, err error) tea.Cmd {
+		k.saving = false
+		if err != nil {
+			m.flash("couldn't save it: "+err.Error(), true)
+			return nil
+		}
+		if m.sheet == k {
+			m.sheet = nil
+		}
+		m.flash("saved the conversation to "+tildify(path), false)
+		return nil
+	})
 }
 
 func (k *exportSheet) key(m *Model, _ tea.KeyPressMsg, s string) tea.Cmd {

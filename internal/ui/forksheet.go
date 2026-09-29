@@ -47,6 +47,31 @@ type forkSheet struct {
 	now                    host.Info
 	was                    host.Config
 	hosted                 bool
+	id                     string // the agent's, for its host's config
+	looked                 bool   // repo and was are in
+	look                   offRead[forkLookup]
+}
+
+// forkLookup is what the fork sheet looks up in the background: the git
+// checkout the session is in, and how an agtop session was started.
+type forkLookup struct {
+	repo string
+	was  host.Config
+}
+
+func lookFork(cwd string, hosted bool, id string) forkLookup {
+	l := forkLookup{repo: actions.RepoRoot(cwd)}
+	if hosted {
+		l.was, _ = host.ReadConfig(id)
+	}
+	return l
+}
+
+// poll takes in the lookup once it's done.
+func (f *forkSheet) poll() {
+	if l, ok := f.look.take(); ok {
+		f.repo, f.was, f.looked = l.repo, l.was, true
+	}
 }
 
 type forkTurn struct {
@@ -92,16 +117,18 @@ func (m *Model) openFork(c *hostConn, a *fleet.Agent, name string) {
 		conn: c.key, agent: a.DisplayName, prof: a.Acct, kind: k, br: br, sid: sid, cwd: cwd,
 		path: firstNonEmpty(c.path, a.TranscriptPath),
 		name: []rune(firstNonEmpty(name, a.DisplayName+" (fork)")),
-		now:  c.sess.Info, hosted: a.Agtop, repo: actions.RepoRoot(cwd),
+		now:  c.sess.Info, hosted: a.Agtop, id: a.ID,
 		models: choiceIDs(ch.Models), efforts: choiceIDs(ch.Efforts), perms: choiceIDs(ch.Modes),
 	}
 	if f.path == "" && br != nil {
 		f.path = br.TranscriptPath(a.Acct, cwd, sid)
 	}
 	f.namePos = len(f.name)
-	if a.Agtop {
-		f.was, _ = host.ReadConfig(a.ID)
-	}
+	// Whether it's in a git checkout, and how an agtop session was started,
+	// are looked up in the background; the sheet fills them in when they're in.
+	hosted, id := a.Agtop, a.ID
+	f.look.start(func() forkLookup { return lookFork(cwd, hosted, id) })
+	f.poll()
 	// Newest first: "all of it", then up to each earlier turn.
 	last := c.sess.Turns[len(c.sess.Turns)-1]
 	f.turns = append(f.turns, forkTurn{n: last.N, prompt: last.Prompt, end: last.End})
@@ -147,6 +174,7 @@ func (f *forkSheet) cycle(d int) {
 }
 
 func (f *forkSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
+	f.poll()
 	switch s {
 	case "esc", "ctrl+c":
 		m.sheet = nil
@@ -189,6 +217,7 @@ func (f *forkSheet) current(what string) string {
 }
 
 func (f *forkSheet) body(m *Model, w, h int) []string {
+	f.poll()
 	out := []string{
 		sheetTitle("Fork "+oneLine(f.agent), "a copy of the conversation carries on as a new agent; this one stays as it is", w),
 		"",
@@ -232,7 +261,7 @@ func (f *forkSheet) body(m *Model, w, h int) []string {
 			switch {
 			case f.worktree:
 				val = "a new worktree · " + tildify(filepath.Join(f.repo, ".claude", "worktrees", worktreeName(string(f.name))))
-			case f.repo == "":
+			case f.repo == "" && f.looked:
 				val = "same folder · " + tildify(f.cwd) + faint(" (not a git repo, so no worktree)")
 			case f.br == nil:
 				val = "same folder · " + tildify(f.cwd)
@@ -325,25 +354,36 @@ func (f *forkSheet) start(m *Model) tea.Cmd {
 	if name == "" {
 		name = f.agent + " (fork)"
 	}
-	cfg := host.Config{
-		Account: f.prof, Cwd: f.cwd, Name: name, Resume: true,
-		Model:          firstNonEmpty(f.models[f.model], f.current("model"), d.Model),
-		Effort:         firstNonEmpty(f.efforts[f.effort], f.current("effort"), d.Effort),
-		PermissionMode: firstNonEmpty(f.perms[f.perm], f.current("perm"), d.Mode),
-		LimitMode:      firstNonEmpty(f.was.LimitMode, disp.OnLimit), Flags: f.was.Flags,
-		Lean: disp.Lean, IdleStop: host.Duration(disp.Rest()),
-		Prompt: strings.TrimSpace(string(f.first)),
+	f.poll()
+	now, prof, cwd, first := f.now, f.prof, f.cwd, strings.TrimSpace(string(f.first))
+	mdl, eff, perm := f.models[f.model], f.efforts[f.effort], f.perms[f.perm]
+	// "As now" is what it runs with, or what its host was started with.
+	build := func(was host.Config) host.Config {
+		return host.Config{
+			Account: prof, Cwd: cwd, Name: name, Resume: true,
+			Model:          firstNonEmpty(mdl, now.Model, was.Model, d.Model),
+			Effort:         firstNonEmpty(eff, now.Effort, was.Effort, d.Effort),
+			PermissionMode: firstNonEmpty(perm, now.PermissionMode, was.PermissionMode, d.Mode),
+			LimitMode:      firstNonEmpty(was.LimitMode, disp.OnLimit), Flags: was.Flags,
+			Lean: disp.Lean, IdleStop: host.Duration(disp.Rest()),
+			Prompt: first,
+		}
 	}
+	was, looked, hosted, id := f.was, f.looked, f.hosted, f.id
 	var cut *forkTurn
 	next := ""
 	if f.upTo > 0 {
 		cut, next = &f.turns[f.upTo], f.turns[f.upTo-1].prompt
 	}
-	worktree, src, sid, br, prof := f.worktree, f.path, f.sid, f.br, f.prof
+	worktree, src, sid, br := f.worktree, f.path, f.sid, f.br
 	wtName := worktreeName(name)
 	m.sheet = nil
 	m.flash("forking "+f.agent+"…", false)
 	return func() tea.Msg {
+		if !looked && hosted {
+			was, _ = host.ReadConfig(id) // started before the sheet's lookup was in
+		}
+		cfg := build(was)
 		if cut == nil && !worktree {
 			cfg.SessionID, cfg.Fork, cfg.From = sid, true, sid
 		} else {

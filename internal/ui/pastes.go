@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -103,22 +102,33 @@ type editedMsg struct {
 }
 
 // editInEditor opens text in $VISUAL or $EDITOR and sends back the result.
+// The temp file is written before, and read after, off the UI goroutine.
 func editInEditor(text string, pane bool, id int) tea.Cmd {
-	f, err := os.CreateTemp("", "agtop-*.md")
-	if err != nil {
-		return func() tea.Msg { return editedMsg{err: err} }
-	}
-	_, _ = f.WriteString(text)
-	_ = f.Close()
-	ed := firstNonEmpty(os.Getenv("VISUAL"), os.Getenv("EDITOR"), "vi")
-	c := exec.Command("sh", "-c", ed+` "$1"`, "sh", f.Name())
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		defer os.Remove(f.Name())
-		b, rerr := os.ReadFile(f.Name())
-		if err == nil {
-			err = rerr
+	var tmp string
+	prepare := func() (string, error) {
+		f, err := os.CreateTemp("", "agtop-*.md")
+		if err != nil {
+			return "", err
 		}
-		return editedMsg{pane: pane, id: id, text: strings.TrimRight(string(b), "\n"), err: err}
+		tmp = f.Name()
+		_, _ = f.WriteString(text)
+		_ = f.Close()
+		return tmp, nil
+	}
+	return editorCmd(prepare, func(err error) tea.Msg {
+		if tmp == "" {
+			return editedMsg{err: err}
+		}
+		return sheetMsg{apply: func(*Model) tea.Cmd {
+			return func() tea.Msg {
+				defer os.Remove(tmp)
+				b, rerr := os.ReadFile(tmp)
+				if err == nil {
+					err = rerr
+				}
+				return editedMsg{pane: pane, id: id, text: strings.TrimRight(string(b), "\n"), err: err}
+			}
+		}}
 	})
 }
 

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,6 +45,12 @@ type docEditor struct {
 	diagVer  int
 	diags    []docDiag
 	siblings map[string]bool // the .md files beside it, for [[links]]
+
+	loading bool // the first read is still out: there's nothing to edit yet
+	saving  bool // a save is out
+	reads   offRead[docRead]
+	links   docLinks // whether the files it links to exist
+	linkVer int      // links' version when diags were found
 }
 
 type docKind int
@@ -79,46 +86,112 @@ type docDiag struct {
 // maxDocSize is the most the editor takes in; bigger files open in $EDITOR.
 const maxDocSize = 1 << 20
 
+// openDoc opens path in the editor. The file is read in the background:
+// until it's in, there's nothing to edit.
 func openDoc(path string) *docEditor {
-	e := &docEditor{path: path, kind: docKindFor(path), anchor: -1, goal: -1, indent: "  ", diagVer: -1}
-	e.load()
+	e := &docEditor{path: path, kind: docKindFor(path), anchor: -1, goal: -1, indent: "  ", diagVer: -1,
+		loading: true, readOnly: "still reading it"}
+	e.startRead(false)
+	e.poll()
 	return e
 }
 
-// load reads the file, as it is on disk now.
-func (e *docEditor) load() {
-	e.checked = time.Now()
-	st, err := os.Stat(e.path)
+// docRead is the file as a read in the background found it.
+type docRead struct {
+	same     bool // unchanged since it was last read: nothing was read
+	missing  bool
+	mod      time.Time
+	big      int64 // its size, when it's too big to edit here
+	err      error
+	text     string
+	crlf     bool
+	siblings map[string]bool // the .md files beside a markdown file, for [[links]]
+}
+
+// readDoc reads the file as it is on disk now. check reads it only when
+// it changed since mod, and takes a file it can't find as unchanged.
+func readDoc(path string, kind docKind, mod time.Time, check bool) docRead {
+	st, err := os.Stat(path)
+	switch {
+	case err != nil && check, err == nil && check && st.ModTime().Equal(mod):
+		return docRead{same: true}
+	case err != nil:
+		return docRead{missing: true}
+	}
+	r := docRead{mod: st.ModTime()}
+	if st.Size() > maxDocSize {
+		r.big = st.Size()
+		return r
+	}
+	b, err := os.ReadFile(path)
 	if err != nil {
+		r.err = err
+		return r
+	}
+	r.text = string(b)
+	r.crlf = strings.Contains(r.text, "\r\n")
+	if r.crlf {
+		r.text = strings.ReplaceAll(r.text, "\r\n", "\n")
+	}
+	if kind == docMarkdown {
+		r.siblings = map[string]bool{}
+		files, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*.md"))
+		for _, f := range files {
+			r.siblings[strings.TrimSuffix(filepath.Base(f), ".md")] = true
+		}
+	}
+	return r
+}
+
+// startRead reads the file in the background, unless a read is out.
+func (e *docEditor) startRead(check bool) {
+	e.checked = time.Now()
+	path, kind, mod := e.path, e.kind, e.mod
+	e.reads.start(func() docRead { return readDoc(path, kind, mod, check) })
+}
+
+// poll takes in a read that's done.
+func (e *docEditor) poll() {
+	if r, ok := e.reads.take(); ok {
+		e.load(r)
+	}
+}
+
+// load takes in the file as read: at once when it's opened, and after
+// that unless you have changes of your own, which it marks stale instead.
+func (e *docEditor) load(r docRead) {
+	first := e.loading
+	e.loading = false
+	if r.same {
+		return
+	}
+	if !first && e.dirty() {
+		e.stale = true
+		return
+	}
+	e.readOnly = ""
+	if r.missing {
 		e.missing, e.buf, e.saved, e.mod = true, nil, "", time.Time{}
+		e.pos = 0
 		e.bump()
 		return
 	}
-	e.missing, e.mod = false, st.ModTime()
-	if st.Size() > maxDocSize {
-		e.readOnly = fmt.Sprintf("%s is too big to edit here · ctrl+g opens it in $EDITOR", fileSize(st.Size()))
+	e.missing, e.mod = false, r.mod
+	if r.big > 0 {
+		e.readOnly = fmt.Sprintf("%s is too big to edit here · ctrl+g opens it in $EDITOR", fileSize(r.big))
 		return
 	}
-	b, err := os.ReadFile(e.path)
-	if err != nil {
-		e.readOnly = err.Error()
+	if r.err != nil {
+		e.readOnly = r.err.Error()
 		return
 	}
-	text := string(b)
-	e.crlf = strings.Contains(text, "\r\n")
-	if e.crlf {
-		text = strings.ReplaceAll(text, "\r\n", "\n")
-	}
-	e.saved, e.buf = text, []rune(text)
+	e.crlf = r.crlf
+	e.saved, e.buf = r.text, []rune(r.text)
 	e.pos = min(e.pos, len(e.buf))
 	e.anchor = -1
-	e.indent = detectIndent(text)
-	if e.kind == docMarkdown {
-		e.siblings = map[string]bool{}
-		files, _ := filepath.Glob(filepath.Join(filepath.Dir(e.path), "*.md"))
-		for _, f := range files {
-			e.siblings[strings.TrimSuffix(filepath.Base(f), ".md")] = true
-		}
+	e.indent = detectIndent(r.text)
+	if r.siblings != nil {
+		e.siblings = r.siblings
 	}
 	e.bump()
 }
@@ -146,39 +219,43 @@ func (e *docEditor) bump() { e.ver++ }
 
 func (e *docEditor) dirty() bool { return e.readOnly == "" && string(e.buf) != e.saved }
 
-// refresh picks up a change made on disk (by Claude, or $EDITOR): it's read
-// again unless you have changes of your own, which it marks stale instead.
+// refresh picks up a change made on disk (by Claude, or $EDITOR): looked
+// at in the background at most every 700ms, it's read again unless you
+// have changes of your own, which it marks stale instead.
 func (e *docEditor) refresh() {
-	if time.Since(e.checked) < 700*time.Millisecond {
+	e.poll()
+	if e.loading || e.saving || time.Since(e.checked) < 700*time.Millisecond {
 		return
 	}
-	e.checked = time.Now()
-	st, err := os.Stat(e.path)
-	if err != nil || st.ModTime().Equal(e.mod) {
-		return
-	}
-	if e.dirty() {
-		e.stale = true
-		return
-	}
-	pos := e.pos
-	e.readOnly = ""
-	e.load()
-	e.pos = min(pos, len(e.buf))
+	e.startRead(true)
 }
 
-// save writes the file, through a symlink to where it points, keeping its
-// permissions; a new file's folder is made.
-func (e *docEditor) save() error {
+// docWrite is what a save writes: text as edited, out as it goes to disk.
+type docWrite struct{ path, text, out string }
+
+// docSaved is how a save went, and the file's time after it.
+type docSaved struct {
+	mod time.Time
+	err error
+}
+
+// toWrite is what saving would write now, or why it can't.
+func (e *docEditor) toWrite() (docWrite, error) {
 	if e.readOnly != "" {
-		return fmt.Errorf("%s", e.readOnly)
+		return docWrite{}, fmt.Errorf("%s", e.readOnly)
 	}
 	text := string(e.buf)
 	out := text
 	if e.crlf {
 		out = strings.ReplaceAll(out, "\n", "\r\n")
 	}
-	path := e.path
+	return docWrite{path: e.path, text: text, out: out}, nil
+}
+
+// writeDoc writes the file, through a symlink to where it points, keeping
+// its permissions; a new file's folder is made.
+func writeDoc(w docWrite) docSaved {
+	path := w.path
 	if p, err := filepath.EvalSymlinks(path); err == nil {
 		path = p
 	}
@@ -187,13 +264,13 @@ func (e *docEditor) save() error {
 		mode = st.Mode().Perm()
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return docSaved{err: err}
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".agtop-*")
 	if err != nil {
-		return err
+		return docSaved{err: err}
 	}
-	_, werr := tmp.WriteString(out)
+	_, werr := tmp.WriteString(w.out)
 	cerr := tmp.Close()
 	if werr == nil {
 		werr = cerr
@@ -206,13 +283,55 @@ func (e *docEditor) save() error {
 	}
 	if werr != nil {
 		_ = os.Remove(tmp.Name())
-		return werr
+		return docSaved{err: werr}
 	}
-	e.saved, e.missing, e.stale = text, false, false
+	var s docSaved
 	if st, err := os.Stat(path); err == nil {
-		e.mod = st.ModTime()
+		s.mod = st.ModTime()
 	}
-	return nil
+	return s
+}
+
+// wrote takes in a save that went through.
+func (e *docEditor) wrote(w docWrite, s docSaved) {
+	e.saved, e.missing, e.stale = w.text, false, false
+	if !s.mod.IsZero() {
+		e.mod = s.mod
+	}
+}
+
+// save writes the file there and then, off the UI goroutine only: the
+// editor on screen saves with saveCmd.
+func (e *docEditor) save() error {
+	w, err := e.toWrite()
+	if err != nil {
+		return err
+	}
+	s := writeDoc(w)
+	if s.err == nil {
+		e.wrote(w, s)
+	}
+	return s.err
+}
+
+// saveCmd saves the file in the background, and done hears how it went
+// once it has. The error is why it can't start.
+func (e *docEditor) saveCmd(done func(m *Model, err error) tea.Cmd) (tea.Cmd, error) {
+	if e.saving {
+		return nil, errors.New("it's still saving the last time")
+	}
+	w, err := e.toWrite()
+	if err != nil {
+		return nil, err
+	}
+	e.saving = true
+	return later(func() docSaved { return writeDoc(w) }, func(m *Model, s docSaved) tea.Cmd {
+		e.saving = false
+		if s.err == nil {
+			e.wrote(w, s)
+		}
+		return done(m, s.err)
+	}), nil
 }
 
 // --- changes and undo ---

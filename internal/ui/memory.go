@@ -27,27 +27,63 @@ import (
 type memFile = agent.MemoryFile
 
 // memoryOf is what the session's agent reads, read again at most every
-// two seconds, or at once after an edit; nothing if it doesn't say.
+// two seconds, or at once after an edit (c.mem set to nil); nothing if it
+// doesn't say. It's read in the background: until a read is in, it's what
+// was read last.
 func (m *Model) memoryOf(c *hostConn) []memFile {
+	if mem, ok := memReads.take(c); ok {
+		if mem.Files == nil {
+			mem.Files = []memFile{} // read, and empty: nil asks for a read
+		}
+		c.mem, c.memAt, c.memInfo = mem.Files, time.Now(), &mem
+	}
 	if c.mem != nil && time.Since(c.memAt) < 2*time.Second {
 		return c.mem
 	}
-	var mem agent.Memory
 	k := sessionAgent(c)
-	if mr, ok := agent.As[agent.MemoryReader](k); ok && agent.Supports(k, agent.FeatureMemory) {
-		p, cwd := m.store.Config.ActiveAccount().Profile(), c.sess.Info.Cwd
-		if a := m.agentByKey(c.key); a != nil {
-			p, cwd = a.Acct, firstNonEmpty(cwd, a.Cwd)
-		}
-		mem = mr.Memory(p, cwd, c.path)
+	mr, ok := agent.As[agent.MemoryReader](k)
+	if !ok || !agent.Supports(k, agent.FeatureMemory) {
+		c.mem, c.memAt, c.memInfo = []memFile{}, time.Now(), &agent.Memory{}
+		return c.mem
 	}
-	c.mem, c.memAt, c.memInfo = mem.Files, time.Now(), &mem
-	return c.mem
+	p, cwd, path := m.store.Config.ActiveAccount().Profile(), c.sess.Info.Cwd, c.path
+	if a := m.agentByKey(c.key); a != nil {
+		p, cwd = a.Acct, firstNonEmpty(cwd, a.Cwd)
+	}
+	memReads.start(c, func() agent.Memory { return mr.Memory(p, cwd, path) })
+	if mem, ok := memReads.take(c); ok { // tests read at once
+		if mem.Files == nil {
+			mem.Files = []memFile{}
+		}
+		c.mem, c.memAt, c.memInfo = mem.Files, time.Now(), &mem
+	}
+	switch {
+	case c.mem != nil:
+		return c.mem
+	case c.memInfo != nil:
+		return c.memInfo.Files
+	}
+	return nil
 }
 
+// memReads are the memory views' reads out in the background, by pane.
+var memReads = offReads[*hostConn, agent.Memory]{}
+
+// exists is whether a file is there. It asks the disk: not for the UI
+// goroutine.
 func exists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// memFileAt is the file at path in what was last read, if it's there.
+func memFileAt(files []memFile, path string) (memFile, bool) {
+	for i := range files {
+		if files[i].Path == path {
+			return files[i], true
+		}
+	}
+	return memFile{}, false
 }
 
 // memoryLines draws the memory view in h rows: the files on top, and the
@@ -93,7 +129,7 @@ func (m *Model) memoryLines(c *hostConn, o convo.Options, h int) []convo.Line {
 		if c.memInfo != nil {
 			when = c.memInfo.When
 		}
-		rows := memRows(files, when, c.sel, w, o)
+		rows := memRows(files, when, c.sel, w, o, memNothing(c, files))
 		sel := 0
 		for i, r := range rows {
 			if r.Ref == c.sel && c.sel != "" {
@@ -128,7 +164,8 @@ func (m *Model) memoryLines(c *hostConn, o convo.Options, h int) []convo.Line {
 // files reach the model. On the right, what a file costs: ≈ tokens every
 // session in full colour, ≈ tokens when it's loaded later faint, nothing
 // for what's never sent.
-func memRows(files []memFile, memWhen map[string]string, picked string, w int, o convo.Options) []convo.Line {
+// With no files, it says nothing.
+func memRows(files []memFile, memWhen map[string]string, picked string, w int, o convo.Options, nothing string) []convo.Line {
 	var out []convo.Line
 	group := ""
 	for _, f := range files {
@@ -194,12 +231,20 @@ func memRows(files []memFile, memWhen map[string]string, picked string, w int, o
 		out = append(out, convo.Line{Text: fit(r, w), Ref: ref})
 	}
 	if len(files) == 0 {
-		out = append(out, convo.Line{Text: fit("    "+dim("Nothing found for this project."), w)})
+		out = append(out, convo.Line{Text: fit("    "+dim(nothing), w)})
 	}
 	return out
 }
 
 func cellwidth(s string) int { return ansi.StringWidth(s) }
+
+// memNothing is what the memory view says with no files to show.
+func memNothing(c *hostConn, files []memFile) string {
+	if files == nil && memReads.out(c) {
+		return "Reading…"
+	}
+	return "Nothing found for this project."
+}
 
 // memDoc is the picked file, opened in the editor. The one being edited
 // stays open whatever is picked.
@@ -243,6 +288,8 @@ func (m *Model) docPane(c *hostConn, e *docEditor, w, h int, paneFocused bool) [
 	}
 	var chips []string
 	switch {
+	case e.loading:
+		chips = append(chips, dim("reading…"))
 	case e.readOnly != "":
 		chips = append(chips, paint(cYellow, "read only"))
 	case e.dirty():
@@ -289,7 +336,7 @@ func (m *Model) docPane(c *hostConn, e *docEditor, w, h int, paneFocused bool) [
 	ln, col := e.cursorAt()
 	where := dim(fmt.Sprintf("ln %d, col %d", ln, col))
 	msg := ""
-	if e.readOnly != "" {
+	if e.readOnly != "" && !e.loading {
 		msg = paint(cYellow, e.readOnly)
 	}
 	var show *docDiag
@@ -365,6 +412,10 @@ func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bo
 			n = max(0, min(len(files)-1, cur+step))
 		}
 		c.sel = "mem:" + files[n].Path
+		// The picked file is read in the background: draw it once it's in.
+		if e := m.memDoc(c); e != nil {
+			return e.reads.redraw(), true
+		}
 		return nil, true
 	}
 	path, ok := strings.CutPrefix(c.sel, "mem:")
@@ -388,6 +439,10 @@ func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bo
 		if e == nil {
 			return nil, true
 		}
+		if e.loading {
+			m.flash("still reading "+filepath.Base(e.path)+"…", false)
+			return e.reads.redraw(), true
+		}
 		if e.readOnly != "" {
 			m.flash(e.readOnly, true)
 			return nil, true
@@ -395,31 +450,46 @@ func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bo
 		c.memEdit = true
 		return nil, true
 	case "ctrl+g":
-		_ = os.MkdirAll(filepath.Dir(path), 0o755)
 		c.mem = nil // read it again when the editor closes
-		return editFile(path), true
+		return editorCmd(func() (string, error) {
+			_ = os.MkdirAll(filepath.Dir(path), 0o755)
+			return path, nil
+		}, func(err error) tea.Msg { return dialogReload{err: err} }), true
 	case "x", "delete", "ctrl+x":
-		if !exists(path) {
-			return nil, true
-		}
-		m.confirm = &confirmation{
-			question: "Delete " + tildify(path) + "?",
-			detail:   agentName(string(sessionAgent(c))) + " stops reading it · a memory note also leaves MEMORY.md",
-			onYes: func() tea.Cmd {
-				forget := os.Remove
-				if mr, ok := agent.As[agent.MemoryReader](sessionAgent(c)); ok {
-					forget = mr.ForgetFile
-				}
-				if err := forget(path); err != nil {
-					m.flash(err.Error(), true)
-				}
-				c.mem, c.sel, c.memEd = nil, "", nil
-				return nil
-			},
+		if f, ok := memFileAt(files, path); ok && !f.Missing {
+			m.confirmForget(c, path)
 		}
 		return nil, true
 	}
 	return nil, false
+}
+
+// confirmForget asks before deleting the file at path, then deletes it in
+// the background: a memory note also leaves MEMORY.md.
+func (m *Model) confirmForget(c *hostConn, path string) {
+	m.confirm = &confirmation{
+		question: "Delete " + tildify(path) + "?",
+		detail:   agentName(string(sessionAgent(c))) + " stops reading it · a memory note also leaves MEMORY.md",
+		onYes: func() tea.Cmd {
+			forget := os.Remove
+			if mr, ok := agent.As[agent.MemoryReader](sessionAgent(c)); ok {
+				forget = mr.ForgetFile
+			}
+			return later(func() error { return forget(path) }, func(m *Model, err error) tea.Cmd {
+				if err != nil {
+					m.flash(err.Error(), true)
+				}
+				c.mem = nil
+				if c.sel == "mem:"+path {
+					c.sel = ""
+				}
+				if c.memEd != nil && c.memEd.path == path {
+					c.memEd, c.memEdit = nil, false
+				}
+				return nil
+			})
+		},
+	}
 }
 
 // docKey gives a key to the file being edited.
@@ -434,14 +504,24 @@ func (m *Model) docKey(c *hostConn, k tea.KeyPressMsg, s string) tea.Cmd {
 		m.leaveDoc(c)
 		return nil
 	case "ctrl+g":
-		if e.dirty() {
-			if err := e.save(); err != nil {
+		open := func(m *Model) tea.Cmd {
+			c.memEdit, c.mem = false, nil
+			return editFile(e.path)
+		}
+		if !e.dirty() {
+			return open(m)
+		}
+		cmd, err := e.saveCmd(func(m *Model, err error) tea.Cmd {
+			if err != nil {
 				m.flash("couldn't save: "+err.Error(), true)
 				return nil
 			}
+			return open(m)
+		})
+		if err != nil {
+			m.flash("couldn't save: "+err.Error(), true)
 		}
-		c.memEdit, c.mem = false, nil
-		return editFile(e.path)
+		return cmd
 	}
 	act, copied, _ := e.key(k, s)
 	if copied != "" {
@@ -449,7 +529,7 @@ func (m *Model) docKey(c *hostConn, k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	switch act {
 	case "save":
-		m.saveDoc(c, nil)
+		return m.saveDoc(c, nil)
 	case "format":
 		text, err := formatJSON(string(e.buf), e.indent)
 		switch {
@@ -472,19 +552,25 @@ func (m *Model) docKey(c *hostConn, k tea.KeyPressMsg, s string) tea.Cmd {
 
 // saveDoc saves the file being edited, asking first when it changed on
 // disk meanwhile or isn't valid JSON, then runs then.
-func (m *Model) saveDoc(c *hostConn, then func()) {
+func (m *Model) saveDoc(c *hostConn, then func()) tea.Cmd {
 	e := c.memEd
 	do := func() tea.Cmd {
-		if err := e.save(); err != nil {
-			m.flash("couldn't save: "+err.Error(), true)
+		cmd, err := e.saveCmd(func(m *Model, err error) tea.Cmd {
+			if err != nil {
+				m.flash("couldn't save: "+err.Error(), true)
+				return nil
+			}
+			c.mem = nil
+			m.flash("saved "+tildify(e.path), false)
+			if then != nil {
+				then()
+			}
 			return nil
+		})
+		if err != nil {
+			m.flash("couldn't save: "+err.Error(), true)
 		}
-		c.mem = nil
-		m.flash("saved "+tildify(e.path), false)
-		if then != nil {
-			then()
-		}
-		return nil
+		return cmd
 	}
 	var bad *docDiag
 	for i, d := range e.problems() {
@@ -499,8 +585,9 @@ func (m *Model) saveDoc(c *hostConn, then func()) {
 		m.confirm = &confirmation{question: fmt.Sprintf("It isn't valid JSON (line %d: %s). Save anyway?", bad.line+1, bad.msg),
 			detail: agentName(string(sessionAgent(c))) + " can't read it until it's fixed", onYes: do}
 	default:
-		do()
+		return do()
 	}
+	return nil
 }
 
 // leaveDoc hands the keys back to the list, asking about unsaved changes.
@@ -515,8 +602,7 @@ func (m *Model) leaveDoc(c *hostConn) {
 		question: "Save your changes to " + filepath.Base(e.path) + "?",
 		detail:   "n keeps editing",
 		onYes: func() tea.Cmd {
-			m.saveDoc(c, leave)
-			return nil
+			return m.saveDoc(c, leave)
 		},
 		bangText: "throw them away",
 		onBang: func() tea.Cmd {

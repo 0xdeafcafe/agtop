@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -328,7 +330,8 @@ func mdInline(rs []rune, st []string, from int, base string, sib map[string]bool
 
 // problems finds what's wrong with the file as it stands.
 func (e *docEditor) problems() []docDiag {
-	if e.diagVer == e.ver {
+	links := e.links.version()
+	if e.diagVer == e.ver && (e.kind != docMarkdown || e.linkVer == links) {
 		return e.diags
 	}
 	e.diagVer = e.ver
@@ -336,7 +339,8 @@ func (e *docEditor) problems() []docDiag {
 	case docJSON:
 		e.diags = jsonProblems(string(e.buf))
 	case docMarkdown:
-		e.diags = mdProblems(e.path, string(e.buf))
+		e.diags = mdProblems(e.path, string(e.buf), e.links.exists)
+		e.linkVer = e.links.version()
 	default:
 		e.diags = nil
 	}
@@ -407,10 +411,60 @@ func formatJSON(text, indent string) (string, error) {
 	return string(v) + "\n", nil
 }
 
+// docLinks is whether the files a markdown file links to exist, looked at
+// in the background: a link isn't a problem until it's known to be one.
+type docLinks struct {
+	mu    sync.Mutex
+	known map[string]bool      // whether each exists, once looked at
+	asked map[string]time.Time // when each was last looked at
+	ver   int                  // bumps when an answer changes what's known
+}
+
+// linkEvery is how long what's known of a link stands before it's looked
+// at again, the next time the file's problems are found.
+const linkEvery = 3 * time.Second
+
+// exists says whether the file at p exists, and whether that's known yet.
+// One not looked at lately is looked at in the background.
+func (l *docLinks) exists(p string) (ok, known bool) {
+	l.mu.Lock()
+	ok, known = l.known[p]
+	ask := time.Since(l.asked[p]) >= linkEvery
+	if ask {
+		if l.asked == nil {
+			l.asked, l.known = map[string]time.Time{}, map[string]bool{}
+		}
+		l.asked[p] = time.Now()
+	}
+	l.mu.Unlock()
+	if !ask {
+		return ok, known
+	}
+	goOff(func() {
+		_, err := os.Stat(p)
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if was, had := l.known[p]; !had || was != (err == nil) {
+			l.known[p] = err == nil
+			l.ver++
+		}
+	})
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ok, known = l.known[p]
+	return ok, known
+}
+
+func (l *docLinks) version() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.ver
+}
+
 // mdProblems checks markdown: frontmatter and code blocks that never
 // close, what a memory note, skill or agent needs in its frontmatter, and
-// links to files that don't exist.
-func mdProblems(path, text string) []docDiag {
+// links to files that don't exist, as exists knows them.
+func mdProblems(path, text string, exists func(p string) (ok, known bool)) []docDiag {
 	var out []docDiag
 	lines := strings.Split(text, "\n")
 	front := map[string]int{} // a frontmatter key, and its line
@@ -461,7 +515,7 @@ func mdProblems(path, text string) []docDiag {
 			if !filepath.IsAbs(p) {
 				p = filepath.Join(dir, p)
 			}
-			if _, err := os.Stat(p); err != nil {
+			if ok, known := exists(p); known && !ok {
 				out = append(out, docDiag{line: i, col: len([]rune(l[:m[2]])), msg: target + " doesn't exist", warn: true})
 			}
 		}

@@ -61,15 +61,23 @@ func panel(s string) string {
 
 // editFile opens path in $VISUAL or $EDITOR, vi without either.
 func editFile(path string) tea.Cmd {
-	ed := os.Getenv("VISUAL")
-	if ed == "" {
-		ed = os.Getenv("EDITOR")
+	return editorCmd(func() (string, error) { return path, nil }, func(err error) tea.Msg { return dialogReload{err: err} })
+}
+
+// editorCmd hands the terminal to $VISUAL or $EDITOR (vi without either)
+// on the file prepare gives, and done says how it went. prepare, and
+// finding the shell to run the editor in, happen in the Cmd, off the UI
+// goroutine; only the editor itself has the terminal while it runs.
+func editorCmd(prepare func() (string, error), done func(error) tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		path, err := prepare()
+		if err != nil {
+			return done(err)
+		}
+		ed := firstNonEmpty(os.Getenv("VISUAL"), os.Getenv("EDITOR"), "vi")
+		c := exec.Command("sh", "-c", ed+` "$1"`, "sh", path)
+		return tea.ExecProcess(c, done)()
 	}
-	if ed == "" {
-		ed = "vi"
-	}
-	c := exec.Command("sh", "-c", ed+` "$1"`, "sh", path)
-	return tea.ExecProcess(c, func(err error) tea.Msg { return dialogReload{err: err} })
 }
 
 type dialogReload struct{ err error }

@@ -12,29 +12,40 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
-// conversationOf is an agent row's conversation, told for a hand-off: the
-// open pane's when it's this one, else read from its transcript or through
-// its adapter.
+// conversationOf is an agent row's conversation, told for a hand-off. It
+// may read a transcript: call it off the UI goroutine, or use
+// conversationLater.
 func (m *Model) conversationOf(a *fleet.Agent) agent.Conversation {
-	kind := agent.Kind(a.Kind)
-	var sess *convo.Session
+	return m.conversationLater(a)()
+}
+
+// conversationLater is an agent row's conversation, told for a hand-off,
+// as a func for the Cmd that hands it off: the open pane's is told now,
+// on the UI goroutine that owns it; one read from its transcript or
+// through its adapter is read when the func is called.
+func (m *Model) conversationLater(a *fleet.Agent) func() agent.Conversation {
+	kind, name, cwd := agent.Kind(a.Kind), a.DisplayName, a.Cwd
+	tell := func(sess *convo.Session) agent.Conversation {
+		c := sess.Conversation(kind)
+		if c.Name == "" {
+			c.Name = name
+		}
+		if c.Cwd == "" {
+			c.Cwd = cwd
+		}
+		return c
+	}
 	switch {
 	case m.host != nil && m.host.key == a.Key:
-		sess = m.host.sess
+		c := tell(m.host.sess)
+		return func() agent.Conversation { return c }
 	case a.TranscriptPath != "":
-		sess = convo.History(a.TranscriptPath, time.Time{})
-	default:
-		sess = agentHistory(kind, agent.Session{ID: a.SessionID, Name: a.DisplayName, Transcript: a.History,
-			Profile: agent.Profile{Kind: kind, Dir: a.Acct.Dir}}, time.Time{})
+		path := a.TranscriptPath
+		return func() agent.Conversation { return tell(convo.History(path, time.Time{})) }
 	}
-	c := sess.Conversation(kind)
-	if c.Name == "" {
-		c.Name = a.DisplayName
-	}
-	if c.Cwd == "" {
-		c.Cwd = a.Cwd
-	}
-	return c
+	s := agent.Session{ID: a.SessionID, Name: a.DisplayName, Transcript: a.History,
+		Profile: agent.Profile{Kind: kind, Dir: a.Acct.Dir}}
+	return func() agent.Conversation { return tell(agentHistory(kind, s, time.Time{})) }
 }
 
 // handoffTargets are the agents a conversation on from can be handed to:
@@ -80,9 +91,10 @@ func (m *Model) handoffTo(c *hostConn, a *fleet.Agent, to string) tea.Cmd {
 		m.flash(err.Error(), true)
 		return nil
 	}
-	cfg.Prompt = agent.Handoff(m.conversationOf(a)).Text
+	conv := m.conversationLater(a)
 	m.flash("handing "+a.DisplayName+" to "+agentName(string(k))+"…", false)
 	return func() tea.Msg {
+		cfg.Prompt = agent.Handoff(conv()).Text
 		hc, err := host.Spawn(cfg)
 		if err != nil {
 			return doneMsg{err: err}

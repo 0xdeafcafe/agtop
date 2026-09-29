@@ -39,6 +39,7 @@ type spawnRun struct {
 	hist   *history    // another agent's, read again when it changes
 	sess   *convo.Session
 	born   time.Time
+	mod    time.Time // when what it wrote was last seen to change
 	looked time.Time // when it was last looked for, while not found
 	lost   bool      // looked for past its command's end, and not found
 	fresh  bool      // its session was just read again, to give its step
@@ -180,6 +181,9 @@ func (m *Model) takeSpawns(c *hostConn, grew map[*convo.Tail]bool, hists []spawn
 			r.sess = r.tail.Sess
 		}
 		r.fresh = false
+		if changed {
+			r.mod = time.Now()
+		}
 		if r.sess != nil && (changed || st.Child() != r.sess) {
 			c.sess.SetChild(st, r.sess)
 		}
@@ -282,8 +286,8 @@ func (c *hostConn) spawnSubs() []convo.Subagent {
 		sp, _ := st.Spawn()
 		sa := convo.Subagent{ID: spawnPrefix + st.ID, Type: sp.Name, Description: firstNonEmpty(oneLineUI(sp.Prompt), sp.From),
 			Model: sp.Model, ToolUseID: st.ID, Path: r.path, Born: r.born.UnixNano()}
-		if fi, err := os.Stat(r.path); err == nil {
-			sa.Mod = fi.ModTime().UnixNano()
+		if !r.mod.IsZero() {
+			sa.Mod = r.mod.UnixNano() // noticed as it was read, not asked of the disk
 		}
 		if r.tail != nil {
 			sa.Size = r.tail.Size()

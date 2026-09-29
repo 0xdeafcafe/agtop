@@ -356,7 +356,8 @@ func (m *Model) backgroundJob(c *hostConn, j *convo.Job) tea.Cmd {
 // it writes any where agtop can find it. The background view draws every
 // task's tail each frame, so each file is read once and then only looked
 // at again, at most every tailEvery, while its task runs: a stat, and a
-// read only when it has grown.
+// read only when it has grown. Both happen in the background; a frame
+// draws what was last read.
 func (m *Model) jobTail(c *hostConn, j *convo.Job, n int) []string {
 	p := c.jobOutput(j)
 	if p == "" {
@@ -366,23 +367,54 @@ func (m *Model) jobTail(c *hostConn, j *convo.Job, n int) []string {
 		c.tails = map[string]*jobTailed{}
 	}
 	e := c.tails[p]
-	now := time.Now()
-	if e == nil || !e.final && now.Sub(e.at) >= tailEvery {
-		if e == nil {
-			e = &jobTailed{}
-			c.tails[p] = e
-		}
+	if e == nil {
+		e = &jobTailed{size: -2}
+		c.tails[p] = e
+	}
+	e.poll()
+	if now := time.Now(); !e.final && now.Sub(e.at) >= tailEvery {
 		e.at = now
-		if st, err := os.Stat(p); err != nil {
-			e.size, e.lines = -1, nil
-		} else if st.Size() != e.size || !st.ModTime().Equal(e.mod) {
-			e.size, e.mod = st.Size(), st.ModTime()
-			e.lines = tailLines(p, jobTailMost)
+		size, mod, running := e.size, e.mod, j.Running()
+		if e.read.start(func() tailRead { return readTail(p, size, mod, running) }) {
+			e.poll() // tests read at once
 		}
-		// Read once its task had ended, it won't change again.
-		e.final = !j.Running() && e.size >= 0
 	}
 	return e.lines[max(0, len(e.lines)-n):]
+}
+
+// tailRead is a task's output as a read in the background found it.
+type tailRead struct {
+	size  int64 // -1 when there was nothing there
+	mod   time.Time
+	lines []string
+	same  bool // unchanged: nothing was read
+	final bool // read after its task ended: it won't change
+}
+
+// readTail looks at a task's output, reading it when it isn't the size
+// and time it was.
+func readTail(p string, size int64, mod time.Time, running bool) tailRead {
+	st, err := os.Stat(p)
+	switch {
+	case err != nil:
+		return tailRead{size: -1}
+	case st.Size() == size && st.ModTime().Equal(mod):
+		return tailRead{same: true, size: size, final: !running}
+	}
+	// Read once its task had ended, it won't change again.
+	return tailRead{size: st.Size(), mod: st.ModTime(), lines: tailLines(p, jobTailMost), final: !running}
+}
+
+// poll takes in a read that's done.
+func (e *jobTailed) poll() {
+	r, ok := e.read.take()
+	if !ok {
+		return
+	}
+	if !r.same {
+		e.size, e.mod, e.lines = r.size, r.mod, r.lines
+	}
+	e.final = r.final && e.size >= 0
 }
 
 // jobTailMost is the most of a task's output shown: an opened one's.
@@ -398,6 +430,7 @@ type jobTailed struct {
 	mod   time.Time
 	lines []string
 	final bool // read after its task ended: it won't change
+	read  offRead[tailRead]
 }
 
 // jobOutput is the file a task writes its output to: Claude Code says
@@ -413,11 +446,22 @@ func (c *hostConn) jobOutput(j *convo.Job) string {
 	if c.taskDirFor != c.sess.Info.SessionID {
 		c.taskDir, c.taskDirAt, c.taskDirFor = "", time.Time{}, c.sess.Info.SessionID
 	}
+	if d, ok := taskDirs.take(c); ok && d.sid == c.taskDirFor {
+		c.taskDir = d.dir
+	}
 	if c.taskDir == "" && time.Since(c.taskDirAt) >= 2*time.Second {
 		c.taskDirAt = time.Now()
-		pat := filepath.Join(host.TempDir(c.id), "claude-*", "*", c.sess.Info.SessionID, "tasks")
-		if found, _ := filepath.Glob(pat); len(found) > 0 {
-			c.taskDir = found[0]
+		sid := c.sess.Info.SessionID
+		pat := filepath.Join(host.TempDir(c.id), "claude-*", "*", sid, "tasks")
+		taskDirs.start(c, func() taskDir {
+			d := taskDir{sid: sid}
+			if found, _ := filepath.Glob(pat); len(found) > 0 {
+				d.dir = found[0]
+			}
+			return d
+		})
+		if d, ok := taskDirs.take(c); ok && d.sid == c.taskDirFor { // tests look at once
+			c.taskDir = d.dir
 		}
 	}
 	if c.taskDir == "" {
@@ -425,6 +469,11 @@ func (c *hostConn) jobOutput(j *convo.Job) string {
 	}
 	return filepath.Join(c.taskDir, j.ID+".output")
 }
+
+// taskDir is a session's tasks folder, looked for in the background.
+type taskDir struct{ sid, dir string }
+
+var taskDirs = offReads[*hostConn, taskDir]{}
 
 // tailWidest is the most of a line of output kept, in bytes.
 const tailWidest = 1024

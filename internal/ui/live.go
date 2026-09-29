@@ -60,25 +60,39 @@ func liveCapable(a *fleet.Agent) bool {
 	return a != nil && !a.Interactive && a.Worker != nil && daemonRunning(claude.AccountOf(a.Acct))
 }
 
-// daemonRunning is whether an account's daemon is up, looked at once a
-// second at most: views ask several times a frame.
+// daemonRunning is whether an account's daemon is up, as last looked:
+// views ask several times a frame, so it's looked at in the background, at
+// most once a second. Until the first look is in, it isn't up.
 func daemonRunning(acct claude.Account) bool {
 	daemons.Lock()
-	defer daemons.Unlock()
-	if d, ok := daemons.seen[acct.ConfigDir]; ok && time.Since(d.at) < time.Second {
+	d, ok := daemons.seen[acct.ConfigDir]
+	ask := !d.asking && (!ok || time.Since(d.at) >= time.Second)
+	if ask {
+		if daemons.seen == nil {
+			daemons.seen = map[string]daemonSeen{}
+		}
+		d.asking = true
+		daemons.seen[acct.ConfigDir] = d
+	}
+	daemons.Unlock()
+	if !ask {
 		return d.up
 	}
-	up := (daemon.Client{Account: acct}).Running()
-	if daemons.seen == nil {
-		daemons.seen = map[string]daemonSeen{}
-	}
-	daemons.seen[acct.ConfigDir] = daemonSeen{time.Now(), up}
-	return up
+	goOff(func() {
+		up := (daemon.Client{Account: acct}).Running()
+		daemons.Lock()
+		daemons.seen[acct.ConfigDir] = daemonSeen{at: time.Now(), up: up}
+		daemons.Unlock()
+	})
+	daemons.Lock()
+	defer daemons.Unlock()
+	return daemons.seen[acct.ConfigDir].up
 }
 
 type daemonSeen struct {
-	at time.Time
-	up bool
+	at     time.Time
+	up     bool
+	asking bool // a look is out
 }
 
 var daemons struct {
@@ -86,11 +100,14 @@ var daemons struct {
 	seen map[string]daemonSeen
 }
 
+// previewID names agtop's attachments for the preview, one per agtop.
+var previewID = fmt.Sprintf("agtop-preview-%d", os.Getpid())
+
 func openLive(a *fleet.Agent, w, h int) tea.Cmd {
 	cl := daemon.Client{Account: claude.AccountOf(a.Acct)}
 	l := &live{
 		key: a.Key, short: a.ID, cl: cl, w: w, h: h,
-		id:   fmt.Sprintf("agtop-preview-%d", os.Getpid()),
+		id:   previewID,
 		wake: make(chan struct{}, 1),
 		emu:  vt.NewEmulator(w, h),
 	}
@@ -165,8 +182,8 @@ func (l *live) resize(w, h int) {
 
 func (l *live) close() {
 	l.dead.Store(true)
-	if l.conn != nil {
-		_ = l.conn.Close()
+	if conn := l.conn; conn != nil {
+		goOff(func() { _ = conn.Close() }) // a socket's close is a system call
 	}
 	_ = l.emu.Close()
 }

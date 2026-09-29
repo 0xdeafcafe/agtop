@@ -106,17 +106,21 @@ func (m *Model) macKeysCommand(arg string) tea.Cmd {
 	switch strings.TrimSpace(arg) {
 	case "on":
 		m.didStep("mackeys")
-		if hammerspoonApp() == "" {
-			m.flash("installing Hammerspoon with brew…", false)
-		} else {
-			m.flash("setting up ⌘ keys for Terminal.app…", false)
-		}
-		return func() tea.Msg {
+		m.flash("setting up ⌘ keys for Terminal.app…", false)
+		install := func() tea.Msg {
 			if err := macKeysInstall(); err != nil {
 				return doneMsg{err: err}
 			}
 			return doneMsg{text: "⌘ keys on in Terminal.app: ⌘← → line ends · ⌘⌫ ⌘⌦ clear to them · ⌘Z undo · allow Hammerspoon in Accessibility if macOS asks"}
 		}
+		// Whether Hammerspoon is there is looked at off the UI goroutine;
+		// a brew install says so first, as it takes a while.
+		return later(hammerspoonApp, func(m *Model, app string) tea.Cmd {
+			if app == "" {
+				m.flash("installing Hammerspoon with brew…", false)
+			}
+			return install
+		})
 	case "off":
 		m.didStep("mackeys") // a no is an answer too
 		return func() tea.Msg {
@@ -126,12 +130,14 @@ func (m *Model) macKeysCommand(arg string) tea.Cmd {
 			return doneMsg{text: "⌘ keys off · Hammerspoon stays installed"}
 		}
 	}
-	if macKeysOn() {
-		m.flash("⌘ keys are on in Terminal.app, through Hammerspoon · #mackeys off", false)
-	} else {
-		m.flash("⌘ keys are off · #mackeys on sends ⌘← → ⌘⌫ ⌘⌦ ⌘Z on through Hammerspoon", false)
-	}
-	return nil
+	return later(macKeysOn, func(m *Model, on bool) tea.Cmd {
+		if on {
+			m.flash("⌘ keys are on in Terminal.app, through Hammerspoon · #mackeys off", false)
+		} else {
+			m.flash("⌘ keys are off · #mackeys on sends ⌘← → ⌘⌫ ⌘⌦ ⌘Z on through Hammerspoon", false)
+		}
+		return nil
+	})
 }
 
 // macKeysInstall installs Hammerspoon if it isn't, writes agtop's keys into
