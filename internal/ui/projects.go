@@ -856,14 +856,16 @@ func (m *Model) projectsBody() []string {
 	}
 	list := m.listRows(lw - 4)
 	pick := pickRow(list, &m.work.projPos, &m.work.projSel)
+	// The boxes run to the bottom of the screen, whatever is in them.
+	fill := m.wallH() - len(out) - 2
 	if tab != ptProjects {
 		titles := [ptCount]string{"", "Worktrees", "Temporary", "System"}
 		metas := [ptCount]string{"", "⎇ every project's linked worktrees", "◌ /tmp and finished agents' temp work", "processes no project owns"}
-		return append(out, pbox(paint(cText+bold, titles[tab]), dim(metas[tab]), drawRows(list, pick, w-4, true), w, true)...)
+		return append(out, pbox(paint(cText+bold, titles[tab]), dim(metas[tab]), pad(drawRows(list, pick, w-4, true), fill), w, true)...)
 	}
 	p := m.pickedProject()
 	if p == nil {
-		return append(out, pbox(paint(cText+bold, "Projects"), "", drawRows(list, pick, w-4, true), w, true)...)
+		return append(out, pbox(paint(cText+bold, "Projects"), "", pad(drawRows(list, pick, w-4, true), fill), w, true)...)
 	}
 	detail := m.projectDetail(p, rw-4)
 	dpick := -1
@@ -885,7 +887,7 @@ func (m *Model) projectsBody() []string {
 	if stack {
 		return append(append(append(out, lbox(0)...), ""), rbox(0)...)
 	}
-	n := max(len(left), len(right))
+	n := max(len(left), len(right), fill)
 	return append(out, sideBySide(lbox(n), rbox(n), lw)...)
 }
 
