@@ -118,7 +118,14 @@ func (m *Model) topH() int {
 	if m.zen {
 		return 0
 	}
-	return m.headH() + 1
+	return m.headH() + 2
+}
+
+// underHead is the pages row, level with the tabs above it, and a rule
+// under both.
+func (m *Model) underHead() []string {
+	lead := strings.Repeat(" ", 6+clkW) // where the tabs' names start
+	return []string{fit(lead+strings.TrimLeft(m.pages(), " "), m.w), faint(strings.Repeat("─", m.w))}
 }
 
 // narrowHead is the width below which the header drops clanker's body for
@@ -261,7 +268,7 @@ func (m *Model) tabs() []string {
 // all of him, the folder shortened from the left, and as many tabs as fit
 // around the current one, so no line is cut off.
 func (m *Model) narrowHeader(robot, counts []string, acct string) []string {
-	face := robot[clkFace] // his eyes and brow
+	face := robot[clkFace]
 	indent := strings.Repeat(" ", cellw.String(face)+3)
 	// Whole counts or none: the last ones (finished, orphans) go first.
 	title := paint(cText+bold, "rush")
@@ -470,9 +477,11 @@ func (m *Model) frame(body []string, hint string) string {
 		b.WriteString(fit(l, m.w))
 		b.WriteByte('\n')
 	}
-	b.WriteString(fit(m.pages(), m.w))
-	b.WriteByte('\n')
-	avail := m.h - len(head) - 3
+	for _, l := range m.underHead() {
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	avail := m.h - len(head) - 4
 	// Keep the cursor row in view on long lists.
 	start := 0
 	if cur := m.frameCursor(body); cur >= avail {
@@ -819,7 +828,7 @@ func (m *Model) paneH() int {
 func (m *Model) listView() string {
 	var head []string
 	if !m.zen {
-		head = append(m.header(), m.pages())
+		head = append(m.header(), m.underHead()...)
 	}
 	listW, paneW, bodyH := m.layout()
 	over := m.pickerOverCard() // as the Prompt was measured

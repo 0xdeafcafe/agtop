@@ -73,7 +73,7 @@ func TestHostedShowsOneSession(t *testing.T) {
 			t.Errorf("hosted frame lacks %q:\n%s", want, out)
 		}
 	}
-	if l, p, _ := m.layout(); l != 0 || p != 160 || m.topH() != m.headH()+1 {
+	if l, p, _ := m.layout(); l != 0 || p != 160 || m.topH() != m.headH()+2 {
 		t.Fatalf("hosted layout: list %d pane %d top %d", l, p, m.topH())
 	}
 

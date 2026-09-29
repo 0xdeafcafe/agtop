@@ -27,10 +27,10 @@ type clkState struct {
 	rich bool  // today's spend is high: now and then a coin drops off him
 }
 
-// clanker draws the header: a pixel invader, solid in one colour, who now
-// and then fades into the "ag" monogram and back, a light passing over
-// whichever he is. His body never moves; what changes is his colour, his
-// pose, his eyes, and what drifts off him.
+// clanker draws the header: the RUSH bottle, solid in one colour, which now
+// and then fades into the wordmark and back, a light passing over whichever
+// it is. It never moves; what changes is its colour, its cap, and what
+// drifts off it.
 func clanker(s clkState) []string {
 	var g clkGrid
 	switch s.fx.kind {
@@ -40,7 +40,7 @@ func clanker(s clkState) []string {
 			g.crossfade(s, false, s.fx.frame, n)
 			return g.lines()
 		}
-		g.mark(s.md)
+		g.mark(s)
 		g.shimmer(s.fx.frame-n, clkShine, cText, .7)
 		return g.lines()
 	case fxMorphOut:
@@ -48,7 +48,7 @@ func clanker(s clkState) []string {
 		return g.lines()
 	}
 	if s.mark && s.fx.kind == fxNone && (s.md == moodIdle || s.md == moodWorking) {
-		g.mark(s.md)
+		g.mark(s)
 		return g.lines()
 	}
 	g.sprite(s)
@@ -63,30 +63,30 @@ const (
 	clkH     = 4
 	clkX     = 2 // where he stands; the two columns either side are for what drifts off him
 	clkBodyW = 11
-	clkFace  = 1 // the row with his eyes, all a narrow header has room for
+	clkFace  = 1 // the bottle's shoulders, all a narrow header has room for
 )
 
-// He's 11×8 pixels, two to a row: ▀ is a top pixel, ▄ a bottom one. clkCrab
-// is his rest pose, clkArms his other step, arms up.
+// The bottle is 11×8 pixels, two to a row: ▀ is a top pixel, ▄ a bottom
+// one, its label the band across it. clkCrab has its cap on, clkArms has it
+// popped off.
 var (
 	clkCrab = []string{
-		"  ▀▄   ▄▀  ",
-		" ▄█▀███▀█▄ ",
-		"█▀███████▀█",
-		"▀ ▀▄▄ ▄▄▀ ▀",
+		"   █▀█▀█   ",
+		"   ▄███▄   ",
+		"  █▀▀▀▀▀█  ",
+		"  ▀█████▀  ",
 	}
 	clkArms = []string{
-		"▄ ▀▄   ▄▀ ▄",
-		"█▄█▀███▀█▄█",
-		"▀█████████▀",
-		" ▄▀     ▀▄ ",
+		"     ▄██▀  ",
+		"   ▄███▄   ",
+		"  █▀▀▀▀▀█  ",
+		"  ▀█████▀  ",
 	}
-	clkEyes = [2]int{3, 7} // columns of his eyes on clkFace: pixel holes under his brow
-	clkAG   = []string{
-		" ▄▄▄   ▄▄▄▄",
-		" ▄▄▄█ █   █",
-		"▀▄▄▄█  ▀▀▀█",
-		"       ▄▄▄▀",
+	// clkAG is the wordmark, the whole frame wide.
+	clkAG = []string{
+		"█▀█ █ █ █▀▀ █ █",
+		"██▀ █ █ ▀▀█ █▀█",
+		"█ █ █▄█ ▄▄█ █ █",
 	}
 )
 
@@ -180,10 +180,9 @@ type clkEye struct {
 	lit   string
 }
 
-// sprite is the invader. Idle he blinks, and winks now and then; working he
-// steps from one pose to the other every other second and a pale drop of
-// paint drifts off him; needing you he holds his arms up and his ! glows
-// and fades; asleep his eyes are shut and z's drift up.
+// sprite is the bottle. Working, its cap pops off and back every other
+// second and a pale drop drifts off it; needing you, its cap is off and its
+// ! glows and fades; asleep, z's drift up.
 func (g *clkGrid) sprite(s clkState) {
 	md, tick, fx := s.md, s.tick, s.fx
 	b := clkBody(md)
@@ -223,18 +222,9 @@ func (g *clkGrid) sprite(s clkState) {
 			g.put(0, clkX+clkBodyW, "Z", cDim, false)
 		}
 	}
-	b, eye = fx.dress(b, eye)
+	b, _ = fx.dress(b, eye)
 	for y, l := range pose {
 		g.put(y, clkX, l, b, true)
-	}
-	for i, x := range clkEyes {
-		x += clkX
-		switch {
-		case eye.shut || (eye.winkL && i == 0):
-			g.r[clkFace][x] = '█'
-		case eye.lit != "":
-			g.r[clkFace][x], g.c[clkFace][x], g.bg[clkFace][x] = '▄', eye.lit, b
-		}
 	}
 	g.on = true
 	if fx.kind != fxNone {
@@ -266,10 +256,18 @@ func (g *clkGrid) drops(tick int, look []rune, paints []string, every int) {
 	}
 }
 
-// mark is the monogram, in his colour.
-func (g *clkGrid) mark(md mood) {
+// mark is the wordmark in the bottle's colour, or every other time the
+// bottle with its name beside it.
+func (g *clkGrid) mark(s clkState) {
+	if s.tick/clkCycle%2 == 1 {
+		for y, l := range clkCrab {
+			g.put(y, 0, strings.TrimRight(l, " "), clkBody(s.md), true)
+		}
+		g.put(1, 10, "RUSH", clkBody(s.md)+bold, true)
+		return
+	}
 	for y, l := range clkAG {
-		g.put(y, clkX, l, clkBody(md), true)
+		g.put(y, 0, l, clkBody(s.md), true)
 	}
 }
 
@@ -283,7 +281,7 @@ func (g *clkGrid) crossfade(s clkState, back bool, f, n int) {
 		showMark = !showMark
 	}
 	if showMark {
-		g.mark(s.md)
+		g.mark(s)
 	} else {
 		g.sprite(s)
 	}
