@@ -64,9 +64,9 @@ var (
 		m      map[commitQuery]*commitLookup
 		reflog map[string]reflogRead
 	}{m: map[commitQuery]*commitLookup{}, reflog: map[string]reflogRead{}}
-	// commitsGen counts finished lookups, so what was drawn before one
-	// finished is drawn again.
-	commitsGen atomic.Int64
+	// lookupsGen counts finished lookups, commits and thumbnails, so what
+	// was drawn before one finished is drawn again.
+	lookupsGen atomic.Int64
 	// Only a few lookups at once: a long transcript asks about every
 	// commit it made the first time it's drawn.
 	lookupSlots = make(chan struct{}, 4)
@@ -118,7 +118,7 @@ func lookup(q commitQuery) ([]card, bool) {
 			lookups.Lock()
 			l.cards, l.done = cs, true
 			lookups.Unlock()
-			commitsGen.Add(1)
+			lookupsGen.Add(1)
 		}()
 	}
 	if !l.done || l.cards == nil {

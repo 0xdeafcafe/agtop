@@ -154,6 +154,10 @@ func (n *Neutral) message(m Message) event.Message {
 			}
 			o := claude.Output(c, b.Text, b.IsError, m.ToolResult)
 			out.Parts = append(out.Parts, event.Part{Kind: event.ToolResult, Output: &o})
+			// The images it gave back follow it.
+			for i := range b.Images {
+				out.Parts = append(out.Parts, event.Part{Kind: event.Image, Image: &b.Images[i]})
+			}
 		}
 	}
 	return out

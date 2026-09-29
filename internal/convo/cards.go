@@ -1010,7 +1010,7 @@ func (d *drawer) stepCards(st *Step) []card {
 		return nil
 	}
 	s := d.s
-	k := stepKey{st: st, what: 'c', status: st.Status, out: len(st.Output), res: len(st.Result), gen: commitsGen.Load()}
+	k := stepKey{st: st, what: 'c', status: st.Status, out: len(st.Output), res: len(st.Result), gen: lookupsGen.Load()}
 	if v, ok := s.cards[k]; ok {
 		return v
 	}

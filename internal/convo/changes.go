@@ -279,6 +279,7 @@ func (s *Session) ChangesView(o Options) []Line {
 		if o.Marks[fc.Path] {
 			mark, name = paint(cGreen, "✓ "), dim(d.rel(fc.Path))
 		}
+		name = d.fileLink(fc.Path, name)
 		add(ref, "  "+arrow+" "+mark+name, counts+"   "+dim(strings.Join(turns, " ")))
 		if !open {
 			continue
@@ -383,7 +384,7 @@ func (s *Session) ChangesView(o Options) []Line {
 		if o.Open[tref] {
 			arrow = faint("▾")
 		}
-		add(tref, "  "+arrow+" "+mark+" "+text(d.rel(f.Path)), counts+"   "+who)
+		add(tref, "  "+arrow+" "+mark+" "+d.fileLink(f.Path, text(d.rel(f.Path))), counts+"   "+who)
 		if o.Open[tref] {
 			lg := langFor(f.Path)
 			var oldSt, newSt hlState

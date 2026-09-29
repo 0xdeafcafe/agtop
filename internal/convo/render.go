@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
@@ -83,7 +84,7 @@ type cacheKey struct {
 	focused    bool
 	tick       int
 	now        int64
-	gen        int64 // git lookups finished: a commit card may read differently
+	gen        int64 // lookups finished: a commit card or thumbnail may read differently
 	clock      bool
 	latest     string // the session's newest step, when it's in this turn
 }
@@ -249,7 +250,7 @@ func (s *Session) over() bool {
 func (s *Session) Stale() bool { return s.stale }
 
 func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[string]string) cacheKey {
-	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref], pal: palette, gen: commitsGen.Load()}
+	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref], pal: palette, gen: lookupsGen.Load()}
 	if o.Selected == ref || strings.HasPrefix(o.Selected, ref) && strings.HasPrefix(o.Selected[len(ref):], ":") {
 		k.sel, k.focused = o.Selected, o.Focused
 	}
@@ -828,6 +829,7 @@ func unitPrint(items []*Item) (uint64, bool) {
 		mix(uint64(st.Start.UnixNano()))
 		mix(uint64(st.End.UnixNano()))
 		mix(uint64(len(st.Children)))
+		mix(uint64(len(st.Images)))
 		for _, c := range st.Children {
 			if !step(c) {
 				return false
@@ -1556,6 +1558,28 @@ func imageChip(alt, src string) string {
 	return chip
 }
 
+// fileLink makes s open the file at p when clicked, a relative p taken
+// from the session's folder; s as it is when there's no telling where p is.
+func (d *drawer) fileLink(p, s string) string {
+	if u := linkTarget(d.abs(p)); u != "" {
+		return "\x1b]8;;" + u + "\x1b\\" + s + "\x1b]8;;\x1b\\"
+	}
+	return s
+}
+
+// abs is p from the session's folder when it's relative; nothing when
+// there's no folder to take it from.
+func (d *drawer) abs(p string) string {
+	if p == "" || filepath.IsAbs(p) || strings.HasPrefix(p, "~/") {
+		return p
+	}
+	base := firstNonEmpty(d.s.Info.Cwd, d.s.Cwd)
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, p)
+}
+
 // linkTarget is the URL a markdown link or image opens: web addresses as
 // they are, absolute paths and ~ as file URLs, nothing for the rest.
 func linkTarget(t string) string {
@@ -1964,9 +1988,9 @@ func (d *drawer) label(st *Step) string {
 		}
 		return g + " " + d.command(cmd, base)
 	case st.kind() == tool.Edit || st.kind() == tool.Write || st.kind() == tool.Notebook || st.kind() == tool.Delete || st.kind() == tool.Move:
-		return g + " " + lbl(d.rel(x.Path))
+		return g + " " + d.fileLink(x.Path, lbl(d.rel(x.Path)))
 	case st.kind() == tool.Read:
-		return g + " " + lbl(d.rel(x.Path))
+		return g + " " + d.fileLink(x.Path, lbl(d.rel(x.Path)))
 	case st.kind() == tool.Search:
 		l := g + " " + lbl(x.Pattern)
 		if p := x.Path; p != "" {
@@ -2403,6 +2427,9 @@ func (d *drawer) body(st *Step, indent int) {
 			d.spans = d.chainSpans(x.Command)
 		}
 	}
+	if d.pictures(st, indent) && strings.TrimSpace(st.Output) == "" {
+		return
+	}
 	switch {
 	case st.kind() == tool.Edit || st.kind() == tool.Write:
 		if d.diff(st, indent) {
@@ -2435,6 +2462,37 @@ func (d *drawer) body(st *Step, indent int) {
 		return
 	}
 	d.output(strings.TrimLeft(exitRe.ReplaceAllString(toolErrTag.Replace(st.Output), ""), "\n"), indent, st.Status == Failed)
+}
+
+// pictures draws the images a step read or was given back, each a small
+// thumbnail that opens its file when clicked, or its chip until the
+// thumbnail's made or when it can't be. It says whether there were any.
+func (d *drawer) pictures(st *Step, indent int) bool {
+	path := ""
+	if st.kind() == tool.Read {
+		path = d.abs(st.in().Path)
+	}
+	imgs := st.Images
+	if len(imgs) == 0 && thumbable(path) {
+		imgs = []*event.ImageData{{Path: path}}
+	}
+	pad := d.spine() + strings.Repeat(" ", indent-1)
+	for i, img := range imgs {
+		src := firstNonEmpty(img.Path, path)
+		rows, ok := thumbOf(thumbKey{st.ID, i}, img)
+		if !ok || cellw.String(rows[0]) > d.cw-indent-2 {
+			chip := paint(cBlue, "▣ ") + paint(cText, "image")
+			if src != "" {
+				chip = imageChip("", src)
+			}
+			d.add("", "", pad+chip, "")
+			continue
+		}
+		for _, r := range rows {
+			d.add("", "", pad+d.fileLink(src, r), "")
+		}
+	}
+	return len(imgs) > 0
 }
 
 // shellBody is an opened shell step's command: on one line when it fits,
