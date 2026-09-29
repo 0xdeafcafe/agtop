@@ -24,8 +24,17 @@ func Dir() string {
 		return d
 	}
 	home, _ := os.UserHomeDir()
-	return pick(filepath.Join(home, ".config", "rush"), filepath.Join(home, ".config", "agtop"), "config.json")
+	if d, ok := dirs.Load(home); ok {
+		return d.(string)
+	}
+	d := pick(filepath.Join(home, ".config", "rush"), filepath.Join(home, ".config", "agtop"), "config.json")
+	dirs.Store(home, d)
+	return d
 }
+
+// dirs are Dir's answers by home: it's asked for on every reading, and
+// which folder is in use changes only when it's copied over, between runs.
+var dirs sync.Map
 
 // pick is rush's folder, or the one it had as agtop while that's the one
 // in use (rush's has no mark in it yet): nothing is moved, so what runs
