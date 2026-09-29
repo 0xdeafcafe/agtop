@@ -207,6 +207,9 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			ref := "job:" + j.ID
 			kind := c.sess.JobKind(j)
 			icon, col := jobIcon(kind)
+			if icon == "▸" && c.open[ref] {
+				icon = "▾" // opened
+			}
 			mark := paint(col, icon)
 			if j.Running() && !j.Background {
 				mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
@@ -268,8 +271,11 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				rows = append(rows, ansi.Truncate("      "+faint("$ "+cmd), w-2, "…"))
 			}
 			top := len(rows)
-			if len(tail) > 0 && from != c.jobOutput(j) {
-				rows = append(rows, "      "+faint("from "+tildify(from)))
+			switch {
+			case len(tail) > 0 && from != c.jobOutput(j):
+				rows = append(rows, "      "+faint("from "+tildify(from))+c.tailWhen(from, now))
+			case len(tail) > 0 && c.open[ref]:
+				rows = append(rows, "      "+faint("output")+c.tailWhen(from, now))
 			}
 			if len(tail) == 0 && c.open[ref] && !j.Background {
 				// Claude Code keeps no file for a call the turn waited on:
@@ -298,7 +304,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 					if len(more) == 0 {
 						continue
 					}
-					rows = append(rows, "      "+faint("from "+tildify(f)))
+					rows = append(rows, "      "+faint("from "+tildify(f))+c.tailWhen(f, now))
 					for _, l := range more {
 						rows = append(rows, ansi.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
 					}
@@ -505,7 +511,9 @@ func (c *hostConn) tailOf(p string, running bool, n int) []string {
 		c.tails[p] = e
 	}
 	e.poll()
-	if now := time.Now(); !e.final && now.Sub(e.at) >= tailEvery {
+	// A file read final by a task that had ended is read again for one
+	// still running: tasks can share a file.
+	if now := time.Now(); (!e.final || running) && now.Sub(e.at) >= tailEvery {
 		e.at = now
 		size, mod := e.size, e.mod
 		if e.read.start(func() tailRead { return readTail(p, size, mod, running) }) {
@@ -548,6 +556,16 @@ func (e *jobTailed) poll() {
 		e.size, e.mod, e.lines = r.size, r.mod, r.lines
 	}
 	e.final = r.final && e.size >= 0
+}
+
+// tailWhen is when the file at p last changed, as tailOf last found it:
+// " · updated 12s ago", so output that's stopped coming reads as such.
+func (c *hostConn) tailWhen(p string, now time.Time) string {
+	e := c.tails[p]
+	if e == nil || e.mod.IsZero() {
+		return ""
+	}
+	return faint(" · updated " + age(now.Sub(e.mod)) + " ago")
 }
 
 // jobFileLines is how much of each further file an opened task writes is

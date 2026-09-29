@@ -102,3 +102,22 @@ func joinLines(ls []convo.Line) string {
 	}
 	return b.String()
 }
+// A file read by a task that had ended is still read again for one that
+// runs: tasks can share a file, and a running one's output keeps coming.
+func TestTailSharedFileKeepsComing(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "run.err")
+	os.WriteFile(p, []byte("one\n"), 0o644)
+	c := &hostConn{}
+	if got := c.tailOf(p, false, 5); len(got) != 1 || !c.tails[p].final {
+		t.Fatalf("a finished task's read: %v, final %v", got, c.tails[p].final)
+	}
+	os.WriteFile(p, []byte("one\ntwo\n"), 0o644)
+	os.Chtimes(p, time.Now().Add(time.Second), time.Now().Add(time.Second))
+	c.tails[p].at = time.Time{} // due a look
+	if got := c.tailOf(p, true, 5); len(got) != 2 {
+		t.Fatalf("the running task's output stopped coming: %v", got)
+	}
+	if c.tailWhen(p, time.Now()) == "" {
+		t.Error("no time for when it last changed")
+	}
+}
