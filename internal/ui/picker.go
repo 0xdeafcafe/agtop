@@ -110,7 +110,7 @@ func (m *Model) setStartDir(dir string) {
 	for {
 		for i, d := range m.startDirs() {
 			if d == dir {
-				m.dirIdx = i
+				m.pickStartDir(i)
 				return
 			}
 		}

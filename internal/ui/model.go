@@ -156,6 +156,8 @@ type Model struct {
 	hostOpening string
 	dirIdx      int
 	pickedDir   string // a folder typed for new sessions, offered first
+	pickedFor   string // the agent selected when a folder was picked; the pick holds while it stays selected
+	startInTree bool   // alt+l: new sessions follow a selected worktree agent into its worktree, not its main checkout
 	dirs        startDirsMemo
 
 	status    string
@@ -535,7 +537,41 @@ func (m *Model) dockLines() int {
 	return min(max(n, 1), max(1, m.h/3))
 }
 
-func (m *Model) startDir() string { return pickDir(m.startDirs(), m.dirIdx) }
+// startDir is where a new session starts: the selected agent's folder,
+// unless a folder was picked while it was selected.
+func (m *Model) startDir() string {
+	if a := m.focused(); a != nil && a.Key != m.pickedFor {
+		if d := m.followDir(a); d != "" {
+			return d
+		}
+	}
+	return pickDir(m.startDirs(), m.dirIdx)
+}
+
+// followDir is the folder a new session takes from a: for one in a linked
+// worktree, the checkout it was made from, or with alt+l the worktree.
+func (m *Model) followDir(a *fleet.Agent) string {
+	if strings.Contains(a.Cwd, "/var/folders/") {
+		return "" // a temp folder isn't somewhere to start work
+	}
+	if inTree(a) && !m.startInTree {
+		return a.Root
+	}
+	return agentDir(a)
+}
+
+// inTree is an agent working in a linked worktree.
+func inTree(a *fleet.Agent) bool { return a.Root != "" && a.Repo != "" && a.Repo != a.Root }
+
+// pickStartDir is a folder chosen for new sessions: it holds while the
+// agent selected now stays selected.
+func (m *Model) pickStartDir(i int) {
+	m.dirIdx = i
+	m.pickedFor = ""
+	if a := m.focused(); a != nil {
+		m.pickedFor = a.Key
+	}
+}
 
 func pickDir(dirs []string, i int) string {
 	if len(dirs) == 0 {

@@ -2011,13 +2011,23 @@ func (m *Model) promptLines(w int) []string {
 		b.topL = dim("agtop command · enter runs it")
 	default:
 		dirs := m.startDirs()
-		dir := pickDir(dirs, m.dirIdx)
+		dir := m.startDir()
 		b.topL = dim("new session in ") + m.dirLabel(dir) + dim(" · enter starts it")
 		b.holder = draftsHolder("describe a task for a new session", "")
 		// What it starts as, so a model or profile is never a surprise;
 		// the folder key goes first when there's no room for both.
 		b.topR = m.startWith(dir, false)
-		if folder := paint(cSub, "ctrl+l") + dim(" folder"); len(dirs) > 1 && cellw.String(b.topL+b.topR+folder)+12 <= w {
+		folder := paint(cSub, "ctrl+l") + dim(" folder")
+		if a != nil && inTree(a) && a.Key != m.pickedFor {
+			other := "worktree"
+			if m.startInTree {
+				other = "main checkout"
+			}
+			folder = paint(cSub, "alt+l") + dim(" "+other)
+		} else if len(dirs) <= 1 {
+			folder = ""
+		}
+		if folder != "" && cellw.String(b.topL+b.topR+folder)+12 <= w {
 			b.topR = folder + faint(" · ") + b.topR
 		}
 	}
@@ -2335,6 +2345,7 @@ var helpPages = []struct {
 	{"✦ Start", [][2]string{
 		{"enter", "start an agent"},
 		{"ctrl+l", "pick its folder"},
+		{"alt+l", "new sessions from a worktree agent: its worktree or main checkout"},
 		{"#", "agtop commands"},
 		{"/", "Claude commands"},
 		{"⌘z · ctrl+/", "undo in a box, a cleared one too"},
