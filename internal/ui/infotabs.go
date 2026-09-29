@@ -12,9 +12,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/settingsfile"
 )
 
 // --- the History and Settings tabs of infoSheet ---
@@ -190,8 +190,8 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
 	var allow, ask, deny, hooks, plugins, env int
 	model, mode, line := "", "", ""
-	for i, f := range settingsFiles(claude.AccountOf(a.Acct), cwd) {
-		s, err := claude.LoadSettingsFile(f.path)
+	for i, f := range settingsFiles(sessionAgent(c), a.Acct, cwd) {
+		s, err := settingsfile.Load(f.path)
 		if err != nil {
 			continue
 		}
@@ -227,7 +227,11 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 		line = firstNonEmpty(s.String("statusLine.command"), line)
 	}
 	skills, cmds := 0, 0
-	for _, f := range claude.Commands(firstNonEmpty(a.Acct.Dir, claude.DefaultAccount().ConfigDir), cwd) {
+	var have []agent.Command
+	if cm, ok := agent.As[agent.Commander](sessionAgent(c)); ok {
+		have = cm.Commands(a.Acct, cwd)
+	}
+	for _, f := range have {
 		if f.Skill {
 			skills++
 		} else {

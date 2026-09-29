@@ -81,9 +81,14 @@ func (Adapter) Cost(model string, u usage.TokenUsage) (float64, bool) {
 	return claude.Cost(model, u, false), true
 }
 
-// Commands are the slash commands and skills a session in cwd can run.
+// Commands are the slash commands and skills a session in cwd can run; a
+// profile without a folder is ~/.claude.
 func (Adapter) Commands(p agent.Profile, cwd string) []agent.Command {
-	return claude.Commands(p.Dir, cwd)
+	dir := p.Dir
+	if dir == "" {
+		dir = claude.DefaultAccount().ConfigDir
+	}
+	return claude.Commands(dir, cwd)
 }
 
 var (
@@ -104,6 +109,8 @@ var (
 	_ agent.PIDer             = (*conn)(nil)
 	_ agent.Tapper            = (*conn)(nil)
 	_ agent.Describer         = Adapter{}
+	_ agent.SettingsFiler     = Adapter{}
+	_ agent.StatusLiner       = Adapter{}
 )
 
 // Doing is a call in a few words, with words of its own for Claude Code's

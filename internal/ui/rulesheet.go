@@ -12,11 +12,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/settingsfile"
 )
 
 // --- /permissions and /hooks ---
@@ -26,15 +25,16 @@ type settingsFile struct {
 	label, path string
 }
 
-// settingsFiles are yours, then the project's (shared through git) and
-// the project's just-for-you one, where Claude Code saves "don't ask again".
-func settingsFiles(acct claude.Account, cwd string) []settingsFile {
-	files := []settingsFile{{"yours", filepath.Join(acct.ConfigDir, "settings.json")}}
-	root := firstNonEmpty(actions.RepoRoot(cwd), cwd)
-	if root != "" {
-		files = append(files,
-			settingsFile{"project", filepath.Join(root, ".claude", "settings.json")},
-			settingsFile{"project · just you", filepath.Join(root, ".claude", "settings.local.json")})
+// settingsFiles are the files a session of k's on p in cwd reads, in the
+// order it reads them; none if k's settings aren't files agtop edits.
+func settingsFiles(k agent.Kind, p agent.Profile, cwd string) []settingsFile {
+	sf, ok := agent.As[agent.SettingsFiler](k)
+	if !ok {
+		return nil
+	}
+	var files []settingsFile
+	for _, f := range sf.SettingsFiles(p, cwd) {
+		files = append(files, settingsFile{f.Label, f.Path})
 	}
 	return files
 }
@@ -65,7 +65,7 @@ type permSheet struct {
 }
 
 func (m *Model) openPermissions(c *hostConn, a *fleet.Agent) {
-	p := &permSheet{files: settingsFiles(claude.AccountOf(a.Acct), firstNonEmpty(c.sess.Info.Cwd, a.Cwd))}
+	p := &permSheet{files: settingsFiles(sessionAgent(c), a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd))}
 	p.target = len(p.files) - 1
 	p.load()
 	m.sheet = p
@@ -75,7 +75,7 @@ func (p *permSheet) load() {
 	p.rules = [3][]permRule{}
 	p.mode = ""
 	for _, f := range p.files {
-		s, err := claude.LoadSettingsFile(f.path)
+		s, err := settingsfile.Load(f.path)
 		if err != nil {
 			p.err = err.Error()
 			continue
@@ -96,7 +96,7 @@ func (p *permSheet) load() {
 // change edits one file's list for the tab's kind and reads everything
 // again.
 func (p *permSheet) change(f settingsFile, edit func([]string) []string) {
-	s, err := claude.LoadSettingsFile(f.path)
+	s, err := settingsfile.Load(f.path)
 	if err == nil {
 		key := "permissions." + ruleKinds[p.tab]
 		var list []string
@@ -237,9 +237,12 @@ type hookSheet struct {
 
 func (m *Model) openHooks(c *hostConn, a *fleet.Agent) tea.Cmd {
 	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
-	hs := &hookSheet{user: filepath.Join(a.Acct.Dir, "settings.json")}
-	for _, f := range settingsFiles(claude.AccountOf(a.Acct), cwd) {
-		s, err := claude.LoadSettingsFile(f.path)
+	hs := &hookSheet{}
+	for i, f := range settingsFiles(sessionAgent(c), a.Acct, cwd) {
+		if i == 0 {
+			hs.user = f.path
+		}
+		s, err := settingsfile.Load(f.path)
 		if err != nil {
 			continue
 		}
@@ -329,6 +332,9 @@ func (hs *hookSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 				return nil
 			}
 			path = h.file.path
+		}
+		if path == "" {
+			return nil
 		}
 		m.sheet = nil
 		return editFile(path)

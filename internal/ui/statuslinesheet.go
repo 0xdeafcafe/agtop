@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
@@ -30,7 +29,10 @@ import (
 //     drawn from what agtop knows (bars.go), and shown live as you build
 //     them.
 type statusSheet struct {
-	acct   claude.Account
+	prof agent.Profile
+	kind agent.Kind
+	// line is the session's agent's own status line; nil hides its tab.
+	line   agent.StatusLiner
 	a      *fleet.Agent
 	c      *hostConn
 	tab    int
@@ -63,6 +65,23 @@ const (
 
 var statusTabNames = []string{"Agent header", "Top bar", "Claude Code"}
 
+// tabs is how many tabs show: the agent's own only if it has a line.
+func (st *statusSheet) tabs() int {
+	if st.line == nil {
+		return statusTabs - 1
+	}
+	return statusTabs
+}
+
+// tabNames are the tabs showing, the last named for the agent.
+func (st *statusSheet) tabNames() []string {
+	names := slices.Clone(statusTabNames[:st.tabs()])
+	if st.line != nil {
+		names[stClaude] = agentName(string(st.kind))
+	}
+	return names
+}
+
 func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 	bars := m.bars
 	if bars.Top.Lines == nil {
@@ -71,10 +90,16 @@ func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 	if bars.Agent.Lines == nil {
 		bars.Agent = statusline.DefaultAgent()
 	}
-	st := &statusSheet{acct: claude.AccountOf(a.Acct), a: a, c: c, claude: statusline.Load().Clone(), in: previewInput(c, a),
+	k := sessionAgent(c)
+	st := &statusSheet{prof: a.Acct, kind: k, a: a, c: c, claude: statusline.Load().Clone(), in: previewInput(c, a),
 		bars: statusline.Bars{Top: bars.Top.Clone(), Agent: bars.Agent.Clone()}}
-	if s, err := claude.LoadSettings(claude.AccountOf(a.Acct)); err == nil {
-		st.current = s.String("statusLine.command")
+	if agent.Supports(k, agent.FeatureStatusLine) {
+		st.line, _ = agent.As[agent.StatusLiner](k)
+	}
+	if st.line != nil {
+		if cmd, err := st.line.StatusLine(a.Acct); err == nil {
+			st.current = cmd
+		}
 	}
 	// Taken before your own line is folded in, so saving adopts it.
 	b, _ := jsonx.Marshal(trimmed(st.claude))
@@ -358,10 +383,10 @@ func (st *statusSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 		m.sheet = nil
 		return nil
 	case "]":
-		st.tab, st.cur, st.err = (st.tab+1)%statusTabs, 0, ""
+		st.tab, st.cur, st.err = (st.tab+1)%st.tabs(), 0, ""
 		return nil
 	case "[":
-		st.tab, st.cur, st.err = (st.tab+statusTabs-1)%statusTabs, 0, ""
+		st.tab, st.cur, st.err = (st.tab+st.tabs()-1)%st.tabs(), 0, ""
 		return nil
 	case "enter", "ctrl+s":
 		return st.save(m)
@@ -465,23 +490,16 @@ func (st *statusSheet) save(m *Model) tea.Cmd {
 	if !l.Shown("custom") {
 		l.Custom = "" // let go of it only when it's taken out
 	}
-	if b, _ := jsonx.Marshal(trimmed(st.claude)); string(b) != st.was {
+	if b, _ := jsonx.Marshal(trimmed(st.claude)); st.line != nil && string(b) != st.was {
 		if err := statusline.Save(l); err != nil {
 			st.err = err.Error()
 			return nil
 		}
-		set, err := claude.LoadSettings(st.acct)
-		if err == nil {
-			err = set.Set("statusLine", map[string]any{"type": "command", "command": statusline.Command(), "padding": 0})
-		}
-		if err == nil {
-			err = set.Save()
-		}
-		if err != nil {
-			st.err = "couldn't save settings.json: " + err.Error()
+		if err := st.line.SetStatusLine(st.prof, statusline.Command()); err != nil {
+			st.err = "couldn't turn it on for " + st.prof.Name + ": " + err.Error()
 			return nil
 		}
-		msg += " · Claude Code sessions for " + st.acct.Name + " show theirs from their next redraw"
+		msg += " · " + agentName(string(st.kind)) + " sessions for " + st.prof.Name + " show theirs from their next redraw"
 	}
 	m.sheet = nil
 	m.flash(msg, false)
@@ -497,19 +515,12 @@ func (st *statusSheet) turnOff(m *Model) tea.Cmd {
 		st.err = "that status line is your own command, not agtop's: it's left alone"
 		return nil
 	}
-	set, err := claude.LoadSettings(st.acct)
-	if err == nil {
-		err = set.Set("statusLine", nil)
-	}
-	if err == nil {
-		err = set.Save()
-	}
-	if err != nil {
+	if err := st.line.SetStatusLine(st.prof, ""); err != nil {
 		st.err = err.Error()
 		return nil
 	}
 	m.sheet = nil
-	m.flash("status line turned off for "+st.acct.Name, false)
+	m.flash("status line turned off for "+st.prof.Name, false)
 	return nil
 }
 
@@ -517,7 +528,7 @@ func (st *statusSheet) turnOff(m *Model) tea.Cmd {
 func (st *statusSheet) sample(m *Model, id string) string {
 	if st.tab == stClaude {
 		l := statusline.Layout{Lines: [][]string{{id}}, Plain: st.claude.Plain, Custom: st.claude.Custom}
-		s, _, _ := strings.Cut(st.rnd.Render(st.in, l, st.acct.ConfigDir, time.Now()), "\n")
+		s, _, _ := strings.Cut(st.rnd.Render(st.in, l, st.prof.Dir, time.Now()), "\n")
 		return s
 	}
 	if s, ok := findBarSeg(st.which(), id); ok {
@@ -530,12 +541,12 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 	about := map[int]string{
 		stAgent:  "the top of an agent's Session: right of its name, and under it",
 		stTop:    "the top right of agtop, about every agent at once",
-		stClaude: "what Claude Code shows under its prompt · " + st.acct.Name,
+		stClaude: "what " + agentName(string(st.kind)) + " shows under its prompt · " + st.prof.Name,
 	}[st.tab]
-	out := []string{sheetTitle("Status lines", about, w), "", "  " + sheetTabs(statusTabNames, st.tab), ""}
+	out := []string{sheetTitle("Status lines", about, w), "", "  " + sheetTabs(st.tabNames(), st.tab), ""}
 	st.tabsY, st.tabEnds = 2, nil
 	end := 2
-	for _, n := range statusTabNames {
+	for _, n := range st.tabNames() {
 		end += ansi.StringWidth(n) + 5 // and the "  ·  " after it
 		st.tabEnds = append(st.tabEnds, end-2)
 	}
@@ -550,11 +561,12 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 	// it will sit there, and live behind the sheet too.
 	cw := w - 4
 	if st.tab == stClaude {
-		line := st.rnd.Render(st.in, *l, st.acct.ConfigDir, time.Now())
+		line := st.rnd.Render(st.in, *l, st.prof.Dir, time.Now())
 		if line == "" {
 			line = faint("(nothing to show: space adds a segment)")
 		}
-		out = append(out, dim("  preview, under Claude Code's prompt, with this session's numbers"))
+		name := agentName(string(st.kind))
+		out = append(out, dim("  preview, under "+name+"'s prompt, with this session's numbers"))
 		well := []string{faint(strings.Repeat("─", cw-2)), paint(cText, "❯ ")}
 		for _, ln := range strings.Split(line, "\n") {
 			well = append(well, ansi.Truncate(ln, cw-2, "…"))
@@ -563,9 +575,9 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		out = append(out, "")
 		switch {
 		case st.current == "":
-			out = append(out, dim("  Claude Code has no status line for this account yet."))
+			out = append(out, dim("  "+name+" has no status line for this account yet."))
 		case statusline.Ours(st.current):
-			out = append(out, dim("  Claude Code draws this now: saving updates it."))
+			out = append(out, dim("  "+name+" draws this now: saving updates it."))
 		default:
 			out = append(out, dim("  Your own status line is kept, as the segment Your own line: move it, or take it out."))
 		}
