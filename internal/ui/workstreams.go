@@ -50,6 +50,12 @@ type workState struct {
 	// so new rows above it keep it picked.
 	projPos int
 	projSel string
+	// projTab is the Projects page's tab; projIn is set once enter has
+	// gone into the picked project, inPos and inSel its row picked there.
+	projTab int
+	projIn  bool
+	inPos   int
+	inSel   string
 
 	tls     map[string]agent.Timeline    // by transcript path; the loader's alone
 	views   map[string][]agent.Happening // by agent key

@@ -12,8 +12,8 @@ import (
 func TestWorktreeRowSaysWhatItHas(t *testing.T) {
 	m := &Model{}
 	st := fleet.GitState{Branch: "worktree-devclean", Base: "main", BaseAhead: 3, BaseBehind: 89}
-	got := ansi.Strip(m.worktreeRow("/r/.claude/worktrees/devclean", st, fleet.Worktree{Size: 3 << 20}, 1, 120))
-	for _, want := range []string{"devclean", "3 commits of its own", "off main, 89 behind", "● 1 running", "3M"} {
+	got := ansi.Strip(m.worktreeLine("/r/.claude/worktrees/devclean", st, fleet.Worktree{Size: 3 << 20}, 1, 120))
+	for _, want := range []string{"devclean", "3 commits", "main · 89 behind", "● 1 running", "3M"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("row %q lacks %q", got, want)
 		}
