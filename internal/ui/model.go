@@ -234,9 +234,9 @@ type Model struct {
 	// groupOf is the list section each agent is in, folded or not.
 	groupOf map[string]string
 	folders folderCache // what git says of the folders in the list
-	// solo is the agtop-mode session shown alone (NewSolo), and soloKey
+	// hosted is the agtop-mode session shown alone (NewHosted), and hostedKey
 	// its agent's key once the snapshot has it.
-	solo, soloKey string
+	hosted, hostedKey string
 	// snapWanted is a reading of the fleet asked for, snapLoading one
 	// being made; selectOnLoad is an agent to select once one has it.
 	snapWanted, snapLoading bool
@@ -244,7 +244,7 @@ type Model struct {
 	// keysDisambiguated is when the terminal said it tells ctrl+enter
 	// from enter.
 	keysDisambiguated bool
-	// fleetAgents are every agent, which solo's header still counts.
+	// fleetAgents are every agent, which hosted's header still counts.
 	fleetAgents []*fleet.Agent
 	// sidebars are the plugins' arrangements of the list, read from
 	// sidebarFiles; renamed holds the names an arrangement replaced.
@@ -341,7 +341,7 @@ func tick() tea.Cmd {
 
 func (m *Model) Init() tea.Cmd {
 	watchUI()
-	if m.solo != "" {
+	if m.hosted != "" {
 		// Only the one session: nothing about the app as a whole.
 		return tea.Batch(tick(), m.scan(), m.loadPreview(), askColours, m.loadKeys(), m.startHooks())
 	}
@@ -606,7 +606,7 @@ func (m *Model) flash(s string, err bool) {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer uiBusy(msg)()
 	_, cmd := m.update(msg)
-	m.pinSolo()
+	m.pinHosted()
 	m.applyJump()
 	_, isTick := msg.(tickMsg)
 	m.noteProgress(isTick)
@@ -710,8 +710,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case rewoundMsg:
 		return m, m.onRewound(msg)
 	case hostStartedMsg:
-		if m.solo != "" {
-			// It's in Agents; the solo view stays on its own session.
+		if m.hosted != "" {
+			// It's in Agents; the hosted view stays on its own session.
 			m.flash("started "+msg.name+" · it's in agtop's Agents", false)
 			return m, nil
 		}
@@ -738,7 +738,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.zenPick()
 		m.emitHooks()
 		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.watchOnline()}
-		if m.solo == "" {
+		if m.hosted == "" {
 			// autoSwitch too: a session's usage reading arrives with the
 			// snapshot, not with a fetch.
 			cmds = append(cmds, m.movePending(), m.measureTemp(), m.tidy(), m.squeezeTranscripts(), m.autoSwitch())
@@ -758,7 +758,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
 		}
-		if m.tick%60 == 0 && m.solo == "" {
+		if m.tick%60 == 0 && m.hosted == "" {
 			cmds = append(cmds, m.fetchUsage(), m.findLogins(), m.fetchQuotas())
 		}
 		cmds = append(cmds, m.advTick())

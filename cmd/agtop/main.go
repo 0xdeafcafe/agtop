@@ -47,7 +47,7 @@ const usage = `agtop — a lighter agents view for Claude Code
   agtop plugin      sandboxed plugins: list, approve, revoke
   agtop session     start, send to, stop and list agtop-mode sessions without
                     the view ("agtop session help" for the commands)
-  agtop open <id> --solo
+  agtop open <id> --embedded
                     the view of one agtop-mode session alone, full width
   agtop --dump      print what the view sees, for debugging
 `
@@ -92,7 +92,7 @@ func main() {
 		case "session", "sessions":
 			os.Exit(sessionCmd(args[1:], os.Stdin, os.Stdout, os.Stderr))
 		case "open":
-			exitIf(openSolo(args[1:]))
+			exitIf(openHosted(args[1:]))
 			return
 		case "menubar":
 			exitIf(menuBar(args[1:]))

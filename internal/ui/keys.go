@@ -32,10 +32,10 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if cmd, used := m.remapKey(&k, &s); used {
 		return cmd
 	}
-	if cmd, ok := m.soloKeyGuard(s); ok {
+	if cmd, ok := m.hostedKeyGuard(s); ok {
 		return cmd
 	}
-	if m.solo != "" {
+	if m.hosted != "" {
 		// No command bar: it reaches every agent and place.
 	} else if cmd, ok := m.barToggle(s); ok {
 		return cmd

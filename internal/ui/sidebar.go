@@ -40,10 +40,10 @@ func (m *Model) groupLabel(mode string) string {
 }
 
 // activeSidebar is the plugin arrangement the list is grouped by, if any.
-// Solo shows one session and is never arranged.
+// Embedded shows one session and is never arranged.
 func (m *Model) activeSidebar() *plugin.Sidebar {
 	name, ok := strings.CutPrefix(m.store.Config.GroupBy, pluginGroupPrefix)
-	if !ok || m.solo != "" {
+	if !ok || m.hosted != "" {
 		return nil
 	}
 	for i := range m.sidebars {
@@ -57,7 +57,7 @@ func (m *Model) activeSidebar() *plugin.Sidebar {
 // loadSidebars reads the plugins' arrangements again where their files
 // changed.
 func (m *Model) loadSidebars() {
-	if m.solo != "" {
+	if m.hosted != "" {
 		m.sidebars = nil
 		return
 	}

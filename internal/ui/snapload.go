@@ -32,10 +32,10 @@ func (m *Model) loadSnapCmd() tea.Cmd {
 		return nil
 	}
 	m.snapWanted, m.snapLoading = false, true
-	l, store, files, solo := m.loader, m.store.Copy(), &m.sidebarFiles, m.solo
+	l, store, files, hosted := m.loader, m.store.Copy(), &m.sidebarFiles, m.hosted
 	return func() tea.Msg {
 		msg := snapMsg{snap: l.LoadFrom(store, true)}
-		if solo == "" {
+		if hosted == "" {
 			msg.sidebars = files.Load()
 			msg.jump = menubar.Goto()
 		}
@@ -64,7 +64,7 @@ func (m *Model) onSnap(msg snapMsg) {
 func (m *Model) refreshNow() {
 	m.snapWanted = false
 	var sb []plugin.Sidebar
-	if m.solo == "" {
+	if m.hosted == "" {
 		sb = m.sidebarFiles.Load()
 	}
 	m.applySnap(m.loader.Load(true), sb)
@@ -73,9 +73,9 @@ func (m *Model) refreshNow() {
 // applySnap takes in a reading: what changed is noticed, finished agents
 // are put away, and the list is laid out again.
 func (m *Model) applySnap(snap *fleet.Snapshot, sidebars []plugin.Sidebar) {
-	m.snap = m.soloSnap(snap)
+	m.snap = m.hostedSnap(snap)
 	m.notify()
-	if m.solo == "" {
+	if m.hosted == "" {
 		m.hibernate()
 		m.reap()
 	}

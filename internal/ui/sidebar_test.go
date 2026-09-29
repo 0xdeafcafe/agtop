@@ -102,7 +102,7 @@ func TestSidebarArrangesTheList(t *testing.T) {
 	}
 }
 
-func TestSidebarIgnoredWhenRevokedOrSolo(t *testing.T) {
+func TestSidebarIgnoredWhenRevokedOrHosted(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "session a")
 	sidebarPlugin(t, plugin.Sidebar{Plugin: "kanban", Title: "Kanban",
@@ -111,9 +111,9 @@ func TestSidebarIgnoredWhenRevokedOrSolo(t *testing.T) {
 	store := state.Load()
 	store.Config.GroupBy = "plugin:kanban"
 
-	solo := NewSolo(store, "test", "aaaa1111")
-	if solo.activeSidebar() != nil || solo.snap.Agents[0].DisplayName != "session a" {
-		t.Fatal("solo was arranged by the plugin")
+	embedded := NewHosted(store, "test", "aaaa1111")
+	if embedded.activeSidebar() != nil || embedded.snap.Agents[0].DisplayName != "session a" {
+		t.Fatal("embedded was arranged by the plugin")
 	}
 
 	m := New(store, "test")

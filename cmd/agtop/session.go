@@ -579,11 +579,11 @@ func matches(have, want map[string]string) bool {
 	return true
 }
 
-// openSolo is agtop open <id> [--solo]: the view of that one session
-// alone. Without --solo it is the same view.
-func openSolo(args []string) error {
+// openHosted is agtop open <id> [--embedded]: the view of that one session
+// alone. Without --embedded it is the same view.
+func openHosted(args []string) error {
 	fs := newFlags("open")
-	fs.Bool("solo", true, "")
+	fs.Bool("embedded", true, "")
 	id, err := idAndFlags(fs, args)
 	if err != nil {
 		return err
@@ -595,7 +595,7 @@ func openSolo(args []string) error {
 		return fmt.Errorf("session %s %w", id, errNotFound)
 	}
 	viewGC()
-	p := tea.NewProgram(ui.NewSolo(state.Load(), version, id), tea.WithFPS(120))
+	p := tea.NewProgram(ui.NewHosted(state.Load(), version, id), tea.WithFPS(120))
 	_, err = p.Run()
 	return err
 }

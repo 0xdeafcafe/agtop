@@ -43,7 +43,7 @@ func (m *Model) advRecord() *advisor.Record {
 
 // advTick starts a pass when the advisor is on and one may be due.
 func (m *Model) advTick() tea.Cmd {
-	if !m.store.Config.Advisor || m.solo != "" || m.offline {
+	if !m.store.Config.Advisor || m.hosted != "" || m.offline {
 		return nil
 	}
 	a := &m.eff.adv

@@ -139,7 +139,7 @@ func BenchmarkSwitch(b *testing.B) {
 				}
 				if warm {
 					_, paneW := m.widths()
-					open = warmed(open, convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.solo != ""})
+					open = warmed(open, convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hosted != ""})
 				}
 				m.host = open().(hostOpenMsg).c
 				b.StartTimer()
