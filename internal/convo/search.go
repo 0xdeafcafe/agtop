@@ -14,13 +14,13 @@ import (
 type Hit struct {
 	Ref     string // the turn or step it jumps to
 	Turn    int
-	Who     string // you, claude, or the tool
+	Who     string // you, the agent (WhoAgent), or the tool
 	Snippet string
 }
 
 type query struct {
 	words    []string
-	kinds    map[string]bool // failed, edit, cmd, read, you, claude
+	kinds    map[string]bool // failed, edit, cmd, read, you, agent
 	file     string
 	from, to int // turn range; 0 means any
 	unknown  []string
@@ -30,7 +30,11 @@ var knownKinds = map[string]bool{"failed": true, "edit": true, "cmd": true, "rea
 
 // WhoAgent is who a hit in what the agent said is from, and the word that
 // finds only those.
-const WhoAgent = "claude"
+const WhoAgent = "agent"
+
+// whoClaude is is:claude, kept for searches typed before agtop ran other
+// agents, until is:agent has been the word a while.
+const whoClaude = "claude" // migration: is:claude, the word before is:agent
 
 func parseQuery(q string) query {
 	p := query{kinds: map[string]bool{}}
@@ -38,6 +42,9 @@ func parseQuery(q string) query {
 		switch {
 		case strings.HasPrefix(f, "is:"):
 			k := strings.TrimPrefix(f, "is:")
+			if k == whoClaude {
+				k = WhoAgent
+			}
 			if !knownKinds[k] {
 				p.unknown = append(p.unknown, f)
 				continue
@@ -101,7 +108,7 @@ func findFold(s, w string) (start, end int) {
 }
 
 // Search finds turns and steps that match q: plain words anywhere, narrowed
-// by is:failed, is:edit, is:cmd, is:read, is:you, is:claude, file:<part of
+// by is:failed, is:edit, is:cmd, is:read, is:you, is:agent, file:<part of
 // a path> and turn:12 or turn:10-13.
 func (s *Session) Search(q string) []Hit {
 	p := parseQuery(q)
@@ -115,7 +122,7 @@ func (s *Session) Search(q string) []Hit {
 			continue
 		}
 		ref := fmt.Sprintf("t%d", t.N)
-		if !steps && !p.kinds["claude"] && p.matches(t.Prompt) && (len(p.words) > 0 || p.kinds["you"] || p.from > 0) {
+		if !steps && !p.kinds[WhoAgent] && p.matches(t.Prompt) && (len(p.words) > 0 || p.kinds["you"] || p.from > 0) {
 			hits = append(hits, Hit{Ref: ref, Turn: t.N, Who: "you", Snippet: snippet(t.Prompt, p.words)})
 		}
 		if p.kinds["you"] {
@@ -124,12 +131,12 @@ func (s *Session) Search(q string) []Hit {
 		for _, it := range t.Items {
 			switch it.Kind {
 			case KText:
-				if steps || len(p.words) == 0 && !p.kinds["claude"] || !p.matches(it.Text) {
+				if steps || len(p.words) == 0 && !p.kinds[WhoAgent] || !p.matches(it.Text) {
 					continue
 				}
-				hits = append(hits, Hit{Ref: ref, Turn: t.N, Who: "claude", Snippet: snippet(it.Text, p.words)})
+				hits = append(hits, Hit{Ref: ref, Turn: t.N, Who: WhoAgent, Snippet: snippet(it.Text, p.words)})
 			case KStep:
-				if p.kinds["claude"] {
+				if p.kinds[WhoAgent] {
 					continue
 				}
 				for _, st := range append([]*Step{it.Step}, it.Step.Children...) {
@@ -214,10 +221,10 @@ func (s *Session) SearchView(q string, o Options) []Line {
 	var out []Line
 	head := fmt.Sprintf("%d matches", len(hits))
 	if strings.TrimSpace(q) == "" {
-		head = "type to search · is:failed is:edit is:cmd is:read is:you is:claude file:<name> turn:10-13"
+		head = "type to search · is:failed is:edit is:cmd is:read is:you is:agent file:<name> turn:10-13"
 	}
 	if u := parseQuery(q).unknown; len(u) > 0 {
-		head += " · " + strings.Join(u, " ") + " isn't a filter (is:failed is:edit is:cmd is:read is:you is:claude)"
+		head += " · " + strings.Join(u, " ") + " isn't a filter (is:failed is:edit is:cmd is:read is:you is:agent)"
 	}
 	out = append(out, Line{Text: row("", "  "+dim(head), dim("enter jumps · esc closes"), o.Width, w)}, Line{Text: ""})
 	words := parseQuery(q).words

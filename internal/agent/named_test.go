@@ -18,15 +18,11 @@ var namedOK = []string{"internal/claude/", "internal/adapters/claude/", "interna
 // shrinks: a new "claude" belongs behind the Claude adapter, or asks the
 // registry (agent.Supports, an adapter interface, agent.ProgramOf).
 var namedYet = map[string]string{
-	// Accounts and state are being reworked into providers and profiles.
-	"internal/ui/settings_claude.go": "Claude Code's own page of Settings",
-	"internal/state/state.go":        "providers",
-	// Search's word for what the agent said: who:claude.
-	"internal/convo/search.go": "search syntax",
-	// The efficiency savers are Claude Code plugins, installed with its CLI.
-	"internal/efficiency/catalog.go": "savers",
-	// The advisor runs Claude Code headless to read your figures.
-	"internal/advisor/run.go": "advisor",
+	// The efficiency savers are Claude Code plugins and MCP servers, and
+	// their install recipes run its own CLI: `claude plugin install`,
+	// `claude mcp add`. They stay named for as long as the savers are
+	// Claude Code's.
+	"internal/efficiency/catalog.go": "savers are Claude Code plugins, installed with its CLI",
 }
 
 // The core names no agent: "claude" appears only in Claude Code's own

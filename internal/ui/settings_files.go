@@ -13,6 +13,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/settingsfile"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // What an agent itself reads, on its page: the keys of its settings file
@@ -86,7 +87,7 @@ func (m *Model) definitionRow(a agent.AgentDef, newAgent func()) setting {
 			}
 			model := ""
 			if a.Model != "" && a.Model != "inherit" {
-				model = " · " + strings.TrimPrefix(a.Model, "claude-")
+				model = " · " + modelWord(state.LoginsKind, a.Model)
 			}
 			return mark + " " + paint(cText, fit(a.Name, 22)) + faint(fit(a.Scope+model, 24)) + dim(fit(a.Desc, max(10, w-48)))
 		},

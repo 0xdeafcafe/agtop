@@ -287,10 +287,7 @@ func (m *Model) wallAgentTile(a *fleet.Agent, w, h int, picked bool) []string {
 	iw := w - 4 // inside the edge, a space either side
 
 	// The top edge carries the name and, on the right, the model and age.
-	model := strings.TrimPrefix(p.Model, "claude-")
-	if model == "" {
-		model = strings.TrimPrefix(a.Spend.Model, "claude-")
-	}
+	model := modelWord(a.Kind, firstNonEmpty(p.Model, a.Spend.Model))
 	if !unmarked(agent.Kind(a.Kind)) {
 		model = strings.TrimSpace(agentName(a.Kind) + " " + model)
 	}

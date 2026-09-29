@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
@@ -348,10 +349,11 @@ func (s *Session) Apply(ev any, now time.Time) {
 	case host.InfoEvent:
 		s.Info = ev.Info
 		s.syncJobs(ev.Info, now)
-		// The host went idle with a turn still open: Claude died mid-turn.
+		// The host went idle with a turn still open: the agent died
+		// mid-turn.
 		if t := s.Live(); t != nil && ev.Info.State == "idle" && ev.Info.ClaudePID == 0 {
 			s.endTurn(t, now)
-			t.Err = "claude exited mid-turn"
+			t.Err = programWord(ev.Info.Kind) + " exited mid-turn"
 			if ev.Info.Error != "" {
 				t.Err += ": " + firstLine(ev.Info.Error)
 			}
@@ -953,4 +955,20 @@ func (st *Step) kind() tool.Kind {
 		return st.Kind
 	}
 	return claude.KindOf(st.Tool)
+}
+
+// programWord is what the session's agent is called when its process
+// dies: its program's name ("claude", "codex"), else its own name.
+func programWord(kind string) string {
+	k := agent.Kind(kind)
+	if k == "" {
+		k = agent.LegacyKind
+	}
+	if p := agent.ProgramOf(k); p != "" {
+		return p
+	}
+	if a, ok := agent.Get(k); ok {
+		return a.Name()
+	}
+	return "the agent"
 }

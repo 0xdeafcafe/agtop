@@ -652,8 +652,8 @@ func TestSearchEdges(t *testing.T) {
 		t.Fatalf("open range = %+v", p)
 	}
 	s := session()
-	if len(s.Search("is:claude")) == 0 {
-		t.Fatal("is:claude alone lists what Claude said")
+	if len(s.Search("is:agent")) == 0 || len(s.Search("is:claude")) != len(s.Search("is:agent")) {
+		t.Fatal("is:agent alone lists what the agent said, and is:claude still does")
 	}
 	_ = s.SearchView("İ", Options{Width: 100}) // mustn't panic
 }

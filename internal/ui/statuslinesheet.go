@@ -32,15 +32,16 @@ type statusSheet struct {
 	prof agent.Profile
 	kind agent.Kind
 	// line is the session's agent's own status line; nil hides its tab.
-	line   agent.StatusLiner
-	a      *fleet.Agent
-	c      *hostConn
-	tab    int
-	claude statusline.Layout
-	bars   statusline.Bars
-	was    string // the Claude Code layout as opened, to tell if it changed
-	cur    int
-	in     statusline.Input
+	line agent.StatusLiner
+	a    *fleet.Agent
+	c    *hostConn
+	tab  int
+	// agentLay is the agent's own line under its prompt (Claude Code's).
+	agentLay statusline.Layout
+	bars     statusline.Bars
+	was      string // the Claude Code layout as opened, to tell if it changed
+	cur      int
+	in       statusline.Input
 	// current is settings.json's statusLine command now.
 	current string
 	err     string
@@ -91,7 +92,7 @@ func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 		bars.Agent = statusline.DefaultAgent()
 	}
 	k := sessionAgent(c)
-	st := &statusSheet{prof: a.Acct, kind: k, a: a, c: c, claude: statusline.Load().Clone(), in: previewInput(c, a),
+	st := &statusSheet{prof: a.Acct, kind: k, a: a, c: c, agentLay: statusline.Load().Clone(), in: previewInput(c, a),
 		bars: statusline.Bars{Top: bars.Top.Clone(), Agent: bars.Agent.Clone()}}
 	if agent.Supports(k, agent.FeatureStatusLine) {
 		st.line, _ = agent.As[agent.StatusLiner](k)
@@ -102,14 +103,14 @@ func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 		}
 	}
 	// Taken before your own line is folded in, so saving adopts it.
-	b, _ := jsonx.Marshal(trimmed(st.claude))
+	b, _ := jsonx.Marshal(trimmed(st.agentLay))
 	st.was = string(b)
 	// A status line of your own isn't lost: it becomes a segment, kept
 	// where it was, on the first line.
-	if st.current != "" && !statusline.Ours(st.current) && st.claude.Custom != st.current {
-		st.claude.Custom = st.current
-		if !st.claude.Shown("custom") {
-			st.claude.Lines = append([][]string{{"custom"}}, st.claude.Lines...)
+	if st.current != "" && !statusline.Ours(st.current) && st.agentLay.Custom != st.current {
+		st.agentLay.Custom = st.current
+		if !st.agentLay.Shown("custom") {
+			st.agentLay.Lines = append([][]string{{"custom"}}, st.agentLay.Lines...)
 		}
 	}
 	for t := range statusTabs {
@@ -148,7 +149,7 @@ func (st *statusSheet) lay() *statusline.Layout {
 	case stAgent:
 		return &st.bars.Agent
 	}
-	return &st.claude
+	return &st.agentLay
 }
 
 func (st *statusSheet) maxLines() int {
@@ -175,7 +176,7 @@ func (st *statusSheet) segs() []segInfo {
 	var out []segInfo
 	if st.tab == stClaude {
 		for _, s := range statusline.Segments {
-			if s.ID == "custom" && st.claude.Custom == "" {
+			if s.ID == "custom" && st.agentLay.Custom == "" {
 				continue
 			}
 			out = append(out, segInfo{s.ID, s.Name, s.About})
@@ -486,11 +487,11 @@ func (st *statusSheet) save(m *Model) tea.Cmd {
 	}
 	m.bars = bars
 	msg := "status lines saved"
-	l := trimmed(st.claude)
+	l := trimmed(st.agentLay)
 	if !l.Shown("custom") {
 		l.Custom = "" // let go of it only when it's taken out
 	}
-	if b, _ := jsonx.Marshal(trimmed(st.claude)); st.line != nil && string(b) != st.was {
+	if b, _ := jsonx.Marshal(trimmed(st.agentLay)); st.line != nil && string(b) != st.was {
 		if err := statusline.Save(l); err != nil {
 			st.err = err.Error()
 			return nil
@@ -527,7 +528,7 @@ func (st *statusSheet) turnOff(m *Model) tea.Cmd {
 // sample is one segment on its own, as the line would show it now.
 func (st *statusSheet) sample(m *Model, id string) string {
 	if st.tab == stClaude {
-		l := statusline.Layout{Lines: [][]string{{id}}, Plain: st.claude.Plain, Custom: st.claude.Custom}
+		l := statusline.Layout{Lines: [][]string{{id}}, Plain: st.agentLay.Plain, Custom: st.agentLay.Custom}
 		s, _, _ := strings.Cut(st.rnd.Render(st.in, l, st.prof.Dir, time.Now()), "\n")
 		return s
 	}
@@ -648,7 +649,7 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		}
 		about := seg.about
 		if sl.id == "custom" && st.tab == stClaude {
-			about = st.claude.Custom
+			about = st.agentLay.Custom
 		}
 		if noRoom {
 			about = paint(cYellow, "no room ⋯ move it earlier, or widen the window")

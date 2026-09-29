@@ -30,7 +30,7 @@ func TestSearchFile(t *testing.T) {
 		t.Fatalf("got %+v %d %v", hits, total, err)
 	}
 	hits, total, _ = SearchFile(p, "cookie", 10)
-	if total != 1 || hits[0].Who != "claude" {
+	if total != 1 || hits[0].Who != WhoAgent {
 		t.Fatalf("cookie: %+v", hits)
 	}
 	if _, total, _ = SearchFile(p, "testlogin is:failed", 10); total != 1 {

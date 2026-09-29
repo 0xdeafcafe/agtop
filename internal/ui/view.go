@@ -1981,8 +1981,14 @@ func (m *Model) promptLines(w int) []string {
 			pairs = append([]string{"#update", "new agtop"}, pairs...)
 		}
 		if m.hosted != "" {
-			// Hosted's list: the way back to the session comes first.
-			pairs = append([]string{"esc · ctrl+6", "hide Agents"}, pairs...)
+			// Hosted's list: no command bar, and the way back to the session.
+			var kept []string
+			for i := 0; i+1 < len(pairs); i += 2 {
+				if pairs[i] != "ctrl+k" {
+					kept = append(kept, pairs[i], pairs[i+1])
+				}
+			}
+			pairs = append([]string{"esc · ctrl+6", "hide Agents"}, kept...)
 		}
 		// With one side on screen, how to have both is kept in view.
 		l, p := m.widths()
@@ -2032,10 +2038,7 @@ func (m *Model) previewLines(w, h int) []string {
 		chip = paint(cSub, "idle")
 	}
 	top = append(top, paint(cText+bold, oneLine(a.DisplayName))+"   "+chip)
-	model := strings.TrimPrefix(p.Model, "claude-")
-	if model == "" {
-		model = strings.TrimPrefix(a.Spend.Model, "claude-")
-	}
+	model := modelWord(a.Kind, firstNonEmpty(p.Model, a.Spend.Model))
 	top = append(top, dim(strings.Join(nonEmpty(a.ID, a.Acct.Name, model, "updated "+age(a.Age(now))+" ago"), " · ")))
 	loc := paint(cSub, tildify(a.Cwd))
 	if a.Branch != "" {

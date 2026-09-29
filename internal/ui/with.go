@@ -36,6 +36,15 @@ func (m *Model) withAgent(kind string) {
 	m.flash("new sessions run "+agentName(kind), false)
 }
 
+// modelWord is model id as the agent of kind names it: "Opus 5.5".
+func modelWord(kind, id string) string {
+	k := agent.Kind(kind)
+	if k == "" {
+		k = agent.LegacyKind
+	}
+	return agent.ModelName(k, id)
+}
+
 // agentName is an agent's name, by its kind.
 func agentName(kind string) string {
 	k := agent.Kind(kind)

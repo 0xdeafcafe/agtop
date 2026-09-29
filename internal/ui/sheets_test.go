@@ -118,17 +118,17 @@ func TestStatusSheet(t *testing.T) {
 	// line 2, then Model comes out of the line.
 	st.cur = 1
 	st.key(m, tea.KeyPressMsg{}, "shift+up")
-	if st.claude.Lines[0][0] != "folder" || st.cur != 0 {
-		t.Fatalf("move: %v cur=%d", st.claude.Lines, st.cur)
+	if st.agentLay.Lines[0][0] != "folder" || st.cur != 0 {
+		t.Fatalf("move: %v cur=%d", st.agentLay.Lines, st.cur)
 	}
 	st.key(m, tea.KeyPressMsg{}, "2")
-	if len(st.claude.Lines[1]) != 1 || st.claude.Lines[1][0] != "folder" {
-		t.Fatalf("to line 2: %v", st.claude.Lines)
+	if len(st.agentLay.Lines[1]) != 1 || st.agentLay.Lines[1][0] != "folder" {
+		t.Fatalf("to line 2: %v", st.agentLay.Lines)
 	}
 	st.cur = 0
 	st.key(m, tea.KeyPressMsg{}, "space")
-	if st.claude.Shown("model") || !strings.Contains(text(), "   ⎇") && !strings.Contains(text(), "   ctx") {
-		t.Fatalf("hide: %v\n%s", st.claude.Lines, text())
+	if st.agentLay.Shown("model") || !strings.Contains(text(), "   ⎇") && !strings.Contains(text(), "   ctx") {
+		t.Fatalf("hide: %v\n%s", st.agentLay.Lines, text())
 	}
 	if !strings.Contains(text(), "Line 3") || !strings.Contains(text(), "Not shown") {
 		t.Fatalf("headings:\n%s", text())
@@ -215,8 +215,8 @@ func TestStatusSheetKeepsYourOwn(t *testing.T) {
 	for end := time.Now().Add(3 * time.Second); !shows() && time.Now().Before(end); {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if st.claude.Lines[0][0] != "custom" || !shows() {
-		t.Fatalf("your own line should lead: %v", st.claude.Lines)
+	if st.agentLay.Lines[0][0] != "custom" || !shows() {
+		t.Fatalf("your own line should lead: %v", st.agentLay.Lines)
 	}
 	st.key(m, tea.KeyPressMsg{}, "enter")
 	if l := statusline.Load(); l.Custom == "" || l.Lines[0][0] != "custom" || len(l.Lines) != 2 {
