@@ -19,7 +19,7 @@ var Defaults = []Action{
 	{ID: "list.first", Context: List, Title: "the first agent", Keys: []string{"home"}},
 	{ID: "list.last", Context: List, Title: "the last agent", Keys: []string{"end"}},
 	{ID: "list.enter", Context: List, Title: "open or rename the agent, or send what's typed", Keys: []string{"enter"}},
-	{ID: "list.open", Context: List, Title: "open the agent's Session", Keys: []string{"ctrl+o", "super+down"}},
+	{ID: "list.open", Context: List, Title: "open the agent's Session", Keys: []string{"ctrl+o"}},
 	{ID: "list.right", Context: List, Title: "into the agent, or unfold a heading", Keys: []string{"right"}},
 	{ID: "list.left", Context: List, Title: "fold the heading", Keys: []string{"left"}},
 	{ID: "list.back", Context: List, Title: "clear, go back, or (twice) quit", Keys: []string{"esc"}},

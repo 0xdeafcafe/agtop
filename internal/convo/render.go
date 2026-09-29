@@ -1317,7 +1317,7 @@ func links(s, base string) string {
 
 func urlStop(c byte) bool {
 	switch c {
-	case '\t', '\n', '\f', '\r', ' ', ')', '>', ']', '"', '\'', '`':
+	case '\t', '\n', '\f', '\r', ' ', ')', '>', ']', '"', '\'', '`', ',':
 		return true
 	}
 	return false

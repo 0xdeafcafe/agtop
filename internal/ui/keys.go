@@ -436,11 +436,15 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	case "super+down":
-		// ⌘↓ opens, as in the Finder: into the agent's Session message box.
-		if empty && a != nil && !strings.HasPrefix(m.sel, "§") {
-			return m.focusPane(a)
+		// ⌘↓ opens, as in the Finder, into the agent's Session message box,
+		// when there's nothing typed; typing something, it's the box's own
+		// key, to the end of the text.
+		if empty {
+			if a != nil && !strings.HasPrefix(m.sel, "§") {
+				return m.focusPane(a)
+			}
+			return nil
 		}
-		return nil
 	case "ctrl+l":
 		// Drafting a new session, or nothing selected: choose where it
 		// starts. Otherwise: move the selected agent.
