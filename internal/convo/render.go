@@ -795,6 +795,7 @@ func (d *drawer) markdown(s string, indent int, c string, keepBlank bool) {
 	w := min(d.cw-indent-1, capProse)
 	pad := d.spine() + blanks(indent-1)
 	lines := strings.Split(s, "\n")
+	var items []listLevel // the list items open, outermost first
 	for li := 0; li < len(lines); li++ {
 		trim := strings.TrimSpace(lines[li])
 		if strings.HasPrefix(trim, "|") {
@@ -826,37 +827,96 @@ func (d *drawer) markdown(s string, indent int, c string, keepBlank bool) {
 			}
 			continue
 		case strings.HasPrefix(trim, "#"):
+			items = items[:0]
 			d.add("", "", pad+paint(strong(c), strings.TrimSpace(strings.TrimLeft(trim, "#"))), "")
 			continue
 		}
+		// A list item, or a line of one, sits at its depth: two columns a
+		// level, the bullet changing with it, wrapped lines under the text.
+		col := indentOf(lines[li])
+		marker, body, isItem := listItem(trim)
+		lead, ind := marker, ""
+		switch {
+		case isItem:
+			for len(items) > 0 && items[len(items)-1].col >= col {
+				items = items[:len(items)-1]
+			}
+			depth := len(items)
+			if marker == "" {
+				lead = bullets[depth%len(bullets)]
+			}
+			items = append(items, listLevel{col: col, text: 2*depth + len([]rune(lead)) + 1})
+			ind = blanks(2 * depth)
+		case col > 0 && len(items) > 0:
+			// Indented under an item: its text goes on there.
+			for len(items) > 1 && items[len(items)-1].col >= col {
+				items = items[:len(items)-1]
+			}
+			ind = blanks(items[len(items)-1].text)
+		default:
+			items = items[:0]
+		}
 		// A paragraph already drawn this way comes from the memo, so text
 		// streaming in only wraps its last paragraph again.
-		k := memoKey{text: trim, style: c, spine: d.spine(), n: indent, width: d.o.Width, cw: d.cw}
+		k := memoKey{text: trim, style: c + ":" + lead, spine: d.spine() + ind, n: indent, width: d.o.Width, cw: d.cw}
 		if ls, ok := d.s.memoGet(k); ok {
 			d.lines = append(d.lines, ls...)
 			continue
 		}
 		from := len(d.lines)
-		lead, body := "", trim
-		if strings.HasPrefix(trim, "- ") || strings.HasPrefix(trim, "* ") {
-			lead, body = dim("•")+" ", trim[2:]
-		} else if m := numbered.FindStringSubmatch(trim); m != nil {
-			lead, body = dim(m[1])+" ", m[2]
+		if lead != "" {
+			lead = dim(lead) + " "
 		}
 		leadW := len([]rune(stripANSI(lead)))
-		for k, r := range wrap(paint(c, inline(body, c)), w-leadW) {
+		for k, r := range wrap(paint(c, inline(body, c)), max(8, w-len(ind)-leadW)) {
 			if k > 0 && lead != "" {
 				r = blanks(leadW) + r
 			} else {
 				r = lead + r
 			}
-			d.add("", "", pad+r, "")
+			d.add("", "", pad+ind+r, "")
 			if k > 0 {
 				d.wrapped()
 			}
 		}
 		d.s.memoPut(k, d.lines[from:])
 	}
+}
+
+// listLevel is an open list item: the column its marker is at in the
+// source, and the one its text starts at as drawn.
+type listLevel struct{ col, text int }
+
+// bullets mark unordered items, one per depth.
+var bullets = []string{"•", "◦", "▪"}
+
+// listItem splits a markdown list item into its marker and text: marker
+// is "" for a bullet, the number for an ordered item.
+func listItem(trim string) (marker, body string, ok bool) {
+	if len(trim) >= 2 && (trim[0] == '-' || trim[0] == '*' || trim[0] == '+') && trim[1] == ' ' {
+		return "", strings.TrimSpace(trim[2:]), true
+	}
+	if m := numbered.FindStringSubmatch(trim); m != nil {
+		return m[1], m[2], true
+	}
+	return "", trim, false
+}
+
+// indentOf is a line's leading indent in columns, a tab to the next stop
+// of four.
+func indentOf(s string) int {
+	n := 0
+	for _, r := range s {
+		switch r {
+		case ' ':
+			n++
+		case '\t':
+			n += 4 - n%4
+		default:
+			return n
+		}
+	}
+	return n
 }
 
 // strong is the bold colour for headings drawn in c: white over body text,
@@ -1131,7 +1191,7 @@ func link(url string) string {
 // base colour after each.
 func Inline(s, base string) string { return inline(s, base) }
 
-var numbered = regexp.MustCompile(`^(\d+\.)\s+(.*)$`)
+var numbered = regexp.MustCompile(`^(\d+[.)])\s+(.*)$`)
 
 // inline styles **bold** and `code`, returning to base colour after each,
 // draws markdown images and links, and links URLs. Byte scans, the same as
