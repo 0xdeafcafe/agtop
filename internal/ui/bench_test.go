@@ -92,7 +92,7 @@ func benchModel(w, h int) (*Model, chan []byte) {
 	m.rebuild()
 	m.sel, m.preview, m.paneFocus = sel.Key, true, true
 	lines := make(chan []byte, 16)
-	m.host = &hostConn{key: sel.Key, id: sel.ID, client: &host.Client{Lines: lines}, sess: benchConvo(300), open: map[string]bool{}, ready: true}
+	m.host = &hostConn{kind: "claude", key: sel.Key, id: sel.ID, client: &host.Client{Lines: lines}, sess: benchConvo(300), open: map[string]bool{}, ready: true}
 	m.host.input = []rune("a message I am halfway through typing, long enough to wrap onto a second row of the box")
 	m.View()
 	return m, lines

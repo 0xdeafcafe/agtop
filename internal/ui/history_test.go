@@ -38,7 +38,7 @@ func TestAHistoryIsFollowedAsItGrows(t *testing.T) {
 	}
 	h := &history{kind: "lines", s: agent.Session{Transcript: path}}
 	h.stat()
-	c := &hostConn{sess: agentHistory(h.kind, h.s, time.Time{}), hist: h}
+	c := &hostConn{kind: "claude", sess: agentHistory(h.kind, h.s, time.Time{}), hist: h}
 	if n := len(c.sess.Turns); n != 1 {
 		t.Fatalf("read %d turns, want 1", n)
 	}

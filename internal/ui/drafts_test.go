@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 func draftModel() (*Model, *hostConn) {
 	a := &fleet.Agent{Key: "k", DisplayName: "fix the tests"}
 	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}, paneFocus: true}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	c.box = box{w: 40, lead: "❯ "}
 	m.host = c
 	return m, c

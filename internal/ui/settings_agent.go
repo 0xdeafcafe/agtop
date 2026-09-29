@@ -150,7 +150,7 @@ func (m *Model) agentHead(k agent.Kind, w int) []string {
 	}
 	var live, total int
 	for _, a := range m.snap.Agents {
-		if state.KindOf(a.Kind) == string(k) {
+		if a.Kind == string(k) {
 			total++
 			if a.Live() {
 				live++
@@ -211,7 +211,7 @@ func (m *Model) startSection(k agent.Kind) section {
 		seen[c.ID] = true
 	}
 	for _, a := range m.snap.Agents {
-		if model := a.Spend.Model; model != "" && !seen[model] && state.KindOf(a.Kind) == kind && !strings.HasPrefix(model, "<") {
+		if model := a.Spend.Model; model != "" && !seen[model] && a.Kind == kind && !strings.HasPrefix(model, "<") {
 			seen[model] = true
 			models = append(models, agent.Choice{ID: model, Note: "one your " + name + " sessions have run."})
 		}

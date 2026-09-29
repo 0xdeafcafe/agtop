@@ -67,9 +67,6 @@ func TestStartForKind(t *testing.T) {
 	if got := d.StartFor("codex"); got.Effort != "high" || got.Mode != "auto" || got.Model != "" {
 		t.Fatalf("codex start = %+v", got)
 	}
-	if got := d.StartFor(""); got.Model != "opus" {
-		t.Fatalf("an empty kind is Claude Code's: %+v", got)
-	}
 	d.SetStartFor("codex", state.Start{})
 	if _, ok := d.Starts["codex"]; ok {
 		t.Fatal("an emptied start is kept")

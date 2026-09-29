@@ -498,7 +498,7 @@ func (r *runner) subscribe(id string) error {
 		live := false
 		var last Session
 		var d host.Decoder
-		kind := agent.KindOf("")
+		var kind agent.Kind
 		for line := range c.Lines {
 			evs, err := d.Decode(line)
 			if err != nil {
@@ -507,7 +507,7 @@ func (r *runner) subscribe(id string) error {
 			for _, ev := range evs {
 				switch ev := ev.(type) {
 				case host.InfoEvent:
-					live, kind = true, agent.KindOf(ev.Info.Kind)
+					live, kind = true, agent.Kind(ev.Info.Kind)
 					s := sessionOf(ev.Info)
 					if s.State != last.State || s.Detail != last.Detail || s.Needs != last.Needs {
 						emit(map[string]any{"type": "info", "state": s.State, "detail": s.Detail, "needs": s.Needs, "costUsd": s.CostUSD})

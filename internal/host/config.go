@@ -32,6 +32,7 @@ func (cfg *Config) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	*cfg = Config(w.plainConfig)
-	cfg.Account = agent.Profile{Kind: agent.KindOf(cfg.Kind), Name: w.Account.Name, Dir: w.Account.ConfigDir}
+	cfg.Kind = string(agent.Migrated(cfg.Kind)) // migration: an older agtop's config names no kind for Claude Code
+	cfg.Account = agent.Profile{Kind: agent.Kind(cfg.Kind), Name: w.Account.Name, Dir: w.Account.ConfigDir}
 	return nil
 }

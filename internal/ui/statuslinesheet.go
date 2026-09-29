@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -99,10 +100,10 @@ func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 func (m *Model) openTopBar(a *fleet.Agent) {
 	c := m.host
 	if a == nil {
-		a = &fleet.Agent{Acct: m.store.Config.ActiveAccount().Profile(), Cwd: m.launchDir}
+		a = &fleet.Agent{Acct: m.store.Config.ActiveAccount().Profile(), Kind: m.store.Config.DefaultAgent(), Cwd: m.launchDir}
 	}
 	if c == nil || c.key != a.Key {
-		c = &hostConn{key: a.Key, sess: convo.New(), open: map[string]bool{}}
+		c = &hostConn{key: a.Key, kind: agent.Kind(a.Kind), sess: convo.New(), open: map[string]bool{}}
 	}
 	m.openStatusLine(c, a)
 	if st, ok := m.sheet.(*statusSheet); ok {

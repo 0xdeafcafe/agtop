@@ -22,7 +22,7 @@ func barAgentFixture(t *testing.T) (*Model, *fleet.Agent, *hostConn) {
 	t.Setenv("HOME", t.TempDir())
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 160, h: 44}
 	a := &fleet.Agent{Key: "k", DisplayName: "fixer", Cwd: "/src/agtop", Branch: "main", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}, client: &host.Client{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}, client: &host.Client{}}
 	c.sess.Info = host.Info{Model: "claude-opus-5-5", Effort: "high", PermissionMode: "auto", CostUSD: 8.18, Queue: []string{"later"}}
 	c.sess.Context = 170_000
 	return m, a, c

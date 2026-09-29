@@ -77,7 +77,7 @@ func TestSoloShowsOneSession(t *testing.T) {
 		t.Fatalf("solo layout: list %d pane %d top %d", l, p, m.topH())
 	}
 
-	c := &hostConn{key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
 	m.host = c
 	for _, k := range []string{"tab", "ctrl+n", "ctrl+z", "left", "ctrl+k"} {
 		soloPress(m, k)
@@ -113,7 +113,7 @@ func TestSoloPlaces(t *testing.T) {
 	writeSession(t, "bbbb2222", "another session")
 	m := NewSolo(state.Load(), "test", "aaaa1111")
 	m.Frame(160, 45)
-	m.host = &hostConn{key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
+	m.host = &hostConn{kind: "claude", key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
 
 	want := []int{placeWork, placeEff, placeMachine, placeSettings, placeAgents}
 	for i, place := range want {
@@ -148,7 +148,7 @@ func TestSoloFillsTheWidth(t *testing.T) {
 	writeSession(t, "aaaa1111", "the solo session")
 	m := NewSolo(state.Load(), "test", "aaaa1111")
 	m.Frame(208, 45)
-	m.host = &hostConn{key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
+	m.host = &hostConn{kind: "claude", key: m.soloKey, sess: convo.New(), open: map[string]bool{}}
 	out := m.Frame(208, 45)
 	var head string
 	for _, l := range strings.Split(out, "\n") {

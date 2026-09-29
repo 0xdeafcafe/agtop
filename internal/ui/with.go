@@ -36,9 +36,9 @@ func (m *Model) withAgent(kind string) {
 	m.flash("new sessions run "+agentName(kind), false)
 }
 
-// agentName is an agent's name, by its kind; empty is the built-in one.
+// agentName is an agent's name, by its kind.
 func agentName(kind string) string {
-	k := agent.KindOf(kind)
+	k := agent.Kind(kind)
 	if a, ok := agent.Get(k); ok {
 		return a.Name()
 	}

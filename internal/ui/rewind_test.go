@@ -66,7 +66,7 @@ func TestRewoundMessageFillsTheBox(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
 	m.onRewound(rewoundMsg{key: "k", draft: "try it another way", text: "rewound"})
 	m.hostOpening = "k"
-	c := &hostConn{key: "k", client: &host.Client{Lines: make(chan []byte)}, sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{Lines: make(chan []byte)}, sess: convo.New(), open: map[string]bool{}}
 	m.onHostOpen(hostOpenMsg{key: "k", c: c})
 	if string(c.input) != "try it another way" || !m.paneFocus || len(m.rewound) != 0 {
 		t.Fatalf("input %q focus %v left %v", string(c.input), m.paneFocus, m.rewound)
@@ -79,7 +79,7 @@ func TestRewindAndForkFromHistory(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
 	a := &fleet.Agent{Key: "k", DisplayName: "fixer", SessionID: "s1", Cwd: t.TempDir()}
 	m.snap.Agents = []*fleet.Agent{a}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	now := time.Now()
 	for i, p := range []string{"fix the bug", "why is it slow", "try caching it"} {
 		c.sess.Turns = append(c.sess.Turns, &convo.Turn{N: i + 1, Prompt: p, End: now.Add(time.Duration(i-3) * time.Minute)})

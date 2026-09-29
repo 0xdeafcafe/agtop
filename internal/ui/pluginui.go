@@ -13,7 +13,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/keymap"
 	"github.com/0xdeafcafe/agtop/internal/netwatch"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
-	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // Plugins take part in the screen only through m.hooks, which never waits:
@@ -185,7 +184,7 @@ func (m *Model) uiSession(a *fleet.Agent) *plugin.UISession {
 	if a == nil {
 		return nil
 	}
-	return &plugin.UISession{ID: a.Key, SessionID: a.SessionID, Name: a.DisplayName, Agent: state.KindOf(a.Kind),
+	return &plugin.UISession{ID: a.Key, SessionID: a.SessionID, Name: a.DisplayName, Agent: a.Kind,
 		Cwd: a.Cwd, Repo: a.Repo, Branch: a.Branch, State: a.State, Hosted: a.Agtop}
 }
 

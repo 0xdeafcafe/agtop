@@ -16,7 +16,7 @@ import (
 // open pane's when it's this one, else read from its transcript or through
 // its adapter.
 func (m *Model) conversationOf(a *fleet.Agent) agent.Conversation {
-	kind := agent.KindOf(a.Kind)
+	kind := agent.Kind(a.Kind)
 	var sess *convo.Session
 	switch {
 	case m.host != nil && m.host.key == a.Key:

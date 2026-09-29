@@ -12,7 +12,7 @@ import (
 
 func TestAskCold(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	c.sess.Context = 120_000
 	sent := 0
 	send := func() tea.Cmd { sent++; return nil }
@@ -42,7 +42,7 @@ func TestAskCold(t *testing.T) {
 		t.Fatal("once you've said send, the same cold cache doesn't ask again")
 	}
 
-	c2 := &hostConn{key: "k2", sess: convo.New()}
+	c2 := &hostConn{kind: "claude", key: "k2", sess: convo.New()}
 	c2.sess.Requests = []convo.Request{{At: time.Now().Add(-3 * time.Hour)}}
 	c2.sess.Context = 20_000
 	if m.askCold(c2, "hi", send) {

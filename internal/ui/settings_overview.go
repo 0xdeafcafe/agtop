@@ -9,7 +9,6 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -57,7 +56,7 @@ func (m *Model) providerUse() []provUse {
 	now := m.snap.At
 	for _, a := range m.snap.Agents {
 		for i := range out {
-			if state.KindOf(a.Kind) != string(out[i].kind) {
+			if a.Kind != string(out[i].kind) {
 				continue
 			}
 			u := &out[i]

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
@@ -25,6 +26,12 @@ import (
 // for a new conversation when empty.
 // fillIDs names a new session, and gives a fork an id of its own.
 func (cfg *Config) fillIDs() {
+	if cfg.Kind == "" {
+		// migration: callers from before agtop ran other agents name
+		// none, meaning Claude Code; from here on the kind is written.
+		cfg.Kind = string(agent.Migrated(""))
+		cfg.Account.Kind = agent.Kind(cfg.Kind)
+	}
 	if cfg.SessionID == "" {
 		cfg.SessionID, cfg.ID = NewSessionID()
 	}
@@ -136,7 +143,9 @@ func readInfoFile(id string) (Info, error) {
 	if err != nil {
 		return info, err
 	}
-	return info, jsonx.Unmarshal(b, &info)
+	err = jsonx.Unmarshal(b, &info)
+	info.migrate()
+	return info, err
 }
 
 // List returns every agtop-mode session, newest first.
@@ -196,6 +205,11 @@ func ReadConfig(id string) (Config, error) {
 		return cfg, err
 	}
 	return cfg, jsonx.Unmarshal(b, &cfg)
+}
+
+// migrate brings info an older host wrote up to date.
+func (i *Info) migrate() {
+	i.Kind = string(agent.Migrated(i.Kind)) // migration: older hosts wrote no kind for Claude Code
 }
 
 // InfoEvent is a session's info, sent on connect and whenever it changes.
@@ -259,6 +273,7 @@ func Decode(line []byte) (any, error) {
 	}
 	switch head.Type {
 	case typeInfo:
+		head.Info.migrate()
 		return InfoEvent{Info: head.Info}, nil
 	case typeAnswered:
 		return Answered{ID: head.RequestID}, nil

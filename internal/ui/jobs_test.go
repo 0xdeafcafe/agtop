@@ -31,7 +31,7 @@ func TestJobDock(t *testing.T) {
 	s.Apply(headless.TaskStarted{ID: "b3", ToolUseID: "t3", Type: "local_bash", Description: "ls"}, now)
 	s.Job("b2").OutputFile = out
 
-	c := &hostConn{key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
 	jobs := c.dockJobs()
 	if len(jobs) != 2 {

@@ -7,8 +7,8 @@ import (
 )
 
 func TestOtherAgentsOnlyGetWhatTheyCanDo(t *testing.T) {
-	claude := &hostConn{sess: convo.New()}
-	other := &hostConn{sess: convo.New()}
+	claude := &hostConn{kind: "claude", sess: convo.New()}
+	other := &hostConn{kind: "claude", sess: convo.New()}
 	other.sess.Info.Kind = "installed" // with_test's agent: no capabilities
 
 	for _, name := range []string{"rewind", "fork", "btw", "tasks"} {

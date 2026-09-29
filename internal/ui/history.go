@@ -44,7 +44,7 @@ func openHistory(a *fleet.Agent) tea.Cmd {
 	return func() tea.Msg {
 		h.stat()
 		sess := agentHistory(h.kind, h.s, time.Time{})
-		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, sess: sess, hist: h, open: map[string]bool{}, ready: true}}
+		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, kind: h.kind, sess: sess, hist: h, open: map[string]bool{}, ready: true}}
 	}
 }
 

@@ -154,7 +154,7 @@ func TestMigrateProfiles(t *testing.T) {
 	if err := jsonx.Unmarshal(b, &raw); err != nil {
 		t.Fatal(err)
 	}
-	if raw.Dispatch.Kind != "" || raw.SwitchOnLimit != OnLimitOff || !raw.StayOnAccount || !equal(raw.AgentOrder, []string{"claude", "pb"}) || len(raw.Profiles) != 2 {
+	if raw.Dispatch.Kind != "claude" || raw.SwitchOnLimit != OnLimitOff || !raw.StayOnAccount || !equal(raw.AgentOrder, []string{"claude", "pb"}) || len(raw.Profiles) != 2 {
 		t.Fatalf("saved %s", b)
 	}
 	// Loaded again, nothing is made twice.

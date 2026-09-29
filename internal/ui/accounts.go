@@ -47,7 +47,7 @@ type accountsState struct {
 
 // loginsKind is the provider whose accounts are Config.Logins, switched in
 // its one home by the vault rather than through its adapter.
-var loginsKind = agent.Kind(state.KindOf(""))
+var loginsKind = agent.Kind(state.LoginsKind)
 
 // ready makes the maps, for a Model made without New.
 func (s *accountsState) ready() {
@@ -653,7 +653,7 @@ func (m *Model) accountLine(r acctRow, n int, cols []int) string {
 		}
 		live := 0
 		for _, a := range m.snap.Agents {
-			if a.Live() && state.KindOf(a.Kind) == string(r.kind) {
+			if a.Live() && a.Kind == string(r.kind) {
 				live++
 			}
 		}
@@ -781,7 +781,7 @@ func (m *Model) accountDetail(r acctRow, w int) []string {
 		var live, total int
 		var today float64
 		for _, ag := range m.snap.Agents {
-			if state.KindOf(ag.Kind) != string(r.kind) {
+			if ag.Kind != string(r.kind) {
 				continue
 			}
 			total++

@@ -16,7 +16,7 @@ import (
 // A message sent shows as sending until the agent has it, each of several
 // in turn; a send that fails stops showing.
 func TestSendingUntilItArrives(t *testing.T) {
-	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c}
 	m.markSending(c, "first")
 	m.markSending(c, "second")

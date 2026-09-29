@@ -47,7 +47,7 @@ func TestWith(t *testing.T) {
 		t.Errorf("#with installed = %q", d.Kind)
 	}
 	m.withAgent("claude")
-	if d.Kind != "" {
-		t.Errorf("#with claude = %q, want the default", d.Kind)
+	if d.Kind != "claude" {
+		t.Errorf("#with claude = %q", d.Kind)
 	}
 }

@@ -68,7 +68,7 @@ func (m *Model) sessionProfile(a *fleet.Agent) state.Profile {
 // usage limit, under a profile that moves on from it.
 func (m *Model) limitStopped(k agent.Kind) bool {
 	for _, a := range m.snap.Agents {
-		if a.Agtop && agent.Kind(state.KindOf(a.Kind)) == k && strings.HasPrefix(a.Detail, "usage limit") && m.sessionProfile(a).Limit() != state.LimitWait {
+		if a.Agtop && agent.Kind(a.Kind) == k && strings.HasPrefix(a.Detail, "usage limit") && m.sessionProfile(a).Limit() != state.LimitWait {
 			return true
 		}
 	}
@@ -140,7 +140,7 @@ func (m *Model) handOffStopped() tea.Cmd {
 		if p.Limit() != state.LimitHandoff {
 			continue
 		}
-		kind := state.KindOf(a.Kind)
+		kind := a.Kind
 		if _, ok := p.PickFor(kind, room); ok {
 			continue // another of its accounts has room: switching comes first
 		}

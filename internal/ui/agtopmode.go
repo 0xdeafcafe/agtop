@@ -902,6 +902,7 @@ type hostConn struct {
 
 	key    string
 	id     string
+	kind   agent.Kind   // the agent it runs, as its row says
 	client *host.Client // an agtop session's host; nil when read from a transcript
 	tail   *convo.Tail  // a Claude Code session's transcript, followed as it grows
 	// hist is another agent's session read from its history, read again
@@ -1052,7 +1053,7 @@ const (
 )
 
 func openHost(a *fleet.Agent) tea.Cmd {
-	key, id, path, acct := a.Key, a.ID, a.TranscriptPath, a.Acct
+	key, id, path, acct, kind := a.Key, a.ID, a.TranscriptPath, a.Acct, agent.Kind(a.Kind)
 	return func() tea.Msg {
 		cl, err := host.Dial(id)
 		if err != nil {
@@ -1096,7 +1097,7 @@ func openHost(a *fleet.Agent) tea.Cmd {
 			}
 			path = ""
 		}
-		c := &hostConn{key: key, id: id, client: cl, sess: sess, open: map[string]bool{}, path: path}
+		c := &hostConn{key: key, id: id, kind: kind, client: cl, sess: sess, open: map[string]bool{}, path: path}
 		c.ready = takeReplay(cl.Lines, sess, replayMost)
 		return hostOpenMsg{key: key, c: c}
 	}
@@ -1269,7 +1270,7 @@ func freeSoon() {
 // openTail reads a Claude Code session's transcript in the background the
 // first time; after that a watch takes in what is new as it is written.
 func openTail(a *fleet.Agent) tea.Cmd {
-	key, id, path, agtop := a.Key, a.ID, a.TranscriptPath, a.Agtop
+	key, id, path, agtop, kind := a.Key, a.ID, a.TranscriptPath, a.Agtop, agent.Kind(a.Kind)
 	if path == "" && a.History != "" {
 		return openHistory(a)
 	}
@@ -1280,7 +1281,7 @@ func openTail(a *fleet.Agent) tea.Cmd {
 		if _, err := t.Read(); err != nil && !(agtop && errors.Is(err, fs.ErrNotExist)) {
 			return hostOpenMsg{key: key, err: err}
 		}
-		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true, path: path}}
+		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, kind: kind, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true, path: path}}
 	}
 }
 

@@ -58,7 +58,7 @@ func TestTranscriptWatch(t *testing.T) {
 	os.WriteFile(path, []byte(`{"type":"user","timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"hi"}}`+"\n"), 0o644)
 	tl := convo.NewTail(path)
 	tl.Read()
-	m := &Model{snap: &fleet.Snapshot{}, host: &hostConn{key: "k", tail: tl, sess: tl.Sess}}
+	m := &Model{snap: &fleet.Snapshot{}, host: &hostConn{kind: "claude", key: "k", tail: tl, sess: tl.Sess}}
 	cmd := m.syncWatch()
 	if cmd == nil || m.syncWatch() != nil {
 		t.Fatal("one watch at a time")
@@ -190,7 +190,7 @@ func TestReplayBeforeFirstFrame(t *testing.T) {
 		t.Fatalf("what follows the replay is left for the pane: %d lines", len(lines))
 	}
 	m, _ := benchModel(120, 40)
-	m.host = &hostConn{key: m.host.key, client: &host.Client{Lines: lines}, sess: sess, open: map[string]bool{}, ready: true}
+	m.host = &hostConn{kind: "claude", key: m.host.key, client: &host.Client{Lines: lines}, sess: sess, open: map[string]bool{}, ready: true}
 	v := ansi.Strip(m.render())
 	if !strings.Contains(v, "answer number 60") || strings.Contains(v, "answer number 1\n") {
 		t.Fatalf("the first frame should be the conversation's end:\n%s", v)

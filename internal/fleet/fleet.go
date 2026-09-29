@@ -59,7 +59,7 @@ type Agent struct {
 	Past bool
 	// Temp is how much disk its temp work takes, as last measured.
 	Temp int64
-	// Kind is the agent an agtop session runs: empty is Claude Code.
+	// Kind is the agent the session runs.
 	Kind string
 	// Profile is the profile an agtop session was started under.
 	Profile string
@@ -545,7 +545,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			key := state.Key(acct.Name, id)
 			seen[key] = true
 			claimed[j.SessionID] = true
-			a := &Agent{Job: j.Job, Extra: *j, Key: key, Acct: acct.Profile(), DisplayName: j.Name}
+			a := &Agent{Job: j.Job, Extra: *j, Key: key, Acct: acct.Profile(), Kind: string(acct.Profile().Kind), DisplayName: j.Name}
 			if ss, ok := byJob[id]; ok {
 				a.applyStatus(ss)
 			}
@@ -636,7 +636,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 					j.Detail = "run by another program"
 				}
 			}
-			a := &Agent{Job: j, Key: key, Acct: acct.Profile(), DisplayName: ss.Name, Interactive: true, Headless: headless, PID: ss.PID}
+			a := &Agent{Job: j, Key: key, Acct: acct.Profile(), Kind: string(acct.Profile().Kind), DisplayName: ss.Name, Interactive: true, Headless: headless, PID: ss.PID}
 			if n := ov.Names[key]; n != "" {
 				a.DisplayName = n
 			}
@@ -847,7 +847,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 	case info.Error != "" && st == "done":
 		j.Detail = "stopped mid-turn · your next message resumes it"
 	}
-	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: agent.Profile{Kind: agent.KindOf(info.Kind), Name: acct.Name, Dir: acct.ConfigDir}, DisplayName: name, Agtop: true, Kind: info.Kind, Profile: info.Profile}
+	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: agent.Profile{Kind: agent.Kind(info.Kind), Name: acct.Name, Dir: acct.ConfigDir}, DisplayName: name, Agtop: true, Kind: info.Kind, Profile: info.Profile}
 	if info.State != "stopped" && info.HostPID > 0 && (tab == nil || tab.Procs[info.HostPID] != nil) {
 		a.PID = info.HostPID
 	}

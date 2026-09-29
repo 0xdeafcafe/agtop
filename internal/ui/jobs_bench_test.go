@@ -135,7 +135,7 @@ func BenchmarkSwitch(b *testing.B) {
 				t := convo.NewTail(best)
 				t.Read()
 				open := func() tea.Msg {
-					return hostOpenMsg{key: key, c: &hostConn{key: key, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true}}
+					return hostOpenMsg{key: key, c: &hostConn{kind: "claude", key: key, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true}}
 				}
 				if warm {
 					_, paneW := m.widths()

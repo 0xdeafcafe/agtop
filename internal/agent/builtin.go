@@ -23,11 +23,16 @@ func BuiltinKind() Kind {
 	return ""
 }
 
-// KindOf is the agent a kind read from older state names: an empty one is
-// the built-in agent, as agtop ran only that before it ran others.
-func KindOf(kind string) Kind {
+// LegacyKind is the agent an empty kind meant: agtop ran only Claude Code
+// before it ran others, and wrote no kind for it.
+const LegacyKind Kind = "claude" // migration: what older state meant by no kind
+
+// Migrated is a kind read from state, a host's info or config an older
+// agtop wrote, as it's kept now: an empty one is LegacyKind. Call it only
+// where such a kind is read in; nothing past there sees an empty kind.
+func Migrated(kind string) Kind {
 	if kind == "" {
-		return BuiltinKind()
+		return LegacyKind // migration: older agtops wrote no kind for Claude Code
 	}
 	return Kind(kind)
 }

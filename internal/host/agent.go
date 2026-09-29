@@ -35,7 +35,7 @@ func (s *server) start() error {
 		return nil
 	}
 	s.spent = 0 // a new process counts from zero
-	a, ok := agent.Get(agent.KindOf(s.cfg.Kind))
+	a, ok := agent.Get(agent.Kind(s.cfg.Kind))
 	if !ok {
 		return fmt.Errorf("agtop doesn't know the agent %q", s.cfg.Kind)
 	}
@@ -278,7 +278,7 @@ func (s *server) onMessage(conn agent.Conn, m event.Message) {
 	for _, p := range m.Parts {
 		switch {
 		case p.Kind == event.ToolCall && p.Call != nil:
-			s.info.Detail = agent.Doing(agent.KindOf(s.cfg.Kind), p.Call)
+			s.info.Detail = agent.Doing(agent.Kind(s.cfg.Kind), p.Call)
 		case p.Kind == event.Text:
 			if t := strings.TrimSpace(p.Text); t != "" {
 				s.info.Detail = firstLine(t)

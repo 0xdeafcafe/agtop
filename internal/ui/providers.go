@@ -62,7 +62,7 @@ func glyph(k agent.Kind) string {
 // providerTag is provider k's glyph and short name, in its colour.
 func providerTag(k agent.Kind) string {
 	l := lookOf(k)
-	return paint(l.colour(), l.glyph+" "+kindName(agent.Kind(state.KindOf(string(k)))))
+	return paint(l.colour(), l.glyph+" "+kindName(k))
 }
 
 // rowBadge is a session row's mark of its provider: none for Claude Code,
@@ -87,7 +87,7 @@ func (m *Model) showProfile(name string) bool {
 // glyph and name, the account it's signed in as, and its profile when
 // there's more than one.
 func (m *Model) sessionTag(a *fleet.Agent) string {
-	k := agent.Kind(state.KindOf(a.Kind))
+	k := agent.Kind(a.Kind)
 	parts := []string{providerTag(k)}
 	if acct := m.accountOf(k); acct != "" {
 		parts = append(parts, dim(acct))

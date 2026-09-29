@@ -104,7 +104,7 @@ func TestStatusSheet(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
 	a := &fleet.Agent{Key: "k", Cwd: "/src/agtop", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	c.sess.Model = "Opus 5.5"
 	m.openStatusLine(c, a)
 	st := m.sheet.(*statusSheet)
@@ -144,7 +144,7 @@ func TestStatusSheet(t *testing.T) {
 // /plugins is Claude Code's /plugin by another name: enter must open it,
 // not /reload-plugins, which also contains the word.
 func TestSlashAliasComesFirst(t *testing.T) {
-	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", sess: convo.New(), open: map[string]bool{}}
 	c.sess.Commands = []event.Command{{Name: "reload-plugins"}, {Name: "compact"}}
 	c.input = []rune("/plugins")
 	if got := slashMatches(c); len(got) < 2 || got[0].Name != "plugin" {
@@ -205,7 +205,7 @@ func TestStatusSheetKeepsYourOwn(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
 	a := &fleet.Agent{Key: "k", Cwd: t.TempDir(), Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
 	os.WriteFile(filepath.Join(a.Acct.Dir, "settings.json"), []byte(`{"statusLine":{"type":"command","command":"cat >/dev/null; echo mine"}}`), 0o600)
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	m.openStatusLine(c, a)
 	st := m.sheet.(*statusSheet)
 	st.tab = stClaude
@@ -231,7 +231,7 @@ func TestPermSheet(t *testing.T) {
 	a := &fleet.Agent{Key: "k", Cwd: cwd, Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
 	user := filepath.Join(a.Acct.Dir, "settings.json")
 	os.WriteFile(user, []byte(`{"model":"opus","permissions":{"allow":["Read"],"defaultMode":"auto"}}`), 0o600)
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	m.openPermissions(c, a)
 	p := m.sheet.(*permSheet)
 	if len(p.rules[0]) != 1 || p.rules[0][0].file.label != "yours" || !strings.Contains(p.mode, "auto") {

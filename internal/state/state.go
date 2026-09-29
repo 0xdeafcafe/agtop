@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
@@ -168,6 +169,9 @@ func (c *Config) migrate() {
 		// Folders are gone; sessions group by the agent they run.
 		c.GroupBy = "agent"
 	}
+	if c.Dispatch.Kind == "" {
+		c.Dispatch.Kind = string(agent.Migrated("")) // migration: no kind was Claude Code
+	}
 	c.migrateProfiles()
 }
 
@@ -179,7 +183,7 @@ func (c *Config) SetSwitchOnLimit(v string) {
 // DefaultAgent is the agent new sessions run: its kind.
 func (c Config) DefaultAgent() string {
 	if c.Dispatch.Kind == "" {
-		return "claude"
+		return LoginsKind // a config made here, not read: nothing's been chosen
 	}
 	return c.Dispatch.Kind
 }
@@ -317,7 +321,7 @@ type Start struct {
 
 // StartFor is what a new session of agent kind starts with.
 func (d Dispatch) StartFor(kind string) Start {
-	if KindOf(kind) == legacyKind {
+	if kind == LoginsKind {
 		return Start{Model: d.Model, Effort: d.Effort, Mode: d.Permission}
 	}
 	return d.Starts[kind]
@@ -325,7 +329,7 @@ func (d Dispatch) StartFor(kind string) Start {
 
 // SetStartFor sets what new sessions of agent kind start with.
 func (d *Dispatch) SetStartFor(kind string, s Start) {
-	if KindOf(kind) == legacyKind {
+	if kind == LoginsKind {
 		d.Model, d.Effort, d.Permission = s.Model, s.Effort, s.Mode
 		return
 	}

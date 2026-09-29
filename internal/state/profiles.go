@@ -45,18 +45,9 @@ const (
 // called.
 const DefaultProfileName = "Default"
 
-// legacyKind is the agent an empty kind meant to older agtops: the one
-// whose accounts are Config.Logins.
-const legacyKind = "claude" // migration: what older configs meant by no kind
-
-// KindOf is the provider a session's or setting's kind names, with an
-// empty one, as older agtops wrote it, made what it meant.
-func KindOf(kind string) string {
-	if kind == "" {
-		return legacyKind
-	}
-	return kind
-}
+// LoginsKind is the agent whose accounts are Config.Logins, and whose
+// Start is kept in Dispatch's own fields, where older agtops read it.
+const LoginsKind = string(agent.LegacyKind)
 
 // FolderRule gives every session started in Path, or a folder inside it,
 // the profile named Profile. Path may start with ~.
@@ -314,9 +305,6 @@ func (c *Config) SyncLegacy() {
 	p := c.Default()
 	if len(p.Providers) > 0 {
 		c.Dispatch.Kind = p.Providers[0]
-		if c.Dispatch.Kind == legacyKind {
-			c.Dispatch.Kind = ""
-		}
 	}
 	c.AgentOrder = append([]string(nil), p.Providers...)
 	switch {

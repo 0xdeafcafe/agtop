@@ -84,7 +84,7 @@ func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, 
 			ID: sid[:8], Account: acct.Name, Name: f.c.Title, State: "stopped", Cwd: f.c.Cwd,
 			SessionID: sid, CreatedAt: f.c.Started, UpdatedAt: f.mod, TranscriptPath: f.path,
 		}
-		a := &Agent{Job: j, Key: key, Acct: acct.Profile(), DisplayName: f.c.Title, Past: true}
+		a := &Agent{Job: j, Key: key, Acct: acct.Profile(), Kind: string(acct.Profile().Kind), DisplayName: f.c.Title, Past: true}
 		if in.name != "" {
 			a.DisplayName = in.name
 		}

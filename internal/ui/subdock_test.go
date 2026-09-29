@@ -34,7 +34,7 @@ func TestSubagentDock(t *testing.T) {
 	st := convo.SubagentStats(path)
 	st.Read()
 	sa := convo.Subagent{ID: "a1", Type: "Explore", Description: "find the pane", Path: path, Mod: time.Now().UnixNano()}
-	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{},
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{},
 		subs: []convo.Subagent{sa}, subTails: map[string]*convo.Tail{"a1": st}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
 
@@ -122,7 +122,7 @@ func TestSubagentHover(t *testing.T) {
 		return convo.Subagent{ID: id, Type: "Explore", Description: "run " + id, Path: path, Mod: time.Now().UnixNano()}
 	}
 	subs := []convo.Subagent{write("a1", "first run speaking"), write("a2", "second run speaking")}
-	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}, subs: subs,
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}, subs: subs,
 		subTails: map[string]*convo.Tail{}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
 	for i, v := range m.views(c) {
@@ -222,7 +222,7 @@ func TestPaneHeaderAlone(t *testing.T) {
 // one alone; ctrl+x elsewhere still stops the turn.
 func TestStopOneSubagent(t *testing.T) {
 	sa := convo.Subagent{ID: "a1", Type: "Explore", Description: "look", Mod: time.Now().UnixNano()}
-	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}, subs: []convo.Subagent{sa}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}, subs: []convo.Subagent{sa}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
 	c.sel = "run:a1"
 	if _, live, ok := m.pickedSub(c); !ok || !live {
@@ -249,7 +249,7 @@ func TestSubagentDockOrder(t *testing.T) {
 		subs = append(subs, convo.Subagent{ID: fmt.Sprintf("a%d", i), Type: "Explore", Description: fmt.Sprintf("run %d", i),
 			Born: now.Add(time.Duration(i) * time.Second).UnixNano(), Mod: now.Add(-time.Duration(i) * time.Second).UnixNano()})
 	}
-	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}, subs: subs, subTails: map[string]*convo.Tail{}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}, subs: subs, subTails: map[string]*convo.Tail{}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
 
 	var ids []string
@@ -304,7 +304,7 @@ func TestBackgroundSubagentIsASubagent(t *testing.T) {
 	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 1, State: "idle"}}, now)
 	s.Apply(headless.TaskStarted{ID: "a1", ToolUseID: "tA", Type: "local_agent", Description: "look around", SubagentType: "Explore", Backgrounded: true}, now.Add(-10*time.Minute))
 	quiet := convo.Subagent{ID: "a1", Type: "Explore", Description: "look around", ToolUseID: "tA", Path: path, Mod: now.Add(-5 * time.Minute).UnixNano()}
-	c := &hostConn{key: "k", client: &host.Client{}, sess: s, open: map[string]bool{},
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{},
 		subs: []convo.Subagent{quiet}, subTails: map[string]*convo.Tail{}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
 
@@ -362,7 +362,7 @@ func TestSubagentsFollowTheSessionID(t *testing.T) {
 	os.WriteFile(filepath.Join(subs, "agent-a1.jsonl"), []byte("{}\n"), 0o644)
 
 	s := convo.New()
-	c := &hostConn{key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}, path: old}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}, path: old}
 	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{{Key: "k", Acct: acct.Profile()}}}, host: c}
 	m.drain(m.refreshSubs())
 	if len(c.subs) != 0 {
@@ -391,7 +391,7 @@ func TestQuietSubagentOfATerminalSession(t *testing.T) {
 	os.Chtimes(run, old, old)
 	os.WriteFile(main, []byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tA","name":"Agent","input":{"description":"dig"}}]}}`+"\n"), 0o644)
 
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}, path: main}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}, path: main}
 	m := &Model{snap: &fleet.Snapshot{}, host: c}
 	m.drain(m.refreshSubs())
 	if len(c.subs) != 1 || len(c.runningSubs()) != 1 {

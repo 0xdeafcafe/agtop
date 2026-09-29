@@ -14,7 +14,12 @@ var commandNeeds = map[string]agent.Feature{
 }
 
 // sessionAgent is the agent a session runs.
-func sessionAgent(c *hostConn) agent.Kind { return agent.KindOf(c.sess.Info.Kind) }
+func sessionAgent(c *hostConn) agent.Kind {
+	if k := c.sess.Info.Kind; k != "" {
+		return agent.Kind(k) // its host's word
+	}
+	return c.kind
+}
 
 // canRun is whether the session's agent can do the command agtop would
 // run for name.

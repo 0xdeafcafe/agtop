@@ -28,7 +28,7 @@ func infoModel(t *testing.T) (*Model, *hostConn) {
 	usage := claude.Usage{Email: "me@x", Plan: "Max", FiveHour: claude.Window{Present: true, Percent: 42, ResetsAt: now.Add(2 * time.Hour)}, SevenDay: claude.Window{Present: true, Percent: 12, ResetsAt: now.Add(3 * 24 * time.Hour)}}
 	m := &Model{store: &state.Store{}, w: 140, h: 50, snap: &fleet.Snapshot{At: now, Agents: []*fleet.Agent{a},
 		Accounts: []fleet.AccountView{{Account: acct, Usage: usage, Quota: usage.Quota(""), Today: 3.5, Current: true}}}}
-	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	c.sess.Model, c.sess.Version = "claude-opus-5-5", "2.1.280"
 	c.sess.MCP = []event.MCPServer{{Name: "agtop", Status: "connected"}, {Name: "linear", Status: "failed"}}
 	c.sess.Commands = []event.Command{{Name: "compact"}}

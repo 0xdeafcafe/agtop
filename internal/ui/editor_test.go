@@ -310,7 +310,7 @@ func TestDropGoesWhereItFalls(t *testing.T) {
 	if !isDrop(f+" ") || !isDrop("file://"+f) || isDrop("hello "+f) || isDrop("") || isDrop("notes.txt") {
 		t.Fatal("isDrop doesn't tell a drop from a paste")
 	}
-	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c, listW: 40, mode: modeList}
 	m.focusAt(60, 10)
 	if !m.paneFocus {

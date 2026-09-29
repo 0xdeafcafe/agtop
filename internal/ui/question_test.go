@@ -138,7 +138,7 @@ func mustQs(req *event.Question) []question {
 // only ↑ onto the card, or an alt chord, does.
 func TestCardsNeedFocus(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}}
-	c := &hostConn{sess: convo.New()}
+	c := &hostConn{kind: "claude", sess: convo.New()}
 	c.sess.Apply(host.Sent{Text: "go"}, time.Now())
 	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: jsontext.Value(`{"command":"ls"}`)}}}, time.Now())
 	c.sess.Apply(headless.PermissionRequest{ID: "r1", Tool: "Bash", ToolUseID: "b1"}, time.Now())
@@ -197,7 +197,7 @@ func TestZenQueue(t *testing.T) {
 }
 
 func TestSlashQueueTasks(t *testing.T) {
-	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", sess: convo.New(), open: map[string]bool{}}
 	c.sess.Commands = []event.Command{{Name: "compact", Description: "summarise"}, {Name: "context"}, {Name: "code-review"}}
 	c.input = []rune("/co")
 	names := func() (out []string) {
@@ -263,7 +263,7 @@ func TestSlashQueueTasks(t *testing.T) {
 func TestClaudeScreensAndFork(t *testing.T) {
 	a := &fleet.Agent{Key: "k", ID: "abc", DisplayName: "fixer", Cwd: "/tmp"}
 	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 
 	// Screens headless Claude Code can't show open Claude Code's own, or
 	// agtop's take on them.
@@ -325,7 +325,7 @@ func TestClaudeScreensAndFork(t *testing.T) {
 }
 
 func TestSlashMidMessage(t *testing.T) {
-	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", sess: convo.New(), open: map[string]bool{}}
 	c.local = []event.Command{{Name: "design:design-critique"}, {Name: "pdf"}}
 	c.input = []rune("please /crit this")
 	c.back = len(" this")
@@ -355,7 +355,7 @@ func TestSlashMidMessage(t *testing.T) {
 
 func TestLocalQueue(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	m.queueLocal("k", "one")
 	m.queueLocal("k", "two")
 	if q := m.queueOf(c); !q.local || len(q.items) != 2 {
@@ -378,7 +378,7 @@ func TestLocalQueue(t *testing.T) {
 // order; [ and ] move it.
 func TestQueueMergeUpDown(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	for _, x := range []string{"a", "b", "c", "d"} {
 		m.queueLocal("k", x)
 	}
@@ -399,7 +399,7 @@ func TestQueueMergeUpDown(t *testing.T) {
 }
 
 func TestArgPicker(t *testing.T) {
-	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", sess: convo.New(), open: map[string]bool{}}
 	c.sess.Info.Model = "claude-sonnet-5"
 	c.input = []rune("/model ")
 	got := argMatches(c)
@@ -635,7 +635,7 @@ func TestQueueKeys(t *testing.T) {
 	a := &fleet.Agent{Key: "k"}
 	a.State = "working"
 	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	m.host = c
 	for _, s := range []string{"a", "b", "c", "d"} {
 		m.queueLocal("k", s)
@@ -688,7 +688,7 @@ func TestQueueKeys(t *testing.T) {
 
 func TestQueueViewKeepsLines(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	m.queueLocal("k", "fix the tests\n\n\n- first\n- second")
 	var out string
 	for _, l := range m.queueLines(c, convo.Options{Width: 80}) {
@@ -714,7 +714,7 @@ func TestUpFromTheBox(t *testing.T) {
 	a := &fleet.Agent{Key: "k"}
 	a.State = "working"
 	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}, paneFocus: true}
-	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}, images: []string{"/a.png", "/b.png"}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}, images: []string{"/a.png", "/b.png"}}
 	m.host = c
 	m.queueLocal("k", "one")
 	key := func(s string) { m.paneKey(tea.KeyPressMsg{}, s) }
@@ -760,7 +760,7 @@ func TestChipsKeepPickInView(t *testing.T) {
 // next, a plan to approve after a question, rather than back to the box;
 // a key pressed between the two means you've moved on, and it doesn't.
 func TestCardFocusCarriesOn(t *testing.T) {
-	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, host: c, paneFocus: true}
 	one, _ := jsonx.Marshal(map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{{"label": "yes"}, {"label": "no"}}}}})
 	ask := func(tool, tu, id string, in jsontext.Value) {

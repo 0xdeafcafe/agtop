@@ -86,8 +86,8 @@ type Config struct {
 	// Env is added to Claude Code's environment (KEY=value), on every start
 	// of it: idle restarts and resumes too.
 	Env []string `json:"env,omitempty"`
-	// Kind is the agent the session runs, through its adapter: empty is
-	// Claude Code, as every session was before agtop ran others.
+	// Kind is the agent the session runs, through its adapter. It's always
+	// written; one read without it is Claude Code's (agent.Migrated).
 	Kind string `json:"kind,omitempty"`
 	// Profile is the profile the session was started under: which
 	// providers it may move to, and what it does at a usage limit.
@@ -1193,7 +1193,7 @@ func (s *server) do(o op) error {
 			return nil
 		}
 	case "rewind":
-		if !agent.Supports(agent.KindOf(s.cfg.Kind), agent.FeatureRewind) {
+		if !agent.Supports(agent.Kind(s.cfg.Kind), agent.FeatureRewind) {
 			s.mu.Unlock()
 			return fmt.Errorf("%s isn't something this agent can do", o.Op)
 		}
