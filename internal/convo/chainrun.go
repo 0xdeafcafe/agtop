@@ -62,6 +62,12 @@ func (s *Session) WatchShells(shells []Shell, now time.Time) {
 			}
 		}
 	}
+	// A call sent to the background has returned; its shell runs on.
+	for _, j := range s.jobs {
+		if st := s.byID[j.ToolUseID]; j.Running() && st != nil && st.Status != Running && st.kind() == tool.Shell {
+			steps = append(steps, st)
+		}
+	}
 	if len(steps) == 0 || len(shells) == 0 {
 		return
 	}
@@ -236,8 +242,9 @@ func (d *drawer) partMarks(st *Step, n int) []string {
 	if len(st.parts) == 0 || n < 2 {
 		return nil
 	}
+	live := d.s.live(st)
 	end := st.End
-	if st.Status == Running || end.IsZero() {
+	if live || end.IsZero() {
 		end = d.o.Now
 	}
 	marks := make([]string, n)
@@ -247,7 +254,7 @@ func (d *drawer) partMarks(st *Step, n int) []string {
 		}
 		stop := r.end
 		switch {
-		case stop.IsZero() && st.Status == Running:
+		case stop.IsZero() && live:
 			marks[k] = paint(cOrange, spinner[d.o.Tick%len(spinner)]+" "+dur(end.Sub(r.start)))
 			continue
 		case stop.IsZero():
@@ -304,14 +311,42 @@ type RunningPart struct {
 	// Then is what the chain does once it's gone: "stops" (the next
 	// command runs only if it succeeded), "carries on", or "ends" (it was
 	// the last).
-	Then string
+	Then   string
+	At, Of int // its place in the chain: 2 of 5
+}
+
+// live is whether a call's command still runs: the call itself, or the
+// task it went on as in the background.
+func (s *Session) live(st *Step) bool {
+	if st.Status == Running || s == nil {
+		return st.Status == Running
+	}
+	for _, j := range s.jobs {
+		if j.ToolUseID == st.ID && j.Running() {
+			return true
+		}
+	}
+	return false
+}
+
+// JobLines is a shell task's command as an opened call draws it: a
+// command a line, each with how long it ran, the one running now
+// brighter; nil when the call that started it isn't in the conversation.
+func (s *Session) JobLines(j *Job, o Options, indent int) []Line {
+	st, cmd := s.byID[j.ToolUseID], s.JobCommand(j)
+	if st == nil || cmd == "" {
+		return nil
+	}
+	d := drawer{s: s, t: &Turn{}, o: o, cw: min(o.Width, o.rowCap())}
+	d.shellBody(st, cmd, indent)
+	return d.lines
 }
 
 // RunningPart is what the Bash call with this tool call ID runs now, if
 // it's a chain seen running.
 func (s *Session) RunningPart(id string) (RunningPart, bool) {
 	st := s.Step(id)
-	if st == nil || st.Status != Running {
+	if st == nil || !s.live(st) {
 		return RunningPart{}, false
 	}
 	k := -1
@@ -328,7 +363,7 @@ func (s *Session) RunningPart(id string) (RunningPart, bool) {
 	if k >= len(segs) {
 		return RunningPart{}, false
 	}
-	rp := RunningPart{Command: segs[k].text, Procs: st.parts[k].procs, Then: "ends"}
+	rp := RunningPart{Command: segs[k].text, Procs: st.parts[k].procs, Then: "ends", At: k + 1, Of: len(segs)}
 	// The next command's line starts with what joins it on.
 	n := -1
 	for _, l := range shellLines(cmd) {

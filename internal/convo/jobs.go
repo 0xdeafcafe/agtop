@@ -1,6 +1,10 @@
 package convo
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -317,4 +321,51 @@ func (s *Session) JobKind(j *Job) string {
 		}
 	}
 	return j.Kind()
+}
+
+var (
+	writeRe = regexp.MustCompile(`(?:^|\s)(?:\d|&)?>>?\s*([^\s;&|<>()]+)`)
+	teeRe   = regexp.MustCompile(`\btee\s+(?:-a\s+)?([^\s;&|<>()]+)`)
+)
+
+// JobWrites are the files a shell task's command sends its output to (>
+// f, >> f, &> f, | tee f), a cd before them heeded: where its output is
+// when Claude Code's own file has none.
+func (s *Session) JobWrites(j *Job) []string {
+	dir := s.Info.Cwd
+	var out []string
+	for _, sg := range segments(s.JobCommand(j)) {
+		if w := fieldsOf(sg.text); len(w) == 2 && w[0] == "cd" {
+			dir = writePath(dir, w[1])
+			continue
+		}
+		for _, stage := range append([]string{sg.text}, sg.filters...) {
+			for _, re := range []*regexp.Regexp{writeRe, teeRe} {
+				for _, m := range re.FindAllStringSubmatch(stage, -1) {
+					if p := writePath(dir, m[1]); p != "" && !strings.HasPrefix(p, "/dev/") && !slices.Contains(out, p) {
+						out = append(out, p)
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// writePath is p as written in a command run in dir, made absolute; "" when a
+// variable makes it unknowable.
+func writePath(dir, p string) string {
+	p = unquote(p)
+	switch {
+	case strings.Contains(p, "$") || p == "":
+		return ""
+	case p == "~" || strings.HasPrefix(p, "~/"):
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, p[1:])
+	case !filepath.IsAbs(p) && dir == "":
+		return ""
+	case !filepath.IsAbs(p):
+		return filepath.Join(dir, p)
+	}
+	return filepath.Clean(p)
 }

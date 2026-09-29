@@ -188,6 +188,16 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 		return append(lines, convo.Line{Text: dim("  nothing running · shells, monitors and workflows Claude starts show here")})
 	}
 	now := time.Now()
+	emit := func(ref string, rows []string, pick bool) {
+		for _, r := range rows {
+			if pick && ref == o.Selected {
+				r = picked1(r, w, o.Focused)
+			} else {
+				r = fit(r, w)
+			}
+			lines = append(lines, convo.Line{Text: r, Ref: ref})
+		}
+	}
 	section := func(title string, jobs []*convo.Job) {
 		if len(jobs) == 0 {
 			return
@@ -202,10 +212,18 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
 			}
 			right := jobState(j, now) + "  "
+			// A shell says what it's for; its command comes under it.
+			label, cmd := jobLabel(c, j), ""
+			if full := c.sess.JobCommand(j); kind == "shell" && full != "" && j.Label != "" && j.Label != full {
+				label, cmd = oneLine(j.Label), jobLabel(c, j)
+			}
 			left := "  " + mark + " " + paint(cText+bold, fmt.Sprintf("%-8s", kind)) + " " +
-				paint(cSub, ansi.Truncate(jobLabel(c, j), max(12, w-cellw.String(ansi.Strip(right))-16), "…"))
+				paint(cSub, ansi.Truncate(label, max(12, w-cellw.String(ansi.Strip(right))-16), "…"))
 			rows := []string{spread(left, right, w)}
 			var facts []string
+			if rp, ok := c.sess.RunningPart(j.ToolUseID); ok {
+				facts = append(facts, paint(cOrange, fmt.Sprintf("▸ %d/%d", rp.At, rp.Of))+" "+paint(cText, oneLine(rp.Command)))
+			}
 			if j.ToolUses > 0 {
 				facts = append(facts, fmt.Sprintf("%d steps", j.ToolUses))
 			}
@@ -216,24 +234,53 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				facts = append(facts, oneLine(s))
 			}
 			if len(facts) > 0 {
-				rows = append(rows, ansi.Truncate("      "+faint(strings.Join(facts, " · ")), w-2, "…"))
+				rows = append(rows, ansi.Truncate("      "+faint(strings.Join(facts, faint(" · "))), w-2, "…"))
 			}
-			n := 1
+			// Opened: the whole command, a command a line with how long
+			// each ran; closed, the command on a line.
+			var body []convo.Line
 			if c.open[ref] {
-				n = 14
+				body = c.sess.JobLines(j, o, 6)
 			}
-			for _, l := range m.jobTail(c, j, n) {
+			if len(body) == 0 && cmd != "" {
+				rows = append(rows, ansi.Truncate("      "+faint("$ "+cmd), w-2, "…"))
+			}
+			top := len(rows)
+			n := 1
+			if j.Running() {
+				n = 3
+			}
+			if c.open[ref] {
+				n = jobTailMost
+			}
+			tail, from := m.jobTailFrom(c, j, n)
+			if len(tail) > 0 && from != c.jobOutput(j) {
+				rows = append(rows, "      "+faint("from "+tildify(from)))
+			}
+			if len(tail) == 0 && c.open[ref] && !j.Background {
+				// Claude Code keeps no file for a call the turn waited on:
+				// what it got back is its output.
+				if st := c.sess.Step(j.ToolUseID); st != nil {
+					tail = lastLines(st.Output, n)
+				}
+			}
+			for _, l := range tail {
 				rows = append(rows, ansi.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
 			}
-			for _, r := range rows {
-				switch {
-				case ref == o.Selected:
-					r = picked1(r, w, o.Focused)
-				default:
-					r = fit(r, w)
+			if len(tail) == 0 && c.open[ref] {
+				none := "no output"
+				if j.Running() {
+					none = "no output yet"
 				}
-				lines = append(lines, convo.Line{Text: r, Ref: ref})
+				rows = append(rows, "      "+faint(none))
 			}
+			emit(ref, rows[:top], true)
+			for _, l := range body {
+				lines = append(lines, convo.Line{Text: l.Text, Ref: ref})
+			}
+			// Under the command's well the output reads as the call's, as in
+			// the conversation, not as the pick again.
+			emit(ref, rows[top:], len(body) == 0)
 		}
 		lines = append(lines, convo.Line{Text: ""})
 	}
@@ -359,7 +406,27 @@ func (m *Model) backgroundJob(c *hostConn, j *convo.Job) tea.Cmd {
 // read only when it has grown. Both happen in the background; a frame
 // draws what was last read.
 func (m *Model) jobTail(c *hostConn, j *convo.Job, n int) []string {
+	lines, _ := m.jobTailFrom(c, j, n)
+	return lines
+}
+
+// jobTailFrom is jobTail and the file it's from: Claude Code's own, or,
+// when that has nothing, a file the command sends its output to.
+func (m *Model) jobTailFrom(c *hostConn, j *convo.Job, n int) ([]string, string) {
 	p := c.jobOutput(j)
+	if lines := c.tailOf(p, j.Running(), n); len(lines) > 0 || c.sess.JobKind(j) != "shell" {
+		return lines, p
+	}
+	for _, w := range c.sess.JobWrites(j) {
+		if lines := c.tailOf(w, j.Running(), n); len(lines) > 0 {
+			return lines, w
+		}
+	}
+	return nil, ""
+}
+
+// tailOf is the last n lines of the file at p, read as jobTail says.
+func (c *hostConn) tailOf(p string, running bool, n int) []string {
 	if p == "" {
 		return nil
 	}
@@ -374,7 +441,7 @@ func (m *Model) jobTail(c *hostConn, j *convo.Job, n int) []string {
 	e.poll()
 	if now := time.Now(); !e.final && now.Sub(e.at) >= tailEvery {
 		e.at = now
-		size, mod, running := e.size, e.mod, j.Running()
+		size, mod := e.size, e.mod
 		if e.read.start(func() tailRead { return readTail(p, size, mod, running) }) {
 			e.poll() // tests read at once
 		}
@@ -418,7 +485,7 @@ func (e *jobTailed) poll() {
 }
 
 // jobTailMost is the most of a task's output shown: an opened one's.
-const jobTailMost = 14
+const jobTailMost = 30
 
 // tailEvery is how often a running task's output is looked at again.
 const tailEvery = 500 * time.Millisecond
@@ -512,6 +579,17 @@ func tailLines(path string, n int) []string {
 	}
 	if off > 0 && len(out) > 0 {
 		out = out[1:] // cut mid-line
+	}
+	return out[max(0, len(out)-n):]
+}
+
+// lastLines is the last n non-blank lines of s.
+func lastLines(s string, n int) []string {
+	var out []string
+	for _, l := range strings.Split(ansi.Strip(s), "\n") {
+		if l = strings.TrimRight(l, " \t\r"); l != "" {
+			out = append(out, strings.ReplaceAll(l, "\t", "  "))
+		}
 	}
 	return out[max(0, len(out)-n):]
 }

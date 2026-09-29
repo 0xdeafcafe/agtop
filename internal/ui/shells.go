@@ -18,7 +18,7 @@ import (
 // words are read off the UI's goroutine; they land as a shellsMsg.
 func (m *Model) watchShells() tea.Cmd {
 	c := m.host
-	if c == nil || c.sess == nil || m.snap == nil || m.snap.Table == nil || c.sess.Live() == nil {
+	if c == nil || c.sess == nil || m.snap == nil || m.snap.Table == nil || c.sess.Live() == nil && len(c.sess.RunningJobs()) == 0 {
 		return nil
 	}
 	pid := c.sess.Info.ClaudePID

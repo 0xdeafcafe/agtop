@@ -22,7 +22,7 @@ import (
 // backgrounds what the turn waits on without picking.
 func TestJobDock(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "b2.output")
-	os.WriteFile(out, []byte("building\r50%\r100%\nlistening on :3000\n\n"), 0o644)
+	os.WriteFile(out, []byte("first line\nnpm warn\nbuilding\r50%\r100%\nlistening on :3000\n\n"), 0o644)
 	s := convo.New()
 	now := time.Now()
 	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 1, State: "working"}}, now)
@@ -86,11 +86,11 @@ func TestJobDock(t *testing.T) {
 			t.Fatalf("no %q in\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "│ 100%") {
-		t.Fatalf("closed, it shows more than its last line:\n%s", view)
+	if !strings.Contains(view, "│ 100%") || strings.Contains(view, "│ first line") {
+		t.Fatalf("closed, a running one shows other than its last lines:\n%s", view)
 	}
 	c.open["job:b2"] = true
-	if view := ansi.Strip(joinLines(m.jobLines(c, convo.Options{Width: 110}))); !strings.Contains(view, "│ 100%") {
+	if view := ansi.Strip(joinLines(m.jobLines(c, convo.Options{Width: 110}))); !strings.Contains(view, "│ first line") {
 		t.Fatalf("opened, no output:\n%s", view)
 	}
 }

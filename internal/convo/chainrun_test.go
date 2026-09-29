@@ -106,3 +106,22 @@ func TestRunningPart(t *testing.T) {
 		}
 	}
 }
+
+// A call sent to the background has returned, but its chain runs on: it
+// still says which of its commands runs now.
+func TestWatchShellsBackgroundChain(t *testing.T) {
+	t0 := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	cmd := "go build ./... && go test ./..."
+	s, st := runningChain(cmd, t0)
+	st.Status, s.Turns[0].Live = OK, false
+	s.byID = map[string]*Step{"b1": st}
+	s.jobs = []*Job{{ID: "j1", ToolUseID: "b1", Type: "local_bash", Background: true}}
+	s.WatchShells([]Shell{{Cmd: "/bin/zsh -c eval '" + cmd + "'", Start: t0, Kids: []ShellProc{{PID: 9, Args: []string{"go", "test", "./..."}, Start: t0}}}}, t0.Add(time.Second))
+	if rp, ok := s.RunningPart("b1"); !ok || rp.At != 2 || rp.Of != 2 || rp.Command != "go test ./..." {
+		t.Fatalf("RunningPart = %+v, %v", rp, ok)
+	}
+	s.jobs[0].Status = "completed"
+	if _, ok := s.RunningPart("b1"); ok {
+		t.Fatal("a finished task still runs a part")
+	}
+}

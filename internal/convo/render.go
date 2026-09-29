@@ -2548,7 +2548,7 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 				mark = marks[part]
 			}
 		}
-		now := st.Status == Running && part == st.at && st.parts[part] != nil && st.parts[part].end.IsZero()
+		now := part == st.at && st.parts[part] != nil && st.parts[part].end.IsZero() && d.s.live(st)
 		lead := faint("$") + blank[1:] // the command, not each line of a heredoc
 		if i > 0 {
 			lead = blank
