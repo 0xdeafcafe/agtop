@@ -3,6 +3,7 @@ package convo
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -388,7 +389,7 @@ func (s *Session) ChangesView(o Options) []Line {
 		if o.Open[tref] {
 			lg := langFor(f.Path)
 			var oldSt, newSt hlState
-			for _, l := range treeDiff(tree, f) {
+			for _, l := range treeDiff(tree, f, false) {
 				b, sign, st := bgWell, " ", &newSt
 				switch {
 				case strings.HasPrefix(l, "@@"):
@@ -412,6 +413,52 @@ func (s *Session) ChangesView(o Options) []Line {
 		}
 	}
 	return out
+}
+
+// FileView draws one changed file in full, git's diff of it laid over it:
+// every line, what was added on green, what went on red where it was.
+func (s *Session) FileView(path string, o Options) []Line {
+	w := min(o.Width, o.rowCap())
+	d := drawer{s: s, t: &Turn{}, o: o, cw: w}
+	tree := WorkingTree(firstNonEmpty(s.Info.Cwd, s.Cwd, filepath.Dir(path)))
+	f := TreeFile{Path: path}
+	for _, tf := range tree.Files {
+		if realPath(tf.Path) == realPath(path) {
+			f = tf
+		}
+	}
+	lg := langFor(path)
+	var oldSt, newSt hlState
+	var body []Line
+	adds, dels, n := 0, 0, 0
+	for _, l := range treeDiff(tree, f, true) {
+		if strings.HasPrefix(l, "@@") {
+			continue // the one hunk is the whole file
+		}
+		b, sign, st, num := bgWell, " ", &newSt, "      "
+		switch {
+		case strings.HasPrefix(l, "+"):
+			b, sign = bgAdd, plusSign()
+			adds++
+		case strings.HasPrefix(l, "-"):
+			b, sign, st = bgDel, minusSign(), &oldSt
+			dels++
+		}
+		if b != bgDel {
+			n++
+			num = dim(fmt.Sprintf("%5d ", n))
+		}
+		l = cleanOutput(l)
+		if len(l) > 0 && strings.ContainsRune("+- ", rune(l[0])) {
+			l = l[1:]
+		}
+		body = append(body, Line{Text: row(b, "  "+num+sign+" "+diffText(lg, st, l, cText, w-12), "", o.Width, w)})
+		if b == bgWell {
+			oldSt = newSt
+		}
+	}
+	head := "  " + paint(cSub+bold, d.rel(path)) + "  " + paint(cGreen, fmt.Sprintf("+%d", adds)) + " " + paint(cRed, fmt.Sprintf("−%d", dels))
+	return append([]Line{{Text: row("", head, "", o.Width, w)}, {}}, body...)
 }
 
 func firstNonEmpty(xs ...string) string {
@@ -439,9 +486,11 @@ type treeDiffs struct {
 // treeDiff is git's own diff of one working-tree file against HEAD (or the
 // file itself when it's untracked), read in the background: the first call
 // says so and the next frame has it. It is read again with each new
-// reading of the tree, and the last one shows until that's in.
-func treeDiff(t *Tree, f TreeFile) []string {
-	key, at := t.Root+"\x00"+f.Path, t.at.UnixNano()
+// reading of the tree, and the last one shows until that's in. Full, it's
+// the whole file with the diff laid over it, uncut, and the file as it is
+// when git has no diff of it.
+func treeDiff(t *Tree, f TreeFile, full bool) []string {
+	key, at := t.Root+"\x00"+f.Path+"\x00"+strconv.FormatBool(full), t.at.UnixNano()
 	diffs.Lock()
 	defer diffs.Unlock()
 	d, ok := diffs.m[key]
@@ -451,11 +500,19 @@ func treeDiff(t *Tree, f TreeFile) []string {
 	if !diffs.reading[key] {
 		diffs.reading[key] = true
 		go func() {
-			var out []byte
+			args := []string{"diff"}
+			if full {
+				args = append(args, "--unified=100000000")
+			}
 			if f.Untracked {
-				out, _ = git(t.Root, "diff", "--no-index", "--", "/dev/null", f.Path)
+				args = append(args, "--no-index", "--", "/dev/null", f.Path)
 			} else {
-				out, _ = git(t.Root, "diff", "HEAD", "--", f.Path)
+				args = append(args, "HEAD", "--", f.Path)
+			}
+			out, _ := git(firstNonEmpty(t.Root, t.Dir), args...)
+			if full && len(out) == 0 {
+				b, _ := os.ReadFile(f.Path)
+				out = []byte(" " + strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\n "))
 			}
 			var lines []string
 			for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
@@ -466,7 +523,7 @@ func treeDiff(t *Tree, f TreeFile) []string {
 				}
 				lines = append(lines, l)
 			}
-			if len(lines) > 400 {
+			if len(lines) > 400 && !full {
 				lines = append(lines[:400], fmt.Sprintf("… %d more lines", len(lines)-400))
 			}
 			diffs.Lock()

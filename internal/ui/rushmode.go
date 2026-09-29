@@ -1063,6 +1063,7 @@ type hostConn struct {
 	recall   recall // alt+p going back through the drafts
 	arts     []*artifact
 	marks    map[string]bool // files marked reviewed in the changes view
+	full     string          // the changed file shown in full over the changes view
 	bodyBuf  []convo.Line    // the conversation\'s lines, reused frame to frame
 	artsKey  string
 	mem      []memFile // the memory view's files, and when they were read
@@ -1599,6 +1600,11 @@ func (m *Model) rushPane(w, h int) []string {
 	case "overview":
 		body = append(s.Overview(o), m.pluginOverview(c.key)...)
 	case "changes":
+		if m.fullFile(c) {
+			view = "file" // a view of its own, so it opens at its top
+			body = s.FileView(c.full, o)
+			break
+		}
 		o.Marks = c.marks
 		body = s.ChangesView(o)
 	case "tasks":
@@ -1775,11 +1781,27 @@ func (m *Model) rushPane(w, h int) []string {
 	return append(out, dock...)
 }
 
+// fullFile is whether the changes view shows one file in full (alt+v).
+func (m *Model) fullFile(c *hostConn) bool {
+	return c.full != "" && m.viewName(c) == "changes"
+}
+
+// changedFile is the file a changes-view row is of, this session's or the
+// working tree's.
+func changedFile(ref string) string {
+	for _, pre := range []string{"chg:", "tree:"} {
+		if p, ok := strings.CutPrefix(ref, pre); ok {
+			return p
+		}
+	}
+	return ""
+}
+
 // readsFromTop is whether a view opens at its top: a report or a list does,
 // a conversation (the main one or a subagent's) or a screen at its end.
 func readsFromTop(view string, c *hostConn) bool {
 	switch view {
-	case "overview", "changes", "tasks", "memory", "artifacts", "background":
+	case "overview", "changes", "file", "tasks", "memory", "artifacts", "background":
 		return true
 	case "subagents":
 		return c.subOpen == ""
@@ -2298,6 +2320,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if c.memEdit {
 			hint = m.docHint(c.memEd, w-4)
 		}
+		if changedFile(c.sel) != "" && m.viewName(c) == "changes" {
+			hint = keysFit(w-4, "alt+v", "the file in full", "enter · space", "open or close", "↑↓", "pick", "esc", "done picking")
+		}
+		if m.fullFile(c) {
+			hint = keysFit(w-4, "↑↓ · pgup pgdn", "scroll", "esc", "back to the changes")
+		}
 	} else if m.viewName(c) == "memory" && len(c.input) == 0 {
 		hint = keysFit(w-4, "↑↓", "pick a file", "[ ]", "views")
 	}
@@ -2494,6 +2522,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.wipeBox(c)
 		case c.txt.on:
 			c.txt = textSel{} // first esc drops the dragged-over text
+		case m.fullFile(c):
+			c.full, c.selMoved = "", true // back to the file, picked, in the list
 		case c.sel != "":
 			c.sel, c.subSel = "", "" // first esc drops the step selection
 		case m.watchingSub(c):
@@ -2609,6 +2639,11 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.sendQueueNow(c, "")
 		}
 	case "up", "down":
+		if empty && m.fullFile(c) {
+			// Nothing to pick in a file: the arrows scroll it.
+			c.scroll = max(0, c.scroll+map[string]int{"up": 1, "down": -1}[s])
+			return nil
+		}
 		if empty {
 			m.moveSel(c, map[string]int{"up": -1, "down": 1}[s])
 			return nil
@@ -2664,6 +2699,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				c.marks = map[string]bool{}
 			}
 			c.marks[path] = !c.marks[path]
+			return nil
+		}
+	case "alt+v":
+		// The picked changed file in full, its diff laid over it.
+		if path := changedFile(c.sel); path != "" && m.viewName(c) == "changes" {
+			c.full = path
 			return nil
 		}
 	case "alt+down", "alt+up":
