@@ -1,6 +1,11 @@
 package agent
 
-import "time"
+import (
+	"bufio"
+	"io"
+	"strings"
+	"time"
+)
 
 // Memory is what an agent reads for a session, beyond the conversation:
 // its instruction files (CLAUDE.md, AGENTS.md), its own memory, settings
@@ -49,4 +54,52 @@ type MemoryReader interface {
 	Memory(p Profile, cwd, transcript string) Memory
 	// ForgetFile deletes one of its files, and whatever points to it.
 	ForgetFile(path string) error
+}
+
+// FrontMatter reads name, description and type from a markdown note's
+// frontmatter, at any depth (a memory note keeps its type under
+// metadata), and "paths" when a rule has a paths: list.
+func FrontMatter(r io.Reader) map[string]string {
+	out := map[string]string{}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
+	block := "" // the key whose value is a block (| or >) on the lines below
+	for n := 0; sc.Scan() && n < 60; n++ {
+		line := sc.Text()
+		if block != "" {
+			if t := strings.TrimSpace(line); t != "" && (line[0] == ' ' || line[0] == '\t') {
+				out[block] = strings.TrimSpace(out[block] + " " + t)
+				continue
+			}
+			block = ""
+		}
+		if strings.TrimSpace(line) == "---" {
+			if n == 0 {
+				continue
+			}
+			break
+		}
+		if n == 0 {
+			return out // no frontmatter
+		}
+		k, v, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if !ok {
+			continue
+		}
+		switch k = strings.TrimSpace(k); k {
+		case "name", "description", "type":
+			if out[k] != "" {
+				break
+			}
+			switch v = strings.TrimSpace(v); v {
+			case "|", ">", "|-", ">-", "|+", ">+":
+				block = k
+			default:
+				out[k] = strings.Trim(v, `"'`)
+			}
+		case "paths", "globs":
+			out["paths"] = "yes"
+		}
+	}
+	return out
 }

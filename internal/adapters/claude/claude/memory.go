@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // What Claude Code loads from a project's memory and instructions, when,
@@ -55,50 +56,7 @@ func FrontMatter(path string) map[string]string {
 }
 
 // FrontMatterOf is FrontMatter for text already read.
-func FrontMatterOf(r io.Reader) map[string]string {
-	out := map[string]string{}
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
-	block := "" // the key whose value is a block (| or >) on the lines below
-	for n := 0; sc.Scan() && n < 60; n++ {
-		line := sc.Text()
-		if block != "" {
-			if t := strings.TrimSpace(line); t != "" && (line[0] == ' ' || line[0] == '\t') {
-				out[block] = strings.TrimSpace(out[block] + " " + t)
-				continue
-			}
-			block = ""
-		}
-		if strings.TrimSpace(line) == "---" {
-			if n == 0 {
-				continue
-			}
-			break
-		}
-		if n == 0 {
-			return out // no frontmatter
-		}
-		k, v, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if !ok {
-			continue
-		}
-		switch k = strings.TrimSpace(k); k {
-		case "name", "description", "type":
-			if out[k] != "" {
-				break
-			}
-			switch v = strings.TrimSpace(v); v {
-			case "|", ">", "|-", ">-", "|+", ">+":
-				block = k
-			default:
-				out[k] = strings.Trim(v, `"'`)
-			}
-		case "paths", "globs":
-			out["paths"] = "yes"
-		}
-	}
-	return out
-}
+func FrontMatterOf(r io.Reader) map[string]string { return agent.FrontMatter(r) }
 
 // MemIndex is a MEMORY.md, and how much of it is loaded.
 type MemIndex struct {

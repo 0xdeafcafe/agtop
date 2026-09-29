@@ -10,9 +10,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/cellw"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
@@ -59,7 +59,7 @@ func memoryWrite(st *convo.Step) bool {
 	if inMemoryDir(c.Input.Path) {
 		return true
 	}
-	fm := claude.FrontMatterOf(strings.NewReader(c.Input.Content))
+	fm := agent.FrontMatter(strings.NewReader(c.Input.Content))
 	return fm["name"] != "" && fm["description"] != "" && fm["type"] != ""
 }
 
@@ -174,7 +174,7 @@ func memoryCard(c *hostConn, st *convo.Step, w, maxH int) ([]string, []cardBtn) 
 	peek, known := c.peekMem(st.Approval.ID+" "+in.Path, in.Path)
 	oldText, newText := memTexts(&in, call.Kind == tool.Edit, peek, known)
 	update := call.Kind == tool.Edit || known && peek.had
-	fm := claude.FrontMatterOf(strings.NewReader(newText))
+	fm := agent.FrontMatter(strings.NewReader(newText))
 	_, body := splitFront(newText)
 	_, oldBody := splitFront(oldText)
 
