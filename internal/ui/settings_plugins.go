@@ -53,7 +53,7 @@ type pluginRow struct {
 // folders, so never on the UI.
 func readPlugins() []pluginRow {
 	var out []pluginRow
-	off := plugin.BundledOff()
+	on := plugin.BundlesOn()
 	bundles := plugin.Bundles()
 	for i := range bundles {
 		b := &bundles[i]
@@ -61,7 +61,7 @@ func readPlugins() []pluginRow {
 		switch why := b.Manifest.Unmet(); {
 		case why != "":
 			r.runs, r.status = false, "won't run: "+why
-		case slices.Contains(off, b.Manifest.Name):
+		case !on[b.Manifest.Name]:
 			r.runs, r.status = false, "bundled, off"
 		}
 		out = append(out, r)
@@ -219,13 +219,21 @@ func (m *Model) pluginPage(name string) section {
 	}
 	sec := section{title: name, note: firstNonEmpty(r.status, "on")}
 	if r.bundled {
-		v := "on"
-		if slices.Contains(m.bundledOff, name) {
-			v = "off"
+		b, _ := plugin.BundleNamed(name)
+		on, ok := m.bundledOn[name]
+		if !ok {
+			on = !b.Optional
+		}
+		v, what := "off", "Comes with rush, and is on until you turn it off."
+		if on {
+			v = "on"
+		}
+		if b.Optional {
+			what = "Comes with rush, and is off until you turn it on."
 		}
 		sec.rows = append(sec.rows, setting{
 			label: "Runs", value: v, choices: []string{"on", "off"},
-			what:  firstNonEmpty(r.m.Description, "Comes with rush, and is on until you turn it off."),
+			what:  firstNonEmpty(r.m.Description, what),
 			means: map[string]string{"on": "it runs, and " + capWords(up), "off": "it doesn't run"},
 			run:   func(v string) tea.Cmd { return m.setBundled(name, v == "on") },
 		})

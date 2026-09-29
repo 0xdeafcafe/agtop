@@ -17,9 +17,11 @@ import (
 // on every system, as `rush plugin run <name>` speaking the same protocol
 // on fd 3 as any other. What it may do in rush's screen is still its
 // manifest's, checked by the broker as for any plugin. Each is on until
-// you turn it off.
+// you turn it off, unless it's Optional.
 type Bundle struct {
 	Manifest Manifest
+	// Optional is off until you turn it on.
+	Optional bool
 	// Run is its main, given its end of the connection to the broker.
 	Run func(rw io.ReadWriteCloser) error
 }
@@ -84,48 +86,80 @@ func BundleNamed(name string) (Bundle, bool) {
 
 func offPath() string { return filepath.Join(Root(), "bundled-off.json") }
 
-// BundledOff are the bundled plugins you turned off.
-func BundledOff() []string {
-	var off []string
-	if b, err := os.ReadFile(offPath()); err == nil {
-		_ = jsonx.Unmarshal(b, &off)
+// onPath lists the Optional ones you turned on.
+func onPath() string { return filepath.Join(Root(), "bundled-on.json") }
+
+func readList(path string) []string {
+	var out []string
+	if b, err := os.ReadFile(path); err == nil {
+		_ = jsonx.Unmarshal(b, &out)
 	}
-	return off
+	return out
 }
 
-// BundledOn says whether a bundled plugin runs.
+func writeList(path string, list []string) error {
+	sort.Strings(list)
+	if err := os.MkdirAll(Root(), 0o700); err != nil {
+		return err
+	}
+	b, err := jsonx.Marshal(list)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// BundledOn says whether you have a bundled plugin on. It runs only if
+// its manifest's requirements are met too: see Unmet.
 func BundledOn(name string) bool {
-	_, ok := BundleNamed(name)
-	return ok && !slices.Contains(BundledOff(), name)
+	b, ok := BundleNamed(name)
+	return ok && bundledOn(&b, readList(offPath()), readList(onPath()))
+}
+
+func bundledOn(b *Bundle, off, on []string) bool {
+	if b.Optional {
+		return slices.Contains(on, b.Manifest.Name)
+	}
+	return !slices.Contains(off, b.Manifest.Name)
+}
+
+// BundlesOn says, by name, which bundled plugins you have on. It reads
+// the disk, so it's not for the UI goroutine.
+func BundlesOn() map[string]bool {
+	off, on := readList(offPath()), readList(onPath())
+	out := map[string]bool{}
+	bs := Bundles()
+	for i := range bs {
+		out[bs[i].Manifest.Name] = bundledOn(&bs[i], off, on)
+	}
+	return out
 }
 
 // SetBundled turns a bundled plugin on or off.
 func SetBundled(name string, on bool) error {
-	if _, ok := BundleNamed(name); !ok {
+	b, ok := BundleNamed(name)
+	if !ok {
 		return errors.New(name + " isn't bundled with rush")
 	}
-	off := slices.DeleteFunc(BundledOff(), func(n string) bool { return n == name })
-	if !on {
-		off = append(off, name)
+	path, add := offPath(), !on
+	if b.Optional {
+		path, add = onPath(), on
 	}
-	sort.Strings(off)
-	if err := os.MkdirAll(Root(), 0o700); err != nil {
-		return err
+	list := slices.DeleteFunc(readList(path), func(n string) bool { return n == name })
+	if add {
+		list = append(list, name)
 	}
-	b, err := jsonx.Marshal(off)
-	if err != nil {
-		return err
-	}
-	tmp := offPath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, offPath())
+	return writeList(path, list)
 }
 
 // Enabled is every plugin that runs, by name: the approved ones, and the
-// bundled ones not turned off. A bundled plugin's name is its own: an
-// installed plugin of the same name doesn't run.
+// bundled ones turned on, less any whose requirements aren't met here. A
+// bundled plugin's name is its own: an installed plugin of the same name
+// doesn't run.
 func Enabled() map[string]Approval {
 	out := Approvals()
 	for name, a := range out {
@@ -133,10 +167,10 @@ func Enabled() map[string]Approval {
 			delete(out, name)
 		}
 	}
-	off := BundledOff()
+	off, on := readList(offPath()), readList(onPath())
 	for _, b := range Bundles() {
 		delete(out, b.Manifest.Name)
-		if !slices.Contains(off, b.Manifest.Name) && b.Manifest.Unmet() == "" {
+		if bundledOn(&b, off, on) && b.Manifest.Unmet() == "" {
 			out[b.Manifest.Name] = Approval{Digest: bundledDigest, Manifest: b.Manifest}
 		}
 	}

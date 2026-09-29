@@ -76,9 +76,9 @@ type Model struct {
 	// pluginui.go.
 	hooks    *hooks.Client
 	hookSeen hookSeen
-	// bundledOff are the bundled plugins turned off, as last read; nil
+	// bundledOn says which bundled plugins are on, as last read; nil
 	// until then.
-	bundledOff []string
+	bundledOn map[string]bool
 
 	store     *state.Store
 	loader    *fleet.Loader

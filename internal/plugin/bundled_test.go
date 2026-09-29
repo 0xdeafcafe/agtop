@@ -64,3 +64,30 @@ func TestBundledManifestIsChecked(t *testing.T) {
 	}()
 	RegisterBundle(Bundle{Manifest: Manifest{Name: "bundle-net", Command: []string{"rush"}, Network: []string{"example.com:443"}}})
 }
+
+// An Optional bundle is off until turned on, and on, it still doesn't run
+// without what it requires.
+func TestOptionalBundle(t *testing.T) {
+	t.Setenv("RUSH_HOME", t.TempDir())
+	defer RegisterBundle(Bundle{Optional: true, Manifest: Manifest{Name: "bundle-opt", Command: []string{"rush"}},
+		Run: func(io.ReadWriteCloser) error { return nil }})()
+	defer RegisterBundle(Bundle{Optional: true, Manifest: Manifest{Name: "bundle-needs", Command: []string{"rush"},
+		Requires: Requires{Bin: []string{"never-a-real-binary-xyz"}}}, Run: func(io.ReadWriteCloser) error { return nil }})()
+	if _, ok := Enabled()["bundle-opt"]; ok || BundledOn("bundle-opt") || BundlesOn()["bundle-opt"] {
+		t.Fatal("an optional bundle should be off until turned on")
+	}
+	for _, n := range []string{"bundle-opt", "bundle-needs"} {
+		if err := SetBundled(n, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := Enabled()["bundle-opt"]; !ok || !BundlesOn()["bundle-opt"] {
+		t.Fatal("turned on, it should run")
+	}
+	if _, ok := Enabled()["bundle-needs"]; ok || !BundledOn("bundle-needs") {
+		t.Fatal("on, but missing what it requires, it shouldn't run")
+	}
+	if err := SetBundled("bundle-opt", false); err != nil || BundledOn("bundle-opt") {
+		t.Fatalf("off again: %v", err)
+	}
+}

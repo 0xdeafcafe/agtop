@@ -26,7 +26,8 @@ const pluginUsage = `rush plugin — plugins, bundled and sandboxed
   rush plugin logs <name>     where its output goes
 
 Plugins you install live in %s/<name>, each with a plugin.json.
-Bundled plugins come with rush and are on until you turn them off.
+Bundled plugins come with rush. Most are on until you turn them off; some,
+like the clean-up ones, are off until you turn them on.
 `
 
 func pluginCmd(args []string) error {

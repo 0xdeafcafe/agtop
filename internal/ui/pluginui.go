@@ -40,10 +40,10 @@ func (m *Model) startHooks() tea.Cmd {
 	return tea.Batch(m.hooks.Next(), m.readBundled())
 }
 
-// readBundled reads which bundled plugins are off, off the UI.
+// readBundled reads which bundled plugins are on, off the UI.
 func (m *Model) readBundled() tea.Cmd {
-	return sheetDo(func() ([]string, error) { return plugin.BundledOff(), nil }, func(m *Model, off []string, _ error) tea.Cmd {
-		m.bundledOff = append([]string{}, off...)
+	return sheetDo(func() (map[string]bool, error) { return plugin.BundlesOn(), nil }, func(m *Model, on map[string]bool, _ error) tea.Cmd {
+		m.bundledOn = on
 		return nil
 	})
 }
@@ -51,14 +51,14 @@ func (m *Model) readBundled() tea.Cmd {
 // setBundled turns a bundled plugin on or off, off the UI, and has the
 // broker start or stop it.
 func (m *Model) setBundled(name string, on bool) tea.Cmd {
-	return sheetDo(func() ([]string, error) {
+	return sheetDo(func() (map[string]bool, error) {
 		if err := plugin.SetBundled(name, on); err != nil {
 			return nil, err
 		}
-		return plugin.BundledOff(), hooks.Reload()
-	}, func(m *Model, off []string, err error) tea.Cmd {
-		if off != nil {
-			m.bundledOff = off
+		return plugin.BundlesOn(), hooks.Reload()
+	}, func(m *Model, st map[string]bool, err error) tea.Cmd {
+		if st != nil {
+			m.bundledOn = st
 		}
 		if d := m.dialog; d != nil && d.page == pagePlugins {
 			d.pluginsRead = goPending(readPlugins)
