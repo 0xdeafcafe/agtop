@@ -265,3 +265,34 @@ func TestSearchHitsEachLeft(t *testing.T) {
 		t.Fatal("no hits drawn")
 	}
 }
+
+// A subshell of several commands in a chain is laid out a command a line
+// inside its brackets, lined up, and still counts as one of the chain's.
+func TestShellSubshellLines(t *testing.T) {
+	cmd := `go vet ./tools/visualdiff && (go run ./cmd/visualdiff check > run4.out 2> run4.err; echo "exit=$?" >> run4.out)`
+	var got []string
+	for _, l := range shellLines(cmd) {
+		for _, x := range subshellLines(l) {
+			got = append(got, strings.Repeat("  ", x.depth)+x.text)
+		}
+	}
+	want := []string{"go vet ./tools/visualdiff", "&& ( go run ./cmd/visualdiff check > run4.out 2> run4.err", `  echo "exit=$?" >> run4.out)`}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if n := len(segments(cmd)); n != 2 {
+		t.Errorf("a subshell is one command of its chain: %d", n)
+	}
+	for _, c := range []string{`(a) && (b; c)`, `(cd x && make)`, `echo "(a; b)"`} {
+		ls := shellLines(c)
+		if c == `(cd x && make)` {
+			if n := len(subshellLines(ls[0])); n != 2 {
+				t.Errorf("%s: %d lines", c, n)
+			}
+			continue
+		}
+		if n := len(subshellLines(ls[0])); n != 1 {
+			t.Errorf("%s shouldn't split: %d", c, n)
+		}
+	}
+}

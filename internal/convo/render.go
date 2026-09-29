@@ -2534,7 +2534,7 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 		if !l.verbatim && (strings.HasPrefix(l.text, "&& ") || strings.HasPrefix(l.text, "|| ")) {
 			gutter = 3
 		}
-		lines = append(lines, l)
+		lines = append(lines, subshellLines(l)...)
 	}
 	for _, l := range lines {
 		if l.verbatim {
@@ -2598,6 +2598,62 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 			}
 		}
 	}
+}
+
+// subshellLines lays out a command that's a subshell of several, "(a; b)",
+// a command a line inside its brackets. The lines after the first are
+// deeper, so the whole still counts as one command of its chain.
+func subshellLines(l shLine) []shLine {
+	op, body := "", l.text
+	if o := body[:min(3, len(body))]; o == "&& " || o == "|| " {
+		op, body = o, body[3:]
+	}
+	if l.verbatim || l.depth > 0 || !strings.HasPrefix(body, "(") || !strings.HasSuffix(body, ")") {
+		return []shLine{l}
+	}
+	inner := shellLines(body[1 : len(body)-1])
+	if len(inner) < 2 || closesEarly(body) {
+		return []shLine{l}
+	}
+	out := make([]shLine, 0, len(inner))
+	for i, in := range inner {
+		t := in.text // under the first, past its "( "
+		if i == 0 {
+			t = op + "( " + in.text
+		}
+		if i == len(inner)-1 {
+			t += ")"
+		}
+		out = append(out, shLine{text: t, depth: 1 + in.depth, verbatim: in.verbatim})
+	}
+	out[0].depth = 0
+	return out
+}
+
+// closesEarly is whether the bracket that opens s closes before its end:
+// "(a) && (b)" is two subshells, not one.
+func closesEarly(s string) bool {
+	depth, quote := 0, byte(0)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == '\\' && quote == '"' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			if depth--; depth == 0 && i < len(s)-1 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // errRe finds the line of a failure's output that says what went wrong.

@@ -346,7 +346,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			top := len(rows)
 			switch {
 			case len(tail) > 0 && from != c.jobOutput(j):
-				rows = append(rows, "      "+faint("from "+tildify(from))+c.tailWhen(from, now))
+				rows = append(rows, "      "+faint("from "+c.shownPath(from))+c.tailWhen(from, now))
 			case len(tail) > 0 && c.open[ref]:
 				rows = append(rows, "      "+faint("output")+c.tailWhen(from, now))
 			}
@@ -377,7 +377,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 					if len(more) == 0 {
 						continue
 					}
-					rows = append(rows, "      "+faint("from "+tildify(f))+c.tailWhen(f, now))
+					rows = append(rows, "      "+faint("from "+c.shownPath(f))+c.tailWhen(f, now))
 					for _, l := range more {
 						rows = append(rows, ansi.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
 					}
@@ -629,6 +629,17 @@ func (e *jobTailed) poll() {
 		e.size, e.mod, e.lines = r.size, r.mod, r.lines
 	}
 	e.final = r.final && e.size >= 0
+}
+
+// shownPath is a path as a task's rows name it: from the agent's folder
+// when it's in it.
+func (c *hostConn) shownPath(p string) string {
+	if cwd := c.sess.Info.Cwd; cwd != "" {
+		if rel, ok := strings.CutPrefix(p, strings.TrimSuffix(cwd, "/")+"/"); ok {
+			return rel
+		}
+	}
+	return tildify(p)
 }
 
 // tailWhen is when the file at p last changed, as tailOf last found it:
