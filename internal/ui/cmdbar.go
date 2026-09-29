@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -551,6 +553,7 @@ func (m *Model) barRebuild() {
 			// Untyped, a few of each: the rest are a letter or two away.
 			add("Go to", m.barPlaces(name), 6)
 			add("Agents", m.barAgents(name, ""), map[bool]int{true: 5, false: 8}[name == ""])
+			add("Commands", m.barCommands(name), 8)
 		}
 		if c := m.host; c != nil && in == "" {
 			add("This session · "+oneLine(m.hostName(c)), m.barTurns(c, q), 50)
@@ -703,6 +706,44 @@ func (m *Model) barPlaces(q string) []barItem {
 		m.mode = modeHelp
 		return nil
 	})
+	cur := m.startDir()
+	for i, d := range m.startDirs() {
+		if d == cur {
+			continue // "Start an agent" above already starts here
+		}
+		i, base := i, filepath.Base(d)
+		add(paint(cGreen, "+"), "Start an agent › "+tildify(d), "", "start new agent session spawn "+base, func(m *Model) tea.Cmd {
+			m.dirIdx = i
+			m.toPrompt()
+			return nil
+		})
+	}
+	return items
+}
+
+// barCommands are agtop's # commands and plugins' commands, typeable and
+// runnable from the bar: picking one drops it (with its argument's space,
+// if it needs one) into the Prompt, the way typing it there would, and
+// runs it at once when it doesn't. Those that act on an agent are offered
+// only once one is focused; the rest are agtop-wide.
+func (m *Model) barCommands(q string) []barItem {
+	var items []barItem
+	a := m.focused()
+	for _, cmd := range append(append([]event.Command{}, fleetCommands...), m.pluginHashCommands()...) {
+		if fleetNeedsAgent[cmd.Name] && a == nil {
+			continue
+		}
+		if it, ok := matchItem(barItem{glyph: paint(cSub, "#"), title: "#" + cmd.Name, meta: cmd.Description, run: func(m *Model) tea.Cmd {
+			m.toPrompt()
+			m.input, m.back = completed("#", cmd, false), 0
+			if !needsArg(cmd) {
+				return m.submit()
+			}
+			return nil
+		}}, q, cmd.Name+" "+cmd.Description); ok {
+			items = append(items, it)
+		}
+	}
 	return items
 }
 

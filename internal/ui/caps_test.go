@@ -28,3 +28,17 @@ func TestOtherAgentsOnlyGetWhatTheyCanDo(t *testing.T) {
 		t.Error("another agent is offered every command Claude Code is")
 	}
 }
+
+// agentCanRun is the same lookup canRun does, usable with no session open:
+// what the command bar checks.
+func TestAgentCanRun(t *testing.T) {
+	if !agentCanRun("claude", "fork") {
+		t.Error("Claude Code can't fork")
+	}
+	if agentCanRun("installed", "fork") {
+		t.Error("an agent without it can fork")
+	}
+	if !agentCanRun("installed", "stop") {
+		t.Error("any agent should stop")
+	}
+}

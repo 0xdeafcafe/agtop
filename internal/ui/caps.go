@@ -33,14 +33,21 @@ func sessionAgent(c *hostConn) agent.Kind {
 	return c.kind
 }
 
+// agentCanRun is whether an agent of kind can do the command agtop would
+// run for name: what canRun checks for a session, and what the command bar
+// checks with no session open.
+func agentCanRun(kind agent.Kind, name string) bool {
+	need, gated := commandNeeds[name]
+	return !gated || agent.Supports(kind, need)
+}
+
 // canRun is whether the session's agent can do the command agtop would
 // run for name, or open the screen it names.
 func canRun(c *hostConn, name string) bool {
 	if screen, ok := claudeScreen(name); ok && !canScreen(c, screen) {
 		return false
 	}
-	need, gated := commandNeeds[name]
-	return !gated || agent.Supports(sessionAgent(c), need)
+	return agentCanRun(sessionAgent(c), name)
 }
 
 // canScreen is whether the session's agent can open screen.

@@ -62,6 +62,14 @@ var fleetCommands = []event.Command{
 // fleetAliases are other names command() answers to.
 var fleetAliases = map[string]string{"eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "drafts", "net": "network"}
 
+// fleetNeedsAgent are # commands that act on the selected or focused agent;
+// the bar offers them only once one's in view. The rest are agtop-wide.
+var fleetNeedsAgent = map[string]bool{
+	"done": true, "go": true, "stop": true, "rm": true, "kill": true, "restart": true,
+	"clean": true, "cd": true, "add-dir": true, "rename": true, "group": true,
+	"pin": true, "pr": true, "full": true, "agtop": true,
+}
+
 // isHashCmd is whether text is a # command: # and a letter, so a Markdown
 // heading (# Plan) or an issue (#123) is still a message.
 func isHashCmd(text string) bool {

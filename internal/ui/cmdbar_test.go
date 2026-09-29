@@ -10,6 +10,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/agtop/internal/hooks"
+	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
 func ctrlK() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl} }
@@ -369,5 +371,80 @@ func TestBarSearchSetting(t *testing.T) {
 	cycle(find(), 1)
 	if s := find(); s.value != "on ctrl+enter" || !m.store.Config.SearchTranscriptsOnKey {
 		t.Fatalf("after a change = %q", s.value)
+	}
+}
+
+// The bar offers agtop's own # commands and plugins' commands, gated on
+// whether an agent's in view for those that act on one, and running them
+// the way typing them would.
+func TestBarCommands(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	m.hooks = hooks.Static(plugin.UIState{Plugins: []plugin.UIPlugin{{Name: "haven",
+		Commands: []plugin.CommandSpec{{Name: "open", Description: "open the stack's home"}}}}})
+	has := func(items []barItem, title string) bool {
+		for _, it := range items {
+			if it.title == title {
+				return true
+			}
+		}
+		return false
+	}
+
+	m.sel = "" // nothing focused
+	got := m.barCommands("")
+	if has(got, "#done") {
+		t.Fatal("an agent-scoped command is offered with nothing focused")
+	}
+	if !has(got, "#profile") {
+		t.Fatal("an agtop-wide command should be offered regardless")
+	}
+	if !has(got, "#haven.open") {
+		t.Fatal("a plugin's command should be offered")
+	}
+
+	m.sel = m.order[0].Key // focus an agent
+	if !has(m.barCommands(""), "#done") {
+		t.Fatal("an agent-scoped command should be offered once one's focused")
+	}
+
+	// A command needing an argument goes into the Prompt to type it; one
+	// that doesn't runs at once, the way typing it would.
+	for _, it := range m.barCommands("cd") {
+		if it.title == "#cd" {
+			it.run(m)
+		}
+	}
+	if string(m.input) != "#cd " || m.inKind != inPrompt {
+		t.Fatalf("#cd should wait in the Prompt for its path: %q", string(m.input))
+	}
+	m.input, m.inKind = m.input[:0], inPrompt
+	for _, it := range m.barCommands("help") {
+		if it.title == "#help" {
+			it.run(m)
+		}
+	}
+	if m.mode != modeHelp {
+		t.Fatal("#help with no argument should have run at once")
+	}
+}
+
+// Picking a folder from the bar starts the Prompt pinned to it.
+func TestBarStartInProject(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	other := "/work/other-project"
+	m.snap.Agents[1].Cwd = other
+	var it *barItem
+	for _, row := range m.barPlaces(filepath.Base(other)) {
+		if strings.HasPrefix(row.title, "Start an agent › ") && strings.Contains(row.title, "other-project") {
+			row := row
+			it = &row
+		}
+	}
+	if it == nil {
+		t.Fatalf("no start-in-project row for %q", other)
+	}
+	it.run(m)
+	if m.startDir() != other || m.inKind != inPrompt {
+		t.Fatalf("picking it should start in %q, got %q", other, m.startDir())
 	}
 }
