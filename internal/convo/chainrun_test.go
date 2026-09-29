@@ -86,6 +86,17 @@ func TestWatchShellsRewrittenCommand(t *testing.T) {
 	}
 }
 
+// A call a permission prompt held back still finds its shell.
+func TestWatchShellsHeldBack(t *testing.T) {
+	t0 := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	s, st := runningChain("git status && go vet ./...", t0)
+	s.WatchShells([]Shell{{Cmd: "/bin/zsh -c eval 'rtk git status && rtk go vet ./...'", Start: t0.Add(40 * time.Second),
+		Kids: []ShellProc{{Args: []string{"rtk", "go", "vet", "./..."}, Start: t0.Add(41 * time.Second)}}}}, t0.Add(42*time.Second))
+	if st.parts[1] == nil {
+		t.Fatalf("go vet should be seen running: %+v", st.parts)
+	}
+}
+
 func TestRunningPart(t *testing.T) {
 	t0 := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	for _, c := range []struct {

@@ -72,7 +72,8 @@ func (s *Session) WatchShells(shells []Shell, now time.Time) {
 		return
 	}
 	// A shell's command line holds the call's command as eval quotes it;
-	// one a hook rewrote goes to the call that started nearest it.
+	// one a hook rewrote goes to the call it started soonest after. A
+	// permission prompt or classifier can hold a call back any time.
 	used := make([]bool, len(shells))
 	var left []*Step
 	for _, st := range steps {
@@ -95,7 +96,7 @@ func (s *Session) WatchShells(shells []Shell, now time.Time) {
 			if used[i] || st.Start.IsZero() {
 				continue
 			}
-			if d := absDur(sh.Start.Sub(st.Start)); d < 10*time.Second && (best < 0 || d < absDur(shells[best].Start.Sub(st.Start))) {
+			if sh.Start.After(st.Start.Add(-2*time.Second)) && (best < 0 || sh.Start.Before(shells[best].Start)) {
 				best = i
 			}
 		}
@@ -104,13 +105,6 @@ func (s *Session) WatchShells(shells []Shell, now time.Time) {
 			st.watch(shells[best], now)
 		}
 	}
-}
-
-func absDur(d time.Duration) time.Duration {
-	if d < 0 {
-		return -d
-	}
-	return d
 }
 
 // watch notes which commands of the step's chain sh has running now.
