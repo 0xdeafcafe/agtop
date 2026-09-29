@@ -92,7 +92,7 @@ func pick(ctx context.Context, want string) (Model, error) {
 		return Model{}, err
 	}
 	if !info.Can("tools") {
-		return Model{}, fmt.Errorf("%s can't call tools, and Claude Code does all its work with them: try `ollama pull %s`", info.Name, suggest)
+		return Model{}, fmt.Errorf("%s can't call tools, and a coding agent does all its work with them: try `ollama pull %s`", info.Name, suggest)
 	}
 	lctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()

@@ -94,10 +94,5 @@ func KindFor(p string, h Kind) (Kind, bool) {
 
 // ProviderInstalled is whether any of provider p's agents runs here.
 func ProviderInstalled(p string) bool {
-	for _, k := range Harnesses(p) {
-		if Runs(k) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(Harnesses(p), Runs)
 }
