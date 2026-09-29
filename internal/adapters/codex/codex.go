@@ -37,6 +37,7 @@ var features = map[agent.Feature]agent.Support{
 	agent.FeatureLive: agent.Yes, agent.FeatureHistory: agent.Yes,
 	agent.FeatureSwitch: agent.Yes, agent.FeatureSignIn: agent.Yes, agent.FeatureQuota: agent.Yes,
 	agent.FeatureCommands: agent.Planned, agent.FeaturePricing: agent.Planned, agent.FeatureEfficiency: agent.Planned,
+	agent.FeatureMemory: agent.Planned.With("its AGENTS.md files"), agent.FeatureSettings: agent.Planned.With("config.toml"),
 }
 
 func (Adapter) Features() map[agent.Feature]agent.Support { return features }
