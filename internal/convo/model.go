@@ -125,8 +125,8 @@ type Item struct {
 	Images  []string         // files sent with an interjection
 	Step    *Step
 	Answer  bool // the turn's final words, promoted when the turn ends
-	// drawn is how it (and a run of steps from it) was last drawn, while
-	// its turn runs: see drawer.memoized.
+	// drawn is how it (and a run of steps from it) was last drawn in an
+	// open turn: see drawer.memoized.
 	drawn *unitDrawn
 }
 
@@ -162,7 +162,6 @@ type Turn struct {
 	ref     string // "t13", made once
 	waits   bool   // a step waits on you, as of waitVer-1
 	waitVer int
-	drawn   bool // its items hold how they were drawn while it ran
 }
 
 // Outcome is the first line of the turn's answer.
@@ -251,6 +250,9 @@ type Session struct {
 	rowsFor    string             // the folders rows were drawn against
 	cards      map[stepKey][]card // steps' cards drawn this render
 	cardsOld   map[stepKey][]card
+	stale      bool          // the last render used some turns as drawn before: Stale
+	deadline   time.Time     // when the render under way is out of budget
+	drew       bool          // the render under way has drawn something afresh
 	stepVer    int           // bumped whenever a step is added or changes
 	asked      []*Step       // the steps asked for approval and maybe still waiting: Pending's
 	changes    []*FileChange // Changes, as of changesVer

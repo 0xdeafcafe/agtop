@@ -1044,6 +1044,11 @@ type hostConn struct {
 	// whether any are being looked for.
 	spawns       map[string]*spawnRun
 	spawnLooking bool
+
+	// stale is whether the conversation drawn last ran out of time and
+	// shows some of it as drawn before, at another width perhaps: relayout
+	// draws again soon.
+	stale bool
 }
 
 type hostOpenMsg struct {
@@ -1487,9 +1492,12 @@ func (m *Model) agtopPane(w, h int) []string {
 		}
 		body = m.subagentLines(c, o)
 	default:
+		// Resized, a long session is laid out again a slice a frame, from
+		// its end: what isn't yet shows as it was, cut to fit.
+		o.Budget = relayBudget
 		body = s.RenderInto(o, c.bodyBuf)
 		c.bodyBuf = body
-		c.drawn, c.drewConvo = o, true
+		c.drawn, c.drewConvo, c.stale = o, true, s.Stale()
 		if len(body) == 0 {
 			body = []convo.Line{{Text: ""}, {Text: dim("  nothing yet · type below to start")}}
 		}
@@ -1593,6 +1601,9 @@ func (m *Model) agtopPane(w, h int) []string {
 		c.rowBody = append(c.rowBody, -1)
 	}
 	for i, l := range body[start:end] {
+		if c.stale {
+			l.Text = fit(l.Text, w) // may be drawn for another width
+		}
 		out = append(out, l.Text)
 		c.rowRefs = append(c.rowRefs, l.Ref)
 		c.rowBody = append(c.rowBody, start+i)
@@ -1610,6 +1621,9 @@ func (m *Model) agtopPane(w, h int) []string {
 					// Its first row: the start of what you said.
 					f := headingStart(body, i)
 					out[len(head)] = body[f].Text
+					if c.stale {
+						out[len(head)] = fit(body[f].Text, w)
+					}
 					c.rowRefs[len(head)] = r
 					c.rowBody[len(head)] = f
 				}

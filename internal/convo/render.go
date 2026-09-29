@@ -46,6 +46,11 @@ type Options struct {
 	// Wide lets rows run the whole width, past capRow: for a session shown
 	// alone on a wide screen, where the right edge is the screen's.
 	Wide bool
+	// Budget is how long a render may take drawing afresh; 0 is no limit.
+	// Past it, a turn or part of a running turn already drawn another way
+	// (at the width before a resize, say) is used as it was, and Stale
+	// says so: the caller draws again soon, and each render redraws more.
+	Budget time.Duration
 }
 
 // rowCap is how wide a row's numbers and rules may run.
@@ -100,10 +105,16 @@ func (s *Session) RenderInto(o Options, buf []Line) []Line {
 		s.parts = make([][]Line, len(s.Turns))
 	}
 	parts := s.parts[:len(s.Turns)]
+	s.stale, s.drew, s.deadline = false, false, time.Time{}
+	if o.Budget > 0 {
+		s.deadline = time.Now().Add(o.Budget)
+	}
+	// Newest first: the end is what's on screen, so it's drawn first
+	// when there's only time for some.
 	n := 0
-	for i, t := range s.Turns {
+	for i := len(s.Turns) - 1; i >= 0; i-- {
 		recent := i >= len(s.Turns)-2
-		parts[i] = s.turn(t, o, recent, folds, latest)
+		parts[i] = s.turn(s.Turns[i], o, recent, folds, latest)
 		n += len(parts[i])
 	}
 	out := buf[:0]
@@ -194,34 +205,48 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	if ok && c.key == key {
 		return c.lines
 	}
+	if ok && s.over() {
+		s.stale = true
+		return c.lines // as it was drawn: another render redraws it
+	}
 	if ok {
 		d.lines = make([]Line, 0, len(c.lines)+8) // about as long as it was
 	}
-	// A turn on the clock redraws every frame: what's finished in it comes
-	// from the unit memo, drawn as it was, so only what runs is drawn anew.
-	switch {
-	case key.clock && !noUnitMemo:
+	// An open turn is drawn part by part through the unit memo: a turn on
+	// the clock redraws every frame, and only what runs in it is drawn
+	// anew; one laid out for a new width can be, a slice a render.
+	if open && !noUnitMemo {
 		d.unit = &unitKey{base: s.Info.Cwd + "|" + s.Cwd, folds: key.folds, sel: key.sel, focused: key.focused, width: o.Width, cw: d.cw, verb: o.Verbose, pal: palette, gen: key.gen, spine: d.spine()}
-	case t.drawn:
-		// Done: the turn is kept whole now, so its parts needn't be.
-		for _, it := range t.Items {
-			it.drawn = nil
-		}
-		t.drawn = false
 	}
 	if open {
 		d.open()
 	} else {
 		d.folded()
+		s.drew = true
 	}
 	// An open turn ends with a plain gap (the running turn's rail ends
 	// with it); folded turns stack row on row.
 	if open {
 		d.lines = append(d.lines, Line{Text: row("", "", "", d.o.Width, d.cw)})
 	}
+	if d.stale {
+		s.stale = true // part of it is as it was: not to keep
+		return d.lines
+	}
 	s.cache[t] = cached{key: key, lines: d.lines}
 	return d.lines
 }
+
+// over is whether the render has used its budget. It hasn't until it's
+// drawn something afresh, so each render gets further than the last.
+func (s *Session) over() bool {
+	return s.drew && !s.deadline.IsZero() && time.Now().After(s.deadline)
+}
+
+// Stale is whether the last render ran out of budget and used some of
+// what it drew before as it was, perhaps at another width: another render
+// draws more of it afresh.
+func (s *Session) Stale() bool { return s.stale }
 
 func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[string]string) cacheKey {
 	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref], pal: palette, gen: commitsGen.Load()}
@@ -279,12 +304,19 @@ type drawer struct {
 	// latest is the session's newest step when it's in this turn: it
 	// shows opened, and never folds into a run.
 	latest *Step
-	// unit is how the turn is being drawn, for the unit memo; nil when the
-	// turn isn't on the clock and is cached whole instead. above is the
+	// unit is how the turn is being drawn, for the unit memo; nil when
+	// it's drawn folded. above is the
 	// last row as a unit's key has it, while it's known: see rowAbove.
 	unit  *unitKey
 	above int8
+	// stale is whether a unit was copied as drawn another way, past the
+	// render's budget: the turn isn't kept then.
+	stale bool
 }
+
+// freshTail is how many of a running turn's last items are drawn afresh
+// however long a render has taken: they're what's on screen.
+const freshTail = 24
 
 func (d *drawer) spine() string {
 	switch {
@@ -553,7 +585,7 @@ func (d *drawer) open() {
 			}
 			if j-i >= 2 {
 				run, runRef := items[i:j], d.ref+":run:"+strconv.Itoa(i)
-				d.memoized(run, runRef, func() {
+				d.memoized(run, runRef, i >= len(items)-freshTail, func() {
 					if !d.o.Open[runRef] {
 						d.run(runRef, run)
 						// What the run did that you'd want to see stays out.
@@ -573,7 +605,7 @@ func (d *drawer) open() {
 				continue
 			}
 		}
-		d.memoized(items[i:i+1], "", func() { d.item(it) })
+		d.memoized(items[i:i+1], "", i >= len(items)-freshTail, func() { d.item(it) })
 	}
 	if t.Live {
 		d.liveLine()
@@ -704,10 +736,13 @@ type unitDrawn struct {
 }
 
 // memoized draws items with draw, or copies how they were last drawn when
-// nothing they read has changed since. Only a turn on the clock uses it,
-// and only for what's done: a running or waiting step, or text still
-// streaming, reads the clock or changes, and is drawn every time.
-func (d *drawer) memoized(items []*Item, ref string, draw func()) {
+// nothing they read has changed since. It's only for what's done: a
+// running or waiting step reads the clock, and is drawn every time.
+//
+// Past the render's budget, a unit drawn before another way (at another
+// width, say) is copied as it was, unless it's in the turn's last few
+// items, which are on screen.
+func (d *drawer) memoized(items []*Item, ref string, tail bool, draw func()) {
 	if d.unit == nil {
 		draw()
 		return
@@ -724,6 +759,13 @@ func (d *drawer) memoized(items []*Item, ref string, draw func()) {
 	k.above = d.rowAbove()
 	k.worked, k.subject, k.hs, k.hsPath, k.hsN = d.worked, d.subject, d.hs, d.hsPath, d.hsN
 	u := items[0].drawn
+	if u != nil && u.key != k && !tail && d.s.over() {
+		d.stale = true
+		d.lines = append(d.lines, u.lines...)
+		d.worked, d.subject, d.hs, d.hsPath, d.hsN = u.worked, u.subject, u.hs, u.hsPath, u.hsN
+		d.above = u.above
+		return
+	}
 	if u == nil || u.key != k {
 		from := len(d.lines)
 		draw()
@@ -731,7 +773,7 @@ func (d *drawer) memoized(items []*Item, ref string, draw func()) {
 		d.above = 0
 		u.above = d.rowAbove()
 		items[0].drawn = u
-		d.t.drawn = true
+		d.s.drew = true
 	} else {
 		d.lines = append(d.lines, u.lines...)
 		d.worked, d.subject, d.hs, d.hsPath, d.hsN = u.worked, u.subject, u.hs, u.hsPath, u.hsN

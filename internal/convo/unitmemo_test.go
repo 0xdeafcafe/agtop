@@ -104,3 +104,40 @@ func memoFrames(s *Session, o Options) string {
 	}
 	return ""
 }
+
+// A session laid out for a new width within a budget shows some of it as
+// it was, says so, and render by render comes to exactly what one render
+// with no budget draws.
+func TestBudgetRelayoutSettles(t *testing.T) {
+	s := benchSession(200)
+	if p := os.Getenv("AGTOP_BENCH_TRANSCRIPT"); p != "" {
+		s = settledTranscript(t, p)
+	}
+	s.Turns[len(s.Turns)-1].Live = true
+	o := Options{Width: 120, Now: time.Unix(1e9, 0), Open: map[string]bool{}}
+	s.Render(o)
+	o.Width, o.Budget = 97, time.Nanosecond
+	n := 0
+	var got []Line
+	for got = append([]Line(nil), s.Render(o)...); s.Stale(); got = append([]Line(nil), s.Render(o)...) {
+		if n++; n > 10000 {
+			t.Fatal("never settled")
+		}
+	}
+	if n == 0 {
+		t.Fatal("a nanosecond's budget drew it all at once")
+	}
+	o.Budget = 0
+	s.cache = map[*Turn]cached{}
+	noUnitMemo = true
+	want := s.Render(o)
+	noUnitMemo = false
+	if len(got) != len(want) {
+		t.Fatalf("settled after %d renders with %d rows, want %d", n, len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("row %d:\n got %q\nwant %q", i, got[i].Text, want[i].Text)
+		}
+	}
+}

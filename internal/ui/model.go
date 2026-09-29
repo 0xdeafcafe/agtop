@@ -265,6 +265,9 @@ type Model struct {
 	// kindMemo keeps what startKindIn worked out for it.
 	drawing  bool
 	kindMemo kindMemo
+
+	// relayPending is whether a relayoutMsg is on its way.
+	relayPending bool
 }
 
 type previewEntry struct {
@@ -620,6 +623,10 @@ func (m *Model) flash(s string, err bool) {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer uiBusy(msg)()
+	if _, ok := msg.(relayoutMsg); ok {
+		m.relayPending = false
+		return m, m.relayout()
+	}
 	_, cmd := m.update(msg)
 	m.pinHosted()
 	m.applyJump()
@@ -637,7 +644,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if c := m.host; c != nil && c.paneKick && !c.paneReading {
 		c.paneKick, paneCmd = false, m.refreshSubs()
 	}
-	return m, tea.Batch(cmd, copyCmd, fxCmd, paneCmd, m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd())
+	return m, tea.Batch(cmd, copyCmd, fxCmd, paneCmd, m.relayout(), m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {

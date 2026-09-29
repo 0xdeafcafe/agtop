@@ -1330,12 +1330,17 @@ func shortSHA(s string) string {
 }
 
 // testsFailed is whether a step ran tests that failed, whatever it exited
-// with: piped through tail, a failing run exits 0.
+// with: piped through tail, a failing run exits 0. Every step is asked
+// each frame, so the answer is kept by the step alone: a tests card is
+// read from the output, and a git lookup finishing doesn't change it.
 func (d *drawer) testsFailed(st *Step) bool {
-	for _, c := range d.stepCards(st) {
-		if c.kind == "tests" {
-			return true
+	return d.stepMemo(st, 't', func(st *Step) string {
+		cs := d.stepCards(st)
+		for i := range cs {
+			if cs[i].kind == "tests" {
+				return "failed"
+			}
 		}
-	}
-	return false
+		return ""
+	}) != ""
 }
