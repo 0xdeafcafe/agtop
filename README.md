@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/brand/rush-icon.png" width="180" alt="agtop's icon: a tilted amber bottle labelled RUSH, AI harness polisher, not for agent consumption">
+</p>
+
 <h1 align="center">agtop</h1>
 
 <p align="center">

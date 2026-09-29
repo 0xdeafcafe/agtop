@@ -229,9 +229,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         guard let b = item.button else { return }
         let waiting = state.waiting?.count ?? 0
         let working = state.working?.count ?? 0
-        // He's clanker, as in agtop's header: working he steps from one
-        // pose to the other every other second, and needing you he holds
-        // his arms up by a !, in orange.
+        // The bottle: working, its cap pops on and off every other second;
+        // needing you, it's orange.
         let pose = waiting > 0 ? "needs" : working > 0 && Int(Date().timeIntervalSince1970) / 2 % 2 == 1 ? "working" : "idle"
         animate(waiting == 0 && working > 0)
         // Setting the button's image or title has the menu bar lay it out
@@ -265,14 +264,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         tick = t
     }
 
-    lazy var idleImage = clanker("idle")
-    lazy var workingImage = clanker("working")
-    lazy var needsImage = clanker("needs").map { tinted($0, .systemOrange) }
+    lazy var idleImage = bottle(popped: false)
+    lazy var workingImage = bottle(popped: true)
+    lazy var needsImage = tinted(bottle(popped: false), .systemOrange)
 
-    func clanker(_ pose: String) -> NSImage? {
-        let i = Bundle.main.image(forResource: "clanker-\(pose)Template")
-        i?.isTemplate = true
-        i?.accessibilityDescription = "agtop"
+    /// bottle is the app icon's bottle as a menu bar glyph: leaning, its
+    /// label a band across it. Working, its cap pops off and it fumes.
+    func bottle(popped: Bool) -> NSImage {
+        let i = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+            guard let g = NSGraphicsContext.current else { return false }
+            let t = NSAffineTransform()
+            t.translateX(by: 9, yBy: 9)
+            t.rotate(byDegrees: 22)
+            t.translateX(by: -8, yBy: -8.5)
+            t.concat()
+            NSColor.black.set()
+            NSBezierPath(roundedRect: NSRect(x: 4, y: 0.5, width: 8, height: 9.5), xRadius: 2, yRadius: 2).fill()
+            NSBezierPath(rect: NSRect(x: 5.5, y: 9.5, width: 5, height: 1.5)).fill()
+            // The cap: on, or lifted off and tipped, with fumes under it.
+            let cap = NSAffineTransform()
+            if popped {
+                cap.translateX(by: 10.4, yBy: 12.5)
+                cap.rotate(byDegrees: -40)
+                cap.translateX(by: -8, yBy: -11.5)
+                NSBezierPath(ovalIn: NSRect(x: 5.4, y: 11.9, width: 1.4, height: 1.4)).fill()
+                NSBezierPath(ovalIn: NSRect(x: 3.9, y: 13.6, width: 1.1, height: 1.1)).fill()
+            }
+            g.saveGraphicsState()
+            cap.concat()
+            NSBezierPath(roundedRect: NSRect(x: 5, y: 11.5, width: 6, height: 3.5), xRadius: 1, yRadius: 1).fill()
+            g.compositingOperation = .clear
+            for x in [7.1, 8.9] { // its ribs
+                NSBezierPath(rect: NSRect(x: x - 0.4, y: 12.2, width: 0.8, height: 2.1)).fill()
+            }
+            g.restoreGraphicsState()
+            // The label's edges.
+            g.compositingOperation = .clear
+            NSBezierPath(rect: NSRect(x: 3, y: 2.6, width: 10, height: 0.7)).fill()
+            NSBezierPath(rect: NSRect(x: 3, y: 7.2, width: 10, height: 0.7)).fill()
+            return true
+        }
+        i.isTemplate = true
+        i.accessibilityDescription = "agtop"
         return i
     }
 
