@@ -2757,7 +2757,13 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	for g := range shared {
 		shared[g] = -1
 	}
+	// Hits with a line number share indentation only with those near them
+	// in the same file: hits from different files, or far apart, have
+	// nothing to line up, and each is brought left.
+	hunk, hunkInd := make([]int, len(lines)), map[int]int{}
+	prevPath, prevNo, h := "", -2, 0
 	for i, l := range lines {
+		hunk[i] = -1
 		l = expandTabs(cleanOutput(l))
 		n, path, lg := code(i, l)
 		if lg == nil || strings.TrimSpace(l[n:]) == "" {
@@ -2768,6 +2774,15 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			prefixW[g] = max(prefixW[g], pw)
 		}
 		ind := len(l[n:]) - len(strings.TrimLeft(l[n:], " "))
+		if no := lineNo(l[:n]); n > 0 && no > 0 {
+			if path != prevPath || no <= prevNo || no > prevNo+20 {
+				h++
+				hunkInd[h] = ind
+			}
+			prevPath, prevNo, hunk[i] = path, no, h
+			hunkInd[h] = min(hunkInd[h], ind)
+			continue
+		}
 		if shared[g] < 0 || ind < shared[g] {
 			shared[g] = ind
 		}
@@ -2796,7 +2811,11 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			g := group(i, n)
 			pre := l[:n] + strings.Repeat(" ", max(0, prefixW[g]-cellw.String(l[:n])))
 			body := l[n:]
-			if sh := shared[g]; sh > 0 && len(body)-len(strings.TrimLeft(body, " ")) >= sh {
+			sh := shared[g]
+			if hunk[i] >= 0 {
+				sh = hunkInd[hunk[i]]
+			}
+			if sh > 0 && len(body)-len(strings.TrimLeft(body, " ")) >= sh {
 				body = body[sh:]
 			}
 			if headed(path, cellw.String(l[:n])) {

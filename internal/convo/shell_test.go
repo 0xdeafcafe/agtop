@@ -113,8 +113,8 @@ func TestChainOutputHighlighted(t *testing.T) {
 	}
 }
 
-// A search's hits start their code in one column, less the indentation
-// they all share.
+// A search's hits start their code in one column, each file's brought
+// left: indentation from different files has nothing to line up.
 func TestSearchHitsAligned(t *testing.T) {
 	s := New()
 	s.Info.Cwd = "/work"
@@ -129,7 +129,7 @@ func TestSearchHitsAligned(t *testing.T) {
 			got = append(got, strings.TrimSpace(strings.TrimLeft(t, " ▏")))
 		}
 	}
-	want := []string{"render.go:2267:      lg := x", "../ui/docstyle.go:35:    if x {"}
+	want := []string{"render.go:2267:      lg := x", "../ui/docstyle.go:35:if x {"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("hits = %q, want %q", got, want)
 	}
@@ -233,5 +233,35 @@ func TestHeredocChainWithDiff(t *testing.T) {
 		if !strings.Contains(all, want) {
 			t.Errorf("output should have %q:\n%q", want, all)
 		}
+	}
+}
+
+// Hits from different files, as a search across a package gives them,
+// each start at the code column, not at their own files' indentation.
+func TestSearchHitsEachLeft(t *testing.T) {
+	s := New()
+	s.Info.Cwd = "/work"
+	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 160, Verbose: true, Open: map[string]bool{}}, cw: 160}
+	in, _ := jsonx.Marshal(map[string]string{"command": `grep -rn '"background"' internal/ui/*.go`})
+	out := "internal/ui/jobs.go:119:\t\t\thint = keys(\"b\", \"background\")\n" +
+		"internal/ui/rushmode.go:44:\t\tv = append(v, \"background\")\n" +
+		"internal/ui/rushmode.go:1615:\tcase \"background\":\n"
+	res, _ := jsonx.Marshal(map[string]string{"stdout": out})
+	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
+	col := -1
+	for _, l := range d.lines {
+		txt := stripANSI(l.Text)
+		i := strings.Index(txt, ".go:")
+		if i < 0 {
+			continue
+		}
+		c := len(txt) - len(strings.TrimLeft(txt[i+4:], "0123456789: ")) // where the code starts
+		if col >= 0 && c != col {
+			t.Errorf("code starts at %d, not %d: %q", c, col, txt)
+		}
+		col = c
+	}
+	if col < 0 {
+		t.Fatal("no hits drawn")
 	}
 }
