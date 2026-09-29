@@ -16,6 +16,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
@@ -310,17 +311,17 @@ func (c *conn) Ask(ctx context.Context, req jsontext.Value) (jsontext.Value, err
 }
 
 // ContextUsage is what fills the context window, as /context counts it.
-func (c *conn) ContextUsage(ctx context.Context) (jsontext.Value, error) {
+func (c *conn) ContextUsage(ctx context.Context) (usage.Context, error) {
 	r, err := c.await(ctx, c.s.AskContextUsage)
 	if err != nil {
-		return nil, err
+		return usage.Context{}, err
 	}
 	u, err := headless.ParseContextUsage(r)
 	if err != nil {
-		return nil, err
+		return usage.Context{}, err
 	}
 	u.At = time.Now()
-	return jsonx.Marshal(u)
+	return u, nil
 }
 
 func (c *conn) Events() <-chan event.Event { return c.events }

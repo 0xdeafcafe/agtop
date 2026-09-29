@@ -5,6 +5,7 @@ import (
 	"encoding/json/jsontext"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 )
 
 // What a session agtop hosts can do beyond Conn: each is an optional
@@ -38,9 +39,9 @@ type Asker interface {
 }
 
 // ContextReader is a Conn that breaks down what fills the context window,
-// as the agent counts it, in the shape clients read it.
+// as the agent counts it.
 type ContextReader interface {
-	ContextUsage(ctx context.Context) (jsontext.Value, error)
+	ContextUsage(ctx context.Context) (usage.Context, error)
 }
 
 // TaskStopper is a Conn that stops one task beside the turn, leaving the

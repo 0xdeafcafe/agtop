@@ -16,6 +16,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
@@ -242,7 +243,7 @@ type Reply struct {
 }
 
 // Context is what fills the context window, as last counted.
-type Context struct{ Usage headless.ContextUsage }
+type Context struct{ Usage usage.Context }
 
 // Decode reads one line from a host: its own events, Claude Code's, or
 // agtop's own events from another agent's session (an event.Event).
@@ -254,19 +255,19 @@ func Decode(line []byte) (any, error) {
 		return headless.Decode(line)
 	}
 	var head struct {
-		Type      string                 `json:"type"`
-		Info      Info                   `json:"info"`
-		RequestID string                 `json:"request_id"`
-		Error     string                 `json:"error"`
-		Sent      bool                   `json:"agtop_sent"`
-		Images    []string               `json:"agtop_images"`
-		Message   jsontext.Value         `json:"message"`
-		Commands  []wireCommand          `json:"commands"`
-		Context   *headless.ContextUsage `json:"context"`
-		ID        string                 `json:"id"`
-		Reply     jsontext.Value         `json:"reply"`
-		T         int64                  `json:"t"`
-		Ev        jsontext.Value         `json:"ev"`
+		Type      string         `json:"type"`
+		Info      Info           `json:"info"`
+		RequestID string         `json:"request_id"`
+		Error     string         `json:"error"`
+		Sent      bool           `json:"agtop_sent"`
+		Images    []string       `json:"agtop_images"`
+		Message   jsontext.Value `json:"message"`
+		Commands  []wireCommand  `json:"commands"`
+		Context   *usage.Context `json:"context"`
+		ID        string         `json:"id"`
+		Reply     jsontext.Value `json:"reply"`
+		T         int64          `json:"t"`
+		Ev        jsontext.Value `json:"ev"`
 	}
 	if err := jsonx.Unmarshal(line, &head); err != nil {
 		return nil, err

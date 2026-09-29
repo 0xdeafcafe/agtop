@@ -100,8 +100,8 @@ func TestConnControl(t *testing.T) {
 		t.Fatalf("Ask = %s, %v", body, err)
 	}
 	u, err := conn.(agent.ContextReader).ContextUsage(ctx)
-	if err != nil || !strings.Contains(string(u), `"totalTokens":1200`) {
-		t.Fatalf("ContextUsage = %s, %v", u, err)
+	if err != nil || u.Total != 1200 || u.At.IsZero() {
+		t.Fatalf("ContextUsage = %+v, %v", u, err)
 	}
 	if err := conn.(agent.TaskStopper).StopTask("b1"); err != nil {
 		t.Fatal(err)

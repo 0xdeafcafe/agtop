@@ -12,10 +12,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -154,8 +154,8 @@ func TestContextTab(t *testing.T) {
 	if !strings.Contains(text(), "the breakdown") {
 		t.Fatalf("no count yet:\n%s", text())
 	}
-	c.sess.Apply(host.Context{Usage: headless.ContextUsage{Total: 15801, Max: 1_000_000, Model: "claude-opus-5-5[1m]", AutoCompact: true, AutoCompactAt: 967000, At: time.Now(),
-		Categories: []headless.ContextCategory{{Name: "System prompt", Tokens: 2163, Kind: "used"}, {Name: "System tools", Tokens: 9537, Kind: "used"},
+	c.sess.Apply(host.Context{Usage: usage.Context{Total: 15801, Max: 1_000_000, Model: "claude-opus-5-5[1m]", AutoCompact: true, AutoCompactAt: 967000, At: time.Now(),
+		Parts: []usage.ContextPart{{Name: "System prompt", Tokens: 2163, Kind: "used"}, {Name: "System tools", Tokens: 9537, Kind: "used"},
 			{Name: "System tools (deferred)", Tokens: 21578, Kind: "deferred", Deferred: true}, {Name: "Skills", Tokens: 3938, Kind: "used"},
 			{Name: "Messages", Tokens: 163, Kind: "used"}, {Name: "Autocompact buffer", Tokens: 33000, Kind: "buffer"}, {Name: "Free space", Tokens: 951199, Kind: "free"}}}}, time.Now())
 	for _, want := range []string{"16k of 1M", "auto-compacts at 967k", "System prompt", "Skills", "Auto-compact buffer", "Free"} {

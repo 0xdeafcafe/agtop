@@ -223,7 +223,7 @@ type Session struct {
 	MCP      []event.MCPServer
 	// Usage is what fills the context window, as the host last counted
 	// it; nil until it has.
-	Usage    *headless.ContextUsage
+	Usage    *usage.Context
 	NTools   int
 	Context  int // tokens in the context window after the last request
 	Limit    string

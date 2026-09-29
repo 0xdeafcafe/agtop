@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 )
 
 // --- what fills the context window ---
@@ -32,8 +32,8 @@ func ctxColour(name string) string {
 // ctxParts are the categories in the window, in Claude Code's order:
 // what's used, then the auto-compact buffer, then what's free. Deferred
 // tools aren't in the window, so they're left out.
-func ctxParts(u *headless.ContextUsage) (used []headless.ContextCategory, buffer, free int) {
-	for _, c := range u.Categories {
+func ctxParts(u *usage.Context) (used []usage.ContextPart, buffer, free int) {
+	for _, c := range u.Parts {
 		switch {
 		case c.Deferred || c.Kind == "deferred":
 		case c.Kind == "buffer":
@@ -49,7 +49,7 @@ func ctxParts(u *headless.ContextUsage) (used []headless.ContextCategory, buffer
 
 // ContextBar is the window as one stacked bar w cells wide: each category
 // in its colour, then the auto-compact buffer, then what's free.
-func ContextBar(u *headless.ContextUsage, w int) string {
+func ContextBar(u *usage.Context, w int) string {
 	if u == nil || u.Max <= 0 || w <= 0 {
 		return ""
 	}
@@ -75,7 +75,7 @@ func ContextBar(u *headless.ContextUsage, w int) string {
 }
 
 // ContextLegend is a row per category: its colour, name, tokens and share.
-func ContextLegend(u *headless.ContextUsage, lead string) []string {
+func ContextLegend(u *usage.Context, lead string) []string {
 	if u == nil || u.Max <= 0 {
 		return nil
 	}
@@ -94,7 +94,7 @@ func ContextLegend(u *headless.ContextUsage, lead string) []string {
 
 // ContextDetail is what's inside the categories: the biggest skills, MCP
 // servers, agents, memory files and tools' calls and results.
-func ContextDetail(u *headless.ContextUsage, lead string, each int) []string {
+func ContextDetail(u *usage.Context, lead string, each int) []string { //nolint:gocognit // one group per part, each the same few steps
 	if u == nil {
 		return nil
 	}
@@ -185,7 +185,7 @@ func ContextDetail(u *headless.ContextUsage, lead string, each int) []string {
 // ContextGrid is the window as rows of cells, as Claude Code's /context
 // draws it: each cell a share of the window, in its category's colour;
 // the free space dotted and the auto-compact buffer shaded at the end.
-func ContextGrid(u *headless.ContextUsage, cols, rows int) []string {
+func ContextGrid(u *usage.Context, cols, rows int) []string {
 	if u == nil || u.Max <= 0 || cols <= 0 || rows <= 0 {
 		return nil
 	}
