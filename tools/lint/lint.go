@@ -26,7 +26,7 @@ func (plugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
 func (plugin) GetLoadMode() string { return register.LoadModeTypesInfo }
 
 // Analyzers are every check.
-var Analyzers = []*analysis.Analyzer{JSON, UIBlock, Hot, Read, Hooks}
+var Analyzers = []*analysis.Analyzer{JSON, UIBlock, Hot, Read, Hooks, Adapters}
 
 // callee is the package path and name of the function or method call
 // calls, when it's a static one.

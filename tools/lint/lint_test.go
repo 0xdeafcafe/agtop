@@ -21,3 +21,7 @@ func TestRead(t *testing.T) { analysistest.Run(t, analysistest.TestData(), Read,
 func TestHooks(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), Hooks, "example.com/internal/ui/hookcheck")
 }
+
+func TestAdapters(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), Adapters, "example.com/internal/core", "example.com/internal/adapters/other")
+}
