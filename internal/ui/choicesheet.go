@@ -32,7 +32,7 @@ func argOptions(c *hostConn, name string) []agent.Choice {
 // or for a model, as its answers do.
 func argRunning(c *hostConn, name string) string {
 	if name == "effort" {
-		return c.sess.Info.Effort
+		return c.sess.Effort()
 	}
 	return firstNonEmpty(c.sess.Info.Model, c.sess.Model)
 }

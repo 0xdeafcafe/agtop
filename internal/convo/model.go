@@ -294,6 +294,20 @@ func New() *Session {
 		reqIdx: map[string]int{}, TaskStatus: map[string]string{}}
 }
 
+// Effort is the effort it runs at: the one rush set, else the one its
+// transcript says the last turn ran at (a CLI default or settings.json).
+func (s *Session) Effort() string {
+	if s.Info.Effort != "" {
+		return s.Info.Effort
+	}
+	for _, tn := range slices.Backward(s.Turns) {
+		if tn.Effort != "" {
+			return tn.Effort
+		}
+	}
+	return ""
+}
+
 // Live is the turn in progress, if any.
 func (s *Session) Live() *Turn {
 	if n := len(s.Turns); n > 0 && s.Turns[n-1].Live {

@@ -247,7 +247,7 @@ func previewInput(c *hostConn, a *fleet.Agent) statusline.Input {
 	in.Cwd = firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
 	in.Workspace.CurrentDir = in.Cwd
 	in.Model.DisplayName = firstNonEmpty(c.sess.Model, c.sess.Info.Model, "Opus")
-	in.Effort.Level = firstNonEmpty(c.sess.Info.Effort, "high")
+	in.Effort.Level = firstNonEmpty(c.sess.Effort(), "high")
 	in.Version = "2.1"
 	in.Cost.USD = c.sess.Info.CostUSD
 	if in.Cost.USD == 0 {

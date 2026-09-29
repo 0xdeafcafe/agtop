@@ -181,7 +181,7 @@ var agentSegs = []barSeg{
 		return ""
 	}},
 	{"effort", "Effort", "the effort level", func(x *barCtx) string {
-		return dim(x.c.sess.Info.Effort)
+		return dim(x.c.sess.Effort())
 	}},
 	{"mode", "Permissions", "the permission mode: plan in blue, the ones that don't ask in orange", func(x *barCtx) string {
 		mode := x.c.sess.Info.PermissionMode

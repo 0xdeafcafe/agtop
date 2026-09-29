@@ -299,7 +299,7 @@ func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 
 	out = append(out, "", infoHead("Model"))
 	out = append(out, infoRow("model", paint(cText, convo.PrettyModel(firstNonEmpty(s.Model, s.Info.Model))), w))
-	out = append(out, infoRow("effort", paint(cText, s.Info.Effort), w))
+	out = append(out, infoRow("effort", paint(cText, s.Effort()), w))
 	out = append(out, infoRow("permissions", paint(cText, s.Info.PermissionMode), w))
 	if s.Context > 0 {
 		win := s.ContextWindow()

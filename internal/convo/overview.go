@@ -206,7 +206,7 @@ func (s *Session) Overview(o Options) []Line {
 		}
 	}
 	model = firstNonEmpty(model, s.Model)
-	effort := firstNonEmpty(s.Info.Effort, "default")
+	effort := firstNonEmpty(s.Effort(), "default")
 
 	// --- tiles: the numbers that matter, at a glance ---
 	hit := 0.0
