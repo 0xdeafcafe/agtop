@@ -541,21 +541,34 @@ func (s *Store) Copy() *Store {
 	return c
 }
 
+//uiblock:nowait the view turns WriteBehind on: its goroutine writes
 func (s *Store) SaveOverlay() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return writeJSON(filepath.Join(Dir(), "state.json"), s.Overlay)
+	return save(filepath.Join(Dir(), "state.json"), s.Overlay)
 }
 
+//uiblock:nowait the view turns WriteBehind on: its goroutine writes
 func (s *Store) SaveConfig() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return writeJSON(filepath.Join(Dir(), "config.json"), s.Config)
+	return save(filepath.Join(Dir(), "config.json"), s.Config)
 }
 
 // KeepBefore copies config.json aside as config.json.<name>, once, before
 // a change an older agtop wouldn't make: the copy is never overwritten.
+// With WriteBehind on, the writer copies it, before any save after.
+//
+//uiblock:nowait the view turns WriteBehind on: its goroutine copies
 func KeepBefore(name string) {
+	if behindOn() {
+		queueWrite("keep:"+name, func() error { keepBefore(name); return nil })
+		return
+	}
+	keepBefore(name)
+}
+
+func keepBefore(name string) {
 	path := filepath.Join(Dir(), "config.json")
 	aside := path + "." + name
 	if _, err := os.Stat(aside); err == nil {
@@ -592,11 +605,15 @@ func loadJSON(path string, v any) {
 }
 
 func writeJSON(path string, v any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
 	b, err := jsonx.MarshalIndent(v)
 	if err != nil {
+		return err
+	}
+	return writeBytes(path, b)
+}
+
+func writeBytes(path string, b []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	// A temp file of its own, so two agtops saving at once can't write
