@@ -15,6 +15,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/netwatch"
 )
 
 // A remote session is Copilot's coding agent working on GitHub: given an
@@ -46,35 +47,64 @@ var done = map[string]bool{"completed": true, "cancelled": true, "failed": true,
 const listEvery = 20 * time.Second
 
 var (
-	listMu   sync.Mutex
-	listAt   time.Time
-	listed   []remoteSession
-	listErr  error
-	listBase string
+	listMu    sync.Mutex
+	listAt    time.Time
+	listing   bool
+	listed    []remoteSession
+	listBase  string
+	listRepos map[int64]string
 )
 
-// sessions are your latest remote sessions, asked for at most every
-// listEvery.
-func sessions(ctx context.Context) ([]remoteSession, string, error) {
+// sessions are your latest remote sessions as last listed, with the API
+// they came from and their repositories' names. It never waits on the
+// network: agtop lists agents on every refresh, the first before it draws
+// anything, so a stale listing asks for a new one in the background and
+// the next refresh has it.
+func sessions() ([]remoteSession, string, map[int64]string) {
 	listMu.Lock()
 	defer listMu.Unlock()
-	if time.Since(listAt) < listEvery {
-		return listed, listBase, listErr
+	if !listing && time.Since(listAt) >= listEvery {
+		listing, listAt = true, time.Now()
+		go relist()
 	}
-	listAt = time.Now()
-	base, err := apiBase(ctx)
-	if err != nil {
-		listErr = err
-		return nil, "", err
+	return listed, listBase, listRepos
+}
+
+// relist asks GitHub for your remote sessions, and names their
+// repositories, while the network is up.
+func relist() {
+	var (
+		base  string
+		list  []remoteSession
+		repos = map[int64]string{}
+	)
+	err := netwatch.Do("copilot sessions", func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		var err error
+		if base, err = apiBase(ctx); err != nil {
+			return err
+		}
+		var r struct {
+			Sessions []remoteSession `json:"sessions"`
+		}
+		if err := get(ctx, base+"/agents/sessions?page_number=1&page_size=50&sort=last_updated_at%2Cdesc", &r); err != nil {
+			return err
+		}
+		list = r.Sessions
+		for _, s := range list {
+			if _, ok := repos[s.RepoID]; !ok {
+				repos[s.RepoID] = repoName(ctx, s.RepoID)
+			}
+		}
+		return nil
+	})
+	listMu.Lock()
+	defer listMu.Unlock()
+	listing = false
+	if err == nil {
+		listed, listBase, listRepos = list, base, repos
 	}
-	var r struct {
-		Sessions []remoteSession `json:"sessions"`
-	}
-	listErr = get(ctx, base+"/agents/sessions?page_number=1&page_size=50&sort=last_updated_at%2Cdesc", &r)
-	if listErr == nil {
-		listed, listBase = r.Sessions, base
-	}
-	return listed, listBase, listErr
 }
 
 // Live are your remote sessions still working.
@@ -84,26 +114,21 @@ func (a Adapter) Live(p agent.Profile) []agent.Session { return a.remote(p, fals
 func (a Adapter) Past(p agent.Profile) []agent.Session { return a.remote(p, true) }
 
 func (Adapter) remote(p agent.Profile, ended bool) []agent.Session {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	list, base, err := sessions(ctx)
-	if err != nil {
-		return nil
-	}
+	list, base, repos := sessions()
 	var out []agent.Session
 	for _, r := range list {
 		if done[r.State] != ended {
 			continue
 		}
-		out = append(out, r.session(ctx, p, base))
+		out = append(out, r.session(p, base, repos[r.RepoID]))
 	}
 	return out
 }
 
 // session is a remote session as agtop's own.
-func (r remoteSession) session(ctx context.Context, p agent.Profile, base string) agent.Session {
+func (r remoteSession) session(p agent.Profile, base, repo string) agent.Session {
 	s := agent.Session{Kind: Kind, Profile: p, ID: r.ID, Name: r.Name, Model: strings.TrimPrefix(r.Model, "sweagent-capi:"),
-		Remote: true, Repo: repoName(ctx, r.RepoID), Transcript: base + "/agents/sessions/" + r.ID + "/logs",
+		Remote: true, Repo: repo, Transcript: base + "/agents/sessions/" + r.ID + "/logs",
 		CreatedAt: parseTime(r.CreatedAt), UpdatedAt: parseTime(r.UpdatedAt)}
 	switch {
 	case !done[r.State]:

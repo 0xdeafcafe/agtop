@@ -245,6 +245,7 @@ type Loader struct {
 	spend   map[string]Spend
 	nudged  map[string]time.Time
 	subs    map[string]subsEntry
+	quick   bool // this load leaves out what can wait: see LoadQuick
 	fetched map[string]claude.Usage
 	// UsagePath is the readings every agtop process and session shares;
 	// usageMod is its time when last read.
@@ -374,6 +375,12 @@ func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) (ag
 		main = st.Size()
 	}
 	e, ok := l.subs[key]
+	if l.quick {
+		if !ok || e.runs == nil {
+			return agent.SubagentStats{}, nil
+		}
+		return e.st, subagentTiles(transcript, e.runs.Running())
+	}
 	working := e.st.Direct+e.st.Nested > 0
 	if ok && e.runs != nil && e.dir.Equal(dir) && e.main == main && e.gone == gone && now.Sub(e.at) < 30*time.Second && (!working || now.Sub(e.at) < 3*time.Second) {
 		return e.st, subagentTiles(transcript, e.runs.Running())
@@ -473,6 +480,21 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.load(sampleProcs)
+}
+
+// LoadQuick is Load without reading subagent runs, which means reading
+// every recent session's whole transcript: agtop's first list, drawn
+// before anything else. The next Load is a whole one, and it counts them.
+func (l *Loader) LoadQuick() *Snapshot {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.quick = true
+	snap := l.load(true)
+	l.quick = false
+	if l.watching != nil {
+		l.watching.stale = true
+	}
+	return snap
 }
 
 // LoadFrom is Load reading the config and overlay from s, a copy the UI

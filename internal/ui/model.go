@@ -307,7 +307,7 @@ func New(store *state.Store, version string) *Model {
 	}
 	m.applyColors()
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
-	m.snap = m.loader.Load(true)
+	m.snap = m.loader.LoadQuick() // drawn at once; the first refresh counts subagents
 	m.loadSidebars()
 	m.rebuild()
 	m.onboard = true
