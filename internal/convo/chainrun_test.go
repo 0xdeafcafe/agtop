@@ -125,3 +125,20 @@ func TestWatchShellsBackgroundChain(t *testing.T) {
 		t.Fatal("a finished task still runs a part")
 	}
 }
+
+// Commands no look caught running still say how long they took: the gap
+// they ran in, alone, or at most it when they shared it.
+func TestPartMarksFillGaps(t *testing.T) {
+	t0 := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	s, st := runningChain("a && b && c && d", t0)
+	st.Status, st.End = OK, t0.Add(10*time.Second)
+	st.parts = map[int]*partRun{2: {start: t0.Add(2 * time.Second), end: t0.Add(7 * time.Second)}}
+	d := &drawer{s: s, o: Options{Now: t0.Add(20 * time.Second)}}
+	var got []string
+	for _, m := range d.partMarks(st, 4) {
+		got = append(got, ansi.Strip(m))
+	}
+	if want := "✓ <2.0s|✓ <2.0s|✓ 5.0s|✓ 3.0s"; strings.Join(got, "|") != want {
+		t.Fatalf("marks = %q, want %q", strings.Join(got, "|"), want)
+	}
+}

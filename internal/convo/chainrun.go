@@ -264,18 +264,43 @@ func (d *drawer) partMarks(st *Step, n int) []string {
 		if st.Status == Failed && k == st.at {
 			marks[k] = paint(cRed, "✗ "+t)
 		} else {
-			marks[k] = faint("✓ " + t)
+			marks[k] = paint(cGreen, "✓ "+t)
 		}
 	}
 	// Commands that came and went between looks, before one that was seen,
-	// ran; so did those after the last when the whole chain did.
+	// ran; so did those after the last when the whole chain did. They ran
+	// in the gap between the ones seen either side: all of it when alone
+	// there, a share of it when not.
 	last := st.at
 	if st.Status == OK {
 		last = n - 1
 	}
 	for k := 0; k <= last && k < n; k++ {
-		if marks[k] == "" {
-			marks[k] = faint("✓")
+		if marks[k] != "" {
+			continue
+		}
+		from, to, gap := st.Start, end, k
+		for i := k - 1; i >= 0; i-- {
+			if r := st.parts[i]; r != nil {
+				from = r.end
+				break
+			}
+		}
+		for gap+1 < n && st.parts[gap+1] == nil && gap+1 <= last {
+			gap++
+		}
+		if r := st.parts[gap+1]; r != nil {
+			to = r.start
+		}
+		t := dur(max(0, to.Sub(from)))
+		if gap > k {
+			t = "<" + t
+		}
+		if from.IsZero() || to.Before(from) {
+			t = ""
+		}
+		for i := k; i <= gap; i++ {
+			marks[i] = paint(cGreen, strings.TrimSpace("✓ "+t))
 		}
 	}
 	return marks
