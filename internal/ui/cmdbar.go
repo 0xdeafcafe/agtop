@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -815,7 +816,11 @@ func (m *Model) barAgents(q, group string) []barItem {
 		if group != "" && m.groupOf[a.Key] != group {
 			continue
 		}
-		where := strings.Trim(a.Repo+" · "+a.Branch, " ·")
+		repo := a.Repo
+		if repo != "" {
+			repo = filepath.Base(repo)
+		}
+		where := strings.Trim(repo+" · "+a.Branch, " ·")
 		meta := where
 		if s := agentState(a, now); s != "" {
 			meta = strings.Trim(where+"  "+s, " ")
@@ -904,12 +909,21 @@ func (m *Model) barTurns(c *hostConn, q string) []barItem {
 	words := convo.Words(q)
 	for _, h := range c.sess.Search(q) {
 		ref := h.Ref
-		items = append(items, barItem{glyph: whoGlyph(h.Who), title: h.Snippet, lit: litWords(h.Snippet, words), meta: fmt.Sprintf("#%d %s", h.Turn, h.Who), run: func(m *Model) tea.Cmd {
+		items = append(items, barItem{glyph: whoGlyph(h.Who), title: homeless(h.Snippet), lit: litWords(homeless(h.Snippet), words), meta: fmt.Sprintf("#%d %s", h.Turn, h.Who), run: func(m *Model) tea.Cmd {
 			m.jumpInPane(ref)
 			return nil
 		}})
 	}
 	return items
+}
+
+// homeless is text with the home folder in it written ~, as paths are
+// everywhere else.
+func homeless(s string) string {
+	if home, _ := os.UserHomeDir(); home != "" {
+		return strings.ReplaceAll(s, home, "~")
+	}
+	return s
 }
 
 func whoGlyph(who string) string {
@@ -930,7 +944,7 @@ func (m *Model) barTranscripts(words []string) []barItem {
 		for _, h := range f.hits {
 			f, h := f, h
 			meta := fmt.Sprintf("%s  #%d", fit(f.name, 24), h.Turn)
-			items = append(items, barItem{glyph: whoGlyph(h.Who), title: h.Snippet, lit: litWords(h.Snippet, words), meta: strings.TrimRight(meta, " "), run: func(m *Model) tea.Cmd {
+			items = append(items, barItem{glyph: whoGlyph(h.Who), title: homeless(h.Snippet), lit: litWords(homeless(h.Snippet), words), meta: strings.TrimRight(meta, " "), run: func(m *Model) tea.Cmd {
 				return m.goFound(f, h, q)
 			}})
 		}
