@@ -41,7 +41,7 @@ func (cfg *Config) UseAgent(kind string) error {
 	}
 	cfg.Kind = kind
 	if cfg.Account.Dir == "" {
-		ps := a.Profiles()
+		ps := agent.ProfilesOf(a)
 		if len(ps) == 0 {
 			return fmt.Errorf("%s isn't installed: agtop can't find its program", a.Name())
 		}
@@ -55,7 +55,7 @@ func (cfg *Config) UseAgent(kind string) error {
 func Installed() []agent.Adapter {
 	var out []agent.Adapter
 	for _, a := range agent.InstalledAll() {
-		if _, ok := a.(agent.Driver); ok && agent.Runs(a.Kind()) && len(a.Profiles()) > 0 {
+		if _, ok := a.(agent.Driver); ok && agent.Runs(a.Kind()) && len(agent.ProfilesOf(a)) > 0 {
 			out = append(out, a)
 		}
 	}

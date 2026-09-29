@@ -65,17 +65,59 @@ const installedFor = 3 * time.Minute
 
 var found struct {
 	sync.Mutex
-	at    time.Time
-	paths map[Kind]string // "" when it isn't installed, "~…" when only its Lesser program is
+	at      time.Time
+	paths   map[Kind]string    // "" when it isn't installed, "~…" when only its Lesser program is
+	homes   map[Kind][]Profile // each agent's Profiles, as last read (only when never waiting)
+	noWait  bool               // see NeverWait
+	looking bool
+}
+
+// NeverWait has every ask answered from what was last found, for agtop's
+// view, whose UI goroutine never waits on the disk: a stale answer (or none
+// yet) has the programs looked for again in the background, and the next
+// ask has them. It starts the first look at once.
+func NeverWait() {
+	found.Lock()
+	found.noWait = true
+	found.Unlock()
+	look()
 }
 
 // look finds every registered agent's program, at most every installedFor.
+//
+//uiblock:nowait the view turns NeverWait on: a goroutine looks
 func look() map[Kind]string {
 	found.Lock()
 	defer found.Unlock()
 	if found.paths != nil && time.Since(found.at) < installedFor {
 		return found.paths
 	}
+	if found.noWait {
+		if !found.looking {
+			found.looking = true
+			go func() {
+				paths := lookAll()
+				found.Lock()
+				found.paths, found.at = paths, time.Now()
+				found.Unlock()
+				// An agent's Profiles asks whether it's installed: read
+				// them with what was just found.
+				homes := map[Kind][]Profile{}
+				for _, a := range All() {
+					homes[a.Kind()] = a.Profiles()
+				}
+				found.Lock()
+				found.homes, found.looking = homes, false
+				found.Unlock()
+			}()
+		}
+		return found.paths // nil reads as nothing installed, for a moment
+	}
+	found.paths, found.at = lookAll(), time.Now()
+	return found.paths
+}
+
+func lookAll() map[Kind]string {
 	paths := map[Kind]string{}
 	for _, a := range All() {
 		p, ok := a.(Programmer)
@@ -99,15 +141,36 @@ func look() map[Kind]string {
 			}
 		}
 	}
-	found.paths, found.at = paths, time.Now()
 	return paths
 }
 
-// Recheck forgets what was found, so the next ask looks again.
+// Recheck forgets what was found, so the next ask looks again. Never
+// waiting, what was found stands until the new look lands.
 func Recheck() {
 	found.Lock()
-	found.paths = nil
+	if found.noWait {
+		found.at = time.Time{}
+	} else {
+		found.paths = nil
+	}
 	found.Unlock()
+}
+
+// ProfilesOf is a's Profiles. Never waiting, they're as last read, with
+// the programs, in the background.
+//
+//uiblock:nowait the view turns NeverWait on: a goroutine reads them
+func ProfilesOf(a Adapter) []Profile {
+	found.Lock()
+	noWait := found.noWait
+	found.Unlock()
+	if !noWait {
+		return a.Profiles()
+	}
+	look() // looks again when it's time
+	found.Lock()
+	defer found.Unlock()
+	return found.homes[a.Kind()]
 }
 
 // Installed is whether agent k is on this machine: its program, or the
