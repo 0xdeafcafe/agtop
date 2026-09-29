@@ -107,6 +107,7 @@ Full is what I use every day, tested has been tried against the real program, an
 Settings › Accounts lists each installed provider and, under it, the accounts it can run on: who each is, its plan, its limits, and which is in use. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
 
 - `enter` switches to an account. `a` adds an account, `r` renames, `l` signs in again, `d` forgets.
+- A running agent keeps the account it started with, so after a switch each agtop session starts again on the new one at its first safe point: an idle one at once, one in a turn once the turn ends, one with work in the background once that's done. The conversation and its queue carry over.
 - `1`–`9` jump to a provider, `o` opens its settings, and `p` goes to Profiles, where the order of providers is set.
 - Codex keeps several sign-ins in agtop's vault and swaps one into `~/.codex`. Copilot runs on whichever of `gh`'s GitHub accounts you pick, without changing `gh`'s own. DeepSeek shows its balance; GLM its Coding Plan's limits.
 

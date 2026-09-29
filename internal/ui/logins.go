@@ -33,6 +33,7 @@ type switchedMsg struct {
 	to      claude.Login
 	why     string
 	resumed int // agtop sessions that carried on at once
+	waiting int // agtop sessions moving over once their turn ends
 	err     error
 }
 
@@ -244,7 +245,7 @@ func (m *Model) autoSwitch() tea.Cmd {
 			// since (by another agtop, or before this one could say).
 			m.resumedAt = time.Now()
 			return func() tea.Msg {
-				n := reloginHosts(root, cfg)
+				n, _ := reloginHosts(root, cfg)
 				if n == 0 {
 					return nil
 				}
@@ -275,7 +276,8 @@ func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 		if err := state.Vault().Use(root, to); err != nil {
 			return switchedMsg{to: to, err: err}
 		}
-		return switchedMsg{to: to, why: why, resumed: reloginHosts(root, cfg)}
+		resumed, waiting := reloginHosts(root, cfg)
+		return switchedMsg{to: to, why: why, resumed: resumed, waiting: waiting}
 	}
 }
 
@@ -291,13 +293,13 @@ func (m *Model) hasRoom() bool {
 }
 
 // reloginHosts tells every agtop session on root that it's signed in as
-// another account now, and reports how many a usage limit had stopped. A
+// another account now, and reports how many a usage limit had stopped and
+// how many move over once their turn ends (an idle one does at once). A
 // host from before agtop could switch ignores the message: one of those a
 // limit stopped is still stopped after it, so its Claude Code (which holds
 // the old sign-in) is stopped, and it's told to continue, which starts a
 // fresh one. A session whose profile waits at a limit is left to wait.
-func reloginHosts(root claude.Account, cfg state.Config) int {
-	n := 0
+func reloginHosts(root claude.Account, cfg state.Config) (resumed, waiting int) {
 	for _, info := range host.List() {
 		if (info.Account != root.Name && info.Account != "") || info.State == "stopped" {
 			continue
@@ -313,12 +315,16 @@ func reloginHosts(root claude.Account, cfg state.Config) int {
 		if err == nil && info.Limit != nil && stillLimited(info.ID) {
 			err = restartClaude(c, info, "continue")
 		}
-		if err == nil && info.Limit != nil {
-			n++
+		switch {
+		case err != nil:
+		case info.Limit != nil:
+			resumed++
+		case info.ClaudePID != 0 && (info.State == "working" || info.State == "blocked" || info.State == "starting"):
+			waiting++
 		}
 		c.Close()
 	}
-	return n
+	return resumed, waiting
 }
 
 func (m *Model) onSwitched(msg switchedMsg) tea.Cmd {
@@ -334,6 +340,9 @@ func (m *Model) onSwitched(msg switchedMsg) tea.Cmd {
 	}
 	if msg.resumed > 0 {
 		text += fmt.Sprintf(" · %d stopped by the limit carry on", msg.resumed)
+	}
+	if msg.waiting > 0 {
+		text += fmt.Sprintf(" · %d move over once their turn ends", msg.waiting)
 	}
 	m.flash(text, false)
 	if m.dialog != nil {

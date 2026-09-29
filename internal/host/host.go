@@ -165,6 +165,10 @@ type Info struct {
 	// Background is what Claude Code has running in the background: shells,
 	// monitors, subagents and workflows, in the order they started.
 	Background []Task `json:"background,omitempty"`
+	// Relogin is an agent started before its profile was signed in as
+	// another account: it starts again on the new one at its next safe
+	// point, once its turn and the work it left running are done.
+	Relogin bool `json:"relogin,omitempty"`
 }
 
 // Task is one thing running in the background.
@@ -296,8 +300,11 @@ type server struct {
 	wake      *time.Timer    // a scheduled continue or retry
 	gen       int            // bumped by every send; a stale timer does nothing
 	idle      *time.Timer
-	quit      chan struct{}
-	stopOnce  sync.Once
+	// stopping is closed once an agent being stopped has gone; a new one
+	// waits for it, so two never run the same conversation.
+	stopping chan struct{}
+	quit     chan struct{}
+	stopOnce sync.Once
 	// broker reaches the approved plugins' MCP servers.
 	broker plugin.Broker
 }
@@ -405,8 +412,26 @@ func (s *server) detach() agent.Conn {
 	s.conn = nil
 	s.info.ClaudePID = 0
 	s.info.Background = nil
+	s.info.Relogin = false
 	s.pending = map[string]asked{}
 	return c
+}
+
+// retire stops a detached agent off the lock; start waits until it has
+// gone. Called with mu held.
+func (s *server) retire(conn agent.Conn) {
+	done := make(chan struct{})
+	s.stopping = done
+	go func() {
+		stopAgent(conn)
+		s.mu.Lock()
+		if s.stopping == done {
+			s.stopping = nil
+		}
+		s.mu.Unlock()
+		close(done)
+		debug.FreeOSMemory()
+	}()
 }
 
 // saveConfig writes the config back, for what changes while running.
@@ -837,34 +862,64 @@ func (s *server) armIdle() {
 }
 
 // relogin follows the profile being signed in as another account. A
-// running agent keeps the account it started with, so one that's idle
-// rests now (your next message starts it on the new one) unless work it
-// left running would be cut off, and one a usage limit stopped carries on
-// now instead of waiting for the reset. A turn under way is left to
-// finish. Called with mu held; returns with it released.
+// running agent keeps the account it started with, so it rests at its
+// first safe point and your next message, or what's queued, starts it on
+// the new one: an idle one now, one in a turn once the turn ends, one with
+// work of its own still running (a build, a subagent, a question) once
+// that's done. What's queued isn't held for that work: it goes to the old
+// one. One a usage limit stopped carries on now instead of waiting for the
+// reset. Called with mu held; returns with it released.
 func (s *server) relogin(conn agent.Conn) {
+	defer s.mu.Unlock()
 	limited := s.info.Limit != nil
-	if s.info.State != "idle" || (conn == nil && !limited) || (!limited && runsShells(pidOf(conn))) {
-		s.mu.Unlock()
+	if conn != nil && !limited {
+		s.info.Relogin = true
+		switch {
+		case s.info.State != "idle":
+			// onTurnEnd comes back here.
+		case s.stillWorking() || runsShells(pidOf(conn)):
+			if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+				s.sendQueue()
+				return
+			}
+			time.AfterFunc(quietCheck, func() {
+				s.mu.Lock()
+				if s.conn != conn || !s.info.Relogin {
+					s.mu.Unlock()
+					return
+				}
+				s.relogin(conn)
+			})
+		default:
+			s.detach()
+			s.retire(conn)
+			if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+				s.sendQueue()
+				return
+			}
+		}
+		s.publish()
+		return
+	}
+	if s.info.State != "idle" || (conn == nil && !limited) {
 		return
 	}
 	if conn != nil {
 		s.detach()
 		s.publish()
-		s.mu.Unlock()
-		stopAgent(conn)
-		s.mu.Lock()
+		s.retire(conn)
 	}
-	if limited && s.conn == nil {
-		s.info.Limit = nil
-		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
-			s.sendQueue()
-		} else {
-			_ = s.sendLocked("continue")
-		}
+	s.info.Limit = nil
+	if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+		s.sendQueue()
+	} else {
+		_ = s.sendLocked("continue")
 	}
-	s.mu.Unlock()
 }
+
+// quietCheck is how often an idle agent waiting to start again on another
+// account is looked at for work of its own still running.
+const quietCheck = 2 * time.Second
 
 // publish writes info.json and sends the new info to clients. Called with
 // mu held.

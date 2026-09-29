@@ -31,6 +31,12 @@ type asked struct{ question bool }
 // start launches the session's agent through its adapter, if it isn't
 // running. Called with mu held.
 func (s *server) start() error {
+	for s.stopping != nil && s.conn == nil {
+		ch := s.stopping
+		s.mu.Unlock()
+		<-ch
+		s.mu.Lock()
+	}
 	if s.conn != nil {
 		return nil
 	}
@@ -305,6 +311,23 @@ func (s *server) onTurnEnd(conn agent.Conn, e event.TurnEnd) {
 		if t := strings.TrimSpace(e.Text); t != "" {
 			s.info.Detail = firstLine(t)
 		}
+		if st, ok := conn.(agent.Staler); s.info.Relogin || (ok && st.Stale()) {
+			// Signed in as another account since it started: it rests
+			// now, rather than holding the old sign-in and writing it
+			// back as it refreshes it, and what's queued goes to a
+			// fresh one.
+			s.info.Relogin = true
+			s.publish()
+			go func() {
+				s.mu.Lock()
+				if s.conn != conn {
+					s.mu.Unlock()
+					return
+				}
+				s.relogin(conn)
+			}()
+			return
+		}
 		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
 			// The whole queue goes as one message, unless you asked for
 			// them one per turn.
@@ -312,15 +335,6 @@ func (s *server) onTurnEnd(conn agent.Conn, e event.TurnEnd) {
 			return
 		}
 		s.armIdle()
-		if st, ok := conn.(agent.Staler); ok && st.Stale() {
-			// Signed in as another account since it started: it rests
-			// now, rather than holding the old sign-in and writing it
-			// back as it refreshes it.
-			go func() {
-				s.mu.Lock()
-				s.relogin(s.conn)
-			}()
-		}
 		// Waiting for you now: give back what the turn used.
 		go debug.FreeOSMemory()
 	}
