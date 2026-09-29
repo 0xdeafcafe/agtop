@@ -57,6 +57,9 @@ type SubagentRuns struct {
 	names  []string // the meta files as of dirMod
 	listed time.Time
 	buf    []byte
+
+	// running are the runs Stats last found still working, for Running.
+	running []SubagentRun
 }
 
 type agentCall struct {
@@ -75,11 +78,13 @@ type runEnd struct {
 }
 
 type runMeta struct {
-	mod     time.Time
-	size    int64
-	id      string
-	toolUse string
-	depth   int
+	mod         time.Time
+	size        int64
+	id          string
+	toolUse     string
+	depth       int
+	agentType   string
+	description string
 }
 
 // SubagentRun is one run as SubagentRuns knows it.
@@ -87,6 +92,9 @@ type SubagentRun struct {
 	ID, ToolUseID string
 	Depth         int       // 1 for one the session started, more for one a run started
 	Mod           time.Time // when its transcript was last written
+	// Type and Description are the run's meta file's own words: which
+	// subagent it is, and what it was asked.
+	Type, Description string
 }
 
 func (r *SubagentRuns) reset(path string) {
@@ -175,17 +183,21 @@ func (r *SubagentRuns) list() []SubagentRun {
 				m = runMeta{mod: fi.ModTime(), size: fi.Size(), depth: 1,
 					id: strings.TrimSuffix(strings.TrimPrefix(filepath.Base(p), "agent-"), ".meta.json")}
 				var v struct {
-					ToolUse string `json:"toolUseId"`
-					Depth   int    `json:"spawnDepth"`
+					ToolUse     string `json:"toolUseId"`
+					Depth       int    `json:"spawnDepth"`
+					AgentType   string `json:"agentType"`
+					Description string `json:"description"`
 				}
 				if b, err := os.ReadFile(p); err == nil && jsonx.Unmarshal(b, &v) == nil {
 					m.toolUse = v.ToolUse
 					m.depth = max(1, v.Depth)
+					m.agentType = v.AgentType
+					m.description = v.Description
 				}
 				r.metas[p] = m
 			}
 		}
-		run := SubagentRun{ID: m.id, ToolUseID: m.toolUse, Depth: m.depth}
+		run := SubagentRun{ID: m.id, ToolUseID: m.toolUse, Depth: m.depth, Type: m.agentType, Description: m.description}
 		if fi, err := os.Stat(filepath.Join(dir, "agent-"+m.id+".jsonl")); err == nil {
 			run.Mod = fi.ModTime()
 		}
@@ -491,9 +503,11 @@ func (r *SubagentRuns) Stats(path string, now time.Time) SubagentStats {
 	// has been, what the transcripts say needn't be read. An old session's
 	// can be tens of megabytes, and every one was read as agtop started.
 	if !slices.ContainsFunc(runs, func(x SubagentRun) bool { return x.Mod.IsZero() || now.Sub(x.Mod) < RunStale }) {
+		r.running = nil
 		return st
 	}
 	r.readFor(path, runs)
+	r.running = r.running[:0]
 	for _, x := range runs {
 		if going, _ := r.Going(x.ID, x.ToolUseID, x.Mod, now); !going {
 			continue
@@ -503,6 +517,11 @@ func (r *SubagentRuns) Stats(path string, now time.Time) SubagentStats {
 		} else {
 			st.Nested++
 		}
+		r.running = append(r.running, x)
 	}
 	return st
 }
+
+// Running are the runs Stats last found still working: for drawing each as
+// its own tile rather than behind the count alone.
+func (r *SubagentRuns) Running() []SubagentRun { return r.running }

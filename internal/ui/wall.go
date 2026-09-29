@@ -93,6 +93,31 @@ func (m *Model) wallAgents() []*fleet.Agent {
 	return out
 }
 
+// wallItem is one tile on the Wall: an open agent, or one of its subagents
+// still working. a is always the agent the tile belongs to; sub is set only
+// for a subagent's own tile.
+type wallItem struct {
+	key string
+	a   *fleet.Agent
+	sub *fleet.SubagentTile
+}
+
+// wallItems are the Wall's tiles: wallAgents' agents, each followed at once
+// by its own subagents still running, so a fleet busy underneath reads top
+// to bottom as it happens rather than behind a count.
+func (m *Model) wallItems() []wallItem {
+	agents := m.wallAgents()
+	out := make([]wallItem, 0, len(agents))
+	for _, a := range agents {
+		out = append(out, wallItem{key: a.Key, a: a})
+		for i := range a.Subagents {
+			s := &a.Subagents[i]
+			out = append(out, wallItem{key: a.Key + "\x00" + s.ID, a: a, sub: s})
+		}
+	}
+	return out
+}
+
 // wallGrid lays n tiles out in w×h: the columns, the rows that fit on
 // screen, and each tile's height. It picks tiles about three and a half
 // times as wide as tall (a cell is twice as tall as wide), wasting few.
@@ -126,9 +151,9 @@ func wallGrid(n, w, h int) (cols, rows, tileH int) {
 
 // wallBody draws the tiles into the frame's body: w wide, h tall.
 func (m *Model) wallBody(w, h int) []string {
-	agents := m.wallAgents()
+	items := m.wallItems()
 	m.wall.tiles, m.wall.above, m.wall.below = m.wall.tiles[:0], 0, 0
-	if len(agents) == 0 {
+	if len(items) == 0 {
 		out := make([]string, h)
 		msg := "nothing open right now"
 		if !m.wall.all {
@@ -139,9 +164,9 @@ func (m *Model) wallBody(w, h int) []string {
 		}
 		return out
 	}
-	cols, rows, tileH := wallGrid(len(agents), w, h)
-	pick := m.wallPick(agents)
-	allRows := (len(agents) + cols - 1) / cols
+	cols, rows, tileH := wallGrid(len(items), w, h)
+	pick := m.wallPick(items)
+	allRows := (len(items) + cols - 1) / cols
 	// Keep the picked tile's row on screen.
 	if r := pick / cols; r < m.wall.top {
 		m.wall.top = r
@@ -149,7 +174,7 @@ func (m *Model) wallBody(w, h int) []string {
 		m.wall.top = r - rows + 1
 	}
 	m.wall.top = max(0, min(m.wall.top, allRows-rows))
-	m.wall.above, m.wall.below = m.wall.top*cols, max(0, len(agents)-(m.wall.top+rows)*cols)
+	m.wall.above, m.wall.below = m.wall.top*cols, max(0, len(items)-(m.wall.top+rows)*cols)
 
 	tileW := (w - (cols - 1)) / cols
 	extraW := w - (cols - 1) - tileW*cols
@@ -168,10 +193,10 @@ func (m *Model) wallBody(w, h int) []string {
 				tw++
 			}
 			i := (m.wall.top+r)*cols + c
-			if i < len(agents) {
-				a := agents[i]
-				row = append(row, m.wallTile(a, tw, th, i == pick))
-				m.wall.tiles = append(m.wall.tiles, wallTile{key: a.Key, x: x, y: len(out), w: tw, h: th})
+			if i < len(items) {
+				it := items[i]
+				row = append(row, m.wallTile(it, tw, th, i == pick))
+				m.wall.tiles = append(m.wall.tiles, wallTile{key: it.key, x: x, y: len(out), w: tw, h: th})
 			} else {
 				row = append(row, nil)
 			}
@@ -196,14 +221,14 @@ func (m *Model) wallBody(w, h int) []string {
 	return out
 }
 
-func (m *Model) wallPick(agents []*fleet.Agent) int {
-	for i, a := range agents {
-		if a.Key == m.wall.sel {
+func (m *Model) wallPick(items []wallItem) int {
+	for i, it := range items {
+		if it.key == m.wall.sel {
 			return i
 		}
 	}
-	if len(agents) > 0 {
-		m.wall.sel = agents[0].Key
+	if len(items) > 0 {
+		m.wall.sel = items[0].key
 	}
 	return 0
 }
@@ -231,8 +256,17 @@ func (m *Model) wallLook(a *fleet.Agent) (edge, glyph, word string) {
 	return cFaint, faint("·"), faint(age(a.Age(now)) + " ago")
 }
 
-// wallTile draws one agent's tile, w×h, its edge heavy when it's picked.
-func (m *Model) wallTile(a *fleet.Agent, w, h int, picked bool) []string {
+// wallTile draws one tile, w×h, its edge heavy when it's picked: an
+// agent's, or one of its subagents'.
+func (m *Model) wallTile(it wallItem, w, h int, picked bool) []string {
+	if it.sub != nil {
+		return m.wallSubTile(it, w, h, picked)
+	}
+	return m.wallAgentTile(it.a, w, h, picked)
+}
+
+// wallAgentTile draws one agent's tile.
+func (m *Model) wallAgentTile(a *fleet.Agent, w, h int, picked bool) []string {
 	if w < 8 || h < 3 {
 		return nil
 	}
@@ -326,7 +360,7 @@ func (m *Model) wallTile(a *fleet.Agent, w, h int, picked bool) []string {
 	// newest at the bottom, fading as they get older.
 	room := h - 2 - 2
 	if room > 0 {
-		stream := wallStream(p, a, iw, room)
+		stream := wallStream(p, a.Live(), a.Intent, iw, room)
 		for len(stream) < room {
 			stream = append([]string{""}, stream...)
 		}
@@ -334,6 +368,13 @@ func (m *Model) wallTile(a *fleet.Agent, w, h int, picked bool) []string {
 	}
 	inner = append(inner, foot)
 
+	return wallFrameClose(top, inner, edge, w, h, bl, br, hz, vt)
+}
+
+// wallFrameClose finishes a tile: top (drawn already), inner between the
+// side edges, and the bottom edge.
+func wallFrameClose(top string, inner []string, edge string, w, h int, bl, br, hz, vt string) []string {
+	iw := w - 4
 	out := make([]string, 0, h)
 	out = append(out, top)
 	side := paint(edge, vt)
@@ -344,13 +385,65 @@ func (m *Model) wallTile(a *fleet.Agent, w, h int, picked bool) []string {
 	return out
 }
 
-// wallStream is the end of what an agent said and did, room lines of w,
-// oldest first. Lines fade with age: the newest two things bright, a few
-// more dim, the rest faint.
-func wallStream(p claude.Preview, a *fleet.Agent, w, room int) []string {
+// wallSubTile draws a subagent still working: its type and what it was
+// asked, streaming what it's doing, under its parent's repo and branch.
+func (m *Model) wallSubTile(it wallItem, w, h int, picked bool) []string {
+	if w < 8 || h < 3 {
+		return nil
+	}
+	a, sub := it.a, it.sub
+	now := m.snap.At
+	p := m.previews[it.key].p
+	edge, glyph := cOrange, paint(cOrange, spinner[(m.tick+len(sub.ID))%len(spinner)])
+	if !p.At.IsZero() && now.Sub(p.At) < 2*time.Second {
+		edge = cBright
+	}
+	tl, tr, bl, br, hz, vt := "╭", "╮", "╰", "╯", "─", "│"
+	nameC := cText + bold
+	if picked {
+		tl, tr, bl, br, hz, vt = "┏", "┓", "┗", "┛", "━", "┃"
+		nameC = cBright + bold
+	}
+	iw := w - 4
+
+	typ := firstNonEmpty(sub.Type, "subagent")
+	name := oneLine(firstNonEmpty(sub.Description, typ))
+	roomName := w - 8
+	title := glyph + " " + paint(nameC, ansi.Truncate(name, max(roomName, 1), "…"))
+	fill := w - 2 - 1 - cellw.String(title) - 1
+	top := paint(edge, tl+hz) + " " + title + " " + paint(edge, strings.Repeat(hz, max(fill, 0))) + paint(edge, hz+tr)
+	top = fit(top, w)
+
+	inner := make([]string, 0, h-2)
+	where := filepath.Base(a.Repo)
+	if a.Repo == "" {
+		where = filepath.Base(a.Cwd)
+	}
+	inner = append(inner, wallSpread(paint(cSub, where)+faint(" · ")+dim(typ), "", iw))
+
+	foot := wallSpread(paint(cOrange, "running")+dim(" · ")+paint(cText, oneLine(firstNonEmpty(sub.Description, "…"))), "", iw)
+
+	room := h - 2 - 2
+	if room > 0 {
+		stream := wallStream(p, true, sub.Description, iw, room)
+		for len(stream) < room {
+			stream = append([]string{""}, stream...)
+		}
+		inner = append(inner, stream...)
+	}
+	inner = append(inner, foot)
+
+	return wallFrameClose(top, inner, edge, w, h, bl, br, hz, vt)
+}
+
+// wallStream is the end of what was said and done, room lines of w, oldest
+// first. Lines fade with age: the newest two things bright, a few more dim,
+// the rest faint. live colours the latest tool call's dot; intent is what
+// to show instead, before anything has been said.
+func wallStream(p claude.Preview, live bool, intent string, w, room int) []string {
 	if len(p.Recent) == 0 {
 		// The foot already says its Detail; here, what it was asked.
-		say := a.Intent
+		say := intent
 		if say == "" {
 			return []string{faint("…")}
 		}
@@ -399,7 +492,7 @@ func wallStream(p claude.Preview, a *fleet.Agent, w, room int) []string {
 		case "tool":
 			tool, arg, _ := strings.Cut(e.Text, "\x00")
 			dot := ink(cOrange)
-			if back > 0 || !a.Live() {
+			if back > 0 || !live {
 				dot = ink(cSub)
 			}
 			arg = ansi.Truncate(oneLine(tildify(arg)), max(w-cellw.String(tool)-4, 1), "…")
@@ -452,13 +545,17 @@ func (m *Model) wallTick() tea.Cmd {
 		m.wall.reading = map[string]bool{}
 	}
 	var cmds []tea.Cmd
-	for _, a := range m.wallAgents() {
-		if a.TranscriptPath == "" || m.wall.reading[a.Key] || len(cmds) >= 24 {
+	for _, it := range m.wallItems() {
+		path := it.a.TranscriptPath
+		if it.sub != nil {
+			path = it.sub.Path
+		}
+		if path == "" || m.wall.reading[it.key] || len(cmds) >= 24 {
 			continue
 		}
-		m.wall.reading[a.Key] = true
-		key, path, had := a.Key, a.TranscriptPath, int64(-1)
-		if e, ok := m.previews[a.Key]; ok {
+		m.wall.reading[it.key] = true
+		key, had := it.key, int64(-1)
+		if e, ok := m.previews[key]; ok {
 			had = e.size
 		}
 		cmds = append(cmds, func() tea.Msg {
@@ -505,8 +602,8 @@ func (m *Model) wallHint() string {
 }
 
 func (m *Model) wallKey(s string) tea.Cmd {
-	agents := m.wallAgents()
-	if len(agents) == 0 {
+	items := m.wallItems()
+	if len(items) == 0 {
 		switch s {
 		case "a":
 			m.wall.all = !m.wall.all
@@ -515,14 +612,14 @@ func (m *Model) wallKey(s string) tea.Cmd {
 		}
 		return nil
 	}
-	i := m.wallPick(agents)
-	cols, _, _ := wallGrid(len(agents), m.w-4, m.wallH())
+	i := m.wallPick(items)
+	cols, _, _ := wallGrid(len(items), m.w-4, m.wallH())
 	move := func(d int) {
-		if j := i + d; j >= 0 && j < len(agents) {
-			m.wall.sel = agents[j].Key
+		if j := i + d; j >= 0 && j < len(items) {
+			m.wall.sel = items[j].key
 		}
 	}
-	a := agents[i]
+	it := items[i]
 	switch s {
 	case "esc", "q":
 		m.setView(placeAgents)
@@ -535,15 +632,17 @@ func (m *Model) wallKey(s string) tea.Cmd {
 	case "down", "j":
 		move(cols)
 	case "home", "g":
-		m.wall.sel = agents[0].Key
+		m.wall.sel = items[0].key
 	case "end", "G":
-		m.wall.sel = agents[len(agents)-1].Key
+		m.wall.sel = items[len(items)-1].key
 	case "a":
 		m.wall.all = !m.wall.all
 	case "enter":
-		return m.goAgent(a)
+		return m.goAgent(it.a)
 	case "alt+g":
-		return m.keepGoing(a)
+		if it.sub == nil {
+			return m.keepGoing(it.a)
+		}
 	}
 	return nil
 }
@@ -561,8 +660,10 @@ func (m *Model) wallClick(x, y int) tea.Cmd {
 		double := t.key == m.wall.sel && time.Since(m.lastClick) < 400*time.Millisecond
 		m.wall.sel, m.lastClick = t.key, time.Now()
 		if double {
-			if a := m.agentByKey(t.key); a != nil {
-				return m.goAgent(a)
+			for _, it := range m.wallItems() {
+				if it.key == t.key {
+					return m.goAgent(it.a)
+				}
 			}
 		}
 		return nil

@@ -50,7 +50,10 @@ type Agent struct {
 	PID      int  // root of the process tree
 	Checking bool // turn just ended; Claude Code has not classified it yet
 	Subs     claude.SubagentStats
-	Seen     bool // the user has opened or answered this question already
+	// Subagents are Subs' own runs still working, for the Wall to give each
+	// its own tile rather than only the count.
+	Subagents []SubagentTile
+	Seen      bool // the user has opened or answered this question already
 	// Agtop is a session agtop runs itself, headless, through a host
 	// process; its pane is the conversation rather than Claude Code's screen.
 	Agtop bool
@@ -359,12 +362,12 @@ type subsEntry struct {
 // session's process is known to have exited. It's counted again when a run
 // started (the folder changed), when the transcript grew (a run ended or
 // was woken), when some were working, or after 30s.
-func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) claude.SubagentStats {
+func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) (claude.SubagentStats, []SubagentTile) {
 	var dir time.Time
 	if st, err := os.Stat(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")); err == nil {
 		dir = st.ModTime()
 	} else {
-		return claude.SubagentStats{}
+		return claude.SubagentStats{}, nil
 	}
 	var main int64
 	if st, err := os.Stat(transcript); err == nil {
@@ -373,7 +376,7 @@ func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) cla
 	e, ok := l.subs[key]
 	working := e.st.Direct+e.st.Nested > 0
 	if ok && e.runs != nil && e.dir.Equal(dir) && e.main == main && e.gone == gone && now.Sub(e.at) < 30*time.Second && (!working || now.Sub(e.at) < 3*time.Second) {
-		return e.st
+		return e.st, subagentTiles(transcript, e.runs.Running())
 	}
 	if e.runs == nil {
 		e.runs = &claude.SubagentRuns{}
@@ -381,7 +384,30 @@ func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) cla
 	e.runs.Gone = gone
 	e.st, e.at, e.dir, e.main, e.gone = e.runs.Stats(transcript, now), now, dir, main, gone
 	l.subs[key] = e
-	return e.st
+	return e.st, subagentTiles(transcript, e.runs.Running())
+}
+
+// SubagentTile is one of an agent's subagent runs still working, as the
+// Wall draws it: its own tile, beside its parent's.
+type SubagentTile struct {
+	ID, Type, Description string
+	Path                  string // its own transcript
+}
+
+// subagentTiles are the runs a SubagentRuns calls still working, as tiles:
+// each one's own transcript sits flat beside the others, whatever its
+// depth, under the session's own.
+func subagentTiles(transcript string, runs []claude.SubagentRun) []SubagentTile {
+	if len(runs) == 0 {
+		return nil
+	}
+	dir := filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")
+	out := make([]SubagentTile, 0, len(runs))
+	for _, r := range runs {
+		out = append(out, SubagentTile{ID: r.ID, Type: r.Type, Description: r.Description, Path: filepath.Join(dir, "agent-"+r.ID+".jsonl")})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 // isPrint reports whether pid is claude -p, reading its arguments once.
@@ -580,7 +606,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			a.Spend = l.spend[key]
 			if j.TranscriptPath != "" && (a.Live() || a.PID != 0 || now.Sub(j.UpdatedAt) < 24*time.Hour) {
 				// Its process isn't always known, so it's never taken as gone.
-				a.Subs = l.subagents(key, j.TranscriptPath, false, now)
+				a.Subs, a.Subagents = l.subagents(key, j.TranscriptPath, false, now)
 			}
 			for _, u := range a.Spend.PRs {
 				// Only PRs Claude Code linked to a session; a URL merely
@@ -644,7 +670,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			a.Group = ov.Groups[key]
 			a.Repo, a.Branch = l.gitFor(ss.Cwd, now)
 			a.Spend = l.spend[key]
-			a.Subs = l.subagents(key, j.TranscriptPath, false, now) // listed only while its process runs
+			a.Subs, a.Subagents = l.subagents(key, j.TranscriptPath, false, now) // listed only while its process runs
 			l.sample(tab, a)
 			if a.Live() {
 				av.Live++
@@ -767,7 +793,7 @@ func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Tabl
 		// Its host says whether Claude Code runs: when neither runs, nor
 		// does anything Claude Code started.
 		gone := a.PID == 0 || info.Proto >= 3 && info.ClaudePID == 0 && info.State != "working"
-		a.Subs = l.subagents(a.Key, a.Job.TranscriptPath, gone, now)
+		a.Subs, a.Subagents = l.subagents(a.Key, a.Job.TranscriptPath, gone, now)
 	}
 	// A transcript is priced call by call, subagents and all; the host's
 	// own figure is only for agents that leave none. (Older hosts summed
