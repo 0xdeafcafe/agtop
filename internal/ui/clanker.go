@@ -7,6 +7,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/0xdeafcafe/rush/internal/theme"
 )
 
 type mood int
@@ -312,8 +314,9 @@ func boldOf(c string) string {
 	return ""
 }
 
-// clkGrey is a colour's grey: its lightness, pushed apart so the black
-// cap, the glass and the white label stay distinct.
+// clkGrey is a colour's grey in the theme's shades, between its
+// background and its text: its lightness, pushed apart so the black cap,
+// the glass and the white label stay distinct.
 func clkGrey(c string) string {
 	var r, g, b int
 	if _, err := fmt.Sscanf(strings.TrimSuffix(c, bold), "\x1b[38;2;%d;%d;%dm", &r, &g, &b); err != nil {
@@ -321,8 +324,16 @@ func clkGrey(c string) string {
 	}
 	l := (.3*float64(r) + .59*float64(g) + .11*float64(b)) / 255
 	l = min(1, max(0, (l-.5)*1.6+.5))
-	v := int(math.Round(20 + l*225))
-	out := rgb(v, v, v)
+	gr := painted
+	if gr == (theme.Ground{}) {
+		gr = theme.Dark
+	}
+	// Dark to light whichever the theme is, so the cap stays black.
+	lo, hi := gr.BG, gr.FG
+	if !lo.Dark() {
+		lo, hi = hi, lo
+	}
+	out := theme.Mix(lo, hi, .015+l*1.075).FG()
 	if strings.HasSuffix(c, bold) {
 		out += bold
 	}
