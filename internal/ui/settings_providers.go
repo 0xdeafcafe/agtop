@@ -156,21 +156,30 @@ func sameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
+// provLeft is ← inside what's picked: a row's own use of it, else, on a
+// row with no choices to go back through, back out to the list, as esc.
+func (m *Model) provLeft(secs []section, s string) (tea.Cmd, bool) {
+	d := m.dialog
+	row := rowAt(secs, d.cursor)
+	if row.key != nil {
+		if cmd, used := row.key(s); used {
+			return cmd, true
+		}
+	}
+	if len(row.choices) > 0 {
+		return nil, false
+	}
+	d.inside, d.cursor = false, d.pick
+	return nil, true
+}
+
 func (m *Model) providersKey(s string) tea.Cmd {
 	d := m.dialog
 	if d.inside {
 		secs := m.provForm(m.provPicked())
-		if row := rowAt(secs, d.cursor); s == "left" || s == "h" {
-			// ← on a row with no choices to go back through goes back out
-			// to the list, as esc does.
-			if row.key != nil {
-				if cmd, used := row.key(s); used {
-					return cmd
-				}
-			}
-			if len(row.choices) == 0 {
-				d.inside, d.cursor = false, d.pick
-				return nil
+		if s == "left" || s == "h" {
+			if cmd, used := m.provLeft(secs, s); used {
+				return cmd
 			}
 		}
 		return m.formKey(secs, s)
