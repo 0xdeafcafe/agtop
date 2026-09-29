@@ -87,7 +87,7 @@ type Config struct {
 	// of it: idle restarts and resumes too.
 	Env []string `json:"env,omitempty"`
 	// Kind is the agent the session runs, through its adapter: empty is
-	// Claude Code, run by headless.
+	// Claude Code, as every session was before agtop ran others.
 	Kind string `json:"kind,omitempty"`
 	// Profile is the profile the session was started under: which
 	// providers it may move to, and what it does at a usage limit.
