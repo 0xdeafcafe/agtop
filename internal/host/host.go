@@ -178,8 +178,10 @@ type Task struct {
 
 // Proto is this build's host protocol: 1 adds rewind, 2 context usage and
 // control requests passed through (the ask op), 3 moving a running tool
-// to the background (the background op) and Info.Background.
-const Proto = 4
+// to the background (the background op) and Info.Background, 4 other
+// agents' sessions as agtop's own events, 5 the client's hello (hello.go).
+// A client sends its build's in the hello.
+const Proto = 5
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
@@ -1412,6 +1414,7 @@ type op struct {
 	To        int            `json:"to,omitzero"`
 	Branch    *Branch        `json:"branch,omitempty"` // what rewind leaves
 	Request   jsontext.Value `json:"request,omitzero"` // ask: the control request
+	Proto     int            `json:"proto,omitzero"`   // hello: the client's protocol
 }
 
 func (s *server) do(o op) error {
@@ -1632,7 +1635,12 @@ func (c *conn) close() {
 }
 
 func (s *server) serve(nc net.Conn) {
+	proto, ops := hello(nc)
 	c := &conn{c: nc, out: make(chan []byte, 4096), gone: make(chan struct{})}
+	var enc *encoder
+	if proto >= eventsFrom {
+		enc = &encoder{}
+	}
 	s.mu.Lock()
 	replay := append([][]byte(nil), s.ring...)
 	if s.commands != nil {
@@ -1654,12 +1662,21 @@ func (s *server) serve(nc net.Conn) {
 	go func() {
 		w := bufio.NewWriterSize(nc, 64<<10)
 		write := func(l []byte) bool {
+			if enc != nil {
+				return enc.encode(w, l) == nil
+			}
 			_, err := w.Write(append(l, '\n'))
 			return err == nil
 		}
 		var u unpacker
 		for _, l := range replay {
-			if u.writeTo(w, l) != nil || w.WriteByte('\n') != nil {
+			var err error
+			if enc != nil {
+				err = enc.replay(w, &u, l)
+			} else if err = u.writeTo(w, l); err == nil {
+				err = w.WriteByte('\n')
+			}
+			if err != nil {
 				c.close()
 				return
 			}
@@ -1690,7 +1707,7 @@ func (s *server) serve(nc net.Conn) {
 		}
 	}()
 
-	sc := bufio.NewScanner(nc)
+	sc := bufio.NewScanner(ops)
 	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
 	for sc.Scan() {
 		var o op

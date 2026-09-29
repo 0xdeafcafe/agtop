@@ -54,6 +54,9 @@ func fakeHost(t *testing.T, id string, replay ...string) <-chan map[string]any {
 				for sc.Scan() {
 					var o map[string]any
 					_ = jsonx.Unmarshal(sc.Bytes(), &o)
+					if o["op"] == "hello" {
+						continue // what every client says first
+					}
 					ops <- o
 				}
 			}()

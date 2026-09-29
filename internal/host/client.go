@@ -299,7 +299,11 @@ type Client struct {
 }
 
 // Dial connects to a running session.
-func Dial(id string) (*Client, error) {
+func Dial(id string) (*Client, error) { return dial(id, Proto) }
+
+// dial connects saying hello as a client of protocol proto; 0 says none,
+// as an agtop from before the hello.
+func dial(id string, proto int) (*Client, error) {
 	c, err := net.Dial("unix", SockPath(id))
 	if err != nil {
 		return nil, err
@@ -316,7 +320,14 @@ func Dial(id string) (*Client, error) {
 			lines <- append([]byte(nil), l...)
 		}
 	}()
-	return &Client{Lines: lines, c: c}, nil
+	cl := &Client{Lines: lines, c: c}
+	if proto > 0 {
+		if err := cl.do(op{Op: "hello", Proto: proto}); err != nil {
+			_ = c.Close()
+			return nil, err
+		}
+	}
+	return cl, nil
 }
 
 func (c *Client) do(o op) error {
