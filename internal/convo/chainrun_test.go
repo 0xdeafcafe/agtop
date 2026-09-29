@@ -145,8 +145,9 @@ func TestPartMarksFillGaps(t *testing.T) {
 	st.Status, st.End = OK, t0.Add(10*time.Second)
 	st.parts = map[int]*partRun{2: {start: t0.Add(2 * time.Second), end: t0.Add(7 * time.Second)}}
 	d := &drawer{s: s, o: Options{Now: t0.Add(20 * time.Second)}}
-	var got []string
-	for _, m := range d.partMarks(st, 4) {
+	marks := d.partMarks(st, 4)
+	got := make([]string, 0, len(marks))
+	for _, m := range marks {
 		got = append(got, ansi.Strip(m))
 	}
 	if want := "✓ <2.0s|✓ <2.0s|✓ 5.0s|✓ 3.0s"; strings.Join(got, "|") != want {

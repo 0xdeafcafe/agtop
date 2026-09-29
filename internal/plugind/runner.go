@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -278,7 +279,7 @@ func (r *runner) handshake(p plugin.Plugin, conn *plugin.Conn) error {
 	if p.Proto() == plugin.ProtoMCP {
 		res, err := conn.CallRaw(ctx, "initialize", mustJSON(map[string]any{
 			"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
-			"clientInfo": map[string]any{"name": "rush", "version": fmt.Sprint(Version)},
+			"clientInfo": map[string]any{"name": "rush", "version": strconv.Itoa(Version)},
 		}))
 		if err != nil {
 			return err
@@ -372,7 +373,7 @@ func (r *runner) wait(ctx context.Context) (*plugin.Conn, error) {
 		case <-ctx.Done():
 			msg := r.name + " is not running"
 			if e := r.status().Error; e != "" {
-				msg += ": " + e + " (see rush plugin logs " + r.name + ")"
+				msg += ": " + e + " (see rush plugin logs " + r.name + ")" //nolint:rush // once, then it returns
 			}
 			return nil, errors.New(msg)
 		case <-time.After(time.Second):

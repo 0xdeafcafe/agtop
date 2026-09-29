@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ func pluginCmd(args []string) error {
 	case "run":
 		// How the broker starts a bundled plugin; not meant to be run by hand.
 		if len(args) != 2 {
-			return fmt.Errorf("usage: rush plugin run <name>")
+			return errors.New("usage: rush plugin run <name>")
 		}
 		return plugin.RunBundled(args[1])
 	case "on", "off":
@@ -55,7 +56,7 @@ func pluginCmd(args []string) error {
 		return hooks.Reload()
 	case "check":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: rush plugin check <name>")
+			return errors.New("usage: rush plugin check <name>")
 		}
 		p, err := plugin.Load(filepath.Join(plugin.Root(), args[1]))
 		if err != nil {
@@ -83,12 +84,12 @@ func pluginCmd(args []string) error {
 		return nil
 	case "approve":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: rush plugin approve <name>")
+			return errors.New("usage: rush plugin approve <name>")
 		}
 		return pluginApprove(args[1])
 	case "revoke":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: rush plugin revoke <name>")
+			return errors.New("usage: rush plugin revoke <name>")
 		}
 		if err := plugin.Revoke(args[1]); err != nil {
 			return err
@@ -97,7 +98,7 @@ func pluginCmd(args []string) error {
 		return plugind.Reload()
 	case "logs":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: rush plugin logs <name>")
+			return errors.New("usage: rush plugin logs <name>")
 		}
 		fmt.Println(plugin.LogPath(args[1]))
 		fmt.Println(plugin.BrokerLog())

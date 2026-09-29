@@ -205,7 +205,7 @@ func unkept(path, repo string, noRemote bool) (n, off int, err error) {
 		return len(shas), len(shas), nil
 	}
 	unique := map[string]bool{}
-	for _, l := range strings.Split(cherry, "\n") {
+	for l := range strings.SplitSeq(cherry, "\n") {
 		if sha, ok := strings.CutPrefix(l, "+ "); ok {
 			unique[sha] = true
 		}

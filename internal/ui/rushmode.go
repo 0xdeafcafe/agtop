@@ -1386,7 +1386,7 @@ func openTail(a *fleet.Agent) tea.Cmd {
 		t := convo.NewTail(path)
 		// A stopped rush session that never got a message has no
 		// transcript yet: it opens empty, and a message resumes it.
-		if _, err := t.Read(); err != nil && !(rush && errors.Is(err, fs.ErrNotExist)) {
+		if _, err := t.Read(); err != nil && (!rush || !errors.Is(err, fs.ErrNotExist)) {
 			return hostOpenMsg{key: key, err: err}
 		}
 		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, kind: kind, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true, path: path}}

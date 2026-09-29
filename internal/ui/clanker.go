@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -359,7 +360,7 @@ func (g *clkGrid) tint(c string, k float64) {
 // drops drift off him a second at a time: one falls a row a second down a
 // side and fades. One in every `every` seconds starts one.
 func (g *clkGrid) drops(tick int, look []rune, paints []string, every int) {
-	for age := len(look) - 1; age >= 0; age-- {
+	for age, l := range slices.Backward(look) {
 		h := clkHash(tick - age)
 		if h%every != 0 {
 			continue
@@ -369,7 +370,7 @@ func (g *clkGrid) drops(tick int, look []rune, paints []string, every int) {
 			x = clkW - 1 - x
 		}
 		c := clkMix(paints[h/11%len(paints)], cFaint, .3+.4*float64(age))
-		g.dot(2+age, x, look[age], c)
+		g.dot(2+age, x, l, c)
 	}
 }
 

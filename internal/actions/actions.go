@@ -4,6 +4,7 @@
 package actions
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -88,7 +89,7 @@ func treeOf(root int, rootStart time.Time) (*proc.Table, map[int]bool, error) {
 		pid = q.PPID
 	}
 	if protected[root] {
-		return nil, nil, fmt.Errorf("that would kill rush itself")
+		return nil, nil, errors.New("that would kill rush itself")
 	}
 	return tab, protected, nil
 }

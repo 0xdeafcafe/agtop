@@ -211,8 +211,8 @@ func (m *Model) nudgeClean() {
 	}
 	var n int
 	var size int64
-	for _, w := range c.wts {
-		if w.Safe() && m.running(w.Agents) == nil {
+	for i := range c.wts {
+		if w := &c.wts[i]; w.Safe() && m.running(w.Agents) == nil {
 			n++
 			size += w.Size
 		}

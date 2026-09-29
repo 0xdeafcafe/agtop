@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -75,7 +76,7 @@ func main() {
 			return
 		case "attach":
 			if len(args) < 2 {
-				exitIf(fmt.Errorf("usage: rush attach <id>"))
+				exitIf(errors.New("usage: rush attach <id>"))
 			}
 			s := &daemon.Session{Client: daemon.Client{Account: state.Load().Config.ActiveAccount()}, Short: args[1]}
 			exitIf(s.Run())
@@ -84,7 +85,7 @@ func main() {
 			// rush host run <id>: the detached process a rush-mode session
 			// lives in. rush starts it; it is not meant to be run by hand.
 			if len(args) < 3 || args[1] != "run" {
-				exitIf(fmt.Errorf("usage: rush host run <id>"))
+				exitIf(errors.New("usage: rush host run <id>"))
 			}
 			background("") // it lowers GOGC itself once it runs turns
 			var err error
@@ -360,7 +361,7 @@ func menuBar(args []string) error {
 		fmt.Println("off — the menu bar icon is gone")
 		return st.SaveConfig()
 	case len(args) > 0:
-		return fmt.Errorf("usage: rush menubar [off]")
+		return errors.New("usage: rush menubar [off]")
 	}
 	fmt.Println("starting the menu bar icon (the first time builds it, a few seconds)…")
 	if err := menubar.Start(); err != nil {

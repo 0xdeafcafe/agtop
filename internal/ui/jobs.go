@@ -586,7 +586,7 @@ func tailLines(path string, n int) []string {
 // lastLines is the last n non-blank lines of s.
 func lastLines(s string, n int) []string {
 	var out []string
-	for _, l := range strings.Split(ansi.Strip(s), "\n") {
+	for l := range strings.SplitSeq(ansi.Strip(s), "\n") {
 		if l = strings.TrimRight(l, " \t\r"); l != "" {
 			out = append(out, strings.ReplaceAll(l, "\t", "  "))
 		}
