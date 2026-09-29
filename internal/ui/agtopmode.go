@@ -941,7 +941,7 @@ type hostConn struct {
 	artsKey   string
 	mem       []memFile // the memory view's files, and when they were read
 	memAt     time.Time
-	memReport *claude.MemReport // the memory view's checks, read with its files
+	memInfo   *agent.Memory // the memory view's checks, read with its files
 	memTop    int               // the first of them in view
 	memEd     *docEditor        // the picked file, open in the editor below them
 	memEdit   bool              // the editor has the keys

@@ -113,6 +113,7 @@ var (
 	_ agent.StatusLiner       = Adapter{}
 	_ agent.SettingsPager     = Adapter{}
 	_ agent.Definer           = Adapter{}
+	_ agent.MemoryReader      = Adapter{}
 )
 
 // Doing is a call in a few words, with words of its own for Claude Code's

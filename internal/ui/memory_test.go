@@ -11,6 +11,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	claudeagent "github.com/0xdeafcafe/agtop/internal/adapters/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
@@ -21,7 +24,7 @@ func TestMemoryView(t *testing.T) {
 	// reach your own CLAUDE.md files; home is the test's.
 	t.Setenv("HOME", root)
 	cfg, cwd := filepath.Join(root, "cfg"), filepath.Join(root, "src", "app")
-	proj := filepath.Join(cfg, "projects", projectSlug(cwd))
+	proj := filepath.Join(cfg, "projects", claude.ProjectSlug(cwd))
 	write := func(p, s string) {
 		t.Helper()
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -42,7 +45,8 @@ func TestMemoryView(t *testing.T) {
 	write(filepath.Join(cwd, ".claude", "skills", "ship", "SKILL.md"), "---\nname: ship\ndescription: ships it\n---\n")
 	write(filepath.Join(cfg, "commands", "git", "push.md"), "Push the branch\n")
 
-	files, report := memoryFiles(cfg, cwd, proj)
+	report := claudeagent.Adapter{}.Memory(agent.Profile{Kind: "claude", Dir: cfg}, cwd, "")
+	files := report.Files
 	var got []string
 	for _, f := range files {
 		got = append(got, f.Group+"|"+f.Name+"|"+f.Kind+"|"+map[bool]string{true: "missing"}[f.Missing]+"|"+f.Warn)
@@ -94,7 +98,7 @@ func TestMemoryView(t *testing.T) {
 	// The view draws them under their groups, the picked one open below.
 	m := &Model{snap: &fleet.Snapshot{}}
 	c := &hostConn{kind: "claude", sess: convo.New(), open: map[string]bool{}, mem: files, memAt: time.Now()}
-	c.memReport = &report
+	c.memInfo = &report
 	for i, v := range m.views(c) {
 		if v == "memory" {
 			c.view = i
