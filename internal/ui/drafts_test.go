@@ -156,7 +156,7 @@ func TestDraftSheetKinds(t *testing.T) {
 	if d.kindOf() != state.KindDraft {
 		t.Fatalf("with drafts kept, the sheet opens on them, not %s", d.kindOf())
 	}
-	d.key(m, tea.KeyPressMsg{}, "tab")
+	d.key(m, tea.KeyPressMsg{}, "]")
 	if got := d.shown(); len(got) != 2 || got[0].Text != "sent two" {
 		t.Fatalf("Sent: %+v", got)
 	}
@@ -164,7 +164,7 @@ func TestDraftSheetKinds(t *testing.T) {
 	if n := state.DraftCount(state.KindDraft); n != 2 {
 		t.Fatalf("alt+s on a sent one should keep it as a draft: %d drafts", n)
 	}
-	d.key(m, tea.KeyPressMsg{}, "tab")
+	d.key(m, tea.KeyPressMsg{}, "]")
 	d.key(m, tea.KeyPressMsg{}, "enter")
 	if m.sheet != nil || string(c.input) != "wiped" {
 		t.Fatalf("enter on Cleared should put it back: %q", string(c.input))

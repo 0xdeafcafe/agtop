@@ -380,8 +380,8 @@ func (m *Model) effKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		e.scope = (e.scope + 1) % len(effScopes)
 		e.cmp = nil
 		return m.effLoad(false)
-	case "[", "]":
-		d := map[string]int{"[": -1, "]": 1}[s]
+	case "d", "D":
+		d := map[string]int{"D": -1, "d": 1}[s]
 		e.rng = min(max(e.rng+d, 0), len(efficiency.Ranges)-1)
 		e.cursor, e.cmp = -1, nil
 		return m.effLoad(false)
@@ -578,7 +578,7 @@ func (m *Model) effHint() string {
 		}
 		return keysFit(w, "y", verb, "esc", "cancel")
 	}
-	common := []string{"s", effScopes[(e.scope+1)%len(effScopes)], "[ ]", "range", "tab", effPages[(e.page+1)%len(effPages)], "esc", "back"}
+	common := []string{"s", effScopes[(e.scope+1)%len(effScopes)], "d", "range", "[ ]", "page", "esc", "back"}
 	switch e.page {
 	case effOverview:
 		return keysFit(w, append([]string{"t", "timeline", "enter", "findings", "i", "savers"}, common...)...)

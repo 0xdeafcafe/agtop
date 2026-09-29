@@ -45,6 +45,9 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 				if sm, ok := msg.(sheetMsg); ok {
 					sm.apply(m) // a sheet's first read, e.g. /plugins' lists
 				}
+				if fm, ok := msg.(foldersMsg); ok {
+					m.onFolders(fm) // what git says, for the Projects page
+				}
 			}
 		}
 	}

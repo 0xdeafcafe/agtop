@@ -11,10 +11,12 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 )
 
-// Settings is a place of pages, and [ and ] go between them. Most hold
-// for every agent; Agents shows one installed agent at a time (1-9 picks
-// it): what its new sessions start with, the same rows for every agent,
-// then the sections the agent adds itself (agentExtras).
+// Settings is a place of pages, and [ and ] go between them, as in every
+// place with pages. Overview is what's happening; Profiles which agent new
+// sessions run, and what they do at a limit; Accounts the sign-ins of
+// each; Agents one installed agent at a time (1-9 picks it): what its new
+// sessions start with, then the sections the agent adds itself
+// (agentExtras); General the rest.
 //
 // Most pages are forms: sections of settings, each of which says what it
 // does and what its values mean, drawn and driven here. Overview and
@@ -24,6 +26,9 @@ import (
 type page struct {
 	name string
 	keys []string // its own keys, for a form's key line
+	// pre sees a key before the page moves or closes: a page with a
+	// page inside it (a profile being edited) takes esc back to itself.
+	pre func(m *Model, s string) (tea.Cmd, bool)
 
 	form func(m *Model) []section
 	head func(m *Model, w int) []string // lines above a form's sections
@@ -36,10 +41,10 @@ type page struct {
 // The pages, in order.
 const (
 	pageOverview = iota
-	pageProviders
+	pageProfiles
+	pageAccounts
 	pageAgents
-	pageSessions
-	pageInterface
+	pageGeneral
 	pageKeys
 	pagePlugins
 )
@@ -48,10 +53,10 @@ const (
 func (m *Model) settingsPages() []page {
 	return []page{
 		{name: "Overview", body: (*Model).overviewBody, key: (*Model).overviewKey, rows: (*Model).overviewLen},
-		{name: "Providers", body: (*Model).accountsBody, key: (*Model).accountsKey, rows: func(m *Model) int { return len(m.accountRows()) }},
+		profilesPage,
+		{name: "Accounts", body: (*Model).accountsBody, key: (*Model).accountsKey, rows: func(m *Model) int { return len(m.accountRows()) }},
 		agentsPage,
-		{name: "Sessions", form: (*Model).sessionSections},
-		{name: "Interface", form: (*Model).interfaceSections},
+		{name: "General", form: (*Model).generalSections},
 		{name: "Keys", body: (*Model).keysBody, key: (*Model).keysKey, rows: (*Model).keysLen},
 		{name: "Plugins", form: (*Model).pluginSections},
 	}
@@ -76,6 +81,11 @@ type dialog struct {
 	cursor int
 	agent  agent.Kind // the one Agents shows
 
+	profile  string // the profile Profiles is editing; empty lists them
+	features bool   // Agents shows what agtop can do with the agent
+	advanced bool   // Agents shows the agent's advanced sections
+	keyCtx   int    // which of keymap.Contexts Keys shows
+
 	input    []rune
 	asking   string // what the input line is for; empty when not typing
 	onAnswer func(string) tea.Cmd
@@ -95,7 +105,7 @@ func (m *Model) openDialog(p int) {
 func (m *Model) loadDialog() {
 	d := m.dialog
 	d.agents = m.agentDefs()
-	if d.page == pageProviders || d.page == pageOverview {
+	if d.page == pageAccounts || d.page == pageOverview {
 		agent.Recheck() // an agent installed since shows at once
 	}
 }
@@ -156,6 +166,11 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		return nil
 	}
+	if p := m.curPage(); p.pre != nil {
+		if cmd, used := p.pre(m, s); used {
+			return cmd
+		}
+	}
 	switch s {
 	case "esc", "q", "ctrl+g", "ctrl+a":
 		m.setView(placeAgents)
@@ -170,14 +185,6 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "down", "j":
 		d.cursor = roundMove(d.cursor, 1, m.dialogLen())
 		return nil
-	}
-	if d.page == pageAgents {
-		if n := int(s[0] - '0'); len(s) == 1 && n >= 1 && n <= 9 {
-			if order := m.agentOrder(); n <= len(order) {
-				d.agent, d.cursor = order[n-1].Kind(), 0
-			}
-			return nil
-		}
 	}
 	if p := m.curPage(); p.form == nil {
 		return p.key(m, s)
@@ -222,6 +229,8 @@ type section struct {
 	title string
 	note  string // after the title, quieter
 	rows  []setting
+	// advanced sections are folded under one line until you open them.
+	advanced bool
 }
 
 // setting is one line of a form: a value that ←→ go through or you type,
@@ -238,6 +247,7 @@ type setting struct {
 	what  string            // what it does, for About
 	means map[string]string // what each value means
 	unset string            // how "" shows; "default" when not given
+	names map[string]string // how other values show, when not as kept
 	typed bool              // enter types a value rather than choosing one
 
 	line  func(w int) string                      // draws the row itself
@@ -251,7 +261,7 @@ func (st setting) shown() string {
 	if st.value == "" {
 		return firstNonEmpty(st.unset, "default")
 	}
-	return st.value
+	return firstNonEmpty(st.names[st.value], st.value)
 }
 
 // now is what the value means, in a sentence.
@@ -344,11 +354,14 @@ func (m *Model) formBody(secs []section, pageKeys []string, w int) []string {
 	var out []string
 	i := 0
 	for _, sec := range secs {
-		title := dim(sec.title)
-		if sec.note != "" {
-			title += faint(" · " + sec.note)
+		out = append(out, "")
+		if sec.title != "" {
+			title := dim(sec.title)
+			if sec.note != "" {
+				title += faint(" · " + sec.note)
+			}
+			out = append(out, title)
 		}
-		out = append(out, "", title)
 		for _, st := range sec.rows {
 			out = append(out, m.settingRow(i == d.cursor, st, labelW, valueW, w))
 			i++
@@ -388,7 +401,7 @@ func (m *Model) settingRow(on bool, st setting, labelW, valueW, w int) string {
 	return "  " + line
 }
 
-const aboutLines = 6
+const aboutLines = 4
 
 // about explains the highlighted row in a fixed-height section, so the
 // page keeps its shape whatever is highlighted.

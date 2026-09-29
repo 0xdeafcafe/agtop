@@ -71,11 +71,7 @@ func TestKeysPageTakesKeys(t *testing.T) {
 	m, _ := benchModel(200, 50)
 	m.setView(placeSettings)
 	m.setSettingsPage(pageKeys)
-	for i, a := range m.keyRows() {
-		if a.ID == "list.pr" {
-			m.dialog.cursor = i
-		}
-	}
+	m.showKey("list.pr")
 	pressKeys(m, "enter", "ctrl+x", "p", "enter")
 	if got := m.keyMap().KeyText("list.pr"); got != "ctrl+x p" {
 		// ctrl+x is list.stop's: it asks first.
@@ -95,11 +91,7 @@ func TestKeysPageTakesKeys(t *testing.T) {
 		t.Fatal("the page should show the new keys")
 	}
 	// A key that types can't start one.
-	for i, a := range m.keyRows() {
-		if a.ID == "list.pin" {
-			m.dialog.cursor = i
-		}
-	}
+	m.showKey("list.pin")
 	pressKeys(m, "enter", "p", "enter")
 	if m.keyMap().KeyText("list.pin") != "ctrl+t" {
 		t.Fatal("p alone shouldn't be taken")

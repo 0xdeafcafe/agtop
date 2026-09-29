@@ -172,9 +172,9 @@ func (p *pluginSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.reloadPlugins(p.conn)
 		}
 		return nil
-	case "tab", "shift+tab":
+	case "[", "]":
 		d := 1
-		if s == "shift+tab" {
+		if s == "[" {
 			d = 2
 		}
 		p.tab, p.armed = (p.tab+d)%3, ""
@@ -294,7 +294,7 @@ func (p *pluginSheet) body(m *Model, w, h int) []string {
 
 func (p *pluginSheet) installedRows(w, h int) []string {
 	if len(p.installed) == 0 {
-		return []string{dim("  nothing installed yet · tab to Discover")}
+		return []string{dim("  nothing installed yet · ] to Discover")}
 	}
 	var out []string
 	cur := min(p.cur[plInstalled], len(p.installed)-1)
@@ -431,9 +431,9 @@ func (p *pluginSheet) footer(w int) string {
 	var k string
 	switch p.tab {
 	case plInstalled:
-		k = keysFit(w-30, "space", "on/off", "u", "update", "x", "remove", "tab", "discover", "esc", "done")
+		k = keysFit(w-30, "space", "on/off", "u", "update", "x", "remove", "[ ]", "discover", "esc", "done")
 	case plDiscover:
-		k = keysFit(w-30, "type", "search", "enter", "install", "tab", "marketplaces", "esc", "done")
+		k = keysFit(w-30, "type", "search", "enter", "install", "[ ]", "marketplaces", "esc", "done")
 	default:
 		k = keysFit(w-30, "a", "add", "u", "update", "U", "update all", "x", "remove", "esc", "done")
 	}

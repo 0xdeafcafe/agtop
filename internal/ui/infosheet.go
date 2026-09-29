@@ -90,9 +90,9 @@ func (k *infoSheet) key(m *Model, _ tea.KeyPressMsg, s string) tea.Cmd {
 	switch s {
 	case "esc", "ctrl+c", "q":
 		m.sheet = nil
-	case "tab", "right":
+	case "]", "right":
 		k.tab = (k.tab + 1) % infoTabs
-	case "shift+tab", "left":
+	case "[", "left":
 		k.tab = (k.tab + infoTabs - 1) % infoTabs
 	case "up":
 		if k.tab == infoSettings {
@@ -150,11 +150,11 @@ func (k *infoSheet) body(m *Model, w, h int) []string {
 	out = append(out, lines...)
 	switch {
 	case k.tab == infoSettings:
-		return append(out, "", keysFit(w, "↑↓", "choose", "enter", "open", "←→", "tabs", "esc", "close"))
+		return append(out, "", keysFit(w, "↑↓", "choose", "enter", "open", "[ ]", "tabs", "esc", "close"))
 	case len(lines) == room:
-		return append(out, "", keysFit(w, "←→", "tabs", "↑↓", "scroll", "esc", "close"))
+		return append(out, "", keysFit(w, "[ ]", "tabs", "↑↓", "scroll", "esc", "close"))
 	}
-	return append(out, "", keysFit(w, "←→", "tabs", "esc", "close"))
+	return append(out, "", keysFit(w, "[ ]", "tabs", "esc", "close"))
 }
 
 func sessionID(c *hostConn, a *fleet.Agent) string {

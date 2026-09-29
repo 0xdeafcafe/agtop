@@ -11,14 +11,14 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
-// Grouped by folder, each repository is a section, those with an agent
-// running first; a worktree's agents sit under its repository, after the
-// main checkout's, headed by the worktree; the header says what's working
-// and what git says. Agents older than a day go under Earlier.
-func TestFolderSections(t *testing.T) {
+// Split by project, each status section keeps its place and its rows sit
+// together by project, a worktree's agents under the repository it came
+// from, after the main checkout's, headed by the worktree; each project's
+// line says what git says. Off, the sections are as they were.
+func TestProjectSplit(t *testing.T) {
 	now := time.Now()
 	st := &state.Store{}
-	st.Config.GroupBy = "folder"
+	st.Config.GroupBy = "status"
 	m := &Model{store: st, snap: &fleet.Snapshot{At: now}}
 	add := func(name, repo, root, cwd, state string, age time.Duration) {
 		a := &fleet.Agent{Key: name, DisplayName: name, Repo: repo, Root: root}
@@ -31,25 +31,30 @@ func TestFolderSections(t *testing.T) {
 	const app, wt = "/src/app", "/src/app/.claude/worktrees/fix"
 	add("zed", "/src/zed", "/src/zed", "/src/zed", "stopped", time.Hour)
 	add("in-tree", wt, app, wt, "working", time.Minute)
-	add("on-main", app, app, app+"/web", "blocked", time.Minute)
+	add("on-main", app, app, app+"/web", "working", time.Minute)
 	add("scratchy", "", "", "/tmp/x", "stopped", time.Hour)
 	add("old", app, app, app, "stopped", 48*time.Hour)
-	m.rebuild()
-
-	var got []string
-	for _, l := range m.lines {
-		switch l.kind {
-		case lineSection:
-			got = append(got, "§"+l.title)
-		case lineTree:
-			got = append(got, "⎇"+l.root)
-		case lineAgent:
-			got = append(got, l.agent.Key)
+	add("done-here", app, app, app, "stopped", 2*time.Hour)
+	lines := func() string {
+		m.rebuild()
+		var got []string
+		for _, l := range m.lines {
+			switch l.kind {
+			case lineSection:
+				got = append(got, "§"+l.title)
+			case lineProject:
+				got = append(got, "▪"+l.title+map[bool]string{true: "(again)"}[l.again])
+			case lineTree:
+				got = append(got, "⎇"+l.root)
+			case lineAgent:
+				got = append(got, l.agent.Key)
+			}
 		}
+		return strings.Join(got, " ")
 	}
-	want := "§app on-main ⎇" + wt + " in-tree §scratch scratchy §zed zed §Earlier"
-	if s := strings.Join(got, " "); s != want {
-		t.Fatalf("lines:\n got %s\nwant %s", s, want)
+	want := "§Working ▪app on-main ⎇" + wt + " in-tree §Today ▪app(again) done-here ▪scratch scratchy ▪zed zed §Earlier"
+	if s := lines(); s != want {
+		t.Fatalf("split:\n got %s\nwant %s", s, want)
 	}
 
 	m.folders.byRoot = map[string]fleet.Folder{app: {
@@ -58,9 +63,28 @@ func TestFolderSections(t *testing.T) {
 		Trees: map[string]fleet.GitState{wt: {Branch: "fix", Changed: 1}},
 	}}
 	out := ansi.Strip(strings.Join(m.listLines(140, 40), "\n"))
-	for _, s := range []string{"app  1 working · 1 need you · 2", "main ↑2 · 4 changed · 3 worktrees", "⎇ fix  fix · 1 changed"} {
+	for _, s := range []string{"app  main ↑2 ±4  ⎇3 ┄", "⎇ fix  fix ±1", "   app ┄"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("list lacks %q:\n%s", s, out)
+		}
+	}
+	if strings.Count(out, "main ↑2") != 1 {
+		t.Errorf("git said more than once:\n%s", out)
+	}
+
+	st.Config.SplitBy = "none"
+	if s, want := lines(), "§Working in-tree on-main §Today done-here scratchy zed §Earlier"; s != want {
+		t.Fatalf("unsplit:\n got %s\nwant %s", s, want)
+	}
+}
+
+// Two folders of one name are told apart by the folders they're in.
+func TestFolderTitles(t *testing.T) {
+	got := folderTitles(map[string]bool{"/src/lw/langwatch": true, "/tmp/w/langwatch": true, "/src/agtop": true, scratchSection: true})
+	want := map[string]string{"/src/lw/langwatch": "lw/langwatch", "/tmp/w/langwatch": "w/langwatch", "/src/agtop": "agtop", scratchSection: scratchSection}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: %q, want %q", k, got[k], v)
 		}
 	}
 }

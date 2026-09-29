@@ -80,7 +80,7 @@ func (k *skillSheet) key(m *Model, kp tea.KeyPressMsg, s string) tea.Cmd {
 	switch s {
 	case "esc", "ctrl+c":
 		m.sheet = nil
-	case "tab", "shift+tab":
+	case "[", "]":
 		k.tab = 1 - k.tab
 	case "up":
 		*cur = roundMove(*cur, -1, len(list))
@@ -165,7 +165,7 @@ func (k *skillSheet) body(m *Model, w, h int) []string {
 	out = append(out, rows[from:to]...)
 	out = append(out, "", faint(strings.Repeat("─", w)))
 	out = append(out, detail...)
-	return append(out, "", keysFit(w, "type", "search", "enter", "use it", "ctrl+e", "edit", "tab", "skills/commands", "esc", "close"))
+	return append(out, "", keysFit(w, "type", "search", "enter", "use it", "ctrl+e", "edit", "[ ]", "skills/commands", "esc", "close"))
 }
 
 func (k *skillSheet) detail(list []claude.Command, cur int, w int) []string {

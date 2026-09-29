@@ -71,12 +71,15 @@ type Config struct {
 	AgentOrder []string `json:"agentOrder,omitempty"`
 	// StayOnAccount is SwitchOnLimit "off" as agtops before it read it:
 	// kept in step with it.
-	StayOnAccount bool            `json:"stayOnAccount,omitzero"`
-	GroupBy       string          `json:"groupBy"`
-	Folds         map[string]bool `json:"folds,omitempty"`
-	Dispatch      Dispatch        `json:"dispatch"`
-	Quiet         bool            `json:"quiet,omitzero"`
-	DockLines     int             `json:"dockLines,omitzero"`
+	StayOnAccount bool   `json:"stayOnAccount,omitzero"`
+	GroupBy       string `json:"groupBy"`
+	// SplitBy splits each section of the list further: "project" (and
+	// empty) by the repository agents work in, "none" not at all.
+	SplitBy   string          `json:"splitBy,omitempty"`
+	Folds     map[string]bool `json:"folds,omitempty"`
+	Dispatch  Dispatch        `json:"dispatch"`
+	Quiet     bool            `json:"quiet,omitzero"`
+	DockLines int             `json:"dockLines,omitzero"`
 	// SideWidth is the agent list's share of a split screen, 0.25 to 0.5;
 	// zero means agtop's own choice.
 	SideWidth float64 `json:"sideWidth,omitzero"`
@@ -156,9 +159,10 @@ func (c *Config) migrate() {
 	if c.StayOnAccount && c.SwitchOnLimit == "" {
 		c.SwitchOnLimit = OnLimitOff
 	}
-	if c.GroupBy == "repo" {
-		// Repo and branch became folders, worktrees under their repository.
-		c.GroupBy = "folder"
+	if c.GroupBy == "repo" || c.GroupBy == "folder" {
+		// Grouping by repository became a split inside the status
+		// sections: see SplitBy.
+		c.GroupBy, c.SplitBy = "status", ""
 	}
 	if c.GroupBy == "account" {
 		// Folders are gone; sessions group by the agent they run.

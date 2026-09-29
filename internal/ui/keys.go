@@ -160,20 +160,28 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		}
 		return m.switchFocus()
 	}
-	// In Efficiency tab goes through its pages, unless a note is being
-	// written or an install waits on an answer.
-	if (s == "tab" || s == "shift+tab") && m.mode == modeEff && !m.eff.typing() && m.eff.plan == nil {
+	// [ and ] go through a place's pages, as everywhere with pages: in
+	// Efficiency unless a note is being written or an install waits on an
+	// answer.
+	if (s == "[" || s == "]") && m.mode == modeEff && !m.eff.typing() && m.eff.plan == nil {
 		d := 1
-		if s == "shift+tab" {
+		if s == "[" {
 			d = -1
 		}
 		m.setEffPage(m.eff.page + d)
 		return m.effOpen()
 	}
-	// In Machine tab goes through the place's pages; Settings uses [ ].
-	if (s == "tab" || s == "shift+tab") && (m.mode == modeProcs || m.mode == modeCleanup) {
+	if (s == "[" || s == "]") && (m.mode == modeWork || m.mode == modeWall) {
 		d := 1
-		if s == "shift+tab" {
+		if s == "[" {
+			d = -1
+		}
+		m.setWorkPage(m.work.page + d)
+		return m.refreshFolders()
+	}
+	if (s == "[" || s == "]") && (m.mode == modeProcs || m.mode == modeCleanup) {
+		d := 1
+		if s == "[" {
 			d = -1
 		}
 		m.setMachinePage(m.machinePage + d)
@@ -185,9 +193,9 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	switch m.mode {
 	case modeHelp:
 		switch s {
-		case "tab", "right", "l":
+		case "]", "right", "l":
 			m.helpPage = (m.helpPage + 1) % len(helpPages)
-		case "shift+tab", "left", "h":
+		case "[", "left", "h":
 			m.helpPage = (m.helpPage + len(helpPages) - 1) % len(helpPages)
 		case "1", "2", "3":
 			m.helpPage = int(s[0] - '1')
@@ -202,7 +210,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	case modeEff:
 		return m.effKey(k, s)
 	case modeWork:
+		if m.work.page == workProjects {
+			return m.projectsKey(s)
+		}
 		return m.workKey(s)
+	case modeWall:
+		return m.wallKey(s)
 	case modeCwd:
 		return m.cwdKey(k, s)
 	}
@@ -442,6 +455,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "ctrl+s":
 		m.cycleGroupBy()
 		return nil
+	case "ctrl+p":
+		m.toggleSplit()
+		return m.refreshFolders()
 	case "ctrl+o":
 		// Reply: straight into the agent's Session message box.
 		if a != nil {
@@ -882,7 +898,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	case "account":
 		if arg == "" {
 			m.setView(placeSettings)
-			m.setSettingsPage(pageProviders)
+			m.setSettingsPage(pageAccounts)
 			return nil
 		}
 		return m.useLogin(arg)
@@ -891,6 +907,19 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			m.inKind, m.input, m.promptFor = inGroup, []rune(arg), a.Key
 			return m.submit()
 		}
+	case "split":
+		switch arg {
+		case "":
+			m.toggleSplit()
+		case "project", "none":
+			if (arg == "project") != m.splitProjects() {
+				m.toggleSplit()
+			}
+		default:
+			m.flash("split by project or none", true)
+			return nil
+		}
+		return m.refreshFolders()
 	case "by":
 		for _, g := range m.groupModes() {
 			if g == arg {

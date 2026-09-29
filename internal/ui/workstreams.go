@@ -25,12 +25,36 @@ import (
 // workSince is how far back the overview looks.
 const workSince = 24 * time.Hour
 
+// workPages are the Overview's pages: what's going on and what happened,
+// each project whole, and every agent at once on the Wall.
+var workPages = []string{"Now", "Projects", "Wall"}
+
+const (
+	workNowPage = iota
+	workProjects
+	workWall
+)
+
+// setWorkPage shows one of the Overview's pages; the Wall has a mode of
+// its own.
+func (m *Model) setWorkPage(p int) {
+	m.work.page = (p + len(workPages)) % len(workPages)
+	m.mode = modeWork
+	if m.work.page == workWall {
+		m.mode = modeWall
+	}
+}
+
 type workState struct {
+	page int // which of workPages
 	// pos is the row picked; sel is its id, so new rows above it keep it
 	// picked.
 	pos  int
 	sel  string
 	only string // show only this session's history, by key
+	// projPos and projSel are the Projects page's pos and sel.
+	projPos int
+	projSel string
 
 	tls     map[string]*claude.Timeline // by transcript path; the loader's alone
 	views   map[string]claude.TimelineView
@@ -446,21 +470,24 @@ func (m *Model) workEvent(a *fleet.Agent, e claude.Happening, w int) string {
 
 // workPick finds the row picked, following it if rows moved; rows
 // without an agent can't be picked.
-func (m *Model) workPick(rows []workRow) int {
-	w := &m.work
-	if w.pos < len(rows) && rows[w.pos].id == w.sel && rows[w.pos].a != nil {
-		return w.pos
+func (m *Model) workPick(rows []workRow) int { return pickRow(rows, &m.work.pos, &m.work.sel) }
+
+// pickRow finds the row picked, by its id at *sel, following it if rows
+// moved, else the nearest row with an agent to *pos.
+func pickRow(rows []workRow, pos *int, sel *string) int {
+	if *pos < len(rows) && rows[*pos].id == *sel && rows[*pos].a != nil {
+		return *pos
 	}
 	for i, r := range rows {
-		if r.id == w.sel && r.a != nil {
-			w.pos = i
+		if r.id == *sel && r.a != nil {
+			*pos = i
 			return i
 		}
 	}
 	for d := 0; d < len(rows); d++ {
-		for _, i := range []int{w.pos + d, w.pos - d} {
+		for _, i := range []int{*pos + d, *pos - d} {
 			if i >= 0 && i < len(rows) && rows[i].a != nil {
-				w.pos, w.sel = i, rows[i].id
+				*pos, *sel = i, rows[i].id
 				return i
 			}
 		}

@@ -362,7 +362,7 @@ func (d *draftSheet) body(m *Model, w, h int) []string {
 			state.KindCleared: "nothing cleared · what you wipe from a box with esc or ctrl+c lands here",
 		}[d.kindOf()]
 		if len(d.filter) > 0 {
-			msg = "none of these has that · tab looks in the next"
+			msg = "none of these has that · ] looks in the next"
 		}
 		out = append(out, "  "+faint(msg))
 	}
@@ -385,7 +385,7 @@ func (d *draftSheet) body(m *Model, w, h int) []string {
 			out = append(out, "", faint(ansi.Truncate(strings.Join(lines[1:min(len(lines), 3)], " ⏎ "), w, "…")))
 		}
 	}
-	pairs := []string{"↑↓", "choose", "enter", "put it in the box", "tab", "drafts · sent · cleared"}
+	pairs := []string{"↑↓", "choose", "enter", "put it in the box", "[ ]", "drafts · sent · cleared"}
 	if d.kindOf() != state.KindDraft {
 		pairs = append(pairs, keySaveDraft, "keep as a draft")
 	}
@@ -397,9 +397,9 @@ func (d *draftSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 	switch s {
 	case "esc", "ctrl+c", "ctrl+r":
 		m.sheet = nil
-	case "tab", "shift+tab":
+	case "[", "]":
 		n := len(state.DraftKinds)
-		d.kind = (d.kind + map[string]int{"tab": 1, "shift+tab": n - 1}[s]) % n
+		d.kind = (d.kind + map[string]int{"]": 1, "[": n - 1}[s]) % n
 		d.cur = 0
 	case "up", "ctrl+p":
 		d.cur = max(0, d.cur-1)

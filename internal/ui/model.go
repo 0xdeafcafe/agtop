@@ -42,6 +42,7 @@ const (
 	modeHelp
 	modeEff
 	modeWork
+	modeWall
 )
 
 type inputKind int
@@ -53,7 +54,7 @@ const (
 	inReply
 )
 
-var groupModes = []string{"folder", "status", "agent", "group"}
+var groupModes = []string{"status", "agent", "group"}
 
 type confirmation struct {
 	// modal asks in a box over the screen rather than on the bottom line:
@@ -118,6 +119,7 @@ type Model struct {
 	liveFailedAt time.Time
 	hover        string
 	rowKeys      []string
+	headHits     []headHit // the list header's toggles, for clicks
 	listTop      int
 	lastClick    time.Time
 
@@ -221,6 +223,7 @@ type Model struct {
 	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
 	eff       effState        // the Efficiency place
 	work      workState       // the Overview place
+	wall      wallState       // the Wall place
 	reaper    fleet.Reaper    // ends what agents leave running when they stop
 	squeezing bool            // transcripts are being compressed in the background
 
@@ -264,7 +267,8 @@ const (
 	lineBlank lineKind = iota
 	lineSection
 	lineAgent
-	lineTree // a linked worktree's heading inside its repository's section
+	lineProject // a project's heading inside a section, split by project
+	lineTree    // a linked worktree's heading under its project
 )
 
 type listLine struct {
@@ -274,9 +278,11 @@ type listLine struct {
 	folded bool
 	peek   string
 	agent  *fleet.Agent
-	// root is the folder a folder section is for, or a tree line's
-	// worktree; a tree line's title is its section's folder.
+	// root is a project line's folder, or a tree line's worktree; a tree
+	// line's title is its project's folder.
 	root string
+	// again is a project line for a project an earlier section headed.
+	again bool
 }
 
 func sectionKey(title string) string { return "§" + title }
@@ -294,7 +300,7 @@ func New(store *state.Store, version string) *Model {
 	// is read afresh every few seconds all the same.
 	m.loader.Watch(5 * time.Second)
 	if store.Config.GroupBy == "" {
-		store.Config.GroupBy = "folder"
+		store.Config.GroupBy = "status"
 	}
 	m.applyColors()
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
@@ -486,7 +492,20 @@ func (m *Model) mouseMove(x, y int) tea.Cmd {
 }
 
 func (m *Model) mouseClick(x, y int) tea.Cmd {
+	if m.mode == modeWall {
+		return m.wallClick(x, y)
+	}
 	if y == m.listTop-1 && x < m.listW && m.mode == modeList && m.dialog == nil {
+		for _, h := range m.headHits {
+			if x >= h.from && x < h.to {
+				if h.what == "split" {
+					m.toggleSplit()
+					return m.refreshFolders()
+				}
+				m.cycleGroupBy()
+				return nil
+			}
+		}
 		if col := m.headerColumn(x); col != "" {
 			m.setSort(col)
 		}
@@ -729,6 +748,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if c := m.workTick(); c != nil {
 			cmds = append(cmds, c) // the overview reads on while it's open
 		}
+		if c := m.wallTick(); c != nil {
+			cmds = append(cmds, c) // and the Wall's tiles
+		}
 		if m.mode == modeCleanup && time.Since(m.clean.checked) > 2*time.Minute {
 			cmds = append(cmds, m.scanWorktrees()) // looked at when the view opens, and every 2 minutes while it's open
 		}
@@ -752,6 +774,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case workTimelinesMsg:
 		m.onWorkTimelines(msg)
+		return m, nil
+	case wallReadMsg:
+		m.onWallRead(msg)
 		return m, nil
 	case effRanMsg:
 		return m, m.onEffRan(msg)
@@ -1163,7 +1188,7 @@ func (m *Model) setView(v int) {
 	m.zen = false
 	switch m.view {
 	case placeWork:
-		m.mode = modeWork
+		m.setWorkPage(m.work.page)
 	case placeEff:
 		m.setEffPage(m.eff.page)
 	case placeMachine:
@@ -1392,7 +1417,6 @@ func (m *Model) rebuild() {
 		agents []*fleet.Agent
 		rank   int
 		recent time.Time
-		root   string // the folder, grouped by folder
 	}
 	order := map[*fleet.Agent]int{} // places under a plugin's arrangement
 	groups := map[string]*group{}
@@ -1420,16 +1444,6 @@ func (m *Model) rebuild() {
 			continue
 		}
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
-		if by == "folder" {
-			// Every agent from the last day sits under its folder, doing
-			// whatever it's doing; the header counts what wants you.
-			if fresh {
-				add(folderKey(a), 5, a)
-			} else {
-				add("Earlier", 9, a)
-			}
-			continue
-		}
 		switch {
 		case a.NeedsYou():
 			add("Needs you", 0, a)
@@ -1463,36 +1477,22 @@ func (m *Model) rebuild() {
 	for _, g := range groups {
 		list = append(list, g)
 	}
-	byFolder := by == "folder" && sb == nil
-	if byFolder {
-		// Folders stay put, by name, those with an agent running first; a
-		// section is keyed by its folder and titled by a name for it.
+	// Split by project, each section's rows sit together by the
+	// repository they work in, its worktrees' after its own.
+	split := sb == nil && m.splitProjects()
+	var titles map[string]string
+	if split {
 		keys := map[string]bool{}
 		for _, g := range list {
-			if g.rank == 5 {
-				keys[g.name] = true
-			}
-		}
-		titles := folderTitles(keys)
-		for _, g := range list {
-			if g.rank != 5 {
-				continue
-			}
-			g.root, g.name = g.name, titles[g.name]
 			for _, a := range g.agents {
-				if a.Open() || a.Busy() {
-					g.rank = 4
-					break
-				}
+				keys[folderKey(a)] = true
 			}
 		}
+		titles = folderTitles(keys)
 	}
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].rank != list[j].rank {
 			return list[i].rank < list[j].rank
-		}
-		if byFolder {
-			return cmpLower(list[i].name, list[j].name) < 0
 		}
 		return list[i].recent.After(list[j].recent)
 	})
@@ -1508,13 +1508,24 @@ func (m *Model) rebuild() {
 			}
 		case sb == nil && g.name == "Done":
 			less = m.doneLess
-		case g.root != "":
-			less = m.folderLess
+		}
+		if split {
+			within := less
+			less = func(a, b *fleet.Agent) bool {
+				if c := cmpLower(titles[folderKey(a)], titles[folderKey(b)]); c != 0 {
+					return c < 0
+				}
+				if c := cmp.Compare(treeOf(a), treeOf(b)); c != 0 {
+					return c < 0
+				}
+				return within(a, b)
+			}
 		}
 		sort.SliceStable(g.agents, func(i, j int) bool { return less(g.agents[i], g.agents[j]) })
 	}
 	m.order = m.order[:0]
 	m.lines = m.lines[:0]
+	shown := map[string]bool{} // projects already headed, split by project
 	clear(m.groupOf)
 	if m.groupOf == nil {
 		m.groupOf = map[string]string{}
@@ -1530,9 +1541,6 @@ func (m *Model) rebuild() {
 		}
 		fold := m.folded(g.name)
 		meta := sectionMeta(len(g.agents), cost)
-		if g.root != "" {
-			meta = folderMeta(g.agents, now)
-		}
 		// One extra figure at most, and only one you can act on: temp work
 		// where /clean all reaches it, memory where agents rest.
 		switch name := g.name; {
@@ -1555,20 +1563,28 @@ func (m *Model) rebuild() {
 			meta += " · " + mem(held) + " ram"
 		}
 		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: meta,
-			folded: fold, peek: strings.Join(names, ", "), root: g.root})
-		tree := ""
+			folded: fold, peek: strings.Join(names, ", ")})
+		project, tree := "\x00", ""
 		for _, a := range g.agents {
 			m.order = append(m.order, a)
 			m.groupOf[a.Key] = g.name
 			if fold {
 				continue
 			}
-			if t := treeOf(a); g.root != "" && t != tree {
-				tree = t
-				m.lines = append(m.lines, listLine{kind: lineTree, title: g.root, root: t})
+			if split {
+				if p := folderKey(a); p != project {
+					project, tree = p, ""
+					// What git says is said once, where the project first
+					// shows; further down it's only named.
+					m.lines = append(m.lines, listLine{kind: lineProject, title: titles[p], root: p, again: shown[p]})
+					shown[p] = true
+				}
+				if t := treeOf(a); t != tree {
+					tree = t
+					m.lines = append(m.lines, listLine{kind: lineTree, title: project, root: t})
+				}
 			}
 			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a})
-
 		}
 		m.lines = append(m.lines, listLine{kind: lineBlank})
 	}

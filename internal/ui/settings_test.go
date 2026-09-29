@@ -17,17 +17,17 @@ func TestSettingsPagesBrackets(t *testing.T) {
 	m.setSettingsPage(pageOverview)
 	n := len(m.settingsPages())
 	m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
-	if m.dialog.page != pageProviders {
-		t.Fatalf("] went to page %d, not Providers", m.dialog.page)
+	if m.dialog.page != pageProfiles {
+		t.Fatalf("] went to page %d, not Profiles", m.dialog.page)
 	}
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
 	if m.dialog.page != n-1 {
 		t.Fatalf("[ from Overview went to page %d, not the last (%d)", m.dialog.page, n-1)
 	}
-	m.setSettingsPage(pageSessions)
+	m.setSettingsPage(pageGeneral)
 	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.dialog == nil || m.dialog.page != pageSessions {
+	if m.dialog == nil || m.dialog.page != pageGeneral {
 		t.Fatal("tab changed Settings' page")
 	}
 	if !strings.Contains(ansi.Strip(m.pages()), "[ ]") {
@@ -98,5 +98,86 @@ func TestSettingsAgentsOnePage(t *testing.T) {
 	m.openAgentSettings(order[0].Kind())
 	if m.dialog.page != pageAgents || m.settingsAgent() != order[0].Kind() {
 		t.Fatal("openAgentSettings didn't land on the agent")
+	}
+}
+
+// Profiles makes a profile, changes its agents and what it does at a
+// limit, gives it a folder, and makes it the default, all by keys.
+func TestSettingsProfiles(t *testing.T) {
+	m, _ := accountsModel(t)
+	m.setView(placeSettings)
+	m.setSettingsPage(pageProfiles)
+	cfg := &m.store.Config
+	press := func(keys ...string) {
+		for _, k := range keys {
+			switch k {
+			case "enter":
+				m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+			case "esc":
+				m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+			case "down":
+				m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			case "right":
+				m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+			default:
+				for _, r := range k {
+					m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+				}
+			}
+		}
+	}
+	before := len(cfg.Profiles)
+	press("n", "client", "enter")
+	if len(cfg.Profiles) != before+1 || m.dialog.profile != "client" {
+		t.Fatalf("n didn't make and open a profile: %d profiles, open %q", len(cfg.Profiles), m.dialog.profile)
+	}
+	body := ansi.Strip(strings.Join(m.dialogBody(130), "\n"))
+	for _, want := range []string{"client", "Agents", "When the first is out", "When a limit stops a session", "Folders"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("the open profile doesn't show %q:\n%s", want, body)
+		}
+	}
+	// Add the second agent, then set it to hand off at a limit.
+	p, _ := m.editing()
+	n := len(p.Providers)
+	press("down", "enter")
+	if p, _ = m.editing(); len(p.Providers) == n {
+		t.Fatalf("enter on an agent didn't add or drop it: %v", p.Providers)
+	}
+	rows := flat(m.profilesForm())
+	for i, r := range rows {
+		if r.label == "When a limit stops a session" {
+			m.dialog.cursor = i
+		}
+	}
+	press("right")
+	if p, _ = m.editing(); p.Limit() != state.LimitHandoff {
+		t.Fatalf("→ on the limit row: %q", p.Limit())
+	}
+	// A folder for it.
+	for i, r := range flat(m.profilesForm()) {
+		if r.label == "+ add a folder" {
+			m.dialog.cursor = i
+		}
+	}
+	press("enter")
+	m.dialog.input = []rune("~/src/client")
+	press("enter")
+	if r, ok := cfg.RuleFor(state.ExpandHome("~/src/client/app")); !ok || r.Profile != "client" {
+		t.Fatalf("folder rule: %+v %v", r, ok)
+	}
+	// esc goes back to every profile, not out of Settings.
+	press("esc")
+	if m.dialog == nil || m.dialog.profile != "" {
+		t.Fatal("esc in a profile left Settings")
+	}
+	for i, r := range flat(m.profilesForm()) {
+		if r.label == "client" {
+			m.dialog.cursor = i
+		}
+	}
+	press("*")
+	if cfg.Default().Name != "client" {
+		t.Fatalf("* didn't make it the default: %s", cfg.Default().Name)
 	}
 }

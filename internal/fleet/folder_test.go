@@ -3,6 +3,7 @@ package fleet
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,7 +42,7 @@ func TestCheckFolder(t *testing.T) {
 		t.Fatalf("wants %v", wants)
 	}
 
-	f := CheckFolder(repo, wants[repo])
+	f := CheckFolder(repo, wants[repo], false)
 	if g := f.Git; g.Branch != "main" || !g.Upstream || g.Ahead != 1 || g.Behind != 0 || g.Changed != 1 || g.Err != "" {
 		t.Fatalf("main checkout: %+v", g)
 	}
@@ -53,5 +54,29 @@ func TestCheckFolder(t *testing.T) {
 	}
 	if _, ok := f.Trees[other]; ok {
 		t.Fatal("checked a worktree no agent is in")
+	}
+
+	// Whole, every worktree, the remote and the last commits.
+	f = CheckFolder(repo, nil, true)
+	if len(f.Linked) != 2 || len(f.Trees) != 2 || f.Trees[other].Branch != "other" {
+		t.Fatalf("whole: linked %v trees %+v", f.Linked, f.Trees)
+	}
+	if len(f.Recent) != 2 || f.Recent[0].Subject != "second" || f.Recent[0].At.IsZero() {
+		t.Fatalf("recent: %+v", f.Recent)
+	}
+	if f.Remote != strings.TrimSuffix(remote, ".git") {
+		t.Fatalf("remote: %q", f.Remote)
+	}
+}
+
+func TestShortRemote(t *testing.T) {
+	for in, want := range map[string]string{
+		"git@github.com:0xdeafcafe/agtop.git":          "github.com/0xdeafcafe/agtop",
+		"https://github.com/langwatch/langwatch.git":   "github.com/langwatch/langwatch",
+		"ssh://git@gitlab.example.com:22/team/app.git": "gitlab.example.com/team/app",
+	} {
+		if got := shortRemote(in); got != want {
+			t.Errorf("%s: %q, want %q", in, got, want)
+		}
 	}
 }

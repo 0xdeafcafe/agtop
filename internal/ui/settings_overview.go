@@ -91,7 +91,7 @@ func (m *Model) overviewKey(s string) tea.Cmd {
 			m.showAgentSettings(order[m.dialog.cursor].Kind())
 		}
 	case "a":
-		m.setSettingsPage(pageProviders)
+		m.setSettingsPage(pageAccounts)
 	case "r":
 		m.flash("reading every provider's limits again…", false)
 		return tea.Batch(m.fetchUsage(), m.fetchQuotas())

@@ -96,7 +96,7 @@ func TestSaveBarsLeavesClaudeAlone(t *testing.T) {
 	os.WriteFile(settings, []byte(`{"model":"opus"}`), 0o600)
 	m.openStatusLine(c, a)
 	st := m.sheet.(*statusSheet)
-	st.key(m, tea.KeyPressMsg{}, "tab") // the top bar
+	st.key(m, tea.KeyPressMsg{}, "]") // the top bar
 	if st.tab != stTop {
 		t.Fatalf("tab went to %d", st.tab)
 	}

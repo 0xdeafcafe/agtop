@@ -23,10 +23,11 @@ import (
 func init() { agentExtras[loginsKind] = (*Model).claudeSections }
 
 func (m *Model) claudeSections() []section {
-	return []section{m.claudeRunSection(), m.claudeAgentsSection(), m.claudeSettingsSection(), m.claudeEnvSection()}
+	run, tuning := m.claudeRunSections()
+	return []section{run, tuning, m.claudeAgentsSection(), m.claudeSettingsSection(), m.claudeEnvSection()}
 }
 
-func (m *Model) claudeRunSection() section {
+func (m *Model) claudeRunSections() (run, tuning section) {
 	cfg := &m.store.Config
 	d := &cfg.Dispatch
 	runIn := choiceSetting("Run new sessions in", d.RunIn,
@@ -56,7 +57,8 @@ func (m *Model) claudeRunSection() section {
 			{"on", "about a quarter of the disk they took (33 MB → 8 MB for the biggest)."},
 			{"off", "transcripts stay as Claude Code writes them."},
 		}, func(v string) { cfg.KeepTranscriptsPlain = v == "off" })
-	return section{title: "How agtop runs it", rows: []setting{runIn, onLimit, quick, compress}}
+	return section{title: "How agtop runs it", rows: []setting{runIn, onLimit}},
+		section{title: "Tuning", advanced: true, rows: []setting{quick, compress}}
 }
 
 // agentDef is one of Claude Code's agent definitions.
@@ -157,7 +159,7 @@ What this agent does, and how.
 func (m *Model) claudeAgentsSection() section {
 	d := m.dialog
 	cfg := &m.store.Config
-	sec := section{title: "Agent", note: "what new sessions start as (--agent)"}
+	sec := section{title: "Agent definitions", advanced: true, note: "what new sessions start as (--agent)"}
 	newAgent := func() {
 		m.ask("new agent name", "", func(v string) tea.Cmd {
 			name := strings.ToLower(strings.Join(strings.Fields(v), "-"))
@@ -318,7 +320,7 @@ func (m *Model) claudeSettingsSection() section {
 		m.saveClaude(s)
 	}
 	models := []string{"opus", "opus[1m]", "sonnet", "haiku", "fable"}
-	return section{title: "settings.json", note: tildify(s.Path) + " · every Claude Code session reads it, not only agtop's", rows: []setting{
+	return section{title: "settings.json", advanced: true, note: tildify(s.Path) + " · every Claude Code session reads it, not only agtop's", rows: []setting{
 		str("Default model", "model", "The model every session on this account starts with, unless a session or agtop picks one", models...),
 		str("Default effort", "effortLevel", "How hard sessions think by default", "low", "medium", "high", "xhigh", "max"),
 		str("Permission mode", "permissions.defaultMode", "What sessions may do without asking. Your allow and deny rules are kept", "default", "acceptEdits", "plan", "auto"),
@@ -348,7 +350,7 @@ var knownEnv = []struct {
 func (m *Model) claudeEnvSection() section {
 	s := m.claudeSettings()
 	env := s.Env()
-	sec := section{title: "Environment", note: "every session on this account starts with these, subagents included"}
+	sec := section{title: "Environment", advanced: true, note: "every session on this account starts with these, subagents included"}
 	setEnv := func(name, v string) {
 		_ = s.SetEnv(name, v)
 		if m.saveClaude(s) {

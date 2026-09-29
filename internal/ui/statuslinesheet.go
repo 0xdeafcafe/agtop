@@ -356,10 +356,10 @@ func (st *statusSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 	case "esc", "ctrl+c", "q":
 		m.sheet = nil
 		return nil
-	case "tab":
+	case "]":
 		st.tab, st.cur, st.err = (st.tab+1)%statusTabs, 0, ""
 		return nil
-	case "shift+tab":
+	case "[":
 		st.tab, st.cur, st.err = (st.tab+statusTabs-1)%statusTabs, 0, ""
 		return nil
 	case "enter", "ctrl+s":
@@ -394,7 +394,7 @@ func (st *statusSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 			}
 		}
 		st.place(sl.id, line, len(l.Lines[line]))
-	case "shift+up", "alt+up", "K", "[":
+	case "shift+up", "alt+up", "K":
 		switch {
 		case sl.line < 0:
 		case at > 0:
@@ -402,7 +402,7 @@ func (st *statusSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 		case sl.line > 0:
 			st.place(sl.id, sl.line-1, len(l.Lines[sl.line-1]))
 		}
-	case "shift+down", "alt+down", "J", "]":
+	case "shift+down", "alt+down", "J":
 		switch {
 		case sl.line < 0:
 		case at < len(l.Lines[sl.line])-1:
@@ -685,7 +685,7 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		lines = "1 2 3"
 	}
 	// Most needed first: what doesn't fit is left off the end.
-	pairs := []string{"space", "show/hide", "shift+↑↓ or drag", "move", "tab", "next", "enter", "save", "esc", "cancel", lines, "to line", "s", "separator " + sepName}
+	pairs := []string{"space", "show/hide", "shift+↑↓ or drag", "move", "[ ]", "tab", "enter", "save", "esc", "cancel", lines, "to line", "s", "separator " + sepName}
 	if st.tab == stClaude {
 		colour := "on"
 		if l.Plain {

@@ -148,9 +148,9 @@ func (p *permSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 	switch s {
 	case "esc", "ctrl+c", "q":
 		m.sheet = nil
-	case "tab", "right":
+	case "]", "right":
 		p.tab, p.armed = (p.tab+1)%3, ""
-	case "shift+tab", "left":
+	case "[", "left":
 		p.tab, p.armed = (p.tab+2)%3, ""
 	case "up", "k":
 		*cur = roundMove(*cur, -1, len(list))
@@ -216,7 +216,7 @@ func (p *permSheet) body(m *Model, w, h int) []string {
 	case len(list) > 0:
 		out = append(out, "  "+dim(tildify(list[cur].file.path)))
 	}
-	return append(out, "", keysFit(w, "a", "add", "x", "take out", "←→", "allow/ask/deny", "e", "edit the file", "esc", "close"))
+	return append(out, "", keysFit(w, "a", "add", "x", "take out", "[ ]", "allow/ask/deny", "e", "edit the file", "esc", "close"))
 }
 
 // hook is one command a hook event runs.

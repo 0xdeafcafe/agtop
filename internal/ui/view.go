@@ -186,7 +186,7 @@ func (m *Model) header() []string {
 		places = "ctrl+\\"
 	}
 	strip := "  " + robot[3] + "   " + strings.Join(m.tabs(), " ")
-	out[3] = withTabHint(strip, places, "places", m.pages(), m.w)
+	out[3] = withTabHint(strip, places, "places", "", m.w)
 	return out
 }
 
@@ -201,22 +201,23 @@ func withTabHint(strip, keys, what, rest string, w int) string {
 	return strip + hint + rest
 }
 
-// pages are the pages of the place you're in, the one showing bright; tab
-// goes through them ([ and ] in Settings). In Agents it says whether Zen
-// is on.
+// pages are the pages of the place you're in, the one showing bright; [
+// and ] go through them. In Agents it says whether Zen is on.
 func (m *Model) pages() string {
 	var names []string
-	cur, hint := 0, "tab"
+	cur, hint := 0, "[ ]"
 	switch {
 	case m.dialog != nil:
 		for _, p := range m.settingsPages() {
 			names = append(names, p.name)
 		}
-		cur, hint = m.dialog.page, "[ ]"
+		cur = m.dialog.page
 	case m.mode == modeProcs || m.mode == modeCleanup:
 		names, cur = machinePages, m.machinePage
 	case m.mode == modeEff:
 		names, cur = effPages, m.eff.page
+	case m.mode == modeWall || m.mode == modeWork:
+		names, cur = workPages, m.work.page
 	case m.zen:
 		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
 	case m.solo != "":
@@ -235,7 +236,7 @@ func (m *Model) pages() string {
 	full := "   " + strings.Join(out, dim(" · ")) + faint("  "+hint)
 	// Where the row hasn't the room for every page, the one showing and
 	// where it is among them.
-	if used := 20 + cellw.String(ansi.Strip(strings.Join(m.tabs(), " "))); used+cellw.String(ansi.Strip(full)) > m.w {
+	if cellw.String(ansi.Strip(full)) > m.w {
 		return "   " + faint("‹ ") + paint(cText+bold, names[cur]) + faint(fmt.Sprintf(" %d/%d › ", cur+1, len(names))) + faint(hint)
 	}
 	return full
@@ -424,17 +425,22 @@ func (m *Model) renderScreen() string {
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 50))
 	case modeProcs:
 		if m.snap.Machine.Orphans > 0 {
-			return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "X", "end all orphans", "x", "end / SIGTERM", "!", "SIGKILL tree", "enter", "go to the agent", "tab", "Cleanup", "esc", "back"))
+			return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "X", "end all orphans", "x", "end / SIGTERM", "!", "SIGKILL tree", "enter", "go to the agent", "[ ]", "Cleanup", "esc", "back"))
 		}
-		return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "enter", "go to the agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "tab", "Cleanup", "esc", "back"))
+		return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "enter", "go to the agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "[ ]", "Cleanup", "esc", "back"))
 	case modeCleanup:
-		return m.frame(m.cleanupBody(), keysFit(m.w-4, "↑↓", "move", "x", "remove", "A", "remove all that's safe", "r", "check again", "tab", "Processes", "esc", "back"))
+		return m.frame(m.cleanupBody(), keysFit(m.w-4, "↑↓", "move", "x", "remove", "A", "remove all that's safe", "r", "check again", "[ ]", "Processes", "esc", "back"))
 	case modeCwd:
 		return m.frame(m.cwdBody(), keysFit(m.w-4, "enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
 	case modeEff:
 		return m.frame(m.effBody(), m.effHint())
 	case modeWork:
+		if m.work.page == workProjects {
+			return m.frame(m.projectsBody(), m.projectsHint())
+		}
 		return m.frame(m.workBody(), m.workHint())
+	case modeWall:
+		return m.frame(m.wallBody(m.w-4, m.wallH()), m.wallHint())
 	}
 	if m.dialog != nil {
 		return m.frame(m.dialogBody(m.w-6), "")
@@ -455,6 +461,7 @@ func (m *Model) frame(body []string, hint string) string {
 		b.WriteString(fit(l, m.w))
 		b.WriteByte('\n')
 	}
+	b.WriteString(fit(m.pages(), m.w))
 	b.WriteByte('\n')
 	avail := m.h - len(head) - 3
 	// Keep the cursor row in view on long lists.
@@ -792,7 +799,7 @@ func (m *Model) paneH() int {
 func (m *Model) listView() string {
 	var head []string
 	if !m.zen {
-		head = append(m.header(), "")
+		head = append(m.header(), m.pages())
 	}
 	listW, paneW, bodyH := m.layout()
 	over := m.pickerOverCard() // as the Prompt was measured
@@ -1166,11 +1173,9 @@ func (m *Model) listLines(w, h int) []string {
 		switch l.kind {
 		case lineSection:
 			key := sectionKey(l.title)
-			line := m.sectionLine(l, w)
-			if l.root != "" {
-				line = m.folderSectionLine(l, w)
-			}
-			emit(line, key, key == m.sel)
+			emit(m.sectionLine(l, w), key, key == m.sel)
+		case lineProject:
+			emit(m.projectLine(l, w), "", false)
 		case lineTree:
 			emit(m.treeLine(l, w), "", false)
 		case lineBlank:
@@ -1405,12 +1410,45 @@ func (m *Model) columnHeader(w int) string {
 		left += paint(cSub+bold, " · by recent activity")
 	}
 	rightW := wAct + wCPU + wRAM + wCost + wAge + 3
+	left = m.listToggles(left, w-rightW)
 	cols := dim(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("COST", "cost", wCost) + col("TIME", "time", wAge+2) + " "
 	gap := w - cellw.String(left) - rightW
 	if gap < 1 {
 		return fit(left, w)
 	}
 	return left + strings.Repeat(" ", gap) + cols
+}
+
+// listToggles adds to the column header how the list is arranged, each
+// part a click away: the grouping (ctrl+s goes to the next), and whether
+// sections are split by project (ctrl+p). Only where there's room.
+func (m *Model) listToggles(left string, room int) string {
+	m.headHits = m.headHits[:0]
+	if m.activeSidebar() != nil {
+		return left
+	}
+	group := dim("by ") + paint(cSub, m.groupLabel(m.store.Config.GroupBy))
+	split := faint("□ projects")
+	if m.splitProjects() {
+		split = paint(cOrange, "▣ ") + paint(cSub, "projects")
+	}
+	at := cellw.String(left) + 3
+	gw, sw := cellw.String(group), cellw.String(split)
+	if at+gw+3+sw+1 > room {
+		if at+sw+1 > room {
+			return left
+		}
+		m.headHits = append(m.headHits, headHit{at, at + sw, "split"})
+		return left + "   " + split
+	}
+	m.headHits = append(m.headHits, headHit{at, at + gw, "group"}, headHit{at + gw + 3, at + gw + 3 + sw, "split"})
+	return left + "   " + group + faint(" · ") + split
+}
+
+// headHit is a stretch of the column header a click toggles.
+type headHit struct {
+	from, to int
+	what     string
 }
 
 // headerColumn maps a click on the column header to the sort it selects.
@@ -2303,7 +2341,8 @@ var helpPages = []struct {
 		{"ctrl+z", "zen"},
 		{"< > · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
 		{"[ ]", "a Session's views, with nothing typed"},
-		{"tab", "a place's pages · in Agents, list and Session"},
+		{"[ ]", "a place's pages, or a sheet's tabs"},
+		{"tab", "in Agents, between the list and the Session"},
 		{"shift+← →", "resize · past the end, one side alone"},
 		{"#tips", "Getting started again"},
 		{"esc esc", "quit"},
@@ -2333,7 +2372,7 @@ func (m *Model) helpBody() []string {
 	for range most - len(page.rows) {
 		out = append(out, "", "")
 	}
-	return append(out, faint("tab next · any key closes"))
+	return append(out, faint("[ ] next · any key closes"))
 }
 
 // shortCmd is a process's command with the home folder and binary paths trimmed.

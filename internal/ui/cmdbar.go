@@ -97,6 +97,7 @@ type cmdBar struct {
 // spot is somewhere the bar jumped from, for "Back".
 type spot struct {
 	view, effPage, machinePage, settingsPage int
+	workPage                                 int
 	zen                                      bool
 	key, name                                string
 	settingsName                             string // the Settings page's
@@ -618,10 +619,23 @@ func (m *Model) barPlaces(q string) []barItem {
 		m.setZen(!m.zen)
 		return nil
 	})
-	add(paint(cSub, "◇"), "Overview", "what's happening now, and what happened: tasks ticked, subagents' reports", "overview workstreams timeline history happened subagents tasks", func(m *Model) tea.Cmd {
-		m.goView(placeWork)
-		return nil
-	})
+	for i, p := range workPages {
+		what := []string{
+			"what's happening now, and what happened: tasks ticked, subagents' reports",
+			"each repository whole: branch, changes, worktrees, commits, PRs and its agents",
+			"every agent at once, streaming",
+		}[i]
+		words := []string{
+			"now workstreams timeline history happened subagents tasks",
+			"projects repositories repos folders git branches worktrees commits prs",
+			"wall grid tiles all agents live stream dashboard",
+		}[i]
+		add(paint(cSub, "◇"), "Overview › "+p, what, "overview "+words, func(m *Model) tea.Cmd {
+			m.goView(placeWork)
+			m.setWorkPage(i)
+			return m.refreshFolders()
+		})
+	}
 	for i, p := range effPages {
 		add(paint(cSub, "◇"), "Efficiency › "+p, "", "efficiency tokens savers usage cost "+p, func(m *Model) tea.Cmd {
 			m.goView(placeEff)
@@ -938,7 +952,7 @@ func (m *Model) applyJump() {
 
 // here is where the screen is now, to come back to.
 func (m *Model) here() *spot {
-	s := &spot{view: m.view, effPage: m.eff.page, machinePage: m.machinePage, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
+	s := &spot{view: m.view, workPage: m.work.page, effPage: m.eff.page, machinePage: m.machinePage, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
 	if a := m.agentByKey(m.sel); a != nil {
 		s.name = oneLine(a.DisplayName)
 	}
@@ -954,7 +968,7 @@ func (m *Model) here() *spot {
 func (s *spot) where() string {
 	switch s.view {
 	case placeWork:
-		return "Overview"
+		return "Overview › " + workPages[s.workPage%len(workPages)]
 	case placeEff:
 		return "Efficiency › " + effPages[s.effPage%len(effPages)]
 	case placeMachine:
@@ -978,6 +992,7 @@ func (m *Model) goSpot(s *spot) tea.Cmd {
 	switch s.view {
 	case placeWork:
 		m.goView(placeWork)
+		m.setWorkPage(s.workPage)
 		return nil
 	case placeEff:
 		m.goView(placeEff)

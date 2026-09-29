@@ -29,6 +29,7 @@ var Defaults = []Action{
 	{ID: "list.pr", Context: List, Title: "open the agent's pull request", Keys: []string{"ctrl+y"}},
 	{ID: "list.pin", Context: List, Title: "pin the agent", Keys: []string{"ctrl+t"}},
 	{ID: "list.groupby", Context: List, Title: "group agents by the next", Keys: []string{"ctrl+s"}},
+	{ID: "list.split", Context: List, Title: "split each section by project, or stop", Keys: []string{"ctrl+p"}},
 	{ID: "list.stop", Context: List, Title: "stop or remove the agent", Keys: []string{"ctrl+x"}},
 	{ID: "list.done", Context: List, Title: "move the agent to Done", Keys: []string{"alt+d"}},
 	{ID: "list.go", Context: List, Title: "tell the agent to keep going", Keys: []string{"alt+g"}},

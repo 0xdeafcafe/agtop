@@ -7,7 +7,7 @@ import (
 )
 
 // tab goes between the list and the Session; < and > between places, and
-// tab through a place's pages; ctrl+z turns Zen on and off.
+// [ ] through a place's pages; ctrl+z turns Zen on and off.
 func TestPlacesAndFocus(t *testing.T) {
 	m, _ := benchModel(200, 50)
 	m.host.input = nil
@@ -15,6 +15,7 @@ func TestPlacesAndFocus(t *testing.T) {
 	places := tea.KeyPressMsg{Code: '>', Text: ">"}
 	back := tea.KeyPressMsg{Code: '<', Text: "<"}
 	zen := tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl}
+	next := tea.KeyPressMsg{Code: ']', Text: "]"}
 	if places.String() != ">" || back.String() != "<" || zen.String() != "ctrl+z" {
 		t.Fatalf("keys print as %q, %q and %q", places.String(), back.String(), zen.String())
 	}
@@ -47,28 +48,40 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 
 	m.key(places)
-	if m.view != placeWork || m.mode != modeWork {
-		t.Fatalf("> should go to Workstreams, got view %d mode %d", m.view, m.mode)
+	if m.view != placeWork || m.mode != modeWork || m.work.page != workNowPage {
+		t.Fatalf("> should go to the Overview's Now, got view %d mode %d", m.view, m.mode)
+	}
+	m.key(next)
+	if m.mode != modeWork || m.work.page != workProjects {
+		t.Fatal("] in the Overview should go to Projects")
+	}
+	m.key(next)
+	if m.mode != modeWall || m.work.page != workWall {
+		t.Fatal("] past Projects should go to the Wall")
+	}
+	m.key(next)
+	if m.mode != modeWork || m.work.page != workNowPage {
+		t.Fatal("] past the Wall should come back to Now")
 	}
 	m.key(places)
 	if m.view != placeEff || m.mode != modeEff || m.eff.page != effOverview {
 		t.Fatalf("> should go to Efficiency's Overview, got view %d mode %d", m.view, m.mode)
 	}
-	m.key(tab)
+	m.key(next)
 	if m.eff.page != effTimeline {
-		t.Fatal("tab in Efficiency should go to its Timeline")
+		t.Fatal("] in Efficiency should go to its Timeline")
 	}
 	m.key(places)
 	if m.view != placeMachine || m.mode != modeProcs {
 		t.Fatalf("> from Efficiency should go to Machine's Processes, got view %d mode %d", m.view, m.mode)
 	}
-	m.key(tab)
+	m.key(next)
 	if m.mode != modeCleanup {
-		t.Fatal("tab in Machine should go to Cleanup")
+		t.Fatal("] in Machine should go to Cleanup")
 	}
-	m.key(tab)
+	m.key(next)
 	if m.mode != modeProcs {
-		t.Fatal("tab past Cleanup should come back to Processes")
+		t.Fatal("] past Cleanup should come back to Processes")
 	}
 	m.key(back)
 	m.key(back)
@@ -84,7 +97,7 @@ func TestPlacesAndFocus(t *testing.T) {
 	m.key(places)
 	m.key(places)
 	if m.view != placeEff || m.eff.page != effTimeline {
-		t.Fatal("> from Settings should go round to Agents, Workstreams, then Efficiency on the page it was on")
+		t.Fatal("> from Settings should go round to Agents, the Overview, then Efficiency on the page it was on")
 	}
 	m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.view != placeAgents || m.mode != modeList {
@@ -93,7 +106,7 @@ func TestPlacesAndFocus(t *testing.T) {
 	m.input = nil
 	m.key(tea.KeyPressMsg{Code: '.', Text: "."})
 	if m.view != placeWork {
-		t.Fatal(". should go to Workstreams, as > does, without shift")
+		t.Fatal(". should go to the Overview, as > does, without shift")
 	}
 	m.key(tea.KeyPressMsg{Code: ',', Text: ","})
 	if m.view != placeAgents {

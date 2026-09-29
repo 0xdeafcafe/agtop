@@ -125,7 +125,7 @@ func TestInfoTabs(t *testing.T) {
 			t.Errorf("history missing %q:\n%s", want, text())
 		}
 	}
-	k.key(m, tea.KeyPressMsg{}, "tab")
+	k.key(m, tea.KeyPressMsg{}, "]")
 	for _, want := range []string{"Claude Code", "opus · 1 env var", "2 allow · 1 deny", "claude code ↗"} {
 		if !strings.Contains(text(), want) {
 			t.Errorf("settings missing %q:\n%s", want, text())

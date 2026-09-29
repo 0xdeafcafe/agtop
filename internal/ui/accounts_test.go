@@ -99,7 +99,7 @@ func accountsModel(t *testing.T) (*Model, *[]string) {
 	m.accts.ready()
 	m.accts.now["zcodex"] = "a1"
 	m.rebuild()
-	m.openDialog(pageProviders)
+	m.openDialog(pageAccounts)
 	return m, &switched
 }
 
@@ -126,25 +126,18 @@ func TestAccountsGroupedByAgent(t *testing.T) {
 	if got != "#Claude Code,work,home,#ZCodex,one,two,#ZPlain" {
 		t.Fatalf("rows: %s", got)
 	}
-	// J moves the agent under the cursor later.
+	// Its order is the default profile's: Profiles changes it.
 	m.store.Config.AgentOrder = []string{"claude", "zcodex", "zplain"}
 	m.dialog.cursor = 0
-	m.accountsKey("J")
-	if got := strings.Join(rowNames(m.accountRows()), ","); got != "#ZCodex,one,two,#Claude Code,work,home,#ZPlain" {
-		t.Fatalf("after J: %s", got)
-	}
-	if m.dialog.cursor != 3 {
-		t.Fatalf("the cursor stayed at %d, not with the agent it moved", m.dialog.cursor)
-	}
 	// 3 jumps to the third agent.
 	m.accountsKey("3")
 	if r := m.accountRows()[m.dialog.cursor]; !r.head || r.kind != "zplain" {
 		t.Fatalf("3 went to %+v", r)
 	}
-	// p makes it the default: new sessions run it.
+	// p goes to Profiles, where the order and the default are.
 	m.accountsKey("p")
-	if m.store.Config.DefaultAgent() != "zplain" || m.startKind() != "zplain" {
-		t.Fatalf("default is %q", m.store.Config.DefaultAgent())
+	if m.dialog.page != pageProfiles {
+		t.Fatalf("p went to page %d, not Profiles", m.dialog.page)
 	}
 	body := m.accountsBody(150)
 	for i, l := range body {
@@ -153,7 +146,7 @@ func TestAccountsGroupedByAgent(t *testing.T) {
 		}
 	}
 	plain := ansi.Strip(strings.Join(body, "\n"))
-	for _, want := range []string{"ZPlain only", "★ ◇ ZPlain", "one@example.com", "ZGone"} {
+	for _, want := range []string{"★ ◇ Claude Code", "one@example.com", "ZGone"} {
 		if strings.Contains(plain, want) != (want != "ZGone") {
 			t.Errorf("want %q shown %v in:\n%s", want, want != "ZGone", plain)
 		}

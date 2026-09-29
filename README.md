@@ -2,7 +2,7 @@
 
 <p align="center">
   One place for every coding agent you run, written in Go and built to be very fast.<br>
-  It started as a replacement for the Claude Code interface. Now it runs Codex, Copilot and the rest the same way.
+  It started as a replacement for Claude Code's own view, which takes about 330 MB to show you one session. Now it runs Codex, Copilot, local models on Ollama and the rest the same way.
 </p>
 
 <p align="center">
@@ -13,31 +13,31 @@
   <tr>
     <td width="50%" valign="top">
       <b>Every agent at a glance</b><br>
-      What each one is doing, in words, with its cost, tokens, time, CPU and RAM. Claude Code, Codex, Copilot, Gemini, Kimi, OpenCode, Vibe, DeepSeek and GLM, in one list.
+      What each one is doing, in words, with its cost, tokens, time, CPU and RAM. Claude Code, Codex, Copilot, Gemini, Kimi, OpenCode, Vibe, DeepSeek, GLM and Ollama, in one list.
     </td>
     <td width="50%" valign="top">
       <b>Sessions you can read</b><br>
-      Highlighted code, commands in plain words, diffs, an overview, the files changed, the queue and the subagents.
+      Highlighted code, commands in plain words, which part of a Bash chain is stuck, diffs, the files changed, the queue, tasks and subagents.
     </td>
   </tr>
   <tr>
     <td valign="top">
       <b>What needs you, first</b><br>
-      Turns that died on an error or a limit, questions, then turns that finished. Workstreams shows it across every repo.
+      Turns that died on an error or a limit, questions, then turns that finished. Overview shows what's happening across every repo, and what happened today.
     </td>
     <td valign="top">
-      <b>Accounts that switch themselves</b><br>
-      Every account of every agent, with its limits, and a switch to the one with the most room before a limit stops you.
+      <b>Providers and profiles</b><br>
+      Every account of every agent, with its limits. A profile says which agents a folder runs on, and what to do when one runs out, down to handing the conversation to the next agent.
     </td>
   </tr>
   <tr>
     <td valign="top">
       <b>Where the tokens go</b><br>
-      What you spent it on, which savers would cut it, and what each might have saved you, going by your own sessions.
+      What you spent it on, which savers would cut it, what each might have saved you, and an optional advisor that goes looking for more.
     </td>
     <td valign="top">
       <b>Light</b><br>
-      About 40 MB with a session open. The native view uses about 330 MB.
+      About 40 MB with a session open. The native view uses about 330 MB, and an idle Claude Code is stopped a few seconds after its turn.
     </td>
   </tr>
 </table>
@@ -58,51 +58,91 @@ agtop menubar    # put agtop in the macOS menu bar (`agtop menubar off` takes it
 agtop update     # install the newest agtop
 ```
 
-agtop checks for a newer version now and then and says so at the foot of the list; `#update` installs it from inside, the same as `agtop update`. Reopen agtop to use it.
+agtop checks for a newer version now and then and says so at the foot of the list. `#update` installs it from inside, the same as `agtop update`; reopen agtop to use it.
 
 Getting started sits at the foot of the list until you've tried the basics, ticking each off as you go. `#tips` brings it back, `#tips off` puts it away, and `?` is a guide to the keys.
 
 ## Agents
 
-The list is every agent you have, with what it's doing right now: "running pnpm test", "reading view.go", "searching for PrettyModel". Working agents stand out; idle, stopped and done ones step back.
+The list is every agent you have, with what it's doing right now: "running pnpm test", "reading view.go", "searching for PrettyModel". Working agents stand out; idle, stopped and done ones step back. Each row carries its provider's glyph and colour, so a Codex session doesn't pass for a Claude one.
 
 - **Needs you** comes first: an agent whose turn died says why, with a ✗ ("session limit · resets 5am"), and one with a question waits there too. One that finished without asking waits in **Your turn**. `alt+g` tells either to go on. A turn that died on the network or a flaky API ("Connection dropped", "Response stalled mid-stream") is told to continue by itself once the API can be reached.
 - **Cost, tokens and time** for each agent, estimated from its transcript at list prices (subagents included), and today's spend per account.
 - **CPU and RAM** for everything an agent started, not just the agent itself.
 - **Preview** (`tab`): the agent's own screen, live, or what it's doing, its last message and its process tree. Type to reply without opening it.
 - **Open** (`enter`) connects to the running session through the daemon, like the native view. `ctrl+]` comes back.
+- **Agents that run agents**: when a session runs `claude -p`, `codex exec` or another agent's program from its shell, the row reads as that agent, with what it was asked and its latest steps. It's listed with the session's subagents rather than as a stray row of its own.
 - **Done** (`alt+d`) moves an agent out of the way and stops its process if it's idle. A message resumes it. Nothing is merged or deleted.
 - **Cold cache warning**: sending to a session idle past its prompt cache's hour asks first, since it re-reads the whole context uncached.
-- **Groups** (`ctrl+s`) by status, repository, account or your own (`ctrl+e`). Pins (`ctrl+t`) are shared with the native view.
+- **Groups** (`ctrl+s`) by status, agent or your own (`ctrl+e`), and **split by project** on top (`ctrl+p`, on by default): inside each section, agents sit together under a line per repository with its branch, commits ahead or behind, uncommitted changes and worktree count; agents in a linked worktree sit under the repository it came from, headed by the worktree's own branch and changes. The top of the list shows both and a click changes either. Pins (`ctrl+t`) are shared with the native view.
 - **Change repo** (`ctrl+l`) moves a conversation to another folder or worktree.
 - **Drafts**: `alt+s` keeps what you've typed and clears the box for the next thing; `alt+p` brings the latest back, and again for older ones. `#drafts` has them, with what you sent and what you cleared.
 
-## Other agents
+## Providers
 
 agtop runs any agent it has an adapter for, and shows only the ones you have installed. It finds them on your `PATH` and where their installers put them, so an agent installed while agtop is open turns up without a restart.
 
-| Agent | How agtop runs it |
-| --- | --- |
-| Claude Code | headless, hosted by agtop |
-| Codex | its own `codex app-server` |
-| Copilot | the Copilot CLI, signed in with `gh`'s token; its coding agent's sessions on GitHub too, with their repo and PR |
-| Gemini, Kimi, OpenCode, Vibe | over the Agent Client Protocol |
-| DeepSeek | `dsh`, DeepSeek's own agent |
-| GLM | ZCode, Z.ai's own agent, through `zcode-acp-server` |
+| Provider | How agtop runs it | Support |
+| --- | --- | --- |
+| Claude Code | headless, hosted by agtop | full |
+| Codex | its own `codex app-server` | tested |
+| Copilot | the Copilot CLI, signed in with `gh`'s token; its coding agent's sessions on GitHub too, with their repo and PR | tested |
+| Gemini, Kimi, OpenCode, Vibe | over the Agent Client Protocol | preview |
+| DeepSeek | `dsh`, DeepSeek's own agent | preview |
+| GLM | ZCode, Z.ai's own agent, through `zcode-acp-server` | preview |
+| Ollama | Claude Code on Ollama's Anthropic API, tuned per model | preview |
 
-`#with codex` (or any of them) makes new sessions start with that agent; `#with claude` goes back, and `#with` alone says which it is and what's installed. Their past sessions sit in the list beside Claude's, marked with their agent, and a message resumes one with its own agent, model and mode. A Codex running in a terminal is followed as it works, as a Claude Code one is.
+Full is what I use every day, tested has been tried against the real program, and preview is built but not yet tried against it. Settings › Providers shows each one's level and what agtop can do with it, feature by feature: ✓ it can, – it can't, ◌ planned.
 
-The model, effort and mode in Settings are Claude Code's; another agent starts with its own. In its sessions, `/` offers only what that agent can do.
+`#with codex` (or any of them) makes new sessions start with that agent; `#with claude` goes back, and `#with` alone says which it is and what's installed. Their past sessions sit in the list beside Claude's, marked with their agent, and a message resumes one with its own agent, model and mode. A Codex running in a terminal is followed as it works, as a Claude Code one is. In a session, `/` offers only what that agent can do.
+
+**Ollama** runs Claude Code in a folder of its own, so a local model doesn't read your plugins, skills and MCP servers before every answer. Each session is fitted to its model: loaded before the first turn, told the context window it was loaded with so it compacts in time, one model for everything (titles, subagents, summaries) so nothing reaches Anthropic, and a prompt cut down to the six file and shell tools. On an M1 Max with `qwen3-vl:30b` that took the prompt from 14k tokens to 4k, and the first answer from over a minute to about seven seconds. With no model named it picks one already in memory, then one made for code, and refuses one that can't call tools.
+
+### Hand-off
+
+`/handoff codex` (or any agent that can take one on) starts that agent in a new session, in the same folder, opened with the conversation so far: how it started, what it did, the files it changed, where it left off and what's still to do. The session handed on stays as it is.
+
+### Accounts
+
+Settings › Providers lists each installed provider and, under it, the accounts it can run on: who each is, its plan, its limits, and which is in use. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
+
+- `enter` switches to an account, `p` makes a provider the default. `a` adds an account, `r` renames, `l` signs in again, `d` forgets.
+- `J` and `K` set the order of providers; `1`–`9` jump to one.
+- Codex keeps several sign-ins in agtop's vault and swaps one into `~/.codex`. Copilot runs on whichever of `gh`'s GitHub accounts you pick, without changing `gh`'s own. DeepSeek shows its balance; GLM its Coding Plan's limits.
+
+The top bar shows which provider, account and profile new sessions start on, that account's limits, and the battery and free disk. Settings › Agents shows one installed agent at a time (`1`–`9` picks it) and sets the model, effort and permissions its new sessions start with, plus what's that agent's own (for Claude Code: agent definitions, settings.json and its environment). Settings › Overview shows every provider's account, limits, spend today and this week, and what needs you. Settings › Profiles makes and edits profiles: which agents new sessions run, in order, what happens when their accounts run low, and which folders get which profile.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/accounts.webp" alt="Accounts, with each sign-in's usage"><br>
+      <b>Accounts</b>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/coding-agents.webp" alt="Coding agents"><br>
+      <b>Coding agents</b>
+    </td>
+  </tr>
+</table>
+
+### Profiles
+
+A profile is a named list of providers plus what to do when they run out:
+
+- **Stay or mix**: new sessions stay on the first provider, or move on to the next once every account of the current one is nearly out.
+- **At a limit**, for a conversation a usage limit stops: `wait` for the reset, move to another `account` of the same provider and carry on, or `handoff`, which tries another account first and then hands the conversation to the next provider in the list with room.
+
+A session gets the profile picked for it (`#profile <name>`, or `agtop session start --profile`), else the one for the longest folder rule its folder falls under, else the default. It keeps that profile when it's resumed. Your old default agent and switching order became a profile called Default the first time agtop loaded your config.
 
 ## Sessions
 
-An agent run in agtop mode (headless, hosted by agtop) opens in a Session beside the list. `[` and `]` move between its five views.
+An agent run in agtop mode (headless, hosted by agtop) opens in a Session beside the list. `[` and `]` move between its views: Conversation, Overview and Changes always, then Tasks, Queue, Subagents, Background and Artifacts when there's something in them, and Memory.
 
 <table>
   <tr>
     <td width="50%" valign="top">
       <img src="docs/screenshots/session.webp" alt="The conversation"><br>
-      <b>Conversation</b>. Clean steps fold to one row; a failed one shows the line that says what went wrong. Shell commands say what they do, and code is highlighted.
+      <b>Conversation</b>. Clean steps fold to one row; a failed one shows the line that says what went wrong. Shell commands say what they do, and code is highlighted. Wide code and output wraps rather than being cut off.
     </td>
     <td width="50%" valign="top">
       <img src="docs/screenshots/session-code.webp" alt="A failed step opened, its script and error"><br>
@@ -116,34 +156,50 @@ An agent run in agtop mode (headless, hosted by agtop) opens in a Session beside
     </td>
     <td valign="top">
       <img src="docs/screenshots/changes.webp" alt="Changes, with a new file's diff"><br>
-      <b>Changes</b>. Every file the session changed, with its diff, and the rest of the working tree beside it.
+      <b>Changes</b>. Every file the session changed, with its diff, which turn made each hunk and your review marks, and the rest of the working tree beside it.
     </td>
   </tr>
   <tr>
     <td valign="top">
       <img src="docs/screenshots/subagents.webp" alt="The subagents view"><br>
-      <b>Subagents</b>. Every run, with its steps, tokens, cost and last words, working for as long as it is. <code>enter</code> watches one.
+      <b>Subagents</b>. Every run, with its steps, tokens, cost and last words, working for as long as it is, and the selected run's conversation beside it. <code>enter</code> watches one.
     </td>
     <td valign="top">
-      <b>Queue</b>. Messages sent while the agent works wait here. <code>enter</code> edits one, <code>shift+↑↓</code> merges it into the one above or below, <code>[</code> <code>]</code> move it, <code>s</code> sends it now, <code>ctrl+s</code> sends everything.<br><br>
-      Claude's questions arrive as one form, with a preview beside each option. Long pastes stay a chip.
+      <b>Queue</b>. Messages sent while the agent works wait here. <code>enter</code> edits one, <code>shift+↑↓</code> merges it into the one above or below, <code>[</code> <code>]</code> move it, <code>s</code> sends it now, <code>ctrl+s</code> sends everything. Several go as one message, each numbered, so the agent reads them as separate requests.<br><br>
+      Claude's questions arrive as one form, with a preview beside each option. Long pastes stay a chip; <code>ctrl+g</code> opens one in <code>$EDITOR</code>.
     </td>
   </tr>
 </table>
 
-Running shells, monitors and workflows sit in the dock under the conversation, each with its latest line: `↑` picks one, `b` sends it to the background, `x` stops it. A tool call to allow, a question or a usage limit opens over the conversation and takes the keys; `esc` sets it aside in the dock.
+Running shells, monitors, workflows and subagents sit in the dock under the conversation, each with its latest line: `↑` picks one, `b` sends it to the background, `x` stops it. A running Bash chain says which of its commands runs now and how long each finished one took ("3/4 go test"), and `k` ends the one it's stuck on and lets the chain carry on as it would after a failure. A tool call to allow, a question or a usage limit opens over the conversation and takes the keys; `esc` sets it aside in the dock.
 
-## Workstreams
+`/` in the message box has the agent's commands and skills, and agtop's own sheets for the ones Claude Code draws itself:
 
-The place next to Agents says what's happening across every repo. First, what's waiting on you, the most stuck first. `alt+g` tells the picked one to go on, `enter` opens it in Agents.
+- `/fork` a conversation, from any turn, into the same folder or a new worktree, with its own model, effort and permissions.
+- `/rewind` to before one of your messages, keeping the code or putting the files back, with a note of what the dropped turns learned.
+- `/btw` asks a side question in a panel while the agent keeps working.
+- `/context`, `/status`, `/usage` and `/stats` open as one sheet: what fills the context, the limits, and your history by day, hour and model.
+- `/plugins`, `/skills`, `/permissions`, `/hooks` and `/statusline`, and `/model` and `/effort` pickers.
 
-Below, each repo and its sessions: what each is doing, the last count it reported moving ("Lint went 11,065 → 9,052", read from its own messages), how full its context is and how often it was compacted, and its PR's checks. A repo's heading warns when two sessions work in the same checkout, and lists the heavy work running under them (installs, type checks, tests, dev servers), whose it is, how long it's run and the CPU it takes.
+When a turn ends and nothing is left running, Claude Code is stopped a few seconds later instead of sitting on 150–200 MB for five minutes doing nothing. The next message starts it again in about a second, with the prompt cache intact.
+
+## Overview
+
+The place next to Agents says what's happening across every repo, in three pages `[` `]` moves between: Now, Projects and the Wall.
+
+**Now** is each working session: what it's doing, how far through its tasks it is, how full its context is, the heavy work running in its checkout (installs, type checks, tests, dev servers), and under it every subagent with the last thing it said, or the report it handed back.
+
+**What happened** is the last day, newest first: what you asked, tasks planned and ticked off, subagents started and finished with their reports, background commands ending, turns ending with what they said, questions, commits, PRs, API errors and compactions. `f` keeps only the picked session's history; `enter` opens it in Agents.
+
+**Projects** is each repository an agent worked in over the last day, whole: what its agents are doing, where it is and where it pushes, its branch with commits ahead and behind and uncommitted changes, its last three commits, the pull requests its agents opened with their checks and review, and every linked worktree with its own branch and changes, each with the agents working in it (or none). Folders that aren't repositories come last. `enter` opens an agent, `ctrl+y` its pull request.
+
+**Wall** is every agent at once, streaming.
 
 ## Go anywhere
 
-`ctrl+k` opens the command bar: a place, an agent, a Session's view, a turn (`#12`), `Back` to where you jumped from, or a new agent with what you typed. Words search the open conversation and every agent's transcript, and `in:name`, `is:failed`, `file:x` and `turn:10-13` narrow it. `ctrl+f` is the same bar, starting where you are. With many long transcripts, Settings › General › *ctrl+k searches transcripts* › *on ctrl+enter* keeps typing to names and commands; `ctrl+enter` then searches the transcripts (`ctrl+j` in terminals that send `ctrl+enter` as `enter`).
+`ctrl+k` opens the command bar: a place, an agent, a Session's view, a turn (`#12`), `Back` to where you jumped from, or a new agent with what you typed. Words search the open conversation and every agent's transcript, and `in:name`, `is:failed`, `file:x` and `turn:10-13` narrow it. `ctrl+f` is the same bar, starting where you are. With many long transcripts, Settings › Interface › *ctrl+k searches transcripts* › *on ctrl+enter* keeps typing to names and commands; `ctrl+enter` then searches the transcripts (`ctrl+j` in terminals that send `ctrl+enter` as `enter`).
 
-`#` runs agtop's own commands on the selected agent: `#done` `#go` `#stop` `#restart` `#rm` `#kill` `#clean` `#cd` `#add-dir` `#pin` `#pr` `#full` `#sort` `#by` `#with` `#account` `#drafts` `#hibernate` `#native` `#tips`. `/` is left to the agent.
+`#` runs agtop's own commands on the selected agent: `#done` `#go` `#stop` `#restart` `#rm` `#kill` `#clean` `#cd` `#add-dir` `#rename` `#group` `#pin` `#pr` `#full` `#sort` `#by` `#split` `#folder` `#with` `#profile` `#account` `#efficiency` `#advisor` `#statusline` `#view` `#width` `#dock` `#drafts` `#hibernate` `#native` `#mackeys` `#tips` `#update`. `/` is left to the agent.
 
 <table>
   <tr>
@@ -154,30 +210,6 @@ Below, each repo and its sessions: what each is doing, the last count it reporte
     <td width="50%" valign="top">
       <img src="docs/screenshots/command-bar-search.webp" alt="The command bar searching agents and transcripts"><br>
       <b>Searching every transcript</b>
-    </td>
-  </tr>
-</table>
-
-## Accounts
-
-Settings › Accounts lists each installed agent and, under it, the accounts it can run on: who each is, its plan, its limits, and which is in use. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
-
-- `enter` switches to an account, or on an agent makes it the one new sessions run. `a` adds an account, `r` renames, `d` forgets.
-- `J` and `K` set the order of agents; `1`–`9` jump to one.
-- `s` picks what happens when an account is nearly out: switch to another account of the same agent, do that and then move new sessions on to the next agent once all its accounts are out, or stay put. Idle sessions pick up a switch with their next message; stopped ones carry on straight away, and running ones stay where they are.
-- Codex keeps several sign-ins in agtop's vault and swaps one into `~/.codex`. Copilot runs on whichever of `gh`'s GitHub accounts you pick, without changing `gh`'s own. DeepSeek shows its balance; GLM its Coding Plan's limits.
-
-The top bar shows the limits of the account new sessions start on, whichever agent that is, and the battery and free disk. Settings › Coding agents sets the model, effort and permissions new Claude sessions start with.
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/screenshots/accounts.webp" alt="Accounts, with each sign-in's usage"><br>
-      <b>Accounts</b>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/screenshots/coding-agents.webp" alt="Coding agents"><br>
-      <b>Coding agents</b>
     </td>
   </tr>
 </table>
@@ -193,6 +225,12 @@ Where your tokens go, and whether the things that promise to cut them do. It rea
 - **Findings**. What's worth doing, most dollars at stake first, each with the saver that addresses it.
 
 `#efficiency` (or `#eff`) opens it.
+
+### The advisor
+
+Off until you turn it on with `#advisor on`. After your agents have done some work, at most every three hours, agtop works out a digest of the last week (spend, context, tool output, rereads, subagents, savers, the costliest sessions) and Haiku proposes up to five changes from it, reading short briefs of the transcripts for evidence. Opus then checks each one worth $2 a week or more against the transcripts, three a day at most, and rewrites or rejects it. Both run with no shell, web, hooks or MCP servers, and can't read outside those folders.
+
+What Opus confirms goes first in the findings, marked ✦; `x` puts one away for good. A pass costs about $0.30, and the findings page shows what the advisor has cost so far. Only one agtop runs it at a time, and it keeps to its budget across windows and restarts.
 
 ## Machine
 
@@ -220,8 +258,6 @@ agtop plugin approve <name>  # read what it may do, and say yes
 
 To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe/agtop`, then `/plugin install agtop-plugin-dev@agtop`.
 
-[plugins/](plugins) has everything else: using and writing them, the examples, the skill, and how it works.
-
 A plugin can also take part in agtop's screen, as far as you approved:
 
 - hear what happens there (sessions opened, turns ending, a session an error stopped, the network going and coming back);
@@ -232,12 +268,14 @@ A plugin can also take part in agtop's screen, as far as you approved:
 
 None of it can hold agtop up. The screen hands plugins events without waiting, draws what they added from a copy it already has, and gives an intercept 400 ms before the message goes as it was. The [`autodrafts`](plugins/examples/autodrafts) and [`reconnect`](plugins/examples/reconnect) examples rebuild drafts and reconnect-and-continue this way.
 
+[plugins/](plugins) has everything else: using and writing them, the examples, the skill, and how it works.
+
 ## Embedding agtop
 
 Another app can run agtop-mode sessions without the view and show one of them in a terminal of its own.
 
 ```sh
-agtop session start --cwd DIR [--agent A] [--session-id UUID] [--resume] [--name N] \
+agtop session start --cwd DIR [--agent A] [--profile P] [--session-id UUID] [--resume] [--name N] \
   [--prompt-file F] [--image PATH]... [--env K=V]... [--meta k=v]... \
   [--binary PATH] [--model M] [--effort E] [--permission-mode M] --json
 echo 'the next message' | agtop session send <id> [--now] [--image PATH]...
@@ -247,7 +285,7 @@ agtop session info <id> --json
 agtop session list --json [--meta k=v]...
 ```
 
-`start` runs Claude Code unless `--agent` names another agtop has an adapter for (`codex`, `copilot`, `kimi`…). It uses the model, effort, permission mode and limit settings from Settings unless a flag gives them (for another agent, its own), and prints the session's info with `"alive"` added. With `--session-id` it is idempotent: a session already running is printed, not started again. A stopped one needs `--resume`, which brings the same conversation back. `--env` values reach the agent on every start of it, idle restarts and resumes included. `--meta` tags the session; `list --meta` filters on the tags.
+`start` runs the first installed provider of the session's profile (`--profile`, else the folder's rule, else the default) unless `--agent` names one (`codex`, `copilot`, `kimi`…). It uses the model, effort, permission mode and limit settings from Settings unless a flag gives them (for another agent, its own), and prints the session's info with `"alive"` added. With `--session-id` it is idempotent: a session already running is printed, not started again. A stopped one needs `--resume`, which brings the same conversation back. `--env` values reach the agent on every start of it, idle restarts and resumes included. `--meta` tags the session; `list --meta` filters on the tags.
 
 `send` reads the message from stdin. If the session is stopped it resumes with the message, as sending from the view does. `info` exits 1 with `{"error":"not found"}` for an id with no session. `alive` is whether the session's host is running; a host whose agent is resting while idle counts as alive.
 
@@ -259,7 +297,9 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 
 - **Menu bar**: every account's limits, each by its own name (Codex's week reads 7d), the agents working, and a badge for each waiting on you. Questions arrive as notifications you can answer from; clicking one brings back the terminal agtop is open in (Warp, iTerm, Ghostty…) on that agent. agtop offers it the first time it opens on a Mac. It's a small Swift app built on your Mac the first time (it needs Xcode's command line tools).
 - **Zen** (`ctrl+z`): only the agent that needs you and its box, then the next one. A bar across the top says where you are in the queue; `ctrl+n` skips, holding `tab` peeks at what's working, `ctrl+z` again leaves.
-- **Colours** made from your terminal's own background and text, or set to dark or light, and a colour-blind palette, in Settings › General.
+- **Terminal.app** keeps ⌘ for its own menus. `#mackeys on` sets up Hammerspoon to send ⌘← → ⌘⌫ ⌘⌦ and ⌘Z on as editing keys, only while Terminal.app is in front; `#mackeys off` takes it out again.
+- **Status lines**: `/statusline` lays out the agent header, agtop's top bar and Claude Code's own status line, with a live preview.
+- **Colours** made from your terminal's own background and text, or set to dark or light, and a colour-blind palette, in Settings › Interface.
 - **Light**: about 40 MB with a session open, 56 MB for a 38-hour session with 342 subagent runs. Idle, it does almost nothing: the kernel says when a transcript changed, and only that file is read again. `agtop --soak 30s 200x50` measures it against your own agents.
 
 ## Keys
@@ -269,13 +309,14 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `↑` `↓` `⌘↓` | move, open the agent (or `→`) |
 | `enter` | rename or open it, as you chose in Settings |
 | type, `enter` | start a session, or reply to the agent in the preview |
-| `tab` | the list ⇄ the agent's Session; a place's pages |
+| `tab` | the list ⇄ the agent's Session |
 | `ctrl+k` | go anywhere, search everything |
 | `ctrl+f` | find, starting where you are |
-| `<` `>` · `ctrl+\` | Agents · Workstreams · Efficiency · Machine · Settings; in a Session's box `,` `.` `<` `>` are typed, so `ctrl+\` |
-| `[` `]` | a Session's views, with nothing typed |
+| `<` `>` · `ctrl+\` | Agents · Overview · Efficiency · Machine · Settings; in a Session's box `,` `.` `<` `>` are typed, so `ctrl+\` |
+| `[` `]` | the next page, everywhere there are pages: a Session's views (with nothing typed), Efficiency, Machine, Settings, and the tabs of a sheet |
 | `ctrl+r` `ctrl+t` `ctrl+e` | rename, pin, set group |
-| `ctrl+s` | group by status, repository, account, your groups |
+| `ctrl+s` | group by status, agent, your groups |
+| `ctrl+p` | split each section by project, or not |
 | `ctrl+n` | the next agent needing you |
 | `alt+g` | tell it to go on |
 | `alt+s` `alt+p` | keep a draft, bring one back |
@@ -293,13 +334,29 @@ Every key can move. **Settings → Keys** lists every action, where it works (ev
 {"bindings": {"session.send": ["ctrl+enter"], "command:drafts": ["ctrl+x d"], "list.pr": []}}
 ```
 
+## What's coming
+
+None of this is in agtop yet. Some of it is being built now, and the rest is next in line.
+
+- **A Profiles page**: create and rename profiles, order their providers, set what they do at a limit, and add a folder rule from the selected session's folder. A key to switch the default profile or provider from anywhere, with a picker.
+- **Limits and prices for everyone**: limits for Kimi and Vibe, prices for Codex and the ACP agents (Copilot's models already say their premium-request multiplier), and Efficiency for agents other than Claude Code.
+- **Copilot's coding agent**, started and steered from agtop rather than only watched.
+- **Codex accounts** read live when they aren't the one in use, rather than showing their last reading.
+- **Ollama sessions** in the list with the rest, and re-tuned when you change model mid-session.
+- **Plugins' tools in every agent**, over MCP, which the ACP agents already accept.
+- **ZCode spoken to directly**, dropping the `zcode-acp-server` bridge, and Goose over ACP.
+- **Claude Code as just another adapter**: its discovery moves into its adapter, and its sessions go over the wire as agtop's own events like everyone else's. You won't see this one, but it's what makes the rest cheap to add.
+- **`agtop on` for other agents**, if `codex` or `copilot` grow a view worth replacing.
+
+Rewind, fork, checkpoints, the context breakdown, background task control and the screen tab have no equivalent in the Agent Client Protocol, so they stay hidden for those agents rather than faked. [docs/multi-agent.md](docs/multi-agent.md) has the design and where it stands.
+
 ## How it works
 
 agtop reads Claude Code's files: `jobs/*/state.json`, `daemon/roster.json`, `jobs/pins.json`, the transcripts and the cached plan usage. It changes things only through Claude Code (the daemon's control socket, or the `claude` CLI), with one exception: switching account writes the other sign-in into Claude Code's keychain item and its `oauthAccount` into `~/.claude.json`. Each sign-in is kept in your login keychain as `agtop-login`.
 
-Other agents run through adapters in [internal/adapters](internal/adapters): Codex over its app-server's JSON-RPC, the rest over the Agent Client Protocol. Whatever the agent, its events draw as a session. Switching a Codex account puts its sign-in in `~/.codex`, keeping the one there first so its refreshed tokens aren't lost; an API-key sign-in is named by a hash of the key, never the key. [docs/multi-agent.md](docs/multi-agent.md) has the design and where it stands.
+Other agents run through adapters in [internal/adapters](internal/adapters): Codex over its app-server's JSON-RPC, the rest over the Agent Client Protocol, and Ollama through Claude Code. Each adapter declares which of agtop's features it supports, and the core asks that rather than checking for an agent by name. Whatever the agent, its events draw as a session. Switching a Codex account puts its sign-in in `~/.codex`, keeping the one there first so its refreshed tokens aren't lost; an API-key sign-in is named by a hash of the key, never the key.
 
-Its own state (Done, names, groups, accounts, not their sign-ins) lives in `~/.config/agtop`, and a cost cache in `~/Library/Caches/agtop`.
+Its own state (Done, names, groups, accounts and profiles, not their sign-ins) lives in `~/.config/agtop`, and a cost cache in `~/Library/Caches/agtop`.
 
 Plugins run under `agtop plugind`, sandboxed; [plugins/ARCHITECTURE.md](plugins/ARCHITECTURE.md) has how.
 

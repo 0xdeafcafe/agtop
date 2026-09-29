@@ -8,24 +8,12 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/menubar"
 )
 
-// Sessions is how agtop runs and looks after sessions, whatever agent
-// they run.
-func (m *Model) sessionSections() []section {
+// General is everything that holds whatever agent runs: how agtop looks
+// after sessions, then how it looks (interfaceSections).
+func (m *Model) generalSections() []section {
 	c := &m.store.Config
 	d := &c.Dispatch
 	var secs []section
-
-	if len(c.Profiles) > 0 {
-		names := make([][2]string, 0, len(c.Profiles))
-		for _, p := range c.Profiles {
-			names = append(names, [2]string{p.Name, m.profileWords(p)})
-		}
-		secs = append(secs, section{title: "Starting", rows: []setting{
-			choiceSetting("Profile", c.Default().Name,
-				"The profile a new session gets when neither you (#profile) nor a folder rule picks one: the providers it runs, in order, and what happens at a usage limit. Providers orders them and picks what happens when an account is nearly out.",
-				names, func(v string) { c.SetDefaultProfile(v) }),
-		}})
-	}
 
 	rest := choiceSetting("Rest idle sessions after", restValue(d.RestMinutes),
 		"How long an idle agtop-mode session keeps its agent running. An idle agent holds 150-580 MB; after this it stops, and your next message starts it again in about a second. The host, the conversation and its queue stay, and so does the prompt cache.",
@@ -100,7 +88,7 @@ func (m *Model) sessionSections() []section {
 		[][2]string{{"on", "it looks at most every 3 hours, once there's something new."}, {"off", "no advisor."}}, nil)
 	advisor.run = m.advCommand
 	secs = append(secs, section{title: "Advice", rows: []setting{advisor}})
-	return secs
+	return append(secs, m.interfaceSections()...)
 }
 
 // onOffWord is on or off.

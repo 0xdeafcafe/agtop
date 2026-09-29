@@ -92,7 +92,7 @@ func sheetTabs(names []string, cur int) string {
 			parts = append(parts, dim(n))
 		}
 	}
-	return strings.Join(parts, faint("  ·  ")) + faint("   tab")
+	return strings.Join(parts, faint("  ·  ")) + faint("   [ ]")
 }
 
 // sheetRow is one choosable row: highlighted with ▍ when it's the cursor's.

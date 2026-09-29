@@ -80,7 +80,7 @@ func TestPluginSheet(t *testing.T) {
 	if p.armed != "lw@m" || p.busy != "" || !strings.Contains(text(), "x again removes lw") {
 		t.Fatalf("x should ask first: armed=%q busy=%q", p.armed, p.busy)
 	}
-	p.key(m, tea.KeyPressMsg{}, "tab")
+	p.key(m, tea.KeyPressMsg{}, "]")
 	for _, r := range "tes" {
 		p.key(m, tea.KeyPressMsg{Text: string(r)}, string(r))
 	}
@@ -90,7 +90,7 @@ func TestPluginSheet(t *testing.T) {
 	if !strings.Contains(text(), "beta") || strings.Contains(text(), "alpha ") {
 		t.Fatalf("discover:\n%s", text())
 	}
-	p.key(m, tea.KeyPressMsg{}, "tab")
+	p.key(m, tea.KeyPressMsg{}, "]")
 	if !strings.Contains(text(), "o/m") {
 		t.Fatalf("marketplaces:\n%s", text())
 	}

@@ -323,16 +323,6 @@ func (msg signInsMsg) applyTo(m *Model) tea.Cmd {
 	return nil
 }
 
-// setDefaultAgent makes k the agent new sessions run.
-func (m *Model) setDefaultAgent(k agent.Kind) {
-	if string(k) == m.store.Config.DefaultAgent() {
-		m.flash("new sessions already run "+agentName(string(k)), false)
-		return
-	}
-	m.withAgent(string(k))
-	m.accts.spill = ""
-}
-
 // switchAccount signs another agent's home in as a.
 func (m *Model) switchAccount(a agent.Account, why string) tea.Cmd {
 	ad, ok := agent.Get(a.Kind)
@@ -459,88 +449,10 @@ func (m *Model) forgetAccount(r acctRow) {
 	})
 }
 
-// moveAgent moves agent k one place earlier (d<0) or later in the order.
-func (m *Model) moveAgent(k agent.Kind, d int) {
-	order := m.agentOrder()
-	var kinds []string
-	at := -1
-	for i, a := range order {
-		kinds = append(kinds, string(a.Kind()))
-		if a.Kind() == k {
-			at = i
-		}
-	}
-	to := at + d
-	if at < 0 || to < 0 || to >= len(kinds) {
-		return
-	}
-	kinds[at], kinds[to] = kinds[to], kinds[at]
-	cfg := &m.store.Config
-	p := cfg.Default()
-	p.Providers = kinds
-	cfg.SetProfile(p.Name, p)
-	_ = m.store.SaveConfig()
-	// The cursor follows the agent.
-	for i, r := range m.accountRows() {
-		if r.head && r.kind == k {
-			m.dialog.cursor = i
-		}
-	}
-}
-
-// onLimitChoices are what agtop can do when an account is nearly out.
-var onLimitChoices = []string{state.OnLimitAccount, state.OnLimitAgent, state.OnLimitOff}
-
-// setSwitchOnLimit sets the default profile's policy from one of
-// onLimitChoices: switch account and stay on the provider, move on to the
-// next provider too, or wait.
-func (m *Model) setSwitchOnLimit(v string) {
-	cfg := &m.store.Config
-	p := cfg.Default()
-	p.Mix, p.OnLimit = state.MixStay, state.LimitAccount
-	switch v {
-	case state.OnLimitAgent:
-		p.Mix = state.MixMix
-	case state.OnLimitOff:
-		p.OnLimit = state.LimitWait
-	}
-	cfg.SetProfile(p.Name, p)
-}
-
-func onLimitWords(v string) string {
-	switch v {
-	case state.OnLimitAgent:
-		return "switch account, then agent"
-	case state.OnLimitOff:
-		return "stay put"
-	}
-	return "switch account"
-}
-
 // accountsKey handles a key in Accounts.
 func (m *Model) accountsKey(s string) tea.Cmd {
 	d := m.dialog
-	cfg := &m.store.Config
 	rows := m.accountRows()
-	if s == "s" {
-		i := 0
-		for j, c := range onLimitChoices {
-			if c == cfg.SwitchOnLimit {
-				i = j
-			}
-		}
-		m.setSwitchOnLimit(onLimitChoices[(i+1)%len(onLimitChoices)])
-		_ = m.store.SaveConfig()
-		switch cfg.SwitchOnLimit {
-		case state.OnLimitAgent:
-			m.flash(fmt.Sprintf("at %.0f%% agtop switches account; once an agent's are all out, new sessions run the next agent", state.SwitchAt), false)
-		case state.OnLimitOff:
-			m.flash("agtop stays on the accounts in use, even when they're nearly out", false)
-		default:
-			m.flash(fmt.Sprintf("at %.0f%% agtop switches to another account of the same agent", state.SwitchAt), false)
-		}
-		return tea.Batch(m.autoSwitch(), m.checkLimits())
-	}
 	if n := int(s[0] - '0'); len(s) == 1 && n >= 1 && n <= 9 {
 		// Straight to the nth agent.
 		for i, r := range rows {
@@ -560,22 +472,16 @@ func (m *Model) accountsKey(s string) tea.Cmd {
 	case "o":
 		m.showAgentSettings(r.kind)
 		return nil
-	case "p", "*":
-		m.setDefaultAgent(r.kind)
+	case "p":
+		m.setSettingsPage(pageProfiles)
 		return nil
 	case "a":
 		return m.addAccount(r.kind)
-	case "K", "shift+up":
-		m.moveAgent(r.kind, -1)
-		return nil
-	case "J", "shift+down":
-		m.moveAgent(r.kind, 1)
-		return nil
 	}
 	switch {
 	case r.head:
-		if s == "enter" {
-			m.setDefaultAgent(r.kind)
+		if s == "enter" && switches(r.kind) {
+			return m.addAccount(r.kind)
 		}
 	case r.login != nil:
 		return m.loginKey(*r.login, s)
@@ -668,7 +574,7 @@ func (m *Model) accountsBody(w int) []string {
 		return "  " + s
 	}
 	def := cfg.Default()
-	line := dim("New sessions: ") + paint(cText, def.Name) + dim(" · ") + m.chain(def) + dim("   ·   at a limit: ") + paint(cText, limitWords(def.Limit())) + faint("   (Sessions changes the profile)")
+	line := dim("New sessions: ") + paint(cText, def.Name) + dim(" · ") + m.chain(def) + dim("   ·   at a limit: ") + paint(cText, limitWords(def.Limit())) + faint("   (p: Profiles changes it)")
 	if m.accts.spill != "" {
 		line += dim(" · for now ") + glyph(agent.Kind(m.accts.spill)) + " " + paint(cYellow, agentName(m.accts.spill)) + dim(": the first's accounts are all nearly out")
 	}
@@ -716,16 +622,15 @@ func (m *Model) accountsBody(w int) []string {
 		keys := []string{}
 		switch {
 		case r.head:
-			keys = append(keys, "enter", "make default")
 			if switches(r.kind) {
 				keys = append(keys, "a", "add account")
 			}
 		case r.login != nil:
-			keys = append(keys, "enter", "switch to", "a", "add account", "r", "rename", "l", "sign in again", "d", "forget", "p", "make default")
+			keys = append(keys, "enter", "switch to", "a", "add account", "r", "rename", "l", "sign in again", "d", "forget")
 		default:
-			keys = append(keys, "enter", "switch to", "a", "add account", "r", "rename", "d", "forget", "p", "make default")
+			keys = append(keys, "enter", "switch to", "a", "add account", "r", "rename", "d", "forget")
 		}
-		keys = append(keys, "J/K", "move agent", "1-9", "agent", "s", "when nearly out", "o", "its settings")
+		keys = append(keys, "1-9", "agent", "o", "its settings", "p", "profiles")
 		out = append(out, "", keysFit(w, append(keys, pagesKeys...)...))
 	}
 	for i, l := range out {
@@ -867,20 +772,6 @@ func (m *Model) accountDetail(r acctRow, w int) []string {
 			where = append(where, "runs "+tildify(path))
 		}
 		out = append(out, label("home")+faint(strings.Join(where, " · ")))
-		place := 0
-		for i, a := range m.agentOrder() {
-			if a.Kind() == r.kind {
-				place = i + 1
-			}
-		}
-		order := fmt.Sprintf("%d of %d", place, len(m.agentOrder()))
-		if string(r.kind) == m.store.Config.DefaultAgent() {
-			order += " · the default: new sessions run it"
-		}
-		out = append(out, label("order")+faint(order))
-		lv := agent.LevelOf(r.kind)
-		out = append(out, label("support")+levelChip(r.kind)+faint(levelWords[lv]))
-		out = append(out, m.featureGrid(r.kind, w, label)...)
 		if hint := agent.Hint(r.kind); hint != "" && !agent.Runs(r.kind) {
 			out = append(out, label("can't run")+faint(hint))
 		}

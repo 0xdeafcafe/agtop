@@ -128,9 +128,9 @@ func TestEfficiencyKeys(t *testing.T) {
 	if m.eff.plan == nil || m.eff.plan.Saver.ID != "rtk" {
 		t.Fatal("enter on a finding shows what fixing it would do")
 	}
-	m.key(tea.KeyPressMsg{Code: tea.KeyTab})
+	m.key(tea.KeyPressMsg{Code: ']', Text: "]"})
 	if m.eff.page != effFindings {
-		t.Fatal("tab doesn't leave a plan waiting on an answer")
+		t.Fatal("] doesn't leave a plan waiting on an answer")
 	}
 	m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.eff.plan != nil {

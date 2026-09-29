@@ -4,7 +4,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/convo"
 )
 
-// Interface is how agtop looks and what its keys do.
+// interfaceSections are how agtop looks and what its keys do.
 func (m *Model) interfaceSections() []section {
 	c := &m.store.Config
 
@@ -31,23 +31,21 @@ func (m *Model) interfaceSections() []section {
 			{"", "agtop asks the first time you press it."},
 		}, func(v string) { c.EnterOn = v })
 	enter.unset = "ask"
-	earlier := choiceSetting("Earlier section", map[bool]string{true: "folded", false: "open"}[m.folded("Earlier")],
-		"Agents that finished more than a day ago. Folded, it is one line with a count and a peek at the names.",
-		[][2]string{{"folded", "open it with enter or → when you need it."}, {"open", "every older agent is listed."}},
-		func(v string) {
-			if c.Folds == nil {
-				c.Folds = map[string]bool{}
-			}
-			c.Folds["Earlier"] = v == "folded"
-		})
-
-	group := choiceSetting("Group by", firstNonEmpty(c.GroupBy, "folder"), "How agents are sorted into sections.", [][2]string{
-		{"folder", "one section per repository, its worktrees under it, headed by its branch and changes and what its agents are doing. Older than a day goes under Earlier."},
+	group := choiceSetting("Group by", firstNonEmpty(c.GroupBy, "status"), "How agents are sorted into sections.", [][2]string{
 		{"status", "Needs you, Working, Waiting on you and Idle first; finished agents from the last day under Today, older ones under Earlier."},
 		{"agent", "one section per coding agent (Claude Code, Codex, Copilot…), handy when you run several."},
 		{"group", "your own sections; put an agent in one with /group <name>. Ungrouped agents fall back to status."},
 	}, func(v string) { c.GroupBy = v })
 	group.choices = m.groupModes() // plugins arrange the list too
+	split := choiceSetting("Split by project", map[bool]string{true: "on", false: "off"}[m.splitProjects()],
+		"Whether each section's agents sit together by the repository they work in, whatever the grouping. ctrl+p, or the toggle at the top of the list, changes it too.",
+		[][2]string{
+			{"on", "under each section, a line per project with its branch, commits ahead and behind and uncommitted changes; agents in a linked worktree under the repository it came from."},
+			{"off", "one run of rows per section, as the sort puts them."},
+		}, func(v string) {
+			c.SplitBy = map[bool]string{true: "project", false: "none"}[v == "on"]
+			m.rebuild()
+		})
 	sortBy := choiceSetting("Sort rows by", firstNonEmpty(c.SortBy, "name"),
 		"The order of rows inside each section. You can also click a column header on the Agents view.",
 		[][2]string{
@@ -96,9 +94,7 @@ func (m *Model) interfaceSections() []section {
 		}, func(v string) { c.SearchTranscriptsOnKey = v == "on ctrl+enter" })
 
 	return []section{
-		{title: "Layout", rows: []setting{view, enter, earlier}},
-		{title: "Agents list", rows: []setting{group, sortBy}},
-		{title: "Colours", rows: []setting{theme, colours, spaces}},
-		{title: "Command bar", rows: []setting{search}},
+		{title: "Look", rows: []setting{view, theme, colours, spaces}},
+		{title: "Agents list", rows: []setting{group, split, sortBy, enter, search}},
 	}
 }

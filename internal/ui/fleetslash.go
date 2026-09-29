@@ -36,6 +36,7 @@ var fleetCommands = []headless.Command{
 	{Name: "full", Description: "open a Claude Code agent full screen, in Claude Code"},
 	{Name: "agtop", Description: "move the agent into agtop mode (a terminal one is copied, not stopped)"},
 	{Name: "sort", Description: "sort agents by " + strings.Join(sortModes, ", "), ArgumentHint: "<by>"},
+	{Name: "split", Description: "split each section of the list by project, or not; alone, turns it on or off", ArgumentHint: "[project|none]"},
 	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", ") + ", or plugin:<name> for a plugin's sections", ArgumentHint: "<group>"},
 	{Name: "folder", Description: "choose the folder new sessions start in"},
 	{Name: "with", Description: "the agent new sessions run by default, of those installed; alone says which", ArgumentHint: "[agent]"},
@@ -90,6 +91,8 @@ func (m *Model) fleetArgs(name string) (opts []string, now string) {
 	switch name {
 	case "sort":
 		return sortModes, m.store.Config.SortBy
+	case "split":
+		return []string{"project", "none"}, map[bool]string{true: "project", false: "none"}[m.splitProjects()]
 	case "by":
 		return m.groupModes(), m.store.Config.GroupBy
 	case "account":

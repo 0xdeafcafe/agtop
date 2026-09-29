@@ -122,9 +122,9 @@ func TestSoloPlaces(t *testing.T) {
 			t.Fatalf("ctrl+\\ %d: view %d, want %d", i+1, m.view, place)
 		}
 		if place == placeMachine {
-			soloPress(m, "tab") // Processes to Cleanup, as usual
+			soloPress(m, "]") // Processes to Cleanup, as usual
 			if m.mode != modeCleanup {
-				t.Fatalf("tab in Machine: mode %d", m.mode)
+				t.Fatalf("] in Machine: mode %d", m.mode)
 			}
 		}
 	}
