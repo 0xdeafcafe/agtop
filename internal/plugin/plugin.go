@@ -377,6 +377,30 @@ func Installed() ([]Plugin, map[string]error) {
 	return out, bad
 }
 
+// Pending lists installed plugins waiting on you: never approved, or
+// changed since they were, and not already told "not now" at this digest.
+// It's what a UI's own approval dialog offers, instead of `agtop plugin
+// approve`.
+func Pending() []Plugin {
+	installed, _ := Installed()
+	approved, declined := Approvals(), declinedPlugins()
+	var out []Plugin
+	for _, p := range installed {
+		d, err := Digest(p.Dir)
+		if err != nil {
+			continue
+		}
+		if a, ok := approved[p.Name]; ok && a.Digest == d {
+			continue
+		}
+		if dec, ok := declined[p.Name]; ok && dec.Digest == d {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 // Digest is a hash of every file in the plugin's folder: names, modes,
 // contents and where symlinks point.
 func Digest(dir string) (string, error) {
@@ -492,6 +516,47 @@ func Verify(name string) (Plugin, error) {
 		return Plugin{}, fmt.Errorf("%s changed since it was approved; run agtop plugin approve %s", name, name)
 	}
 	return Plugin{Manifest: a.Manifest, Dir: dir}, nil
+}
+
+func declinedPath() string { return filepath.Join(Root(), "declined.json") }
+
+// declinedAt is a plugin you were offered and said "not now" to, at a
+// digest: it changing is what earns it another ask.
+type declinedAt struct {
+	Digest     string    `json:"digest"`
+	DeclinedAt time.Time `json:"declinedAt"`
+}
+
+func declinedPlugins() map[string]declinedAt {
+	out := map[string]declinedAt{}
+	b, err := os.ReadFile(declinedPath())
+	if err == nil {
+		_ = jsonx.Unmarshal(b, &out)
+	}
+	return out
+}
+
+// Decline records that p, at its current digest, was told "not now": a
+// UI's Pending won't offer it again until its files change.
+func Decline(p Plugin) error {
+	d, err := Digest(p.Dir)
+	if err != nil {
+		return err
+	}
+	m := declinedPlugins()
+	m[p.Name] = declinedAt{Digest: d, DeclinedAt: time.Now()}
+	if err := os.MkdirAll(Root(), 0o700); err != nil {
+		return err
+	}
+	b, err := jsonx.MarshalIndent(m)
+	if err != nil {
+		return err
+	}
+	tmp := declinedPath() + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, declinedPath())
 }
 
 // Contributions is what approved plugins add to a session's Claude Code.

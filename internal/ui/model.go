@@ -345,7 +345,7 @@ func (m *Model) Init() tea.Cmd {
 		// Only the one session: nothing about the app as a whole.
 		return tea.Batch(tick(), m.scan(), m.loadPreview(), askColours, m.loadKeys(), m.startHooks())
 	}
-	return tea.Batch(tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), askColours)
+	return tea.Batch(tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkPluginApprovals(), askColours)
 }
 
 // askColours asks the terminal for its background and text, which agtop's
@@ -883,6 +883,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case updateMsg:
 		m.newer = msg.newer
 		m.flash("agtop "+msg.newer.Short()+" is out · #update installs it", false)
+		return m, nil
+	case pluginPendingMsg:
+		m.openPluginApproval(msg.pending)
 		return m, nil
 	case updatedMsg:
 		m.updating = false

@@ -212,6 +212,20 @@ func (c *Client) SetSetting(name, key, value string, done func(error) tea.Msg) t
 	}
 }
 
+// Reload tells the running broker an approval changed, starting it if
+// this was the first plugin ever approved. It dials once and returns;
+// run it off the UI, as its own tea.Cmd would.
+func Reload() error {
+	c, err := plugin.DialBroker()
+	if err != nil {
+		return plugin.EnsureBroker()
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return c.Call(ctx, "reload", nil, nil)
+}
+
 var errOffline = errors.New("the plugin broker isn't running")
 
 func (c *Client) call(ctx context.Context, method string, params, out any) error {
