@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"maps"
 	"os"
@@ -12,6 +11,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // A subagent run's transcript says little about whether it is still going:
@@ -30,12 +32,12 @@ const RunStale = 15 * time.Minute
 const runQuiet = 90 * time.Second
 
 // RunState is how a session's transcripts say a subagent run stands.
-type RunState int
+type RunState = agent.RunState
 
 const (
-	RunUnknown RunState = iota // no word of its call: judge by its writing
-	RunRunning
-	RunDone
+	RunUnknown = agent.RunUnknown
+	RunRunning = agent.RunRunning
+	RunDone    = agent.RunDone
 )
 
 // SubagentRuns follows a session's transcript, and its runs' own when one
@@ -88,14 +90,7 @@ type runMeta struct {
 }
 
 // SubagentRun is one run as SubagentRuns knows it.
-type SubagentRun struct {
-	ID, ToolUseID string
-	Depth         int       // 1 for one the session started, more for one a run started
-	Mod           time.Time // when its transcript was last written
-	// Type and Description are the run's meta file's own words: which
-	// subagent it is, and what it was asked.
-	Type, Description string
-}
+type SubagentRun = agent.SubagentRun
 
 func (r *SubagentRuns) reset(path string) {
 	*r = SubagentRuns{Gone: r.Gone, path: path, files: map[string]int64{}, calls: map[string]*agentCall{},

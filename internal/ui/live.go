@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"strings"
 	"sync"
@@ -14,8 +13,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 
-	"github.com/0xdeafcafe/rush/internal/claude"
-	"github.com/0xdeafcafe/rush/internal/daemon"
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
@@ -26,9 +24,10 @@ import (
 type live struct {
 	key   string
 	short string
-	cl    daemon.Client
+	j     agent.Joiner
+	p     agent.Profile
 	id    string
-	conn  net.Conn
+	conn  io.WriteCloser
 
 	mu     sync.Mutex // guards emu, cursor, drawn and dirty
 	emu    *vt.Emulator
@@ -57,36 +56,41 @@ type liveMsg struct{ l *live }
 // liveCapable is true for sessions the daemon hosts with a process running.
 // Attaching to anything else would respawn it just to show a preview.
 func liveCapable(a *fleet.Agent) bool {
-	return a != nil && !a.Interactive && a.Worker != nil && daemonRunning(claude.AccountOf(a.Acct))
+	return a != nil && !a.Interactive && a.Worker != nil && daemonRunning(a.Acct)
 }
 
-// daemonRunning is whether an account's daemon is up, as last looked:
-// views ask several times a frame, so it's looked at in the background, at
-// most once a second. Until the first look is in, it isn't up.
-func daemonRunning(acct claude.Account) bool {
+// daemonRunning is whether a profile's daemon (its agent's background
+// service, agent.Joiner) is up, as last looked: views ask several times a
+// frame, so it's looked at in the background, at most once a second.
+// Until the first look is in, it isn't up.
+func daemonRunning(p agent.Profile) bool {
+	j, ok := agent.As[agent.Joiner](p.Kind)
+	if !ok {
+		return false
+	}
 	daemons.Lock()
-	d, ok := daemons.seen[acct.ConfigDir]
+	d, ok := daemons.seen[p.Dir]
 	ask := !d.asking && (!ok || time.Since(d.at) >= time.Second)
 	if ask {
 		if daemons.seen == nil {
 			daemons.seen = map[string]daemonSeen{}
 		}
 		d.asking = true
-		daemons.seen[acct.ConfigDir] = d
+		daemons.seen[p.Dir] = d
 	}
 	daemons.Unlock()
 	if !ask {
 		return d.up
 	}
 	goOff(func() {
-		up := (daemon.Client{Account: acct}).Running()
+		up := j.ServiceUp(p)
 		daemons.Lock()
-		daemons.seen[acct.ConfigDir] = daemonSeen{at: time.Now(), up: up}
+		daemons.seen[p.Dir] = daemonSeen{at: time.Now(), up: up}
 		daemons.Unlock()
 	})
 	daemons.Lock()
 	defer daemons.Unlock()
-	return daemons.seen[acct.ConfigDir].up
+	return daemons.seen[p.Dir].up
 }
 
 type daemonSeen struct {
@@ -104,9 +108,9 @@ var daemons struct {
 var previewID = fmt.Sprintf("rush-preview-%d", os.Getpid())
 
 func openLive(a *fleet.Agent, w, h int) tea.Cmd {
-	cl := daemon.Client{Account: claude.AccountOf(a.Acct)}
+	j, _ := agent.As[agent.Joiner](a.Acct.Kind) // liveCapable says it is one
 	l := &live{
-		key: a.Key, short: a.ID, cl: cl, w: w, h: h,
+		key: a.Key, short: a.ID, j: j, p: a.Acct, w: w, h: h,
 		id:   previewID,
 		wake: make(chan struct{}, 1),
 		emu:  vt.NewEmulator(w, h),
@@ -114,20 +118,21 @@ func openLive(a *fleet.Agent, w, h int) tea.Cmd {
 	l.emu.SetScrollbackSize(0) // only the visible screen is ever drawn
 	l.emu.SetCallbacks(vt.Callbacks{CursorVisibility: func(v bool) { l.cursor = v }})
 	return func() tea.Msg {
-		conn, r, info, err := cl.Attach(l.short, l.id, w, h)
+		mr, err := j.Mirror(l.p, l.short, l.id, w, h)
 		if err != nil {
 			return liveOpenMsg{l: l, err: err}
 		}
+		conn := mr.Conn
 		l.conn = conn
 		var modes strings.Builder
-		for _, m := range info.DecModes {
+		for _, m := range mr.Modes {
 			fmt.Fprintf(&modes, "\x1b[?%dh", m)
 		}
 		_, _ = l.write([]byte(modes.String()))
 		// Answers to the session's terminal queries go back up the stream.
 		go func() { _, _ = io.Copy(conn, l.emu) }()
 		go func() {
-			_ = daemon.Relay(r, writerFunc(func(p []byte) (int, error) {
+			_ = mr.Relay(writerFunc(func(p []byte) (int, error) {
 				n, err := l.write(p)
 				l.ready.Store(true)
 				l.poke()
@@ -177,7 +182,7 @@ func (l *live) resize(w, h int) {
 	l.emu.Resize(w, h)
 	l.dirty = true
 	l.mu.Unlock()
-	go func() { _ = l.cl.Resize(l.short, l.id, w, h) }()
+	go func() { _ = l.j.Resize(l.p, l.short, l.id, w, h) }()
 }
 
 func (l *live) close() {

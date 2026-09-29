@@ -21,7 +21,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/cellw"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/fswait"
@@ -112,7 +111,7 @@ func (m *Model) refreshSubs() tea.Cmd {
 		return m.readUnread(c)
 	}
 	if c.subReader == nil {
-		c.subReader = &claude.SubagentRuns{}
+		c.subReader = c.newRuns()
 	}
 	c.paneReading = true
 	msg := paneMsg{key: c.key, path: c.path, hist: hist}
@@ -131,8 +130,8 @@ func (m *Model) refreshSubs() tea.Cmd {
 	return func() tea.Msg {
 		if msg.path != "" {
 			msg.subs = list.List(msg.path)
-			if len(msg.subs) > 0 {
-				reader.Gone = gone
+			if len(msg.subs) > 0 && reader != nil {
+				reader.SetGone(gone)
 				reader.Update(msg.path)
 				msg.runs = reader.Clone()
 			}
@@ -172,7 +171,7 @@ type paneMsg struct {
 	key      string
 	path     string
 	subs     []convo.Subagent
-	runs     claude.SubagentRuns
+	runs     agent.SubagentRuns
 	hist     *history
 	histSess *convo.Session // hist read again, when it had grown
 	got      []fetched
@@ -297,7 +296,7 @@ func (m *Model) followSessionID(c *hostConn) {
 	}
 	if !strings.HasSuffix(c.path, string(filepath.Separator)+i.SessionID+".jsonl") {
 		// A new id the fleet hasn't read yet.
-		c.path = claude.AccountOf(a.Acct).TranscriptPath(i.Cwd, i.SessionID)
+		c.path = agent.TranscriptPath(sessionAgent(c), a.Acct, i.Cwd, i.SessionID)
 	}
 }
 
@@ -477,17 +476,44 @@ func (c *hostConn) subStateIn(sa convo.Subagent, jobs map[string]*convo.Job) (st
 	// Otherwise the transcripts say: its call without a result, or a
 	// background launch with no word yet that it finished, is working
 	// however quiet it is; with no word of it, it's working while it writes.
-	if rs, _, _ := c.subRuns.State(sa.ID, sa.ToolUseID); status != "" && rs != claude.RunRunning {
+	runs := c.runs()
+	if runs == nil {
+		return status, false
+	}
+	if rs, _, _ := runs.State(sa.ID, sa.ToolUseID); status != "" && rs != agent.RunRunning {
 		return status, false // Claude Code said how it ended, and nothing woke it since
 	}
-	live, ended := c.subRuns.Going(sa.ID, sa.ToolUseID, last, time.Now())
-	if st != nil && st.Status == convo.Running && !c.subRuns.Gone {
+	live, ended := runs.Going(sa.ID, sa.ToolUseID, last, time.Now())
+	if st != nil && st.Status == convo.Running && !runs.Gone() {
 		live = true
 	}
 	if live {
 		return "", true
 	}
 	return firstNonEmpty(status, ended), false
+}
+
+// newRuns is a new follower of the session's subagent runs: its agent's,
+// else the native agent's, which follows those its shell ran; nil when
+// neither can.
+func (c *hostConn) newRuns() agent.SubagentRuns {
+	if r, ok := agent.FollowRuns(sessionAgent(c)); ok {
+		return r
+	}
+	if n, ok := agent.NativeAgent(); ok {
+		if f, ok := n.(agent.RunFollower); ok {
+			return f.SubagentRuns()
+		}
+	}
+	return nil
+}
+
+// runs is subRuns, a follower that has read nothing until the pane has.
+func (c *hostConn) runs() agent.SubagentRuns {
+	if c.subRuns == nil {
+		c.subRuns = c.newRuns()
+	}
+	return c.subRuns
 }
 
 // runningSubs are the subagent runs still working, the latest started
@@ -1116,10 +1142,10 @@ type hostConn struct {
 	// background, with subReader and subList, which only it touches.
 	paneReading bool
 	paneKick    bool // a tail was opened: read it now, not on the next tick
-	subReader   *claude.SubagentRuns
+	subReader   agent.SubagentRuns
 	subOpen     string
 	subList     convo.Subagents       // finds the runs, reading each one's meta once
-	subRuns     claude.SubagentRuns   // which runs the transcripts say are still working: subReader's, as last read
+	subRuns     agent.SubagentRuns    // which runs the transcripts say are still working: subReader's, as last read; see runs
 	subSel      string                // selection inside the opened subagent
 	subHover    string                // the run under the pointer, or "subback" for the banner
 	runPick     int                   // where the pick last was among the dock's running subagents
@@ -1174,7 +1200,7 @@ func openHost(a *fleet.Agent) tea.Cmd {
 		info, infoErr := host.ReadInfo(id)
 		if infoErr == nil && info.SessionID != "" && info.Cwd != "" {
 			// The list may not have caught up with a rewind yet.
-			path = claude.AccountOf(acct).TranscriptPath(info.Cwd, info.SessionID)
+			path = agent.TranscriptPath(agent.Kind(info.Kind), acct, info.Cwd, info.SessionID)
 		}
 		trimmed := infoErr == nil && !info.ReplayFrom.IsZero()
 		if cfg, err := host.ReadConfig(id); err == nil && (cfg.Resume || trimmed) {

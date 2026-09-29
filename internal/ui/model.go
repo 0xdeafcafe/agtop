@@ -4,10 +4,10 @@ package ui
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"hash/maphash"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -23,7 +23,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/convo"
-	"github.com/0xdeafcafe/rush/internal/daemon"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/hooks"
 	"github.com/0xdeafcafe/rush/internal/host"
@@ -271,7 +270,7 @@ type Model struct {
 }
 
 type previewEntry struct {
-	p    claude.Preview
+	p    agent.Preview
 	size int64
 }
 
@@ -636,14 +635,14 @@ func (m *Model) loadPreview() tea.Cmd {
 		return nil
 	}
 	e, known := m.previews[a.Key]
-	key, path, had := a.Key, a.TranscriptPath, e.size
+	key, path, had, kind := a.Key, a.TranscriptPath, e.size, a.Acct.Kind
 	// Looked at in the background: even a stat can wait on a slow disk.
 	return func() tea.Msg {
 		st, err := os.Stat(path)
 		if err != nil || known && had == st.Size() {
 			return nil
 		}
-		return previewMsg{key: key, e: previewEntry{p: claude.ReadPreview(path, 384<<10), size: st.Size()}}
+		return previewMsg{key: key, e: previewEntry{p: agent.ReadPreview(kind, path, 384<<10), size: st.Size()}}
 	}
 }
 
@@ -653,6 +652,7 @@ func (m *Model) loadPreview() tea.Cmd {
 func (m *Model) loadLivePreviews() tea.Cmd {
 	type live struct {
 		key, path string
+		kind      agent.Kind
 		had       int64
 		known     bool
 	}
@@ -660,7 +660,7 @@ func (m *Model) loadLivePreviews() tea.Cmd {
 	for _, a := range m.snap.Agents {
 		if a.Live() && a.TranscriptPath != "" {
 			e, ok := m.previews[a.Key]
-			ls = append(ls, live{a.Key, a.TranscriptPath, e.size, ok})
+			ls = append(ls, live{a.Key, a.TranscriptPath, a.Acct.Kind, e.size, ok})
 		}
 	}
 	if len(ls) == 0 {
@@ -676,7 +676,7 @@ func (m *Model) loadLivePreviews() tea.Cmd {
 			if err != nil || l.known && l.had == st.Size() {
 				continue
 			}
-			out = append(out, previewMsg{key: l.key, e: previewEntry{p: claude.ReadPreview(l.path, 128<<10), size: st.Size()}})
+			out = append(out, previewMsg{key: l.key, e: previewEntry{p: agent.ReadPreview(l.kind, l.path, 128<<10), size: st.Size()}})
 		}
 		if len(out) == 0 {
 			return nil
@@ -1052,12 +1052,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.attached = ""
 		m.refresh()
 		if msg.err != nil && msg.agent != nil {
-			if daemon.IsRefusal(msg.err, "EKICKED") {
+			if errors.Is(msg.err, agent.ErrElsewhere) {
 				m.flash("opened in another window", false)
 				return m, nil
 			}
 			a := msg.agent
-			if daemon.IsRefusal(msg.err, "ENOJOB") {
+			if errors.Is(msg.err, agent.ErrGone) {
 				// Claude Code has let the job go; its conversation carries on here.
 				return m, m.moveToRush(a)
 			}
@@ -1913,31 +1913,23 @@ func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 	// One attach at a time from here: the preview's would fight the full
 	// screen over the session's size.
 	m.closeLive()
-	s := &daemon.Session{Client: daemon.Client{Account: claude.AccountOf(a.Acct)}, Short: a.ID}
-	return tea.Exec(s, func(err error) tea.Msg { return attachDoneMsg{agent: a, err: err} })
+	j, ok := agent.As[agent.Joiner](agent.Kind(a.Kind))
+	if !ok {
+		m.attached = ""
+		m.flash("couldn't open "+a.DisplayName+": its agent has no screen of its own to open", true)
+		return nil
+	}
+	return tea.Exec(j.Join(a.Acct, a.ID), func(err error) tea.Msg { return attachDoneMsg{agent: a, err: err} })
 }
 
 func (m *Model) togglePin(a *fleet.Agent) tea.Cmd {
-	acct, id := claude.AccountOf(a.Acct), a.ID
-	return cmdErr("", func() error {
-		pins, err := claude.LoadPins(acct)
-		if err != nil {
-			return err
-		}
-		out := pins[:0:0]
-		found := false
-		for _, p := range pins {
-			if p == id {
-				found = true
-				continue
-			}
-			out = append(out, p)
-		}
-		if !found {
-			out = append(out, id)
-		}
-		return claude.WritePins(acct, out)
-	})
+	p, id := a.Acct, a.ID
+	pn, ok := agent.As[agent.Pinner](p.Kind)
+	if !ok {
+		m.flash(a.DisplayName+"'s agent keeps no pins", true)
+		return nil
+	}
+	return cmdErr("", func() error { return pn.TogglePin(p, id) })
 }
 
 func (m *Model) toggleDone(a *fleet.Agent) {
@@ -1997,10 +1989,12 @@ func (m *Model) neighbour(key string) string {
 }
 
 func (m *Model) nativeView() tea.Cmd {
-	env := m.store.Config.ActiveAccount().Env()
+	v, ok := agent.As[agent.SessionsViewer](loginsKind)
+	if !ok {
+		return nil
+	}
+	p := m.store.Config.ActiveAccount().Profile()
 	return func() tea.Msg { // exec.Command looks the program up on PATH
-		c := exec.Command(claude.Program, "agents")
-		c.Env = env
-		return tea.ExecProcess(c, func(err error) tea.Msg { return doneMsg{err: err} })()
+		return tea.ExecProcess(v.SessionsView(p), func(err error) tea.Msg { return doneMsg{err: err} })()
 	}
 }

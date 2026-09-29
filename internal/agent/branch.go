@@ -12,6 +12,15 @@ type Brancher interface {
 	Branch(p Profile, src, cwd, sid, newID string, upTo int64) error
 }
 
+// TranscriptPath is where agent k keeps session sid's conversation in
+// cwd, in profile p; empty when k can't say.
+func TranscriptPath(k Kind, p Profile, cwd, sid string) string {
+	if b, ok := As[Brancher](k); ok {
+		return b.TranscriptPath(p, cwd, sid)
+	}
+	return ""
+}
+
 // ModelNamer is an agent with names of its own for its model ids.
 type ModelNamer interface {
 	// ModelName is id as people say it: "claude-opus-5-5" is "Opus 5.5".
