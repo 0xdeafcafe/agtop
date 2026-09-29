@@ -21,7 +21,7 @@ func init() {
 		"status": Status{}, "turn_end": TurnEnd{}, "compacted": Compacted{}, "quota": Quota{},
 		"limited": Limited{}, "context": Context{}, "task_started": TaskStarted{},
 		"task_updated": TaskUpdated{}, "task_progress": TaskProgress{}, "task_done": TaskDone{},
-		"plan": Plan{}, "background": Background{}, "other": Other{},
+		"plan": Plan{}, "background": Background{}, "commands": Commands{}, "other": Other{},
 	} {
 		t := reflect.TypeOf(ev)
 		names[t], types[name] = name, t

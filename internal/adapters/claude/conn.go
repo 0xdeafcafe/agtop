@@ -1,0 +1,403 @@
+package claude
+
+import (
+	"bytes"
+	"context"
+	"encoding/json/jsontext"
+	"errors"
+	"mime"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/state"
+)
+
+// Start runs claude -p for agtop to draw.
+func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, error) { //nolint:gocritic // agent.Driver's signature
+
+	acct := Account(o.Profile)
+	c := &conn{events: make(chan event.Event, 64), asks: map[string]headless.PermissionRequest{},
+		waits: map[string]chan headless.ControlReply{}, acct: acct, tools: slices.Clone(o.Tools)}
+	ho := headless.Options{Account: acct, Dir: o.Dir, Model: o.Model, Effort: o.Effort,
+		PermissionMode: o.Mode, Binary: o.Binary, Env: slices.Clone(o.Env)}
+	if allowed := c.trusted(); len(allowed) > 0 {
+		// agtop's own tools only draw, so they never ask.
+		ho.Flags = append(ho.Flags, "--allowedTools", strings.Join(allowed, ","))
+	}
+	if len(o.Agents) > 0 {
+		b, _ := jsonx.Marshal(o.Agents)
+		ho.Flags = append(ho.Flags, "--agents", string(b))
+	}
+	if p := strings.TrimSpace(o.Prompt); p != "" {
+		ho.Flags = append(ho.Flags, "--append-system-prompt", p)
+	}
+	ho.Flags = append(ho.Flags, o.Flags...)
+	if o.Resume {
+		ho.Resume = o.SessionID
+	} else {
+		ho.SessionID = o.SessionID
+	}
+	if o.Fork {
+		ho.Flags = append(ho.Flags, "--fork-session")
+	}
+	// Its scratch goes in the session's own folder, so what it leaves
+	// behind can be seen and cleaned up.
+	if o.TempDir != "" && os.MkdirAll(o.TempDir, 0o700) == nil {
+		ho.Env = append(ho.Env, "TMPDIR="+o.TempDir, "TMP="+o.TempDir, "TEMP="+o.TempDir, "CLAUDE_CODE_TMPDIR="+o.TempDir)
+	}
+	if o.Lean {
+		ho.Env = append(ho.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
+	}
+	// Checkpoints, as Claude Code keeps them in a terminal, so a rewind can
+	// put the files back too.
+	ho.Env = append(ho.Env, headless.CheckpointEnv)
+	if o.Tap != nil {
+		tap := o.Tap
+		ho.Tap = func(line []byte) {
+			if !c.ownTraffic(line) {
+				tap(line)
+			}
+		}
+	}
+	if o.Lightly {
+		ho.Skip = relayOnly
+	}
+	c.login = claude.SignedInAs(acct)
+	s, err := headless.Start(ho)
+	if err != nil {
+		return nil, err
+	}
+	c.s = s
+	names := make([]string, len(c.tools))
+	for i, t := range c.tools {
+		names[i] = t.Name
+	}
+	// Every process needs agtop's tools registered before its first message.
+	if c.initID, err = s.Initialize(names...); err != nil {
+		_ = s.Stop(time.Second)
+		return nil, err
+	}
+	go c.relay(ctx)
+	return c, nil
+}
+
+// relayOnly is output a caller that has the lines passes on without
+// reading: streamed deltas and tool results (user messages). They are most
+// of what Claude Code writes, and the biggest lines.
+func relayOnly(l []byte) bool {
+	return bytes.HasPrefix(l, []byte(`{"type":"stream_event"`)) || bytes.HasPrefix(l, []byte(`{"type":"user"`))
+}
+
+// conn is a running claude -p as an agent.Conn.
+type conn struct {
+	s      *headless.Session
+	events chan event.Event
+	tools  []agent.ToolServer
+	initID string
+	acct   claude.Account
+	// login is the account it started signed in as: its plan usage
+	// readings are that login's.
+	login string
+
+	mu    sync.Mutex
+	asks  map[string]headless.PermissionRequest // approvals and questions not yet answered
+	waits map[string]chan headless.ControlReply // control requests out, by id
+	live  claude.Usage                          // the last usage reading passed on
+}
+
+// tool is the server a tool of Claude Code's name is one of agtop's, and
+// the tool's own name.
+func (c *conn) tool(name string) (agent.ToolServer, string, bool) {
+	for _, t := range c.tools {
+		if rest, ok := strings.CutPrefix(name, "mcp__"+t.Name+"__"); ok {
+			return t, rest, true
+		}
+	}
+	return agent.ToolServer{}, "", false
+}
+
+// trusted are the tools that never ask, by Claude Code's names.
+func (c *conn) trusted() []string {
+	var out []string
+	for _, t := range c.tools {
+		for _, n := range t.Trusted {
+			out = append(out, "mcp__"+t.Name+"__"+n)
+		}
+	}
+	return out
+}
+
+func (c *conn) isTrusted(name string) bool {
+	t, n, ok := c.tool(name)
+	return ok && slices.Contains(t.Trusted, n)
+}
+
+// ownTraffic is a control request for agtop's own tools: an MCP message, or
+// a permission check for one that never asks. It stays between Claude Code
+// and agtop.
+func (c *conn) ownTraffic(l []byte) bool {
+	if !bytes.HasPrefix(l, []byte(`{"type":"control_request"`)) {
+		return false
+	}
+	var e struct {
+		Request struct {
+			Subtype string `json:"subtype"`
+			Server  string `json:"server_name"`
+			Tool    string `json:"tool_name"`
+		} `json:"request"`
+	}
+	if jsonx.Unmarshal(l, &e) != nil {
+		return false
+	}
+	r := e.Request
+	return r.Subtype == "mcp_message" && slices.ContainsFunc(c.tools, func(t agent.ToolServer) bool { return t.Name == r.Server }) ||
+		r.Subtype == "can_use_tool" && c.isTrusted(r.Tool)
+}
+
+func (c *conn) relay(ctx context.Context) {
+	defer close(c.events)
+	var n headless.Neutral
+	for {
+		select {
+		case <-ctx.Done():
+			_ = c.s.Stop(3 * time.Second)
+			return
+		case ev, ok := <-c.s.Events:
+			if !ok {
+				return
+			}
+			if !c.own(ev) {
+				for _, out := range n.Event(ev) {
+					c.events <- out
+				}
+			}
+		}
+	}
+}
+
+// own takes what the conn answers itself rather than passing on, and
+// notes what it needs of the rest: it reports whether ev was all its own.
+func (c *conn) own(ev headless.Event) bool {
+	switch e := ev.(type) {
+	case headless.PermissionRequest:
+		if c.isTrusted(e.Tool) {
+			// Asked despite --allowedTools (a mode that asks for
+			// everything): they only draw, so yes.
+			_ = c.s.Allow(e, nil, false)
+			return true
+		}
+		c.mu.Lock()
+		c.asks[e.ID] = e
+		c.mu.Unlock()
+	case headless.PermissionCancelled:
+		c.mu.Lock()
+		delete(c.asks, e.ID)
+		c.mu.Unlock()
+	case headless.MCPRequest:
+		for _, t := range c.tools {
+			if t.Name == e.Server && t.Handle != nil {
+				// A plugin's tool may take a while; the session carries on.
+				go func() { _ = c.s.ReplyMCP(e.ID, t.Handle(e.Message)) }()
+			}
+		}
+		return true
+	case headless.ControlReply:
+		c.mu.Lock()
+		w, ok := c.waits[e.ID]
+		delete(c.waits, e.ID)
+		c.mu.Unlock()
+		if ok {
+			w <- e
+			return true
+		}
+		if e.ID == c.initID && e.Error == "" {
+			var cmds event.Commands
+			for _, k := range headless.Commands(e) {
+				cmds.List = append(cmds.List, event.Command(k))
+			}
+			c.events <- cmds
+		}
+		return true
+	case headless.RateLimit:
+		c.shareUsage(e)
+	}
+	return false
+}
+
+// shareUsage passes the plan usage Claude Code reports with each request
+// to every agtop, as a reading of the login it runs on: the header and
+// switching accounts then go by it, not by a fetch minutes old. A reading
+// like the last goes only every half minute.
+func (c *conn) shareUsage(ev headless.RateLimit) {
+	u, ok := claude.LiveUsage(ev.Raw, time.Now())
+	if !ok || c.login == "" {
+		return
+	}
+	c.mu.Lock()
+	last := c.live
+	if u.FiveHour == last.FiveHour && u.SevenDay == last.SevenDay && u.FetchedAt.Sub(last.FetchedAt) < 30*time.Second {
+		c.mu.Unlock()
+		return
+	}
+	u.AccountID = c.login
+	c.live = u
+	c.mu.Unlock()
+	acct := c.acct
+	go func() {
+		// Only while the folder is still signed in as it started: after a
+		// switch, the reading may be the new login's.
+		_ = claude.RecordLiveUsage(filepath.Join(state.Dir(), "usage.json"), acct, u.AccountID, u)
+	}()
+}
+
+// KeepsQuota: its readings go where Claude's usage is kept (shareUsage).
+func (c *conn) KeepsQuota() {}
+
+// Stale is whether the folder is signed in as another login than the one
+// it started on.
+func (c *conn) Stale() bool {
+	return c.login != "" && claude.SignedInAs(c.acct) != c.login
+}
+
+// await sends a control request with send, and waits for its reply.
+func (c *conn) await(ctx context.Context, send func() (string, error)) (headless.ControlReply, error) {
+	w := make(chan headless.ControlReply, 1)
+	// Held while sending, so the reply can't be read before it's awaited.
+	c.mu.Lock()
+	id, err := send()
+	if err == nil {
+		c.waits[id] = w
+	}
+	c.mu.Unlock()
+	if err != nil {
+		return headless.ControlReply{}, err
+	}
+	select {
+	case r := <-w:
+		if r.Error != "" {
+			return r, errors.New(r.Error)
+		}
+		return r, nil
+	case <-ctx.Done():
+		c.mu.Lock()
+		delete(c.waits, id)
+		c.mu.Unlock()
+		return headless.ControlReply{}, ctx.Err()
+	}
+}
+
+// Ask passes a control request through and returns its reply's body.
+func (c *conn) Ask(ctx context.Context, req jsontext.Value) (jsontext.Value, error) {
+	r, err := c.await(ctx, func() (string, error) { return c.s.Ask(req) })
+	return r.Body, err
+}
+
+// ContextUsage is what fills the context window, as /context counts it.
+func (c *conn) ContextUsage(ctx context.Context) (jsontext.Value, error) {
+	r, err := c.await(ctx, c.s.AskContextUsage)
+	if err != nil {
+		return nil, err
+	}
+	u, err := headless.ParseContextUsage(r)
+	if err != nil {
+		return nil, err
+	}
+	u.At = time.Now()
+	return jsonx.Marshal(u)
+}
+
+func (c *conn) Events() <-chan event.Event { return c.events }
+
+func (c *conn) Send(in agent.Input) error {
+	var imgs []headless.Image
+	for _, p := range in.Images {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		mt := mime.TypeByExtension(strings.ToLower(filepath.Ext(p)))
+		if mt == "" {
+			mt = "image/png"
+		}
+		imgs = append(imgs, headless.Image{MediaType: mt, Data: b})
+	}
+	return c.s.SendWith(in.Text, imgs)
+}
+
+// take is the request id asked, once: answering it forgets it.
+func (c *conn) take(id string) (headless.PermissionRequest, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.asks[id]
+	delete(c.asks, id)
+	return r, ok
+}
+
+var errNotAsked = errors.New("nothing is waiting on that answer")
+
+// Answer answers an approval with one of the options headless.Neutral
+// gave it: allow, always or deny.
+func (c *conn) Answer(approvalID, optionID string) error {
+	switch optionID {
+	case "allow":
+		return c.Allow(approvalID, nil, false)
+	case "always":
+		return c.Allow(approvalID, nil, true)
+	}
+	return c.Deny(approvalID, "", false)
+}
+
+// Allow lets a call run, with its input as changed when input is set.
+func (c *conn) Allow(approvalID string, input jsontext.Value, always bool) error {
+	r, ok := c.take(approvalID)
+	if !ok {
+		return errNotAsked
+	}
+	if len(input) == 0 {
+		input = r.Input
+	}
+	return c.s.Allow(r, input, always)
+}
+
+// Deny refuses a call, saying why when message is set; interrupt stops
+// the turn too.
+func (c *conn) Deny(approvalID, message string, interrupt bool) error {
+	r, ok := c.take(approvalID)
+	if !ok {
+		return errNotAsked
+	}
+	return c.s.Deny(r, message, interrupt)
+}
+
+// AnswerQuestion answers an AskUserQuestion. Claude takes several choices
+// as one answer, joined.
+func (c *conn) AnswerQuestion(id string, answers map[string][]string) error {
+	r, ok := c.take(id)
+	if !ok {
+		return errNotAsked
+	}
+	_, qs := r.Questions()
+	joined := map[string]string{}
+	for q, labels := range answers {
+		joined[q] = strings.Join(labels, ", ")
+	}
+	return c.s.Allow(r, r.AnswerInput(qs, joined), false)
+}
+
+func (c *conn) Interrupt() error               { return c.s.Interrupt() }
+func (c *conn) SetModel(model string) error    { return c.s.SetModel(model) }
+func (c *conn) SetMode(mode string) error      { return c.s.SetPermissionMode(mode) }
+func (c *conn) StopTask(id string) error       { return c.s.StopTask(id) }
+func (c *conn) Background(callID string) error { return c.s.Background(callID) }
+func (c *conn) Err() error                     { return c.s.Err() }
+func (c *conn) PID() int                       { return c.s.PID() }
+func (c *conn) Close() error                   { return c.s.Stop(3 * time.Second) }

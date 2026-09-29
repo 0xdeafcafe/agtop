@@ -43,7 +43,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestEveryEventHasAName(t *testing.T) {
-	if len(names) != 23 {
+	if len(names) != 24 {
 		t.Errorf("%d events have names; one added to event.go needs one in codec.go", len(names))
 	}
 }

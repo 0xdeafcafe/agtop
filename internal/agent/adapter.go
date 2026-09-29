@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"os/exec"
 	"sort"
 	"sync"
@@ -74,6 +75,24 @@ type StartOptions struct {
 	Env       []string
 	Flags     []string // passed to the agent as they are
 	Binary    string   // the agent's program, when it isn't on PATH by its usual name
+	// TempDir is the session's own scratch folder, for the agent's
+	// temporary files.
+	TempDir string
+	// Lean starts it without its non-essential network traffic, where it
+	// can.
+	Lean bool
+	// Tools are MCP servers agtop serves in process for the session.
+	Tools []ToolServer
+	// Agents are subagents to offer it, by name, each defined in its
+	// agent's own words; Prompt is added to its system prompt.
+	Agents map[string]jsontext.Value
+	Prompt string
+	// Tap, when set, gets every line the agent writes, as it writes it, in
+	// its own words: what agtops that don't read events are sent.
+	Tap func(line []byte)
+	// Lightly lets Events leave out what's only streamed text and tool
+	// results: the caller has them from Tap.
+	Lightly bool
 }
 
 // Conn is a running session.

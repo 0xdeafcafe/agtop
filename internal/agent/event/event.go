@@ -23,7 +23,7 @@ type Init struct {
 	Mode      string // its permission mode, in the agent's words
 	Version   string // the agent's
 	Tools     []string
-	Commands  []string // slash commands it takes
+	Commands  []string // slash commands it takes, by name: Commands has more
 	MCP       []MCPServer
 }
 
@@ -260,6 +260,17 @@ type BackgroundTask struct {
 	Label string
 }
 
+// Commands are the session's slash commands and skills, once it says them.
+type Commands struct{ List []Command }
+
+// Command is one of a session's slash commands.
+type Command struct {
+	Name         string
+	Description  string
+	ArgumentHint string
+	Aliases      []string
+}
+
 // Plan is the agent's whole plan or todo list, each time it changes.
 type Plan struct{ Todos []tool.TodoItem }
 
@@ -292,5 +303,6 @@ func (TaskUpdated) event()       {}
 func (TaskProgress) event()      {}
 func (TaskDone) event()          {}
 func (Plan) event()              {}
+func (Commands) event()          {}
 func (Background) event()        {}
 func (Other) event()             {}
