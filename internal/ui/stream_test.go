@@ -203,3 +203,25 @@ func TestReplayBeforeFirstFrame(t *testing.T) {
 		t.Fatal("no info, no whole replay")
 	}
 }
+
+// Following the end, the last row is always in view, even when the window's
+// top falls inside a long message of yours.
+func TestFollowingKeepsTheEnd(t *testing.T) {
+	for i := 0; i < 120; i++ {
+		reps, n := 10+i/20*2, i%20
+		m, _ := benchModel(120, 40)
+		c := m.host
+		c.sess.Apply(headless.Result{Subtype: "success"}, time.Now())
+		c.sess.Apply(host.Sent{Text: strings.Repeat("a long ask that wraps over many rows ", reps)}, time.Now())
+		c.sess.Apply(headless.Message{Role: "assistant", ID: "end", Blocks: []headless.Block{{Type: "text", Text: strings.Repeat("line\n\n", n)}}}, time.Now())
+		c.sess.Apply(headless.Result{Subtype: "success"}, time.Now())
+		c.scroll = 0
+		m.View()
+		if c.scroll != 0 {
+			continue
+		}
+		if last := c.rowBody[len(c.rowBody)-1]; last != len(c.shown)-1 {
+			t.Fatalf("%d asks, %d lines: the last row drawn is %d of %d", reps, n, last, len(c.shown))
+		}
+	}
+}

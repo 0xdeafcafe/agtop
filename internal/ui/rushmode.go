@@ -1702,9 +1702,10 @@ func (m *Model) rushPane(w, h int) []string {
 	end := len(body) - c.scroll
 	start := max(0, end-rows)
 	// A turn's heading (your message) can take several rows. A window
-	// starting inside one shows it from its first row instead of cutting
-	// its top off.
-	if m.viewName(c) == "conversation" && start > 0 && isTurnRef(body[start].Ref) {
+	// scrolled up and starting inside one shows it from its first row
+	// instead of cutting its top off; one following the end keeps the end,
+	// the latest rows, in view.
+	if m.viewName(c) == "conversation" && c.scroll > 0 && start > 0 && isTurnRef(body[start].Ref) {
 		f := headingStart(body, start)
 		if f < start && start-f <= rows/2 {
 			start, end = f, min(len(body), f+rows)
