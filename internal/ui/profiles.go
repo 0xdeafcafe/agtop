@@ -179,3 +179,57 @@ func (m *Model) handOff(a *fleet.Agent, to state.Pick, p state.Profile) tea.Cmd 
 		return hostStartedMsg{id: c.ID, name: cfg.Name}
 	}
 }
+
+// openProfilePicker is alt+w: a picker of the profiles, to make one the
+// default, then the installed providers, to put one first in the default
+// profile, then Profiles itself.
+func (m *Model) openProfilePicker() {
+	cfg := m.store.Config
+	def := cfg.Default()
+	p := &picker{title: "New sessions run"}
+	for _, pr := range cfg.Profiles {
+		name := pr.Name
+		mark := "  "
+		if strings.EqualFold(name, def.Name) {
+			mark = paint(cOrange, "★ ")
+			p.cursor = len(p.acts)
+		}
+		p.acts = append(p.acts, linkAct{
+			label: mark + paint(cText+bold, fit(name, 14)) + " " + m.chain(pr),
+			do: func(m *Model) tea.Cmd {
+				m.store.Config.SetDefaultProfile(name)
+				_ = m.store.SaveConfig()
+				m.spillTo()
+				m.flash(name+" is the default profile · "+m.profileWords(m.store.Config.Default()), false)
+				return nil
+			},
+		})
+	}
+	for _, ad := range m.agentOrder() {
+		k := ad.Kind()
+		if !agent.Runs(k) {
+			continue
+		}
+		note := faint("  put first in " + def.Name)
+		if inst := def.Installed(); len(inst) > 0 && inst[0] == string(k) {
+			note = dim("  first in " + def.Name)
+		}
+		p.acts = append(p.acts, linkAct{
+			label: "  " + providerTag(k) + note,
+			do: func(m *Model) tea.Cmd {
+				m.withAgent(string(k))
+				m.spillTo()
+				return nil
+			},
+		})
+	}
+	p.acts = append(p.acts, linkAct{
+		label: faint("  edit profiles…"),
+		do: func(m *Model) tea.Cmd {
+			m.setView(placeSettings)
+			m.setSettingsPage(pageProfiles)
+			return nil
+		},
+	})
+	m.picker = p
+}

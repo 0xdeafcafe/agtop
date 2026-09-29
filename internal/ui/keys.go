@@ -88,6 +88,11 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.setView(m.view + d)
 		return tea.Batch(m.loadPreview(), m.effOpen())
 	}
+	if s == "alt+w" && m.mode != modeCwd && (m.dialog == nil || m.dialog.asking == "") {
+		// Which profile, or which provider, new sessions run.
+		m.openProfilePicker()
+		return nil
+	}
 	if s == "ctrl+z" && m.mode != modeCwd && (m.dialog == nil || m.dialog.asking == "") {
 		m.setZen(!m.zen)
 		return m.loadPreview()

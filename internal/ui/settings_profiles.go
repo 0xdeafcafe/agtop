@@ -392,7 +392,12 @@ func (m *Model) folderSection(profile string) section {
 		})
 	}
 	add := func() {
-		m.ask("folder", tildify(m.startDir()), func(v string) tea.Cmd {
+		// The selected session's folder, else where new sessions start.
+		dir := m.startDir()
+		if a := m.selected(); a != nil && a.Cwd != "" {
+			dir = a.Cwd
+		}
+		m.ask("folder", tildify(dir), func(v string) tea.Cmd {
 			to := profile
 			if to == "" {
 				to = cfg.Default().Name
@@ -413,7 +418,7 @@ func (m *Model) folderSection(profile string) section {
 			}
 			return nil, false
 		},
-		keys: []string{"enter", "type its path"},
+		keys: []string{"enter", "the selected session's folder, or type one"},
 		about: func() (string, string, string) {
 			what := "Gives a folder a profile, so every session started in it gets that one: a client's repositories on its own account's agent, say."
 			if profile == "" {

@@ -10,6 +10,7 @@ var Defaults = []Action{
 	{ID: "zen", Context: Global, Title: "Zen on and off", Keys: []string{"ctrl+z"}},
 	{ID: "place.prev", Context: Global, Title: "the place before", Keys: []string{",", "<"}},
 	{ID: "place.next", Context: Global, Title: "the next place", Keys: []string{".", ">", "ctrl+\\"}},
+	{ID: "profile.pick", Context: Global, Title: "switch the default profile or provider", Keys: []string{"alt+w"}},
 
 	{ID: "list.up", Context: List, Title: "the agent above", Keys: []string{"up"}},
 	{ID: "list.down", Context: List, Title: "the agent below", Keys: []string{"down"}},

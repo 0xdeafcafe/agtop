@@ -3,7 +3,10 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -88,5 +91,32 @@ func TestHandOffStopped(t *testing.T) {
 	}
 	if cmd := m.handOffStopped(); cmd != nil && cmd() != nil {
 		t.Fatal("handed on twice")
+	}
+}
+
+// alt+w picks the default profile, or puts a provider first in it.
+func TestProfilePicker(t *testing.T) {
+	m, _ := accountsModel(t)
+	cfg := &m.store.Config
+	cfg.SetProfile("", state.Profile{Name: "Default", Providers: []string{"claude", "zcodex"}})
+	cfg.SetProfile("", state.Profile{Name: "work", Providers: []string{"zplain"}})
+	m.openProfilePicker()
+	if m.picker == nil || m.picker.cursor != 0 {
+		t.Fatal("the picker didn't open on the default")
+	}
+	m.picker.cursor = 1
+	m.pickerKey("enter")
+	if cfg.DefaultProfile != "work" {
+		t.Fatalf("default is %q", cfg.DefaultProfile)
+	}
+	m.openProfilePicker()
+	for i, a := range m.picker.acts {
+		if strings.Contains(ansi.Strip(a.label), "ZCodex") {
+			m.picker.cursor = i
+		}
+	}
+	m.pickerKey("enter")
+	if got := cfg.Default().Providers; got[0] != "zcodex" {
+		t.Fatalf("work's providers are %v", got)
 	}
 }

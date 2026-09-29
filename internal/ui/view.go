@@ -2339,6 +2339,7 @@ var helpPages = []struct {
 	}},
 	{"◈ Around", [][2]string{
 		{"ctrl+z", "zen"},
+		{"alt+w", "the default profile or provider"},
 		{"< > · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
 		{"[ ]", "a Session's views, with nothing typed"},
 		{"[ ]", "a place's pages, or a sheet's tabs"},
