@@ -149,6 +149,10 @@ func (m *Model) projectRows() []workRow {
 				agentRow(a, "  ")
 			}
 		}
+		// Worktrees with nothing of their own fold into one row, so the
+		// ones with work in them aren't lost among them.
+		var idle, asking int
+		var idleSize int64
 		for _, t := range projectTrees(p, f) {
 			n := 0
 			for _, a := range p.agents {
@@ -157,12 +161,25 @@ func (m *Model) projectRows() []workRow {
 				}
 			}
 			wt := m.worktreeAt(t)
-			rows = append(rows, workRow{id: "w" + t, wt: &wt, owner: p.key, line: m.worktreeRow(t, f, wt, n, w, now)})
+			st, known := f.Trees[t]
+			switch {
+			case !known && n == 0:
+				asking++
+				continue
+			case n == 0 && st.Err == "" && st.Changed == 0 && ownCommits(st) == 0:
+				idle++
+				idleSize += wt.Size
+				continue
+			}
+			rows = append(rows, workRow{id: "w" + t, wt: &wt, owner: p.key, line: m.worktreeRow(t, st, wt, w)})
 			for _, a := range p.agents {
 				if treeOf(a) == t {
 					agentRow(a, "    ")
 				}
 			}
+		}
+		if idle+asking > 0 {
+			rows = append(rows, workRow{id: "f" + p.key, fold: true, owner: p.key, line: fit(foldLine(idle, asking, idleSize), w)})
 		}
 		text("")
 	}
@@ -240,47 +257,66 @@ func projectTrees(p *project, f fleet.Folder) []string {
 	return trees
 }
 
-// worktreeRow is a worktree on the Projects page: its name, what git says of
-// it, whether any agent is in it, and whether it can go without losing
-// anything.
-func (m *Model) worktreeRow(t string, f fleet.Folder, wt fleet.Worktree, agents, w int, now time.Time) string {
-	var b strings.Builder
-	b.WriteString("  " + faint("⎇ ") + paint(cSub, filepath.Base(t)))
-	if st, ok := f.Trees[t]; ok {
-		b.WriteString("  " + gitBits(st) + baseShort(st))
+// worktreeRow is a worktree with work in it on the Projects page: its
+// name, its branch when that says something more, what it has of its own
+// in words, and quietly, what it came from.
+func (m *Model) worktreeRow(t string, st fleet.GitState, wt fleet.Worktree, w int) string {
+	name := filepath.Base(t)
+	head := "  " + faint("⎇ ") + paint(cSub, name)
+	if b := st.Branch; b != "" && b != name && b != "worktree-"+name {
+		head += "  " + dim(b)
 	}
-	if agents == 0 {
-		b.WriteString(dim(" · ") + faint("no agent"))
+	var work []string
+	if st.Err != "" {
+		work = append(work, paint(cRed, st.Err))
 	}
-	if wt.Size > 0 {
-		b.WriteString("  " + faint(disk(wt.Size)))
+	if n := ownCommits(st); n > 0 {
+		work = append(work, paint(cOrange, fmt.Sprintf("%d commit%s of its own", n, plural(n))))
 	}
-	var mark, status string
-	switch {
-	case wt.Checked.IsZero():
-		mark, status = faint("·"), dim("not looked at yet")
-	case wt.Err != "":
-		mark, status = paint(cRed, "!"), paint(cRed, wt.Err)
-	case !wt.Safe():
-		mark, status = paint(cYellow, "✗"), paint(cYellow, "would lose "+wt.Losses())
-	case m.running(wt.Agents) != nil:
-		mark, status = paint(cGreen, "✓"), dim("safe to remove")
-	case !wt.Pushed():
-		mark, status = paint(cGreen, "✓"), paint(cGreen, "safe to remove")+dim(" · in main, not pushed · x removes it")
-	default:
-		mark = paint(cGreen, "✓")
-		switch due := m.dueIn(wt.Agents, now); {
-		case due == 0:
-			status = paint(cGreen, "safe to remove · goes at the next tidy-up")
-		case due > 0:
-			status = paint(cGreen, "safe to remove") + dim(" · goes in "+dur(due.Round(time.Minute)))
-		case agents == 0:
-			status = paint(cGreen, "safe to remove") + dim(" · x removes it")
-		default:
-			status = paint(cGreen, "safe to remove") + dim(" · goes once its agents are done")
+	if st.Changed > 0 {
+		work = append(work, paint(cYellow, fmt.Sprintf("%d changed", st.Changed)))
+	}
+	if wt.Err != "" {
+		work = append(work, paint(cRed, wt.Err))
+	}
+	from := ""
+	if st.Base != "" {
+		from = "off " + st.Base
+		if st.BaseBehind > 0 {
+			from += fmt.Sprintf(", %d behind", st.BaseBehind)
 		}
 	}
-	return fit(b.String()+"   "+mark+" "+status, w)
+	return fit(fit(head, 34)+fit(strings.Join(work, dim(" · ")), 34)+faint(from), w)
+}
+
+// ownCommits are a worktree's commits past what it came from, or past its
+// upstream when its base isn't known.
+func ownCommits(st fleet.GitState) int {
+	if st.Base != "" {
+		return st.BaseAhead
+	}
+	return st.Ahead
+}
+
+// foldLine is the row a project's worktrees with nothing of their own fold
+// into, and those git hasn't answered for yet.
+func foldLine(idle, asking int, size int64) string {
+	var parts []string
+	if idle > 0 {
+		s := fmt.Sprintf("%d more with nothing of their own", idle)
+		if size > 0 {
+			s += " · " + disk(size)
+		}
+		parts = append(parts, s)
+	}
+	if asking > 0 {
+		parts = append(parts, fmt.Sprintf("%d asking git…", asking))
+	}
+	out := "  " + faint("▸ ") + dim(strings.Join(parts, " · "))
+	if idle > 0 {
+		out += dim(" · ") + paint(cSub, "x") + dim(" cleans them up")
+	}
+	return out
 }
 
 // tempTail is an agent's temp work, on its row once there's enough of it to
@@ -505,6 +541,8 @@ func (m *Model) projectsHint() string {
 		return keysFit(w, append(k, "esc", "back")...)
 	case r.wt != nil:
 		return keysFit(w, "↑↓", "move", "x", "remove", "c", "clean up", "r", "check again", "←", "the project", "esc", "back")
+	case r.fold:
+		return keysFit(w, "↑↓", "move", "x", "clean them up", "r", "check again", "esc", "back")
 	case r.tmp:
 		return keysFit(w, "↑↓", "move", "x", "clear untouched", "c", "clean up", "r", "look again", "esc", "back")
 	case r.proj != nil:
@@ -581,6 +619,8 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			m.askRemoveWorktree(*r.wt)
 		case r.tmp:
 			m.askClearScratch()
+		case r.fold:
+			return m.openCleanSheet()
 		}
 	case "ctrl+y":
 		return m.openPR(r.a)
@@ -594,6 +634,8 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			m.endProc(*r.proc)
 		case r.tmp:
 			m.askClearScratch()
+		case r.fold:
+			return m.openCleanSheet()
 		case r.a != nil && r.a.Temp >= tempShown:
 			m.askClean(r.a)
 		}
