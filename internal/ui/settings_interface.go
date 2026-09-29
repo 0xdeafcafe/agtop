@@ -63,6 +63,8 @@ func (m *Model) interfaceSections() []section {
 	switch {
 	case c.StackAt < 0:
 		stackAt = "narrow only"
+	case c.StackAt >= 100:
+		stackAt = "always"
 	case c.StackAt > 0:
 		stackAt = fmt.Sprintf("%d%%", c.StackAt)
 	}
@@ -73,13 +75,16 @@ func (m *Model) interfaceSections() []section {
 			{"30%", "when the list has 30% of the screen or less, or is too narrow for words beside the name."},
 			{"50%", "when the list has half the screen or less, or is too narrow for words beside the name."},
 			{"60%", "when the list has 60% of the screen or less, or is too narrow for words beside the name."},
-			{"narrow only", "only when the list is too narrow for words beside the name."},
+			{"narrow only", "only when the list is too narrow for words beside the name: one line wherever it fits."},
+			{"always", "every row takes two lines, however wide the list is."},
 		}, func(v string) {
 			switch v {
 			case "":
 				c.StackAt = 0
 			case "narrow only":
 				c.StackAt = -1
+			case "always":
+				c.StackAt = 100
 			default:
 				fmt.Sscanf(v, "%d%%", &c.StackAt)
 			}

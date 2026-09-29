@@ -127,7 +127,7 @@ type Config struct {
 	SortBy  string `json:"sortBy,omitempty"`
 	// StackAt is the share of the screen, in percent, at or under which
 	// the list's rows take two lines; 0 is the default, negative only
-	// when too narrow for one. See StackPercent.
+	// when too narrow for one, 100 always. See StackPercent.
 	StackAt   int `json:"stackAt,omitzero"`
 	Hibernate struct {
 		AfterMinutes int `json:"afterMinutes"`
