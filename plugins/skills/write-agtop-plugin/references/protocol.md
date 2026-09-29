@@ -133,10 +133,6 @@ Plugins are asked in name order, each seeing the text as the ones before left it
 
 `{"values": {"verbose": "true"}}`: the user changed a setting; these are all its values now.
 
-### `cli.run` (request)
-
-`{"command": "send", "args": ["a1b2c3d4", "0"], "cwd": "/Users/you/src/app"}`: the user ran `agtop <plugin> send a1b2c3d4 0`, one of its `cli` commands. `cwd` is the folder they ran it in, to go by, not to read. Answer `{"stdout": "…", "stderr": "…", "exit": 0}` within 2 minutes: agtop prints `stdout` and `stderr` (a megabyte of each at most) and exits with `exit`. What the command does, it does as the plugin, with what its manifest allows.
-
 ## plugin → agtop
 
 Each call is checked against the approved manifest. A refused call gets error **`-32001`** with a message saying why. Session ids are short strings like `a1b2c3d4`.

@@ -119,10 +119,7 @@ func (a Adapter) Quota(ctx context.Context, _ agent.Profile, acct agent.Account)
 	if err != nil {
 		return usage.Quota{}, claude.ErrNotSignedIn
 	}
-	if owner, err := claude.Owner(ctx, cred); err == nil && owner != id {
-		return usage.Quota{}, errors.New("agtop's sign-in for it is another account's; sign in again")
-	}
-	u, err := claude.FetchUsageWith(ctx, cred)
+	u, err := claude.FetchUsageAs(ctx, cred, id)
 	if err != nil {
 		return usage.Quota{}, err
 	}

@@ -2,7 +2,6 @@ package fleet
 
 import (
 	"context"
-	"errors"
 	"sort"
 	"sync"
 	"time"
@@ -151,12 +150,7 @@ func RefreshLogin(path string, cfg state.Config, lg claude.Login, offline bool) 
 		if err != nil {
 			return claude.Usage{}, claude.ErrNotSignedIn
 		}
-		if id, err := claude.Owner(ctx, cred); err == nil && id != lg.ID {
-			return claude.Usage{}, errors.New("agtop's sign-in for it is another account's; sign in again")
-		}
-		u, err := claude.FetchUsageWith(ctx, cred)
-		u.AccountID = lg.ID
-		return u, err
+		return claude.FetchUsageAs(ctx, cred, lg.ID)
 	})
 }
 

@@ -145,9 +145,13 @@ func (m *Model) header() []string {
 	}
 	left1 := paint(cText+bold, "agtop") + "   " + strings.Join(counts, "   ")
 
-	// Which provider, account and profile new sessions start on.
+	// Which provider, account and profile new sessions start on: beside
+	// the usage it reads when the top bar shows usage, here when it doesn't.
 	acct := m.startTag()
 	left2 := acct + dim(" · "+tildify(m.launchDir))
+	if m.barLayout(barTop).Shown("usage") {
+		left2 = dim(tildify(m.launchDir))
+	}
 	if m.w < narrowHead {
 		// Only his face fits, so it's always him, never the monogram.
 		var g clkGrid
@@ -394,7 +398,7 @@ func (m *Model) activeUsage() string {
 		if len(parts) == 0 {
 			return ""
 		}
-		s := strings.Join(parts, "   ")
+		s := m.usageTag() + "  " + strings.Join(parts, "   ")
 		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > 3*claude.UsageEvery {
 			when := u.FetchedAt.Local().Format("15:04")
 			if m.snap.At.Sub(u.FetchedAt) > 20*time.Hour {

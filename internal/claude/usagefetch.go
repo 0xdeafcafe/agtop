@@ -42,14 +42,31 @@ func FetchUsage(ctx context.Context, a Account) (Usage, error) {
 	if err != nil {
 		return Usage{}, ErrNotSignedIn
 	}
-	u, err := FetchUsageWith(ctx, raw)
 	// Whose reading this is: ~/.claude may be signed in as another account
 	// by the time it's looked at, and the sign-in may not be the account
-	// the folder names.
-	u.AccountID = who
-	if id, oerr := Owner(ctx, raw); oerr == nil {
-		u.AccountID = id
+	// the folder names. Unless Anthropic says whose, it's no one's.
+	id, err := Owner(ctx, raw)
+	if err != nil {
+		return Usage{AccountID: who}, fmt.Errorf("couldn't tell whose sign-in it is: %w", err)
 	}
+	u, err := FetchUsageWith(ctx, raw)
+	u.AccountID = id
+	return u, err
+}
+
+// FetchUsageAs is FetchUsageWith for a sign-in kept as account id's: it's
+// asked only once Anthropic says the sign-in is id's, so a sign-in kept
+// under the wrong name never gives its reading to another account.
+func FetchUsageAs(ctx context.Context, raw []byte, id string) (Usage, error) {
+	owner, err := Owner(ctx, raw)
+	switch {
+	case err != nil:
+		return Usage{}, fmt.Errorf("couldn't tell whose sign-in it is: %w", err)
+	case owner != id:
+		return Usage{}, errors.New("agtop's sign-in for it is another account's; sign in again")
+	}
+	u, err := FetchUsageWith(ctx, raw)
+	u.AccountID = id
 	return u, err
 }
 

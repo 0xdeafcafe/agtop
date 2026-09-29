@@ -239,15 +239,6 @@ func (b *broker) fromAgtop(ctx context.Context, method string, params jsontext.V
 			return nil, fmt.Errorf("%s is not running", p.Plugin)
 		}
 		return r.mcp(ctx, p.Session, p.Message), nil
-	case "cli":
-		var p struct {
-			Plugin string        `json:"plugin"`
-			Run    plugin.CLIRun `json:"run"`
-		}
-		if err := jsonx.Unmarshal(params, &p); err != nil {
-			return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: err.Error()}
-		}
-		return b.cli(ctx, p.Plugin, p.Run)
 	case "reload":
 		go b.reload()
 		return map[string]any{}, nil
@@ -255,32 +246,6 @@ func (b *broker) fromAgtop(ctx context.Context, method string, params jsontext.V
 		return b.status(), nil
 	}
 	return nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: "method not found: " + method}
-}
-
-// cli runs one of a plugin's CLI commands, for `agtop <plugin> <command>`.
-func (b *broker) cli(ctx context.Context, name string, run plugin.CLIRun) (plugin.CLIResult, error) {
-	r := b.runner(name)
-	if r == nil {
-		b.reload() // a broker the CLI just started
-		if r = b.runner(name); r == nil {
-			return plugin.CLIResult{}, fmt.Errorf("%s is not running", name)
-		}
-	}
-	conn, err := r.wait(ctx)
-	if err != nil {
-		return plugin.CLIResult{}, err
-	}
-	p, _ := r.live()
-	if err := p.CheckCLIRun(run); err != nil {
-		return plugin.CLIResult{}, &plugin.Error{Code: plugin.CodeInvalidParams, Message: err.Error()}
-	}
-	ctx, cancel := context.WithTimeout(ctx, plugin.CLITimeout)
-	defer cancel()
-	var out plugin.CLIResult
-	if err := conn.Call(ctx, "cli.run", run, &out); err != nil {
-		return plugin.CLIResult{}, err
-	}
-	return out.Clip(), nil
 }
 
 // Status is what the broker says about one plugin.

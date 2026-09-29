@@ -61,7 +61,7 @@ A plugin can also take part in agtop's own window, as far as its manifest's `ui`
 - **`notify`**: show a short message at the bottom of the screen, a few at a time.
 - **`send`** (needs `events`): send a message as if you'd typed it, only to sessions in its workspaces that still ask you before acting, ten a minute at most.
 
-`commands` adds commands to the `#` commands, the command bar and the keymap, as `plugin:<name>.<command>`. `settings` adds settings under Settings, Plugins; agtop keeps their values where the plugin can't write, and tells it when you change one. `cli` adds commands to agtop's CLI, as `agtop <plugin> <command>`: the plugin runs them, with what it may do, and agtop prints what it answers; `agtop help` lists them.
+`commands` adds commands to the `#` commands, the command bar and the keymap, as `plugin:<name>.<command>`. `settings` adds settings under Settings, Plugins; agtop keeps their values where the plugin can't write, and tells it when you change one.
 
 None of it can slow agtop down. agtop hands the broker events without waiting, draws what plugins added from a copy it already holds, and a plugin that falls behind only loses its own oldest events. What a plugin added goes when it stops.
 

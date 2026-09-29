@@ -129,6 +129,17 @@ func (m *Model) startTag() string {
 	return strings.Join(parts, faint(" · "))
 }
 
+// usageTag is whose usage the header shows: the provider's glyph, the
+// account new sessions start on, and their profile, always named.
+func (m *Model) usageTag() string {
+	l := lookOf(agent.Kind(m.startKind()))
+	s := paint(l.colour(), l.glyph) + " " + paint(cText, m.startAccount())
+	if p := m.startProfile(m.startDir()).Name; p != "" {
+		s += faint(" · ") + dim(p)
+	}
+	return s
+}
+
 // startWith is what a new session in dir starts as: its agent, the model
 // and effort that agent's Settings page gives it (the agent's own default
 // when it gives none), and the profile when there's more than one or

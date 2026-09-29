@@ -581,8 +581,8 @@ func (m *Model) accountsBody(w int) []string {
 	out = append(out, line, "")
 	// Name, email, plan, two limit windows, running: the email gives way
 	// first, then the second window.
-	cols := []int{28, 28, 12, 19, 19, 8}
-	if w < 116 {
+	cols := []int{28, 28, 12, 23, 23, 8}
+	if w < 124 {
 		cols[4] = 0
 	}
 	room := func() int { return w - 4 - cols[0] - cols[2] - cols[3] - cols[4] - cols[5] }
@@ -748,9 +748,9 @@ func (m *Model) limits(r acctRow, w1, w2 int) string {
 		}
 		win := q.Windows[i]
 		pct := fmt.Sprintf("%3.0f%%", win.Percent)
-		cell := faint(fit(win.Label, 3)) + bar(win.Percent) + " " + paint(cText, pct)
+		cell := faint(fit(win.Label, 3)) + bar(win.Percent) + " " + paint(cText, pct) + resetIn(win.ResetsAt, m.snap.At, false)
 		if stale {
-			cell = faint(fit(win.Label, 3) + strings.Repeat("▱", 10) + " " + pct)
+			cell = faint(fit(win.Label, 3)+strings.Repeat("▱", 10)+" "+pct) + resetIn(win.ResetsAt, m.snap.At, false)
 		}
 		out += fit(cell, cw)
 	}

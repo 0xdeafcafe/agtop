@@ -18,7 +18,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
 	"github.com/0xdeafcafe/agtop/internal/plugind"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
@@ -61,7 +60,7 @@ func main() {
 			fmt.Println("agtop", version)
 			return
 		case "--help", "-h", "help":
-			fmt.Print(usage + pluginsUsage())
+			fmt.Print(usage)
 			return
 		case "--dump":
 			dump()
@@ -129,11 +128,6 @@ func main() {
 				fmt.Println(`off — "claude agents" opens the native view`)
 			}
 			return
-		}
-		// A plugin's own commands: its name, where agtop's commands take
-		// theirs first.
-		if m, ok := plugin.CLIPlugins()[args[0]]; ok {
-			os.Exit(pluginCLI(args[0], m, args[1:], os.Stdout, os.Stderr))
 		}
 	}
 	// 120 frames a second: a streamed delta reaches the terminal within

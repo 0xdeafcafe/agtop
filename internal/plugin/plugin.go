@@ -131,8 +131,6 @@ type Manifest struct {
 	Commands []CommandSpec `json:"commands,omitempty"`
 	// Settings it offers under Settings, Plugins.
 	Settings []SettingSpec `json:"settings,omitempty"`
-	// CLI is the commands it adds to agtop's CLI: see CLISpec.
-	CLI []CLISpec `json:"cli,omitempty"`
 }
 
 // DefaultMemoryMB is the memory limit a manifest doesn't set.
@@ -273,9 +271,6 @@ func (m Manifest) Validate(dir string) error {
 		return errors.New("an MCP plugin cannot be given the sidebar: it has no way to set it")
 	}
 	if err := m.validateUI(); err != nil {
-		return err
-	}
-	if err := m.validateCLI(); err != nil {
 		return err
 	}
 	if len(m.Prompt) > maxPrompt {
