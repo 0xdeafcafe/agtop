@@ -132,3 +132,28 @@ func TestModelSwitch(t *testing.T) {
 		t.Fatalf("model = %q", s.Model)
 	}
 }
+
+// A background subagent's tool call while the main agent's words stream in
+// doesn't make the whole message draw them a second time.
+func TestSubagentCallMidStreamKeepsWordsOnce(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "go"}, at(0))
+	s.Apply(event.Message{Role: "assistant", ID: "m0", Parts: []event.Part{
+		{Kind: event.ToolCall, Call: &tool.Call{ID: "task", Name: "Agent", Kind: tool.Subagent}},
+	}}, at(1))
+	s.Apply(event.MessageStart{ID: "m1"}, at(2))
+	s.Apply(event.Delta{Kind: event.Text, Text: "Only vf-runner"}, at(2))
+	s.Apply(event.Message{Role: "assistant", Parent: "task", Parts: []event.Part{
+		{Kind: event.ToolCall, Call: &tool.Call{ID: "b1", Name: "Bash", Kind: tool.Shell, Input: tool.Input{Command: "go vet ./... && echo vet-ok"}}},
+	}}, at(3))
+	s.Apply(event.Message{Role: "assistant", ID: "m1", Parts: []event.Part{{Kind: event.Text, Text: "Only vf-runner is still running."}}}, at(4))
+	n := 0
+	for _, it := range s.Turns[len(s.Turns)-1].Items {
+		if it.Kind == KText {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("text items = %d, want 1", n)
+	}
+}

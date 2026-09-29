@@ -549,7 +549,11 @@ func (s *Session) words(t *Turn, text string) {
 // call makes a step of a tool call, in turn t under parent.
 func (s *Session) call(c *tool.Call, parent *Step, t *Turn, sub bool, now time.Time) {
 	name, input := stepTool(c)
-	s.streaming = nil
+	if !sub {
+		// A background subagent's call lands mid-stream too: it doesn't
+		// end the main agent's words, or they'd be drawn twice.
+		s.streaming = nil
+	}
 	s.tool(name).Calls++
 	if s.light {
 		// Counted and timed, never drawn: only calls still out are kept.
