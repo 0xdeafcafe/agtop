@@ -296,7 +296,11 @@ type listLine struct {
 
 func sectionKey(title string) string { return "§" + title }
 
-func New(store *state.Store, version string) *Model {
+func New(store *state.Store, version string) *Model { return newModel(store, version, false) }
+
+// newModel is New, leaving past conversations out of its readings when
+// skipPast (see fleet.Loader.SkipPast) until something needs every agent.
+func newModel(store *state.Store, version string, skipPast bool) *Model {
 	dir, _ := os.Getwd()
 	m := &Model{
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
@@ -308,6 +312,7 @@ func New(store *state.Store, version string) *Model {
 	// Each second's refresh reads only what changed on disk; everything
 	// is read afresh every few seconds all the same.
 	m.loader.Watch(5 * time.Second)
+	m.loader.SkipPast(skipPast)
 	if store.Config.GroupBy == "" {
 		store.Config.GroupBy = "status"
 	}

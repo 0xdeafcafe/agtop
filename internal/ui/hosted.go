@@ -16,8 +16,13 @@ import (
 // and Settings open with ctrl+\, and Agents is this session. id is the
 // session's agtop id. Only ctrl+q quits: esc leaves the message box, then
 // stops the turn. The session's host keeps running.
+//
+// Past conversations are left out until its Agents list or the command bar
+// needs every agent: finding them reads every transcript, and one in a
+// folder macOS guards (Desktop, say) would hold the view behind a privacy
+// prompt the embedding app has to answer.
 func NewHosted(store *state.Store, version, id string) *Model {
-	m := New(store, version)
+	m := newModel(store, version, true)
 	m.hosted = id
 	m.onboard = false
 	m.snap = m.hostedSnap(m.loader.Load(true))
@@ -60,6 +65,15 @@ func (m *Model) hostedAlone() bool { return m.hosted != "" && !m.hostedList }
 // ctrl+6, which terminals send as ctrl+^ unless they speak the kitty
 // keyboard protocol.
 func listToggleKey(s string) bool { return s == "ctrl+6" || s == "ctrl+^" || s == "ctrl+shift+6" }
+
+// everyAgent has the next reading take in past conversations, which
+// hosted leaves out until something shows every agent.
+func (m *Model) everyAgent() {
+	if m.hosted != "" && m.loader != nil {
+		m.loader.SkipPast(false)
+		m.refresh()
+	}
+}
 
 // allAgents is every agent, hosted's hidden ones included: what the
 // command bar searches and goes to.
@@ -104,6 +118,7 @@ func (m *Model) toggleList() tea.Cmd {
 	if m.hosted != "" {
 		m.hostedList, m.hostedAway = !m.hostedList, false
 		if m.hostedList {
+			m.everyAgent()
 			m.full, m.preview, m.paneFocus = false, true, false
 			m.flash("Agents beside the session · ctrl+6 or esc hides them", false)
 		} else {

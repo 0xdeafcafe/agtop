@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -264,6 +265,20 @@ type Loader struct {
 	others   map[string]othersListing
 	spendVer map[string]int
 	watching *watching
+	// skipPast leaves past conversations out: see SkipPast.
+	skipPast atomic.Bool
+}
+
+// SkipPast leaves the conversations nothing has open out of each reading,
+// or puts them back in the next one: finding them reads every transcript
+// and the repository of each.
+func (l *Loader) SkipPast(on bool) {
+	if l.skipPast.Swap(on) == on || on {
+		return
+	}
+	l.inMu.Lock()
+	l.in.stale = true
+	l.inMu.Unlock()
 }
 
 // printEntry remembers whether a pid runs claude -p, by its start time.
@@ -515,6 +530,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		}
 	}
 	l.began()
+	skipPast := l.skipPast.Load()
 	snap := &Snapshot{At: now}
 	cfg := l.store.Config
 	ov := l.store.Overlay
@@ -725,6 +741,10 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			av.Today += a.Spend.Today
 			snap.Agents = append(snap.Agents, a)
 		}
+		if skipPast {
+			snap.Accounts = append(snap.Accounts, av)
+			continue
+		}
 		for _, a := range l.pastAgents(acct, claimed, seen, now) {
 			av.Agents++
 			av.Spend += a.Spend.Cost
@@ -740,7 +760,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			snap.Agents = append(snap.Agents, l.hostedAgent(claude.Account{Name: info.Account}, info, tab, now))
 		}
 	}
-	snap.Agents = append(snap.Agents, l.otherAgents(active.Profile().Kind, claimed, seen, now)...)
+	snap.Agents = append(snap.Agents, l.otherAgents(active.Profile().Kind, claimed, seen, now, skipPast)...)
 	// Rows kept from one reading to the next (past conversations) are
 	// the loader's: the snapshot gets its own, which the UI may change
 	// while the next reading is made.

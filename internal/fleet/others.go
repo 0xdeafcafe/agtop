@@ -20,9 +20,9 @@ type othersListing struct {
 // otherAgents are the sessions of every agent that can list them but
 // home, whose are found by Load's own account loop, less those a row already
 // stands for: running ones (a codex in a terminal), which agtop can only
-// show, and past ones, which a message resumes in agtop mode with their
-// agent.
-func (l *Loader) otherAgents(home agent.Kind, claimed, seen map[string]bool, now time.Time) []*Agent { //nolint:gocognit // one listing per agent, each kept a while
+// show, and past ones, unless skipPast, which a message resumes in agtop
+// mode with their agent.
+func (l *Loader) otherAgents(home agent.Kind, claimed, seen map[string]bool, now time.Time, skipPast bool) []*Agent { //nolint:gocognit // one listing per agent, each kept a while
 	if l.others == nil {
 		l.others = map[string]othersListing{}
 	}
@@ -43,6 +43,9 @@ func (l *Loader) otherAgents(home agent.Kind, claimed, seen map[string]bool, now
 				ag := l.otherRow(a, p, s, key, now)
 				ag.State, ag.Interactive = s.State, true
 				out = append(out, ag)
+			}
+			if skipPast {
+				continue
 			}
 			ls, ok := l.others[p.Dir]
 			if !ok || now.Sub(ls.at) >= othersEvery {

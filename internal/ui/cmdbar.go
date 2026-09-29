@@ -147,6 +147,7 @@ func (m *Model) barToggle(s string) (tea.Cmd, bool) {
 	if s == "ctrl+k" && m.canCut() {
 		return nil, false
 	}
+	m.everyAgent()
 	m.openBar(s == "ctrl+f")
 	return nil, true
 }
