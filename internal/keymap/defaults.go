@@ -45,6 +45,7 @@ var Defaults = []Action{
 	{ID: "list.editor", Context: List, Title: "write what's typed in your editor", Keys: []string{"ctrl+g"}},
 	{ID: "list.image", Context: List, Title: "paste an image", Keys: []string{"ctrl+v"}},
 	{ID: "list.focus", Context: List, Title: "into the Session, and back", Keys: []string{"tab"}},
+	{ID: "list.toggle", Context: List, Title: "Agents beside the Session", Keys: []string{"ctrl+6", "ctrl+^", "ctrl+shift+6"}},
 
 	{ID: "session.send", Context: Session, Title: "send now, the queue first", Keys: []string{"ctrl+s"}},
 	{ID: "session.enter", Context: Session, Title: "send, or open what's picked", Keys: []string{"enter"}},
@@ -79,6 +80,7 @@ var Defaults = []Action{
 	{ID: "session.editor", Context: Session, Title: "write what's typed in your editor", Keys: []string{"ctrl+g"}},
 	{ID: "session.image", Context: Session, Title: "paste an image", Keys: []string{"ctrl+v"}},
 	{ID: "session.focus", Context: Session, Title: "back to Agents, and in again", Keys: []string{"tab"}},
+	{ID: "session.list", Context: Session, Title: "Agents beside the Session", Keys: []string{"ctrl+6", "ctrl+^", "ctrl+shift+6"}},
 }
 
 // CommandID is the action that runs a # command.

@@ -1216,7 +1216,7 @@ func (m *Model) syncHost() tea.Cmd {
 	}
 	m.dropHost()
 	m.hostOpening = a.Key
-	o := convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hosted != ""}
+	o := convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()}
 	if fromFile {
 		return warmed(openTail(a), o)
 	}
@@ -1436,7 +1436,7 @@ func (m *Model) agtopPane(w, h int) []string {
 	bodyH := max(3, h-len(head)-len(dock))
 
 	o := convo.Options{Width: w, Now: time.Now(), Tick: m.tick, Open: c.open, Verbose: c.verbose,
-		Selected: c.sel, Focused: m.paneFocus, Wide: m.hosted != ""}
+		Selected: c.sel, Focused: m.paneFocus, Wide: m.hostedAlone()}
 	var body []convo.Line
 	view := m.viewName(c)
 	if m.zen {
@@ -1683,7 +1683,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	// the right lines up with the conversation's own right edge.
 	alone := m.paneAlone()
 	hw := w
-	if alone && m.hosted == "" {
+	if alone && !m.hostedAlone() {
 		hw = min(w, maxPane-3)
 	}
 	title := faint("SESSION  ")
@@ -1750,7 +1750,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	if c.verbose {
 		chips += paint(cOrange, "ctrl+o all shown") + "  "
 	}
-	if alone && m.hosted == "" {
+	if alone && !m.hostedAlone() {
 		// Nothing says the list is behind it but this.
 		chips += paint(cText, "esc") + dim(" back to the list") + " "
 	}
@@ -2034,8 +2034,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	out = append(out, b.lines()...)
 	pairs := []string{"enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list"}
 	switch {
-	case m.hosted != "":
+	case m.hostedAlone():
 		pairs[4], pairs[5] = "esc", "close"
+		pairs = append(pairs[:6:6], append([]string{"ctrl+6", "Agents"}, pairs[6:]...)...)
 	case m.store.Config.View == "agent" && m.chatAlone() && !m.zen:
 		pairs[5] = "peek at Agents"
 	}
@@ -2052,7 +2053,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	hint := keysFit(w-4, append(pairs, "[ ]", "views", "↑", "pick a step", "ctrl+o", "show all", "ctrl+x", "stop turn")...)
 	if m.watchingSub(c) {
 		back := "back to the list"
-		if c.subBack || m.hosted != "" {
+		if c.subBack || m.hostedAlone() {
 			back = "back to the conversation"
 		}
 		hint = keysFit(w-4, "enter", "send to the main session", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat", "ctrl+o", "show all")
@@ -2285,7 +2286,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.closeSub(c)
 		case m.zen:
 			// Zen keeps the keys on the agent; tab or ctrl+z leaves zen.
-		case m.hosted != "":
+		case m.hostedAlone():
 			// Alone, there's nothing behind it: esc closes the view and
 			// the session carries on.
 			m.scanner.Flush()
@@ -2926,7 +2927,7 @@ func (m *Model) clickRow(c *hostConn, y int) {
 // leavePane gives the keys back to the list. On a narrow screen, where the
 // conversation filled it, the list comes back too.
 func (m *Model) leavePane() {
-	if m.hosted != "" {
+	if m.hostedAlone() {
 		return // there's no list to go back to
 	}
 	m.paneFocus = false

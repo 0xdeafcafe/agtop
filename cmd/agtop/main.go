@@ -47,7 +47,7 @@ const usage = `agtop — a lighter agents view for Claude Code
   agtop plugin      sandboxed plugins: list, approve, revoke
   agtop session     start, send to, stop and list agtop-mode sessions without
                     the view ("agtop session help" for the commands)
-  agtop open <id> --embedded
+  agtop open <id> --hosted
                     the view of one agtop-mode session alone, full width
   agtop --dump      print what the view sees, for debugging
 `

@@ -237,6 +237,8 @@ type Model struct {
 	// hosted is the agtop-mode session shown alone (NewHosted), and hostedKey
 	// its agent's key once the snapshot has it.
 	hosted, hostedKey string
+	// hostedList is hosted with Agents shown beside the session (ctrl+6).
+	hostedList bool
 	// snapWanted is a reading of the fleet asked for, snapLoading one
 	// being made; selectOnLoad is an agent to select once one has it.
 	snapWanted, snapLoading bool

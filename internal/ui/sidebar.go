@@ -43,7 +43,7 @@ func (m *Model) groupLabel(mode string) string {
 // Embedded shows one session and is never arranged.
 func (m *Model) activeSidebar() *plugin.Sidebar {
 	name, ok := strings.CutPrefix(m.store.Config.GroupBy, pluginGroupPrefix)
-	if !ok || m.hosted != "" {
+	if !ok || m.hostedAlone() {
 		return nil
 	}
 	for i := range m.sidebars {
@@ -57,7 +57,7 @@ func (m *Model) activeSidebar() *plugin.Sidebar {
 // loadSidebars reads the plugins' arrangements again where their files
 // changed.
 func (m *Model) loadSidebars() {
-	if m.hosted != "" {
+	if m.hostedAlone() {
 		m.sidebars = nil
 		return
 	}

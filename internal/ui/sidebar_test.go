@@ -111,9 +111,9 @@ func TestSidebarIgnoredWhenRevokedOrHosted(t *testing.T) {
 	store := state.Load()
 	store.Config.GroupBy = "plugin:kanban"
 
-	embedded := NewHosted(store, "test", "aaaa1111")
-	if embedded.activeSidebar() != nil || embedded.snap.Agents[0].DisplayName != "session a" {
-		t.Fatal("embedded was arranged by the plugin")
+	hosted := NewHosted(store, "test", "aaaa1111")
+	if hosted.activeSidebar() != nil || hosted.snap.Agents[0].DisplayName != "session a" {
+		t.Fatal("hosted was arranged by the plugin")
 	}
 
 	m := New(store, "test")

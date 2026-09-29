@@ -23,34 +23,93 @@ func NewHosted(store *state.Store, version, id string) *Model {
 	return m
 }
 
-// hostedSnap is a snapshot of every agent as the view takes it; in embedded only
-// the one session is in it, so nothing else is listed, counted or acted on.
+// hostedSnap is a snapshot of every agent as the view takes it; in hosted,
+// unless its list is shown (ctrl+6), only the one session is in it, so
+// nothing else is listed, counted or acted on.
 func (m *Model) hostedSnap(snap *fleet.Snapshot) *fleet.Snapshot {
 	if m.hosted == "" {
 		return snap
 	}
 	m.fleetAgents = snap.Agents
-	s := *snap
-	s.Agents = nil
+	var mine *fleet.Agent
 	for _, a := range snap.Agents {
 		if a.Agtop && a.ID == m.hosted {
-			s.Agents = append(s.Agents, a)
+			mine = a
 			m.hostedKey = a.Key
 			break
 		}
 	}
+	if m.hostedList {
+		return snap
+	}
+	s := *snap
+	s.Agents = nil
+	if mine != nil {
+		s.Agents = append(s.Agents, mine)
+	}
 	return &s
 }
 
-// pinHosted keeps the embedded view on its session, whatever a key or message
+// hostedAlone is hosted showing its one session, the list hidden.
+func (m *Model) hostedAlone() bool { return m.hosted != "" && !m.hostedList }
+
+// listToggleKey is the key that shows and hides Agents beside a Session:
+// ctrl+6, which terminals send as ctrl+^ unless they speak the kitty
+// keyboard protocol.
+func listToggleKey(s string) bool { return s == "ctrl+6" || s == "ctrl+^" || s == "ctrl+shift+6" }
+
+// toggleList shows or hides Agents beside the open Session. In hosted the
+// list comes with every agent, to pick and answer, and the plugin
+// group-by modes; hidden again, the view is back on hosted's own session
+// with hosted's limits. Elsewhere it moves between the split and the
+// Session alone, without changing the layout #view keeps.
+func (m *Model) toggleList() tea.Cmd {
+	if m.hosted != "" {
+		m.hostedList = !m.hostedList
+		if m.hostedList {
+			m.full, m.preview, m.paneFocus = false, true, false
+			m.flash("Agents beside the session · ctrl+6 or esc hides them", false)
+		} else {
+			m.bar, m.picker, m.inKind = nil, nil, inPrompt
+		}
+		// The full fleet is already cached (m.fleetAgents): narrowing or
+		// widening the list is a filter of it, not a fresh disk read.
+		s := *m.snap
+		s.Agents = m.fleetAgents
+		m.snap = m.hostedSnap(&s)
+		m.pinHosted()
+		m.rebuild()
+		return m.loadPreview()
+	}
+	if m.selected() == nil {
+		return nil
+	}
+	if m.listW > 0 && m.chatOpen() {
+		m.full, m.paneFocus = true, true
+		return m.loadPreview()
+	}
+	m.full, m.peekFrom = false, ""
+	if !m.chatOpen() {
+		m.preview = true
+	}
+	if l, _ := m.widths(); l == 0 {
+		// No room for both, or the Session alone is your layout: the list
+		// takes the screen.
+		m.leaveChat()
+	}
+	m.paneFocus = false
+	return m.loadPreview()
+}
+
+// pinHosted keeps the hosted view on its session, whatever a key or message
 // did to the selection. Efficiency, Machine and Settings open as usual;
-// Agents is the one session.
+// Agents is the one session, unless its list is shown.
 func (m *Model) pinHosted() {
 	if m.hosted == "" {
 		return
 	}
 	m.zen, m.peekFrom = false, ""
-	if m.view != placeAgents {
+	if m.view != placeAgents || m.hostedList {
 		return
 	}
 	if m.hostedKey != "" {
@@ -59,12 +118,22 @@ func (m *Model) pinHosted() {
 	m.preview, m.full, m.paneFocus = true, true, true
 }
 
-// hostedKeyGuard drops the keys that would leave the one session in embedded:
+// hostedKeyGuard drops the keys that would leave the one session in hosted:
 // zen, the command bar, tab between list and Session, ctrl+n to the next
 // agent, and , . < > between places, which stay text. ctrl+\ still goes
-// to the next place. It says whether it took the key.
+// to the next place, and ctrl+6 shows or hides Agents beside the session.
+// It says whether it took the key.
 func (m *Model) hostedKeyGuard(s string) (tea.Cmd, bool) {
 	if m.hosted == "" {
+		return nil, false
+	}
+	if m.hostedList {
+		switch {
+		case s == "ctrl+z":
+			return nil, true
+		case s == "esc" && !m.paneFocus && m.mode == modeList && m.dialog == nil && m.picker == nil:
+			return m.toggleList(), true // esc from the list hides it
+		}
 		return nil, false
 	}
 	switch s {

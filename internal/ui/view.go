@@ -590,8 +590,15 @@ func (m *Model) layout() (listW, paneW, bodyH int) {
 // the height, which needs the prompt drawn and so the picker, and #view's
 // picker asks which layout is on.
 func (m *Model) widths() (listW, paneW int) {
-	if m.hosted != "" {
+	if m.hostedAlone() {
 		return 0, m.w // the one session, full width
+	}
+	if m.hosted != "" {
+		// Hosted's list, beside the session when there's room for both.
+		if side := m.sideWidth(); m.w-side-1 >= minPane {
+			return side, m.w - side - 1
+		}
+		return m.w, 0
 	}
 	listW = m.w
 	showing := m.full || m.preview || m.autoSplit()
@@ -1848,7 +1855,11 @@ func (m *Model) badges(a *fleet.Agent) string {
 // box, and a Session filling a narrow screen has its own box too, so there
 // are never two boxes on screen at once.
 func (m *Model) noPrompt() bool {
-	return m.zenFull() || m.hosted != "" || (m.host != nil && m.listW == 0 && (m.preview || m.full) && m.mode == modeList)
+	if m.zenFull() || m.hostedAlone() {
+		return true
+	}
+	l, _ := m.widths()
+	return m.host != nil && l == 0 && (m.preview || m.full) && m.mode == modeList
 }
 
 // promptBoxAt is the Prompt's box at width w, before its labels.
@@ -1968,6 +1979,16 @@ func (m *Model) promptLines(w int) []string {
 		}
 		if m.newer.Version != "" && !m.updating {
 			pairs = append([]string{"#update", "new agtop"}, pairs...)
+		}
+		if m.hosted != "" {
+			// Hosted's list: no command bar, and the way back to the session.
+			var kept []string
+			for i := 0; i+1 < len(pairs); i += 2 {
+				if pairs[i] != "ctrl+k" {
+					kept = append(kept, pairs[i], pairs[i+1])
+				}
+			}
+			pairs = append([]string{"esc · ctrl+6", "hide Agents"}, kept...)
 		}
 		// With one side on screen, how to have both is kept in view.
 		l, p := m.widths()
@@ -2346,6 +2367,7 @@ var helpPages = []struct {
 		{"[ ]", "a place's pages, or a sheet's tabs"},
 		{"tab", "in Agents, between the list and the Session"},
 		{"shift+← →", "resize · past the end, one side alone"},
+		{"ctrl+6", "hide or show Agents beside a Session"},
 		{"#tips", "Getting started again"},
 		{"esc esc", "quit"},
 	}},

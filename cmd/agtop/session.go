@@ -579,11 +579,11 @@ func matches(have, want map[string]string) bool {
 	return true
 }
 
-// openHosted is agtop open <id> [--embedded]: the view of that one session
-// alone. Without --embedded it is the same view.
+// openHosted is agtop open <id> [--hosted]: the view of that one session
+// alone. Without --hosted it is the same view.
 func openHosted(args []string) error {
 	fs := newFlags("open")
-	fs.Bool("embedded", true, "")
+	fs.Bool("hosted", true, "")
 	id, err := idAndFlags(fs, args)
 	if err != nil {
 		return err

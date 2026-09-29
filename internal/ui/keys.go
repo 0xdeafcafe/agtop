@@ -32,6 +32,9 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if cmd, used := m.remapKey(&k, &s); used {
 		return cmd
 	}
+	if listToggleKey(s) && m.confirm == nil && m.sheet == nil && m.bar == nil && m.picker == nil && m.dialog == nil && m.mode == modeList && !m.zen {
+		return m.toggleList()
+	}
 	if cmd, ok := m.hostedKeyGuard(s); ok {
 		return cmd
 	}
