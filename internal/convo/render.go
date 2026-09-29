@@ -2750,18 +2750,23 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		}
 		return g * 2
 	}
+	// A hit whose path would leave its code a sliver puts the path above it
+	// instead, and isn't lined up with the rest.
+	headed := func(path string, pw int) bool { return path != "" && pw > w/2 }
 	prefixW, shared := make([]int, 2*len(d.spans)+2), make([]int, 2*len(d.spans)+2)
 	for g := range shared {
 		shared[g] = -1
 	}
 	for i, l := range lines {
 		l = expandTabs(cleanOutput(l))
-		n, _, lg := code(i, l)
+		n, path, lg := code(i, l)
 		if lg == nil || strings.TrimSpace(l[n:]) == "" {
 			continue
 		}
 		g := group(i, n)
-		prefixW[g] = max(prefixW[g], cellw.String(l[:n]))
+		if pw := cellw.String(l[:n]); !headed(path, pw) {
+			prefixW[g] = max(prefixW[g], pw)
+		}
 		ind := len(l[n:]) - len(strings.TrimLeft(l[n:], " "))
 		if shared[g] < 0 || ind < shared[g] {
 			shared[g] = ind
@@ -2794,7 +2799,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			if sh := shared[g]; sh > 0 && len(body)-len(strings.TrimLeft(body, " ")) >= sh {
 				body = body[sh:]
 			}
-			if path != "" && prefixW[g] > w/2 {
+			if headed(path, cellw.String(l[:n])) {
 				// Long paths would leave the code a sliver at the edge: each
 				// file's path goes above its matches, and they're numbered.
 				if path != head {

@@ -158,6 +158,28 @@ func TestSearchHitsLongPaths(t *testing.T) {
 	}
 }
 
+// Short hits aren't lined up with long paths that went above theirs.
+func TestSearchHitsMixedPaths(t *testing.T) {
+	s := New()
+	s.Info.Cwd = "/work"
+	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 110, Verbose: true, Open: map[string]bool{}}, cw: 110}
+	cmd := "cd /Users/lw/x\ngit show origin/main:platform/app/src/pages/ops/backoffice/_shell.tsx | grep -n \"Container\\|padding\" | head\n" +
+		"grep -rn \"Container\\|padding=\" modules/ops/browser/src/features/backoffice/ui/sections/users-view.tsx modules/ops/browser/src/features/backoffice/ui/sections/*shell* 2>/dev/null | head"
+	in, _ := jsonx.Marshal(map[string]string{"command": cmd})
+	out := "3:import SettingsLayout from \"~/components/SettingsLayout\";\n10: * Renders inside {@link SettingsLayout} so Backoffice uses the same left\n" +
+		"modules/ops/browser/src/features/backoffice/ui/sections/users-view.tsx:504:            paddingX={2}\n" +
+		"modules/ops/browser/src/features/backoffice/ui/sections/backoffice-table-shell.tsx:52:      <Box paddingY={10} paddingX={4}>\n"
+	res, _ := jsonx.Marshal(map[string]string{"stdout": out})
+	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
+	var all []string
+	for _, l := range d.lines {
+		all = append(all, stripANSI(l.Text))
+	}
+	if j := strings.Join(all, "\n"); !strings.Contains(j, "3:import SettingsLayout") && !strings.Contains(j, "3: import SettingsLayout") {
+		t.Errorf("the short hit is pushed along by the long path:\n%s", strings.Join(all, "\n"))
+	}
+}
+
 // Two greps on their own lines, the second with lines around its match:
 // each part is highlighted in its own file's language, and a string one
 // match leaves open doesn't colour the next.
