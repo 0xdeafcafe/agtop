@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"fmt"
 	"io"
 	"os/exec"
 	"slices"
@@ -24,17 +23,23 @@ func (Adapter) Join(p agent.Profile, short string) agent.Terminal {
 
 type joined struct{ *daemon.Session }
 
-// Run says why the daemon refused, in rush's words.
+// Run says why the daemon refused, as rush's errors too.
 func (j joined) Run() error {
 	err := j.Session.Run()
 	switch {
 	case daemon.IsRefusal(err, "EKICKED"):
-		return fmt.Errorf("%w: %w", agent.ErrElsewhere, err)
+		return refusal{err, agent.ErrElsewhere}
 	case daemon.IsRefusal(err, "ENOJOB"):
-		return fmt.Errorf("%w: %w", agent.ErrGone, err)
+		return refusal{err, agent.ErrGone}
 	}
 	return err
 }
+
+// refusal is the daemon's refusal, in its words, that is rush's error too.
+type refusal struct{ err, is error }
+
+func (r refusal) Error() string   { return r.err.Error() }
+func (r refusal) Unwrap() []error { return []error{r.err, r.is} }
 
 func (Adapter) ServiceUp(p agent.Profile) bool { return client(p).Running() }
 
