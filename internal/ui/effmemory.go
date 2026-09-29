@@ -6,10 +6,11 @@ import "github.com/0xdeafcafe/agtop/internal/agent"
 // findings look at: the selected agent's, or the active account's in the
 // folder agtop was started in. ok is false when that agent keeps no
 // memory agtop reads.
-func (m *Model) effMemoryPlace() (cfg, cwd string, ok bool) {
-	cfg, kind := m.store.Config.ActiveAccount().ConfigDir, loginsKind
+func (m *Model) effMemoryPlace() (p agent.Profile, cwd string, ok bool) {
+	p = m.store.Config.ActiveAccount().Profile()
 	if a := m.selected(); a != nil && a.Acct.Dir != "" {
-		cfg, kind = a.Acct.Dir, agent.Kind(a.Kind)
+		p = a.Acct
+		p.Kind = agent.Kind(a.Kind)
 	}
-	return cfg, m.effFolder(), agent.Supports(kind, agent.FeatureMemory)
+	return p, m.effFolder(), agent.Supports(p.Kind, agent.FeatureMemory)
 }

@@ -70,13 +70,7 @@ func NewPlan(env *Env, s *Saver, remove bool) Plan {
 }
 
 // backupFiles are what an install may change, copied first.
-func backupFiles(env *Env) []string {
-	return []string{
-		filepath.Join(env.Acct.ConfigDir, "settings.json"),
-		filepath.Join(env.Acct.ConfigDir, "CLAUDE.md"),
-		env.Acct.StatePath(),
-	}
-}
+func backupFiles(env *Env) []string { return env.Backup }
 
 // Backup copies the files an install may change into a folder of its own,
 // and returns it.
@@ -131,7 +125,7 @@ func (p Plan) Run(env *Env) ([]string, error) {
 	if err != nil {
 		return log, err
 	}
-	fresh := LoadEnv(env.Acct)
+	fresh := LoadEnv(env.Profile)
 	f := fresh.Detect(p.Saver)
 	kind, detail := "install", joinParts(f.Parts)
 	switch {
@@ -143,7 +137,7 @@ func (p Plan) Run(env *Env) ([]string, error) {
 	case p.Remove:
 		kind, detail = "remove", ""
 	}
-	_ = AddEvent(Event{Kind: kind, Saver: p.Saver.ID, Account: env.Acct.ConfigDir, Source: "agtop", Detail: detail})
+	_ = AddEvent(Event{Kind: kind, Saver: p.Saver.ID, Account: env.Profile.Dir, Source: "agtop", Detail: detail})
 	Remember(fresh, p.Saver.ID, f)
 	return log, nil
 }
@@ -179,7 +173,7 @@ func run(env *Env, argv []string) ([]string, error) {
 		bin = p
 	}
 	c := exec.CommandContext(ctx, bin, argv[1:]...)
-	c.Env = append(env.Acct.Env(), "PATH="+strings.Join(searchPath(), string(os.PathListSeparator)), "HOMEBREW_NO_AUTO_UPDATE=1", "CI=1")
+	c.Env = append(append([]string{}, env.Env...), "PATH="+strings.Join(searchPath(), string(os.PathListSeparator)), "HOMEBREW_NO_AUTO_UPDATE=1", "CI=1")
 	c.Dir, _ = os.UserHomeDir()
 	c.Stdin = nil
 	var out bytes.Buffer

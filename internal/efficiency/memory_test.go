@@ -1,4 +1,4 @@
-package efficiency
+package efficiency_test
 
 import (
 	"os"
@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
+	. "github.com/0xdeafcafe/agtop/internal/efficiency"
 )
 
 func TestMemoryFindings(t *testing.T) {
@@ -22,7 +25,7 @@ func TestMemoryFindings(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(mem, "MEMORY.md"), []byte("- [Gone](gone.md) — deleted\n"), 0o644)
 
-	got := MemoryFindings(cfg, cwd)
+	got := MemoryFindings(agent.Profile{Kind: Agent, Dir: cfg}, cwd)
 	if len(got) != 1 {
 		t.Fatalf("findings: %+v", got)
 	}
@@ -30,7 +33,7 @@ func TestMemoryFindings(t *testing.T) {
 	if !strings.Contains(f.Title, "doesn't exist") || !strings.HasPrefix(f.Detail, "In shop: ") || f.Open != filepath.Join(mem, "MEMORY.md") || f.Fix != "" {
 		t.Fatalf("finding: %+v", f)
 	}
-	if MemoryFindings(cfg, "") != nil {
+	if MemoryFindings(agent.Profile{Kind: Agent, Dir: cfg}, "") != nil {
 		t.Fatal("no folder, no findings")
 	}
 }

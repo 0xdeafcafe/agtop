@@ -95,7 +95,7 @@ func Observe(env *Env) map[string]Found {
 		_ = jsonx.Unmarshal(b, &all)
 	}
 	eventsMu.Unlock()
-	acct := env.Acct.ConfigDir
+	acct := env.Profile.Dir
 	before, looked := all[acct]
 	now := map[string]seen{}
 	for id, f := range found {
@@ -138,10 +138,10 @@ func Remember(env *Env, id string, f Found) {
 	if b, err := os.ReadFile(detectedPath()); err == nil {
 		_ = jsonx.Unmarshal(b, &all)
 	}
-	if all[env.Acct.ConfigDir] == nil {
-		all[env.Acct.ConfigDir] = map[string]seen{}
+	if all[env.Profile.Dir] == nil {
+		all[env.Profile.Dir] = map[string]seen{}
 	}
-	all[env.Acct.ConfigDir][id] = seen{f.Status, f.Value}
+	all[env.Profile.Dir][id] = seen{f.Status, f.Value}
 	if b, err := jsonx.Marshal(all); err == nil {
 		_ = writeFile(detectedPath(), b)
 	}

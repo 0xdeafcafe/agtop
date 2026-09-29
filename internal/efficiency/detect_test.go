@@ -1,4 +1,4 @@
-package efficiency
+package efficiency_test
 
 import (
 	"os"
@@ -6,24 +6,26 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	. "github.com/0xdeafcafe/agtop/internal/efficiency"
 )
 
 // testAccount is an account in a folder of its own, on a machine with no
 // programs: what's installed here mustn't change what tests see.
-func testAccount(t *testing.T, settings string) claude.Account {
+func testAccount(t *testing.T, settings string) agent.Profile {
 	t.Helper()
 	t.Setenv("PATH", "")
-	was := searchPath
-	searchPath = func() []string { return nil }
-	t.Cleanup(func() { searchPath = was })
+	was := *SearchPath
+	*SearchPath = func() []string { return nil }
+	t.Cleanup(func() { *SearchPath = was })
 	dir := t.TempDir()
 	if settings != "" {
 		if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(settings), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return claude.Account{Name: "test", ConfigDir: dir}
+	return agent.Profile{Kind: Agent, Name: "test", Dir: dir}
 }
 
 func TestDetect(t *testing.T) {
@@ -31,10 +33,10 @@ func TestDetect(t *testing.T) {
 		"enabledPlugins":{"caveman@caveman":true},
 		"bashOutputMaxChars":15000,
 		"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"sonnet"}}`)
-	_ = os.MkdirAll(filepath.Join(a.ConfigDir, "plugins"), 0o700)
-	_ = os.WriteFile(filepath.Join(a.ConfigDir, "plugins", "installed_plugins.json"),
+	_ = os.MkdirAll(filepath.Join(a.Dir, "plugins"), 0o700)
+	_ = os.WriteFile(filepath.Join(a.Dir, "plugins", "installed_plugins.json"),
 		[]byte(`{"version":2,"plugins":{"caveman@caveman":[{"scope":"user","installedAt":"2026-09-01T10:00:00Z"}]}}`), 0o600)
-	_ = os.WriteFile(filepath.Join(a.ConfigDir, ".claude.json"), []byte(`{"mcpServers":{"serena":{"command":"serena"}}}`), 0o600)
+	_ = os.WriteFile(filepath.Join(a.Dir, ".claude.json"), []byte(`{"mcpServers":{"serena":{"command":"serena"}}}`), 0o600)
 	e := LoadEnv(a)
 
 	if f := e.Detect(Find("rtk")); f.Status == Off {
@@ -71,7 +73,7 @@ func TestSettingPlan(t *testing.T) {
 	if _, err := p.Run(LoadEnv(a)); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := os.ReadFile(filepath.Join(a.ConfigDir, "settings.json"))
+	b, _ := os.ReadFile(filepath.Join(a.Dir, "settings.json"))
 	if !strings.Contains(string(b), `"autoCompactWindow": 400000`) || !strings.Contains(string(b), `"KEEP": "1"`) || !strings.Contains(string(b), `"model": "opus"`) {
 		t.Fatalf("settings after: %s", b)
 	}
@@ -93,7 +95,7 @@ func TestSettingPlan(t *testing.T) {
 	if _, err := rm.Run(LoadEnv(a)); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = os.ReadFile(filepath.Join(a.ConfigDir, "settings.json"))
+	b, _ = os.ReadFile(filepath.Join(a.Dir, "settings.json"))
 	if strings.Contains(string(b), "autoCompactWindow") {
 		t.Fatalf("removing left it: %s", b)
 	}
@@ -108,7 +110,7 @@ func TestObserve(t *testing.T) {
 	if n := len(LoadEvents()); n != 0 {
 		t.Fatalf("first look logged %d events", n)
 	}
-	_ = os.WriteFile(filepath.Join(a.ConfigDir, "settings.json"), []byte(`{"cleanupPeriodDays":90}`), 0o600)
+	_ = os.WriteFile(filepath.Join(a.Dir, "settings.json"), []byte(`{"cleanupPeriodDays":90}`), 0o600)
 	Observe(LoadEnv(a))
 	evs := LoadEvents()
 	if len(evs) != 1 || evs[0].Saver != "history" || evs[0].Source != "noticed" {

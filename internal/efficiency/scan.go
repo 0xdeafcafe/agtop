@@ -5,17 +5,14 @@ package efficiency
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/json/jsontext"
 	"io"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Tool classes: what tool results are counted by. Bash and Read are most of
@@ -246,11 +243,27 @@ func (f *File) pendBucket() Bucket {
 		CR:    u.CacheRead,
 		CW:    u.CacheWrite5m + u.CacheWrite1h,
 		Think: f.PendThink,
-		CIn:   claude.Cost(model, usage.TokenUsage{Input: u.Input}, fast),
-		COut:  claude.Cost(model, usage.TokenUsage{Output: u.Output}, fast),
-		CCR:   claude.Cost(model, usage.TokenUsage{CacheRead: u.CacheRead}, fast),
-		CCW:   claude.Cost(model, usage.TokenUsage{CacheWrite5m: u.CacheWrite5m, CacheWrite1h: u.CacheWrite1h}, fast),
+		CIn:   cost(model, usage.TokenUsage{Input: u.Input}, fast),
+		COut:  cost(model, usage.TokenUsage{Output: u.Output}, fast),
+		CCR:   cost(model, usage.TokenUsage{CacheRead: u.CacheRead}, fast),
+		CCW:   cost(model, usage.TokenUsage{CacheWrite5m: u.CacheWrite5m, CacheWrite1h: u.CacheWrite1h}, fast),
 	}
+}
+
+// cost is what Agent's tokens u cost on model, in its fast mode or not; 0
+// for a model it doesn't price.
+func cost(model string, u usage.TokenUsage, fast bool) float64 {
+	if fast {
+		if fp, ok := agent.As[agent.FastPricer](Agent); ok {
+			c, _ := fp.CostFast(model, u)
+			return c
+		}
+	}
+	if pr, ok := agent.As[agent.Pricer](Agent); ok {
+		c, _ := pr.Cost(model, u)
+		return c
+	}
+	return 0
 }
 
 // commit adds the pending message: a request, its tokens and what it cost.
@@ -309,79 +322,9 @@ func (f *File) EachHour(fn func(hour int64, b *Bucket)) {
 	}
 }
 
-type rawLine struct {
-	Type      string    `json:"type"`
-	Subtype   string    `json:"subtype"`
-	Timestamp time.Time `json:"timestamp"`
-	Cwd       string    `json:"cwd"`
-	SessionID string    `json:"sessionId"`
-	Message   struct {
-		ID      string         `json:"id"`
-		Model   string         `json:"model"`
-		Content jsontext.Value `json:"content"`
-		Usage   *struct {
-			Input       int64  `json:"input_tokens"`
-			Output      int64  `json:"output_tokens"`
-			CacheRead   int64  `json:"cache_read_input_tokens"`
-			CacheCreate int64  `json:"cache_creation_input_tokens"`
-			Speed       string `json:"speed"`
-			Details     *struct {
-				Thinking int64 `json:"thinking_tokens"`
-			} `json:"output_tokens_details"`
-			CacheBreakup *struct {
-				M5 int64 `json:"ephemeral_5m_input_tokens"`
-				H1 int64 `json:"ephemeral_1h_input_tokens"`
-			} `json:"cache_creation"`
-		} `json:"usage"`
-	} `json:"message"`
-	Attachment *struct {
-		Type      string `json:"type"`
-		HookEvent string `json:"hookEvent"`
-		Command   string `json:"command"`
-		Skills    []struct {
-			Name string `json:"name"`
-		} `json:"skills"`
-	} `json:"attachment"`
-	Compact *struct {
-		Trigger string `json:"trigger"`
-		Pre     int64  `json:"preTokens"`
-		Post    int64  `json:"postTokens"`
-	} `json:"compactMetadata"`
-	Content jsontext.Value `json:"content"` // a system line's
-}
-
-type block struct {
-	Type      string         `json:"type"`
-	ID        string         `json:"id"`
-	Name      string         `json:"name"`
-	Input     jsontext.Value `json:"input"`
-	ToolUseID string         `json:"tool_use_id"`
-	Content   jsontext.Value `json:"content"`
-}
-
-// The lines worth decoding carry one of these; the rest (most of the bytes:
-// snapshots, progress, queue operations) are skipped unread.
-var markers = [][]byte{
-	[]byte(`"type":"assistant"`),
-	[]byte(`"tool_result"`),
-	[]byte(`"hook_success"`),
-	[]byte(`"compact_boundary"`),
-	[]byte(`"invoked_skills"`),
-	[]byte(`<command-name>`),
-}
-
-func interesting(b []byte) bool {
-	for _, m := range markers {
-		if bytes.Contains(b, m) {
-			return true
-		}
-	}
-	return false
-}
-
-// Scan reads what was appended to path since f.Offset. Only whole lines
-// are read, so a half-written one is read next time.
-func Scan(path string, f *File, buf []byte) ([]byte, error) {
+// Scan reads what was appended to path since f.Offset, each whole line
+// through src. A half-written line is read next time.
+func Scan(src Source, path string, f *File, buf []byte) ([]byte, error) {
 	fh, err := os.Open(path)
 	if err != nil {
 		return buf, err
@@ -420,21 +363,15 @@ func Scan(path string, f *File, buf []byte) ([]byte, error) {
 			return buf, nil
 		}
 		f.Offset += int64(len(buf))
-		if interesting(buf) {
-			f.consume(buf)
-		}
+		src.ReadLine(f, buf)
 	}
 }
 
-func (f *File) consume(b []byte) {
-	var l rawLine
-	if jsonx.Unmarshal(b, &l) != nil {
-		return
-	}
-	at := l.Timestamp
-	if at.IsZero() {
-		return
-	}
+// What a Source records, line by line.
+
+// Saw is a line written at, by session, in cwd: it keeps the file's span,
+// and its session and folder from the first line that says them.
+func (f *File) Saw(at time.Time, session, cwd string) {
 	if f.First.IsZero() || at.Before(f.First) {
 		f.First = at
 	}
@@ -442,41 +379,85 @@ func (f *File) consume(b []byte) {
 		f.Last = at
 	}
 	if f.Session == "" {
-		f.Session = l.SessionID
+		f.Session = session
 	}
 	if f.Project == "" {
-		f.Project = l.Cwd
-	}
-	switch l.Type {
-	case "assistant":
-		f.assistant(&l, at)
-	case "user":
-		f.user(&l, at)
-	case "attachment":
-		a := l.Attachment
-		if a == nil {
-			return
-		}
-		switch a.Type {
-		case "hook_success":
-			if a.Command != "" {
-				f.use("hook:"+hookKey(a.Command), at)
-			}
-		case "invoked_skills":
-			for _, s := range a.Skills {
-				f.use("skill:"+s.Name, at)
-			}
-		}
-	case "system":
-		if l.Subtype == "compact_boundary" && l.Compact != nil {
-			f.Compacts = append(f.Compacts, Compact{At: at, Auto: l.Compact.Trigger == "auto", Pre: l.Compact.Pre, Post: l.Compact.Post})
-		}
-		var s string
-		if jsonx.Unmarshal(l.Content, &s) == nil {
-			f.slash(s, at)
-		}
+		f.Project = cwd
 	}
 }
+
+// Request is one model request's use, by its id: a message's usage can
+// still change while more of it is written, so it's added once the next
+// one starts.
+func (f *File) Request(id, model string, u usage.TokenUsage, think int64, fast bool, at time.Time) {
+	if id != f.PendID {
+		f.commit()
+	}
+	f.PendID, f.PendModel, f.PendUse, f.PendAt = id, model, u, at
+	f.PendFast, f.PendThink = fast, think
+}
+
+// Call is a tool call of kind k, name being the agent's own name for the
+// tool; its result is counted when Result comes with the same id.
+func (f *File) Call(id string, k tool.Kind, name string, in *tool.Input, at time.Time) {
+	c := toolClass(k, name)
+	if f.Open == nil {
+		f.Open = map[string]uint8{}
+	}
+	switch k {
+	case tool.Shell:
+		if Looks(in.Command) {
+			c |= lookFlag
+		}
+		if w, admin := firstWord(in.Command); w != "" && admin {
+			f.use("bash:"+w+"/admin", at)
+		} else if w != "" {
+			f.use("bash:"+w, at)
+		}
+	case tool.Read:
+		if in.Path != "" {
+			if f.Reads == nil {
+				f.Reads = map[string]int{}
+			}
+			if _, ok := f.Reads[in.Path]; ok || len(f.Reads) < maxReads {
+				f.Reads[in.Path]++
+			}
+		}
+	}
+	if len(f.Open) < maxOpen {
+		f.Open[id] = c
+	}
+}
+
+// Result is what the call id gave back: n bytes of text.
+func (f *File) Result(id string, n int64, at time.Time) {
+	cl, ok := f.Open[id]
+	if !ok {
+		cl = ToolOther
+	}
+	delete(f.Open, id)
+	b := f.hour(at)
+	if cl&lookFlag != 0 {
+		cl &^= lookFlag
+		b.LookCalls++
+		b.Look += n
+	}
+	b.Calls[cl]++
+	b.Bytes[cl] += n
+	if n > BigResult {
+		f.Big++
+	}
+}
+
+// Skill, MCP, Command and Hook are uses of a skill, an MCP server, a slash
+// command and a hook.
+func (f *File) Skill(name string, at time.Time)   { f.use("skill:"+name, at) }
+func (f *File) MCP(server string, at time.Time)   { f.use("mcp:"+server, at) }
+func (f *File) Command(name string, at time.Time) { f.use("cmd:"+name, at) }
+func (f *File) Hook(cmd string, at time.Time)     { f.use("hook:"+hookKey(cmd), at) }
+
+// Compacted is one compaction of the conversation.
+func (f *File) Compacted(c Compact) { f.Compacts = append(f.Compacts, c) }
 
 // hookKey is a hook's command, short enough to keep: agents' hooks are
 // told apart by their program, not their arguments' details.
@@ -486,89 +467,6 @@ func hookKey(cmd string) string {
 		cmd = cmd[:120]
 	}
 	return cmd
-}
-
-func (f *File) slash(s string, at time.Time) {
-	_, rest, ok := strings.Cut(s, "<command-name>")
-	if !ok {
-		return
-	}
-	name, _, ok := strings.Cut(rest, "</command-name>")
-	if ok && name != "" && len(name) < 64 {
-		f.use("cmd:"+name, at)
-	}
-}
-
-func (f *File) assistant(l *rawLine, at time.Time) {
-	m := &l.Message
-	if u := m.Usage; u != nil && m.Model != "" && m.Model != "<synthetic>" {
-		if m.ID != f.PendID {
-			f.commit()
-		}
-		tu := usage.TokenUsage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead}
-		if cb := u.CacheBreakup; cb != nil && cb.M5+cb.H1 > 0 {
-			tu.CacheWrite5m, tu.CacheWrite1h = cb.M5, cb.H1
-		} else {
-			tu.CacheWrite5m = u.CacheCreate
-		}
-		f.PendID, f.PendModel, f.PendUse, f.PendAt = m.ID, m.Model, tu, at
-		f.PendFast = u.Speed == "fast"
-		f.PendThink = 0
-		if u.Details != nil {
-			f.PendThink = u.Details.Thinking
-		}
-	}
-	if !bytes.Contains(m.Content, []byte(`"tool_use"`)) {
-		return
-	}
-	var blocks []block
-	if jsonx.Unmarshal(m.Content, &blocks) != nil {
-		return
-	}
-	for _, bl := range blocks {
-		if bl.Type != "tool_use" {
-			continue
-		}
-		k := claude.KindOf(bl.Name)
-		c := toolClass(k, bl.Name)
-		if f.Open == nil {
-			f.Open = map[string]uint8{}
-		}
-		switch {
-		case k == tool.Shell:
-			cmd := claude.Call(bl.ID, bl.Name, bl.Input).Input.Command
-			if Looks(cmd) {
-				c |= lookFlag
-			}
-			if w, admin := firstWord(cmd); w != "" && admin {
-				f.use("bash:"+w+"/admin", at)
-			} else if w != "" {
-				f.use("bash:"+w, at)
-			}
-		case k == tool.Read:
-			if path := claude.Call(bl.ID, bl.Name, bl.Input).Input.Path; path != "" {
-				if f.Reads == nil {
-					f.Reads = map[string]int{}
-				}
-				if _, ok := f.Reads[path]; ok || len(f.Reads) < maxReads {
-					f.Reads[path]++
-				}
-			}
-		case bl.Name == "Skill":
-			var in struct {
-				Skill string `json:"skill"`
-			}
-			if jsonx.Unmarshal(bl.Input, &in) == nil && in.Skill != "" {
-				f.use("skill:"+in.Skill, at)
-			}
-		case strings.HasPrefix(bl.Name, "mcp__"):
-			server, _, _ := strings.Cut(strings.TrimPrefix(bl.Name, "mcp__"), "__")
-			f.use("mcp:"+server, at)
-		}
-		if len(f.Open) < maxOpen {
-			f.Open[bl.ID] = c
-		}
-	}
 }
 
 const lookFlag = 0x80
@@ -650,67 +548,4 @@ var adminWords = map[string]bool{
 	"init": true, "gain": true, "install": true, "uninstall": true, "setup": true, "help": true,
 	"--help": true, "-h": true, "--version": true, "-V": true, "version": true, "discover": true,
 	"session": true, "verify": true, "telemetry": true, "doctor": true, "config": true,
-}
-
-func (f *File) user(l *rawLine, at time.Time) {
-	c := l.Message.Content
-	if len(c) > 0 && c[0] == '"' {
-		var s string
-		if jsonx.Unmarshal(c, &s) == nil {
-			f.slash(s, at)
-		}
-		return
-	}
-	if !bytes.Contains(c, []byte(`"tool_result"`)) {
-		return
-	}
-	var blocks []block
-	if jsonx.Unmarshal(c, &blocks) != nil {
-		return
-	}
-	for _, bl := range blocks {
-		if bl.Type != "tool_result" {
-			continue
-		}
-		cl, ok := f.Open[bl.ToolUseID]
-		if !ok {
-			cl = ToolOther
-		}
-		delete(f.Open, bl.ToolUseID)
-		n := resultSize(bl.Content)
-		b := f.hour(at)
-		if cl&lookFlag != 0 {
-			cl &^= lookFlag
-			b.LookCalls++
-			b.Look += n
-		}
-		b.Calls[cl]++
-		b.Bytes[cl] += n
-		if n > BigResult {
-			f.Big++
-		}
-	}
-}
-
-// resultSize is how much text a tool result gave back; images count as
-// nothing, being tokens of another kind.
-func resultSize(raw jsontext.Value) int64 {
-	if len(raw) == 0 {
-		return 0
-	}
-	if raw[0] == '"' {
-		return int64(len(raw) - 2)
-	}
-	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if jsonx.Unmarshal(raw, &parts) != nil {
-		return int64(len(raw))
-	}
-	var n int64
-	for _, p := range parts {
-		n += int64(len(p.Text))
-	}
-	return n
 }

@@ -3,23 +3,23 @@ package efficiency
 import (
 	"path/filepath"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
 // MemoryFindings are what's untidy in the memory and instructions a
-// session in cwd loads, for the account in cfg: each says what to do, and
-// enter opens the file to do it in.
-func MemoryFindings(cfg, cwd string) []Finding {
-	if cfg == "" || cwd == "" {
+// session of p's in cwd loads, as its agent's MemoryReader says: each says
+// what to do, and enter opens the file to do it in.
+func MemoryFindings(p agent.Profile, cwd string) []Finding {
+	mr, ok := agent.As[agent.MemoryReader](p.Kind)
+	if p.Dir == "" || cwd == "" || !ok {
 		return nil
 	}
-	r := claude.CheckMemory(cfg, cwd, filepath.Join(cfg, "projects", claude.ProjectSlug(cwd)))
 	var out []Finding
-	for i, p := range r.Problems {
+	for i, pr := range mr.Memory(p, cwd, "").Problems {
 		out = append(out, Finding{
-			Title:  p.Title,
-			Detail: "In " + filepath.Base(cwd) + ": " + p.Fix,
-			Open:   p.Path,
+			Title:  pr.Title,
+			Detail: "In " + filepath.Base(cwd) + ": " + pr.Fix,
+			Open:   pr.Path,
 			rank:   2 + i,
 		})
 	}

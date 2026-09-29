@@ -8,6 +8,12 @@ type DefaultModeler interface {
 	DefaultModel() string
 }
 
+// FastPricer is a Pricer whose requests can run in a faster mode, at
+// prices of their own.
+type FastPricer interface {
+	CostFast(model string, u usage.TokenUsage) (float64, bool)
+}
+
 // Price is what agent k's tokens u cost on model, at its default model's
 // prices when model has none; false when k can't say.
 func Price(k Kind, model string, u usage.TokenUsage) (float64, bool) {

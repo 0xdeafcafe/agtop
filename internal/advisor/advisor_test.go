@@ -12,7 +12,6 @@ import (
 
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 )
 
@@ -140,7 +139,7 @@ func TestPass(t *testing.T) {
 	now := time.Now()
 	in := Input{View: &efficiency.View{Q: efficiency.Query{From: now.Add(-time.Hour), To: now}, Total: efficiency.Bucket{Req: 1}}}
 	in.Pending = []Finding{{ID: "old", Title: "Left from before", Weekly: 2, Status: Candidate}}
-	res := Pass(context.Background(), claude.Account{ConfigDir: t.TempDir()}, in, 1)
+	res := Pass(context.Background(), agent.Profile{Kind: efficiency.Agent, Dir: t.TempDir()}, in, 1)
 	if res.Err != nil {
 		t.Fatal(res.Err)
 	}
@@ -179,7 +178,7 @@ func TestPassFails(t *testing.T) {
 	fakeClaude(t, `{"type":"result","is_error":true,"subtype":"error_max_budget_usd","total_cost_usd":0.15,"result":"over budget"}`, `{}`)
 	now := time.Now()
 	in := Input{View: &efficiency.View{Q: efficiency.Query{From: now, To: now}}}
-	res := Pass(context.Background(), claude.Account{ConfigDir: t.TempDir()}, in, 3)
+	res := Pass(context.Background(), agent.Profile{Kind: efficiency.Agent, Dir: t.TempDir()}, in, 3)
 	if res.Err == nil || !strings.Contains(res.Err.Error(), "budget") || res.Spent != 0.15 {
 		t.Fatalf("err %v spent %v: want the failure said, and its cost counted", res.Err, res.Spent)
 	}
@@ -216,7 +215,7 @@ func TestPassSkipsSettled(t *testing.T) {
 		`{"type":"result","total_cost_usd":0.5,"structured_output":{"confirmed":true,"note":"","title":"x","detail":"","evidence":[],"weeklyCost":9,"fix":"","open":""}}`)
 	now := time.Now()
 	in := Input{View: &efficiency.View{Q: efficiency.Query{From: now, To: now}}, Settled: []string{idOf("old  NEWS")}}
-	res := Pass(context.Background(), claude.Account{ConfigDir: t.TempDir()}, in, 3)
+	res := Pass(context.Background(), agent.Profile{Kind: efficiency.Agent, Dir: t.TempDir()}, in, 3)
 	if len(res.Findings) != 0 || len(res.Reviewed) != 0 {
 		t.Fatalf("a settled finding was proposed or reviewed again: %+v", res)
 	}
@@ -250,12 +249,12 @@ func TestLock(t *testing.T) {
 }
 
 func TestActive(t *testing.T) {
-	acct := claude.Account{ConfigDir: t.TempDir()}
+	acct := agent.Profile{Kind: efficiency.Agent, Dir: t.TempDir()}
 	since := time.Now().Add(-time.Minute)
 	if Active(acct, since) {
 		t.Fatal("active with no transcripts")
 	}
-	dir := filepath.Join(acct.ProjectsDir(), "proj")
+	dir := filepath.Join(efficiency.TranscriptsDir(acct), "proj")
 	_ = os.MkdirAll(dir, 0o700)
 	p := filepath.Join(dir, "s.jsonl")
 	_ = os.WriteFile(p, []byte("{}"), 0o600)
@@ -279,7 +278,7 @@ func TestFailedReviews(t *testing.T) {
 	in := Input{View: &efficiency.View{Q: efficiency.Query{From: now, To: now}},
 		Pending: []Finding{{ID: idOf("Flaky"), Title: "Flaky", Weekly: 9, Status: Candidate, Tries: Tries - 1}},
 		Reserve: func() error { reserved++; return nil }}
-	res := Pass(context.Background(), claude.Account{ConfigDir: t.TempDir()}, in, 3)
+	res := Pass(context.Background(), agent.Profile{Kind: efficiency.Agent, Dir: t.TempDir()}, in, 3)
 	if reserved != 1 || len(res.Reviewed) != 1 {
 		t.Fatalf("%d reserved, %d reviewed: want each review reserved before it runs", reserved, len(res.Reviewed))
 	}

@@ -11,8 +11,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/advisor"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 )
 
@@ -138,23 +138,23 @@ func (m *Model) effLoad(scan bool) tea.Cmd {
 	}
 	e.loading = true
 	store := e.store
-	active := m.store.Config.ActiveAccount()
+	active := m.store.Config.ActiveAccount().Profile()
 	q := m.effQuery()
 	gains := time.Since(e.gainsAt) > 15*time.Minute
-	memCfg, memDir, memOK := m.effMemoryPlace()
+	memAt, memDir, memOK := m.effMemoryPlace()
 	return func() tea.Msg {
 		if store == nil {
 			store, scan = efficiency.Open(), true
 		}
 		if scan {
-			store.Refresh([]claude.Account{active})
+			store.Refresh([]agent.Profile{active})
 		}
 		msg := effLoadedMsg{store: store, view: store.View(q)}
 		msg.found = efficiency.Observe(efficiency.LoadEnv(active))
 		msg.events = efficiency.LoadEvents()
 		msg.adv = advisor.Load()
 		if memOK {
-			msg.memory = efficiency.MemoryFindings(memCfg, memDir)
+			msg.memory = efficiency.MemoryFindings(memAt, memDir)
 		}
 		if gains {
 			msg.gains, _ = efficiency.RTKGains()
@@ -202,7 +202,7 @@ func (m *Model) effPlan(s *efficiency.Saver, remove bool) tea.Cmd {
 	e := &m.eff
 	want := &efficiency.Plan{Saver: s, Remove: remove}
 	e.plan, e.planning, e.ran, e.failed, e.log = want, true, false, false, nil
-	acct := m.store.Config.ActiveAccount()
+	acct := m.store.Config.ActiveAccount().Profile()
 	return sheetDo(func() (efficiency.Plan, error) {
 		return efficiency.NewPlan(efficiency.LoadEnv(acct), s, remove), nil
 	}, func(m *Model, p efficiency.Plan, _ error) tea.Cmd {
@@ -220,7 +220,7 @@ func (m *Model) effRun() tea.Cmd {
 	}
 	e.running = true
 	p := *e.plan
-	acct := m.store.Config.ActiveAccount()
+	acct := m.store.Config.ActiveAccount().Profile()
 	return func() tea.Msg {
 		log, err := p.Run(efficiency.LoadEnv(acct))
 		return effRanMsg{log: log, err: err}

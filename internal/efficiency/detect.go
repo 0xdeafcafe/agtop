@@ -9,8 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/settingsfile"
 )
 
 // Status is how far a saver is set up.
@@ -31,61 +32,30 @@ type Found struct {
 	Value  string    // a setting's value
 }
 
-// Env is an account's setup as detection needs it, read once per look.
+// Env is a home's setup as detection needs it, read once per look.
 type Env struct {
-	Acct     claude.Account
-	Settings *claude.Settings
-	hooks    []string // every hook command in settings.json
-	enabled  map[string]bool
-	plugins  map[string]time.Time // installed plugin → installed at
-	mcp      map[string]bool
+	Profile agent.Profile
+	Setup
 }
 
-// LoadEnv reads an account's settings, plugins and MCP servers.
-func LoadEnv(a claude.Account) *Env {
-	e := &Env{Acct: a, enabled: map[string]bool{}, plugins: map[string]time.Time{}, mcp: map[string]bool{}}
-	e.Settings, _ = claude.LoadSettings(a)
+// LoadEnv reads a home's settings, plugins and MCP servers, through
+// Agent's Source.
+func LoadEnv(p agent.Profile) *Env {
+	e := &Env{Profile: p}
+	if src, ok := source(); ok {
+		e.Setup = src.Setup(p)
+	}
 	if e.Settings == nil {
-		e.Settings, _ = claude.LoadSettingsFile(os.DevNull)
+		e.Settings, _ = settingsfile.Load(os.DevNull)
 	}
-	var hooks map[string][]struct {
-		Hooks []struct {
-			Command string `json:"command"`
-		} `json:"hooks"`
+	if e.Enabled == nil {
+		e.Enabled = map[string]bool{}
 	}
-	e.Settings.Get("hooks", &hooks)
-	for _, groups := range hooks {
-		for _, g := range groups {
-			for _, h := range g.Hooks {
-				e.hooks = append(e.hooks, h.Command)
-			}
-		}
+	if e.Plugins == nil {
+		e.Plugins = map[string]time.Time{}
 	}
-	e.Settings.Get("enabledPlugins", &e.enabled)
-	var inst struct {
-		Plugins map[string][]struct {
-			Scope       string    `json:"scope"`
-			InstalledAt time.Time `json:"installedAt"`
-		} `json:"plugins"`
-	}
-	if b, err := os.ReadFile(filepath.Join(a.ConfigDir, "plugins", "installed_plugins.json")); err == nil {
-		_ = jsonx.Unmarshal(b, &inst)
-	}
-	for id, list := range inst.Plugins {
-		for _, p := range list {
-			if p.Scope == "user" || e.plugins[id].IsZero() {
-				e.plugins[id] = p.InstalledAt
-			}
-		}
-	}
-	var st struct {
-		MCP map[string]jsontext.Value `json:"mcpServers"`
-	}
-	if b, err := os.ReadFile(a.StatePath()); err == nil {
-		_ = jsonx.Unmarshal(b, &st)
-	}
-	for name := range st.MCP {
-		e.mcp[name] = true
+	if e.MCP == nil {
+		e.MCP = map[string]bool{}
 	}
 	return e
 }
@@ -131,7 +101,7 @@ func (e *Env) Detect(s *Saver) Found {
 		}
 	}
 	for _, h := range d.Hooks {
-		for _, c := range e.hooks {
+		for _, c := range e.Hooks {
 			if strings.Contains(c, h) && !hook {
 				hook = true
 				f.Parts = append(f.Parts, "hook in settings.json")
@@ -139,8 +109,8 @@ func (e *Env) Detect(s *Saver) Found {
 		}
 	}
 	for _, id := range d.Plugins {
-		if t, ok := e.plugins[id]; ok {
-			if e.enabled[id] {
+		if t, ok := e.Plugins[id]; ok {
+			if e.Enabled[id] {
 				plugin = true
 				f.Parts = append(f.Parts, "plugin "+id+" on")
 			} else {
@@ -152,14 +122,14 @@ func (e *Env) Detect(s *Saver) Found {
 		}
 	}
 	for _, m := range d.MCP {
-		for name := range e.mcp {
+		for name := range e.MCP {
 			if name == m || strings.Contains(name, m) {
 				mcp = true
 				f.Parts = append(f.Parts, "MCP server "+name)
 			}
 		}
-		for id := range e.enabled {
-			if strings.Contains(id, m) && e.enabled[id] && !plugin {
+		for id := range e.Enabled {
+			if strings.Contains(id, m) && e.Enabled[id] && !plugin {
 				mcp = true
 				f.Parts = append(f.Parts, "plugin "+id)
 			}
@@ -167,7 +137,7 @@ func (e *Env) Detect(s *Saver) Found {
 	}
 	file := false
 	for _, p := range d.Files {
-		if _, err := os.Stat(filepath.Join(e.Acct.ConfigDir, p)); err == nil {
+		if _, err := os.Stat(filepath.Join(e.Profile.Dir, p)); err == nil {
 			file = true
 			f.Parts = append(f.Parts, p)
 		}

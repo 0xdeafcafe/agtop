@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 )
@@ -42,7 +43,7 @@ func effModel(t *testing.T, w, h int) *Model {
 	m, _ := benchModel(w, h)
 	m.store.Config.Folders = nil
 	st := efficiency.Open()
-	st.Refresh([]claude.Account{acct})
+	st.Refresh([]agent.Profile{acct.Profile()})
 	m.setView(placeEff)
 	e := &m.eff
 	q := efficiency.NewQuery(efficiency.Ranges[e.rng], time.Now())

@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/advisor"
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 )
 
@@ -90,8 +90,8 @@ func (m *Model) advPass(force, tick bool) (tea.Cmd, string) {
 	// the profile here lists Claude Code and one of its logins has room.
 	// Another login can't be used without switching ~/.claude.
 	_, ok := m.store.Config.ProfileFor(m.launchDir, "").PickFor(string(loginsKind), m.room())
-	acct := m.store.Config.ActiveAccount()
-	if !ok || acct.ConfigDir == "" {
+	acct := m.store.Config.ActiveAccount().Profile()
+	if !ok || acct.Dir == "" {
 		return nil, "the advisor runs on Claude Code: it isn't in this profile, or every login is nearly out"
 	}
 	a.running = true
@@ -111,7 +111,7 @@ func (m *Model) advPass(force, tick bool) (tea.Cmd, string) {
 
 // advPassOff is a pass, off the UI: it takes the advisor's lock, and runs
 // only when one is due, or forced.
-func advPassOff(ctx context.Context, force bool, acct claude.Account, store *efficiency.Store) tea.Msg {
+func advPassOff(ctx context.Context, force bool, acct agent.Profile, store *efficiency.Store) tea.Msg {
 	unlock, ok := advisor.Lock()
 	if !ok {
 		if force {
@@ -127,10 +127,10 @@ func advPassOff(ctx context.Context, force bool, acct claude.Account, store *eff
 	if store == nil {
 		store = efficiency.Open()
 	}
-	store.Refresh([]claude.Account{acct})
+	store.Refresh([]agent.Profile{acct})
 	now := time.Now()
 	week := efficiency.NewQuery(efficiency.Ranges[1], now)
-	week.Accounts = []string{acct.ConfigDir}
+	week.Accounts = []string{acct.Dir}
 	fresh := week
 	if rec.LastRun.After(fresh.From) {
 		fresh.From, fresh.Daily = rec.LastRun, false

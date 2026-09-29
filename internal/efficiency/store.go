@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -65,18 +65,13 @@ func Open() *Store {
 	return s
 }
 
-// transcripts lists an account's transcripts: sessions' and their
-// subagents'.
-func transcripts(a claude.Account) []string {
-	dir := a.ProjectsDir()
-	main, _ := filepath.Glob(filepath.Join(dir, "*", "*.jsonl"))
-	subs, _ := filepath.Glob(filepath.Join(dir, "*", "*", "subagents", "*.jsonl"))
-	return append(main, subs...)
-}
-
-// Refresh reads what's new in every account's transcripts. It reports
+// Refresh reads what's new in every profile's transcripts. It reports
 // whether anything changed.
-func (s *Store) Refresh(accounts []claude.Account) bool {
+func (s *Store) Refresh(profiles []agent.Profile) bool {
+	src, ok := source()
+	if !ok {
+		return false
+	}
 	s.scan.Lock()
 	defer s.scan.Unlock()
 
@@ -87,8 +82,8 @@ func (s *Store) Refresh(accounts []claude.Account) bool {
 	var jobs []job
 	listed := map[string]bool{}
 	s.mu.RLock()
-	for _, a := range accounts {
-		for _, p := range transcripts(a) {
+	for _, a := range profiles {
+		for _, p := range src.Transcripts(a) {
 			listed[p] = true
 			st, err := os.Stat(p)
 			if err != nil {
@@ -102,7 +97,7 @@ func (s *Store) Refresh(accounts []claude.Account) bool {
 			if old != nil {
 				f = old.clone()
 			} else {
-				f = &File{Account: a.ConfigDir, Sub: strings.Contains(p, string(filepath.Separator)+"subagents"+string(filepath.Separator))}
+				f = &File{Account: a.Dir, Sub: strings.Contains(p, string(filepath.Separator)+"subagents"+string(filepath.Separator))}
 			}
 			jobs = append(jobs, job{p, f})
 		}
@@ -113,8 +108,8 @@ func (s *Store) Refresh(accounts []claude.Account) bool {
 			continue
 		}
 		mine := false
-		for _, a := range accounts {
-			mine = mine || f.Account == a.ConfigDir
+		for _, a := range profiles {
+			mine = mine || f.Account == a.Dir
 		}
 		if _, err := os.Stat(p); mine && os.IsNotExist(err) {
 			gone = append(gone, p)
@@ -131,7 +126,7 @@ func (s *Store) Refresh(accounts []claude.Account) bool {
 				defer wg.Done()
 				buf := make([]byte, 0, 64<<10)
 				for j := range work {
-					buf, _ = Scan(j.path, j.f, buf)
+					buf, _ = Scan(src, j.path, j.f, buf)
 					if cap(buf) > 8<<20 {
 						buf = make([]byte, 0, 64<<10)
 					}

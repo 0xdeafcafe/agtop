@@ -16,7 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/efficiency"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -312,17 +313,13 @@ func Lock() (unlock func(), ok bool) {
 	return func() { _ = os.Remove(p) }, true
 }
 
-// Active is whether any of acct's transcripts changed since t: a look at
+// Active is whether any of p's transcripts changed since t: a look at
 // file times, far cheaper than reading the figures, so a quiet day costs
 // nothing.
-func Active(acct claude.Account, since time.Time) bool {
-	dir := acct.ProjectsDir()
-	for _, pat := range []string{filepath.Join(dir, "*", "*.jsonl"), filepath.Join(dir, "*", "*", "subagents", "*.jsonl")} {
-		paths, _ := filepath.Glob(pat)
-		for _, p := range paths {
-			if st, err := os.Stat(p); err == nil && st.ModTime().After(since) {
-				return true
-			}
+func Active(p agent.Profile, since time.Time) bool {
+	for _, path := range efficiency.Transcripts(p) {
+		if st, err := os.Stat(path); err == nil && st.ModTime().After(since) {
+			return true
 		}
 	}
 	return false

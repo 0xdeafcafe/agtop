@@ -3,7 +3,6 @@ package advisor
 import (
 	"bytes"
 	"context"
-	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"os"
@@ -16,20 +15,17 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/netwatch"
-	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
-// The models each pass runs on, and what each may spend.
+// What each pass may spend, and how long it may take. The scout runs on
+// the agent's quick model, the review on its careful one.
 const (
-	scoutModel  = "haiku"
 	scoutBudget = 0.30
 	scoutTime   = 5 * time.Minute
 
-	reviewModel  = "opus"
 	reviewBudget = 1.50
 	reviewTime   = 10 * time.Minute
 )
@@ -46,7 +42,7 @@ type Result struct {
 // Pass runs the advisor once, as acct: Haiku proposes, then Opus checks
 // the candidates worth money, new and left from earlier passes, while the
 // day's reviews last. reviews is how many the cap still allows.
-func Pass(ctx context.Context, acct claude.Account, in Input, reviews int) Result {
+func Pass(ctx context.Context, acct agent.Profile, in Input, reviews int) Result {
 	res := Result{At: time.Now()}
 	briefs := filepath.Join(Dir(), "briefs")
 	if in.Briefs == nil {
@@ -57,9 +53,13 @@ func Pass(ctx context.Context, acct claude.Account, in Input, reviews int) Resul
 		in.Briefs = Briefs(briefs, paths)
 	}
 	digest := Digest(in)
+	var scoutModel, reviewModel string
+	if q, ok := agent.As[agent.Querier](acct.Kind); ok {
+		scoutModel, reviewModel = q.QueryModels()
+	}
 	// Haiku reads the briefs alone; Opus may check them against the
 	// transcripts.
-	scoutDirs, reviewDirs := []string{briefs}, []string{briefs, acct.ProjectsDir()}
+	scoutDirs, reviewDirs := []string{briefs}, []string{briefs, efficiency.TranscriptsDir(acct)}
 
 	var scout struct {
 		Findings []proposal `json:"findings"`
@@ -89,7 +89,7 @@ func Pass(ctx context.Context, acct claude.Account, in Input, reviews int) Resul
 			cands = append(cands, f)
 		}
 	}
-	roots := []string{acct.ConfigDir}
+	roots := []string{acct.Dir}
 	for _, s := range in.Top {
 		roots = append(roots, s.Project)
 	}
@@ -204,54 +204,35 @@ const Job = "Advisor"
 // ask runs c and decodes its structured answer into out. It reports what
 // the call cost even when it fails. While the network is down it waits
 // rather than run.
-func ask(ctx context.Context, acct claude.Account, c call, out any) (float64, error) {
+func ask(ctx context.Context, p agent.Profile, c call, out any) (float64, error) {
 	if !netwatch.Run(Job) {
 		return 0, netwatch.ErrOffline
 	}
-	cost, err := run(ctx, acct, c, out)
+	cost, err := run(ctx, p, c, out)
 	netwatch.Done(Job, err)
 	return cost, err
 }
 
-func run(ctx context.Context, acct claude.Account, c call, out any) (float64, error) {
+func run(ctx context.Context, p agent.Profile, c call, out any) (float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return 0, err
 	}
-	args := []string{"-p",
-		"--model", c.model,
-		"--output-format", "json",
-		"--no-session-persistence", // its own runs mustn't show up in the figures it reads
-		// No shell, no web, no settings or hooks of yours, no MCP servers,
-		// and file tools kept to the folders below.
-		"--restricted", "--strict-mcp-config",
-		"--tools", "Read,Grep,Glob",
-		"--permission-mode", "dontAsk", "--permission-prompts", "none",
-		"--system-prompt", c.system,
-		"--max-budget-usd", fmt.Sprintf("%.2f", c.budget),
-		"--json-schema", c.schema,
+	q, ok := agent.As[agent.Querier](p.Kind)
+	if !ok {
+		return 0, fmt.Errorf("the advisor can't run on %s", p.Kind)
 	}
-	var allow []string
-	for _, d := range c.dirs {
-		args = append(args, "--add-dir", d)
-		for _, t := range []string{"Read", "Grep", "Glob"} {
-			allow = append(allow, t+"("+d+"/**)")
-		}
-	}
-	args = append(args, "--allowedTools", strings.Join(allow, ","))
-	// The program is where the account's agent was found installed.
-	prog := agent.Path(acct.Profile().Kind)
+	args, env := q.QueryCommand(p, agent.Query{Model: c.model, System: c.system, Prompt: c.prompt, Schema: c.schema, Dirs: c.dirs, Budget: c.budget})
+	// The program is where the profile's agent was found installed.
+	prog := agent.Path(p.Kind)
 	if prog == "" {
-		return 0, fmt.Errorf("the advisor runs %s, which isn't installed", acct.Profile().Kind)
+		return 0, fmt.Errorf("the advisor runs %s, which isn't installed", p.Kind)
 	}
 	cmd := exec.CommandContext(ctx, prog, args...)
 	cmd.Dir = Dir()
-	as := acct
-	if h := state.Load().Config.RunAccount(); acct.IsDefault() && claude.HasHome(h) {
-		as = h // the login in use, in its home
-	}
-	cmd.Env = append(as.Env(), "AGTOP_ADVISOR=1")
+	env = append(env, "AGTOP_ADVISOR=1")
+	cmd.Env = env
 	// Its own process group, so stopping it takes whatever it started too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -265,28 +246,22 @@ func run(ctx context.Context, acct claude.Account, c call, out any) (float64, er
 	runErr := cmd.Wait()
 	running.remove(cmd)
 
-	var r struct {
-		IsError    bool           `json:"is_error"`
-		Subtype    string         `json:"subtype"`
-		Result     string         `json:"result"`
-		Cost       float64        `json:"total_cost_usd"`
-		Structured jsontext.Value `json:"structured_output"`
-	}
-	if err := jsonx.Unmarshal(stdout.Bytes(), &r); err != nil {
+	ans, ok := q.QueryAnswer(stdout.Bytes())
+	if !ok {
 		// Stopped or broken halfway: what it spent isn't known, so count
 		// what it was allowed to.
 		if runErr != nil {
 			return c.budget, fmt.Errorf("%w: %s", runErr, firstLine(stderr.String()))
 		}
-		return c.budget, err
+		return c.budget, errors.New("its answer couldn't be read")
 	}
 	switch {
-	case r.IsError:
-		return r.Cost, fmt.Errorf("%s: %s", r.Subtype, firstLine(r.Result))
-	case len(r.Structured) == 0 || string(r.Structured) == "null":
-		return r.Cost, errors.New("no answer")
+	case ans.Err != nil:
+		return ans.Cost, ans.Err
+	case len(ans.Out) == 0 || string(ans.Out) == "null":
+		return ans.Cost, errors.New("no answer")
 	}
-	return r.Cost, jsonx.Unmarshal(r.Structured, out)
+	return ans.Cost, jsonx.Unmarshal(ans.Out, out)
 }
 
 // running are the passes' claude processes, for Stop.
