@@ -59,7 +59,7 @@ func (m *Manifest) validateBundled() error {
 	if err := m.validateUI(); err != nil {
 		return err
 	}
-	return nil
+	return m.validateCLI()
 }
 
 // Bundles are the bundled plugins, by name.
