@@ -8,8 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 // --- /skills ---
@@ -31,7 +31,7 @@ func (m *Model) openSkills(c *hostConn, a *fleet.Agent) {
 	ad, ok := agent.Get(sessionAgent(c))
 	_, lists := ad.(agent.Commander)
 	if !ok || !lists || !canScreen(c, "skills") {
-		m.flash(agentName(string(sessionAgent(c)))+" has no skills or commands agtop lists", true)
+		m.flash(agentName(string(sessionAgent(c)))+" has no skills or commands rush lists", true)
 		return
 	}
 	m.sheet = &skillSheet{conn: c.key, agent: a.Key}

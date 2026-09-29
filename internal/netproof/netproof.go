@@ -1,4 +1,4 @@
-// Package netproof is what every agtop process knows together about
+// Package netproof is what every rush process knows together about
 // whether the API holds up: each session's host and the list keep one
 // record per API, of when a request last failed on the connection, how
 // long checks have passed unbroken since, and when a real request last got
@@ -26,8 +26,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Every is how often the API is checked while something waits on it; a
@@ -99,7 +99,7 @@ func path(target string) string {
 	return filepath.Join(state.Dir(), "netproof", hex.EncodeToString(sum[:8])+".json")
 }
 
-// update changes target's record under a lock every agtop process shares,
+// update changes target's record under a lock every rush process shares,
 // and returns it as changed.
 func update(target string, f func(*Proof)) Proof {
 	p := path(target)

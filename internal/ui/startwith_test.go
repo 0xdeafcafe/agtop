@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // The Prompt says what a new session starts as: its agent, model, effort

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Done work goes once it's been done and untouched for the wait; never while

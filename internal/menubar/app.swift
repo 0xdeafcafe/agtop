@@ -1,5 +1,5 @@
-// agtop's menu bar icon. Built by `agtop menubar`; everything it shows
-// comes from `agtop menubar feed`, which it runs and talks to one JSON
+// rush's menu bar icon. Built by `rush menubar`; everything it shows
+// comes from `rush menubar feed`, which it runs and talks to one JSON
 // object per line.
 
 import AppKit
@@ -105,15 +105,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     // is often behind it; this one starts near the clock instead, and
     // stays wherever you ⌘-drag it after.
     lazy var item: NSStatusItem = {
-        UserDefaults.standard.register(defaults: ["NSStatusItem Preferred Position agtop": 120])
+        UserDefaults.standard.register(defaults: ["NSStatusItem Preferred Position rush": 120])
         let i = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        i.autosaveName = "agtop"
+        i.autosaveName = "rush"
         i.isVisible = true
         return i
     }()
     let menu = NSMenu()
     let center = UNUserNotificationCenter.current()
-    let bin = Bundle.main.object(forInfoDictionaryKey: "AgtopBinary") as? String ?? "agtop"
+    let bin = Bundle.main.object(forInfoDictionaryKey: "RushBinary") as? String ?? "rush"
 
     var feed: Process?
     var input: FileHandle?
@@ -140,12 +140,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         feed?.terminate()
     }
 
-    /// alone keeps to one icon: agtops starting together, or a new build
+    /// alone keeps to one icon: rushes starting together, or a new build
     /// opened over an old, can each launch one. The newest stays and the
     /// rest quit; false when this one is quitting.
     func alone() -> Bool {
         let me = NSRunningApplication.current
-        let id = Bundle.main.bundleIdentifier ?? "dev.agtop.menubar"
+        let id = Bundle.main.bundleIdentifier ?? "dev.rush.menubar"
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: id)
             .filter { $0.processIdentifier != me.processIdentifier }
         func newer(_ a: NSRunningApplication, than b: NSRunningApplication) -> Bool {
@@ -167,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         p.executableURL = URL(fileURLWithPath: bin)
         p.arguments = ["menubar", "feed"]
         var env = ProcessInfo.processInfo.environment
-        env["AGTOP_MENUBAR_PID"] = String(getpid())
+        env["RUSH_MENUBAR_PID"] = String(getpid())
         p.environment = env
         let out = Pipe(), inp = Pipe()
         p.standardOutput = out
@@ -192,14 +192,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             try p.run()
             (feed, input, problem) = (p, inp.fileHandleForWriting, nil)
         } catch {
-            problem = "agtop isn't at \(bin) any more: run agtop menubar again"
+            problem = "rush isn't at \(bin) any more: run rush menubar again"
             draw()
         }
     }
 
     func feedEnded() {
         (feed, input) = (nil, nil)
-        if problem == nil { problem = "lost touch with agtop; trying again…" }
+        if problem == nil { problem = "lost touch with rush; trying again…" }
         draw()
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
             if self?.feed == nil { self?.startFeed() }
@@ -213,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func apply(_ f: FeedLine) {
         if let e = f.error {
-            post(id: "error", title: "agtop", subtitle: nil, body: e, category: nil, info: [:])
+            post(id: "error", title: "rush", subtitle: nil, body: e, category: nil, info: [:])
             return
         }
         problem = nil
@@ -247,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
             ])
             : NSAttributedString(string: "")
-        b.toolTip = waiting > 0 ? "\(waiting) waiting on you" : "agtop"
+        b.toolTip = waiting > 0 ? "\(waiting) waiting on you" : "rush"
     }
 
     /// animate ticks while he's working, on the even seconds his pose
@@ -305,7 +305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             return true
         }
         i.isTemplate = true
-        i.accessibilityDescription = "agtop"
+        i.accessibilityDescription = "rush"
         return i
     }
 
@@ -366,7 +366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             }
         }
         menu.addItem(.separator())
-        let open = NSMenuItem(title: "Open agtop", action: #selector(openAgtop), keyEquivalent: "o")
+        let open = NSMenuItem(title: "Open rush", action: #selector(openRush), keyEquivalent: "o")
         open.target = self
         menu.addItem(open)
         let login = NSMenuItem(title: "Open at Login", action: #selector(toggleLogin), keyEquivalent: "")
@@ -398,7 +398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         return t.joined(separator: "\n")
     }
 
-    /// actions are the answers a wait takes from outside agtop, as button
+    /// actions are the answers a wait takes from outside rush, as button
     /// titles and the op each sends.
     func actions(_ w: Wait) -> [(String, [String: Any])] {
         var base: [String: Any] = ["key": w.key]
@@ -421,9 +421,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         send(op)
     }
 
-    @objc func openAgtop() { show(nil) }
+    @objc func openRush() { show(nil) }
 
-    /// show brings agtop forward, on the agent key: the feed finds the
+    /// show brings rush forward, on the agent key: the feed finds the
     /// terminal it's open in, or opens it in the one it last was.
     func show(_ key: String?) {
         if input != nil {
@@ -438,7 +438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     var loginPlist: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents/\(Bundle.main.bundleIdentifier ?? "dev.agtop.menubar").plist")
+            .appendingPathComponent("Library/LaunchAgents/\(Bundle.main.bundleIdentifier ?? "dev.rush.menubar").plist")
     }
 
     @objc func toggleLogin() {
@@ -448,7 +448,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             return
         }
         let plist: [String: Any] = [
-            "Label": Bundle.main.bundleIdentifier ?? "dev.agtop.menubar",
+            "Label": Bundle.main.bundleIdentifier ?? "dev.rush.menubar",
             "ProgramArguments": ["/usr/bin/open", Bundle.main.bundlePath],
             "RunAtLoad": true,
         ]

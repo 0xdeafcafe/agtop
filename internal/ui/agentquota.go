@@ -7,10 +7,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // quotaMsg is readings of other agents' limits, by where they're kept: a
@@ -19,7 +19,7 @@ type quotaMsg map[string]usage.Quota
 
 // fetchQuotas reads the limits of every other installed agent's accounts
 // that can say them, and who each is signed in as. Readings are shared by
-// every agtop and session, and a hosted session's live ones land there
+// every rush and session, and a hosted session's live ones land there
 // too, so each account is asked at most every few minutes. An account not
 // in use keeps the last reading made while it was.
 func (m *Model) fetchQuotas() tea.Cmd {
@@ -174,7 +174,7 @@ func (m *Model) spillTo() {
 func pct(p float64) string { return fmt.Sprintf("%.0f%%", p) }
 
 // nearSwitch is how full, in percent, the account in use gets before the
-// header says which one agtop switches to next.
+// header says which one rush switches to next.
 const nearSwitch = state.SwitchAt - 15
 
 // upcoming is the account new sessions move on to once the one in use,

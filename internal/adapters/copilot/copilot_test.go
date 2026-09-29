@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
 // A log as the coding agent writes it, trimmed.

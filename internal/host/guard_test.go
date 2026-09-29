@@ -55,7 +55,7 @@ func goneWithin(pid int, d time.Duration) bool {
 // runs with it: none of it is left running for a host that is gone.
 func TestKilledHostEndsItsAgent(t *testing.T) {
 	bin := setup(t)
-	home := os.Getenv("AGTOP_HOME")
+	home := os.Getenv("RUSH_HOME")
 	if err := os.WriteFile(bin, []byte(busyAgent), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestKilledHostEndsItsAgent(t *testing.T) {
 	if err != nil || info.HostPID <= 0 {
 		t.Fatalf("info: %+v %v", info, err)
 	}
-	if os.Getenv("AGTOP_HOME") != home || !strings.HasPrefix(home, "/tmp/agtop-host-") {
+	if os.Getenv("RUSH_HOME") != home || !strings.HasPrefix(home, "/tmp/rush-host-") {
 		t.Fatalf("not the test's own home: %q", home)
 	}
 	if err := syscall.Kill(info.HostPID, syscall.SIGKILL); err != nil {

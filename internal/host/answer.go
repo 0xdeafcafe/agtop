@@ -3,14 +3,14 @@ package host
 import (
 	"encoding/json/jsontext"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // AnswerInput is the input that answers q through Client.Allow: the
 // questions as Claude Code's AskUserQuestion takes them, with the answers
 // keyed by question text and the preview of each chosen option beside it.
-// A host from before agtop's own events hands it to Claude Code as it is;
+// A host from before rush's own events hands it to Claude Code as it is;
 // today's takes the answers from it, whichever agent asked. Questions left
 // unanswered go without one.
 func AnswerInput(q *event.Question, answers map[string]string) jsontext.Value {

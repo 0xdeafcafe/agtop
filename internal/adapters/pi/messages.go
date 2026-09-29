@@ -6,13 +6,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// message is Pi's AgentMessage, with the fields of every role agtop reads;
+// message is Pi's AgentMessage, with the fields of every role rush reads;
 // which are set depends on Role.
 type message struct {
 	Role    string         `json:"role"` // user, assistant, toolResult, bashExecution, custom, branchSummary, compactionSummary
@@ -118,7 +118,7 @@ func (m *message) id() string {
 }
 
 // events are what a whole message says, as a live session and a session
-// read back both tell it; nil for one agtop doesn't show.
+// read back both tell it; nil for one rush doesn't show.
 func (m *message) events(id string) []event.Event {
 	switch m.Role {
 	case "user":
@@ -224,7 +224,7 @@ type args struct {
 	NewText string `json:"newText"`
 }
 
-// callOf is a tool call as agtop draws it. Pi's own tools are read, bash,
+// callOf is a tool call as rush draws it. Pi's own tools are read, bash,
 // edit, write, grep, find and ls; an extension's are drawn by name.
 func callOf(b *block) tool.Call {
 	c := tool.Call{ID: b.ID, Name: b.Name, Raw: b.Arguments}
@@ -322,7 +322,7 @@ func parseDiff(diff string) []tool.Patch {
 	return out
 }
 
-// reason is how a run ended, in agtop's words, from its last message's stop
+// reason is how a run ended, in rush's words, from its last message's stop
 // reason.
 func reason(stop string) string {
 	switch stop {

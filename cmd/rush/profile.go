@@ -13,21 +13,21 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/state"
-	"github.com/0xdeafcafe/agtop/internal/ui"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/ui"
 )
 
-// profiled runs f with a CPU profile to $AGTOP_CPUPROFILE and a heap profile
-// to $AGTOP_MEMPROFILE when they are set; for the view and for hosts alike.
+// profiled runs f with a CPU profile to $RUSH_CPUPROFILE and a heap profile
+// to $RUSH_MEMPROFILE when they are set; for the view and for hosts alike.
 func profiled(f func()) {
-	if p := os.Getenv("AGTOP_CPUPROFILE"); p != "" {
+	if p := os.Getenv("RUSH_CPUPROFILE"); p != "" {
 		if out, err := os.Create(p); err == nil {
 			_ = pprof.StartCPUProfile(out)
 			defer func() { pprof.StopCPUProfile(); out.Close() }()
 		}
 	}
-	if p := os.Getenv("AGTOP_MEMPROFILE"); p != "" {
+	if p := os.Getenv("RUSH_MEMPROFILE"); p != "" {
 		defer func() {
 			if out, err := os.Create(p); err == nil {
 				runtime.GC()
@@ -40,8 +40,8 @@ func profiled(f func()) {
 }
 
 // soak runs the whole view for a while against the real agents with no
-// terminal, then prints what it cost: agtop --soak 60s 200x50.
-// AGTOP_RENDER_SELECT opens a Session beside the list, as a user would.
+// terminal, then prints what it cost: rush --soak 60s 200x50.
+// RUSH_RENDER_SELECT opens a Session beside the list, as a user would.
 func soak(args []string) {
 	d, w, h := 30*time.Second, 200, 50
 	if len(args) > 0 {
@@ -58,7 +58,7 @@ func soak(args []string) {
 	defer state.Flush() //nolint:errcheck
 	m := ui.New(state.Load(), version)
 	m.Offline()
-	if want := os.Getenv("AGTOP_RENDER_SELECT"); want != "" {
+	if want := os.Getenv("RUSH_RENDER_SELECT"); want != "" {
 		m.Select(want)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), d)
@@ -107,7 +107,7 @@ func soak(args []string) {
 	fmt.Printf("  gc         %d cycles, %s paused\n", ms.NumGC-ms0.NumGC, time.Duration(ms.PauseTotalNs-ms0.PauseTotalNs).Round(time.Microsecond))
 	fmt.Printf("  terminal   %.1f KB written in %d writes\n", float64(out.n)/1024, out.writes)
 	fmt.Printf("  goroutines %d\n", runtime.NumGoroutine())
-	if s := strings.TrimSpace(os.Getenv("AGTOP_RENDER_SELECT")); s != "" {
+	if s := strings.TrimSpace(os.Getenv("RUSH_RENDER_SELECT")); s != "" {
 		fmt.Printf("  session    %q\n", s)
 	}
 }
@@ -118,11 +118,11 @@ func (c *countWriter) Write(b []byte) (int, error) { c.n += len(b); c.writes++; 
 
 var _ io.Writer = (*countWriter)(nil)
 
-// fps is the frame rate the view draws at; AGTOP_FPS overrides it, for
+// fps is the frame rate the view draws at; RUSH_FPS overrides it, for
 // measuring what the rate costs.
 func fps() int {
 	var n int
-	if _, err := fmt.Sscanf(os.Getenv("AGTOP_FPS"), "%d", &n); err == nil && n > 0 {
+	if _, err := fmt.Sscanf(os.Getenv("RUSH_FPS"), "%d", &n); err == nil && n > 0 {
 		return n
 	}
 	return 120

@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // pickSheet is a plugin's list to choose from, as the plugin gave it: tabs

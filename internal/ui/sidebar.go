@@ -4,10 +4,10 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // A plugin with the sidebar capability arranges the agent list its own way:
@@ -20,7 +20,7 @@ const (
 	otherSection      = "Other"
 )
 
-// groupModes are the group-by modes on offer: agtop's own, then one for
+// groupModes are the group-by modes on offer: rush's own, then one for
 // each plugin that arranges the list.
 func (m *Model) groupModes() []string {
 	out := append([]string(nil), groupModes...)
@@ -68,7 +68,7 @@ func (m *Model) loadSidebars() {
 }
 
 // nameAgents gives the agents the arrangement places its names, except
-// where you renamed one in agtop, and gives back the names it took over
+// where you renamed one in rush, and gives back the names it took over
 // from an arrangement no longer in use.
 func (m *Model) nameAgents(sb *plugin.Sidebar) {
 	defer m.namePeers()

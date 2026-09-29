@@ -1,9 +1,9 @@
-// A minimal agtop plugin in Go, with no dependencies.
+// A minimal rush plugin in Go, with no dependencies.
 //
 // It offers Claude three tools: note and notes, which keep notes in the
 // plugin's data folder (the only place it may write), and agents, which
-// calls agtop back to list its agents. Rename it, change the tools, and keep
-// the plumbing: agtop speaks JSON-RPC 2.0 on fd 3, each message a 4-byte
+// calls rush back to list its agents. Rename it, change the tools, and keep
+// the plumbing: rush speaks JSON-RPC 2.0 on fd 3, each message a 4-byte
 // big-endian length and then that many bytes of JSON.
 package main
 
@@ -39,14 +39,14 @@ var tools = []map[string]any{
 	},
 	{
 		"name":        "agents",
-		"description": "List the agents running in agtop.",
+		"description": "List the agents running in rush.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 	},
 }
 
-// callTool runs one tool. session is the agtop session that called it.
+// callTool runs one tool. session is the rush session that called it.
 func callTool(session, name string, args json.RawMessage) (string, error) {
-	file := filepath.Join(os.Getenv("AGTOP_PLUGIN_DATA"), "notes.txt")
+	file := filepath.Join(os.Getenv("RUSH_PLUGIN_DATA"), "notes.txt")
 	switch name {
 	case "note":
 		var in struct {
@@ -69,7 +69,7 @@ func callTool(session, name string, args json.RawMessage) (string, error) {
 		}
 		return string(b), err
 	case "agents":
-		// Calling agtop back: needs "list" in the manifest's "sessions".
+		// Calling rush back: needs "list" in the manifest's "sessions".
 		var ss []struct{ ID, Name, State, Detail string }
 		if err := call("sessions.list", nil, &ss); err != nil {
 			return "", err
@@ -86,7 +86,7 @@ func callTool(session, name string, args json.RawMessage) (string, error) {
 	return "", fmt.Errorf("no tool named %s", name)
 }
 
-// handle answers agtop's requests and takes its notifications.
+// handle answers rush's requests and takes its notifications.
 func handle(method string, params json.RawMessage) (any, *rpcError) {
 	switch method {
 	case "initialize":
@@ -134,7 +134,7 @@ type message struct {
 }
 
 var (
-	ipc = os.NewFile(3, "agtop")
+	ipc = os.NewFile(3, "rush")
 	wmu sync.Mutex
 
 	pmu     sync.Mutex
@@ -142,7 +142,7 @@ var (
 	pending = map[string]chan message{}
 )
 
-// call calls agtop and decodes its result into out (nil to ignore it).
+// call calls rush and decodes its result into out (nil to ignore it).
 func call(method string, params, out any) error {
 	p, _ := json.Marshal(params)
 	pmu.Lock()
@@ -175,14 +175,14 @@ func send(m message) {
 
 func main() {
 	if ipc == nil {
-		fmt.Fprintln(os.Stderr, "run me from agtop: I talk on fd 3")
+		fmt.Fprintln(os.Stderr, "run me from rush: I talk on fd 3")
 		os.Exit(2)
 	}
 	r := bufio.NewReader(ipc)
 	for {
 		var hdr [4]byte
 		if _, err := io.ReadFull(r, hdr[:]); err != nil {
-			return // agtop closed the channel: time to go
+			return // rush closed the channel: time to go
 		}
 		body := make([]byte, binary.BigEndian.Uint32(hdr[:]))
 		if _, err := io.ReadFull(r, body); err != nil {

@@ -12,12 +12,12 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // A running session's tmp folder only grows: every build, test run and
 // clone it makes as scratch stays until the session is cleaned, which
-// agtop won't do while it runs. Two long sessions reached 40 GB and 27 GB
+// rush won't do while it runs. Two long sessions reached 40 GB and 27 GB
 // in two days. When the setting is on and the disk runs low, the host
 // clears out its own session's old tmp: what's been untouched for
 // trimAge and is open in no process.

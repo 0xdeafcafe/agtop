@@ -7,10 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
-// Agent is an agent agtop knows only through ACP: how to start it, and
+// Agent is an agent rush knows only through ACP: how to start it, and
 // where it keeps its things. The agents below need nothing more yet.
 type Agent struct {
 	ID      agent.Kind
@@ -21,11 +21,11 @@ type Agent struct {
 	// More are features it has, or lacks, beyond what ACP gives every
 	// agent (Features).
 	More map[agent.Feature]agent.Support
-	// Tried is how far agtop's support for it has been tried.
+	// Tried is how far rush's support for it has been tried.
 	Tried agent.Level
 }
 
-// Known are the ACP agents agtop runs. An agent that grows more than ACP
+// Known are the ACP agents rush runs. An agent that grows more than ACP
 // gives (history, limits) moves to a package of its own, as Copilot has.
 var Known = []Agent{
 	{ID: "gemini", Title: "Gemini", Command: "gemini", Args: []string{"--experimental-acp"}, Home: ".gemini"},

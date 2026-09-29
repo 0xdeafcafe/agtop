@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // An agent that stopped on an error needs you; one that finished without

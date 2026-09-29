@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	piad "github.com/0xdeafcafe/agtop/internal/adapters/pi"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	piad "github.com/0xdeafcafe/rush/internal/adapters/pi"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 func TestPiModelsPointAtOllama(t *testing.T) {
@@ -73,11 +73,11 @@ func TestPiIsOllamaInPi(t *testing.T) {
 }
 
 // TestPiLive runs a turn of Pi on the real Ollama, then reads the session
-// back: AGTOP_OLLAMA_PI_LIVE=<model>.
+// back: RUSH_OLLAMA_PI_LIVE=<model>.
 func TestPiLive(t *testing.T) {
-	model := os.Getenv("AGTOP_OLLAMA_PI_LIVE")
+	model := os.Getenv("RUSH_OLLAMA_PI_LIVE")
 	if model == "" {
-		t.Skip("set AGTOP_OLLAMA_PI_LIVE to a model to run Pi against Ollama")
+		t.Skip("set RUSH_OLLAMA_PI_LIVE to a model to run Pi against Ollama")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()

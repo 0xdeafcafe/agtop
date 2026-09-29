@@ -3,7 +3,7 @@ package state
 import (
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 type stubAdapter struct{ kind agent.Kind }

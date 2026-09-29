@@ -10,8 +10,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // artifact is a page the session published with the Artifact tool, at its

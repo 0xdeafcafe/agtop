@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // Limits on the programs a plugin runs.

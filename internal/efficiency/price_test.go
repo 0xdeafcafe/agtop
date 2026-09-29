@@ -3,8 +3,8 @@ package efficiency_test
 import (
 	"testing"
 
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
-	. "github.com/0xdeafcafe/agtop/internal/efficiency"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
+	. "github.com/0xdeafcafe/rush/internal/efficiency"
 )
 
 // Cache reads are priced at the agent's own prices, and at its default

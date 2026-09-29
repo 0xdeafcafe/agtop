@@ -14,9 +14,9 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/daemon"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/daemon"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 // live is an agent's own terminal, attached in the background the same way
@@ -100,8 +100,8 @@ var daemons struct {
 	seen map[string]daemonSeen
 }
 
-// previewID names agtop's attachments for the preview, one per agtop.
-var previewID = fmt.Sprintf("agtop-preview-%d", os.Getpid())
+// previewID names rush's attachments for the preview, one per rush.
+var previewID = fmt.Sprintf("rush-preview-%d", os.Getpid())
 
 func openLive(a *fleet.Agent, w, h int) tea.Cmd {
 	cl := daemon.Client{Account: claude.AccountOf(a.Acct)}

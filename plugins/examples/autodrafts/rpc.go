@@ -1,8 +1,8 @@
 package main
 
-// agtop's plugin protocol: JSON-RPC 2.0 on fd 3, each message a 4-byte
+// rush's plugin protocol: JSON-RPC 2.0 on fd 3, each message a 4-byte
 // big-endian length and then that many bytes of JSON. Both sides send
-// requests. See agtop's plugins/skills/write-agtop-plugin/references.
+// requests. See rush's plugins/skills/write-rush-plugin/references.
 
 import (
 	"bufio"
@@ -30,7 +30,7 @@ type message struct {
 	Error   *rpcError       `json:"error,omitempty"`
 }
 
-// conn is the plugin's side of the channel to agtop.
+// conn is the plugin's side of the channel to rush.
 type conn struct {
 	w   io.Writer
 	wmu sync.Mutex
@@ -42,7 +42,7 @@ type conn struct {
 
 func newConn(w io.Writer) *conn { return &conn{w: w, pending: map[string]chan message{}} }
 
-// call asks agtop, and decodes its answer into out (nil to drop it).
+// call asks rush, and decodes its answer into out (nil to drop it).
 func (c *conn) call(method string, params, out any) error {
 	p, err := json.Marshal(params)
 	if err != nil {
@@ -70,11 +70,11 @@ func (c *conn) call(method string, params, out any) error {
 		c.pmu.Lock()
 		delete(c.pending, string(id))
 		c.pmu.Unlock()
-		return fmt.Errorf("%s: agtop didn't answer", method)
+		return fmt.Errorf("%s: rush didn't answer", method)
 	}
 }
 
-// notify tells agtop something, wanting no answer.
+// notify tells rush something, wanting no answer.
 func (c *conn) notify(method string, params any) error {
 	p, err := json.Marshal(params)
 	if err != nil {
@@ -98,7 +98,7 @@ func (c *conn) send(m message) error {
 	return err
 }
 
-// serve reads what agtop sends until it closes the channel: replies to
+// serve reads what rush sends until it closes the channel: replies to
 // our calls, its requests (answered concurrently) and its notifications
 // (taken in order).
 func (c *conn) serve(r io.Reader, handle func(method string, params json.RawMessage) (any, *rpcError)) error {
@@ -148,9 +148,9 @@ func (c *conn) serve(r io.Reader, handle func(method string, params json.RawMess
 }
 
 func ipc() (*os.File, error) {
-	f := os.NewFile(3, "agtop")
+	f := os.NewFile(3, "rush")
 	if f == nil {
-		return nil, errors.New("run me from agtop: I talk on fd 3")
+		return nil, errors.New("run me from rush: I talk on fd 3")
 	}
 	return f, nil
 }

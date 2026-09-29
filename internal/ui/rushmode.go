@@ -17,16 +17,16 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/fswait"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/fswait"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Pane views, cycled with [ and ]: every session has a conversation and an
@@ -452,7 +452,7 @@ func (c *hostConn) subStateIn(sa convo.Subagent, jobs map[string]*convo.Job) (st
 	if st != nil && st.Status == convo.Failed && status == "" {
 		status = "failed"
 	}
-	// Claude Code says, in a session agtop runs: its task runs until it
+	// Claude Code says, in a session rush runs: its task runs until it
 	// hears otherwise, however long the run goes quiet (a long command, a
 	// long think), and one launched in the background has no step still
 	// running to say so.
@@ -958,7 +958,7 @@ func (m *Model) viewName(c *hostConn) string {
 	return v[c.view%len(v)]
 }
 
-// hostConn is the open connection to the selected agtop-mode session: its
+// hostConn is the open connection to the selected rush-mode session: its
 // host client, the conversation built from what the host sends, and how the
 // pane is being looked at.
 type hostConn struct {
@@ -969,7 +969,7 @@ type hostConn struct {
 	key    string
 	id     string
 	kind   agent.Kind        // the agent it runs, as its row says
-	client *host.Client      // an agtop session's host; nil when read from a transcript
+	client *host.Client      // a rush session's host; nil when read from a transcript
 	picked map[string]string // what /model and /effort last set here, by command: the host doesn't say
 	tail   *convo.Tail       // a Claude Code session's transcript, followed as it grows
 	// hist is another agent's session read from its history, read again
@@ -995,7 +995,7 @@ type hostConn struct {
 	editWas  string                                      // its text before editing
 	editHeld bool                                        // editing held the queue, to let go once it's saved
 	slashSel int                                         // the slash-command picker's selection
-	sendRaw  bool                                        // send a / command agtop doesn't know as it is
+	sendRaw  bool                                        // send a / command rush doesn't know as it is
 	asks     map[string]func(*Model, host.Reply) tea.Cmd // control requests out (askClaude)
 	askN     int
 	pastes   pastes // long pastes shown as chips
@@ -1266,13 +1266,13 @@ func (c *hostConn) next() tea.Cmd {
 	}
 }
 
-// syncHost keeps one connection open, to the agtop-mode agent the pane is
+// syncHost keeps one connection open, to the rush-mode agent the pane is
 // showing, and closes it when the pane moves on.
 func (m *Model) syncHost() tea.Cmd {
 	a := m.focused()
 	_, paneW, _ := m.layout()
 	showing := a != nil && paneW > 0 && m.mode == modeList
-	hosted := showing && a.Agtop && a.PID != 0
+	hosted := showing && a.Rush && a.PID != 0
 	fromFile := showing && !hosted && (a.TranscriptPath != "" || a.History != "")
 	if !hosted && !fromFile {
 		m.dropHost()
@@ -1344,15 +1344,15 @@ func freeSoon() {
 // openTail reads a Claude Code session's transcript in the background the
 // first time; after that a watch takes in what is new as it is written.
 func openTail(a *fleet.Agent) tea.Cmd {
-	key, id, path, agtop, kind := a.Key, a.ID, a.TranscriptPath, a.Agtop, agent.Kind(a.Kind)
+	key, id, path, rush, kind := a.Key, a.ID, a.TranscriptPath, a.Rush, agent.Kind(a.Kind)
 	if path == "" && a.History != "" {
 		return openHistory(a)
 	}
 	return func() tea.Msg {
 		t := convo.NewTail(path)
-		// A stopped agtop session that never got a message has no
+		// A stopped rush session that never got a message has no
 		// transcript yet: it opens empty, and a message resumes it.
-		if _, err := t.Read(); err != nil && !(agtop && errors.Is(err, fs.ErrNotExist)) {
+		if _, err := t.Read(); err != nil && !(rush && errors.Is(err, fs.ErrNotExist)) {
 			return hostOpenMsg{key: key, err: err}
 		}
 		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, kind: kind, tail: t, sess: t.Sess, open: map[string]bool{}, ready: true, path: path}}
@@ -1482,16 +1482,16 @@ func spread(left, right string, w int) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
-// agtopPane is the right pane for an agtop-mode agent, or nil when the pane
+// rushPane is the right pane for a rush-mode agent, or nil when the pane
 // shows something else.
-func (m *Model) agtopPane(w, h int) []string {
+func (m *Model) rushPane(w, h int) []string {
 	a := m.focused()
 	if a == nil {
 		return nil
 	}
 	c := m.host
 	if c == nil || c.key != a.Key {
-		if !a.Agtop {
+		if !a.Rush {
 			return nil // still loading; the summary shows meanwhile
 		}
 		return []string{"", dim("  connecting to " + oneLine(a.DisplayName) + "…")}
@@ -1785,18 +1785,18 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	conn := paint(cGreen, "●") + dim(" connected")
 	if c.client == nil {
 		switch {
-		case a.Agtop:
+		case a.Rush:
 			conn = dim("stopped · a message resumes it")
 		case a.Past:
-			conn = dim("past conversation · a message resumes it in agtop mode")
+			conn = dim("past conversation · a message resumes it in rush mode")
 		case a.Headless:
 			conn = dim("Claude Code · " + a.Where())
 		case a.Interactive:
-			conn = dim("Claude Code · "+a.Where()+" · ") + paint(cOrange, "/agtop") + dim(" copies it here")
+			conn = dim("Claude Code · "+a.Where()+" · ") + paint(cOrange, "/rush") + dim(" copies it here")
 		case m.moveWhenIdle[a.Key]:
-			conn = paint(cOrange, "moves to agtop mode when this turn ends")
+			conn = paint(cOrange, "moves to rush mode when this turn ends")
 		default:
-			conn = dim("Claude Code · ") + paint(cOrange, "/agtop") + dim(" moves it here")
+			conn = dim("Claude Code · ") + paint(cOrange, "/rush") + dim(" moves it here")
 		}
 	}
 	if (info.Limit != nil || info.Retry != nil) && !info.CacheWarm.IsZero() {
@@ -2067,12 +2067,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	switch {
 	case typingHash(string(c.input)):
-		top = dim("agtop command for ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(" · enter runs it")
+		top = dim("rush command for ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(" · enter runs it")
 	case c.client == nil && a.Interactive:
 		top += dim(" · " + a.Where() + ", so it can't take messages here")
 	case c.client == nil && a.Past:
-		top += dim(" · ") + paint(cOrange, "enter resumes it") + dim(" in agtop mode with your message")
-	case c.client == nil && a.Agtop:
+		top += dim(" · ") + paint(cOrange, "enter resumes it") + dim(" in rush mode with your message")
+	case c.client == nil && a.Rush:
 		top += dim(" · stopped; ") + paint(cOrange, "enter resumes it") + dim(" with your message")
 	case c.client == nil && busy(a):
 		top += dim(" · working, so ") + paint(cOrange, "enter queues")
@@ -2295,7 +2295,7 @@ func approvalBody(st *convo.Step, cwd string, w int) []string {
 
 // --- keys ---
 
-// paneKey handles a key while an agtop-mode session's pane has focus. The
+// paneKey handles a key while a rush-mode session's pane has focus. The
 // prompt is always live, so letters type; actions are chords, arrows on an
 // empty prompt, and the approval card's letters when the prompt is empty.
 func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
@@ -2787,7 +2787,7 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	// Claude Code sessions are typed into, where tags would show as typed.
-	text = strings.TrimSpace(c.pastes.expand(text, c.client != nil || m.agentByKey(c.key) == nil || m.agentByKey(c.key).Agtop))
+	text = strings.TrimSpace(c.pastes.expand(text, c.client != nil || m.agentByKey(c.key) == nil || m.agentByKey(c.key).Rush))
 	c.pastes = pastes{}
 	if c.editQ > 0 {
 		i, was := c.editQ-1, c.editWas
@@ -2822,7 +2822,7 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return m.command(m.agentByKey(c.key), text)
 	}
 	if strings.HasPrefix(text, "/") {
-		if cmd, ok := m.runAgtopCommand(c, text); ok {
+		if cmd, ok := m.runRushCommand(c, text); ok {
 			c.input, c.back = c.input[:0], 0
 			return cmd
 		}
@@ -3053,8 +3053,8 @@ func (m *Model) openPeeked() tea.Cmd {
 	return m.switchFocus()
 }
 
-// sendOffline sends from the message box of a session agtop isn't hosting:
-// a stopped agtop session resumes with it, a Claude Code session gets it as
+// sendOffline sends from the message box of a session rush isn't hosting:
+// a stopped rush session resumes with it, a Claude Code session gets it as
 // a reply through its daemon.
 func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool) tea.Cmd {
 	a := m.agentByKey(c.key)
@@ -3062,11 +3062,11 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool)
 	case a == nil:
 		return nil
 	case a.Interactive:
-		m.flash(a.DisplayName+" is "+a.Where()+"; agtop can't send to it", true)
+		m.flash(a.DisplayName+" is "+a.Where()+"; rush can't send to it", true)
 		return nil
 	case a.Past:
-		return m.moveToAgtopWith(a, withImages(text, images))
-	case a.Agtop:
+		return m.moveToRushWith(a, withImages(text, images))
+	case a.Rush:
 		if !m.canResume(a) {
 			return nil
 		}
@@ -3101,7 +3101,7 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool)
 	return sendingVia(c.key, reply(a, text))
 }
 
-// focusPane moves keys into the selected agtop-mode agent's pane.
+// focusPane moves keys into the selected rush-mode agent's pane.
 func (m *Model) focusPane(a *fleet.Agent) tea.Cmd {
 	if a == nil {
 		return nil
@@ -3112,7 +3112,7 @@ func (m *Model) focusPane(a *fleet.Agent) tea.Cmd {
 
 func jsonUnmarshal(b []byte, v any) error { return jsonx.Unmarshal(b, v) }
 
-// resume brings a stopped agtop-mode session back: a new host, the same
+// resume brings a stopped rush-mode session back: a new host, the same
 // conversation, the model, effort and mode it last had.
 func (m *Model) resume(a *fleet.Agent) tea.Cmd {
 	if !m.canResume(a) {
@@ -3144,7 +3144,7 @@ func (m *Model) canResume(a *fleet.Agent) bool {
 	return false
 }
 
-// startHosted starts a new agtop-mode session: agtop's own host running
+// startHosted starts a new rush-mode session: rush's own host running
 // Claude Code headless, with the model, effort and mode from Settings.
 func (m *Model) startHosted(text, dir string) tea.Cmd {
 	d := m.store.Config.Dispatch
@@ -3206,11 +3206,11 @@ func sessionName(text string) string {
 	return n
 }
 
-// sendHosted sends a message to an agtop-mode agent from the main prompt,
+// sendHosted sends a message to a rush-mode agent from the main prompt,
 // through its host.
 func sendHosted(a *fleet.Agent, text string) tea.Cmd { return sendHostedID(a.ID, a.DisplayName, text) }
 
-// sendHostedID sends to the agtop session id, called name.
+// sendHostedID sends to the rush session id, called name.
 func sendHostedID(id, name, text string) tea.Cmd {
 	return func() tea.Msg {
 		c, err := host.Dial(id)
@@ -3225,16 +3225,16 @@ func sendHostedID(id, name, text string) tea.Cmd {
 	}
 }
 
-// moveToAgtop switches a Claude Code session to agtop mode: the daemon's
+// moveToRush switches a Claude Code session to rush mode: the daemon's
 // copy stops (the conversation is kept) and the same conversation resumes
-// under agtop's own host, which runs it headless from then on.
-func (m *Model) moveToAgtop(a *fleet.Agent) tea.Cmd { return m.moveToAgtopWith(a, "") }
+// under rush's own host, which runs it headless from then on.
+func (m *Model) moveToRush(a *fleet.Agent) tea.Cmd { return m.moveToRushWith(a, "") }
 
-// moveToAgtopWith moves it over with prompt as the first message there.
-func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
+// moveToRushWith moves it over with prompt as the first message there.
+func (m *Model) moveToRushWith(a *fleet.Agent, prompt string) tea.Cmd {
 	switch {
-	case a.Agtop:
-		m.flash(a.DisplayName+" already runs in agtop mode", false)
+	case a.Rush:
+		m.flash(a.DisplayName+" already runs in rush mode", false)
 		return nil
 	case !m.canResume(a):
 		return nil
@@ -3242,7 +3242,7 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 		m.flash("can't find "+a.DisplayName+"'s conversation to resume", true)
 		return nil
 	case a.Headless:
-		m.flash(a.DisplayName+" is driven by another program; agtop can't take it over", true)
+		m.flash(a.DisplayName+" is driven by another program; rush can't take it over", true)
 		return nil
 	case !a.Interactive && busy(a) && !m.moveWhenIdle[a.Key]:
 		// Stopping it now would lose the turn in progress.
@@ -3250,7 +3250,7 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 			m.moveWhenIdle = map[string]bool{}
 		}
 		m.moveWhenIdle[a.Key] = true
-		m.flash(a.DisplayName+" moves to agtop mode when this turn ends · /agtop again moves it now", false)
+		m.flash(a.DisplayName+" moves to rush mode when this turn ends · /rush again moves it now", false)
 		return nil
 	}
 	delete(m.moveWhenIdle, a.Key)
@@ -3268,9 +3268,9 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 	}
 	old := a.Key
 	if a.Interactive {
-		// Its terminal keeps the original; agtop carries on with a copy.
+		// Its terminal keeps the original; rush carries on with a copy.
 		cfg.Fork, cfg.From = true, a.SessionID
-		m.flash("copying "+a.DisplayName+" into agtop mode · the terminal one is left as it is", false)
+		m.flash("copying "+a.DisplayName+" into rush mode · the terminal one is left as it is", false)
 		return func() tea.Msg {
 			c, err := host.Spawn(cfg)
 			if err != nil {
@@ -3278,10 +3278,10 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 			}
 			// The original goes to Done, the copy takes its name: one agent
 			// carrying on, not two.
-			return movedToAgtopMsg{from: old, started: hostStartedMsg{id: c.ID, name: cfg.Name, acct: cfg.Account.Name}}
+			return movedToRushMsg{from: old, started: hostStartedMsg{id: c.ID, name: cfg.Name, acct: cfg.Account.Name}}
 		}
 	}
-	m.flash("moving "+a.DisplayName+" to agtop mode…", false)
+	m.flash("moving "+a.DisplayName+" to rush mode…", false)
 	return func() tea.Msg {
 		if a.PID != 0 || a.Live() {
 			if err := stopOutside(a); err != nil {
@@ -3292,26 +3292,26 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 		if err != nil {
 			return doneMsg{err: err}
 		}
-		return movedToAgtopMsg{from: old, started: hostStartedMsg{id: c.ID, name: cfg.Name, acct: cfg.Account.Name}}
+		return movedToRushMsg{from: old, started: hostStartedMsg{id: c.ID, name: cfg.Name, acct: cfg.Account.Name}}
 	}
 }
 
-// movePending moves agents waiting to go to agtop mode once they're idle.
+// movePending moves agents waiting to go to rush mode once they're idle.
 func (m *Model) movePending() tea.Cmd {
 	var cmds []tea.Cmd
 	for key := range m.moveWhenIdle {
 		a := m.agentByKey(key)
 		switch {
-		case a == nil || a.Agtop:
+		case a == nil || a.Rush:
 			delete(m.moveWhenIdle, key)
 		case !busy(a):
-			cmds = append(cmds, m.moveToAgtop(a))
+			cmds = append(cmds, m.moveToRush(a))
 		}
 	}
 	return tea.Batch(cmds...)
 }
 
-type movedToAgtopMsg struct {
+type movedToRushMsg struct {
 	from    string
 	started hostStartedMsg
 }
@@ -3735,7 +3735,7 @@ func (m *Model) pickedSub(c *hostConn) (sa convo.Subagent, live, ok bool) {
 }
 
 // relaySub is the subagent you're watching when what you type goes to it,
-// through the main session: a live Claude subagent in a session agtop runs.
+// through the main session: a live Claude subagent in a session rush runs.
 func (m *Model) relaySub(c *hostConn) (convo.Subagent, bool) {
 	sa, live, ok := m.pickedSub(c)
 	return sa, ok && live && m.watchingSub(c) && c.client != nil && !strings.HasPrefix(sa.ID, spawnPrefix)
@@ -3749,7 +3749,7 @@ func (m *Model) stopSub(c *hostConn, sa convo.Subagent, live bool) tea.Cmd {
 		m.flash("that subagent has already finished", false)
 		return nil
 	case c.client == nil:
-		m.flash("agtop can stop a subagent only in a session it runs; this one is Claude Code's", true)
+		m.flash("rush can stop a subagent only in a session it runs; this one is Claude Code's", true)
 		return nil
 	}
 	m.flash("stopping "+sa.Type+" · the turn carries on", false)

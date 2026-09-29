@@ -7,9 +7,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
 // watchShells shows the open conversation what its Bash calls have
@@ -128,7 +128,7 @@ func (m *Model) shellKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 	}
 	switch {
 	case c.client == nil:
-		m.flash("agtop can background or stop a call only in a session it runs · k still kills the command running now", true)
+		m.flash("rush can background or stop a call only in a session it runs · k still kills the command running now", true)
 		return nil, true
 	case s == "b" && job != nil && job.Background:
 		m.flash("that's already in the background", false)
@@ -155,7 +155,7 @@ func (m *Model) shellKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 func (m *Model) killPart(c *hostConn, id string) tea.Cmd {
 	rp, ok := c.sess.RunningPart(id)
 	if !ok {
-		m.flash("agtop hasn't seen which command of it runs yet · x stops the whole call", true)
+		m.flash("rush hasn't seen which command of it runs yet · x stops the whole call", true)
 		return nil
 	}
 	what := rp.Command

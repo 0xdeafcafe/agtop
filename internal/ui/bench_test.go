@@ -9,21 +9,21 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func benchJSON(v any) jsontext.Value { b, _ := jsonx.Marshal(v); return b }
 
-// benchConvo is a long agtop-mode session with a live turn streaming.
+// benchConvo is a long rush-mode session with a live turn streaming.
 func benchConvo(turns int) *convo.Session {
 	s := convo.New()
-	s.Info.Cwd = "/work/agtop"
+	s.Info.Cwd = "/work/rush"
 	t0 := time.Now().Add(-time.Hour)
 	sec := 0
 	apply := func(ev any) { s.Apply(ev, t0.Add(time.Duration(sec)*time.Second)); sec++ }
@@ -47,11 +47,11 @@ func benchConvo(turns int) *convo.Session {
 		apply(host.Sent{Text: fmt.Sprintf("turn %d: fix the @internal/convo/render.go wrap then /review", t)})
 		apply(headless.Message{Role: "assistant", ID: id("m"), Model: "claude-opus-5-5", Usage: &headless.Usage{InputTokens: 10, OutputTokens: 200, CacheReadInputTokens: 50000},
 			Blocks: []headless.Block{{Type: "text", Text: "Looking at how the **pane** draws its `rows`."}}})
-		use(id("r"), "Read", map[string]any{"file_path": "/work/agtop/internal/ui/view.go"})
+		use(id("r"), "Read", map[string]any{"file_path": "/work/rush/internal/ui/view.go"})
 		res(id("r"), "…", false, map[string]any{"type": "text", "file": map[string]any{"numLines": 400, "startLine": 1, "totalLines": 1589}})
 		use(id("b"), "Bash", map[string]any{"command": "go test ./...", "description": "Run the tests"})
 		res(id("b"), out.String(), false, map[string]any{"stdout": out.String(), "stderr": ""})
-		use(id("e"), "Edit", map[string]any{"file_path": "/work/agtop/internal/convo/render.go"})
+		use(id("e"), "Edit", map[string]any{"file_path": "/work/rush/internal/convo/render.go"})
 		res(id("e"), "ok", false, map[string]any{"structuredPatch": []map[string]any{{"oldStart": 60, "oldLines": 1, "newStart": 60, "newLines": 2,
 			"lines": []string{"-\t\tout = append(out, s.turn(t, o)...)", "+\t\tls := s.turn(t, o)", "+\t\tout = append(out, ls...)"}}}})
 		apply(headless.Message{Role: "assistant", ID: id("a"), Blocks: []headless.Block{{Type: "text", Text: answer}}})
@@ -64,7 +64,7 @@ func benchConvo(turns int) *convo.Session {
 	return s
 }
 
-// benchModel is agtop at w×h with 30 agents listed and an agtop-mode
+// benchModel is rush at w×h with 30 agents listed and a rush-mode
 // session open beside them, its conversation streaming.
 func benchModel(w, h int) (*Model, chan []byte) {
 	m := &Model{store: &state.Store{}, previews: map[string]previewEntry{}, w: w, h: h, lastState: map[string]string{}}
@@ -73,7 +73,7 @@ func benchModel(w, h int) (*Model, chan []byte) {
 	for i := 0; i < 30; i++ {
 		a := &fleet.Agent{Key: fmt.Sprintf("default/a:%d", i), DisplayName: fmt.Sprintf("agent number %d doing things", i), Acct: claude.DefaultAccount().Profile()}
 		a.ID = fmt.Sprintf("%08x", i)
-		a.Cwd, a.Repo, a.Branch = "/work/agtop", "/work/agtop", "main"
+		a.Cwd, a.Repo, a.Branch = "/work/rush", "/work/rush", "main"
 		a.UpdatedAt = now.Add(-time.Duration(i) * time.Minute)
 		a.Detail = "Looking at how the pane draws its rows and where the wrap happens"
 		switch i % 3 {
@@ -87,7 +87,7 @@ func benchModel(w, h int) (*Model, chan []byte) {
 		snap.Agents = append(snap.Agents, a)
 	}
 	sel := snap.Agents[0]
-	sel.Agtop = true
+	sel.Rush = true
 	m.snap = snap
 	m.rebuild()
 	m.sel, m.preview, m.paneFocus = sel.Key, true, true

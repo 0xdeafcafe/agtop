@@ -5,14 +5,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // applyNeutral folds in an event from any agent: Claude Code's come here
-// too, read as agtop's own.
+// too, read as rush's own.
 func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 	switch e := ev.(type) {
 	case event.Init:

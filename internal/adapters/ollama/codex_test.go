@@ -8,17 +8,17 @@ import (
 	"testing"
 	"time"
 
-	codexad "github.com/0xdeafcafe/agtop/internal/adapters/codex"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	codexad "github.com/0xdeafcafe/rush/internal/adapters/codex"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 )
 
 func TestCodexFlagsPointAtOllama(t *testing.T) {
 	m := Model{Name: "qwen2.5:1.5b", Capabilities: []string{"tools"}, Context: 32768}
 	flags := codexFlags(m, "http://127.0.0.1:11434", []string{"-c", "model=mine"})
 	for _, want := range []string{
-		`model_provider="agtop-ollama"`,
-		`model_providers.agtop-ollama={name="Ollama",base_url="http://127.0.0.1:11434/v1",wire_api="responses"}`,
+		`model_provider="rush-ollama"`,
+		`model_providers.rush-ollama={name="Ollama",base_url="http://127.0.0.1:11434/v1",wire_api="responses"}`,
 		`model="qwen2.5:1.5b"`,
 		`model_context_window=32768`,
 	} {
@@ -51,11 +51,11 @@ func TestCodexIsOllamaInCodex(t *testing.T) {
 }
 
 // TestCodexLive runs a turn of Codex on the real Ollama:
-// AGTOP_OLLAMA_CODEX_LIVE=<model>.
+// RUSH_OLLAMA_CODEX_LIVE=<model>.
 func TestCodexLive(t *testing.T) {
-	model := os.Getenv("AGTOP_OLLAMA_CODEX_LIVE")
+	model := os.Getenv("RUSH_OLLAMA_CODEX_LIVE")
 	if model == "" {
-		t.Skip("set AGTOP_OLLAMA_CODEX_LIVE to a model to run Codex against Ollama")
+		t.Skip("set RUSH_OLLAMA_CODEX_LIVE to a model to run Codex against Ollama")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()

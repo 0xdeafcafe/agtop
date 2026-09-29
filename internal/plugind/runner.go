@@ -15,9 +15,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // runner keeps one plugin running.
@@ -207,7 +207,7 @@ func (r *runner) run(p plugin.Plugin) error {
 	}
 	r.mu.Lock()
 	r.conn = conn
-	if p.Proto() == plugin.ProtoAgtop {
+	if p.Proto() == plugin.ProtoRush {
 		r.out = newOutbox(conn, pluginQueue)
 	}
 	close(r.ready)
@@ -231,7 +231,7 @@ func (r *runner) run(p plugin.Plugin) error {
 }
 
 // down forgets a run that ended: its connection, what it followed, and what
-// it added to agtop's screen.
+// it added to rush's screen.
 func (r *runner) down(conn *plugin.Conn) {
 	conn.Close()
 	r.mu.Lock()
@@ -248,7 +248,7 @@ func (r *runner) down(conn *plugin.Conn) {
 		r.unwatch = nil
 	}
 	r.mu.Unlock()
-	// What it added to agtop's screen goes with it.
+	// What it added to rush's screen goes with it.
 	if r.b != nil && r.b.ui != nil {
 		r.b.ui.gone(r.name)
 	}
@@ -270,7 +270,7 @@ func socketPair() (mine, theirs *os.File, err error) {
 	return os.NewFile(uintptr(fds[0]), "plugin-ipc"), os.NewFile(uintptr(fds[1]), "plugin-ipc"), nil
 }
 
-// handshake says hello. An agtop plugin is told who it is and what it may
+// handshake says hello. A rush plugin is told who it is and what it may
 // do; an MCP server is initialized as any MCP client would.
 func (r *runner) handshake(p plugin.Plugin, conn *plugin.Conn) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -278,7 +278,7 @@ func (r *runner) handshake(p plugin.Plugin, conn *plugin.Conn) error {
 	if p.Proto() == plugin.ProtoMCP {
 		res, err := conn.CallRaw(ctx, "initialize", mustJSON(map[string]any{
 			"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
-			"clientInfo": map[string]any{"name": "agtop", "version": fmt.Sprint(Version)},
+			"clientInfo": map[string]any{"name": "rush", "version": fmt.Sprint(Version)},
 		}))
 		if err != nil {
 			return err
@@ -324,7 +324,7 @@ func (r *runner) notify(method string, params any, key string) {
 // fromMCPServer answers what an MCP server asks of its client: nothing it
 // asks for (sampling, roots, elicitation) is offered.
 func fromMCPServer(_ context.Context, method string, _ jsontext.Value) (any, error) {
-	return nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: "agtop does not offer " + method}
+	return nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: "rush does not offer " + method}
 }
 
 // shutdown stops it for good.
@@ -372,7 +372,7 @@ func (r *runner) wait(ctx context.Context) (*plugin.Conn, error) {
 		case <-ctx.Done():
 			msg := r.name + " is not running"
 			if e := r.status().Error; e != "" {
-				msg += ": " + e + " (see agtop plugin logs " + r.name + ")"
+				msg += ": " + e + " (see rush plugin logs " + r.name + ")"
 			}
 			return nil, errors.New(msg)
 		case <-time.After(time.Second):

@@ -1,14 +1,14 @@
-// Command delegate is an example agtop plugin. It gives Claude tools to hand
-// work to agents of their own, in agtop, and to follow them: start one, list
+// Command delegate is an example rush plugin. It gives Claude tools to hand
+// work to agents of their own, in rush, and to follow them: start one, list
 // them, message one, and read what one said last.
 //
-// It speaks agtop's plugin protocol: JSON-RPC 2.0 in length-prefixed frames
+// It speaks rush's plugin protocol: JSON-RPC 2.0 in length-prefixed frames
 // on fd 3. Build it into its folder and approve it:
 //
-//	mkdir -p ~/.config/agtop/plugins/delegate
-//	go build -o ~/.config/agtop/plugins/delegate/delegate ./plugins/examples/delegate
-//	cp plugins/examples/delegate/plugin.json ~/.config/agtop/plugins/delegate/
-//	agtop plugin approve delegate
+//	mkdir -p ~/.config/rush/plugins/delegate
+//	go build -o ~/.config/rush/plugins/delegate/delegate ./plugins/examples/delegate
+//	cp plugins/examples/delegate/plugin.json ~/.config/rush/plugins/delegate/
+//	rush plugin approve delegate
 package main
 
 import (
@@ -19,8 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // last is what each agent this plugin started said last, as it happens.
@@ -32,9 +32,9 @@ var (
 )
 
 func main() {
-	f := os.NewFile(3, "agtop")
+	f := os.NewFile(3, "rush")
 	if f == nil {
-		fmt.Fprintln(os.Stderr, "run me from agtop: I talk on fd 3")
+		fmt.Fprintln(os.Stderr, "run me from rush: I talk on fd 3")
 		os.Exit(2)
 	}
 	conn = plugin.NewConn(f, handle)
@@ -160,9 +160,9 @@ func schema(props map[string]string, required ...string) map[string]any {
 }
 
 var tools = []map[string]any{
-	{"name": "start_agent", "description": "Start another Claude agent, in agtop, on a task of its own. It runs alongside you; check on it with agent_result.",
+	{"name": "start_agent", "description": "Start another Claude agent, in rush, on a task of its own. It runs alongside you; check on it with agent_result.",
 		"inputSchema": schema(map[string]string{"prompt": "The task, as you'd give it to a colleague.", "cwd": "The absolute path of the folder it works in."}, "prompt", "cwd")},
-	{"name": "list_agents", "description": "List every agtop agent: its id, state, name, folder and what it's doing.",
+	{"name": "list_agents", "description": "List every rush agent: its id, state, name, folder and what it's doing.",
 		"inputSchema": schema(map[string]string{})},
 	{"name": "message_agent", "description": "Send a message to an agent you started.",
 		"inputSchema": schema(map[string]string{"id": "The agent's id.", "text": "The message."}, "id", "text")},

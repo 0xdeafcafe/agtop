@@ -1,17 +1,17 @@
-// Package agtools is agtop's own MCP server, run inside an agtop session's
+// Package agtools is rush's own MCP server, run inside a rush session's
 // host rather than as a process: Claude Code names it in initialize and sends
 // every MCP message for it over the session's control channel. Its tools are
-// things only agtop can draw, such as a drawing shown in its own frame.
+// things only rush can draw, such as a drawing shown in its own frame.
 package agtools
 
 import (
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"strings"
 )
 
-// Server is the MCP server's name; Claude Code calls its tools mcp__agtop__*.
-const Server = "agtop"
+// Server is the MCP server's name; Claude Code calls its tools mcp__rush__*.
+const Server = "rush"
 
 // Prefix starts the name Claude Code gives each of these tools.
 const Prefix = "mcp__" + Server + "__"
@@ -35,7 +35,7 @@ type tool struct {
 var tools = []tool{{
 	Name: "show",
 	Description: "Show the user a drawing: an ASCII or box-drawing diagram, a flow or architecture sketch, a layout mockup, " +
-		"a tree, or any text whose exact layout matters. agtop draws it in a frame of its own, full width, never wrapped " +
+		"a tree, or any text whose exact layout matters. rush draws it in a frame of its own, full width, never wrapped " +
 		"or folded away, and the user can copy it whole. Use it instead of a code block whenever the picture is the point. " +
 		"The drawing is shown as-is: plain text, no markdown, no fences.",
 	InputSchema: map[string]any{
@@ -54,7 +54,7 @@ var tools = []tool{{
 
 // Allowed is what to pass --allowedTools so the tools run without asking:
 // they only draw.
-// Names are agtop's tools by their own names, which all never ask.
+// Names are rush's tools by their own names, which all never ask.
 func Names() []string {
 	out := make([]string, len(tools))
 	for i, t := range tools {
@@ -123,7 +123,7 @@ func call(name string, args jsontext.Value) map[string]any {
 		}
 		return result("Shown to the user.", false)
 	}
-	return result("agtop has no tool named "+name+".", true)
+	return result("rush has no tool named "+name+".", true)
 }
 
 func result(text string, isErr bool) map[string]any {

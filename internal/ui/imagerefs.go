@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
 // imageRefs are the images a Session's box holds, each standing in the text

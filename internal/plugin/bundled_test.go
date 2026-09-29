@@ -6,8 +6,8 @@ import (
 )
 
 func TestBundledOnUntilTurnedOff(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
-	defer RegisterBundle(Bundle{Manifest: Manifest{Name: "bundle-test", Command: []string{"agtop"}, UI: []string{UINotify}},
+	t.Setenv("RUSH_HOME", t.TempDir())
+	defer RegisterBundle(Bundle{Manifest: Manifest{Name: "bundle-test", Command: []string{"rush"}, UI: []string{UINotify}},
 		Run: func(io.ReadWriteCloser) error { return nil }})()
 	if _, ok := Enabled()["bundle-test"]; !ok || !BundledOn("bundle-test") {
 		t.Fatal("a bundled plugin should be on without approval")
@@ -36,8 +36,8 @@ func TestBundledOnUntilTurnedOff(t *testing.T) {
 // A plugin's entitlements gate whether it ever runs, bundled or installed:
 // Enabled() leaves out one this system doesn't meet.
 func TestEnabledSkipsUnmetRequirements(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
-	defer RegisterBundle(Bundle{Manifest: Manifest{Name: "bundle-never", Command: []string{"agtop"},
+	t.Setenv("RUSH_HOME", t.TempDir())
+	defer RegisterBundle(Bundle{Manifest: Manifest{Name: "bundle-never", Command: []string{"rush"},
 		Requires: Requires{OS: []string{"never-an-os"}}}, Run: func(io.ReadWriteCloser) error { return nil }})()
 	if _, ok := Enabled()["bundle-never"]; ok {
 		t.Fatal("a bundled plugin whose OS isn't this one should never be enabled")
@@ -62,5 +62,5 @@ func TestBundledManifestIsChecked(t *testing.T) {
 			t.Fatal("a bundled plugin asking for the network should be refused")
 		}
 	}()
-	RegisterBundle(Bundle{Manifest: Manifest{Name: "bundle-net", Command: []string{"agtop"}, Network: []string{"example.com:443"}}})
+	RegisterBundle(Bundle{Manifest: Manifest{Name: "bundle-net", Command: []string{"rush"}, Network: []string{"example.com:443"}}})
 }

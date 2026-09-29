@@ -56,8 +56,8 @@ func TestHighlightClasses(t *testing.T) {
 	}
 	// JSON keys and values differ.
 	st = hlState{}
-	got = highlight(langJSON, &st, `"name": "agtop"`, cText, nil)
-	if !strings.Contains(got, hlFn+`"name"`) || !strings.Contains(got, hlStr+`"agtop"`) {
+	got = highlight(langJSON, &st, `"name": "rush"`, cText, nil)
+	if !strings.Contains(got, hlFn+`"name"`) || !strings.Contains(got, hlStr+`"rush"`) {
 		t.Errorf("json key/value: %q", got)
 	}
 }

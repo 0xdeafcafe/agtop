@@ -8,14 +8,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/keymap"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/keymap"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
-// Settings, Plugins lists agtop's plugins, the bundled ones and those
+// Settings, Plugins lists rush's plugins, the bundled ones and those
 // installed in plugin.Root(): which run, which don't and why, and what
 // each needs to run here. enter opens one: on or off, its settings, and
-// its commands' keys. agtop keeps the values, and the broker hands them
+// its commands' keys. rush keeps the values, and the broker hands them
 // to the plugin.
 
 // pluginsPage is a func, not a var: a command's row goes to Keys, which
@@ -27,7 +27,7 @@ func pluginsPage() page {
 			if m.dialog.plugin != "" {
 				return nil
 			}
-			return []string{faint(ansi.Truncate("Installed in "+tildify(plugin.Root())+" · agtop plugin approve <name> runs a new one", w, "…"))}
+			return []string{faint(ansi.Truncate("Installed in "+tildify(plugin.Root())+" · rush plugin approve <name> runs a new one", w, "…"))}
 		},
 		form: (*Model).pluginSections,
 		pre: func(m *Model, s string) (tea.Cmd, bool) {
@@ -71,7 +71,7 @@ func readPlugins() []pluginRow {
 	for i := range installed {
 		p := &installed[i]
 		if _, ok := plugin.BundleNamed(p.Name); ok {
-			continue // agtop's own of that name runs instead
+			continue // rush's own of that name runs instead
 		}
 		r := pluginRow{m: p.Manifest, runs: true, status: "on"}
 		a, ok := approved[p.Name]
@@ -168,10 +168,10 @@ func (m *Model) pluginSections() []section {
 		return []section{{title: "Plugins", rows: []setting{{
 			label: "none",
 			line: func(w int) string {
-				return dim("No plugins. ") + faint("Put one in "+tildify(plugin.Root())+"/<name>, then agtop plugin approve <name>.")
+				return dim("No plugins. ") + faint("Put one in "+tildify(plugin.Root())+"/<name>, then rush plugin approve <name>.")
 			},
 			about: func() (string, string, string) {
-				return "Plugins", "agtop's own plugins, not your agent's: those are under a Session's Settings tab.", "None installed."
+				return "Plugins", "rush's own plugins, not your agent's: those are under a Session's Settings tab.", "None installed."
 			},
 		}}}}
 	}
@@ -225,7 +225,7 @@ func (m *Model) pluginPage(name string) section {
 		}
 		sec.rows = append(sec.rows, setting{
 			label: "Runs", value: v, choices: []string{"on", "off"},
-			what:  firstNonEmpty(r.m.Description, "Comes with agtop, and is on until you turn it off."),
+			what:  firstNonEmpty(r.m.Description, "Comes with rush, and is on until you turn it off."),
 			means: map[string]string{"on": "it runs, and " + capWords(up), "off": "it doesn't run"},
 			run:   func(v string) tea.Cmd { return m.setBundled(name, v == "on") },
 		})
@@ -245,7 +245,7 @@ func (m *Model) pluginPage(name string) section {
 		sec.rows = append(sec.rows, setting{
 			label: "approve",
 			line: func(int) string {
-				return paint(cYellow, r.status+": ") + faint("agtop plugin approve "+name+" shows what it may do, and runs it")
+				return paint(cYellow, r.status+": ") + faint("rush plugin approve "+name+" shows what it may do, and runs it")
 			},
 			what: "A plugin runs only once you've approved it as it is: approving again is asked for whenever its files change.",
 		})

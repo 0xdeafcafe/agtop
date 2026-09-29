@@ -1,4 +1,4 @@
-// Package tool is a tool call as agtop draws it, whichever agent made it.
+// Package tool is a tool call as rush draws it, whichever agent made it.
 // Each adapter reads its own tool names and input shapes into a Call once,
 // so the renderer switches on Kind and reads Input's fields, not on
 // "Bash" or "shell" or "execute".
@@ -60,7 +60,7 @@ type Call struct {
 	Raw   jsontext.Value `json:",omitzero"` // the input as the agent sent it
 }
 
-// Input is what a call works on, as far as agtop reads it. An adapter
+// Input is what a call works on, as far as rush reads it. An adapter
 // fills in the fields its tool has, and leaves the rest empty.
 type Input struct {
 	Command     string     // Shell

@@ -1,8 +1,8 @@
 package claude
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +17,7 @@ type Account struct {
 	ConfigDir string `json:"configDir"`
 }
 
-// Kind is Claude Code's among agtop's agents.
+// Kind is Claude Code's among rush's agents.
 const Kind agent.Kind = "claude"
 
 // AccountOf is a profile as the Claude config folder it is.
@@ -25,7 +25,7 @@ func AccountOf(p agent.Profile) Account {
 	return Account{Name: p.Name, ConfigDir: p.Dir}
 }
 
-// Profile is the config folder as agtop's own profile of Claude Code.
+// Profile is the config folder as rush's own profile of Claude Code.
 func (a Account) Profile() agent.Profile {
 	return agent.Profile{Kind: Kind, Name: a.Name, Dir: a.ConfigDir}
 }
@@ -53,7 +53,7 @@ func (a Account) StatePath() string {
 
 // Env is what a child claude process needs to act as this account.
 // inherited are the markers a Claude Code session sets for what it runs.
-// agtop started from inside one would pass them on, and the sessions agtop
+// rush started from inside one would pass them on, and the sessions rush
 // starts would think they're that session's children: Claude Code then
 // saves no transcript for them, among other things.
 var inherited = map[string]bool{
@@ -68,7 +68,7 @@ func (a Account) Env() []string {
 	for _, e := range os.Environ() {
 		name, _, _ := strings.Cut(e, "=")
 		if name == "CLAUDE_CONFIG_DIR" || inherited[name] {
-			continue // another account's, or the session agtop was started from
+			continue // another account's, or the session rush was started from
 		}
 		env = append(env, e)
 	}
@@ -93,7 +93,7 @@ type Usage struct {
 	SevenDay  Window
 	FetchedAt time.Time
 	Problem   string // why no fresh reading: not signed in, expired, rate-limited
-	Fetched   bool   // read from Anthropic by agtop, not Claude Code's cache
+	Fetched   bool   // read from Anthropic by rush, not Claude Code's cache
 	Role      string
 	Billing   string
 	OrgType   string

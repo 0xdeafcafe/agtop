@@ -1,4 +1,4 @@
-module github.com/0xdeafcafe/agtop/tools/lint
+module github.com/0xdeafcafe/rush/tools/lint
 
 go 1.27.1
 

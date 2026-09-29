@@ -1,4 +1,4 @@
-// Package hooks is agtop's UI's only way to its plugins, and nothing in it
+// Package hooks is rush's UI's only way to its plugins, and nothing in it
 // can hold the UI up.
 //
 // The UI never touches the broker's socket. One goroutine here owns it: it
@@ -28,8 +28,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // Queue sizes: events waiting to go to the broker, and what the broker
@@ -39,7 +39,7 @@ const (
 	inbox      = 64
 )
 
-// Client is one agtop window's connection to its plugins.
+// Client is one rush window's connection to its plugins.
 type Client struct {
 	id     string
 	events chan plugin.UIEvent

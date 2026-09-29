@@ -3,7 +3,7 @@ package claude
 import (
 	"path/filepath"
 
-	"github.com/0xdeafcafe/agtop/internal/settingsfile"
+	"github.com/0xdeafcafe/rush/internal/settingsfile"
 )
 
 // Settings is a Claude Code settings file: an account's settings.json, or

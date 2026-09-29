@@ -9,10 +9,10 @@ import (
 
 func TestEnvName(t *testing.T) {
 	for key, want := range map[string]string{
-		"copyOnSelect":           "AGTOP_COPY_ON_SELECT",
-		"theme":                  "AGTOP_THEME",
-		"hibernate.afterMinutes": "AGTOP_HIBERNATE_AFTER_MINUTES",
-		"searchTranscriptsOnKey": "AGTOP_SEARCH_TRANSCRIPTS_ON_KEY",
+		"copyOnSelect":           "RUSH_COPY_ON_SELECT",
+		"theme":                  "RUSH_THEME",
+		"hibernate.afterMinutes": "RUSH_HIBERNATE_AFTER_MINUTES",
+		"searchTranscriptsOnKey": "RUSH_SEARCH_TRANSCRIPTS_ON_KEY",
 	} {
 		if got := EnvName(key); got != want {
 			t.Errorf("%s: %s, want %s", key, got, want)
@@ -24,24 +24,24 @@ func TestEnvName(t *testing.T) {
 // you change meanwhile is.
 func TestEnvSetsAnySetting(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	_ = os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"theme": "dark", "sideWidth": 0.3, "groupBy": "status"}`), 0o600)
-	t.Setenv("AGTOP_COPY_ON_SELECT", "0")
-	t.Setenv("AGTOP_THEME", "light")
-	t.Setenv("AGTOP_HIBERNATE_AFTER_MINUTES", "7")
-	t.Setenv("AGTOP_SIDE_WIDTH", "0.4")
-	t.Setenv("AGTOP_GROUP_BY", "agent")
-	t.Setenv("AGTOP_COLOR_BLIND", "maybe") // not a bool: left alone
+	t.Setenv("RUSH_COPY_ON_SELECT", "0")
+	t.Setenv("RUSH_THEME", "light")
+	t.Setenv("RUSH_HIBERNATE_AFTER_MINUTES", "7")
+	t.Setenv("RUSH_SIDE_WIDTH", "0.4")
+	t.Setenv("RUSH_GROUP_BY", "agent")
+	t.Setenv("RUSH_COLOR_BLIND", "maybe") // not a bool: left alone
 
 	s := Load()
 	c := s.Config
 	if c.CopiesOnSelect() || c.Theme != "light" || c.Hibernate.AfterMinutes != 7 || c.SideWidth != 0.4 || c.GroupBy != "agent" || c.ColorBlind {
 		t.Fatalf("from the environment: %+v", c)
 	}
-	if name, ok := s.FromEnv("theme"); !ok || name != "AGTOP_THEME" {
+	if name, ok := s.FromEnv("theme"); !ok || name != "RUSH_THEME" {
 		t.Fatalf("FromEnv: %q %v", name, ok)
 	}
-	s.Config.GroupBy = "group" // changed in agtop: that's saved
+	s.Config.GroupBy = "group" // changed in rush: that's saved
 	if err := s.SaveConfig(); err != nil {
 		t.Fatal(err)
 	}

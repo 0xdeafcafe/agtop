@@ -3,7 +3,7 @@ package plugin
 import (
 	"encoding/json/jsontext"
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"strings"
 	"testing"
@@ -63,7 +63,7 @@ func TestParseSidebar(t *testing.T) {
 }
 
 func TestSidebarsFollowApprovals(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	with := Manifest{Name: "kanban", Command: []string{"kanban"}, Sidebar: true}
 	if err := Approve(Plugin{Manifest: with, Dir: install(t, with, nil)}); err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestSidebarsFollowApprovals(t *testing.T) {
 }
 
 func TestSidebarNeedsTheCapability(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m := Manifest{Name: "kanban", Command: []string{"kanban"}}
 	if err := Approve(Plugin{Manifest: m, Dir: install(t, m, nil)}); err != nil {
 		t.Fatal(err)

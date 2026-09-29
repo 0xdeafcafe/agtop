@@ -1,9 +1,9 @@
-// Package drafts is agtop's drafts, as a plugin bundled with it: a message
+// Package drafts is rush's drafts, as a plugin bundled with it: a message
 // box is kept until it's sent, a message can be stashed while you send
 // another, and what you sent and cleared can be put back.
 //
 // book.go is the logic, with no I/O and no clock of its own; plugin.go
-// wires it to agtop.
+// wires it to rush.
 package drafts
 
 import (
@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // Kinds of what's kept.
@@ -55,7 +55,7 @@ type Store struct {
 	Seq     int                   `json:"seq,omitzero"`
 }
 
-// Book keeps the store, and says what to do to agtop's boxes.
+// Book keeps the store, and says what to do to rush's boxes.
 type Book struct {
 	S    Store
 	keep int // entries kept of each kind
@@ -106,7 +106,7 @@ func (b *Book) Changed(key string, box plugin.Box) {
 	b.S.Boxes[key] = box
 }
 
-// Opened is a box coming into view: what it held, if agtop's is empty.
+// Opened is a box coming into view: what it held, if rush's is empty.
 func (b *Book) Opened(key string) (Set, bool) {
 	box, ok := b.S.Boxes[key]
 	if !ok {

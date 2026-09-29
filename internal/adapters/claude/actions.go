@@ -13,13 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/daemon"
-	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/daemon"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
-// Claude Code's own ways to change a session outside agtop mode: its
+// Claude Code's own ways to change a session outside rush mode: its
 // background daemon's control socket first, the claude CLI as the fallback.
 
 var (
@@ -233,7 +233,7 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	tmp := dst + ".agtop.tmp"
+	tmp := dst + ".rush.tmp"
 	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err

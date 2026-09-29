@@ -1,7 +1,7 @@
 package state
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +11,7 @@ import (
 // rather than empty, so the next save doesn't wipe your settings.
 func TestLoadFallsBackToLastGood(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("AGTOP_HOME", dir)
+	t.Setenv("RUSH_HOME", dir)
 	s := Load()
 	s.Config.SortBy = "cost"
 	s.Config.Folders = append(s.Config.Folders, s.Config.ActiveAccount())
@@ -36,11 +36,11 @@ func TestLoadFallsBackToLastGood(t *testing.T) {
 }
 
 // A config from before accounts were grouped by agent loads with what it
-// meant, and saves in a shape an older agtop still reads: its folders
+// meant, and saves in a shape an older rush still reads: its folders
 // under "accounts", and staying put as stayOnAccount.
 func TestMigrateAccounts(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("AGTOP_HOME", dir)
+	t.Setenv("RUSH_HOME", dir)
 	path := filepath.Join(dir, "config.json")
 	old := `{"accounts":[{"name":"work","configDir":"/x/.claude"},{"name":"old","configDir":"/x/.claude-old"}],"stayOnAccount":true,"groupBy":"account"}`
 	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {

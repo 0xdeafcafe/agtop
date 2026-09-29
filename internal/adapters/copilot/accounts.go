@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Copilot's accounts are the GitHub accounts gh is signed in to. Which one
-// Copilot runs on is agtop's to say (its config's Using), not gh's active
+// Copilot runs on is rush's to say (its config's Using), not gh's active
 // account, so switching Copilot leaves the rest of your gh alone.
 
 func accountKey(login string) string { return "copilot:gh:" + login }
@@ -21,8 +21,8 @@ func accountOf(login string) agent.Account {
 	return agent.Account{Kind: Kind, ID: login, Key: accountKey(login), Name: login, Email: login}
 }
 
-// chosen is the GitHub account agtop runs Copilot on; empty is gh's
-// active one. It's read from agtop's config at most every half minute.
+// chosen is the GitHub account rush runs Copilot on; empty is gh's
+// active one. It's read from rush's config at most every half minute.
 func chosen() string {
 	chosenMu.Lock()
 	defer chosenMu.Unlock()
@@ -95,7 +95,7 @@ func (Adapter) Current(agent.Profile) (agent.Account, error) {
 	return accountOf(active), nil
 }
 
-// Switch checks gh has a sign-in for a; agtop then records a as the
+// Switch checks gh has a sign-in for a; rush then records a as the
 // account Copilot runs on.
 func (Adapter) Switch(_ agent.Profile, a agent.Account) error {
 	logins, _, err := ghLogins()

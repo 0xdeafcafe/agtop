@@ -3,7 +3,7 @@ package claude
 import (
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 // Claude's plan windows, by the names Anthropic gives them.
@@ -17,7 +17,7 @@ var windows = []struct {
 	{"seven_day_opus", "Opus 7d", "Opus weekly", 7 * 24 * time.Hour, usage.Scope{Models: []string{"opus"}}},
 }
 
-// Quota is the reading as agtop's own model of a plan's limits, kept
+// Quota is the reading as rush's own model of a plan's limits, kept
 // under key.
 func (u Usage) Quota(key string) usage.Quota {
 	q := usage.Quota{Account: key, Plan: u.Plan, FetchedAt: u.FetchedAt, Problem: u.Problem}

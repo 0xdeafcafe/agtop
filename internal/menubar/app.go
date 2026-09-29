@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 //go:embed app.swift
@@ -32,16 +32,16 @@ var icons embed.FS
 
 // BundleID is the app's identity: macOS keeps its notification settings
 // under it.
-const BundleID = "dev.agtop.menubar"
+const BundleID = "dev.rush.menubar"
 
 func dir() string      { return filepath.Join(state.Dir(), "menubar") }
 func lockPath() string { return filepath.Join(dir(), "feed.lock") }
 
 // AppPath is where the built app lives.
-func AppPath() string { return filepath.Join(dir(), "agtop.app") }
+func AppPath() string { return filepath.Join(dir(), "rush.app") }
 
 // hold marks the feed as running for as long as it runs, with the app's
-// pid, so agtop leaves notifications to it and can quit it.
+// pid, so rush leaves notifications to it and can quit it.
 func hold() func() {
 	_ = os.MkdirAll(dir(), 0o700)
 	f, err := os.OpenFile(lockPath(), os.O_RDWR|os.O_CREATE, 0o600)
@@ -53,14 +53,14 @@ func hold() func() {
 		return func() {}
 	}
 	_ = f.Truncate(0)
-	_, _ = f.WriteAt([]byte(os.Getenv("AGTOP_MENUBAR_PID")), 0)
+	_, _ = f.WriteAt([]byte(os.Getenv("RUSH_MENUBAR_PID")), 0)
 	return func() {
 		_ = f.Truncate(0)
 		f.Close()
 	}
 }
 
-// Running says whether the menu bar app is up, so agtop's own
+// Running says whether the menu bar app is up, so rush's own
 // notifications would only repeat its.
 func Running() bool {
 	f, err := os.Open(lockPath())
@@ -75,8 +75,8 @@ func Running() bool {
 	return false
 }
 
-// Start builds the app if agtop changed since it was last built, and opens
-// it; one already running is left alone unless it was just rebuilt. agtops
+// Start builds the app if rush changed since it was last built, and opens
+// it; one already running is left alone unless it was just rebuilt. rushes
 // starting together take turns, so only the first builds and opens it.
 func Start() error {
 	if runtime.GOOS != "darwin" {
@@ -108,11 +108,11 @@ func Stop() {
 	if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 1 && Running() {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 	}
-	_ = exec.Command("/usr/bin/pkill", "-f", regexp.QuoteMeta(filepath.Join(AppPath(), "Contents", "MacOS", "agtop-menubar"))).Run()
+	_ = exec.Command("/usr/bin/pkill", "-f", regexp.QuoteMeta(filepath.Join(AppPath(), "Contents", "MacOS", "rush-menubar"))).Run()
 }
 
 // build compiles the app with the Swift compiler that comes with Xcode's
-// command line tools. It's rebuilt only when the source or the agtop it
+// command line tools. It's rebuilt only when the source or the rush it
 // runs changes; the stamp inside says which it was built from.
 func buildApp() (rebuilt bool, err error) {
 	app, bin := AppPath(), exe()
@@ -134,7 +134,7 @@ func buildApp() (rebuilt bool, err error) {
 	if _, err := exec.LookPath("swiftc"); err != nil {
 		return false, errors.New("building the menu bar app needs the Swift compiler: xcode-select --install")
 	}
-	tmp, err := os.MkdirTemp("", "agtop-menubar")
+	tmp, err := os.MkdirTemp("", "rush-menubar")
 	if err != nil {
 		return false, err
 	}
@@ -149,7 +149,7 @@ func buildApp() (rebuilt bool, err error) {
 			return false, err
 		}
 	}
-	out, err := exec.Command("swiftc", "-O", "-swift-version", "5", "-parse-as-library", "-o", filepath.Join(app, "Contents", "MacOS", "agtop-menubar"), src).CombinedOutput()
+	out, err := exec.Command("swiftc", "-O", "-swift-version", "5", "-parse-as-library", "-o", filepath.Join(app, "Contents", "MacOS", "rush-menubar"), src).CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("building the menu bar app: %v\n%s", err, out)
 	}
@@ -206,16 +206,16 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key><string>%s</string>
-	<key>CFBundleName</key><string>agtop</string>
-	<key>CFBundleDisplayName</key><string>agtop</string>
-	<key>CFBundleExecutable</key><string>agtop-menubar</string>
+	<key>CFBundleName</key><string>rush</string>
+	<key>CFBundleDisplayName</key><string>rush</string>
+	<key>CFBundleExecutable</key><string>rush-menubar</string>
 	<key>CFBundleIconFile</key><string>AppIcon</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0</string>
 	<key>CFBundleVersion</key><string>%d</string>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>LSUIElement</key><true/>
-	<key>AgtopBinary</key><string>%s</string>
+	<key>RushBinary</key><string>%s</string>
 </dict>
 </plist>
 `

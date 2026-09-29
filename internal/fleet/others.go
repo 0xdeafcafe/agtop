@@ -3,8 +3,8 @@ package fleet
 import (
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // othersEvery is how often other agents' past sessions are listed again:
@@ -19,8 +19,8 @@ type othersListing struct {
 
 // otherAgents are the sessions of every agent that can list them but
 // home, whose are found by Load's own account loop, less those a row already
-// stands for: running ones (a codex in a terminal), which agtop can only
-// show, and past ones, unless skipPast, which a message resumes in agtop
+// stands for: running ones (a codex in a terminal), which rush can only
+// show, and past ones, unless skipPast, which a message resumes in rush
 // mode with their agent.
 func (l *Loader) otherAgents(home agent.Kind, claimed, seen map[string]bool, now time.Time, skipPast bool) []*Agent { //nolint:gocognit // one listing per agent, each kept a while
 	if l.others == nil {
@@ -62,7 +62,7 @@ func (l *Loader) otherAgents(home agent.Kind, claimed, seen map[string]bool, now
 				}
 				seen[key] = true
 				ag := l.otherRow(a, p, s, key, now)
-				// One on the agent's servers stays there: agtop only shows it.
+				// One on the agent's servers stays there: rush only shows it.
 				ag.Past, ag.Interactive = !s.Remote, s.Remote
 				if s.Remote {
 					ag.State = s.State

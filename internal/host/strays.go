@@ -4,8 +4,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
 // endStrays ends any agent still running this session for a host that is

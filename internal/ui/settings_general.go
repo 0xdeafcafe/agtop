@@ -5,10 +5,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/menubar"
+	"github.com/0xdeafcafe/rush/internal/menubar"
 )
 
-// General is everything that holds whatever agent runs: how agtop looks
+// General is everything that holds whatever agent runs: how rush looks
 // after sessions, then how it looks (interfaceSections).
 func (m *Model) generalSections() []section {
 	c := &m.store.Config
@@ -16,7 +16,7 @@ func (m *Model) generalSections() []section {
 	var secs []section
 
 	rest := choiceSetting("Rest idle sessions after", restValue(d.RestMinutes),
-		"How long an idle agtop-mode session keeps its agent running. An idle agent holds 150-580 MB; after this it stops, and your next message starts it again in about a second. The host, the conversation and its queue stay, and so does the prompt cache.",
+		"How long an idle rush-mode session keeps its agent running. An idle agent holds 150-580 MB; after this it stops, and your next message starts it again in about a second. The host, the conversation and its queue stay, and so does the prompt cache.",
 		[][2]string{
 			{"", "the agent stops a moment after its turn, with nothing left running in the background."},
 			{"2 min", "the agent stays up 2 minutes after its turn."},
@@ -72,8 +72,8 @@ func (m *Model) generalSections() []section {
 		[][2]string{{"on", "you are notified once per new question."}, {"off", "the Needs you section is the only signal."}},
 		func(v string) { c.Quiet = v == "off" })
 	menu := choiceSetting("Menu bar icon", onOffWord(c.MenuBar),
-		"agtop in the menu bar: every account's usage, what's working, and who needs you, with a badge. A question with a few answers can be answered from its notification's buttons, a permission allowed or denied. The first time, it's built with Xcode's Swift compiler (a few seconds).",
-		[][2]string{{"on", "it opens with agtop, and its menu can open it at login; agtop's own notifications give way to its."}, {"off", "no menu bar icon."}}, nil)
+		"rush in the menu bar: every account's usage, what's working, and who needs you, with a badge. A question with a few answers can be answered from its notification's buttons, a permission allowed or denied. The first time, it's built with Xcode's Swift compiler (a few seconds).",
+		[][2]string{{"on", "it opens with rush, and its menu can open it at login; rush's own notifications give way to its."}, {"off", "no menu bar icon."}}, nil)
 	menu.run = func(v string) tea.Cmd {
 		c.MenuBar, c.MenuBarAsked = v == "on", true
 		if !c.MenuBar {
@@ -85,7 +85,7 @@ func (m *Model) generalSections() []section {
 	secs = append(secs, section{title: "When an agent needs you", rows: []setting{notify, menu}})
 
 	advisor := choiceSetting("Advisor", onOffWord(c.Advisor),
-		"Now and then, after your agents have done some work, agtop's advisor looks over their figures on Haiku, with Opus checking what it finds, and says what would cut tokens or time. Its notes are in Efficiency. It costs a little each pass.",
+		"Now and then, after your agents have done some work, rush's advisor looks over their figures on Haiku, with Opus checking what it finds, and says what would cut tokens or time. Its notes are in Efficiency. It costs a little each pass.",
 		[][2]string{{"on", "it looks at most every 3 hours, once there's something new."}, {"off", "no advisor."}}, nil)
 	advisor.run = m.advCommand
 	secs = append(secs, section{title: "Advice", rows: []setting{advisor}})

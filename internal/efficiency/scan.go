@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 // Tool classes: what tool results are counted by. Bash and Read are most of

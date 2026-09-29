@@ -8,7 +8,7 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"strconv"
 	"sync"
@@ -16,7 +16,7 @@ import (
 )
 
 // MaxFrame bounds one message. A tool result bigger than this is a bug, and
-// refusing it keeps a plugin from making agtop allocate without limit.
+// refusing it keeps a plugin from making rush allocate without limit.
 const MaxFrame = 16 << 20
 
 // Handler answers a request, or takes a notification (whose result is
@@ -69,7 +69,7 @@ type codec interface {
 }
 
 // framed is a 4-byte big-endian length, then that many bytes of JSON. It is
-// what agtop's own plugins speak on fd 3: a message is read in two reads
+// what rush's own plugins speak on fd 3: a message is read in two reads
 // with no scanning, whatever it holds.
 type framed struct {
 	r *bufio.Reader

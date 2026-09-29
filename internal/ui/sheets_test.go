@@ -12,13 +12,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
-	"github.com/0xdeafcafe/agtop/internal/statusline"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/statusline"
 )
 
 // A fork up to turn 2 is the transcript cut where turn 3 starts, under a
@@ -105,14 +105,14 @@ func TestPluginSheet(t *testing.T) {
 func TestStatusSheet(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
-	a := &fleet.Agent{Key: "k", Cwd: "/src/agtop", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
+	a := &fleet.Agent{Key: "k", Cwd: "/src/rush", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
 	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 	c.sess.Model = "Opus 5.5"
 	m.openStatusLine(c, a)
 	st := m.sheet.(*statusSheet)
 	st.tab = stClaude
 	text := func() string { return ansi.Strip(strings.Join(st.body(m, 120, 40), "\n")) }
-	if !strings.Contains(text(), "  Opus 5.5 · agtop") || strings.Contains(text(), "Your own line") {
+	if !strings.Contains(text(), "  Opus 5.5 · rush") || strings.Contains(text(), "Your own line") {
 		t.Fatalf("preview:\n%s", text())
 	}
 	// Folder moves up above Model, then down past the end of line 1 onto
@@ -134,7 +134,7 @@ func TestStatusSheet(t *testing.T) {
 	if !strings.Contains(text(), "Line 3") || !strings.Contains(text(), "Not shown") {
 		t.Fatalf("headings:\n%s", text())
 	}
-	// Saving writes the layout and points settings.json at agtop.
+	// Saving writes the layout and points settings.json at rush.
 	os.WriteFile(filepath.Join(a.Acct.Dir, "settings.json"), []byte(`{"model":"opus"}`), 0o600)
 	st.key(m, tea.KeyPressMsg{}, "enter")
 	b, _ := os.ReadFile(filepath.Join(a.Acct.Dir, "settings.json"))

@@ -9,10 +9,10 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // TempDir is a folder of an agent's scratch work, and whether cleaning it
@@ -24,13 +24,13 @@ type TempDir struct {
 
 // TempDirs are where an agent's temp work is: what it cloned, built or
 // downloaded as scratch, which Claude Code leaves behind when it finishes.
-// A Claude Code background job has its own tmp folder; an agtop session
-// has one agtop gives it; and every session has Claude Code's own scratch
+// A Claude Code background job has its own tmp folder; a rush session
+// has one rush gives it; and every session has Claude Code's own scratch
 // (task output and the like) under /tmp/claude-<uid>.
 func (a *Agent) TempDirs() []TempDir {
 	var out []TempDir
 	switch {
-	case a.Agtop:
+	case a.Rush:
 		out = append(out, TempDir{Path: host.TempDir(a.ID), Keep: true})
 	case !a.Interactive && !a.Past && a.ID != "":
 		out = append(out, TempDir{Path: filepath.Join(claude.AccountOf(a.Acct).JobsDir(), a.ID, "tmp"), Keep: true})
@@ -68,7 +68,7 @@ func CleanTemp(a *Agent) error {
 		return fmt.Errorf("%s is still running; stop it first", a.DisplayName)
 	}
 	for _, d := range a.TempDirs() {
-		// Only ever a tmp folder of agtop's or Claude Code's, never
+		// Only ever a tmp folder of rush's or Claude Code's, never
 		// something a bad id could point elsewhere.
 		if filepath.Base(d.Path) != "tmp" && filepath.Dir(filepath.Dir(d.Path)) != ClaudeScratch() {
 			return fmt.Errorf("won't delete %s", d.Path)

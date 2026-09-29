@@ -13,19 +13,19 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Codex keeps its sign-in in its home's auth.json: a ChatGPT sign-in's
-// tokens, or an API key. An account agtop keeps is a copy of that file in
+// tokens, or an API key. An account rush keeps is a copy of that file in
 // the vault, and switching puts one in place of the other.
 
 // vaultKey is where the vault keeps an account's auth.json.
 func vaultKey(id string) string { return "codex:" + id }
 
-// authFile is Codex's auth.json, as much as agtop reads of it.
+// authFile is Codex's auth.json, as much as rush reads of it.
 type authFile struct {
 	Mode   string  `json:"auth_mode"`
 	APIKey *string `json:"OPENAI_API_KEY"`
@@ -86,7 +86,7 @@ func authPath(p agent.Profile) string { return filepath.Join(p.Dir, "auth.json")
 func (Adapter) Current(p agent.Profile) (agent.Account, error) {
 	b, err := os.ReadFile(authPath(p))
 	if err != nil {
-		return agent.Account{}, errors.New("codex: no auth.json; not signed in, or its sign-in is in the keyring, which agtop can't switch")
+		return agent.Account{}, errors.New("codex: no auth.json; not signed in, or its sign-in is in the keyring, which rush can't switch")
 	}
 	return whoIs(b)
 }
@@ -102,10 +102,10 @@ func (Adapter) Switch(p agent.Profile, a agent.Account) error {
 	defer unlock()
 	next, err := v.Get(vaultKey(a.ID))
 	if err != nil {
-		return fmt.Errorf("agtop has no sign-in for %s; sign in to it again", firstOf(a.Name, a.Email, a.ID))
+		return fmt.Errorf("rush has no sign-in for %s; sign in to it again", firstOf(a.Name, a.Email, a.ID))
 	}
 	if who, err := whoIs(next); err != nil || who.ID != a.ID {
-		return fmt.Errorf("agtop's sign-in for %s isn't that account's; sign in to it again", firstOf(a.Name, a.Email, a.ID))
+		return fmt.Errorf("rush's sign-in for %s isn't that account's; sign in to it again", firstOf(a.Name, a.Email, a.ID))
 	}
 	if cur, err := os.ReadFile(authPath(p)); err == nil {
 		if who, err := whoIs(cur); err == nil {
@@ -172,7 +172,7 @@ func (Adapter) SignIn(agent.Profile) (*exec.Cmd, func() (agent.Account, error), 
 	return cmd, done, nil
 }
 
-// Forget drops agtop's copy of a's auth.json.
+// Forget drops rush's copy of a's auth.json.
 func (Adapter) Forget(a agent.Account) error {
 	return state.Vault().Forget(vaultKey(a.ID))
 }

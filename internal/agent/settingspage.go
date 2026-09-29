@@ -1,7 +1,7 @@
 package agent
 
-// SettingsPage is what an agent offers on its page in agtop's Settings:
-// keys of the first of its SettingsFiles, each a row agtop edits in place,
+// SettingsPage is what an agent offers on its page in rush's Settings:
+// keys of the first of its SettingsFiles, each a row rush edits in place,
 // and the environment its sessions start with.
 type SettingsPage struct {
 	// Note is under the settings file's section, after its path.

@@ -12,13 +12,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// Tail follows a Claude Code transcript file, so a session agtop doesn't
+// Tail follows a Claude Code transcript file, so a session rush doesn't
 // run itself draws exactly like one it does: the transcript holds the same
 // messages the stream carries. Each Read takes in only what's new.
 type Tail struct {
@@ -40,7 +40,7 @@ func NewTail(path string) *Tail { return &Tail{Path: path, Sess: New()} }
 func (t *Tail) Size() int64 { return t.off.Load() }
 
 // History is the conversation a transcript holds from before a moment: what
-// an agtop session that resumed one had already said before its host
+// a rush session that resumed one had already said before its host
 // started (the host replays the rest). Its last turn is closed.
 func History(path string, before time.Time) *Session {
 	t := NewTail(path)
@@ -540,7 +540,7 @@ func Injected(s string) (from, text string, ok bool) {
 	return "", s, false
 }
 
-// taskStatus is a background task's status as agtop says it: one you
+// taskStatus is a background task's status as rush says it: one you
 // stopped is stopped, though Claude Code calls it killed.
 func taskStatus(s string) string {
 	if s == "killed" {

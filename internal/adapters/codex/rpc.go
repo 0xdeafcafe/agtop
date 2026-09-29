@@ -15,9 +15,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/pgguard"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/pgguard"
 )
 
 // message is one line of the app-server protocol. It is JSON-RPC 2.0
@@ -203,7 +203,7 @@ func (c *client) reply(id jsontext.Value, result any) error {
 	}{id, result})
 }
 
-// refuse answers a server request agtop doesn't handle.
+// refuse answers a server request rush doesn't handle.
 func (c *client) refuse(id jsontext.Value, msg string) error {
 	return c.write(struct {
 		ID    jsontext.Value `json:"id"`
@@ -218,7 +218,7 @@ func (c *client) initialize(ctx context.Context) (string, error) {
 		UserAgent string `json:"userAgent"`
 	}
 	params := map[string]any{
-		"clientInfo":   map[string]any{"name": "agtop", "title": "agtop", "version": "0"},
+		"clientInfo":   map[string]any{"name": "rush", "title": "rush", "version": "0"},
 		"capabilities": map[string]any{"experimentalApi": false, "requestAttestation": false},
 	}
 	if err := c.call(ctx, "initialize", params, &res); err != nil {
@@ -231,7 +231,7 @@ func (c *client) initialize(ctx context.Context) (string, error) {
 }
 
 // versionOf is the version in a user agent such as
-// "agtop/0.155.1 (Mac OS 27.0.0; arm64) …": Codex puts its own version
+// "rush/0.155.1 (Mac OS 27.0.0; arm64) …": Codex puts its own version
 // after the client's name.
 func versionOf(ua string) string {
 	f := strings.Fields(ua)
@@ -266,7 +266,7 @@ func (c *client) close() error {
 	return nil
 }
 
-// idString is a request id as agtop keys it.
+// idString is a request id as rush keys it.
 func idString(id jsontext.Value) string {
 	s := string(id)
 	if u, err := strconv.Unquote(s); err == nil {

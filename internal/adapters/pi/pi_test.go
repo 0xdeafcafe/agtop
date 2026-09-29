@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // feed runs a recorded RPC session through a Conn's handler, and is what
@@ -73,7 +73,7 @@ func TestEditTurn(t *testing.T) { //nolint:gocognit,gocyclo // one recorded turn
 	var outs []tool.Output
 	for _, m := range only[event.Message](evs) {
 		if m.Role == "user" && m.Parts[0].Kind == event.Text {
-			t.Errorf("the prompt agtop sent came back as a message: %+v", m)
+			t.Errorf("the prompt rush sent came back as a message: %+v", m)
 		}
 		for _, p := range m.Parts {
 			switch p.Kind {
@@ -158,7 +158,7 @@ func TestAbortThenSteer(t *testing.T) {
 	}
 	for _, m := range only[event.Message](evs) {
 		if m.Role == "user" {
-			t.Errorf("a message agtop sent came back: %+v", m)
+			t.Errorf("a message rush sent came back: %+v", m)
 		}
 	}
 }
@@ -170,7 +170,7 @@ type fake struct {
 	out io.Writer
 }
 
-// next is the next command agtop sends, which must be of type typ.
+// next is the next command rush sends, which must be of type typ.
 func (f *fake) next(typ string) map[string]any {
 	f.t.Helper()
 	if !f.in.Scan() {
@@ -294,7 +294,7 @@ func TestConn(t *testing.T) { //nolint:gocognit,gocyclo // one session, step by 
 		t.Errorf("turn end: %+v", e)
 	}
 
-	// Pi busy on its own when agtop thought it idle: the prompt steers.
+	// Pi busy on its own when rush thought it idle: the prompt steers.
 	go func() { done <- c.Send(agent.Input{Text: "late"}) }()
 	f.fail(f.next("prompt"), "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.")
 	if p = f.next("prompt"); p["streamingBehavior"] != "steer" {

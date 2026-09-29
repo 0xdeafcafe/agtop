@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 func TestSidebarSet(t *testing.T) {

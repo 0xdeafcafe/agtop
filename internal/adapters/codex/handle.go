@@ -5,13 +5,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// handle turns what the app-server says into agtop's events, and keeps
+// handle turns what the app-server says into rush's events, and keeps
 // the requests the user has to answer.
 func (c *Conn) handle(rpc *client, m message) {
 	if m.ID != nil {
@@ -172,7 +172,7 @@ type tokenBreakdown struct {
 	ReasoningOutputTokens int64 `json:"reasoningOutputTokens"`
 }
 
-// usage is the breakdown as agtop counts it. OpenAI's input includes the
+// usage is the breakdown as rush counts it. OpenAI's input includes the
 // cached input and its output includes the reasoning, so input is what
 // wasn't cached and output is taken as it is.
 func (b tokenBreakdown) usage() usage.TokenUsage {
@@ -263,7 +263,7 @@ func (c *Conn) itemCompleted(raw jsontext.Value) []event.Event {
 }
 
 // request keeps a server request for the user to answer, or answers it
-// at once when agtop has nothing to ask.
+// at once when rush has nothing to ask.
 func (c *Conn) request(rpc *client, m message) {
 	id := idString(m.ID)
 	var p struct {
@@ -320,12 +320,12 @@ func (c *Conn) request(rpc *client, m message) {
 		}
 		ev = q
 	case reqElicitation:
-		// agtop has no form to fill in yet.
+		// rush has no form to fill in yet.
 		_ = rpc.reply(m.ID, map[string]any{"action": "decline", "content": nil, "_meta": nil})
 		c.emit(c.other(m))
 		return
 	default:
-		_ = rpc.refuse(m.ID, "agtop does not handle "+m.Method)
+		_ = rpc.refuse(m.ID, "rush does not handle "+m.Method)
 		c.emit(c.other(m))
 		return
 	}

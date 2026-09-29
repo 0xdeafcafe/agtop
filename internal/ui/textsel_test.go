@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/charmbracelet/x/ansi"
 )
 

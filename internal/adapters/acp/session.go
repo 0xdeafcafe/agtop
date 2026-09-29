@@ -1,7 +1,7 @@
 // Package acp drives any agent that speaks the Agent Client Protocol
 // (https://agentclientprotocol.com): JSON-RPC over the agent's stdin and
 // stdout. It starts or resumes one session and turns what the agent says
-// into agtop's own events. Copilot, Kimi, Mistral Vibe, Gemini and
+// into rush's own events. Copilot, Kimi, Mistral Vibe, Gemini and
 // OpenCode adapters are thin layers over it.
 package acp
 
@@ -22,24 +22,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/pgguard"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/pgguard"
 )
 
 // Options is how to run an ACP agent and which session to open.
 type Options struct {
 	Command string   // the agent's program: "kimi", "copilot"
 	Args    []string // what makes it speak ACP: "acp", "--acp"
-	Env     []string // added to agtop's own
-	Dir     string   // the session's working directory; agtop's when empty
+	Env     []string // added to rush's own
+	Dir     string   // the session's working directory; rush's when empty
 	// Resume is a past session to open instead of a new one.
 	Resume string
 	// MCPServers are passed to the agent as ACP McpServer objects.
 	MCPServers []jsontext.Value
 	// Adapter names the agent in the events nothing else fits: "kimi".
 	Adapter string
-	// NoFS keeps file reads and writes with the agent rather than agtop.
+	// NoFS keeps file reads and writes with the agent rather than rush.
 	NoFS bool
 }
 
@@ -89,7 +89,7 @@ type Session struct {
 var _ agent.Conn = (*Session)(nil)
 var _ agent.Answerer = (*Session)(nil)
 
-// Start runs the agent, introduces agtop and opens the session.
+// Start runs the agent, introduces rush and opens the session.
 func Start(ctx context.Context, o Options) (*Session, error) {
 	cmd := exec.Command(o.Command, o.Args...)
 	cmd.Dir = o.Dir
@@ -177,7 +177,7 @@ func (s *Session) ended() {
 	s.qcond.Broadcast()
 }
 
-// begin introduces agtop and opens the session.
+// begin introduces rush and opens the session.
 func (s *Session) begin(ctx context.Context) error {
 	var init initializeResult
 	err := s.rpc.call(ctx, "initialize", map[string]any{
@@ -187,7 +187,7 @@ func (s *Session) begin(ctx context.Context) error {
 			"terminal":    false,
 			"elicitation": map[string]any{"form": map[string]any{}},
 		},
-		"clientInfo": map[string]string{"name": "agtop", "title": "agtop", "version": "dev"},
+		"clientInfo": map[string]string{"name": "rush", "title": "rush", "version": "dev"},
 	}, &init)
 	if err != nil {
 		return fmt.Errorf("acp: initialize: %w", err)
@@ -330,7 +330,7 @@ func (s *Session) prompt(blocks []contentBlock) {
 	s.emit(end)
 }
 
-// stopReason is ACP's reason a turn stopped in agtop's words.
+// stopReason is ACP's reason a turn stopped in rush's words.
 func stopReason(r string) string {
 	switch r {
 	case "end_turn", "":

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/theme"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/theme"
 )
 
 // An image a step read or a tool gave back is drawn under it, small, in

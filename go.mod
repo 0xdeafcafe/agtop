@@ -1,4 +1,4 @@
-module github.com/0xdeafcafe/agtop
+module github.com/0xdeafcafe/rush
 
 go 1.27.1
 

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // --- the UI's own goroutine, watched ---
@@ -28,7 +28,7 @@ type uiStall struct {
 	what  string // the message's type, or "frame"
 	took  time.Duration
 	at    time.Time
-	where string // the deepest of agtop's own calls it was in, when caught
+	where string // the deepest of rush's own calls it was in, when caught
 }
 
 var stalls struct {
@@ -118,11 +118,11 @@ func uiStack() string {
 	return ""
 }
 
-// stallWhere is the deepest of agtop's own calls in a stack, past the
+// stallWhere is the deepest of rush's own calls in a stack, past the
 // runtime's and the standard library's: what was doing the waiting.
 func stallWhere(stack string) string {
 	for l := range strings.SplitSeq(stack, "\n") {
-		if strings.HasPrefix(l, "\t") || !strings.Contains(l, "agtop/internal/") {
+		if strings.HasPrefix(l, "\t") || !strings.Contains(l, "rush/internal/") {
 			continue
 		}
 		fn := l[strings.LastIndex(l, "/")+1:]

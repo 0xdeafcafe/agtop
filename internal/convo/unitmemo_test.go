@@ -10,10 +10,10 @@ import (
 
 // A running turn drawn from the unit memo reads exactly as one drawn anew:
 // frame after frame, as text streams in, verbose, with a step picked and a
-// run opened. $AGTOP_BENCH_TRANSCRIPT adds a real session to the check.
+// run opened. $RUSH_BENCH_TRANSCRIPT adds a real session to the check.
 func TestUnitMemoDrawsTheSame(t *testing.T) {
 	sessions := map[string]*Session{"bench": benchSession(200)}
-	if p := os.Getenv("AGTOP_BENCH_TRANSCRIPT"); p != "" {
+	if p := os.Getenv("RUSH_BENCH_TRANSCRIPT"); p != "" {
 		sessions[p] = settledTranscript(t, p)
 	}
 	for name, s := range sessions {
@@ -110,7 +110,7 @@ func memoFrames(s *Session, o Options) string {
 // with no budget draws.
 func TestBudgetRelayoutSettles(t *testing.T) {
 	s := benchSession(200)
-	if p := os.Getenv("AGTOP_BENCH_TRANSCRIPT"); p != "" {
+	if p := os.Getenv("RUSH_BENCH_TRANSCRIPT"); p != "" {
 		s = settledTranscript(t, p)
 	}
 	s.Turns[len(s.Turns)-1].Live = true

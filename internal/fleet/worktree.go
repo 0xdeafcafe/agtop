@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Worktree is a linked git worktree an agent works in, and whether it can

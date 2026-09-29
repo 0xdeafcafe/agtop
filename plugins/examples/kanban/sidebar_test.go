@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 const board2 = `{"links": [
@@ -32,10 +32,10 @@ func TestSidebarPayload(t *testing.T) {
 	}
 	b, _ := jsonx.Marshal(sidebarPayload(cards))
 
-	// It's what agtop's broker takes.
+	// It's what rush's broker takes.
 	s, err := plugin.ParseSidebar("kanban", b)
 	if err != nil {
-		t.Fatalf("agtop refuses %s: %v", b, err)
+		t.Fatalf("rush refuses %s: %v", b, err)
 	}
 	var sections []string
 	for _, sec := range s.Sections {

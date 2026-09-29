@@ -5,8 +5,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
 // Reaper ends what an agent leaves running when it stops: shells, servers
@@ -28,7 +28,7 @@ type seenProc struct {
 	ownerStart time.Time
 }
 
-// ourPID is agtop's own process, asked once: Scan runs on the UI.
+// ourPID is rush's own process, asked once: Scan runs on the UI.
 var ourPID = os.Getpid()
 
 // Leftover is a process an agent left behind, with everything under it.
@@ -135,7 +135,7 @@ func (l Leftover) End(grace time.Duration) {
 }
 
 // ownerOf is the agent's process p runs under for an agent whose process
-// is root: root itself when it is an agent's program, else (an agtop
+// is root: root itself when it is an agent's program, else (a rush
 // host) the child of root that p descends from. p itself is never its own
 // owner.
 func ownerOf(tab *proc.Table, root, p *proc.Proc) *proc.Proc {

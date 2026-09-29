@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 func TestNeighbourStaysInSection(t *testing.T) {

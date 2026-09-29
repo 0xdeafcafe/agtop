@@ -9,9 +9,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/advisor"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/efficiency"
+	"github.com/0xdeafcafe/rush/internal/advisor"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/efficiency"
 )
 
 // advState is the advisor as the Efficiency place sees it: its record,
@@ -28,7 +28,7 @@ type advRanMsg struct {
 	fresh []advisor.Finding
 	err   error
 	// seen is the record as read when no pass ran, and off says the
-	// advisor was turned off in another agtop.
+	// advisor was turned off in another rush.
 	seen *advisor.Record
 	off  bool
 }
@@ -51,7 +51,7 @@ func (m *Model) advRecord() *advisor.Record {
 }
 
 // advTick starts a pass when the advisor is on and one may be due. Whether
-// one is, and whether another agtop turned the advisor off, is asked off
+// one is, and whether another rush turned the advisor off, is asked off
 // the UI, in the pass's own command.
 func (m *Model) advTick() tea.Cmd {
 	if !m.store.Config.Advisor || m.hosted != "" || m.offline {
@@ -59,14 +59,14 @@ func (m *Model) advTick() tea.Cmd {
 	}
 	a := &m.eff.adv
 	if a.checked.IsZero() {
-		a.checked = time.Now() // not while agtop is still starting up
+		a.checked = time.Now() // not while rush is still starting up
 	}
 	if a.running || time.Since(a.checked) < advCheck {
 		return nil
 	}
 	a.checked = time.Now()
 	if rec := a.rec; rec != nil && !rec.LastRun.IsZero() && time.Since(rec.LastRun) < advisor.Gap {
-		return nil // the pass's command reads it again, for another agtop's
+		return nil // the pass's command reads it again, for another rush's
 	}
 	cmd, _ := m.advPass(false, true)
 	return cmd
@@ -77,7 +77,7 @@ func (m *Model) advTick() tea.Cmd {
 func (m *Model) advRun(force bool) (tea.Cmd, string) { return m.advPass(force, false) }
 
 // advPass is advRun; a pass the tick starts first asks whether another
-// agtop turned the advisor off.
+// rush turned the advisor off.
 func (m *Model) advPass(force, tick bool) (tea.Cmd, string) {
 	a := &m.eff.adv
 	if a.running {
@@ -115,9 +115,9 @@ func advPassOff(ctx context.Context, force bool, acct agent.Profile, store *effi
 	unlock, ok := advisor.Lock()
 	if !ok {
 		if force {
-			return advRanMsg{err: errors.New("another agtop is already looking")}
+			return advRanMsg{err: errors.New("another rush is already looking")}
 		}
-		return advRanMsg{} // another agtop is running one
+		return advRanMsg{} // another rush is running one
 	}
 	defer unlock()
 	rec := advisor.Load()
@@ -164,14 +164,14 @@ func (m *Model) onAdvRan(msg advRanMsg) {
 	a := &m.eff.adv
 	a.running, a.cancel = false, nil
 	if msg.off {
-		// Turned off in another agtop: don't run, and don't write it back
+		// Turned off in another rush: don't run, and don't write it back
 		// on when this one saves its config.
 		m.store.Config.Advisor = false
 		m.advRefresh()
 		return
 	}
 	if msg.seen != nil {
-		a.rec = msg.seen // another agtop may have run one
+		a.rec = msg.seen // another rush may have run one
 		m.advRefresh()
 	}
 	if msg.rec == nil {
@@ -251,7 +251,7 @@ func (m *Model) advDismiss() tea.Cmd {
 	e.finding = min(e.finding, max(0, len(e.findings)-1))
 	m.flash("put away · the advisor won't raise it again", false)
 	return func() tea.Msg {
-		rec := advisor.Load() // another agtop may have added to it
+		rec := advisor.Load() // another rush may have added to it
 		rec.Dismiss(id)
 		if err := rec.Save(); err != nil {
 			return doneMsg{err: fmt.Errorf("advisor: %w", err)}
@@ -327,7 +327,7 @@ func (m *Model) advCommand(arg string) tea.Cmd {
 			m.flash("the advisor is off · #advisor on", false)
 			return nil
 		}
-		// Read afresh, off the UI: another agtop may have run one.
+		// Read afresh, off the UI: another rush may have run one.
 		return sheetDo(func() (*advisor.Record, error) { return advisor.Load(), nil }, func(m *Model, rec *advisor.Record, _ error) tea.Cmd {
 			m.eff.adv.rec = rec
 			m.advRefresh()

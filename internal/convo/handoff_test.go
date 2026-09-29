@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // A session told for a hand-off carries how it began, its steps in words,

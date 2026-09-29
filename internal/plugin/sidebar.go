@@ -5,7 +5,7 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"maps"
 	"os"
 	"path/filepath"
@@ -17,9 +17,9 @@ import (
 	"unicode/utf8"
 )
 
-// A plugin with the sidebar capability may arrange agtop's agent list: its
+// A plugin with the sidebar capability may arrange rush's agent list: its
 // own sections, and a name for each agent it knows. It only labels agents
-// agtop already shows, so it grants the plugin nothing it could not see.
+// rush already shows, so it grants the plugin nothing it could not see.
 // The broker checks what it sends and writes it to SidebarPath, a file the
 // plugin can't reach; the UI reads it from there.
 

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // TestBrokerRunsTheExamplePlugin builds plugins/examples/delegate, approves
@@ -22,13 +22,13 @@ func TestBrokerRunsTheExamplePlugin(t *testing.T) {
 		t.Skip("builds and sandboxes a program")
 	}
 	// Short, as a unix socket's path must be.
-	home, err := os.MkdirTemp("/tmp", "agtop-")
+	home, err := os.MkdirTemp("/tmp", "rush-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
 	home, _ = filepath.EvalSymlinks(home)
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	dir := filepath.Join(plugin.Root(), "delegate")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestBrokerRunsTheExamplePlugin(t *testing.T) {
 	}
 
 	init := mcp(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`)
-	if info := init["result"].(map[string]any)["serverInfo"].(map[string]any); info["name"] != "agtop-delegate" {
+	if info := init["result"].(map[string]any)["serverInfo"].(map[string]any); info["name"] != "rush-delegate" {
 		t.Fatalf("initialize = %v", init)
 	}
 	if n := mcp(`{"jsonrpc":"2.0","method":"notifications/initialized"}`); n["result"] == nil {

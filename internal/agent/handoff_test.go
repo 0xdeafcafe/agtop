@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
 // A long conversation is handed on cut down: its latest steps and turns,

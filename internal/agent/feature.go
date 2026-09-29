@@ -1,6 +1,6 @@
 package agent
 
-// Feature is one thing agtop can do with a session or an agent. Every
+// Feature is one thing rush can do with a session or an agent. Every
 // adapter says, feature by feature, whether it can: the core asks through
 // Supports and never by the agent's name.
 type Feature string
@@ -8,7 +8,7 @@ type Feature string
 // Features, in the order they're shown.
 const (
 	// Running a session.
-	FeatureRun          Feature = "run"       // runs headless, in agtop mode: a Driver
+	FeatureRun          Feature = "run"       // runs headless, in rush mode: a Driver
 	FeatureResume       Feature = "resume"    // picks a past session up again
 	FeatureFork         Feature = "fork"      // branches a session into a new one
 	FeatureRewind       Feature = "rewind"    // goes back to an earlier message, files and all
@@ -20,7 +20,7 @@ const (
 	FeatureImages       Feature = "images"
 	FeatureQuestions    Feature = "questions" // asks structured questions with choices
 	FeatureSubagents    Feature = "subagents"
-	FeatureBackground   Feature = "background" // background tasks agtop can list and stop
+	FeatureBackground   Feature = "background" // background tasks rush can list and stop
 	FeatureContext      Feature = "context"    // a breakdown of what fills the context
 	FeatureCompact      Feature = "compact"
 	FeatureCommands     Feature = "commands" // slash commands and skills: a Commander
@@ -29,14 +29,14 @@ const (
 	FeatureMCP          Feature = "mcp"
 	FeatureHooks        Feature = "hooks"
 	FeaturePlugins      Feature = "plugins"
-	FeatureStatusLine   Feature = "statusline" // runs agtop as its statusline
-	FeatureScreen       Feature = "screen"     // its own TUI, shown beside agtop's
+	FeatureStatusLine   Feature = "statusline" // runs rush as its statusline
+	FeatureScreen       Feature = "screen"     // its own TUI, shown beside rush's
 	FeatureHandoffIn    Feature = "handoff"    // starts from another agent's conversation
 	FeatureSettings     Feature = "settings"   // its settings files: permission rules, env, what the Settings tab sums up
 	FeatureStats        Feature = "stats"      // its own record of the account's use, by day and model
 
 	// Finding sessions.
-	FeatureLive    Feature = "live"    // sessions running outside agtop: a Discoverer
+	FeatureLive    Feature = "live"    // sessions running outside rush: a Discoverer
 	FeatureHistory Feature = "history" // past transcripts read back: a HistoryReader
 	FeatureRemote  Feature = "remote"  // sessions on the agent's own servers
 
@@ -56,7 +56,7 @@ type FeatureInfo struct {
 }
 
 var allFeatures = []FeatureInfo{
-	{FeatureRun, "Run in agtop mode"},
+	{FeatureRun, "Run in rush mode"},
 	{FeatureResume, "Resume"},
 	{FeatureFork, "Fork"},
 	{FeatureRewind, "Rewind"},
@@ -112,7 +112,7 @@ type State int8
 const (
 	StateNo State = iota
 	StateYes
-	StatePlanned // agtop means to, and hasn't yet
+	StatePlanned // rush means to, and hasn't yet
 )
 
 func (s State) String() string {
@@ -142,13 +142,13 @@ var (
 // With is s with a note.
 func (s Support) With(note string) Support { s.Note = note; return s }
 
-// Level is how far agtop's support for an agent has been tried.
+// Level is how far rush's support for an agent has been tried.
 type Level int8
 
 const (
 	LevelPreview Level = iota // built, not yet tried against the real program
 	LevelTested               // tried against the real program
-	LevelFull                 // everything agtop does, and used every day
+	LevelFull                 // everything rush does, and used every day
 )
 
 func (l Level) String() string {

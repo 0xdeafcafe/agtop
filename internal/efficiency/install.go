@@ -97,7 +97,7 @@ func Backup(env *Env) (string, error) {
 	return dir, nil
 }
 
-// Run carries the plan out, logging it as agtop's doing. It returns the
+// Run carries the plan out, logging it as rush's doing. It returns the
 // commands' output, last lines last.
 func (p Plan) Run(env *Env) ([]string, error) {
 	if p.Blocked != "" {
@@ -137,7 +137,7 @@ func (p Plan) Run(env *Env) ([]string, error) {
 	case p.Remove:
 		kind, detail = "remove", ""
 	}
-	_ = AddEvent(Event{Kind: kind, Saver: p.Saver.ID, Account: env.Profile.Dir, Source: "agtop", Detail: detail})
+	_ = AddEvent(Event{Kind: kind, Saver: p.Saver.ID, Account: env.Profile.Dir, Source: "rush", Detail: detail})
 	Remember(fresh, p.Saver.ID, f)
 	return log, nil
 }

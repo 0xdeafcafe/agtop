@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // A session another agent ran, as the host sends it, draws as Claude's do.

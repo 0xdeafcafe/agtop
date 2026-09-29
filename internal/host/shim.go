@@ -6,22 +6,22 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// A session agtop starts finds its stand-ins first on PATH: a codex or
-// claude its shell runs is `agtop spawn codex …`, which hosts the run so
+// A session rush starts finds its stand-ins first on PATH: a codex or
+// claude its shell runs is `rush spawn codex …`, which hosts the run so
 // you can talk to it while it works, or runs the real program when it
 // can't.
 
 // ShimDir is the folder of stand-ins.
 func ShimDir() string { return state.CachePath("shims") }
 
-// shimScript is the stand-in for program: agtop spawn, or the real one
-// off PATH when this agtop has gone.
+// shimScript is the stand-in for program: rush spawn, or the real one
+// off PATH when this rush has gone.
 func shimScript(exe, program string) []byte {
-	return []byte("#!/bin/sh\n# agtop's stand-in: agtop hosts the run when it can.\n" +
+	return []byte("#!/bin/sh\n# rush's stand-in: rush hosts the run when it can.\n" +
 		"a=" + quote(exe) + "\n" +
 		`[ -x "$a" ] && exec "$a" spawn ` + quote(program) + ` "$@"` + "\n" +
 		"p=; IFS=:; for x in $PATH; do [ \"$x\" = " + quote(ShimDir()) + " ] || p=\"$p${p:+:}$x\"; done; unset IFS\n" +
@@ -76,14 +76,14 @@ func WithoutShims(path string) string {
 // runs each command in a shell of your own profile's making, which sets
 // PATH again: it sources CLAUDE_ENV_FILE after, so that says it too.
 func (s *server) shimEnv() []string {
-	env := []string{"AGTOP_SESSION=" + s.cfg.ID}
+	env := []string{"RUSH_SESSION=" + s.cfg.ID}
 	var sh strings.Builder
 	// One you set is still read; another session's is its own.
 	if own := os.Getenv("CLAUDE_ENV_FILE"); own != "" && !strings.HasPrefix(own, Root()+string(filepath.Separator)) {
 		sh.WriteString("[ -f " + quote(own) + " ] && . " + quote(own) + "\n")
 	}
-	sh.WriteString("export AGTOP_SESSION=" + quote(s.cfg.ID) + "\n")
-	if os.Getenv("AGTOP_NO_SHIM") == "" {
+	sh.WriteString("export RUSH_SESSION=" + quote(s.cfg.ID) + "\n")
+	if os.Getenv("RUSH_NO_SHIM") == "" {
 		if d := WriteShims(); d != "" {
 			env = append(env, "PATH="+d+string(filepath.ListSeparator)+WithoutShims(os.Getenv("PATH")))
 			sh.WriteString("export PATH=" + quote(d) + "\":$PATH\"\n")
@@ -91,7 +91,7 @@ func (s *server) shimEnv() []string {
 			// PATH in its own order: the stand-ins go first again after it.
 			if z := writeZsh(d); z != "" && !agent.ReadsAsClaude(agent.Kind(s.cfg.Kind)) {
 				home, _ := os.UserHomeDir()
-				env = append(env, "AGTOP_ZDOTDIR="+or(os.Getenv("AGTOP_ZDOTDIR"), or(os.Getenv("ZDOTDIR"), home)), "ZDOTDIR="+z)
+				env = append(env, "RUSH_ZDOTDIR="+or(os.Getenv("RUSH_ZDOTDIR"), or(os.Getenv("ZDOTDIR"), home)), "ZDOTDIR="+z)
 			}
 		}
 	}
@@ -107,7 +107,7 @@ var zshFiles = []string{".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"}
 
 // writeZsh puts startup files for zsh in a folder beside the stand-ins,
 // and is it, or "" when it can't: each reads your own (from where
-// AGTOP_ZDOTDIR says, your home unless you moved them), and those read
+// RUSH_ZDOTDIR says, your home unless you moved them), and those read
 // last in a shell put the stand-ins first on PATH.
 func writeZsh(shims string) string {
 	z := filepath.Join(shims, "zsh")
@@ -120,10 +120,10 @@ func writeZsh(shims string) string {
 		if f == ".zshenv" || f == ".zshrc" || f == ".zlogin" {
 			last = first
 		}
-		body := "# agtop: your own " + f + ", read from where it is.\n" +
-			"_agtop_z=$ZDOTDIR; ZDOTDIR=${AGTOP_ZDOTDIR:-$HOME}\n" +
+		body := "# rush: your own " + f + ", read from where it is.\n" +
+			"_rush_z=$ZDOTDIR; ZDOTDIR=${RUSH_ZDOTDIR:-$HOME}\n" +
 			"[ -f \"$ZDOTDIR/" + f + "\" ] && . \"$ZDOTDIR/" + f + "\"\n" +
-			"export AGTOP_ZDOTDIR=$ZDOTDIR; ZDOTDIR=$_agtop_z; unset _agtop_z\n" + last
+			"export RUSH_ZDOTDIR=$ZDOTDIR; ZDOTDIR=$_rush_z; unset _rush_z\n" + last
 		path := filepath.Join(z, f)
 		if b, err := os.ReadFile(path); err == nil && string(b) == body {
 			continue

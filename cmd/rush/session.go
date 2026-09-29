@@ -13,27 +13,27 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
-	"github.com/0xdeafcafe/agtop/internal/ui"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/ui"
 )
 
-const sessionUsage = `agtop session: run agtop-mode sessions without the view
+const sessionUsage = `rush session: run rush-mode sessions without the view
 
-  agtop session start --cwd DIR [--agent KIND] [--profile P] [--session-id UUID] [--resume] [--name N]
+  rush session start --cwd DIR [--agent KIND] [--profile P] [--session-id UUID] [--resume] [--name N]
         [--prompt-file F] [--image PATH]... [--env K=V]... [--meta k=v]...
         [--binary PATH] [--model M] [--effort E] [--permission-mode M] [--json]
 
   --agent is the agent to run: claude, codex, copilot, gemini, kimi, opencode
   or vibe. Without it, the session's profile picks: --profile names one,
   else the folder's rule or the default profile says.
-  agtop session send <id> [--now] [--image PATH]...   message text on stdin
-  agtop session interrupt <id>
-  agtop session stop <id>
-  agtop session info <id> [--json]
-  agtop session list [--json] [--meta k=v]...
+  rush session send <id> [--now] [--image PATH]...   message text on stdin
+  rush session interrupt <id>
+  rush session stop <id>
+  rush session info <id> [--json]
+  rush session list [--json] [--meta k=v]...
 `
 
 // sessionView is a session as the session commands print it: its info,
@@ -48,7 +48,7 @@ func viewOf(i host.Info) sessionView { return sessionView{Info: i, Alive: host.A
 // errNotFound is a session id with no session behind it.
 var errNotFound = errors.New("not found")
 
-// sessionCmd runs agtop session <sub> and returns the exit code.
+// sessionCmd runs rush session <sub> and returns the exit code.
 func sessionCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		fmt.Fprint(stdout, sessionUsage)
@@ -81,7 +81,7 @@ func sessionCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if asJSON {
 		writeJSON(stdout, map[string]string{"error": err.Error()})
 	} else {
-		fmt.Fprintln(stderr, "agtop:", err)
+		fmt.Fprintln(stderr, "rush:", err)
 	}
 	return 1
 }
@@ -107,7 +107,7 @@ func idAndFlags(fs *flag.FlagSet, args []string) (string, error) {
 		id = fs.Arg(0)
 	}
 	if id == "" {
-		return "", fmt.Errorf("usage: agtop session %s <id>", fs.Name())
+		return "", fmt.Errorf("usage: rush session %s <id>", fs.Name())
 	}
 	return id, nil
 }
@@ -580,7 +580,7 @@ func matches(have, want map[string]string) bool {
 	return true
 }
 
-// openHosted is agtop open <id> [--hosted]: the view of that one session
+// openHosted is rush open <id> [--hosted]: the view of that one session
 // alone. Without --hosted it is the same view.
 func openHosted(args []string) error {
 	fs := newFlags("open")

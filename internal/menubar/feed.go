@@ -1,7 +1,7 @@
-// Package menubar is agtop's menu bar icon: a small native app that shows
+// Package menubar is rush's menu bar icon: a small native app that shows
 // every account's usage, what's working and who needs you, and answers
 // questions from their notification. The app is Swift, built on this Mac
-// the first time it's needed; everything it shows comes from `agtop
+// the first time it's needed; everything it shows comes from `rush
 // menubar feed`, which it runs and talks to over stdin and stdout, one JSON
 // object per line.
 package menubar
@@ -18,14 +18,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Top is how many working agents the menu lists.
@@ -75,7 +75,7 @@ func windows(q usage.Quota) (first, second Window) {
 }
 
 // otherAccounts are the accounts of every other agent that reports its
-// limits, as every agtop last read them.
+// limits, as every rush last read them.
 func otherAccounts(snap *fleet.Snapshot) []Account {
 	readings := usage.Load(host.QuotasPath())
 	var out []Account
@@ -113,9 +113,9 @@ type Working struct {
 }
 
 // Waiting is an agent waiting on you. Kind says how it can be answered
-// from outside agtop: "question" (pick an option or type an answer),
+// from outside rush: "question" (pick an option or type an answer),
 // "permission" (allow or deny), "limit" (continue at the reset or not),
-// or "" (only in agtop or its terminal).
+// or "" (only in rush or its terminal).
 type Waiting struct {
 	Key     string    `json:"key"`
 	Name    string    `json:"name"`
@@ -139,7 +139,7 @@ type Op struct {
 	Yes    bool   `json:"yes,omitzero"`     // limit: continue at the reset
 }
 
-// pending is what a waiting agtop session is asking, as its host has it.
+// pending is what a waiting rush session is asking, as its host has it.
 type pending struct {
 	sig  string // Needs when it was read; a change means ask again
 	host string
@@ -186,7 +186,7 @@ func Feed(in io.Reader, out io.Writer) error {
 			}
 			if o.Op == "show" {
 				if err := Show(o.Key); err != nil {
-					errs <- "opening agtop: " + err.Error()
+					errs <- "opening rush: " + err.Error()
 				}
 				continue
 			}
@@ -287,7 +287,7 @@ func build(snap *fleet.Snapshot, asked map[string]*pending) State {
 			if w.Needs == "" {
 				w.Needs = oneLine(a.Detail)
 			}
-			if a.Agtop {
+			if a.Rush {
 				answerable(&w, a, asked)
 			}
 			s.Waiting = append(s.Waiting, w)
@@ -329,7 +329,7 @@ func doing(a *fleet.Agent) string {
 	return "working…"
 }
 
-// answerable fills in how an agtop session's wait can be answered, asking
+// answerable fills in how a rush session's wait can be answered, asking
 // its host what it's waiting on when that changed.
 func answerable(w *Waiting, a *fleet.Agent, asked map[string]*pending) {
 	p := asked[a.Key]
@@ -351,7 +351,7 @@ func answerable(w *Waiting, a *fleet.Agent, asked map[string]*pending) {
 		q := qs[0]
 		w.Header, w.Text = q.Header, strings.TrimSpace(q.Text)
 		// One single-choice question can be answered from a notification;
-		// several, or ticking many, need agtop.
+		// several, or ticking many, need rush.
 		if len(qs) == 1 && !q.Multi && len(q.Options) > 0 {
 			w.Kind = "question"
 			for _, o := range q.Options {
@@ -486,11 +486,11 @@ func oneLine(s string) string {
 	return s
 }
 
-// exe is the agtop binary the app should run.
+// exe is the rush binary the app should run.
 func exe() string {
 	p, err := os.Executable()
 	if err != nil {
-		return "agtop"
+		return "rush"
 	}
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r

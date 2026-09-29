@@ -3,7 +3,7 @@ package claude
 import (
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 // Price is dollars per million tokens. CacheRead of zero means 0.1x input.

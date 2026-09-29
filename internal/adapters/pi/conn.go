@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
-// model is Pi's Model, as much as agtop reads of it.
+// model is Pi's Model, as much as rush reads of it.
 type model struct {
 	ID            string `json:"id"`
 	Provider      string `json:"provider"`
@@ -162,7 +162,7 @@ func newConn(ctx context.Context) *Conn {
 // startFor is how long pi has to load its extensions and say it's ready.
 const startFor = time.Minute
 
-// begin asks pi where it stands, which is also how agtop knows it's up.
+// begin asks pi where it stands, which is also how rush knows it's up.
 func (c *Conn) begin(rpc *client, o *agent.StartOptions) error {
 	c.rpc = rpc
 	go c.pump()

@@ -8,11 +8,11 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
-// What agtop takes in sidebar.set: more is refused whole.
+// What rush takes in sidebar.set: more is refused whole.
 const (
 	maxSidebarAgents = 2000
 	maxSidebarName   = 200
@@ -27,10 +27,10 @@ func clipRunes(s string, n int) string {
 	return s
 }
 
-// sidebarPayload is the board as agtop's agent list shows it: a section
+// sidebarPayload is the board as rush's agent list shows it: a section
 // per column, in board order, and each card's agent under the card's name,
 // in the card's place in its column. Only cards with a conversation are
-// there, as agtop knows agents by it.
+// there, as rush knows agents by it.
 func sidebarPayload(cards []card) map[string]any {
 	type section struct {
 		Title string `json:"title"`
@@ -61,7 +61,7 @@ func sidebarPayload(cards []card) map[string]any {
 			}
 			name := c.title()
 			if name == c.ID {
-				name = "" // no name of its own: agtop keeps the agent's
+				name = "" // no name of its own: rush keeps the agent's
 			}
 			agents[id] = agent{Name: clipRunes(name, maxSidebarName), Section: col.title, Order: i}
 		}
@@ -69,7 +69,7 @@ func sidebarPayload(cards []card) map[string]any {
 	return map[string]any{"title": "Kanban", "sections": sections, "agents": agents}
 }
 
-// showBoard keeps agtop's list arranged as the board: it looks at
+// showBoard keeps rush's list arranged as the board: it looks at
 // links.json every two seconds, and sends the arrangement when it changed.
 func showBoard() {
 	var mod time.Time
@@ -86,7 +86,7 @@ func showBoard() {
 				} else if err := conn.Call(context.Background(), "sidebar.set", p, nil); err == nil {
 					mod, sent = fi.ModTime(), b
 				} else {
-					logf("arranging agtop's list: %v", err)
+					logf("arranging rush's list: %v", err)
 					var e *plugin.Error
 					if errors.As(err, &e) && e.Code == plugin.CodeDenied {
 						return // not approved for it

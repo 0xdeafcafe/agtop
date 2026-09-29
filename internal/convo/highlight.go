@@ -12,7 +12,7 @@ import (
 // written only where it changes, never reset mid-line, so a background laid
 // under the line (a diff's, or its changed words') holds across it.
 
-// Syntax colours, muted to sit under agtop's text; SetColours makes them.
+// Syntax colours, muted to sit under rush's text; SetColours makes them.
 var (
 	hlKw, hlStr, hlNum string // keywords, strings, numbers and constants
 	hlComment          string

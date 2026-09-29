@@ -1,5 +1,5 @@
 // Package settingsfile edits a JSON settings file in place, as an agent
-// reads it live: keys keep their order, keys agtop doesn't know are kept
+// reads it live: keys keep their order, keys rush doesn't know are kept
 // exactly, and a save applies only the changes made here to the file as
 // it is then.
 package settingsfile
@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"encoding/json/jsontext"
 	"errors"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,7 +16,7 @@ import (
 )
 
 // File is a settings file, edited in place. Keys keep their order, keys
-// agtop doesn't know about are kept exactly, and a save re-reads the file
+// rush doesn't know about are kept exactly, and a save re-reads the file
 // and applies only the changes made here, so whatever the agent wrote in
 // the meantime survives. It writes a temp file then renames it (through a
 // symlink, to the real file), because running sessions read the file live.

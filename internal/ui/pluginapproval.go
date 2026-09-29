@@ -3,14 +3,14 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/hooks"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/hooks"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // --- a plugin found installed, waiting on you ---
 
 // pluginPendingMsg is what checkPluginApprovals found: plugins sitting in
-// ~/.config/agtop/plugins that were never approved, or changed since.
+// ~/.config/rush/plugins that were never approved, or changed since.
 type pluginPendingMsg struct{ pending []plugin.Plugin }
 
 // checkPluginApprovals looks once, off the UI, at plugin.Pending.
@@ -30,7 +30,7 @@ func (m *Model) openPluginApproval(pending []plugin.Plugin) {
 		approved: goPending(func() bool { _, ok := plugin.Approvals()[name]; return ok })}
 }
 
-// pluginApprovalSheet is agtop plugin approve, without a terminal: what
+// pluginApprovalSheet is rush plugin approve, without a terminal: what
 // plugin.Describe says it may do, and Approve or Not now.
 type pluginApprovalSheet struct {
 	p    plugin.Plugin

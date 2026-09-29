@@ -32,9 +32,9 @@ func TestDirUsageMatchesStat(t *testing.T) {
 }
 
 func BenchmarkDirUsage(b *testing.B) {
-	dir := os.Getenv("AGTOP_DU_DIR")
+	dir := os.Getenv("RUSH_DU_DIR")
 	if dir == "" {
-		b.Skip("AGTOP_DU_DIR names a big folder to walk")
+		b.Skip("RUSH_DU_DIR names a big folder to walk")
 	}
 	b.Run("bulk", func(b *testing.B) {
 		for b.Loop() {

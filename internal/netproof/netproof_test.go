@@ -8,7 +8,7 @@ import (
 
 func fake(t *testing.T, up *atomic.Bool) *atomic.Int32 {
 	t.Helper()
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	var checks atomic.Int32
 	was, wasEvery, wasHold := probe, Every, Hold
 	t.Cleanup(func() { probe, Every, Hold = was, wasEvery, wasHold })

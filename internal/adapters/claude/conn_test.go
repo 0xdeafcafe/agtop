@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 )
 
-// controlClaude answers agtop's control requests as claude -p does: the
+// controlClaude answers rush's control requests as claude -p does: the
 // initialize with its commands, then an MCP message and a permission check
-// for agtop's own tool, and any other request with its subtype echoed.
+// for rush's own tool, and any other request with its subtype echoed.
 func controlClaude(t *testing.T) (bin, log string) {
 	dir := t.TempDir()
 	log = filepath.Join(dir, "in.log")
@@ -24,12 +24,12 @@ func controlClaude(t *testing.T) (bin, log string) {
 printf '%s\n' "$*" > "` + log + `.args"
 env > "` + log + `.env"
 read -r init; printf '%s\n' "$init" >> "` + log + `"
-echo '{"type":"control_response","response":{"subtype":"success","request_id":"agtop-1","response":{"commands":[{"name":"review","description":"Review a PR","argumentHint":"<pr>","aliases":[]}]}}}'
+echo '{"type":"control_response","response":{"subtype":"success","request_id":"rush-1","response":{"commands":[{"name":"review","description":"Review a PR","argumentHint":"<pr>","aliases":[]}]}}}'
 echo '{"type":"control_request","request_id":"m-1","request":{"subtype":"mcp_message","server_name":"t","message":{"jsonrpc":"2.0","id":1,"method":"tools/list"}}}'
 echo '{"type":"control_request","request_id":"p-1","request":{"subtype":"can_use_tool","tool_name":"mcp__t__draw","input":{},"tool_use_id":"tu-9"}}'
 while read -r line; do
   printf '%s\n' "$line" >> "` + log + `"
-  id=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\(agtop-[0-9]*\)".*/\1/p')
+  id=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\(rush-[0-9]*\)".*/\1/p')
   sub=$(printf '%s' "$line" | sed -n 's/.*"subtype":"\([a-z_]*\)".*/\1/p')
   [ -n "$id" ] || continue
   case "$sub" in
@@ -56,7 +56,7 @@ func wantIn(t *testing.T, path string, wants ...string) {
 	}
 }
 
-// The conn answers agtop's own tools itself, keeps their traffic off the
+// The conn answers rush's own tools itself, keeps their traffic off the
 // tap, gives the session's commands as an event, and passes control
 // requests through.
 func TestConnControl(t *testing.T) {

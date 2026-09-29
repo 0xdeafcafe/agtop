@@ -2,7 +2,7 @@ package headless
 
 import (
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Question is one of the questions Claude asks with the AskUserQuestion

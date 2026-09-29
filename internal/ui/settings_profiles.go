@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Profiles lists every installed provider, each a profile of its own, then
@@ -17,7 +17,7 @@ import (
 // provider's to choose which harness it runs in and what it does at a
 // limit; yours to also choose its providers and their order. A profile is
 // providers and a policy, not accounts: each provider is signed in to one
-// account at a time, shared by all its sessions, and agtop moves it
+// account at a time, shared by all its sessions, and rush moves it
 // between them itself (Accounts).
 
 var profilesPage = page{
@@ -394,7 +394,7 @@ func (m *Model) profileForm(p state.Profile) []section {
 	limit := choiceSetting("When a limit stops a session", p.Limit(),
 		"What a running conversation does when a usage limit stops it.",
 		[][2]string{
-			{state.LimitAccount, "agtop moves its provider to another account with room, and the conversation carries on."},
+			{state.LimitAccount, "rush moves its provider to another account with room, and the conversation carries on."},
 			{state.LimitHandoff, "another account first; when none has room, the conversation is handed to the next provider in the list, with what it was doing."},
 			{state.LimitWait, "it waits for the limit to reset."},
 		}, func(v string) { change(func(p *state.Profile) { p.OnLimit = v }) })
@@ -484,7 +484,7 @@ func (m *Model) providerRow(p state.Profile, pr string, in bool, at int, change 
 			}
 			n := paint(cOrange, strconv.Itoa(at+1))
 			if !agent.Runs(k) {
-				return n + faint(" ● ") + glyph(agent.Kind(pr)) + " " + paint(cText, fit(agentName(pr), 18)) + paint(cYellow, "agtop can't start its sessions yet")
+				return n + faint(" ● ") + glyph(agent.Kind(pr)) + " " + paint(cText, fit(agentName(pr), 18)) + paint(cYellow, "rush can't start its sessions yet")
 			}
 			where := ""
 			switch {

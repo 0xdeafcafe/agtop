@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 type timed struct {
@@ -38,16 +38,16 @@ func benchEvents(n int) []timed {
 		"1. build it\n2. run the tests\n\n```go\nfunc f() { return }\n```\n\nThat should make streaming feel instant on long sessions, even at wide widths where every row is padded."
 	for t := 1; t <= n; t++ {
 		id := func(k string) string { return fmt.Sprintf("%s%d", k, t) }
-		add(host.Sent{Text: fmt.Sprintf("turn %d: look at /work/agtop/internal/ui/view.go and fix the @internal/convo/render.go wrap, then run /review https://example.com/x", t)})
+		add(host.Sent{Text: fmt.Sprintf("turn %d: look at /work/rush/internal/ui/view.go and fix the @internal/convo/render.go wrap, then run /review https://example.com/x", t)})
 		add(headless.Message{Role: "assistant", ID: id("m"), Model: "claude-opus-5-5", Usage: &headless.Usage{InputTokens: 10, OutputTokens: 200, CacheReadInputTokens: 50000},
 			Blocks: []headless.Block{{Type: "text", Text: "Looking at how the **pane** draws its `rows` and where the wrap happens; the renderer is in render.go."}}})
-		add(toolUse(id("r"), "Read", map[string]any{"file_path": "/work/agtop/internal/ui/view.go"}))
+		add(toolUse(id("r"), "Read", map[string]any{"file_path": "/work/rush/internal/ui/view.go"}))
 		add(toolResult(id("r"), "…", false, map[string]any{"type": "text", "file": map[string]any{"numLines": 400, "startLine": 1, "totalLines": 1589}}))
-		add(toolUse(id("g"), "Grep", map[string]any{"pattern": "func wrap", "path": "/work/agtop/internal"}))
+		add(toolUse(id("g"), "Grep", map[string]any{"pattern": "func wrap", "path": "/work/rush/internal"}))
 		add(toolResult(id("g"), "internal/ui/style.go\ninternal/convo/style.go", false, nil))
-		add(toolUse(id("b"), "Bash", map[string]any{"command": "cd /work/agtop && go test ./... 2>&1 | tail -40", "description": "Run the tests"}))
+		add(toolUse(id("b"), "Bash", map[string]any{"command": "cd /work/rush && go test ./... 2>&1 | tail -40", "description": "Run the tests"}))
 		add(toolResult(id("b"), stdout.String(), false, map[string]any{"stdout": stdout.String(), "stderr": ""}))
-		add(toolUse(id("e"), "Edit", map[string]any{"file_path": "/work/agtop/internal/convo/render.go"}))
+		add(toolUse(id("e"), "Edit", map[string]any{"file_path": "/work/rush/internal/convo/render.go"}))
 		add(toolResult(id("e"), "ok", false, map[string]any{"structuredPatch": []map[string]any{{"oldStart": 60, "oldLines": 3, "newStart": 60, "newLines": 4,
 			"lines": []string{" \tfor _, t := range s.Turns {", "-\t\tout = append(out, s.turn(t, o)...)", "+\t\tls := s.turn(t, o)", "+\t\tout = append(out, ls...)", " \t}"}}}}))
 		add(toolUse(id("f"), "Bash", map[string]any{"command": "go vet ./..."}))
@@ -56,7 +56,7 @@ func benchEvents(n int) []timed {
 		add(headless.Result{Subtype: "success", CostUSD: 0.42})
 	}
 	add(host.Sent{Text: "now make streaming quicker"})
-	add(toolUse("lr", "Read", map[string]any{"file_path": "/work/agtop/internal/ui/agtopmode.go"}))
+	add(toolUse("lr", "Read", map[string]any{"file_path": "/work/rush/internal/ui/rushmode.go"}))
 	add(toolResult("lr", "…", false, map[string]any{"type": "text", "file": map[string]any{"numLines": 400, "startLine": 1, "totalLines": 1765}}))
 	for _, w := range strings.Fields(answer) {
 		add(headless.Delta{Text: w + " "})
@@ -66,7 +66,7 @@ func benchEvents(n int) []timed {
 
 func benchSession(n int) *Session {
 	s := New()
-	s.Info.Cwd = "/work/agtop"
+	s.Info.Cwd = "/work/rush"
 	for _, e := range benchEvents(n) {
 		s.Apply(e.ev, e.at)
 	}
@@ -74,9 +74,9 @@ func benchSession(n int) *Session {
 }
 
 // realTranscript is a real Claude Code transcript for local benchmarks:
-// $AGTOP_BENCH_TRANSCRIPT, else the largest under 9MB in ~/.claude/projects.
+// $RUSH_BENCH_TRANSCRIPT, else the largest under 9MB in ~/.claude/projects.
 func realTranscript(b *testing.B) string {
-	if p := os.Getenv("AGTOP_BENCH_TRANSCRIPT"); p != "" {
+	if p := os.Getenv("RUSH_BENCH_TRANSCRIPT"); p != "" {
 		return p
 	}
 	home, _ := os.UserHomeDir()
@@ -280,7 +280,7 @@ func BenchmarkHelpers(b *testing.B) {
 	b.Run("styledAsk", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			styledAsk("look at /work/agtop/internal/ui/view.go and fix @internal/convo/render.go then /review https://example.com/x", cText)
+			styledAsk("look at /work/rush/internal/ui/view.go and fix @internal/convo/render.go then /review https://example.com/x", cText)
 		}
 	})
 }

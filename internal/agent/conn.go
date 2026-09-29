@@ -4,19 +4,19 @@ import (
 	"context"
 	"encoding/json/jsontext"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
-// What a session agtop hosts can do beyond Conn: each is an optional
+// What a session rush hosts can do beyond Conn: each is an optional
 // interface a Conn has only when its agent can, found with a type
 // assertion. The host offers an op only to a session whose Conn has it.
 
-// ToolServer is an MCP server agtop serves in process for a session: its
+// ToolServer is an MCP server rush serves in process for a session: its
 // own drawing tools, or an approved plugin's.
 type ToolServer struct {
 	Name string
-	// Trusted are its tools that never ask, by their own name: agtop's
+	// Trusted are its tools that never ask, by their own name: rush's
 	// own only draw.
 	Trusted []string
 	// Handle answers one JSON-RPC message. It may take a while; the

@@ -10,7 +10,7 @@ import (
 
 func TestSettings(t *testing.T) {
 	home, _ := filepath.EvalSymlinks(t.TempDir())
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	m := Manifest{Name: "drafts", Command: []string{"bin"}, Settings: []SettingSpec{
 		{Key: "on", Title: "On", Type: "bool"},
 		{Key: "mode", Title: "Mode", Type: "choice", Choices: []string{"a", "b"}, Default: "b"},

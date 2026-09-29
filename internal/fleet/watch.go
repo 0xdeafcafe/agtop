@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fswait"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/proc"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fswait"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // watching is what lets a Load that follows nothing new reuse the last
@@ -125,7 +125,7 @@ func (l *Loader) watchPaths(snap *Snapshot, hosted []host.Info) []string {
 		if a.Interactive || a.Worker != nil {
 			paths = append(paths, filepath.Join(acct.ConfigDir, "sessions"))
 		}
-		if a.ID != "" && !a.Agtop && !a.Interactive {
+		if a.ID != "" && !a.Rush && !a.Interactive {
 			paths = append(paths, filepath.Join(acct.JobsDir(), a.ID), filepath.Join(acct.JobsDir(), a.ID, "state.json"))
 		}
 		if p := a.TranscriptPath; p != "" {

@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 // picker is a small dropdown: one of an agent's pull requests, the folder
@@ -138,7 +138,7 @@ func (m *Model) moveTo(a *fleet.Agent, dir string) tea.Cmd {
 
 // moveNote asks an agent to carry on in dir. Its shell can go back to
 // where it started between commands, so each one cd's first; the leading
-// cd is also what tells agtop where it works now.
+// cd is also what tells rush where it works now.
 func moveNote(dir, from string) string {
 	cd := dir
 	if strings.ContainsAny(dir, " '\"$`") {

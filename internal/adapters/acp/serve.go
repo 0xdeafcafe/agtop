@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// served takes the agent's requests of agtop. Those that wait on the user
+// served takes the agent's requests of rush. Those that wait on the user
 // are answered later, through Answer and AnswerQuestion.
 func (s *Session) served(id jsontext.Value, method string, params jsontext.Value) {
 	switch {
@@ -31,7 +31,7 @@ func (s *Session) served(id jsontext.Value, method string, params jsontext.Value
 	}
 }
 
-// requestKey is a request ID as agtop's approval and question IDs.
+// requestKey is a request ID as rush's approval and question IDs.
 func requestKey(id jsontext.Value) string { return strings.Trim(string(id), `"`) }
 
 func (s *Session) permission(id, params jsontext.Value) {

@@ -13,11 +13,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
-// The broker stands between plugins and agtop's screen. agtop's UIs attach
+// The broker stands between plugins and rush's screen. rush's UIs attach
 // on broker.sock and tell it what happens there; it passes each plugin what
 // its manifest lets it hear, and passes back what plugins add, checked and
 // cleaned. Nothing here waits on a plugin or a UI while holding anything
@@ -36,13 +36,13 @@ const (
 	maxSessionKey = 256
 )
 
-// uiHub is what the broker holds of agtop's screens.
+// uiHub is what the broker holds of rush's screens.
 type uiHub struct {
 	b *broker
 
 	mu       sync.Mutex
 	uis      map[*plugin.Conn]*uiConn
-	sessions map[string]plugin.UISession // seen in events, by agtop id
+	sessions map[string]plugin.UISession // seen in events, by rush id
 	order    []string                    // sessions oldest first, to forget
 	sections map[string]map[string][]plugin.Section
 	statuses map[string]map[string]plugin.Status
@@ -813,7 +813,7 @@ func (h *uiHub) setNote(name string, in *uiParams) error {
 }
 
 // send has a UI send a message as you would: only to a session seen in
-// agtop's screen, in one of the plugin's workspaces, sendsPerMin a minute.
+// rush's screen, in one of the plugin's workspaces, sendsPerMin a minute.
 func (h *uiHub) send(p *plugin.Plugin, in *uiParams) error {
 	if err := sessionKey(in.Session); err != nil {
 		return err
@@ -825,7 +825,7 @@ func (h *uiHub) send(p *plugin.Plugin, in *uiParams) error {
 	s, seen := h.sessions[in.Session]
 	h.mu.Unlock()
 	if !seen {
-		return plugin.Denied("session " + in.Session + " hasn't been seen in agtop's screen")
+		return plugin.Denied("session " + in.Session + " hasn't been seen in rush's screen")
 	}
 	dir, err := filepath.EvalSymlinks(s.Cwd)
 	if s.Cwd == "" || err != nil || !slices.ContainsFunc(p.WorkspaceDirs(), func(w string) bool { return within(dir, w) }) {

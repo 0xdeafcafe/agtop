@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 func TestAFinishedTurnIsAnAnswerOrAnError(t *testing.T) {
@@ -60,7 +60,7 @@ func TestAFinishedTurnIsAnAnswerOrAnError(t *testing.T) {
 }
 
 // A session an API error stopped today continues once the API can be
-// reached; one a limit stopped, one agtop hosts (its host retries itself),
+// reached; one a limit stopped, one rush hosts (its host retries itself),
 // or one stopped days ago doesn't.
 func TestAPIErrorsContinue(t *testing.T) {
 	now := time.Now()
@@ -100,8 +100,8 @@ func TestAPIErrorsContinue(t *testing.T) {
 		t.Fatal("two days ago is too long ago")
 	}
 	a = halted("API Error: Unable to connect to API (ENOTFOUND)", now)
-	a.Agtop = true
+	a.Rush = true
 	if a.Continues(now) {
-		t.Fatal("agtop's own sessions wait for the network themselves")
+		t.Fatal("rush's own sessions wait for the network themselves")
 	}
 }

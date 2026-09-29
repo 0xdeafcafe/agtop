@@ -13,7 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
 // edit applies one text-editing key to buf with the cursor at pos, and says

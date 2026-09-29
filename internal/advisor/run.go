@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/efficiency"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/netwatch"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/efficiency"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/netwatch"
 )
 
 // What each pass may spend, and how long it may take. The scout runs on
@@ -197,7 +197,7 @@ type call struct {
 	schema  string
 }
 
-// Job is what the advisor's calls are called where agtop shows what waits
+// Job is what the advisor's calls are called where rush shows what waits
 // on the network.
 const Job = "Advisor"
 
@@ -231,7 +231,7 @@ func run(ctx context.Context, p agent.Profile, c call, out any) (float64, error)
 	}
 	cmd := exec.CommandContext(ctx, prog, args...)
 	cmd.Dir = Dir()
-	env = append(env, "AGTOP_ADVISOR=1")
+	env = append(env, "RUSH_ADVISOR=1")
 	cmd.Env = env
 	// Its own process group, so stopping it takes whatever it started too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -287,7 +287,7 @@ func (p *procs) remove(c *exec.Cmd) {
 	delete(p.m, c)
 }
 
-// Stop ends any pass still running, as agtop quits: a claude left behind
+// Stop ends any pass still running, as rush quits: a claude left behind
 // would spend on an answer nobody reads.
 func Stop() {
 	running.mu.Lock()
@@ -310,7 +310,7 @@ func reviewPrompt(digest string, c Finding) string {
 	return "## Candidate\n" + string(b) + "\n\n" + digest
 }
 
-const scoutSystem = `You are agtop's advisor. agtop is a terminal dashboard that runs the user's coding agents (Claude Code and others). You get a digest of the last 7 days of their agents' figures, which agtop has already worked out.
+const scoutSystem = `You are rush's advisor. rush is a terminal dashboard that runs the user's coding agents (Claude Code and others). You get a digest of the last 7 days of their agents' figures, which rush has already worked out.
 
 Find up to 5 specific changes to how this user works with their agents that would cut tokens and cost, or make the agents faster. Look at habits and setup: CLAUDE.md and memory, settings, savers, model and effort choice, subagent use, sessions left to grow instead of starting fresh, files read again and again, noisy shell output, and prompts that make an agent explore more than it needs.
 
@@ -324,7 +324,7 @@ Rules:
 - weeklyCost: the dollars a week this change would plausibly save, worked out from the digest's figures. That's the share it would cut, never the whole figure it touches. Be conservative, and use 0 if you can't tell.
 - fix: a saver id from the digest's list when one addresses it, otherwise "". open: the absolute path of a file the user should edit, when that's the change, otherwise "".`
 
-const reviewSystem = `You check findings for agtop's advisor. A cheaper model read a digest of the user's coding-agent figures and proposed the candidate below. Your job is to decide whether it's true and worth the user's time.
+const reviewSystem = `You check findings for rush's advisor. A cheaper model read a digest of the user's coding-agent figures and proposed the candidate below. Your job is to decide whether it's true and worth the user's time.
 
 Check its evidence against the sessions' briefs (one short line per prompt, tool call and compaction) and the digest's figures. When a brief isn't enough, grep the raw JSONL transcript. Use Grep with output_mode "count" or "files_with_matches", or a head_limit, because one transcript line can be hundreds of kilobytes. Never read a transcript whole. Confirm it only if the evidence holds, the change would really help this user, and the cost estimate is sound (correct it if not). Reject anything generic, already handled by a saver that's on, or unsupported.
 

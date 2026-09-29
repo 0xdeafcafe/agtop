@@ -13,11 +13,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // A running subagent shows in the dock with what it's doing and what it
@@ -389,7 +389,7 @@ func TestSubagentsFollowTheSessionID(t *testing.T) {
 	}
 }
 
-// A Claude Code session agtop doesn't run has no task events: its
+// A Claude Code session rush doesn't run has no task events: its
 // transcript says which runs are working. One quiet for minutes (a long
 // command, a long think) whose call has no answer yet is running, in the
 // dock and the view, until it answers.

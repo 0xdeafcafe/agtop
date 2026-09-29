@@ -1,4 +1,4 @@
-// Package agent is agtop's own idea of a coding agent and its work, apart
+// Package agent is rush's own idea of a coding agent and its work, apart
 // from any one agent. Claude Code, Codex, Copilot and the rest are adapters
 // that fill these types in; nothing here knows which one it came from.
 // docs/multi-agent.md has the whole plan.
@@ -84,7 +84,7 @@ type Command struct {
 }
 
 // Codenamer is an agent whose sessions have names for each other, the
-// ones their messages to one another use ("agtop-8a"), by session id.
+// ones their messages to one another use ("rush-8a"), by session id.
 type Codenamer interface {
 	Codenames() map[string]string
 }

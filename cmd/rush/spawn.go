@@ -15,22 +15,22 @@ import (
 
 	"github.com/charmbracelet/x/term"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// agtop spawn <program> <args…> is what a session's stand-in for codex or
-// claude runs (see host.WriteShims). A run agtop can host (codex exec,
-// claude -p) runs as an agtop session, so you can send to it while it
+// rush spawn <program> <args…> is what a session's stand-in for codex or
+// claude runs (see host.WriteShims). A run rush can host (codex exec,
+// claude -p) runs as a rush session, so you can send to it while it
 // works, printing what the program would have. Anything else, or a flag
-// agtop can't print faithfully, runs the real program as it was asked.
+// rush can't print faithfully, runs the real program as it was asked.
 
-// workRun is a run agtop can host.
+// workRun is a run rush can host.
 type workRun struct {
 	kind                agent.Kind
 	prompt, cwd         string
@@ -41,10 +41,10 @@ type workRun struct {
 	skipGit             bool
 }
 
-// spawnCmd runs agtop spawn and returns the exit code.
+// spawnCmd runs rush spawn and returns the exit code.
 func spawnCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: agtop spawn <program> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: rush spawn <program> [args...]")
 		return 2
 	}
 	prog, rest := args[0], args[1:]
@@ -53,7 +53,7 @@ func spawnCmd(args []string) int {
 	// programs; the real one run in its place keeps PATH as it was.
 	_ = os.Setenv("PATH", host.WithoutShims(path))
 	r, ok := parseRun(prog, rest)
-	if ok && os.Getenv("AGTOP_NO_SHIM") == "" {
+	if ok && os.Getenv("RUSH_NO_SHIM") == "" {
 		if k, ok := agent.Get(r.kind); !ok || !agent.Installed(k.Kind()) {
 			return runReal(prog, rest, path, nil)
 		}
@@ -72,7 +72,7 @@ func spawnCmd(args []string) int {
 	return runReal(prog, rest, path, nil)
 }
 
-// parseRun is the run args ask prog for, when agtop can host it and print
+// parseRun is the run args ask prog for, when rush can host it and print
 // it as prog would.
 func parseRun(prog string, args []string) (workRun, bool) {
 	// As a shell command: a word the shell would take apart, quoted.
@@ -276,13 +276,13 @@ func realProgram(prog, path string) string {
 func runReal(prog string, args []string, path string, fed io.Reader) int {
 	bin := realProgram(prog, path)
 	if bin == "" {
-		fmt.Fprintf(os.Stderr, "agtop: can't find %s on PATH\n", prog)
+		fmt.Fprintf(os.Stderr, "rush: can't find %s on PATH\n", prog)
 		return 127
 	}
 	env := append(os.Environ(), "PATH="+path)
 	if fed == nil {
 		err := syscall.Exec(bin, append([]string{prog}, args...), env) // only returns if it failed
-		fmt.Fprintln(os.Stderr, "agtop:", err)
+		fmt.Fprintln(os.Stderr, "rush:", err)
 		return 126
 	}
 	cmd := exec.Command(bin, args...)
@@ -293,7 +293,7 @@ func runReal(prog string, args []string, path string, fed io.Reader) int {
 		if ee, ok := err.(*exec.ExitError); ok {
 			return ee.ExitCode()
 		}
-		fmt.Fprintln(os.Stderr, "agtop:", err)
+		fmt.Fprintln(os.Stderr, "rush:", err)
 		return 126
 	}
 	return 0
@@ -302,7 +302,7 @@ func runReal(prog string, args []string, path string, fed io.Reader) int {
 // configDirEnv is where each agent's program is told its config folder.
 var configDirEnv = map[agent.Kind]string{"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"} // migration: per-agent CLI parsing and output move behind the adapters
 
-// hostRun runs r as an agtop session and prints it as its program would;
+// hostRun runs r as a rush session and prints it as its program would;
 // false when it couldn't start one, and nothing was printed.
 func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 	cwd, err := os.Getwd()
@@ -319,7 +319,7 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 		return 0, false // codex says why it won't run there
 	}
 	cfg := host.Config{Cwd: cwd, Model: r.model, Effort: r.effort, PermissionMode: r.mode, Prompt: r.prompt,
-		Name: firstWordsOf(r.prompt), Meta: map[string]string{"spawnedBy": or(os.Getenv("AGTOP_SESSION"), "shell")}}
+		Name: firstWordsOf(r.prompt), Meta: map[string]string{"spawnedBy": or(os.Getenv("RUSH_SESSION"), "shell")}}
 	if string(r.kind) == state.LoginsKind {
 		cfg.Account = state.Load().Config.ActiveAccount().Profile()
 	}
@@ -417,7 +417,7 @@ func follow(c *host.Client, out printer, sig <-chan os.Signal) int {
 			return 143
 		case l, ok := <-c.Lines:
 			if !ok {
-				fmt.Fprintln(os.Stderr, "agtop: the session's host went away")
+				fmt.Fprintln(os.Stderr, "rush: the session's host went away")
 				return 1
 			}
 			ev, _ := host.Decode(l)

@@ -12,14 +12,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// loginsMsg is the logins signed in where agtop looks, and why ~/.claude's
+// loginsMsg is the logins signed in where rush looks, and why ~/.claude's
 // couldn't be kept, if it couldn't.
 type loginsMsg struct {
 	found    []fleet.Found
@@ -32,8 +32,8 @@ type loginsMsg struct {
 type switchedMsg struct {
 	to      claude.Login
 	why     string
-	resumed int // agtop sessions that carried on at once
-	waiting int // agtop sessions moving over once their turn ends
+	resumed int // rush sessions that carried on at once
+	waiting int // rush sessions moving over once their turn ends
 	err     error
 }
 
@@ -44,7 +44,7 @@ type addedLoginMsg struct {
 	err  error
 }
 
-// switchGap is how long after a switch agtop waits before switching on its
+// switchGap is how long after a switch rush waits before switching on its
 // own again: the readings of both logins need time to catch up.
 const switchGap = 10 * time.Minute
 
@@ -84,16 +84,16 @@ func (m *Model) fetchLoginUsage() []tea.Cmd {
 func (m *Model) onLogins(msg loginsMsg) tea.Cmd {
 	found := msg.found
 	if msg.err != nil && !m.keepFailed {
-		m.flash("agtop can't switch account: "+msg.err.Error(), true)
+		m.flash("rush can't switch account: "+msg.err.Error(), true)
 	}
 	m.keepFailed = msg.err != nil
 	var fetch []tea.Cmd
 	if r := msg.restored; r != nil {
 		was, now := m.loginNamed(r.Was), m.loginNamed(r.Now)
 		if r.Err != nil {
-			m.flash("a Claude Code started on "+was+" signed ~/.claude back in as it, and agtop couldn't switch to "+now+" again: "+r.Err.Error(), true)
+			m.flash("a Claude Code started on "+was+" signed ~/.claude back in as it, and rush couldn't switch to "+now+" again: "+r.Err.Error(), true)
 		} else {
-			m.flash("a Claude Code started on "+was+" signed ~/.claude back in as it · agtop switched to "+now+" again", false)
+			m.flash("a Claude Code started on "+was+" signed ~/.claude back in as it · rush switched to "+now+" again", false)
 		}
 		fetch = append(fetch, m.fetchUsage())
 	}
@@ -125,7 +125,7 @@ func (m *Model) onLogins(msg loginsMsg) tea.Cmd {
 		cfg.FoldersImported, cfg.Folders, changed = true, cfg.RootFolder(), true
 	}
 	if cfg.Active != "" {
-		// Which folder new sessions started in is agtop's choice now.
+		// Which folder new sessions started in is rush's choice now.
 		cfg.Active, changed = "", true
 	}
 	if changed {
@@ -162,7 +162,7 @@ func (m *Model) loginNamed(id string) string {
 }
 
 // inUse is the name of the login ~/.claude is signed in as, or the
-// folder's name before agtop knows which it is.
+// folder's name before rush knows which it is.
 func (m *Model) inUse() string {
 	for _, l := range m.snap.Logins {
 		if l.Current && l.Name != "" {
@@ -213,7 +213,7 @@ func (m *Model) loginName(f fleet.Found) string {
 }
 
 // autoSwitch signs ~/.claude in as another login when the one in use is
-// nearly out of its 5-hour or weekly usage, or an agtop session was
+// nearly out of its 5-hour or weekly usage, or a rush session was
 // stopped by a limit on it, unless the default profile waits and so do
 // the sessions a limit stopped. With no login left with room, sessions
 // whose profile hands on go to the next provider.
@@ -225,7 +225,7 @@ func (m *Model) autoSwitch() tea.Cmd {
 	root := cfg.ActiveAccount()
 	stopped := false
 	for _, a := range m.snap.Agents {
-		if a.Agtop && a.Account == root.Name && strings.HasPrefix(a.Detail, "usage limit") && m.sessionProfile(a).Limit() != state.LimitWait {
+		if a.Rush && a.Account == root.Name && strings.HasPrefix(a.Detail, "usage limit") && m.sessionProfile(a).Limit() != state.LimitWait {
 			stopped = true
 		}
 	}
@@ -242,7 +242,7 @@ func (m *Model) autoSwitch() tea.Cmd {
 		}
 		if stopped && m.hasRoom() && time.Since(m.resumedAt) > time.Minute {
 			// Stopped under a login ~/.claude has been switched away from
-			// since (by another agtop, or before this one could say).
+			// since (by another rush, or before this one could say).
 			m.resumedAt = time.Now()
 			return func() tea.Msg {
 				n, _ := reloginHosts(root, cfg)
@@ -264,7 +264,7 @@ func (m *Model) autoSwitch() tea.Cmd {
 }
 
 // switchLogin makes to the login new sessions run as, in its home.
-// ~/.claude stays signed in as it is. Idle agtop sessions rest so their
+// ~/.claude stays signed in as it is. Idle rush sessions rest so their
 // next message starts on it, and those a limit stopped carry on now.
 func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 	if m.switching {
@@ -283,7 +283,7 @@ func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 }
 
 // hasRoom is whether the login in use has a recent reading below where
-// agtop switches away from it.
+// rush switches away from it.
 func (m *Model) hasRoom() bool {
 	for _, l := range m.snap.Logins {
 		if l.Current {
@@ -293,10 +293,10 @@ func (m *Model) hasRoom() bool {
 	return false
 }
 
-// reloginHosts tells every agtop session on root that it's signed in as
+// reloginHosts tells every rush session on root that it's signed in as
 // another account now, and reports how many a usage limit had stopped and
 // how many move over once their turn ends (an idle one does at once). A
-// host from before agtop could switch ignores the message: one of those a
+// host from before rush could switch ignores the message: one of those a
 // limit stopped is still stopped after it, so its Claude Code (which holds
 // the old sign-in) is stopped, and it's told to continue, which starts a
 // fresh one. A session whose profile waits at a limit is moved all the
@@ -374,7 +374,7 @@ func (m *Model) addLogin(name string) tea.Cmd {
 	scratch := claude.Account{Name: name, ConfigDir: filepath.Join(state.Dir(), "signin-"+hex.EncodeToString(b))}
 	lg, ok := agent.As[agent.Loginer](loginsKind)
 	if !ok {
-		m.flash(agentName(string(loginsKind))+" can't sign in from agtop", true)
+		m.flash(agentName(string(loginsKind))+" can't sign in from rush", true)
 		return nil
 	}
 	return func() tea.Msg { // its command is made off the UI goroutine
@@ -545,10 +545,10 @@ func restartClaude(c *host.Client, info host.Info, text string) error {
 }
 
 // restart is #restart: the agent's Claude Code starts again, so it picks up
-// the account in use and settings changed since. An agtop agent keeps its
+// the account in use and settings changed since. A rush agent keeps its
 // place; any other is relaunched on its account.
 func (m *Model) restart(a *fleet.Agent, text string) tea.Cmd {
-	if !a.Agtop {
+	if !a.Rush {
 		return m.relaunch(a, "", nil, a.Acct)
 	}
 	if text == "" && (strings.HasPrefix(a.Detail, "usage limit") || strings.HasPrefix(a.Detail, "API error")) {

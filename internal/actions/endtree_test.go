@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
 func TestEndTree(t *testing.T) {

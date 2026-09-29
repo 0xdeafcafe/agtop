@@ -12,7 +12,7 @@ import (
 // regexp compiled on every call, a defer that waits for the whole function
 // inside a loop, and a string grown with += in a loop.
 var Hot = &analysis.Analyzer{
-	Name: "agtophot",
+	Name: "rushhot",
 	Doc:  "reports regexps compiled per call, defer in loops, and strings built with += in loops",
 	Run:  runHot,
 }

@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 )
 
-// commandNeeds are agtop's session commands only some agents can do, and
+// commandNeeds are rush's session commands only some agents can do, and
 // the feature each needs.
 var commandNeeds = map[string]agent.Feature{
 	"fork": agent.FeatureFork, "rewind": agent.FeatureRewind, "effort": agent.FeatureEffort, "plan": agent.FeaturePlan,
@@ -15,7 +15,7 @@ var commandNeeds = map[string]agent.Feature{
 }
 
 // screenNeeds are the screens a session opens and the features each needs.
-// A screen agtop draws works from agtop's own records or the agent's
+// A screen rush draws works from rush's own records or the agent's
 // adapter; one it doesn't (mcp) is the agent's own, so it needs its
 // screen too. status and config are every agent's.
 var screenNeeds = map[string][]agent.Feature{
@@ -33,7 +33,7 @@ func sessionAgent(c *hostConn) agent.Kind {
 	return c.kind
 }
 
-// agentCanRun is whether an agent of kind can do the command agtop would
+// agentCanRun is whether an agent of kind can do the command rush would
 // run for name: what canRun checks for a session, and what the command bar
 // checks with no session open.
 func agentCanRun(kind agent.Kind, name string) bool {
@@ -41,7 +41,7 @@ func agentCanRun(kind agent.Kind, name string) bool {
 	return !gated || agent.Supports(kind, need)
 }
 
-// canRun is whether the session's agent can do the command agtop would
+// canRun is whether the session's agent can do the command rush would
 // run for name, or open the screen it names.
 func canRun(c *hostConn, name string) bool {
 	if screen, ok := claudeScreen(name); ok && !canScreen(c, screen) {
@@ -61,13 +61,13 @@ func canScreen(c *hostConn, screen string) bool {
 }
 
 // ownScreens is whether the session's agent has screens of its own, which
-// agtop shows or hands the terminal to.
+// rush shows or hands the terminal to.
 func ownScreens(c *hostConn) bool { return agent.Supports(sessionAgent(c), agent.FeatureScreen) }
 
-// sessionCommands are agtop's commands this session's agent can do.
+// sessionCommands are rush's commands this session's agent can do.
 func sessionCommands(c *hostConn) []event.Command {
 	var out []event.Command
-	for _, cmd := range agtopCommands {
+	for _, cmd := range rushCommands {
 		if canRun(c, cmd.Name) {
 			out = append(out, cmd)
 		}

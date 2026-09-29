@@ -26,7 +26,7 @@ var keyCodes = func() map[string]rune {
 }()
 
 // keyOf is the key press whose String is s, as the keymap names it: how a
-// key you bound stands in for the default key agtop's handling expects.
+// key you bound stands in for the default key rush's handling expects.
 func keyOf(s string) (tea.KeyPressMsg, bool) {
 	var k tea.Key
 	rest := s

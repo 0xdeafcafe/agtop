@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
 // A commit card read from the command and its output is a guess: a message

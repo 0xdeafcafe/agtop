@@ -47,7 +47,7 @@ type Source int
 
 const (
 	Cached  Source = iota // the agent's own cache of it
-	Fetched               // asked of the provider by agtop
+	Fetched               // asked of the provider by rush
 	Live                  // reported by a session as it ran
 )
 

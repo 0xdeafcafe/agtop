@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // LoginView is one login with its plan usage.
@@ -22,7 +22,7 @@ type LoginView struct {
 
 // logins is every saved login with its usage; root is ~/.claude, whose
 // saved reading belongs to the login it's signed in as. The one in use is
-// the one agtop runs sessions as, in its home, or else ~/.claude's.
+// the one rush runs sessions as, in its home, or else ~/.claude's.
 func (l *Loader) logins(cfg state.Config, root AccountView, now time.Time) []LoginView {
 	var out []LoginView
 	using := cfg.RunAccount()
@@ -50,7 +50,7 @@ func (l *Loader) logins(cfg state.Config, root AccountView, now time.Time) []Log
 	return out
 }
 
-// Found is a login signed in somewhere agtop looks, and the name it would
+// Found is a login signed in somewhere rush looks, and the name it would
 // take: its folder's, for one found in an older ~/.claude-*.
 type Found struct {
 	Login claude.Login
@@ -66,12 +66,12 @@ type Restored struct {
 
 // FindLogins keeps the sign-in ~/.claude holds now in the vault (Claude
 // Code replaces it as it refreshes) and reports it. It also takes in the
-// folders an older agtop was given: each one's login is reported, its
+// folders an older rush was given: each one's login is reported, its
 // sign-in put in the vault unless cfg says that was done already, and its
 // past sessions copied into ~/.claude, where they're found and resumed
 // like any other. imported is whether every older folder was taken in
 // whole, and cfg can forget them.
-// It fails when ~/.claude's sign-in can't be kept: without a copy agtop
+// It fails when ~/.claude's sign-in can't be kept: without a copy rush
 // never switches away from it.
 //
 // A sign-in in ~/.claude that isn't the account it names was put back by
@@ -183,7 +183,7 @@ func NextLogin(logins []LoginView, stopped bool) (LoginView, bool) {
 		case logins[i].Current:
 			cur = &logins[i]
 		case time.Since(q.FetchedAt) < otherFor && len(q.Windows) > 0:
-			// Only a login with a reading: one agtop can't read (signed
+			// Only a login with a reading: one rush can't read (signed
 			// out, expired) would look empty. A login not in use only
 			// empties, so an older reading of it still holds.
 			others = append(others, logins[i])

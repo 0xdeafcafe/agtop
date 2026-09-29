@@ -12,15 +12,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // asked is Claude's AskUserQuestion request as the question it asks.
@@ -209,27 +209,27 @@ func TestSlashQueueTasks(t *testing.T) {
 		}
 		return
 	}
-	// agtop's and Claude Code's screens first, then the session's, then
+	// rush's and Claude Code's screens first, then the session's, then
 	// claude: ones that only have it inside.
 	if got := names(); len(got) < 5 || got[0] != "copy" || got[1] != "context" || got[2] != "config" || got[3] != "compact" || !strings.HasPrefix(got[len(got)-1], "claude:") {
 		t.Fatalf("matches for /co: %v", got)
 	}
 	c.input = []rune("/clea")
 	if got := names(); len(got) != 1 || got[0] != "clear" {
-		t.Fatalf("agtop's /clear should match, and #clean shouldn't: %v", got)
+		t.Fatalf("rush's /clear should match, and #clean shouldn't: %v", got)
 	}
 	c.input = []rune("/compact now")
 	if len(slashMatches(c)) != 0 {
 		t.Fatal("the picker closes once arguments start")
 	}
 
-	// A transcript-backed session can't take /model; agtop says so rather
+	// A transcript-backed session can't take /model; rush says so rather
 	// than sending it to Claude.
 	m := &Model{snap: &fleet.Snapshot{}}
-	if _, ok := m.runAgtopCommand(c, "/model haiku"); !ok || m.status == "" {
-		t.Fatal("/model should be handled by agtop")
+	if _, ok := m.runRushCommand(c, "/model haiku"); !ok || m.status == "" {
+		t.Fatal("/model should be handled by rush")
 	}
-	if _, ok := m.runAgtopCommand(c, "/compact"); ok {
+	if _, ok := m.runRushCommand(c, "/compact"); ok {
 		t.Fatal("/compact belongs to Claude Code")
 	}
 
@@ -269,31 +269,31 @@ func TestClaudeScreensAndFork(t *testing.T) {
 	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
 
 	// Screens headless Claude Code can't show open Claude Code's own, or
-	// agtop's take on them.
+	// rush's take on them.
 	for _, cmd := range []string{"/hooks", "/mcp"} {
-		if run, ok := m.runAgtopCommand(c, cmd); !ok || run == nil {
+		if run, ok := m.runRushCommand(c, cmd); !ok || run == nil {
 			t.Errorf("%s should open Claude Code's screen", cmd)
 		}
 	}
 	for _, cmd := range []string{"/plugins", "/plugin"} {
 		m.sheet = nil
-		if _, ok := m.runAgtopCommand(c, cmd); !ok {
-			t.Errorf("%s should be agtop's", cmd)
+		if _, ok := m.runRushCommand(c, cmd); !ok {
+			t.Errorf("%s should be rush's", cmd)
 		}
 		if _, is := m.sheet.(*pluginSheet); !is {
 			t.Errorf("%s should open the plugins sheet, got %T", cmd, m.sheet)
 		}
 	}
 	m.sheet = nil
-	if _, ok := m.runAgtopCommand(c, "/statusline"); !ok {
-		t.Fatal("/statusline should be agtop's")
+	if _, ok := m.runRushCommand(c, "/statusline"); !ok {
+		t.Fatal("/statusline should be rush's")
 	}
 	if _, is := m.sheet.(*statusSheet); !is {
 		t.Fatalf("/statusline should open the builder, got %T", m.sheet)
 	}
 	m.sheet = nil
 	// With arguments, /mcp and /config are Claude's to run.
-	if _, ok := m.runAgtopCommand(c, "/mcp enable x"); ok {
+	if _, ok := m.runRushCommand(c, "/mcp enable x"); ok {
 		t.Error("/mcp with arguments should go to Claude")
 	}
 	c.input = []rune("/plug")
@@ -302,13 +302,13 @@ func TestClaudeScreensAndFork(t *testing.T) {
 	}
 
 	// Nothing to fork before the first turn.
-	if _, ok := m.runAgtopCommand(c, "/fork"); !ok || m.sheet != nil || m.status == "" {
+	if _, ok := m.runRushCommand(c, "/fork"); !ok || m.sheet != nil || m.status == "" {
 		t.Fatalf("/fork with no turns: ok=%v status=%q", ok, m.status)
 	}
 	c.sess.Turns = append(c.sess.Turns, &convo.Turn{N: 1, Prompt: "first"}, &convo.Turn{N: 2, Prompt: "second"}, &convo.Turn{N: 3, Prompt: "third"})
 	c.sess.Info.SessionID = "0123456789abcdef"
-	if _, ok := m.runAgtopCommand(c, "/fork try another way"); !ok {
-		t.Fatal("/fork should be agtop's")
+	if _, ok := m.runRushCommand(c, "/fork try another way"); !ok {
+		t.Fatal("/fork should be rush's")
 	}
 	f, is := m.sheet.(*forkSheet)
 	if !is || string(f.name) != "try another way" {
@@ -353,7 +353,7 @@ func TestSlashMidMessage(t *testing.T) {
 			return
 		}
 	}
-	t.Fatal("agtop's own commands still show at the start")
+	t.Fatal("rush's own commands still show at the start")
 }
 
 func TestLocalQueue(t *testing.T) {
@@ -428,10 +428,10 @@ func TestArtifacts(t *testing.T) {
 	s := convo.New()
 	now := time.Now()
 	pub := func(id, ver string) {
-		in, _ := jsonx.Marshal(map[string]string{"file_path": "/tmp/agtop-mode.html", "description": "design review"})
+		in, _ := jsonx.Marshal(map[string]string{"file_path": "/tmp/rush-mode.html", "description": "design review"})
 		s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: id, Name: "Artifact", Input: in}}}, now)
 		s.Apply(headless.Message{Role: "user", Blocks: []headless.Block{{Type: "tool_result", ToolUseID: id,
-			Text: "Published /tmp/agtop-mode.html at https://claude.ai/artifact/2pdtkfBi4he8cVWra7qYq6 (Version " + ver + ")"}}}, now)
+			Text: "Published /tmp/rush-mode.html at https://claude.ai/artifact/2pdtkfBi4he8cVWra7qYq6 (Version " + ver + ")"}}}, now)
 	}
 	pub("a1", "1")
 	pub("a2", "2")
@@ -573,7 +573,7 @@ func TestAnswersCarryPreview(t *testing.T) {
 	}
 }
 
-// agtop's commands take #: the Prompt's picker offers them as they're
+// rush's commands take #: the Prompt's picker offers them as they're
 // typed, then a command's choices after a space; enter runs one or
 // completes it. A heading or an issue number is still a message.
 func TestFleetSlash(t *testing.T) {
@@ -622,8 +622,8 @@ func TestFleetSlash(t *testing.T) {
 }
 
 // A message for a job Claude Code has let go of carries the conversation on
-// in agtop mode instead of failing.
-func TestJobGoneMovesToAgtop(t *testing.T) {
+// in rush mode instead of failing.
+func TestJobGoneMovesToRush(t *testing.T) {
 	bin := t.TempDir() // Claude Code is installed
 	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o755)
 	t.Setenv("PATH", bin)
@@ -635,7 +635,7 @@ func TestJobGoneMovesToAgtop(t *testing.T) {
 	m.order = m.snap.Agents
 	_, cmd := m.update(jobGoneMsg{key: a.Key, text: "carry on"})
 	if cmd == nil || !strings.HasPrefix(m.status, "moving gone") {
-		t.Fatalf("expected a move to agtop mode, got status %q", m.status)
+		t.Fatalf("expected a move to rush mode, got status %q", m.status)
 	}
 }
 

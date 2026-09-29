@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/charmbracelet/x/ansi"
 )
 

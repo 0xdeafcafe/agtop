@@ -1,4 +1,4 @@
-// Package queue is a plugin bundled with agtop: `agtop queue send|remove`
+// Package queue is a plugin bundled with rush: `rush queue send|remove`
 // sends now, or drops, a message waiting in a session's queue, from a
 // script or a remote client, without the view.
 package queue
@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 func init() { plugin.RegisterBundle(plugin.Bundle{Manifest: Manifest, Run: Run}) }
@@ -24,9 +24,9 @@ const usage = "<session> <n> [--was TEXT]"
 // Manifest is the queue plugin's.
 var Manifest = plugin.Manifest{
 	Name: "queue",
-	Description: "agtop queue send and agtop queue remove: send now, or drop, a message waiting in an agtop-mode session's queue, " +
+	Description: "rush queue send and rush queue remove: send now, or drop, a message waiting in a rush-mode session's queue, " +
 		"from a script or a remote client. It never sees what's queued.",
-	Command:    []string{"agtop"},
+	Command:    []string{"rush"},
 	Sessions:   []string{plugin.CapQueued},
 	Workspaces: []string{"~"},
 	CLI: []plugin.CLISpec{
@@ -65,7 +65,7 @@ func Run(rw io.ReadWriteCloser) error {
 func run(ctx context.Context, conn *plugin.Conn, r plugin.CLIRun) plugin.CLIResult {
 	id, n, was, err := parse(r.Args)
 	if err != nil {
-		return plugin.CLIResult{Stderr: fmt.Sprintf("%v\nusage: agtop queue %s %s\n", err, r.Command, usage), Exit: 2}
+		return plugin.CLIResult{Stderr: fmt.Sprintf("%v\nusage: rush queue %s %s\n", err, r.Command, usage), Exit: 2}
 	}
 	if err := conn.Call(ctx, "sessions.queued."+r.Command, map[string]any{"id": id, "index": n, "was": was}, nil); err != nil {
 		return plugin.CLIResult{Stderr: err.Error() + "\n", Exit: 1}

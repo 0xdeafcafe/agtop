@@ -9,16 +9,16 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
-// agtop's own commands start with #, so / is always Claude's: in the
+// rush's own commands start with #, so / is always Claude's: in the
 // Prompt it starts a session with one of Claude's commands or skills, in
 // a Session it goes to the agent. A # command in the Prompt acts on the
 // selected agent, in a Session on that Session's agent.
 
-// fleetCommands are agtop's # commands, the ones command() runs. A hint in
+// fleetCommands are rush's # commands, the ones command() runs. A hint in
 // <> needs an argument; one in [] can go without.
 var fleetCommands = []event.Command{
 	{Name: "done", Description: "move the agent to Done (alt+d); its idle process stops"},
@@ -35,7 +35,7 @@ var fleetCommands = []event.Command{
 	{Name: "pin", Description: "pin the agent in Claude Code's list, or unpin it"},
 	{Name: "pr", Description: "open the agent's pull request"},
 	{Name: "full", Description: "open a Claude Code agent full screen, in Claude Code"},
-	{Name: "agtop", Description: "move the agent into agtop mode (a terminal one is copied, not stopped)"},
+	{Name: "rush", Description: "move the agent into rush mode (a terminal one is copied, not stopped)"},
 	{Name: "sort", Description: "sort agents by " + strings.Join(sortModes, ", "), ArgumentHint: "<by>"},
 	{Name: "split", Description: "split each section of the list by project, or not; alone, turns it on or off", ArgumentHint: "[project|none]"},
 	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", ") + ", or plugin:<name> for a plugin's sections", ArgumentHint: "<group>"},
@@ -44,31 +44,31 @@ var fleetCommands = []event.Command{
 	{Name: "profile", Description: "the profile the next session starts under: which providers it runs, and what it does at a limit; alone says which", ArgumentHint: "[name]"},
 	{Name: "efficiency", Description: "where tokens go, and the savers that cut them (#eff, #savers)", ArgumentHint: "[timeline|savers|findings]"},
 	{Name: "advisor", Description: "let Haiku look over your agents' figures now and then for what would save tokens or time, with Opus checking; now looks at once", ArgumentHint: "[on|off|now]"},
-	{Name: "mackeys", Description: "send Terminal.app's ⌘← → ⌘⌫ ⌘⌦ ⌘Z on to agtop through Hammerspoon, installed with brew if need be; alone says whether it's on", ArgumentHint: "[on|off]"},
+	{Name: "mackeys", Description: "send Terminal.app's ⌘← → ⌘⌫ ⌘⌦ ⌘Z on to rush through Hammerspoon, installed with brew if need be; alone says whether it's on", ArgumentHint: "[on|off]"},
 	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
-	{Name: "network", Description: "whether the API answers, the network agtop is on and how fast it moves, and what waits for it (#net)"},
+	{Name: "network", Description: "whether the API answers, the network rush is on and how fast it moves, and what waits for it (#net)"},
 	{Name: "account", Description: "switch to another account, of any agent; alone opens Accounts", ArgumentHint: "[name]"},
 	{Name: "hibernate", Description: "stop finished agents after this many idle minutes; 0 turns it off", ArgumentHint: "<minutes>"},
-	{Name: "width", Description: "the list's share of the screen; alone goes back to agtop's", ArgumentHint: "[n%]"},
+	{Name: "width", Description: "the list's share of the screen; alone goes back to rush's", ArgumentHint: "[n%]"},
 	{Name: "view", Description: "Agents and the Session side by side, the agent's Session alone, or Agents alone (shift+← →)", ArgumentHint: "<split|agent|list>"},
 	{Name: "dock", Description: "how many lines the agent's card under the list shows", ArgumentHint: "<lines>"},
 	{Name: "native", Description: "open Claude Code's own agents view"},
 	{Name: "drafts", Description: "your drafts, what you sent and what you cleared, to put back in the box (ctrl+r in a Session · alt+s keeps one · alt+p brings it back)"},
-	{Name: "help", Description: "a short guide to agtop"},
-	{Name: "update", Description: "install the newest agtop, with go install; reopen agtop to use it"},
+	{Name: "help", Description: "a short guide to rush"},
+	{Name: "update", Description: "install the newest rush, with go install; reopen rush to use it"},
 	{Name: "tips", Description: "Getting started and tips from the top; off puts them away", ArgumentHint: "[off]"},
-	{Name: "quit", Description: "leave agtop"},
+	{Name: "quit", Description: "leave rush"},
 }
 
 // fleetAliases are other names command() answers to.
 var fleetAliases = map[string]string{"eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "drafts", "net": "network"}
 
 // fleetNeedsAgent are # commands that act on the selected or focused agent;
-// the bar offers them only once one's in view. The rest are agtop-wide.
+// the bar offers them only once one's in view. The rest are rush-wide.
 var fleetNeedsAgent = map[string]bool{
 	"done": true, "go": true, "stop": true, "rm": true, "kill": true, "restart": true,
 	"clean": true, "cd": true, "add-dir": true, "rename": true, "group": true,
-	"pin": true, "pr": true, "full": true, "agtop": true,
+	"pin": true, "pr": true, "full": true, "rush": true,
 }
 
 // isHashCmd is whether text is a # command: # and a letter, so a Markdown
@@ -81,7 +81,7 @@ func isHashCmd(text string) bool {
 // typingHash is whether a # command is being typed, # alone included.
 func typingHash(text string) bool { return text == "#" || isHashCmd(text) }
 
-// isFleetCommand is whether name (without its prefix) is one of agtop's.
+// isFleetCommand is whether name (without its prefix) is one of rush's.
 func isFleetCommand(name string) bool {
 	if fleetAliases[name] != "" {
 		return true
@@ -218,7 +218,7 @@ type cmdsAt struct{ dir, cwd string }
 var claudeCmds = newMemo(30*time.Second, func(k cmdsAt) []claude.Command { return claude.Commands(k.dir, k.cwd) })
 
 // promptPicker is what the Prompt's picker offers, and the prefix its
-// commands take: # for agtop's, / for a new session's.
+// commands take: # for rush's, / for a new session's.
 func (m *Model) promptPicker() ([]event.Command, string) {
 	if m.inKind != inPrompt || m.sessionFocused() || !m.acceptsText() {
 		return nil, ""
@@ -356,7 +356,7 @@ func (m *Model) legacyCommand(text string) (tea.Cmd, bool) {
 	at := m.statusAt
 	cmd := m.command(m.selected(), "#"+strings.TrimPrefix(text, "/"))
 	if m.statusAt == at {
-		m.flash("agtop's commands start with # now: #"+name+" · / starts a session with one of Claude's", false)
+		m.flash("rush's commands start with # now: #"+name+" · / starts a session with one of Claude's", false)
 	}
 	return cmd, true
 }

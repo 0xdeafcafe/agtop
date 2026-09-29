@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func TestOtherAgentsAreMarked(t *testing.T) {
@@ -20,7 +20,7 @@ func TestOtherAgentsAreMarked(t *testing.T) {
 	}
 }
 
-// installedAgent is an agent agtop can run, installed.
+// installedAgent is an agent rush can run, installed.
 type installedAgent struct{}
 
 func init() { agent.Register(installedAgent{}) }
@@ -35,7 +35,7 @@ func (installedAgent) Profiles() []agent.Profile {
 func (installedAgent) Start(context.Context, agent.StartOptions) (agent.Conn, error) { return nil, nil }
 
 func TestWith(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m := &Model{store: &state.Store{}}
 	d := &m.store.Config.Dispatch
 	m.withAgent("nosuch")

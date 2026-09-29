@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// The test binary stands in for agtop: Spawn runs `<exe> host run <id>`.
+// The test binary stands in for rush: Spawn runs `<exe> host run <id>`.
 func TestMain(m *testing.M) {
 	if len(os.Args) == 4 && os.Args[1] == "host" && os.Args[2] == "run" {
 		if err := Run(os.Args[3]); err != nil {
@@ -53,17 +53,17 @@ done
 func setup(t *testing.T) (bin string) {
 	t.Helper()
 	// Short, because unix socket paths are capped near 104 bytes on macOS.
-	home, err := os.MkdirTemp("/tmp", "agtop-host-")
+	home, err := os.MkdirTemp("/tmp", "rush-host-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
-	t.Setenv("AGTOP_HOME", home)
-	// Registered after Setenv, so it runs before AGTOP_HOME is restored:
+	t.Setenv("RUSH_HOME", home)
+	// Registered after Setenv, so it runs before RUSH_HOME is restored:
 	// the hosts the test started, and any a restart left, must not outlive
 	// it, and only this test's home is looked at.
 	t.Cleanup(func() {
-		if os.Getenv("AGTOP_HOME") != home {
+		if os.Getenv("RUSH_HOME") != home {
 			return
 		}
 		for _, i := range List() {
@@ -194,10 +194,10 @@ func TestHostLifecycle(t *testing.T) {
 
 // TestRealHost runs two turns through a host and the installed claude, with
 // Claude Code stopped for idling in between, so the second turn resumes. It
-// spends a few cents of Haiku, so it only runs with AGTOP_REAL_CLAUDE=1.
+// spends a few cents of Haiku, so it only runs with RUSH_REAL_CLAUDE=1.
 func TestRealHost(t *testing.T) {
-	if os.Getenv("AGTOP_REAL_CLAUDE") == "" {
-		t.Skip("set AGTOP_REAL_CLAUDE=1 to run against the installed claude")
+	if os.Getenv("RUSH_REAL_CLAUDE") == "" {
+		t.Skip("set RUSH_REAL_CLAUDE=1 to run against the installed claude")
 	}
 	bin := setup(t)
 	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Model: "haiku", Prompt: "The secret word is PELICAN. Do not use any tools. Reply with only: ok",

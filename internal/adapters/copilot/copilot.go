@@ -1,6 +1,6 @@
-// Package copilot is GitHub Copilot as an agtop adapter: the Copilot CLI,
-// run over ACP in agtop mode, and Copilot's coding agent, whose sessions on
-// GitHub agtop lists and reads. Both are reached with your GitHub sign-in:
+// Package copilot is GitHub Copilot as a rush adapter: the Copilot CLI,
+// run over ACP in rush mode, and Copilot's coding agent, whose sessions on
+// GitHub rush lists and reads. Both are reached with your GitHub sign-in:
 // gh's, when the CLI has none of its own.
 package copilot
 
@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/adapters/acp"
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/adapters/acp"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // Kind is Copilot's.
@@ -41,9 +41,9 @@ func (Adapter) Name() string     { return "Copilot" }
 func (Adapter) Program() (string, []string) { return "copilot", []string{".copilot/bin"} }
 
 // Hint is what the Copilot CLI adds to gh alone.
-const Hint = "install the Copilot CLI (npm i -g @github/copilot) to run Copilot sessions here, in agtop mode"
+const Hint = "install the Copilot CLI (npm i -g @github/copilot) to run Copilot sessions here, in rush mode"
 
-// Lesser is gh: with it alone, agtop lists Copilot's coding agent's
+// Lesser is gh: with it alone, rush lists Copilot's coding agent's
 // sessions on GitHub, its accounts and their premium requests.
 func (Adapter) Lesser() (string, []string, string) { return "gh", nil, Hint }
 

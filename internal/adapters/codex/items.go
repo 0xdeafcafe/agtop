@@ -5,12 +5,12 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// threadItem is Codex's ThreadItem, with the fields of every type agtop
+// threadItem is Codex's ThreadItem, with the fields of every type rush
 // reads; which are set depends on Type.
 type threadItem struct {
 	Type string `json:"type"`
@@ -238,7 +238,7 @@ func reasoningText(it threadItem) string {
 	return strings.TrimSpace(strings.Join(append(append([]string{}, it.Summary...), content...), "\n\n"))
 }
 
-// todoStatus is a plan step's status in agtop's words.
+// todoStatus is a plan step's status in rush's words.
 func todoStatus(s string) string {
 	if s == "inProgress" {
 		return "in_progress"

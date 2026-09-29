@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// BenchmarkHistoryReal reads what a real transcript (AGTOP_HISTORY) held an
+// BenchmarkHistoryReal reads what a real transcript (RUSH_HISTORY) held an
 // hour after it began, as a session resumed then would.
 func BenchmarkHistoryReal(b *testing.B) {
-	path := os.Getenv("AGTOP_HISTORY")
+	path := os.Getenv("RUSH_HISTORY")
 	if path == "" {
-		b.Skip("AGTOP_HISTORY names a transcript")
+		b.Skip("RUSH_HISTORY names a transcript")
 	}
 	f, err := os.Open(path)
 	if err != nil {

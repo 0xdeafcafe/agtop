@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func TestNetworkSheet(t *testing.T) {
@@ -18,7 +18,7 @@ func TestNetworkSheet(t *testing.T) {
 		t.Fatalf("#net opened %T", m.sheet)
 	}
 	text := ansi.Strip(strings.Join(m.sheet.body(m, 92, 40), "\n"))
-	for _, want := range []string{"API", "Network", "New network", "agtop's jobs that use it", "Sessions waiting on it", "Keys and frames"} {
+	for _, want := range []string{"API", "Network", "New network", "rush's jobs that use it", "Sessions waiting on it", "Keys and frames"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("no %q in:\n%s", want, text)
 		}

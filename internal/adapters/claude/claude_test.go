@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func TestRegistered(t *testing.T) {
@@ -25,7 +25,7 @@ func TestRegistered(t *testing.T) {
 	}
 }
 
-// Older folders an agtop was given aren't profiles: every session runs in
+// Older folders a rush was given aren't profiles: every session runs in
 // ~/.claude.
 func TestProfiles(t *testing.T) {
 	a := Adapter{Config: func() state.Config {
@@ -139,6 +139,6 @@ func TestAccounts(t *testing.T) {
 		t.Errorf("login(%+v) = %+v, %v", accts[0], l, ok)
 	}
 	if err := a.Switch(agent.Profile{Dir: t.TempDir()}, agent.Account{Key: "claude:login:nobody"}); err == nil {
-		t.Error("switched to a login agtop doesn't have")
+		t.Error("switched to a login rush doesn't have")
 	}
 }

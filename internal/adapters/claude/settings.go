@@ -3,9 +3,9 @@ package claude
 import (
 	"path/filepath"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/settingsfile"
+	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/settingsfile"
 )
 
 // SettingsFiles are yours, then the project's (shared through git) and the

@@ -14,12 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Spawn writes cfg and starts its host as a detached process, returning once
@@ -28,7 +28,7 @@ import (
 // fillIDs names a new session, and gives a fork an id of its own.
 func (cfg *Config) fillIDs() {
 	if cfg.Kind == "" {
-		// migration: callers from before agtop ran other agents name
+		// migration: callers from before rush ran other agents name
 		// none, meaning Claude Code; from here on the kind is written.
 		cfg.Kind = string(agent.Migrated(""))
 		cfg.Account.Kind = agent.Kind(cfg.Kind)
@@ -73,7 +73,7 @@ func Spawn(cfg Config) (Config, error) {
 	cmd := exec.Command(exe, "host", "run", cfg.ID)
 	cmd.Dir = cfg.Cwd
 	cmd.Stdout, cmd.Stderr = log, log
-	// Its own session, so closing agtop or its terminal leaves it running.
+	// Its own session, so closing rush or its terminal leaves it running.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return cfg, err
@@ -99,7 +99,7 @@ func Spawn(cfg Config) (Config, error) {
 }
 
 // ShortID is the id a new session started on sessionID gets: its folder,
-// socket and the name agtop lists it by.
+// socket and the name rush lists it by.
 func ShortID(sessionID string) string { return shortOf(sessionID) }
 
 func shortOf(sessionID string) string {
@@ -149,7 +149,7 @@ func readInfoFile(id string) (Info, error) {
 	return info, err
 }
 
-// List returns every agtop-mode session, newest first.
+// List returns every rush-mode session, newest first.
 func List() []Info { return new(Lister).List() }
 
 // Lister lists sessions again and again, parsing only the info files that
@@ -246,7 +246,7 @@ type Reply struct {
 type Context struct{ Usage usage.Context }
 
 // Decode reads one line from a host: its own events, Claude Code's, or
-// agtop's own events from another agent's session (an event.Event).
+// rush's own events from another agent's session (an event.Event).
 func Decode(line []byte) (any, error) {
 	// Claude Code's lines start with their type; the host's own (and its
 	// echo of what you sent) are written with sorted keys and don't. So
@@ -321,12 +321,12 @@ type Client struct {
 // Dial connects to a running session.
 func Dial(id string) (*Client, error) { return dial(id, Proto) }
 
-// DialRaw connects as an agtop from before the hello: a Claude Code
+// DialRaw connects as a rush from before the hello: a Claude Code
 // session's lines come as Claude Code wrote them.
 func DialRaw(id string) (*Client, error) { return dial(id, 0) }
 
 // dial connects saying hello as a client of protocol proto; 0 says none,
-// as an agtop from before the hello.
+// as a rush from before the hello.
 func dial(id string, proto int) (*Client, error) {
 	c, err := net.Dial("unix", SockPath(id))
 	if err != nil {
@@ -443,9 +443,9 @@ func (c *Client) Rewind(sessionID string, resume bool, left Branch) error {
 	return c.do(op{Op: "rewind", Text: sessionID, Now: resume, Branch: &left})
 }
 
-// Restart ends a session's host and starts it again on this agtop's
+// Restart ends a session's host and starts it again on this rush's
 // binary, with change applied to its config first: how a host from an
-// older agtop gets what's new. The session must be idle.
+// older rush gets what's new. The session must be idle.
 func Restart(id string, change func(*Config)) error {
 	cfg, err := ReadConfig(id)
 	if err != nil {
@@ -468,7 +468,7 @@ func Restart(id string, change func(*Config)) error {
 }
 
 // RewindByRestart is Rewind for a host from before it could (Proto 0):
-// the host is restarted on this agtop, already carrying on from
+// the host is restarted on this rush, already carrying on from
 // sessionID, with the path it leaves kept as a branch.
 func RewindByRestart(id, sessionID string, resume bool, left Branch) error {
 	return Restart(id, func(cfg *Config) {

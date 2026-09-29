@@ -7,14 +7,14 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/statusline"
-	"github.com/0xdeafcafe/agtop/internal/sysinfo"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/statusline"
+	"github.com/0xdeafcafe/rush/internal/sysinfo"
 )
 
-// --- agtop's own status lines ---
+// --- rush's own status lines ---
 
 // The top bar (top right of the window, about every agent) and the agent
 // header (top of an agent's Session) are status lines you build in
@@ -22,7 +22,7 @@ import (
 // shows stays put: the counts and clanker, an agent's name, state and
 // connection, and anything that's wrong.
 
-// barSeg is one thing an agtop line can show. draw returns it painted, or
+// barSeg is one thing a rush line can show. draw returns it painted, or
 // "" when it has nothing to say.
 type barSeg struct {
 	id, name, about string
@@ -325,7 +325,7 @@ func (m *Model) barLayout(which int) statusline.Layout {
 // barMore ends a line that had to leave segments out for room.
 func barMore() string { return faint(" ⋯") }
 
-// barLine draws line i of an agtop line, at most w wide. When it's too
+// barLine draws line i of a rush line, at most w wide. When it's too
 // wide, the segments last on the line go first, whole, and the line ends
 // with ⋯; which went is kept for /statusline to point out.
 func (m *Model) barLine(which, i int, x *barCtx, w int) string {

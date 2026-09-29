@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // benchTurn is a turn's output as Claude Code writes it: streamed deltas,
@@ -35,7 +35,7 @@ func (tapConn) Taps() bool { return true }
 // the replay ring and to a client, the ones it looks at decoded and acted
 // on (a whole message publishes the session's info).
 func BenchmarkHostTurn(b *testing.B) {
-	b.Setenv("AGTOP_HOME", b.TempDir())
+	b.Setenv("RUSH_HOME", b.TempDir())
 	s := &server{cfg: Config{ID: "bench"}, clients: map[*conn]struct{}{}, pending: map[string]asked{}}
 	tc := tapConn{}
 	var n headless.Neutral
@@ -74,7 +74,7 @@ func BenchmarkHostTurn(b *testing.B) {
 
 // The info line publish sends is what marshalling it as a map would give.
 func TestPublishLine(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	s := &server{cfg: Config{ID: "pub"}, clients: map[*conn]struct{}{}}
 	_ = os.MkdirAll(dir(s.cfg.ID), 0o700)
 	c := &conn{out: make(chan []byte, 4), gone: make(chan struct{})}

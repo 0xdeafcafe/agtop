@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 // Once the API can be reached, each session an API error stopped is told
@@ -80,10 +80,10 @@ func TestLookSharesHaltsAndWarmth(t *testing.T) {
 }
 
 func TestContinueIsClaimedOnce(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	at := time.Now()
 	if !claimContinue("k", at) || claimContinue("k", at) {
-		t.Fatal("the second agtop should find it claimed")
+		t.Fatal("the second rush should find it claimed")
 	}
 	if !claimContinue("k", at.Add(time.Second)) {
 		t.Fatal("a new halt is a new claim")

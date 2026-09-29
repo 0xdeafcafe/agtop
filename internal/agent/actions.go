@@ -5,7 +5,7 @@ import (
 	"os/exec"
 )
 
-// What agtop does to a session or an account that runs outside agtop
+// What rush does to a session or an account that runs outside rush
 // mode, through the agent's own program: each an interface an adapter has
 // only when its agent can, found with As.
 
@@ -15,7 +15,7 @@ type Dispatcher interface {
 	Dispatch(p Profile, dir, prompt string, flags ...string) (id string, err error)
 }
 
-// Stopper ends a session running outside agtop and keeps its conversation.
+// Stopper ends a session running outside rush and keeps its conversation.
 // pid, when known, is ended if the agent's own way doesn't.
 type Stopper interface {
 	Stop(p Profile, id string, pid int) error
@@ -48,7 +48,7 @@ type Screener interface {
 	Screen(p Profile, dir, command, hint string) *exec.Cmd
 }
 
-// Mover moves a session running outside agtop to another profile or
+// Mover moves a session running outside rush to another profile or
 // folder, keeping its conversation, and returns its new id.
 type Mover interface {
 	Move(m *Move) (id string, err error)
@@ -65,7 +65,7 @@ type Move struct {
 }
 
 // ErrGone is a session its agent has let go of: its conversation is kept,
-// and carries on in agtop mode.
+// and carries on in rush mode.
 var ErrGone = errors.New("the agent has let the session go")
 
 // As is agent k's adapter as T, when it's registered and is one.

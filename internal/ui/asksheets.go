@@ -9,9 +9,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // --- Claude Code's commands that need the session: /btw, /export, /subtask ---
@@ -20,7 +20,7 @@ import (
 // host, and hands the answer to done when it comes (onHostLines).
 func (m *Model) askClaude(c *hostConn, req map[string]any, done func(m *Model, r host.Reply) tea.Cmd) tea.Cmd {
 	if c.client == nil {
-		m.flash("that works in agtop-mode sessions · /agtop moves this one over", true)
+		m.flash("that works in rush-mode sessions · /rush moves this one over", true)
 		return nil
 	}
 	if c.sess.Info.Proto < 2 {
@@ -41,7 +41,7 @@ func (m *Model) askClaude(c *hostConn, req map[string]any, done func(m *Model, r
 func (m *Model) onReply(c *hostConn, r host.Reply) tea.Cmd {
 	done := c.asks[r.ID]
 	if done == nil {
-		return nil // another agtop's
+		return nil // another rush's
 	}
 	delete(c.asks, r.ID)
 	return done(m, r)
@@ -50,7 +50,7 @@ func (m *Model) onReply(c *hostConn, r host.Reply) tea.Cmd {
 // sendAs sends text to the agent as a message of yours, as the box does.
 func (m *Model) sendAs(c *hostConn, text string) tea.Cmd {
 	if c.client == nil {
-		m.flash("that works in agtop-mode sessions · /agtop moves this one over", true)
+		m.flash("that works in rush-mode sessions · /rush moves this one over", true)
 		return nil
 	}
 	m.markSending(c, text)
@@ -99,7 +99,7 @@ func (m *Model) openExport(c *hostConn, dir, arg string) tea.Cmd {
 			Filename string `json:"default_filename"`
 		}
 		if r.Error != "" || jsonx.Unmarshal(r.Body, &v) != nil {
-			k.err = firstNonEmpty(r.Error, "Claude Code sent back something agtop can't read")
+			k.err = firstNonEmpty(r.Error, "Claude Code sent back something rush can't read")
 			return nil
 		}
 		k.text, k.filename = v.Text, firstNonEmpty(v.Filename, "conversation.txt")
@@ -118,7 +118,7 @@ func (m *Model) openExport(c *hostConn, dir, arg string) tea.Cmd {
 }
 
 func (k *exportSheet) save(m *Model, name string) tea.Cmd {
-	// Relative to the agent's folder, not agtop's.
+	// Relative to the agent's folder, not rush's.
 	path := name
 	if !filepath.IsAbs(name) && !strings.HasPrefix(name, "~") {
 		path = filepath.Join(k.dir, name)

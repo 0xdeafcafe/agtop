@@ -8,13 +8,13 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// Hooks keeps agtop's UI from talking to plugins other than through
+// Hooks keeps rush's UI from talking to plugins other than through
 // internal/hooks, whose every method returns at once. A plugin must never
 // be able to hold up a frame: a call on the broker's connection, from the
 // UI's goroutine, waits on whatever the plugin is doing.
 var Hooks = &analysis.Analyzer{
-	Name: "agtophooks",
-	Doc:  "reports agtop's UI reaching the plugin broker other than through internal/hooks",
+	Name: "rushhooks",
+	Doc:  "reports rush's UI reaching the plugin broker other than through internal/hooks",
 	Run:  runHooks,
 }
 

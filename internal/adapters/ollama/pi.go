@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	piad "github.com/0xdeafcafe/agtop/internal/adapters/pi"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	piad "github.com/0xdeafcafe/rush/internal/adapters/pi"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // PiKind is Ollama in Pi's.
@@ -21,7 +21,7 @@ const PiKind agent.Kind = "ollama-pi"
 func init() { agent.Register(PiAdapter{}) }
 
 // PiAdapter is Pi on Ollama: `pi --mode rpc`, as the pi adapter drives it,
-// in a Pi config folder of agtop's own whose models.json points a provider
+// in a Pi config folder of rush's own whose models.json points a provider
 // named "ollama" at Ollama's OpenAI-compatible API, so its sessions never
 // mix with the user's ~/.pi, nor read their keys.
 type PiAdapter struct{}
@@ -38,7 +38,7 @@ func (PiAdapter) Rides() agent.Kind { return piad.Kind }
 // Provider is Ollama, whichever harness it runs in.
 func (PiAdapter) Provider() string { return string(Kind) }
 
-// piFeatures are Pi's, less what a local model or agtop's own folder
+// piFeatures are Pi's, less what a local model or rush's own folder
 // hasn't.
 var piFeatures = map[agent.Feature]agent.Support{
 	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes.With("the whole session, not from a message"),
@@ -58,7 +58,7 @@ var piFeatures = map[agent.Feature]agent.Support{
 func (PiAdapter) Features() map[agent.Feature]agent.Support { return piFeatures }
 func (PiAdapter) Level() agent.Level                        { return agent.LevelTested }
 
-// Profiles is agtop's own Pi folder for Ollama, when ollama and pi are
+// Profiles is rush's own Pi folder for Ollama, when ollama and pi are
 // both here.
 func (PiAdapter) Profiles() []agent.Profile {
 	if !agent.Installed(PiKind) {
@@ -73,7 +73,7 @@ func piHome() string { return filepath.Join(state.Dir(), "ollama-pi") }
 // Cost is nothing: the model runs here.
 func (PiAdapter) Cost(string, usage.TokenUsage) (float64, bool) { return 0, true }
 
-// piProvider is the provider agtop names in Pi's models.json.
+// piProvider is the provider rush names in Pi's models.json.
 const piProvider = "ollama"
 
 // Start picks and loads the model, writes Pi's models.json for it, then
@@ -173,10 +173,10 @@ func writePiModels(dir string, models []Model, base string) error {
 	return os.Rename(tmp, filepath.Join(dir, "models.json"))
 }
 
-// Live are the sessions Pi wrote to lately in agtop's folder.
+// Live are the sessions Pi wrote to lately in rush's folder.
 func (PiAdapter) Live(p agent.Profile) []agent.Session { return piOurs(piad.Adapter{}.Live(p)) }
 
-// Past is every session in agtop's folder.
+// Past is every session in rush's folder.
 func (PiAdapter) Past(p agent.Profile) []agent.Session { return piOurs(piad.Adapter{}.Past(p)) }
 
 // History reads a session back, as Pi's own are.

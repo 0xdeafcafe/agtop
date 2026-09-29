@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// CLISpec is a command a plugin adds to agtop's own: `agtop <plugin>
-// <name> [args]`. agtop hands the plugin the arguments and prints what it
+// CLISpec is a command a plugin adds to rush's own: `rush <plugin>
+// <name> [args]`. rush hands the plugin the arguments and prints what it
 // answers; it runs in the plugin, with what the plugin may do, not as you.
 type CLISpec struct {
 	Name        string `json:"name"`
@@ -49,7 +49,7 @@ func (m Manifest) validateCLI() error {
 	if len(m.CLI) == 0 {
 		return nil
 	}
-	if m.Proto() != ProtoAgtop {
+	if m.Proto() != ProtoRush {
 		return errors.New("an MCP plugin cannot add CLI commands: it has no way to run them")
 	}
 	if len(m.CLI) > maxCLI {
@@ -132,7 +132,7 @@ func RunCLI(ctx context.Context, name string, r CLIRun) (CLIResult, error) {
 		for c == nil {
 			select {
 			case <-ctx.Done():
-				return CLIResult{}, errors.New("agtop's plugin broker didn't start")
+				return CLIResult{}, errors.New("rush's plugin broker didn't start")
 			case <-time.After(50 * time.Millisecond):
 			}
 			c, _ = DialBroker()

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Job is one background session as Claude Code records it under
-// jobs/<short>: the row agtop shows, and what Claude Code needs to start
+// jobs/<short>: the row rush shows, and what Claude Code needs to start
 // it again.
 type Job struct {
 	agent.Job
@@ -239,7 +239,7 @@ func WritePins(a Account, ids []string) error {
 }
 
 func writeAtomic(path string, b []byte) error {
-	tmp := path + ".agtop.tmp"
+	tmp := path + ".rush.tmp"
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
 	}

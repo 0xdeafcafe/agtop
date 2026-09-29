@@ -13,10 +13,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 // The command bar (ctrl+k, or cmd+k where the terminal passes it on) goes
@@ -110,7 +110,7 @@ type spot struct {
 
 // barJump is a jump into an agent's conversation waiting for it to open:
 // the hit is found again in the session as the pane reads it, by its words
-// and snippet, since an agtop session's turns count from its host's replay.
+// and snippet, since a rush session's turns count from its host's replay.
 type barJump struct {
 	key, name   string
 	ref         string
@@ -701,7 +701,7 @@ func (m *Model) barPlaces(q string) []barItem {
 			return nil
 		})
 	}
-	if a := m.focused(); a != nil && !a.Agtop && !a.Interactive && a.PID != 0 {
+	if a := m.focused(); a != nil && !a.Rush && !a.Interactive && a.PID != 0 {
 		add(paint(cSub, "◇"), "Open full screen", oneLine(a.DisplayName)+" in Claude Code", "attach claude code full screen native", func(m *Model) tea.Cmd {
 			return m.attach(a)
 		})
@@ -743,11 +743,11 @@ func (m *Model) barPlaces(q string) []barItem {
 	return items
 }
 
-// barCommands are agtop's # commands and plugins' commands, typeable and
+// barCommands are rush's # commands and plugins' commands, typeable and
 // runnable from the bar: picking one drops it (with its argument's space,
 // if it needs one) into the Prompt, the way typing it there would, and
 // runs it at once when it doesn't. Those that act on an agent are offered
-// only once one is focused; the rest are agtop-wide.
+// only once one is focused; the rest are rush-wide.
 func (m *Model) barCommands(q string) []barItem {
 	var items []barItem
 	a := m.focused()

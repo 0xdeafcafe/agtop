@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 )
 
 func envOf(env []string) map[string]string {
@@ -86,11 +86,11 @@ func TestServer(t *testing.T) {
 	}
 }
 
-// TestLive runs a turn on the real Ollama: AGTOP_OLLAMA_LIVE=<model>.
+// TestLive runs a turn on the real Ollama: RUSH_OLLAMA_LIVE=<model>.
 func TestLive(t *testing.T) {
-	model := os.Getenv("AGTOP_OLLAMA_LIVE")
+	model := os.Getenv("RUSH_OLLAMA_LIVE")
 	if model == "" {
-		t.Skip("set AGTOP_OLLAMA_LIVE to a model to run against Ollama")
+		t.Skip("set RUSH_OLLAMA_LIVE to a model to run against Ollama")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -99,7 +99,7 @@ func TestLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	if err := conn.Send(agent.Input{Text: "Run `echo agtop-ollama` with the Bash tool and say what it printed."}); err != nil {
+	if err := conn.Send(agent.Input{Text: "Run `echo rush-ollama` with the Bash tool and say what it printed."}); err != nil {
 		t.Fatal(err)
 	}
 	var said strings.Builder
@@ -114,7 +114,7 @@ func TestLive(t *testing.T) {
 				}
 			}
 		case event.TurnEnd:
-			if !strings.Contains(said.String(), "agtop-ollama") {
+			if !strings.Contains(said.String(), "rush-ollama") {
 				t.Fatalf("the model said %q", said.String())
 			}
 			return

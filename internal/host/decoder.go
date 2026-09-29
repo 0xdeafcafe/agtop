@@ -1,10 +1,10 @@
 package host
 
-import "github.com/0xdeafcafe/agtop/internal/headless"
+import "github.com/0xdeafcafe/rush/internal/headless"
 
 // Decoder reads one host's lines, in order, as Decode does, except that
-// Claude Code's own lines come out as agtop's own events: a host from
-// before agtop's own events, or a client that didn't say hello, has
+// Claude Code's own lines come out as rush's own events: a host from
+// before rush's own events, or a client that didn't say hello, has
 // Claude's lines, and this reads them as any agent's. One Decoder follows
 // one connection.
 type Decoder struct{ n headless.Neutral }

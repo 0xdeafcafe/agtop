@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // A command that sends its output to a file says where to find it.

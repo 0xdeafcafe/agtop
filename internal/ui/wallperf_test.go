@@ -10,19 +10,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 // benchWall is the Wall at w×h with n agents at work, each tile's preview
 // read from a real transcript under ~/.claude/projects when there are any.
 func benchWall(w, h, n int) *Model {
 	m, _ := benchModel(w, h)
-	// The tests run with a HOME of their own: $AGTOP_BENCH_PROJECTS is
+	// The tests run with a HOME of their own: $RUSH_BENCH_PROJECTS is
 	// where real transcripts are, ~/.claude/projects say.
-	paths, _ := filepath.Glob(filepath.Join(os.Getenv("AGTOP_BENCH_PROJECTS"), "*", "*.jsonl"))
+	paths, _ := filepath.Glob(filepath.Join(os.Getenv("RUSH_BENCH_PROJECTS"), "*", "*.jsonl"))
 	sort.Slice(paths, func(i, j int) bool {
 		a, _ := os.Stat(paths[i])
 		c, _ := os.Stat(paths[j])
@@ -32,7 +32,7 @@ func benchWall(w, h, n int) *Model {
 	for i := range n {
 		a := &fleet.Agent{Key: fmt.Sprintf("default/w:%d", i), DisplayName: fmt.Sprintf("agent %d working on things", i), Acct: claude.DefaultAccount().Profile()}
 		a.ID = fmt.Sprintf("%08x", i)
-		a.Cwd, a.Repo, a.Branch, a.State, a.PID = "/work/agtop", "/work/agtop", "main", "working", 100+i
+		a.Cwd, a.Repo, a.Branch, a.State, a.PID = "/work/rush", "/work/rush", "main", "working", 100+i
 		a.UpdatedAt, a.CreatedAt = time.Now(), time.Now().Add(-time.Duration(i)*time.Minute)
 		if i < len(paths) {
 			a.TranscriptPath = paths[i]

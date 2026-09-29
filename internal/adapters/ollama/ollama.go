@@ -1,5 +1,5 @@
-// Package ollama is models served by Ollama on this machine, as an agtop
-// adapter. There's no agent of Ollama's own to run: agtop runs Claude Code
+// Package ollama is models served by Ollama on this machine, as a rush
+// adapter. There's no agent of Ollama's own to run: rush runs Claude Code
 // on Ollama's Anthropic-compatible API, fitted to the model it runs (see
 // tune), in a Claude config folder of its own, so that a local model
 // reads none of the user's plugins, skills and MCP servers before every
@@ -10,10 +10,10 @@ import (
 	"context"
 	"path/filepath"
 
-	claudead "github.com/0xdeafcafe/agtop/internal/adapters/claude"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	claudead "github.com/0xdeafcafe/rush/internal/adapters/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Kind is Ollama's.
@@ -52,7 +52,7 @@ func (Adapter) Level() agent.Level                        { return agent.LevelTe
 // Rides Claude Code: its sessions are claude's.
 func (Adapter) Rides() agent.Kind { return claudead.Kind }
 
-// Profiles is agtop's own Claude folder for Ollama, when ollama and
+// Profiles is rush's own Claude folder for Ollama, when ollama and
 // Claude Code are both here.
 func (Adapter) Profiles() []agent.Profile {
 	if !agent.Installed(Kind) {

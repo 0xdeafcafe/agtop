@@ -11,32 +11,32 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func infoModel(t *testing.T) (*Model, *hostConn) {
 	t.Setenv("HOME", t.TempDir())
 	now := time.Now()
 	acct := claude.Account{Name: "work", ConfigDir: t.TempDir()}
-	a := &fleet.Agent{Key: "k", Kind: "claude", Cwd: "/src/agtop", Acct: acct.Profile()}
+	a := &fleet.Agent{Key: "k", Kind: "claude", Cwd: "/src/rush", Acct: acct.Profile()}
 	usage := claude.Usage{Email: "me@x", Plan: "Max", FiveHour: claude.Window{Present: true, Percent: 42, ResetsAt: now.Add(2 * time.Hour)}, SevenDay: claude.Window{Present: true, Percent: 12, ResetsAt: now.Add(3 * 24 * time.Hour)}}
 	m := &Model{store: &state.Store{}, w: 140, h: 50, snap: &fleet.Snapshot{At: now, Agents: []*fleet.Agent{a},
 		Accounts: []fleet.AccountView{{Account: acct, Usage: usage, Quota: usage.Quota(""), Today: 3.5, Current: true}}}}
 	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	c.sess.Model, c.sess.Version = "claude-opus-5-5", "2.1.280"
-	c.sess.MCP = []event.MCPServer{{Name: "agtop", Status: "connected"}, {Name: "linear", Status: "failed"}}
+	c.sess.MCP = []event.MCPServer{{Name: "rush", Status: "connected"}, {Name: "linear", Status: "failed"}}
 	c.sess.Commands = []event.Command{{Name: "compact"}}
 	m.host = c
 	return m, c
 }
 
-func TestStatusAndUsageAreAgtopSheets(t *testing.T) {
+func TestStatusAndUsageAreRushSheets(t *testing.T) {
 	m, c := infoModel(t)
 	c.input = []rune("/status")
 	m.sendPane(c, false)
@@ -48,7 +48,7 @@ func TestStatusAndUsageAreAgtopSheets(t *testing.T) {
 	if !strings.Contains(text, "Status  ·  Context  ·  Usage  ·  History  ·  Settings") {
 		t.Errorf("tabs:\n%s", text)
 	}
-	for _, want := range []string{"2.1.280", "● linear failed", "● agtop connected", "me@x", "Max", "/src/agtop"} {
+	for _, want := range []string{"2.1.280", "● linear failed", "● rush connected", "me@x", "Max", "/src/rush"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("/status missing %q:\n%s", want, text)
 		}
@@ -73,7 +73,7 @@ func TestStatusAndUsageAreAgtopSheets(t *testing.T) {
 func TestUnknownCommandAsks(t *testing.T) {
 	m, c := infoModel(t)
 	// One the session knows goes to Claude as it is; a path isn't a command.
-	for _, text := range []string{"/compact", "/src/agtop has a bug"} {
+	for _, text := range []string{"/compact", "/src/rush has a bug"} {
 		m.sheet = nil
 		c.input = []rune(text)
 		m.sendPane(c, false)
@@ -87,7 +87,7 @@ func TestUnknownCommandAsks(t *testing.T) {
 	if !ok || u.line != "brand-new-screen now" || string(c.input) != "/brand-new-screen now" {
 		t.Fatalf("unknown: %T %+v input %q", m.sheet, u, string(c.input))
 	}
-	if text := ansi.Strip(strings.Join(u.body(m, 68, 30), "\n")); !strings.Contains(text, "isn't a command agtop knows") {
+	if text := ansi.Strip(strings.Join(u.body(m, 68, 30), "\n")); !strings.Contains(text, "isn't a command rush knows") {
 		t.Fatalf("dialog:\n%s", text)
 	}
 	u.key(m, tea.KeyPressMsg{}, "esc")
@@ -186,7 +186,7 @@ func TestClaudeCommandsRouting(t *testing.T) {
 	// Claude Code's own terminal and the odds and ends are off.
 	for _, cmd := range []string{"/theme", "/release-notes", "/loops"} {
 		run(cmd)
-		if m.sheet != nil || !strings.Contains(m.status, "isn't in agtop") {
+		if m.sheet != nil || !strings.Contains(m.status, "isn't in rush") {
 			t.Errorf("%s: sheet %T status %q", cmd, m.sheet, m.status)
 		}
 	}

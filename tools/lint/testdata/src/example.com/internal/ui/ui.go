@@ -13,10 +13,10 @@ type Model struct{ path string }
 type other struct{}
 
 func (m *Model) View() string {
-	b, _ := os.ReadFile(m.path)         // want `os.ReadFile blocks agtop's UI`
-	time.Sleep(time.Millisecond)        // want `time.Sleep blocks agtop's UI`
-	_ = exec.Command("git").Run()       // want `exec.Run blocks agtop's UI`
-	func() { _, _ = os.Stat(m.path) }() // want `os.Stat blocks agtop's UI`
+	b, _ := os.ReadFile(m.path)         // want `os.ReadFile blocks rush's UI`
+	time.Sleep(time.Millisecond)        // want `time.Sleep blocks rush's UI`
+	_ = exec.Command("git").Run()       // want `exec.Run blocks rush's UI`
+	func() { _, _ = os.Stat(m.path) }() // want `os.Stat blocks rush's UI`
 	return string(b)
 }
 
@@ -42,5 +42,5 @@ func (m *Model) handed() tea.Cmd {
 }
 
 func (m *Model) deferred() {
-	defer func() { _ = os.Remove(m.path) }() // want `os.Remove blocks agtop's UI`
+	defer func() { _ = os.Remove(m.path) }() // want `os.Remove blocks rush's UI`
 }

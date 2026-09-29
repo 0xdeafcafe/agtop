@@ -5,27 +5,27 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/netwatch"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/netwatch"
 	"os"
 	"path/filepath"
 	"syscall"
 	"time"
 )
 
-// UsageEvery is how old agtop's last reading of an account may get before
-// it asks Anthropic again. Every agtop process shares the readings, so
+// UsageEvery is how old rush's last reading of an account may get before
+// it asks Anthropic again. Every rush process shares the readings, so
 // restarts, several views and --soak runs don't each ask.
 const UsageEvery = 5 * time.Minute
 
-// FetchedUsage is agtop's last good reading of an account, and until when
+// FetchedUsage is rush's last good reading of an account, and until when
 // Anthropic asked it not to ask again.
 type FetchedUsage struct {
 	Usage Usage     `json:"usage"`
 	Wait  time.Time `json:"wait,omitzero"`
 }
 
-// LoadFetchedUsage reads the readings agtop keeps at path, by config folder.
+// LoadFetchedUsage reads the readings rush keeps at path, by config folder.
 func LoadFetchedUsage(path string) map[string]FetchedUsage {
 	out := map[string]FetchedUsage{}
 	if b, err := os.ReadFile(path); err == nil {
@@ -90,7 +90,7 @@ var signInOwner = func(a Account) (string, error) {
 }
 
 // updateFetchedUsage changes the readings at path under a lock: every
-// agtop process and every session's host writes them.
+// rush process and every session's host writes them.
 func updateFetchedUsage(path string, change func(map[string]FetchedUsage) bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -122,7 +122,7 @@ func updateFetchedUsage(path string, change func(map[string]FetchedUsage) bool) 
 
 // RefreshUsage is an account's plan usage, asked of Anthropic only when the
 // reading shared through path is older than UsageEvery and Anthropic hasn't
-// said to wait; offline never asks. Every agtop process goes through here,
+// said to wait; offline never asks. Every rush process goes through here,
 // so however many are open an account is asked once per UsageEvery.
 // Readings are kept by the login the folder is signed in as, so a
 // session's own readings and the login's fetch are the same one.
@@ -151,7 +151,7 @@ func UsageKey(a Account, u Usage) string {
 	return a.ConfigDir
 }
 
-// UsageJob is what asking Anthropic for plan usage is called where agtop
+// UsageJob is what asking Anthropic for plan usage is called where rush
 // shows what waits on the network.
 const UsageJob = "Claude plan usage"
 
@@ -193,7 +193,7 @@ func RefreshUsageFor(path, key string, offline bool, fetch func(context.Context)
 }
 
 // lockKey holds the lock on asking Anthropic about key, across every
-// agtop process.
+// rush process.
 func lockKey(path, key string) func() {
 	sum := sha256.Sum256([]byte(key))
 	dir := path + ".locks"

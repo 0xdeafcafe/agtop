@@ -25,8 +25,8 @@ func TestInstalled(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir())
-	Register(progAdapter{kind: "test-here", name: "agtop-test-here", dirs: []string{".here/bin"}})
-	Register(progAdapter{kind: "test-later", name: "agtop-test-later"})
+	Register(progAdapter{kind: "test-here", name: "rush-test-here", dirs: []string{".here/bin"}})
+	Register(progAdapter{kind: "test-later", name: "rush-test-later"})
 	defer func() {
 		mu.Lock()
 		delete(adapters, "test-here")
@@ -44,7 +44,7 @@ func TestInstalled(t *testing.T) {
 		}
 		return p
 	}
-	here := install(filepath.Join(home, ".here", "bin"), "agtop-test-here")
+	here := install(filepath.Join(home, ".here", "bin"), "rush-test-here")
 	Recheck()
 	if !Installed("test-here") || Path("test-here") != here {
 		t.Fatalf("test-here: installed %v at %q, want %q", Installed("test-here"), Path("test-here"), here)
@@ -52,7 +52,7 @@ func TestInstalled(t *testing.T) {
 	if Installed("test-later") {
 		t.Fatal("test-later is installed before it is")
 	}
-	install(filepath.Join(home, ".local", "bin"), "agtop-test-later")
+	install(filepath.Join(home, ".local", "bin"), "rush-test-later")
 	if Installed("test-later") {
 		t.Fatal("a look is kept for a while, not made on every ask")
 	}
@@ -69,7 +69,7 @@ func TestInstalled(t *testing.T) {
 
 type lesserAdapter struct{ progAdapter }
 
-func (lesserAdapter) Lesser() (string, []string, string) { return "agtop-test-gh", nil, "install it" }
+func (lesserAdapter) Lesser() (string, []string, string) { return "rush-test-gh", nil, "install it" }
 
 // An agent whose own program is missing but whose lesser one is there is
 // installed, can't run sessions, and says what installing it adds.
@@ -77,7 +77,7 @@ func TestLesser(t *testing.T) {
 	bin := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", bin)
-	Register(lesserAdapter{progAdapter{kind: "test-lesser", name: "agtop-test-cli"}})
+	Register(lesserAdapter{progAdapter{kind: "test-lesser", name: "rush-test-cli"}})
 	defer func() {
 		mu.Lock()
 		delete(adapters, "test-lesser")
@@ -88,14 +88,14 @@ func TestLesser(t *testing.T) {
 	if Installed("test-lesser") {
 		t.Fatal("installed with neither program")
 	}
-	if err := os.WriteFile(filepath.Join(bin, "agtop-test-gh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "rush-test-gh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	Recheck()
 	if !Installed("test-lesser") || Runs("test-lesser") || Hint("test-lesser") != "install it" || Path("test-lesser") != "" {
 		t.Fatalf("with only the lesser program: installed %v, runs %v, hint %q, path %q", Installed("test-lesser"), Runs("test-lesser"), Hint("test-lesser"), Path("test-lesser"))
 	}
-	if err := os.WriteFile(filepath.Join(bin, "agtop-test-cli"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "rush-test-cli"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	Recheck()

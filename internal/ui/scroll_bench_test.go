@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/convo"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -36,11 +36,11 @@ func BenchmarkScroll(b *testing.B) {
 }
 
 // BenchmarkScrollReal is the wheel over a real session whose last turn
-// runs: $AGTOP_BENCH_TRANSCRIPT.
+// runs: $RUSH_BENCH_TRANSCRIPT.
 func BenchmarkScrollReal(b *testing.B) {
-	p := os.Getenv("AGTOP_BENCH_TRANSCRIPT")
+	p := os.Getenv("RUSH_BENCH_TRANSCRIPT")
 	if p == "" {
-		b.Skip("no $AGTOP_BENCH_TRANSCRIPT")
+		b.Skip("no $RUSH_BENCH_TRANSCRIPT")
 	}
 	t := convo.NewTail(p)
 	if _, err := t.Read(); err != nil {
@@ -72,12 +72,12 @@ func BenchmarkScrollReal(b *testing.B) {
 }
 
 // BenchmarkDragReal is dragging the list's edge beside a real session:
-// $AGTOP_BENCH_TRANSCRIPT. Each frame the pane is a column wider or
+// $RUSH_BENCH_TRANSCRIPT. Each frame the pane is a column wider or
 // narrower.
 func BenchmarkDragReal(b *testing.B) {
-	p := os.Getenv("AGTOP_BENCH_TRANSCRIPT")
+	p := os.Getenv("RUSH_BENCH_TRANSCRIPT")
 	if p == "" {
-		b.Skip("no $AGTOP_BENCH_TRANSCRIPT")
+		b.Skip("no $RUSH_BENCH_TRANSCRIPT")
 	}
 	t := convo.NewTail(p)
 	if _, err := t.Read(); err != nil {
@@ -101,11 +101,11 @@ func BenchmarkDragReal(b *testing.B) {
 }
 
 // TestRelayoutSettles is how a drag's relayout goes: the slowest frame, and
-// how many frames until it's all drawn afresh. $AGTOP_BENCH_TRANSCRIPT.
+// how many frames until it's all drawn afresh. $RUSH_BENCH_TRANSCRIPT.
 func TestRelayoutSettles(t *testing.T) {
-	p := os.Getenv("AGTOP_BENCH_TRANSCRIPT")
+	p := os.Getenv("RUSH_BENCH_TRANSCRIPT")
 	if p == "" {
-		t.Skip("no $AGTOP_BENCH_TRANSCRIPT")
+		t.Skip("no $RUSH_BENCH_TRANSCRIPT")
 	}
 	tl := convo.NewTail(p)
 	if _, err := tl.Read(); err != nil {

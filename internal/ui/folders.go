@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 // Split by project, each section of the list has its agents together by
@@ -51,7 +51,7 @@ type foldersMsg fleet.Folder
 const (
 	scratchSection = "scratch"
 	noFolder       = "No folder"
-	agtopSection   = "agtop's own"
+	rushSection   = "rush's own"
 )
 
 // folderKey is the folder an agent's row sits under: its repository's
@@ -59,7 +59,7 @@ const (
 func folderKey(a *fleet.Agent) string {
 	switch {
 	case a.Advisor:
-		return agtopSection
+		return rushSection
 	case a.Root != "":
 		return a.Root
 	case strings.Contains(a.Cwd, "/var/folders/") || strings.HasPrefix(a.Cwd, "/tmp/"):
@@ -91,7 +91,7 @@ func folderTitles(keys map[string]bool) map[string]string {
 				continue
 			}
 			switch {
-			case k == scratchSection || k == noFolder || k == agtopSection:
+			case k == scratchSection || k == noFolder || k == rushSection:
 				out[k] = k
 			case !filepath.IsAbs(k):
 				out[k] = tildify(k)

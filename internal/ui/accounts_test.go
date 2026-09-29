@@ -12,10 +12,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // fakeAgent is an agent for Accounts to list: installed when its program
@@ -32,7 +32,7 @@ func (f fakeAgent) Name() string                                                
 func (fakeAgent) Features() map[agent.Feature]agent.Support                     { return nil }
 func (fakeAgent) Level() agent.Level                                            { return agent.LevelPreview }
 func (f fakeAgent) Profiles() []agent.Profile                                   { return []agent.Profile{{Kind: f.kind, Dir: f.dir}} }
-func (f fakeAgent) Program() (string, []string)                                 { return "agtop-fake-" + string(f.kind), nil }
+func (f fakeAgent) Program() (string, []string)                                 { return "rush-fake-" + string(f.kind), nil }
 func (fakeAgent) Start(context.Context, agent.StartOptions) (agent.Conn, error) { return nil, nil }
 
 type switchAgent struct{ fakeAgent }
@@ -54,7 +54,7 @@ func (switchAgent) Forget(agent.Account) error { return nil }
 // isn't installed.
 func accountsModel(t *testing.T) (*Model, *[]string) {
 	t.Helper()
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
 	var switched []string
@@ -175,7 +175,7 @@ func TestAccountsSwitchAnotherAgent(t *testing.T) {
 }
 
 // An account nearly out switches to the one with the most room, unless
-// you asked agtop to stay put.
+// you asked rush to stay put.
 func TestAccountsSwitchOnLimit(t *testing.T) {
 	m, switched := accountsModel(t)
 	cfg := &m.store.Config
@@ -241,7 +241,7 @@ func flatten(cmd tea.Cmd) []tea.Msg {
 type lesserFake struct{ fakeAgent }
 
 func (lesserFake) Lesser() (string, []string, string) {
-	return "agtop-fake-gh", nil, "install zlesser's CLI"
+	return "rush-fake-gh", nil, "install zlesser's CLI"
 }
 
 // An agent there only through a lesser program shows in Accounts, but
@@ -250,7 +250,7 @@ func TestAccountsLesserAgent(t *testing.T) {
 	m, _ := accountsModel(t)
 	agent.Register(lesserFake{fakeAgent{kind: "ylesser", title: "ZLesser", dir: "/y/.ylesser"}})
 	bin := os.Getenv("PATH")
-	if err := os.WriteFile(filepath.Join(bin, "agtop-fake-gh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "rush-fake-gh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	agent.Recheck()
@@ -270,7 +270,7 @@ func TestAccountsLesserAgent(t *testing.T) {
 	}
 }
 
-// Near a switch, the header names the account agtop moves on to next.
+// Near a switch, the header names the account rush moves on to next.
 func TestUpcomingAccountInHeader(t *testing.T) {
 	m, _ := accountsModel(t)
 	if _, ok := m.upcoming(40); ok {

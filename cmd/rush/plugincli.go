@@ -11,10 +11,10 @@ import (
 
 	"github.com/charmbracelet/x/term"
 
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
-// pluginCLI runs `agtop <plugin> <command> [args]`, one of the commands a
+// pluginCLI runs `rush <plugin> <command> [args]`, one of the commands a
 // plugin adds, through the broker; it returns the exit code.
 func pluginCLI(name string, m plugin.Manifest, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
@@ -22,7 +22,7 @@ func pluginCLI(name string, m plugin.Manifest, args []string, stdout, stderr io.
 		return 0
 	}
 	if _, ok := m.CLICommand(args[0]); !ok {
-		fmt.Fprintf(stderr, "agtop: %s has no command %q\n\n%s", name, args[0], pluginCLIUsage(name, m))
+		fmt.Fprintf(stderr, "rush: %s has no command %q\n\n%s", name, args[0], pluginCLIUsage(name, m))
 		return 2
 	}
 	cwd, _ := os.Getwd()
@@ -30,7 +30,7 @@ func pluginCLI(name string, m plugin.Manifest, args []string, stdout, stderr io.
 	defer cancel()
 	res, err := plugin.RunCLI(ctx, name, plugin.CLIRun{Command: args[0], Args: args[1:], Cwd: cwd})
 	if err != nil {
-		fmt.Fprintln(stderr, "agtop:", err)
+		fmt.Fprintln(stderr, "rush:", err)
 		return 1
 	}
 	fmt.Fprint(stdout, forTerminal(stdout, res.Stdout))
@@ -59,9 +59,9 @@ func stripControl(s string) string {
 
 func pluginCLIUsage(name string, m plugin.Manifest) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "agtop %s: from the plugin %s\n\n", name, name)
+	fmt.Fprintf(&b, "rush %s: from the plugin %s\n\n", name, name)
 	for _, c := range m.CLI {
-		fmt.Fprintf(&b, "  agtop %s %s", name, c.Name)
+		fmt.Fprintf(&b, "  rush %s %s", name, c.Name)
 		if c.Usage != "" {
 			b.WriteString(" " + c.Usage)
 		}
@@ -82,13 +82,13 @@ func pluginsUsage() string {
 	}
 	sort.Strings(names)
 	var b strings.Builder
-	b.WriteString("\nFrom plugins (\"agtop <plugin> help\" for their commands):\n\n")
+	b.WriteString("\nFrom plugins (\"rush <plugin> help\" for their commands):\n\n")
 	for _, n := range names {
 		cs := make([]string, 0, len(ps[n].CLI))
 		for _, c := range ps[n].CLI {
 			cs = append(cs, c.Name)
 		}
-		fmt.Fprintf(&b, "  agtop %-11s %s\n", n, strings.Join(cs, ", "))
+		fmt.Fprintf(&b, "  rush %-11s %s\n", n, strings.Join(cs, ", "))
 	}
 	return b.String()
 }

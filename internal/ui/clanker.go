@@ -356,7 +356,7 @@ const (
 	fxDone            // an agent finished: a glint and a drop
 	fxAnswered        // one you kept waiting moved on: he greens, confetti
 	fxAsk             // one started waiting on you: streaks fly off him
-	fxError           // one hit an error, or agtop did: he reddens, sparks
+	fxError           // one hit an error, or rush did: he reddens, sparks
 )
 
 // clkFX is a reaction and how far into it he is, in frames of fxEvery.

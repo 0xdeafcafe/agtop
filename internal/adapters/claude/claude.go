@@ -1,13 +1,13 @@
-// Package claude is Claude Code as an agtop adapter: its config folders,
-// its headless sessions as agtop's own events, its prices and commands.
+// Package claude is Claude Code as a rush adapter: its config folders,
+// its headless sessions as rush's own events, its prices and commands.
 package claude
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Kind is Claude Code's.
@@ -17,7 +17,7 @@ func init() { agent.Register(Adapter{}) }
 
 // Adapter is Claude Code.
 type Adapter struct {
-	// Config is agtop's, for the folders it knows; nil loads it.
+	// Config is rush's, for the folders it knows; nil loads it.
 	Config func() state.Config
 }
 
@@ -31,7 +31,7 @@ func (Adapter) ClaudeTranscripts() {}
 // ~/.claude/local.
 func (Adapter) Program() (string, []string) { return "claude", []string{".claude/local"} }
 
-// features: Claude Code does everything agtop does, bar sessions on
+// features: Claude Code does everything rush does, bar sessions on
 // Anthropic's servers.
 var features = map[agent.Feature]agent.Support{
 	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
@@ -77,7 +77,7 @@ func (a Adapter) runAs() claude.Account {
 	return acct
 }
 
-// Profile is a Claude config folder as agtop's own.
+// Profile is a Claude config folder as rush's own.
 func Profile(a claude.Account) agent.Profile {
 	return a.Profile()
 }

@@ -13,7 +13,7 @@ import (
 // and os.ReadFile of a transcript, which grows for as long as a session
 // runs (hundreds of megabytes): read those a line at a time.
 var Read = &analysis.Analyzer{
-	Name: "agtopread",
+	Name: "rushread",
 	Doc:  "reports io.ReadAll without a limit, and whole transcripts read with os.ReadFile",
 	Run:  runRead,
 }

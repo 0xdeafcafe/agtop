@@ -4,13 +4,13 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // ContextUsage is what fills the context window, by category, as Claude
 // Code's /context counts it (the get_context_usage control request): its
-// answer is agtop's breakdown as it stands.
+// answer is rush's breakdown as it stands.
 type ContextUsage = usage.Context
 
 // AskContextUsage asks Claude Code what fills the context window; the

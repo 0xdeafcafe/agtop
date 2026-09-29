@@ -12,9 +12,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // What Claude Code runs besides talking: shells, monitors and workflows,
@@ -365,7 +365,7 @@ func (m *Model) stopJob(c *hostConn, j *convo.Job) tea.Cmd {
 		m.flash("that has already finished", false)
 		return nil
 	case c.client == nil:
-		m.flash("agtop can stop a task only in a session it runs; this one is Claude Code's", true)
+		m.flash("rush can stop a task only in a session it runs; this one is Claude Code's", true)
 		return nil
 	}
 	what := c.sess.JobKind(j)
@@ -385,7 +385,7 @@ func (m *Model) backgroundJob(c *hostConn, j *convo.Job) tea.Cmd {
 		return nil
 	}
 	if c.sess.Info.Proto < 3 {
-		m.flash("this session's host is older than this agtop · /restart it to move tasks to the background", true)
+		m.flash("this session's host is older than this rush · /restart it to move tasks to the background", true)
 		return nil
 	}
 	id := ""
@@ -400,7 +400,7 @@ func (m *Model) backgroundJob(c *hostConn, j *convo.Job) tea.Cmd {
 }
 
 // jobTail is a task's last n lines of output (at most jobTailMost), if
-// it writes any where agtop can find it. The background view draws every
+// it writes any where rush can find it. The background view draws every
 // task's tail each frame, so each file is read once and then only looked
 // at again, at most every tailEvery, while its task runs: a stat, and a
 // read only when it has grown. Both happen in the background; a frame

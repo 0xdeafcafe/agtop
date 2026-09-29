@@ -1,8 +1,8 @@
 package claude
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/headless"
 )
 
 var _ agent.Rewinder = Adapter{}

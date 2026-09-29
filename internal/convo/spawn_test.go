@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/host"
 
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/codex"
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/copilot"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/codex"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/copilot"
 )
 
 func TestSpawnOf(t *testing.T) {
@@ -64,7 +64,7 @@ func TestSpawnOf(t *testing.T) {
 // own session took under it while it runs: the latest few until opened.
 func TestSpawnRow(t *testing.T) {
 	s := New()
-	s.Info.Cwd = "/work/agtop"
+	s.Info.Cwd = "/work/rush"
 	s.Apply(host.Sent{Text: "get a second opinion"}, at(0))
 	s.Apply(toolUse("b1", "Bash", map[string]any{"command": `codex exec -m gpt-5 "review the diff for races"`}), at(1))
 	child := New()
@@ -72,7 +72,7 @@ func TestSpawnRow(t *testing.T) {
 	child.Apply(host.Sent{Text: "review the diff for races"}, at(1))
 	for i, f := range []string{"a.go", "b.go", "c.go", "d.go", "e.go", "f.go"} {
 		id := string(rune('a' + i))
-		child.Apply(toolUse(id, "Read", map[string]any{"file_path": "/work/agtop/" + f}), at(2+i))
+		child.Apply(toolUse(id, "Read", map[string]any{"file_path": "/work/rush/" + f}), at(2+i))
 		child.Apply(toolResult(id, "…", false, nil), at(2+i))
 	}
 	st := s.Spawns()

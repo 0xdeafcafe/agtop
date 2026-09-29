@@ -6,7 +6,7 @@ type SettingsFile struct {
 	Label, Path string
 }
 
-// SettingsFiler is an agent whose settings are JSON files agtop edits in
+// SettingsFiler is an agent whose settings are JSON files rush edits in
 // place (settingsfile.File), and they're read in order: a profile's own,
 // then a project's.
 type SettingsFiler interface {

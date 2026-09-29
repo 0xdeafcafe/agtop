@@ -1,5 +1,5 @@
 // Package deepseek is DeepSeek's own coding agent, DeepSeek Harness (dsh,
-// npm @deepseek-ai/dsh), as an agtop adapter. agtop runs it over ACP with
+// npm @deepseek-ai/dsh), as a rush adapter. rush runs it over ACP with
 // its shipped "acp" profile (dsh --profile acp), and reads the balance of
 // the DeepSeek API key it uses. It stays out of sight until dsh is
 // installed.
@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/0xdeafcafe/agtop/internal/adapters/acp"
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/adapters/acp"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // Kind is DeepSeek's.

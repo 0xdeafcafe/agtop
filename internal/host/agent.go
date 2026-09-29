@@ -10,17 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/agtools"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/netproof"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agtools"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/netproof"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
-// typeEvent is a line carrying one of agtop's own events: every agent's
+// typeEvent is a line carrying one of rush's own events: every agent's
 // but Claude Code's, whose own lines go to clients that don't read
 // events (see hello.go).
 const typeEvent = "agtop_ev"
@@ -43,11 +43,11 @@ func (s *server) start() error {
 	s.spent = 0 // a new process counts from zero
 	a, ok := agent.Get(agent.Kind(s.cfg.Kind))
 	if !ok {
-		return fmt.Errorf("agtop doesn't know the agent %q", s.cfg.Kind)
+		return fmt.Errorf("rush doesn't know the agent %q", s.cfg.Kind)
 	}
 	d, ok := a.(agent.Driver)
 	if !ok {
-		return fmt.Errorf("agtop can't run %s", a.Name())
+		return fmt.Errorf("rush can't run %s", a.Name())
 	}
 	tmp := TempDir(s.cfg.ID)
 	o := agent.StartOptions{
@@ -56,11 +56,11 @@ func (s *server) start() error {
 		Model: s.cfg.Model, Effort: s.cfg.Effort, Mode: s.cfg.PermissionMode,
 		Env: append(append([]string{"TMPDIR=" + tmp}, s.shimEnv()...), s.cfg.Env...), Flags: s.cfg.Flags, Binary: s.cfg.Binary,
 		TempDir: tmp, Lean: s.cfg.Lean, Tap: s.tap, Lightly: true,
-		// agtop's own tools only draw, so they never ask.
+		// rush's own tools only draw, so they never ask.
 		Tools: []agent.ToolServer{{Name: agtools.Server, Trusted: agtools.Names(), Handle: agtools.Handle}},
 	}
 	if o.Binary == "" {
-		// Found where its installer put it, off PATH: agtop started from
+		// Found where its installer put it, off PATH: rush started from
 		// the Dock has a thin one.
 		o.Binary = agent.Path(a.Kind())
 	}
@@ -209,7 +209,7 @@ func (s *server) onAgentEvent(conn agent.Conn, ev event.Event) {
 		s.info.Billing = string(e.Billing)
 	case event.Quota:
 		if _, own := conn.(agent.QuotaKeeper); !own {
-			// Every agtop shows it at once.
+			// Every rush shows it at once.
 			p := agent.Profile{Kind: agent.Kind(s.cfg.Kind), Dir: s.cfg.Account.Dir}
 			q := e.Quota
 			go func() { _ = usage.Record(QuotasPath(), QuotaKey(p), q) }()
@@ -451,6 +451,6 @@ func needsQuestion(q event.Question) string {
 	return "has a question"
 }
 
-// tasksPrompt asks the agent to keep its task list, which agtop draws as
+// tasksPrompt asks the agent to keep its task list, which rush draws as
 // the session's tasks view; agents skip it unless told they're watched.
-const tasksPrompt = `You are running inside agtop, which shows your task list (todo list or plan) to the user live. For any work with more than two steps, write the steps to your task list before starting, keep exactly one in progress, and mark each done as you finish it.`
+const tasksPrompt = `You are running inside rush, which shows your task list (todo list or plan) to the user live. For any work with more than two steps, write the steps to your task list before starting, keep exactly one in progress, and mark each done as you finish it.`

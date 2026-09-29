@@ -12,12 +12,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 func main() {
-	c := plugin.NewConn(os.NewFile(3, "agtop"), func(_ context.Context, method string, params jsontext.Value) (any, error) {
+	c := plugin.NewConn(os.NewFile(3, "rush"), func(_ context.Context, method string, params jsontext.Value) (any, error) {
 		var in struct {
 			Secret, Outside, Sock, Data string
 			Proxy                       int
@@ -46,7 +46,7 @@ func main() {
 		out["exec"] = ok(exec.Command("/bin/echo", "hi").Run())
 		out["internet"] = ok(dial("tcp", "1.1.1.1:443"))
 		out["localhost"] = ok(dial("tcp", "127.0.0.1:22"))
-		out["agtop socket"] = ok(dial("unix", in.Sock))
+		out["rush socket"] = ok(dial("unix", in.Sock))
 		if in.Proxy > 0 {
 			out["proxy"] = ok(dial("tcp", net.JoinHostPort("127.0.0.1", itoa(in.Proxy))))
 		}

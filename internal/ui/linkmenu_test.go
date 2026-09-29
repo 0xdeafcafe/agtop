@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
 func TestLinkAt(t *testing.T) {

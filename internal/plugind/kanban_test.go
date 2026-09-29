@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // TestBrokerRunsTheKanbanExample runs plugins/examples/kanban, sandboxed,
@@ -22,13 +22,13 @@ func TestBrokerRunsTheKanbanExample(t *testing.T) {
 	if testing.Short() || plugin.Supported() != nil {
 		t.Skip("builds and sandboxes a program")
 	}
-	home, err := os.MkdirTemp("/tmp", "agtop-")
+	home, err := os.MkdirTemp("/tmp", "rush-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
 	home, _ = filepath.EvalSymlinks(home)
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 
 	// kanban-code: a board with one card, and a CLI that notes what it's
 	// asked.
@@ -81,14 +81,14 @@ func TestBrokerRunsTheKanbanExample(t *testing.T) {
 	if got := call("board", "{}"); !strings.Contains(got, "## Backlog\n- card_bbb222  Dark mode") {
 		t.Fatalf("board = %q", got)
 	}
-	// The card comes from the meta agtop hands along with the call.
+	// The card comes from the meta rush hands along with the call.
 	if got := call("my_card", "{}"); !strings.Contains(got, "Issue #12: Dark mode") {
 		t.Fatalf("my_card = %q", got)
 	}
 	if got := call("start_card", `{"card": "card_bbb222"}`); !strings.Contains(got, "already being worked on") {
 		t.Fatalf("start_card on a card with an agent = %q", got)
 	}
-	// Reaches the agent: it isn't really running, so agtop says so.
+	// Reaches the agent: it isn't really running, so rush says so.
 	if got := call("card_message", `{"card": "dark mode", "text": "hi"}`); !strings.Contains(got, "k1 is not running") {
 		t.Fatalf("card_message = %q", got)
 	}
@@ -106,7 +106,7 @@ func TestBrokerRunsTheKanbanExample(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// It arranged agtop's list as the board.
+	// It arranged rush's list as the board.
 	for {
 		b, _ := os.ReadFile(plugin.SidebarPath("kanban"))
 		if strings.Contains(string(b), `"s-9":{"name":"Dark mode","section":"Backlog"`) {

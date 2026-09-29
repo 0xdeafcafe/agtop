@@ -12,12 +12,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
-	"github.com/0xdeafcafe/agtop/internal/theme"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/theme"
 )
 
 func (m *Model) View() tea.View {
@@ -47,12 +47,12 @@ func (m *Model) title() string {
 		}
 	}
 	if n == 0 {
-		return "agtop"
+		return "rush"
 	}
 	if n == 1 {
-		return "(1) agtop · 1 agent needs you"
+		return "(1) rush · 1 agent needs you"
 	}
-	return fmt.Sprintf("(%d) agtop · %d agents need you", n, n)
+	return fmt.Sprintf("(%d) rush · %d agents need you", n, n)
 }
 
 type tally struct {
@@ -143,7 +143,7 @@ func (m *Model) header() []string {
 	if mc := m.snap.Machine; mc.Orphans > 0 {
 		counts = append(counts, paint(cYellow, fmt.Sprintf("%d orphaned · %s", mc.Orphans, mem(mc.OrphanMem)))+dim(" · Agents › Projects to end"))
 	}
-	left1 := paint(cText+bold, "agtop") + "   " + strings.Join(counts, "   ")
+	left1 := paint(cText+bold, "rush") + "   " + strings.Join(counts, "   ")
 
 	// Which provider, account and profile new sessions start on: beside
 	// the usage it reads when the top bar shows usage, here when it doesn't.
@@ -264,9 +264,9 @@ func (m *Model) narrowHeader(robot, counts []string, acct string) []string {
 	face := robot[clkFace] // his eyes and brow
 	indent := strings.Repeat(" ", cellw.String(face)+3)
 	// Whole counts or none: the last ones (finished, orphans) go first.
-	title := paint(cText+bold, "agtop")
+	title := paint(cText+bold, "rush")
 	for n := len(counts); n >= 0; n-- {
-		t := strings.Join(append([]string{paint(cText+bold, "agtop")}, counts[:n]...), "  ")
+		t := strings.Join(append([]string{paint(cText+bold, "rush")}, counts[:n]...), "  ")
 		if cellw.String(t) <= m.w-cellw.String(face)-4 || n == 0 {
 			title = t
 			break
@@ -378,7 +378,7 @@ func usageMeter(label string, pct float64, resets time.Time, window time.Duratio
 }
 
 // activeUsage is the current account's plan usage, with when each window
-// resets, quiet unless it is high, and near a switch the account agtop
+// resets, quiet unless it is high, and near a switch the account rush
 // moves on to next with its usage. It doesn't say whose: the header does,
 // beside it.
 func (m *Model) activeUsage() string {
@@ -636,7 +636,7 @@ func (m *Model) widths() (listW, paneW int) {
 }
 
 // sideWidth is the list's width in a split: your own share when you've set
-// one (shift+← →, dragging the edge, /width), else agtop's; never under a
+// one (shift+← →, dragging the edge, /width), else rush's; never under a
 // quarter of the screen or 30 columns. Past those ends, see stepSplit.
 func (m *Model) sideWidth() int {
 	floor := max((m.w+3)/4, 30)
@@ -759,7 +759,7 @@ func (m *Model) viewNow() string {
 }
 
 // sessionOnly gives the screen to the picked agent's Session, and keeps it
-// that way: Sessions open alone from then on, and agtop opens on one.
+// that way: Sessions open alone from then on, and rush opens on one.
 func (m *Model) sessionOnly() tea.Cmd {
 	if m.selected() == nil {
 		return nil
@@ -882,9 +882,9 @@ func (m *Model) listView() string {
 			pane = m.zenPeekLines(paneW-3, paneH)
 		} else if m.zen && len(m.zenQueue()) == 0 {
 			pane = m.zenQuiet(paneW-3, paneH)
-		} else if pane = m.agtopPane(sw, paneH); pane == nil {
+		} else if pane = m.rushPane(sw, paneH); pane == nil {
 			// A Claude Code agent's Session: its live screen or a summary,
-			// switched with [ ], under the same strip an agtop session has.
+			// switched with [ ], under the same strip a rush session has.
 			var body []string
 			if m.claudeView == 0 {
 				body = m.liveLines(paneW - 3)
@@ -980,7 +980,7 @@ func (m *Model) listView() string {
 // back so where you're typing is obvious at a glance; the side with them
 // keeps full brightness, an orange marker and an orange box edge.
 //
-// agtop fades it itself, every colour fadeBy of the way to the background,
+// rush fades it itself, every colour fadeBy of the way to the background,
 // not with the terminal's faint, which some (Terminal.app) take so far on
 // a theme's own greys that the quiet parts are lost.
 const fadeBy = 0.4
@@ -1114,7 +1114,7 @@ func (m *Model) paneRow(b *strings.Builder, p string, w int, bg string) {
 	}
 }
 
-// sessionFocused is whether the keys go to the Session: an agtop
+// sessionFocused is whether the keys go to the Session: a rush
 // conversation, or typing into a Claude Code screen.
 func (m *Model) sessionFocused() bool { return m.paneFocus || m.embedded }
 
@@ -1130,7 +1130,7 @@ func (m *Model) divider() string {
 }
 
 // claudeStrip heads a Claude Code agent's Session with its two views, the
-// way an agtop session's header carries conversation and overview.
+// way a rush session's header carries conversation and overview.
 func (m *Model) claudeStrip(w int) string {
 	a := m.focused()
 	live := a != nil && m.live != nil && m.live.key == a.Key && m.live.ready.Load()
@@ -2004,11 +2004,11 @@ func (m *Model) promptLines(w int) []string {
 	case m.inKind == inGroup && a != nil:
 		b.topL = dim("group for ") + paint(cText, oneLine(a.DisplayName)) + dim(" · enter saves")
 		b.holder = "a group name · empty clears it"
-	case m.inKind == inReply && a != nil && !a.Agtop:
+	case m.inKind == inReply && a != nil && !a.Rush:
 		b.topL = dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…"))
 		b.holder = draftsHolder("a message for this agent", " · esc leaves reply mode")
 	case typingHash(text):
-		b.topL = dim("agtop command · enter runs it")
+		b.topL = dim("rush command · enter runs it")
 	default:
 		dirs := m.startDirs()
 		dir := m.startDir()
@@ -2088,7 +2088,7 @@ func (m *Model) promptLines(w int) []string {
 		var pairs []string
 		switch {
 		case a == nil:
-		case a.Agtop:
+		case a.Rush:
 			pairs = append(pairs, open, "talk to it")
 		default:
 			pairs = append(pairs, open, "open", "ctrl+o", "reply")
@@ -2104,7 +2104,7 @@ func (m *Model) promptLines(w int) []string {
 			pairs = append([]string{"alt+g", a.ContinueText()}, pairs...)
 		}
 		if m.newer.Version != "" && !m.updating {
-			pairs = append([]string{"#update", "new agtop"}, pairs...)
+			pairs = append([]string{"#update", "new rush"}, pairs...)
 		}
 		if m.hosted != "" {
 			// Hosted's list: no command bar, and the way back to the session.
@@ -2346,7 +2346,7 @@ var helpPages = []struct {
 		{"enter", "start an agent"},
 		{"ctrl+l", "pick its folder"},
 		{"alt+l", "new sessions from a worktree agent: its worktree or main checkout"},
-		{"#", "agtop commands"},
+		{"#", "rush commands"},
 		{"/", "Claude commands"},
 		{"⌘z · ctrl+/", "undo in a box, a cleared one too"},
 		{"alt+s", "keep what's typed as a draft, the box cleared"},

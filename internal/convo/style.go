@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/theme"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/theme"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -15,7 +15,7 @@ const (
 	bold  = "\x1b[1m"
 )
 
-// agtop's palette, with dim and faint raised so anything you read clears
+// rush's palette, with dim and faint raised so anything you read clears
 // 4.5:1 and faint is left for decoration. SetColours makes it for the
 // terminal's ground.
 var (
@@ -52,7 +52,7 @@ var palette int
 func init() { SetColours(theme.Dark, false) }
 
 // SetColours makes the palette for the terminal's ground g. colorBlind
-// swaps green and red, what agtop uses for added and removed, done and
+// swaps green and red, what rush uses for added and removed, done and
 // failed, for sky blue and amber (from the Okabe-Ito palette), which stay
 // apart for every common kind of colour blindness.
 func SetColours(g theme.Ground, colorBlind bool) {
@@ -95,7 +95,7 @@ func SetColours(g theme.Ground, colorBlind bool) {
 	palette++
 }
 
-// agtop's accents as they are on its dark ground.
+// rush's accents as they are on its dark ground.
 var (
 	orange = theme.RGB{R: 217, G: 119, B: 87}
 	yellow = theme.RGB{R: 229, G: 181, B: 103}

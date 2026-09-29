@@ -53,7 +53,7 @@ func TestSettingsSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = s.SetEnv("FOO", "<1>")
-	// Claude Code changes the file after agtop read it.
+	// Claude Code changes the file after rush read it.
 	b, _ := os.ReadFile(real)
 	_ = os.WriteFile(real, []byte(strings.Replace(string(b), `"zeta": 1`, `"zeta": 1, "model": "opus"`, 1)), 0o644)
 	if err := s.Save(); err != nil {

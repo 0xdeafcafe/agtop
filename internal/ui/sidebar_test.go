@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // sidebarPlugin approves a plugin that arranges the list, and sets its
@@ -39,7 +39,7 @@ func loaded(m *Model) *Model {
 func sid(id string) string { return id + "-0000-4000-8000-000000000000" }
 
 func TestSidebarArrangesTheList(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "session a")
 	writeSession(t, "bbbb2222", "session b")
 	writeSession(t, "cccc3333", "session c")
@@ -95,7 +95,7 @@ func TestSidebarArrangesTheList(t *testing.T) {
 		}
 	}
 
-	// Back to agtop's own grouping, the names are agtop's again.
+	// Back to rush's own grouping, the names are rush's again.
 	m.cycleGroupBy()
 	if m.store.Config.GroupBy != "status" {
 		t.Fatalf("cycled to %q", m.store.Config.GroupBy)
@@ -111,7 +111,7 @@ func TestSidebarArrangesTheList(t *testing.T) {
 }
 
 func TestSidebarIgnoredWhenRevokedOrHosted(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "session a")
 	sidebarPlugin(t, plugin.Sidebar{Plugin: "kanban", Title: "Kanban",
 		Sections: []plugin.SidebarSection{{Title: "Waiting"}},

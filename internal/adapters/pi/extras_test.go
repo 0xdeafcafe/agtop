@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // Pi's prompt templates and skills are its commands, and its AGENTS.md

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // A profile is a named list of providers (where the model comes from:
@@ -60,7 +60,7 @@ const (
 const DefaultProfileName = "Default" // migration: built-in profiles replaced it
 
 // LoginsKind is the agent whose accounts are Config.Logins, and whose
-// Start is kept in Dispatch's own fields, where older agtops read it.
+// Start is kept in Dispatch's own fields, where older rushes read it.
 const LoginsKind = string(agent.LegacyKind)
 
 // FolderRule gives every session started in Path, or a folder inside it,
@@ -115,7 +115,7 @@ func (p Profile) Has(kind string) bool {
 	return slices.Contains(p.Providers, kind) || slices.Contains(p.Kinds(), kind)
 }
 
-// Installed are the agents of the profile's providers agtop can run
+// Installed are the agents of the profile's providers rush can run
 // sessions of here, in order.
 func (p Profile) Installed() []string {
 	var out []string
@@ -258,9 +258,9 @@ type Seat struct {
 	Used     float64 // its tightest window, in percent
 }
 
-// Room is what agtop knows of each provider's accounts, by kind. A
+// Room is what rush knows of each provider's accounts, by kind. A
 // provider with none listed is taken to have room: its own sign-in, whose
-// limits agtop can't read or hasn't yet.
+// limits rush can't read or hasn't yet.
 type Room map[string][]Seat
 
 // Pick is where a session starts: a provider, and the account of it with
@@ -361,7 +361,7 @@ func (c Config) legacyProfile() Profile {
 	switch c.SwitchOnLimit {
 	case OnLimitAgent:
 		p.Mix = MixMix
-		// An older agtop moved on through every installed agent, those not
+		// An older rush moved on through every installed agent, those not
 		// in its order after, by name.
 		for _, k := range agent.Providers() {
 			if !slices.Contains(p.Providers, k) {
@@ -381,7 +381,7 @@ func (p Profile) plain() bool {
 }
 
 // migrateProfiles keeps what an older config meant, once. A config from
-// before profiles, or with the Default profile agtop made from one, needs
+// before profiles, or with the Default profile rush made from one, needs
 // no profile of its own when that did only what its first provider's
 // built-in one does: its default is that one, and its folders get it.
 // Otherwise the Default profile stays (or is made) for what it does.
@@ -410,7 +410,7 @@ func (c *Config) migrateProfiles() { // migration: built-in profiles replaced De
 	c.Profiles, c.DefaultProfile = nil, to
 }
 
-// SyncLegacy writes the default profile back into the fields older agtops
+// SyncLegacy writes the default profile back into the fields older rushes
 // read: the default agent, the order, and what happens when nearly out.
 // Call it after changing profiles.
 func (c *Config) SyncLegacy() {

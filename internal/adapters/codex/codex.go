@@ -1,4 +1,4 @@
-// Package codex is OpenAI's Codex CLI as an agtop adapter. It drives
+// Package codex is OpenAI's Codex CLI as a rush adapter. It drives
 // `codex app-server`, Codex's own JSON-RPC protocol, rather than ACP,
 // because only it reports the account's rate-limit windows.
 package codex
@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 // Kind is Codex's.
@@ -26,7 +26,7 @@ func (Adapter) Name() string     { return "Codex" }
 // Program is codex.
 func (Adapter) Program() (string, []string) { return "codex", []string{".codex/bin"} }
 
-// features are what app-server gives agtop. Codex has no subagents, no
+// features are what app-server gives rush. Codex has no subagents, no
 // plan mode among its approval presets, and nothing to rewind to.
 var features = map[agent.Feature]agent.Support{
 	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,

@@ -4,21 +4,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// Neutral turns Claude Code's events into agtop's own, which any agent's
+// Neutral turns Claude Code's events into rush's own, which any agent's
 // session sends. It remembers each tool call, so the result that comes
 // back later reads by the call's kind. One Neutral follows one session.
 type Neutral struct {
 	calls map[string]tool.Call
 }
 
-// Event is ev as agtop's own events: none for the traffic only the host
+// Event is ev as rush's own events: none for the traffic only the host
 // sees (control replies, MCP messages), one for most, and more than one
 // where Claude says two things at once.
 func (n *Neutral) Event(ev Event) []event.Event {

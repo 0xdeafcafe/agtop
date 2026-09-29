@@ -2,7 +2,7 @@ package claude
 
 import (
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"math"
 	"os"
 	"path/filepath"

@@ -14,14 +14,14 @@ import (
 
 // TestSandboxHolds runs a real plugin in the real sandbox and has it try to
 // get out: read your files, write outside its data folder, start a program,
-// reach the internet, localhost or agtop's own sockets.
+// reach the internet, localhost or rush's own sockets.
 func TestSandboxHolds(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and sandboxes a program")
 	}
 	// The sandbox is keyed on resolved paths; so is everything here.
 	home, _ := filepath.EvalSymlinks(t.TempDir())
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-secret")
 	dir := install(t, Manifest{Name: "probe", Command: []string{"probe"}, Network: []string{"example.com:443"}}, nil)
 	build := exec.Command("go", "build", "-o", filepath.Join(dir, "probe"), "./testdata/probe")
@@ -37,7 +37,7 @@ func TestSandboxHolds(t *testing.T) {
 	_ = os.MkdirAll(secretDir, 0o700)
 	secret := filepath.Join(secretDir, "token")
 	_ = os.WriteFile(secret, []byte("sk-secret"), 0o600)
-	sock := filepath.Join(home, "agtop.sock")
+	sock := filepath.Join(home, "rush.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestSandboxHolds(t *testing.T) {
 	}
 	want := map[string]string{
 		"read secret": "denied", "write outside": "denied", "list secret dir": "denied",
-		"exec": "denied", "internet": "denied", "localhost": "denied", "agtop socket": "denied",
+		"exec": "denied", "internet": "denied", "localhost": "denied", "rush socket": "denied",
 		"write data": "allowed", "proxy": "allowed",
 	}
 	for k, v := range got {
@@ -98,7 +98,7 @@ func TestSandboxHolds(t *testing.T) {
 		}
 	}
 	if got["token"] != "" {
-		t.Error("the plugin saw agtop's API key")
+		t.Error("the plugin saw rush's API key")
 	}
 	if got["home"] != DataDir("probe") {
 		t.Errorf("HOME = %q", got["home"])
@@ -114,7 +114,7 @@ func TestProfileQuotesPaths(t *testing.T) {
 // TestProfileWrites gives write paths to the sandbox, and no others.
 func TestProfileWrites(t *testing.T) {
 	home, _ := filepath.EvalSymlinks(t.TempDir())
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	other := filepath.Join(home, "kanban")
 	dir := install(t, Manifest{Name: "w", Command: []string{"/bin/sh"}, Write: []string{other}}, nil)
 	p, err := Load(dir)

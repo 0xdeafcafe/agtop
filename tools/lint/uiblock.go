@@ -8,13 +8,13 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// UIBlock finds work that blocks in agtop's UI: a ui.Model method that
+// UIBlock finds work that blocks in rush's UI: a ui.Model method that
 // reads a file, runs a command or sleeps holds up every frame until it's
 // done. That work belongs in a tea.Cmd (a func returning tea.Msg), which
 // bubbletea runs off the UI goroutine, or a goroutine.
 var UIBlock = &analysis.Analyzer{
-	Name: "agtopui",
-	Doc:  "reports blocking calls (files, commands, network, sleep) made directly on agtop's UI goroutine",
+	Name: "rushui",
+	Doc:  "reports blocking calls (files, commands, network, sleep) made directly on rush's UI goroutine",
 	Run:  runUIBlock,
 }
 
@@ -60,7 +60,7 @@ func runUIBlock(pass *analysis.Pass) (any, error) {
 						now[fl] = true
 					}
 					if pkg, name, _ := callee(pass.TypesInfo, n); blocking[pkg][name] {
-						pass.Reportf(n.Pos(), "%s.%s blocks agtop's UI in a Model method: do it in a tea.Cmd", pkg[strings.LastIndex(pkg, "/")+1:], name)
+						pass.Reportf(n.Pos(), "%s.%s blocks rush's UI in a Model method: do it in a tea.Cmd", pkg[strings.LastIndex(pkg, "/")+1:], name)
 					}
 				}
 				return true

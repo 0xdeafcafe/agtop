@@ -13,10 +13,10 @@ var (
 	add       = RGB{0x16, 0x30, 0x1a}
 )
 
-func TestDarkIsAgtopsOwnColours(t *testing.T) {
+func TestDarkIsRushsOwnColours(t *testing.T) {
 	for _, c := range []RGB{text, dim, orange, sel, add} {
 		if Dark.Ink(c) != c || Dark.Surface(c) != c || Dark.Accent(c) != c || Dark.Quiet(c, orange) != c {
-			t.Errorf("%v moved on agtop's own ground", c)
+			t.Errorf("%v moved on rush's own ground", c)
 		}
 	}
 }
@@ -39,7 +39,7 @@ func TestTerminal(t *testing.T) {
 }
 
 func TestTextFollowsTheTerminal(t *testing.T) {
-	// On Homebrew agtop's greys are greens.
+	// On Homebrew rush's greys are greens.
 	if c := homebrew.Ink(text); c.G <= c.R || c.G <= c.B {
 		t.Errorf("Homebrew text %v isn't green", c)
 	}

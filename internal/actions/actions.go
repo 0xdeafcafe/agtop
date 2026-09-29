@@ -1,4 +1,4 @@
-// Package actions is what agtop does to processes and checkouts itself:
+// Package actions is what rush does to processes and checkouts itself:
 // ending process trees, notifications, git worktrees. What an agent does
 // through its own program is its adapter's (agent.Stopper and the rest).
 package actions
@@ -12,12 +12,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
 // KillTree SIGKILLs a process and everything under it, deepest first. It
 // samples the process table afresh, refuses if root is no longer the process
-// the user chose (same start time), and never touches agtop or its parents.
+// the user chose (same start time), and never touches rush or its parents.
 func KillTree(root int, rootStart time.Time) (int, error) {
 	tab, protected, err := treeOf(root, rootStart)
 	if err != nil {
@@ -71,7 +71,7 @@ func EndTree(root int, rootStart time.Time, grace time.Duration) (int, error) {
 
 // treeOf samples the process table for a tree about to be ended, refusing
 // if root is no longer the process the user chose (same start time); the
-// protected set is agtop and its parents.
+// protected set is rush and its parents.
 func treeOf(root int, rootStart time.Time) (*proc.Table, map[int]bool, error) {
 	tab := proc.Snapshot(nil)
 	p := tab.Procs[root]
@@ -88,7 +88,7 @@ func treeOf(root int, rootStart time.Time) (*proc.Table, map[int]bool, error) {
 		pid = q.PPID
 	}
 	if protected[root] {
-		return nil, nil, fmt.Errorf("that would kill agtop itself")
+		return nil, nil, fmt.Errorf("that would kill rush itself")
 	}
 	return tab, protected, nil
 }

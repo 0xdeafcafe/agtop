@@ -31,7 +31,7 @@ type Rider interface {
 }
 
 // commonDirs are where agents' installers put their programs, for an
-// agtop started with a thin PATH (from the Dock, launchd or a menu bar).
+// rush started with a thin PATH (from the Dock, launchd or a menu bar).
 var commonDirs = []string{
 	".local/bin", "bin", ".npm-global/bin", ".bun/bin", ".cargo/bin", "go/bin", ".volta/bin",
 	"/opt/homebrew/bin", "/usr/local/bin",
@@ -60,7 +60,7 @@ func Find(name string, dirs ...string) (string, bool) {
 }
 
 // installedFor is how long a look for an agent's program holds: installing
-// one while agtop runs shows it within this, or at once after Recheck.
+// one while rush runs shows it within this, or at once after Recheck.
 const installedFor = 3 * time.Minute
 
 var found struct {
@@ -72,7 +72,7 @@ var found struct {
 	looking bool
 }
 
-// NeverWait has every ask answered from what was last found, for agtop's
+// NeverWait has every ask answered from what was last found, for rush's
 // view, whose UI goroutine never waits on the disk: a stale answer (or none
 // yet) has the programs looked for again in the background, and the next
 // ask has them. It starts the first look at once.
@@ -177,7 +177,7 @@ func ProfilesOf(a Adapter) []Profile {
 // lesser one it can do something with.
 func Installed(k Kind) bool { return look()[k] != "" }
 
-// Runs is whether agent k's own program is on this machine, so agtop can
+// Runs is whether agent k's own program is on this machine, so rush can
 // run its sessions.
 func Runs(k Kind) bool {
 	p := look()[k]

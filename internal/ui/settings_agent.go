@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Agents is one installed agent at a time, picked with 1-9 from the row
@@ -20,7 +20,7 @@ var agentExtras = map[agent.Kind]func(m *Model) []section{}
 
 var agentsPage = page{
 	name: "Agents",
-	keys: []string{"1-9", "agent", "f", "what agtop can do with it"},
+	keys: []string{"1-9", "agent", "f", "what rush can do with it"},
 	head: func(m *Model, w int) []string {
 		k := m.settingsAgent()
 		return append([]string{"", m.agentStrip(k, w)}, m.agentHead(k, w)...)
@@ -85,7 +85,7 @@ var agentsPage = page{
 			},
 			keys: []string{"enter", "show or hide"},
 			about: func() (string, string, string) {
-				return "Advanced", "What " + agentName(string(k)) + " itself reads, beyond what agtop starts it with: " + strings.Join(names, ", ") + ". Most people never need these.", ""
+				return "Advanced", "What " + agentName(string(k)) + " itself reads, beyond what rush starts it with: " + strings.Join(names, ", ") + ". Most people never need these.", ""
 			},
 		}
 		secs = append(secs, section{title: "", rows: []setting{toggle}})
@@ -123,7 +123,7 @@ func (m *Model) agentStrip(cur agent.Kind, w int) string {
 		out = append(out, n+name)
 	}
 	if len(out) == 0 {
-		return dim("No coding agent is installed where agtop looks.")
+		return dim("No coding agent is installed where rush looks.")
 	}
 	return strings.Join(out, faint("   "))
 }
@@ -172,15 +172,15 @@ func (m *Model) agentHead(k agent.Kind, w int) []string {
 // effort and a permission mode, each the agent's own default until set.
 func (m *Model) startSection(k agent.Kind) section {
 	name := agentName(string(k))
-	sec := section{title: "New sessions start with", note: "sessions agtop starts; running ones keep theirs"}
+	sec := section{title: "New sessions start with", note: "sessions rush starts; running ones keep theirs"}
 	if !agent.Supports(k, agent.FeatureRun) {
 		sec.rows = append(sec.rows, setting{
-			label: "agtop can't start its sessions yet",
+			label: "rush can't start its sessions yet",
 			line: func(int) string {
-				return faint("agtop can't start " + name + " sessions yet, so there's nothing to choose here.")
+				return faint("rush can't start " + name + " sessions yet, so there's nothing to choose here.")
 			},
 			about: func() (string, string, string) {
-				return name, "agtop shows " + name + "'s sessions but can't start them itself yet.", ""
+				return name, "rush shows " + name + "'s sessions but can't start them itself yet.", ""
 			},
 		})
 		return sec

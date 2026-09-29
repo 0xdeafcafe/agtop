@@ -9,12 +9,12 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // A claude -p a session's shell runs is found by its transcript (begun
@@ -36,8 +36,8 @@ func TestSpawnFollowed(t *testing.T) {
 		`{"type":"user","timestamp":"` + ts + `","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"r1","content":"…"}]}}`,
 	}, "\n")+"\n"), 0o644)
 
-	// Run through agtop's stand-in, it's an agtop session too.
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	// Run through rush's stand-in, it's a rush session too.
+	t.Setenv("RUSH_HOME", t.TempDir())
 	os.MkdirAll(filepath.Join(host.Root(), "kidhost1"), 0o755)
 	os.WriteFile(filepath.Join(host.Root(), "kidhost1", "info.json"),
 		[]byte(`{"id":"kidhost1","sessionId":"kid","state":"stopped","meta":{"spawnedBy":"k"}}`), 0o644)
@@ -78,6 +78,6 @@ func TestSpawnFollowed(t *testing.T) {
 		t.Fatal("opening it shows nothing")
 	}
 	if r.hosted != "kidhost1" {
-		t.Errorf("its agtop session %q: what you type wouldn't reach it", r.hosted)
+		t.Errorf("its rush session %q: what you type wouldn't reach it", r.hosted)
 	}
 }

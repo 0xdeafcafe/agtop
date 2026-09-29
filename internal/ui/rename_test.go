@@ -5,15 +5,15 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // The first enter on an agent asks whether enter renames or opens; y
 // renames it, with its name selected, as in the Finder, and enter does from
 // then on.
 func TestEnterRenames(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a", Name: "one", DisplayName: "one"}
 	b := &fleet.Agent{Key: "b", Name: "two", DisplayName: "two"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{Agents: []*fleet.Agent{a, b}}, w: 240, h: 50, sel: "a"}
@@ -60,7 +60,7 @@ func TestHoverDoesNotSelect(t *testing.T) {
 
 // ctrl+r renames, and #rename alone puts the name in the box to edit.
 func TestCtrlRAndHashRename(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a", Name: "one", DisplayName: "one"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, w: 240, h: 50, sel: "a"}
 	m.store.Overlay.Names = map[string]string{}

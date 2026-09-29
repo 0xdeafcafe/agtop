@@ -9,9 +9,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // A session's provider comes from its profile: its folder's rule, or the
@@ -73,13 +73,13 @@ func (takerAgent) Features() map[agent.Feature]agent.Support {
 func TestHandOffStopped(t *testing.T) {
 	m, _ := accountsModel(t)
 	agent.Register(takerAgent{fakeAgent{kind: "ztaker", title: "ZTaker", dir: "/z/.ztaker"}})
-	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "agtop-fake-ztaker"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "rush-fake-ztaker"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	agent.Recheck()
 	cfg := &m.store.Config
 	cfg.SetProfile("", state.Profile{Name: "Default", Providers: []string{"zcodex", "zplain", "ztaker"}, OnLimit: state.LimitHandoff})
-	a := &fleet.Agent{Key: "k1", DisplayName: "fixer", Agtop: true, Kind: "zcodex", Profile: "Default", Cwd: "/x"}
+	a := &fleet.Agent{Key: "k1", DisplayName: "fixer", Rush: true, Kind: "zcodex", Profile: "Default", Cwd: "/x"}
 	a.Detail = "usage limit · resets 15:00"
 	m.snap.Agents = []*fleet.Agent{a}
 	m.handOffStopped()

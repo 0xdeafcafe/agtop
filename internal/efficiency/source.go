@@ -3,8 +3,8 @@ package efficiency
 import (
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/settingsfile"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/settingsfile"
 )
 
 // Source is an agent whose transcripts efficiency reads: it lists them,

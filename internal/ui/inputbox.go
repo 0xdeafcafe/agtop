@@ -5,11 +5,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
 // The input box sits on the brightest surface on screen, so where you type

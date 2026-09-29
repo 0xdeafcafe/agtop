@@ -1,8 +1,8 @@
-# The agtop plugin protocol (version 1)
+# The rush plugin protocol (version 1)
 
 ## Transport
 
-**agtop plugins** (`"protocol": "agtop"`, the default): fd 3 is one end of a unix socket pair agtop created for the plugin. `AGTOP_IPC_FD=3` says so. Nothing else can connect to it. Every message, both ways, is:
+**rush plugins** (`"protocol": "rush"`, the default): fd 3 is one end of a unix socket pair rush created for the plugin. `RUSH_IPC_FD=3` says so. Nothing else can connect to it. Every message, both ways, is:
 
 ```
 [4 bytes: length N, big-endian uint32][N bytes: one JSON-RPC 2.0 message, UTF-8]
@@ -10,9 +10,9 @@
 
 N is at most 16 MB; a bigger frame closes the connection. There is no newline, and nothing to escape.
 
-**MCP plugins** (`"protocol": "mcp"`): standard MCP stdio, one JSON message per line on stdin and stdout. agtop initializes the server once, with protocol version `2025-06-18` and no client capabilities, and forwards `tools/list` and `tools/call` from every session to that one process. It offers no sampling, roots or elicitation. The server's `instructions`, if any, go to each session.
+**MCP plugins** (`"protocol": "mcp"`): standard MCP stdio, one JSON message per line on stdin and stdout. rush initializes the server once, with protocol version `2025-06-18` and no client capabilities, and forwards `tools/list` and `tools/call` from every session to that one process. It offers no sampling, roots or elicitation. The server's `instructions`, if any, go to each session.
 
-JSON-RPC 2.0 throughout: a request has `id`, `method`, `params`; a reply has the same `id` and either `result` or `error: {code, message}`; a notification has no `id` and gets no reply. **Both sides send requests**, so an agtop plugin must tell a reply (no `method`) from a request (`method` and `id`) from a notification (`method`, no `id`). Handle requests concurrently. Notifications arrive in order.
+JSON-RPC 2.0 throughout: a request has `id`, `method`, `params`; a reply has the same `id` and either `result` or `error: {code, message}`; a notification has no `id` and gets no reply. **Both sides send requests**, so a rush plugin must tell a reply (no `method`) from a request (`method` and `id`) from a notification (`method`, no `id`). Handle requests concurrently. Notifications arrive in order.
 
 ## Lifecycle
 
@@ -21,7 +21,7 @@ JSON-RPC 2.0 throughout: a request has `id`, `method`, `params`; a reply has the
 3. When fd 3 closes, the plugin exits. If the plugin exits, or its fd 3 closes, or it goes over its memory limit, the broker starts it again after 1s, 2s, 4s … up to 60s, resetting once a run lasts a minute.
 4. If its files change, the broker stops it and doesn't start it again until the user re-approves.
 
-## agtop → plugin
+## rush → plugin
 
 ### `initialize` (request)
 
@@ -29,7 +29,7 @@ JSON-RPC 2.0 throughout: a request has `id`, `method`, `params`; a reply has the
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{
   "protocol": 1,
   "name": "notes",
-  "dataDir": "/Users/you/.config/agtop/plugin-data/notes",
+  "dataDir": "/Users/you/.config/rush/plugin-data/notes",
   "sessions": ["list"],
   "workspaces": ["/Users/you/Source"],
   "network": [],
@@ -51,7 +51,7 @@ Answer `{"tools": [ ... ]}`, MCP tool definitions:
  "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"], "additionalProperties": false}}
 ```
 
-Tool names: letters, digits, `_` and `-`. Claude sees them as `mcp__agtop-<plugin>__<tool>`, 64 characters at most in all.
+Tool names: letters, digits, `_` and `-`. Claude sees them as `mcp__rush-<plugin>__<tool>`, 64 characters at most in all.
 
 ### `tools.call` (request)
 
@@ -63,7 +63,7 @@ Tool names: letters, digits, `_` and `-`. Claude sees them as `mcp__agtop-<plugi
 }}
 ```
 
-`session` is the id of the agtop session whose Claude called the tool. When agtop knows it, the call also carries `sessionId` (Claude Code's id for the conversation, the one its transcript and hooks use), `cwd`, and `meta` (what the session was started with, see `sessions.start`). They tell the plugin which of its things the caller is: a `my_task` tool, say, looks up the task by `meta` or `sessionId` rather than asking Claude. Answer an MCP `CallToolResult`:
+`session` is the id of the rush session whose Claude called the tool. When rush knows it, the call also carries `sessionId` (Claude Code's id for the conversation, the one its transcript and hooks use), `cwd`, and `meta` (what the session was started with, see `sessions.start`). They tell the plugin which of its things the caller is: a `my_task` tool, say, looks up the task by `meta` or `sessionId` rather than asking Claude. Answer an MCP `CallToolResult`:
 
 ```json
 {"content": [{"type": "text", "text": "Noted."}], "isError": false}
@@ -86,7 +86,7 @@ This is sent for each session the plugin follows with `sessions.subscribe`. It c
 
 ### `ui.event` (notification) — needs `events` or `input`
 
-Something happened in one of agtop's windows. Sent without waiting for the plugin: one that falls behind loses its oldest events, and `input.changed` for the same box is sent only as its latest.
+Something happened in one of rush's windows. Sent without waiting for the plugin: one that falls behind loses its oldest events, and `input.changed` for the same box is sent only as its latest.
 
 ```json
 {"kind": "turn.ended", "ui": "main", "at": "2026-09-28T10:00:00Z",
@@ -96,14 +96,14 @@ Something happened in one of agtop's windows. Sent without waiting for the plugi
 
 | `kind` | Needs | Other fields |
 |---|---|---|
-| `session.seen` | `events` | a session agtop shows: each open or at work today when the plugin connects (up to 150), then each new one |
+| `session.seen` | `events` | a session rush shows: each open or at work today when the plugin connects (up to 150), then each new one |
 | `session.opened` / `session.left` | `events` | its Session came into or went out of view |
 | `turn.started` / `turn.ended` | `events` | |
-| `session.stopped` | `events` | `error: {kind, message, retrying}` when an error did it; `kind` is `limit`, `auth`, `offline`, `retryable`, `too-long` or `other`; `retrying` is agtop continuing the session itself (its own sessions, and others for a day, after `offline` or `retryable`), so a plugin needn't |
+| `session.stopped` | `events` | `error: {kind, message, retrying}` when an error did it; `kind` is `limit`, `auth`, `offline`, `retryable`, `too-long` or `other`; `retrying` is rush continuing the session itself (its own sessions, and others for a day, after `offline` or `retryable`), so a plugin needn't |
 | `network.down` / `network.up` | `events` | no `session` |
 | `input.changed` / `input.sent` / `input.cleared` | `input` | `text`, the message box; `input.changed` also has `box`, the whole box (below) |
 
-`ui` names the agtop window. Only `input` events carry `text`; a `session` absent from one means the Prompt's box. `input.changed` with empty `text` is a box emptied by hand (`input.sent` and `input.cleared` say so themselves). A plugin that connects while the API is unreachable hears `network.down` at once.
+`ui` names the rush window. Only `input` events carry `text`; a `session` absent from one means the Prompt's box. `input.changed` with empty `text` is a box emptied by hand (`input.sent` and `input.cleared` say so themselves). A plugin that connects while the API is unreachable hears `network.down` at once.
 
 ### `ui.command` (request)
 
@@ -135,15 +135,15 @@ Plugins are asked in name order, each seeing the text as the ones before left it
 
 ### `cli.run` (request)
 
-`{"command": "send", "args": ["a1b2c3d4", "0"], "cwd": "/Users/you/src/app"}`: the user ran `agtop <plugin> send a1b2c3d4 0`, one of its `cli` commands. `cwd` is the folder they ran it in, to go by, not to read. Answer `{"stdout": "…", "stderr": "…", "exit": 0}` within 2 minutes: agtop prints `stdout` and `stderr` (a megabyte of each at most) and exits with `exit`. What the command does, it does as the plugin, with what its manifest allows.
+`{"command": "send", "args": ["a1b2c3d4", "0"], "cwd": "/Users/you/src/app"}`: the user ran `rush <plugin> send a1b2c3d4 0`, one of its `cli` commands. `cwd` is the folder they ran it in, to go by, not to read. Answer `{"stdout": "…", "stderr": "…", "exit": 0}` within 2 minutes: rush prints `stdout` and `stderr` (a megabyte of each at most) and exits with `exit`. What the command does, it does as the plugin, with what its manifest allows.
 
-## plugin → agtop
+## plugin → rush
 
 Each call is checked against the approved manifest. A refused call gets error **`-32001`** with a message saying why. Session ids are short strings like `a1b2c3d4`.
 
 ### `sessions.list` — needs `list`
 
-No params. Returns every agtop-mode session:
+No params. Returns every rush-mode session:
 
 ```json
 [{"id": "a1b2c3d4", "sessionId": "5f0c…-…", "name": "fix the flaky test",
@@ -163,7 +163,7 @@ What was said is never included.
 
 ### `sessions.watch` / `sessions.unwatch` — needs `list`
 
-`sessions.watch` takes no params and returns the list, as `sessions.list` does. From then on, agtop checks every 2 seconds and sends:
+`sessions.watch` takes no params and returns the list, as `sessions.list` does. From then on, rush checks every 2 seconds and sends:
 
 | Notification | `params` | When |
 |---|---|---|
@@ -184,7 +184,7 @@ Two more fields, both optional:
 - `worktree: {"name": "…", "branch": "…", "base": "…"}` runs the session in a new git worktree of the checkout `cwd` is in, at `<checkout>/.claude/worktrees/<name>`, where Claude Code puts its own. `branch` is the new branch (`worktree-<name>` if left out) and `base` what it starts from (`HEAD` if left out). `name` defaults to one made from the branch or the session's name. The checkout must be inside the plugin's workspaces too.
 - `meta: {"card": "card_2x…"}` tags the session, and comes back in `sessions.list`, `session.changed` and every `tools.call` from it. At most 16 keys, of letters, digits and `_ . -`, with values of at most 1 KB.
 
-Only `cwd` and `prompt` are required. It returns `{"id": "…", "cwd": "…"}`, `cwd` being where the session runs (the worktree's folder, if it made one). What agtop enforces:
+Only `cwd` and `prompt` are required. It returns `{"id": "…", "cwd": "…"}`, `cwd` being where the session runs (the worktree's folder, if it made one). What rush enforces:
 
 - `cwd` must be absolute, exist, and be inside one of the plugin's `workspaces`.
 - `permissionMode` must be `default` (the default), `acceptEdits` or `plan`.
@@ -199,15 +199,15 @@ Only `cwd` and `prompt` are required. It returns `{"id": "…", "cwd": "…"}`, 
 
 ### `sessions.queue` — needs `queue`
 
-`{"id": "…", "text": "…"}`. Queues a message to **any** session in the plugin's workspaces, not only its own, as a queued message of yours would be: it goes when the turn ends, or now if the session is idle. Returns `{}`. What agtop enforces:
+`{"id": "…", "text": "…"}`. Queues a message to **any** session in the plugin's workspaces, not only its own, as a queued message of yours would be: it goes when the turn ends, or now if the session is idle. Returns `{}`. What rush enforces:
 
 - The session runs in one of the plugin's workspaces (a session it started always may).
 - Its permission mode asks the user first: `default`, `acceptEdits` or `plan`. A session in `bypassPermissions` or `auto` is refused.
-- The text is at most 100 KB, and goes with a first line saying who it's from, `[from the agtop plugin <name>]`, so neither Claude nor the user takes it for the user's.
+- The text is at most 100 KB, and goes with a first line saying who it's from, `[from the rush plugin <name>]`, so neither Claude nor the user takes it for the user's.
 
 ### `sessions.queued.send` / `sessions.queued.remove` — needs `queued`
 
-`{"id": "…", "index": 0, "was": "…"}`. Sends now, or drops, the message waiting at `index` (from 0) in the queue of any session in the plugin's workspaces (a session it started always may), and returns `{}` once the session says it's gone. The plugin never sees queued text: `sessions.list` gives only how many are `queued`. `was` is for agtop's own bundled plugins only (naming a message by its text would let a plugin test guesses at what's queued): from any other plugin it's refused. Without it the message at `index` now is the one meant.
+`{"id": "…", "index": 0, "was": "…"}`. Sends now, or drops, the message waiting at `index` (from 0) in the queue of any session in the plugin's workspaces (a session it started always may), and returns `{}` once the session says it's gone. The plugin never sees queued text: `sessions.list` gives only how many are `queued`. `was` is for rush's own bundled plugins only (naming a message by its text would let a plugin test guesses at what's queued): from any other plugin it's refused. Without it the message at `index` now is the one meant.
 
 ### `sessions.subscribe` / `sessions.unsubscribe` — needs `read`, own sessions only
 
@@ -233,7 +233,7 @@ A non-zero exit is a result, not an error. Limits: 64 arguments of at most 4 KB,
 
 ### `sidebar.set` — needs `sidebar`
 
-Arranges agtop's agent list: the plugin's own sections, in its order, and a name and place for each agent it knows, by Claude Code session id (`sessionId` in `sessions.list`).
+Arranges rush's agent list: the plugin's own sections, in its order, and a name and place for each agent it knows, by Claude Code session id (`sessionId` in `sessions.list`).
 
 ```json
 {"title": "Kanban",
@@ -241,13 +241,13 @@ Arranges agtop's agent list: the plugin's own sections, in its order, and a name
  "agents": {"8c76706f-1c00-4aed-9c6d-7509f3033943": {"name": "Fix login bug", "section": "In Progress", "order": 0}}}
 ```
 
-The list offers it as a group-by mode, `plugin:<name>`, labelled with `title`. In that mode the plugin's sections replace agtop's, agents sort by `order` inside each, and each shows `name` unless the user renamed it in agtop. Agents it doesn't place go to a folded section, Other. Each call replaces the last; empty params or no `sections` clear it. Returns `{}`. What agtop enforces:
+The list offers it as a group-by mode, `plugin:<name>`, labelled with `title`. In that mode the plugin's sections replace rush's, agents sort by `order` inside each, and each shows `name` unless the user renamed it in rush. Agents it doesn't place go to a folded section, Other. Each call replaces the last; empty params or no `sections` clear it. Returns `{}`. What rush enforces:
 
 - At most 32 sections and 2000 agents; titles at most 64 characters, names 200. Section titles are unique.
 - Every id matches `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`, and every agent's `section` is one of `sections`.
 - Escape sequences and control characters are removed from every string, and line breaks become spaces.
 
-agtop keeps it in `~/.config/agtop/plugin-sidebar/<name>.json`, outside the plugin's reach, and removes it when the plugin is revoked. It only labels agents agtop shows anyway: it grants the plugin nothing.
+rush keeps it in `~/.config/rush/plugin-sidebar/<name>.json`, outside the plugin's reach, and removes it when the plugin is revoked. It only labels agents rush shows anyway: it grants the plugin nothing.
 
 ### `ui.overview.set` — needs `ui` `overview`
 

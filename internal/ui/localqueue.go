@@ -9,14 +9,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
-// localQueue holds messages for a Claude Code session agtop doesn't run
+// localQueue holds messages for a Claude Code session rush doesn't run
 // itself: they wait here while it works and go as one message once it is
-// idle, the way an agtop-mode host does it.
+// idle, the way a rush-mode host does it.
 type localQueue struct {
 	items  []string
 	held   bool
@@ -46,12 +46,12 @@ func (m *Model) queueOf(c *hostConn) queued {
 	return queued{items: q.items, held: q.held, local: true}
 }
 
-// canQueue is whether agtop can hold messages for this agent.
-func canQueue(a *fleet.Agent) bool { return a != nil && !a.Agtop && !a.Interactive && !a.Past }
+// canQueue is whether rush can hold messages for this agent.
+func canQueue(a *fleet.Agent) bool { return a != nil && !a.Rush && !a.Interactive && !a.Past }
 
 // reply sends a message to a Claude Code background job. A job the daemon
 // has let go of (ENOJOB) still has its conversation on disk: it carries on
-// in agtop mode, with the message as its first turn.
+// in rush mode, with the message as its first turn.
 func reply(a *fleet.Agent, text string) tea.Cmd {
 	kind, acct, id, key, name := agent.Kind(a.Kind), a.Acct, a.ID, a.Key, a.DisplayName
 	return func() tea.Msg {

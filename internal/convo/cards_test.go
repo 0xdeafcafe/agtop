@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 func bashStep(cmd, stdout, stderr string, status Status) *Step {
@@ -55,8 +55,8 @@ func TestCommitCards(t *testing.T) {
 
 func TestPushCard(t *testing.T) {
 	got := cardsOf(bashStep("git push -u origin feat/cards && git push --force origin main", "",
-		"remote: \nremote: Create a pull request for 'feat/cards' on GitHub by visiting:\nTo github.com:0xdeafcafe/agtop.git\n * [new branch]      feat/cards -> feat/cards\n + 88c42b1...3225847 main -> main (forced update)\n ! [rejected]        dev -> dev (fetch first)\nbranch 'feat/cards' set up to track 'origin/feat/cards'.\n", Failed))
-	want := []card{{kind: "push", remote: "github.com/0xdeafcafe/agtop", refs: []pushed{
+		"remote: \nremote: Create a pull request for 'feat/cards' on GitHub by visiting:\nTo github.com:0xdeafcafe/rush.git\n * [new branch]      feat/cards -> feat/cards\n + 88c42b1...3225847 main -> main (forced update)\n ! [rejected]        dev -> dev (fetch first)\nbranch 'feat/cards' set up to track 'origin/feat/cards'.\n", Failed))
+	want := []card{{kind: "push", remote: "github.com/0xdeafcafe/rush", refs: []pushed{
 		{from: "feat/cards", to: "feat/cards", span: "new branch"},
 		{from: "main", to: "main", span: "88c42b1...3225847", forced: true},
 	}}}
@@ -82,8 +82,8 @@ func TestPushCard(t *testing.T) {
 
 func TestPRCards(t *testing.T) {
 	cmd := "git push -u origin feat/cards && gh pr create --base main --title \"feat(convo): commits render as cards\" --body \"$(cat <<'EOF'\n## Summary\n- a commit shows as a card\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\nEOF\n)\""
-	got := cardsOf(bashStep(cmd, "https://github.com/0xdeafcafe/agtop/pull/142\n", "Creating pull request for feat/cards into main in 0xdeafcafe/agtop\n\n", OK))
-	want := []card{{kind: "pr", state: "open", num: "142", url: "github.com/0xdeafcafe/agtop/pull/142", title: "feat(convo): commits render as cards",
+	got := cardsOf(bashStep(cmd, "https://github.com/0xdeafcafe/rush/pull/142\n", "Creating pull request for feat/cards into main in 0xdeafcafe/rush\n\n", OK))
+	want := []card{{kind: "pr", state: "open", num: "142", url: "github.com/0xdeafcafe/rush/pull/142", title: "feat(convo): commits render as cards",
 		head: "feat/cards", base: "main", body: []string{"## Summary", "- a commit shows as a card"}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("pr create\n got %+v\nwant %+v", got, want)
@@ -96,7 +96,7 @@ func TestPRCards(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("pr merge, quiet\n got %+v\nwant %+v", got, want)
 	}
-	got = cardsOf(bashStep("gh pr merge --rebase", "", "✓ Rebased and merged pull request 0xdeafcafe/agtop#142 (feat: cards)\n✓ Deleted local branch feat/cards and switched to branch main\n", OK))
+	got = cardsOf(bashStep("gh pr merge --rebase", "", "✓ Rebased and merged pull request 0xdeafcafe/rush#142 (feat: cards)\n✓ Deleted local branch feat/cards and switched to branch main\n", OK))
 	want = []card{{kind: "pr", state: "merged", num: "142", base: "rebased", title: "feat: cards", head: "feat/cards"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("pr merge, told\n got %+v\nwant %+v", got, want)

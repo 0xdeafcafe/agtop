@@ -1,6 +1,6 @@
 {
   "name": "autodrafts",
-  "description": "Keeps what you typed in a message box and didn't send, when you leave the Session or clear the box, and puts it back when you ask. Sees everything you type in agtop; keeps it only in its data folder. An example of the UI hooks: agtop's own drafts do this already.",
+  "description": "Keeps what you typed in a message box and didn't send, when you leave the Session or clear the box, and puts it back when you ask. Sees everything you type in rush; keeps it only in its data folder. An example of the UI hooks: rush's own drafts do this already.",
   "version": "1",
   "command": ["autodrafts"],
   "ui": ["events", "input", "notify"],

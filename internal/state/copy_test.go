@@ -3,7 +3,7 @@ package state
 import (
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // A copy has the config as it is now, shares none of it with the store,

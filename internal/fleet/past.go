@@ -4,10 +4,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // pastEvery is how often a past conversation's subagents are looked at
@@ -17,7 +17,7 @@ const pastEvery = 15 * time.Second
 // pastKeys are past conversations' row keys, by session id, made once.
 type pastKeys map[string]string
 
-// branches are the conversations agtop sessions left behind when rewound:
+// branches are the conversations rush sessions left behind when rewound:
 // each session shows them itself.
 func (l *Loader) branches(hosted []host.Info, claimed map[string]bool) {
 	for _, info := range hosted {
@@ -38,8 +38,8 @@ func (l *Loader) branches(hosted []host.Info, claimed map[string]bool) {
 }
 
 // pastAgents are an account's conversations nothing has open: a terminal
-// session that has closed keeps its row, and ones from before agtop ran
-// are there too. A message resumes one in agtop mode.
+// session that has closed keeps its row, and ones from before rush ran
+// are there too. A message resumes one in rush mode.
 func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, now time.Time) []*Agent {
 	ov := l.store.Overlay
 	var out []*Agent

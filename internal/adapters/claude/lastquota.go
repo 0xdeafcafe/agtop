@@ -4,14 +4,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// LastQuota is the newest reading agtop keeps in usage.json for p's
-// folder, or for the login it's signed in as, since agtop reads them per
+// LastQuota is the newest reading rush keeps in usage.json for p's
+// folder, or for the login it's signed in as, since rush reads them per
 // login.
 func (Adapter) LastQuota(p agent.Profile) (usage.Quota, bool) {
 	all := claude.LoadFetchedUsage(filepath.Join(state.Dir(), "usage.json"))

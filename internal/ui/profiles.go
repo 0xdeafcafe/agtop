@@ -7,10 +7,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Profiles decide which provider a session runs and what it does at a
@@ -18,7 +18,7 @@ import (
 // picker or #profile), else its folder's rule, else the default; the host
 // keeps its name, so a resumed session keeps it too.
 
-// room is what agtop knows of each installed provider's accounts: which
+// room is what rush knows of each installed provider's accounts: which
 // is in use, and which are nearly out.
 func (m *Model) room() state.Room {
 	room := state.Room{}
@@ -65,11 +65,11 @@ func (m *Model) sessionProfile(a *fleet.Agent) state.Profile {
 	return m.store.Config.ProfileFor(a.Cwd, a.Profile)
 }
 
-// limitStopped is whether an agtop session of provider k is stopped by a
+// limitStopped is whether a rush session of provider k is stopped by a
 // usage limit, under a profile that moves on from it.
 func (m *Model) limitStopped(k agent.Kind) bool {
 	for _, a := range m.snap.Agents {
-		if a.Agtop && agent.Kind(a.Kind) == k && strings.HasPrefix(a.Detail, "usage limit") && m.sessionProfile(a).Limit() != state.LimitWait {
+		if a.Rush && agent.Kind(a.Kind) == k && strings.HasPrefix(a.Detail, "usage limit") && m.sessionProfile(a).Limit() != state.LimitWait {
 			return true
 		}
 	}
@@ -134,7 +134,7 @@ func (m *Model) handOffStopped() tea.Cmd {
 	room := m.room()
 	var cmds []tea.Cmd
 	for _, a := range m.snap.Agents {
-		if !a.Agtop || !strings.HasPrefix(a.Detail, "usage limit") || m.accts.handedOff[a.Key] {
+		if !a.Rush || !strings.HasPrefix(a.Detail, "usage limit") || m.accts.handedOff[a.Key] {
 			continue
 		}
 		p := m.sessionProfile(a)

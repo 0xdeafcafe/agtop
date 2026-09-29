@@ -1,6 +1,6 @@
-// Package theme makes agtop's colours from the terminal's own: its
-// background and its text. Every colour agtop draws is written as it looks
-// on agtop's dark ground (Dark), and moved onto the terminal's ground by
+// Package theme makes rush's colours from the terminal's own: its
+// background and its text. Every colour rush draws is written as it looks
+// on rush's dark ground (Dark), and moved onto the terminal's ground by
 // what kind of colour it is: text, a surface, or an accent.
 package theme
 
@@ -59,16 +59,16 @@ func Contrast(a, b RGB) float64 {
 type Ground struct{ BG, FG RGB }
 
 var (
-	// Dark is agtop's own ground, the one its colours are written for, and
+	// Dark is rush's own ground, the one its colours are written for, and
 	// what's used when the terminal doesn't say what it has.
 	Dark = Ground{BG: RGB{17, 16, 14}, FG: RGB{226, 221, 211}}
-	// Light is agtop's light ground, for a light terminal that doesn't say.
+	// Light is rush's light ground, for a light terminal that doesn't say.
 	Light = Ground{BG: RGB{250, 249, 245}, FG: RGB{40, 37, 32}}
 )
 
 // Terminal is the ground for a terminal whose background is bg and text
 // fg, either of which it may not have said (nil). Text too close to the
-// background to read is replaced by agtop's own for that kind of ground.
+// background to read is replaced by rush's own for that kind of ground.
 func Terminal(bg, fg *RGB) Ground {
 	if bg == nil {
 		return Dark
@@ -105,7 +105,7 @@ func towards(a, b, c RGB) float64 {
 // Ink is text or a rule, c on Dark: a shade between this ground's
 // background and text that stands out from the background as c does from
 // Dark's, scaled to how much the terminal's own text does. On Homebrew's
-// green text, agtop's greys are greens.
+// green text, rush's greys are greens.
 func (g Ground) Ink(c RGB) RGB {
 	if g == Dark {
 		return c
@@ -164,7 +164,7 @@ func (g Ground) Surface(c RGB) RGB {
 // readable is the contrast text needs to be read with ease: WCAG's AA.
 const readable = 4.5
 
-// Accent is a colour that says something (done, failed, agtop's orange),
+// Accent is a colour that says something (done, failed, rush's orange),
 // c on Dark: the same colour, pushed toward the text until it stands out
 // from this ground as much as it does from Dark's, or is readable.
 func (g Ground) Accent(c RGB) RGB {

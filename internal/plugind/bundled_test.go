@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
-// The test binary stands in for agtop: a bundled plugin runs as
+// The test binary stands in for rush: a bundled plugin runs as
 // `<exe> plugin run <name>`.
 func TestMain(m *testing.M) {
 	if len(os.Args) == 4 && os.Args[1] == "plugin" && os.Args[2] == "run" {
@@ -29,7 +29,7 @@ func TestMain(m *testing.M) {
 
 func registerE2E() (forget func()) {
 	return plugin.RegisterBundle(plugin.Bundle{
-		Manifest: plugin.Manifest{Name: "bundle-e2e", Command: []string{"agtop"}, UI: []string{plugin.UINotify},
+		Manifest: plugin.Manifest{Name: "bundle-e2e", Command: []string{"rush"}, UI: []string{plugin.UINotify},
 			CLI: []plugin.CLISpec{{Name: "echo", Usage: "[words]", Description: "says them back"}}},
 		Run: func(rw io.ReadWriteCloser) error {
 			conn := plugin.NewConn(rw, func(_ context.Context, method string, params jsontext.Value) (any, error) {
@@ -46,7 +46,7 @@ func registerE2E() (forget func()) {
 	})
 }
 
-// A bundled plugin runs without an approval or a sandbox, as agtop itself,
+// A bundled plugin runs without an approval or a sandbox, as rush itself,
 // and stops when it's turned off.
 func TestBundledPluginRuns(t *testing.T) {
 	defer registerE2E()()

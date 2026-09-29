@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Call an approved, running agtop plugin's tools the way a session would.
+"""Call an approved, running rush plugin's tools the way a session would.
 
     call.py <plugin> list                      tools/list
     call.py <plugin> call <tool> ['{json}']    tools/call
@@ -18,7 +18,7 @@ import sys
 
 
 def home():
-    return os.environ.get("AGTOP_HOME") or os.path.expanduser("~/.config/agtop")
+    return os.environ.get("RUSH_HOME") or os.path.expanduser("~/.config/rush")
 
 
 def rpc(method, params):
@@ -26,7 +26,7 @@ def rpc(method, params):
     try:
         s.connect(os.path.join(home(), "plugins", "broker.sock"))
     except OSError as e:
-        sys.exit(f"the plugin broker isn't running ({e}); approve a plugin first: agtop plugin approve <name>")
+        sys.exit(f"the plugin broker isn't running ({e}); approve a plugin first: rush plugin approve <name>")
     s.settimeout(600)
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
     s.sendall(struct.pack(">I", len(body)) + body)

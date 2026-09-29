@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // fake is an app-server on the far end of two pipes.
@@ -24,7 +24,7 @@ type fake struct {
 	out io.Writer
 }
 
-// line is the next line agtop sends, answering the account and rate-limit
+// line is the next line rush sends, answering the account and rate-limit
 // reads a new thread makes on its own with an error.
 func (f *fake) line() []byte {
 	f.t.Helper()
@@ -43,7 +43,7 @@ func (f *fake) line() []byte {
 	return nil
 }
 
-// expect reads the next message agtop sends, which must be method.
+// expect reads the next message rush sends, which must be method.
 func (f *fake) expect(method string) message {
 	f.t.Helper()
 	b := f.line()
@@ -88,7 +88,7 @@ func start(t *testing.T, o agent.StartOptions) (*Conn, *fake, message) {
 	go func() { errc <- c.begin(rpc, o) }()
 
 	init := f.expect("initialize")
-	f.respond(init.ID, map[string]any{"userAgent": "agtop/0.155.1 (Mac OS 27.0.0; arm64) test", "codexHome": "/x", "platformFamily": "unix", "platformOs": "macos"})
+	f.respond(init.ID, map[string]any{"userAgent": "rush/0.155.1 (Mac OS 27.0.0; arm64) test", "codexHome": "/x", "platformFamily": "unix", "platformOs": "macos"})
 	f.expect("initialized")
 	method := "thread/start"
 	if o.Resume {
@@ -131,7 +131,7 @@ func params(t *testing.T, m message) map[string]any {
 func TestHandshake(t *testing.T) {
 	c, _, init := start(t, agent.StartOptions{Dir: "/work", Model: "gpt-5.5", Mode: "auto"})
 	p := params(t, init)
-	if name := p["clientInfo"].(map[string]any)["name"]; name != "agtop" {
+	if name := p["clientInfo"].(map[string]any)["name"]; name != "rush" {
 		t.Errorf("clientInfo.name = %v", name)
 	}
 	got := next(t, c)
@@ -150,7 +150,7 @@ func TestThreadStartParams(t *testing.T) {
 	go func() {
 		_ = c.begin(newClient(cr, cw, c.handle), agent.StartOptions{Dir: "/w", Model: "m", Mode: "full-access", SessionID: "old", Resume: true})
 	}()
-	f.respond(f.expect("initialize").ID, map[string]any{"userAgent": "agtop/1"})
+	f.respond(f.expect("initialize").ID, map[string]any{"userAgent": "rush/1"})
 	f.expect("initialized")
 	p := params(t, f.expect("thread/resume"))
 	want := map[string]any{"threadId": "old", "cwd": "/w", "model": "m", "approvalPolicy": "never", "sandbox": "danger-full-access", "excludeTurns": true}
@@ -362,7 +362,7 @@ func TestPermissionsAndQuestion(t *testing.T) {
 		t.Errorf("answer reply = %s", b)
 	}
 
-	// What agtop can't answer is refused rather than left hanging.
+	// What rush can't answer is refused rather than left hanging.
 	f.request(3, "item/tool/call", map[string]any{})
 	b = f.line()
 	var ref message
@@ -563,8 +563,8 @@ func TestRateLimitNotification(t *testing.T) {
 // TestLive reads the real account's limits: initialize and
 // account/rateLimits/read only, neither of which spends model quota.
 func TestLive(t *testing.T) {
-	if os.Getenv("AGTOP_CODEX_LIVE") != "1" {
-		t.Skip("AGTOP_CODEX_LIVE=1 runs the real codex app-server")
+	if os.Getenv("RUSH_CODEX_LIVE") != "1" {
+		t.Skip("RUSH_CODEX_LIVE=1 runs the real codex app-server")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

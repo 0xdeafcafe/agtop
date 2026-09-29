@@ -8,7 +8,7 @@ import (
 )
 
 func TestGettingStarted(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, _ := benchModel(150, 40)
 	m.onboard = true
 	has := func() bool { return strings.Contains(ansi.Strip(m.render()), "Try zen") }
@@ -31,7 +31,7 @@ func TestGettingStarted(t *testing.T) {
 }
 
 func TestTipsShowOnce(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, _ := benchModel(150, 40)
 	m.onboard = true
 	m.noteProgress(true)
@@ -47,7 +47,7 @@ func TestTipsShowOnce(t *testing.T) {
 }
 
 func TestHashPickerOverGettingStarted(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, _ := benchModel(150, 40)
 	m.onboard, m.paneFocus = true, false
 	m.render()

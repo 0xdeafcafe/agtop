@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // watchEvery is how often a watching plugin's list is checked for changes.

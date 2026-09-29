@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
 // A message you've sent shows as sending, under the conversation, until
@@ -20,7 +20,7 @@ type sending struct {
 	at   time.Time
 }
 
-// sendingFor is how long a message shows as sending before agtop stops
+// sendingFor is how long a message shows as sending before rush stops
 // waiting to see it arrive.
 const sendingFor = 90 * time.Second
 

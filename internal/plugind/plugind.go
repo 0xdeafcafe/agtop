@@ -1,4 +1,4 @@
-// Package plugind is the plugin broker: the one long-lived `agtop plugind`
+// Package plugind is the plugin broker: the one long-lived `rush plugind`
 // process that runs every approved plugin, sandboxed, and stands between it
 // and everything else. Session hosts send it the MCP messages Claude Code
 // addresses to a plugin's tools; plugins call it to list, start, follow and
@@ -27,9 +27,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
-	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
 // Version is the plugin protocol this broker speaks, sent in initialize.
@@ -46,7 +46,7 @@ type broker struct {
 	once    sync.Once
 }
 
-// Run is `agtop plugind`. It returns at once if another broker holds the
+// Run is `rush plugind`. It returns at once if another broker holds the
 // lock.
 func Run() error {
 	if err := os.MkdirAll(plugin.Root(), 0o700); err != nil {
@@ -124,7 +124,7 @@ func (b *broker) accept(c io.ReadWriteCloser) *plugin.Conn {
 		if strings.HasPrefix(method, "ui.") {
 			return b.ui.fromUI(ctx, conn, method, params)
 		}
-		return b.fromAgtop(ctx, method, params)
+		return b.fromRush(ctx, method, params)
 	})
 	close(ready)
 	return conn
@@ -222,8 +222,8 @@ func (b *broker) watch() {
 	}
 }
 
-// fromAgtop answers agtop itself: session hosts and the CLI.
-func (b *broker) fromAgtop(ctx context.Context, method string, params jsontext.Value) (any, error) {
+// fromRush answers rush itself: session hosts and the CLI.
+func (b *broker) fromRush(ctx context.Context, method string, params jsontext.Value) (any, error) {
 	switch method {
 	case "mcp":
 		var p struct {
@@ -257,7 +257,7 @@ func (b *broker) fromAgtop(ctx context.Context, method string, params jsontext.V
 	return nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: "method not found: " + method}
 }
 
-// cli runs one of a plugin's CLI commands, for `agtop <plugin> <command>`.
+// cli runs one of a plugin's CLI commands, for `rush <plugin> <command>`.
 func (b *broker) cli(ctx context.Context, name string, run plugin.CLIRun) (plugin.CLIResult, error) {
 	r := b.runner(name)
 	if r == nil {

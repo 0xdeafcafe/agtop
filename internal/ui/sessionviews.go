@@ -13,11 +13,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // --- queue view ---
@@ -124,7 +124,7 @@ func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
 }
 
 // queueEdit changes the queue here at once, so the view and the next key
-// see it, and tells the host of an agtop session, naming the message by
+// see it, and tells the host of a rush session, naming the message by
 // its place and text as you saw it.
 func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
 	items := slices.Clone(m.queueOf(c).items)
@@ -291,11 +291,11 @@ func (m *Model) taskLines(c *hostConn, o convo.Options) []convo.Line {
 
 // --- slash commands ---
 
-// agtopCommands are handled by agtop itself rather than sent to Claude.
-// They keep Claude Code's / names; agtop's other commands take # (see
-// fleetCommands). Claude Code's that agtop already does its own way run
-// agtop's (/diff opens the changes view, /cd moves the agent, …).
-var agtopCommands = []event.Command{
+// rushCommands are handled by rush itself rather than sent to Claude.
+// They keep Claude Code's / names; rush's other commands take # (see
+// fleetCommands). Claude Code's that rush already does its own way run
+// rush's (/diff opens the changes view, /cd moves the agent, …).
+var rushCommands = []event.Command{
 	{Name: "clear", Description: "start a fresh session in the same folder (this one stays in the list)"},
 	{Name: "fork", Description: "carry on in a copy of this conversation, as a new agent (this one stays as it is)", ArgumentHint: "[name]"},
 	{Name: "rewind", Description: "go back to before one of your messages and try again; the path you leave is kept as a branch"},
@@ -311,19 +311,19 @@ var agtopCommands = []event.Command{
 	{Name: "stop", Description: "stop the agent; its conversation stays, and a message wakes it"},
 	{Name: "background", Description: "leave it running in the background and go back to Agents"},
 	{Name: "resume", Description: "past conversations: they're in Agents, and a message carries one on"},
-	{Name: "help", Description: "a short guide to agtop"},
+	{Name: "help", Description: "a short guide to rush"},
 	{Name: "btw", Description: "a side question in a panel over the chat (ctrl+b): not added to the conversation; ctrl+f makes it a chat of its own", ArgumentHint: "[question]"},
 	{Name: "export", Description: "the conversation as text: copy it, or save it to a file", ArgumentHint: "[file]"},
 	{Name: "subtask", Description: "send a subagent off with the task; Claude carries on, and reports back when it's done", ArgumentHint: "<task>"},
 	{Name: "handoff", Description: "carry this conversation on with another agent, in a new session (this one stays as it is)", ArgumentHint: "<agent>"},
 }
 
-// agtopAliases are Claude Code's other names for commands agtop does.
-var agtopAliases = map[string]string{"bashes": "tasks", "bg": "background", "continue": "resume", "name": "rename",
+// rushAliases are Claude Code's other names for commands rush does.
+var rushAliases = map[string]string{"bashes": "tasks", "bg": "background", "continue": "resume", "name": "rename",
 	"branch": "fork", "checkpoint": "rewind", "undo": "rewind", "reset": "clear", "new": "clear"}
 
-// claudeScreens are Claude Code's own screens. agtop draws most of them
-// itself (agtopScreens); the rest hand the terminal to Claude Code on that
+// claudeScreens are Claude Code's own screens. rush draws most of them
+// itself (rushScreens); the rest hand the terminal to Claude Code on that
 // screen, and come back when you leave it. Given arguments, /mcp and
 // /config go to Claude as usual.
 var claudeScreens = []event.Command{
@@ -338,11 +338,11 @@ var claudeScreens = []event.Command{
 	{Name: "permissions", Description: "allow and deny rules for tools"},
 	{Name: "memory", Description: "memory, CLAUDE.md and the other files Claude reads (the memory view)"},
 	{Name: "config", Description: "Claude Code's settings (Settings › Claude)"},
-	{Name: "statusline", Description: "build status lines: this header, agtop's top bar, and Claude Code's"},
+	{Name: "statusline", Description: "build status lines: this header, rush's top bar, and Claude Code's"},
 }
 
-// agtopScreens are the ones agtop draws itself (agtopScreen).
-var agtopScreens = map[string]bool{"status": true, "context": true, "usage": true, "stats": true, "plugin": true, "skills": true,
+// rushScreens are the ones rush draws itself (rushScreen).
+var rushScreens = map[string]bool{"status": true, "context": true, "usage": true, "stats": true, "plugin": true, "skills": true,
 	"memory": true, "config": true, "statusline": true, "permissions": true, "hooks": true}
 
 // screenAliases are other names Claude Code takes for the same screens.
@@ -350,7 +350,7 @@ var screenAliases = map[string]string{"plugins": "plugin", "marketplace": "plugi
 	"allowed-tools": "permissions", "version": "status"}
 
 // claudeCloud are Claude Code's screens for your account and Claude's
-// cloud, which agtop leaves to Claude Code: named claude:<name> in the
+// cloud, which rush leaves to Claude Code: named claude:<name> in the
 // picker, they open a real Claude Code after saying so (claudeSheet).
 var claudeCloud = []event.Command{
 	{Name: "login", Description: "sign in to an Anthropic account"},
@@ -406,8 +406,8 @@ var claudeCloudPicks = func() []event.Command {
 	return out
 }()
 
-// offCommands are Claude Code's that do nothing in agtop, and why: its own
-// terminal's, the odds and ends, and the ones agtop hasn't done yet. They
+// offCommands are Claude Code's that do nothing in rush, and why: its own
+// terminal's, the odds and ends, and the ones rush hasn't done yet. They
 // stay out of the picker, and say so when typed.
 var offCommands = func() map[string]string {
 	out := map[string]string{}
@@ -415,7 +415,7 @@ var offCommands = func() map[string]string {
 		out[n] = "it's for Claude Code's own terminal"
 	}
 	for _, n := range strings.Fields("release-notes feedback bug share update install import powerup wellbeing breaks break-reminder downtime stickers radio heapdump passes agents plugin-types workflow-launch-exec") {
-		out[n] = "agtop leaves it out"
+		out[n] = "rush leaves it out"
 	}
 	out["loops"] = "Claude Code has it switched off; ask Claude to /loop instead"
 	return out
@@ -464,7 +464,7 @@ func slashWord(c *hostConn) (start, end int, q string, ok bool) {
 }
 
 // slashMatches is what the picker offers for the /word at the cursor:
-// agtop's own commands (at the start of a message only), the session's,
+// rush's own commands (at the start of a message only), the session's,
 // then the custom commands and skills found on disk.
 func slashMatches(c *hostConn) []event.Command {
 	start, _, q, ok := slashWord(c)
@@ -474,7 +474,7 @@ func slashMatches(c *hostConn) []event.Command {
 	lists := [][]event.Command{c.sess.Commands, c.local}
 	switch {
 	case start == 0 && !ownScreens(c):
-		// Claude Code's own screens aren't another agent's; the ones agtop
+		// Claude Code's own screens aren't another agent's; the ones rush
 		// draws are, when its agent has what they show.
 		lists = append([][]event.Command{sessionCommands(c), openableScreens(c)}, lists...)
 	case start == 0:
@@ -493,7 +493,7 @@ func slashMatches(c *hostConn) []event.Command {
 	}
 	for _, list := range lists {
 		for _, cmd := range list {
-			// What agtop leaves out or leaves to Claude Code isn't offered
+			// What rush leaves out or leaves to Claude Code isn't offered
 			// under Claude Code's own name.
 			_, cloud := claudeCloudName(cmd.Name)
 			if seen[cmd.Name] || offCommands[cmd.Name] != "" || cloud && !strings.HasPrefix(cmd.Name, "claude:") {
@@ -588,7 +588,7 @@ func argMatches(c *hostConn) []event.Command {
 func (m *Model) slashLines(c *hostConn, w int) []string {
 	if cmds := m.hashMatches(c.input, c.back); len(cmds) > 0 {
 		c.slashSel = max(0, min(c.slashSel, len(cmds)-1))
-		return pickerRows(cmds, c.slashSel, w, "#", func(string) string { return "" }, "agtop's, for this agent · ↑↓ · tab completes · enter runs")
+		return pickerRows(cmds, c.slashSel, w, "#", func(string) string { return "" }, "rush's, for this agent · ↑↓ · tab completes · enter runs")
 	}
 	cmds := argMatches(c)
 	if cmds == nil {
@@ -605,10 +605,10 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 	st, _, _, _ := slashWord(c)
 	tag := func(name string) string {
 		switch {
-		case slices.ContainsFunc(agtopCommands, func(a event.Command) bool { return a.Name == name }):
-			return paint(cOrange, " agtop")
-		case st == 0 && agtopScreens[name]:
-			return paint(cOrange, " agtop")
+		case slices.ContainsFunc(rushCommands, func(a event.Command) bool { return a.Name == name }):
+			return paint(cOrange, " rush")
+		case st == 0 && rushScreens[name]:
+			return paint(cOrange, " rush")
 		case st == 0 && (strings.HasPrefix(name, "claude:") || slices.ContainsFunc(claudeScreens, func(a event.Command) bool { return a.Name == name })):
 			return paint(cSub, " claude code ↗")
 		case c.skills[name]:
@@ -717,17 +717,17 @@ func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// runAgtopCommand handles the commands agtop answers itself. It reports
+// runRushCommand handles the commands rush answers itself. It reports
 // whether text was one of them.
-func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
+func (m *Model) runRushCommand(c *hostConn, text string) (tea.Cmd, bool) {
 	name, arg, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(text), "/"), " ")
 	arg = strings.TrimSpace(arg)
 	a := m.agentByKey(c.key)
-	if n, ok := agtopAliases[name]; ok {
+	if n, ok := rushAliases[name]; ok {
 		name = n
 	}
 	if why := offCommands[name]; why != "" {
-		m.flash("/"+name+" isn't in agtop: "+why, true)
+		m.flash("/"+name+" isn't in rush: "+why, true)
 		return nil, true
 	}
 	if _, cloud := claudeCloudName(name); !canRun(c, name) || cloud && !ownScreens(c) {
@@ -757,11 +757,11 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 	case "clean":
 		m.askClean(a)
 		return nil, true
-	case "agtop":
+	case "rush":
 		if a == nil {
 			return nil, true
 		}
-		return m.moveToAgtop(a), true
+		return m.moveToRush(a), true
 	case "clear":
 		if a == nil {
 			return nil, true
@@ -785,7 +785,7 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		return m.openRewind(c, a), true
 	case "plan":
 		if c.client == nil {
-			m.flash("/plan works in agtop-mode sessions · /agtop moves this one over", true)
+			m.flash("/plan works in rush-mode sessions · /rush moves this one over", true)
 			return nil, true
 		}
 		mode := "plan"
@@ -862,7 +862,7 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		return m.setArg(c, name, arg), true
 	}
 	if screen, ok := claudeScreen(name); ok && (arg == "" || screen != "mcp" && screen != "config") && a != nil {
-		if cmd, ok := m.agtopScreen(c, a, screen); ok {
+		if cmd, ok := m.rushScreen(c, a, screen); ok {
 			return cmd, true
 		}
 		return m.openScreen(c, a, screen), true
@@ -873,7 +873,7 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 // cmdName is a / command's name as Claude Code takes it: not a path.
 var cmdName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_:.-]*$`)
 
-// askUnknown asks what to do with a / command that neither agtop nor this
+// askUnknown asks what to do with a / command that neither rush nor this
 // session knows, which headless Claude Code would only answer with "isn't
 // available in this environment": most likely it's one of Claude Code's
 // own screens. y opens Claude Code on it (esc, then ctrl+c twice, comes
@@ -892,10 +892,10 @@ func (m *Model) askUnknown(c *hostConn, text string, send func() tea.Cmd) bool {
 		return false
 	}
 	m.loadLocal(c)
-	if _, ok := claudeCloudName(name); ok || offCommands[name] != "" || agtopAliases[name] != "" || screenAliases[name] != "" {
+	if _, ok := claudeCloudName(name); ok || offCommands[name] != "" || rushAliases[name] != "" || screenAliases[name] != "" {
 		return false
 	}
-	for _, list := range [][]event.Command{agtopCommands, claudeScreens, c.sess.Commands, c.local} {
+	for _, list := range [][]event.Command{rushCommands, claudeScreens, c.sess.Commands, c.local} {
 		if slices.ContainsFunc(list, func(k event.Command) bool { return strings.EqualFold(k.Name, name) }) {
 			return false
 		}
@@ -904,9 +904,9 @@ func (m *Model) askUnknown(c *hostConn, text string, send func() tea.Cmd) bool {
 	return true
 }
 
-// agtopScreen is agtop's own take on one of Claude Code's screens, where it
+// rushScreen is rush's own take on one of Claude Code's screens, where it
 // has one; the rest open Claude Code's.
-func (m *Model) agtopScreen(c *hostConn, a *fleet.Agent, screen string) (tea.Cmd, bool) {
+func (m *Model) rushScreen(c *hostConn, a *fleet.Agent, screen string) (tea.Cmd, bool) {
 	switch screen {
 	case "plugin":
 		return m.openPlugins(c, a), true
@@ -957,7 +957,7 @@ func (m *Model) showView(c *hostConn, name string) bool {
 
 // openScreen hands the terminal to Claude Code on one of its own screens,
 // for the agent's account and folder. Leaving it (esc, or ctrl+c twice)
-// brings agtop back; a hosted session reloads its plugins after /plugin.
+// brings rush back; a hosted session reloads its plugins after /plugin.
 func (m *Model) openScreen(c *hostConn, a *fleet.Agent, screen string) tea.Cmd {
 	key, k := c.key, sessionAgent(c)
 	sc, ok := agent.As[agent.Screener](k)
@@ -965,7 +965,7 @@ func (m *Model) openScreen(c *hostConn, a *fleet.Agent, screen string) tea.Cmd {
 		m.flash(agentName(string(k))+" has no screens of its own", true)
 		return nil
 	}
-	hint := "\033[2m  agtop · " + agentName(string(k)) + "'s /" + screen + " · when you're done: esc, then ctrl+c twice to come back\033[0m"
+	hint := "\033[2m  rush · " + agentName(string(k)) + "'s /" + screen + " · when you're done: esc, then ctrl+c twice to come back\033[0m"
 	acct, cwd := a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
 	return func() tea.Msg {
 		cmd := sc.Screen(acct, cwd, screen, hint) // it reads the account's settings
@@ -978,7 +978,7 @@ type screenDoneMsg struct {
 	err         error
 }
 
-// onScreenDone is agtop coming back from a Claude Code screen.
+// onScreenDone is rush coming back from a Claude Code screen.
 func (m *Model) onScreenDone(msg screenDoneMsg) tea.Cmd {
 	if msg.err != nil {
 		m.flash("Claude Code's /"+msg.screen+": "+msg.err.Error(), true)

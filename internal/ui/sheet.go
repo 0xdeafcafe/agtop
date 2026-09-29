@@ -10,7 +10,7 @@ import (
 // --- sheets ---
 
 // A sheet is a panel over the screen for one of Claude Code's own screens
-// done agtop's way: /fork's options, /rewind, /plugins, /statusline, /skills. It
+// done rush's way: /fork's options, /rewind, /plugins, /statusline, /skills. It
 // takes every key until it closes (m.sheet = nil).
 type sheet interface {
 	// body draws the sheet's inside, w wide and at most h tall.

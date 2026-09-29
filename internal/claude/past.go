@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 type Convo = agent.Convo
@@ -24,7 +24,7 @@ var convoBufs = sync.Pool{New: func() any { b := make([]byte, 0, 128<<10); retur
 // transcript with nothing asked in it (a hook's, a probe's) is no
 // conversation, and nor is a background job's (the jobs list has it, and
 // each resume leaves an older transcript behind), one a program ran through
-// the SDK (claude -p, evals, plugins' agents, agtop's own sessions, which it
+// the SDK (claude -p, evals, plugins' agents, rush's own sessions, which it
 // lists itself) or a subagent's.
 func ReadConvo(path string) (Convo, bool) {
 	c := Convo{SessionID: strings.TrimSuffix(filepath.Base(path), ".jsonl")}

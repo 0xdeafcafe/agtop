@@ -14,16 +14,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// Start runs claude -p for agtop to draw.
+// Start runs claude -p for rush to draw.
 func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, error) { //nolint:gocritic // agent.Driver's signature
 	acct, root := Account(o.Profile), false
 	if acct.IsDefault() {
@@ -36,7 +36,7 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 	ho := headless.Options{Account: acct, Dir: o.Dir, Model: o.Model, Effort: o.Effort,
 		PermissionMode: o.Mode, Binary: o.Binary}
 	if allowed := c.trusted(); len(allowed) > 0 {
-		// agtop's own tools only draw, so they never ask.
+		// rush's own tools only draw, so they never ask.
 		ho.Flags = append(ho.Flags, "--allowedTools", strings.Join(allowed, ","))
 	}
 	if len(o.Agents) > 0 {
@@ -88,7 +88,7 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 	for i, t := range c.tools {
 		names[i] = t.Name
 	}
-	// Every process needs agtop's tools registered before its first message.
+	// Every process needs rush's tools registered before its first message.
 	if c.initID, err = s.Initialize(names...); err != nil {
 		_ = s.Stop(time.Second)
 		return nil, err
@@ -126,7 +126,7 @@ type conn struct {
 	live  claude.Usage                          // the last usage reading passed on
 }
 
-// tool is the server a tool of Claude Code's name is one of agtop's, and
+// tool is the server a tool of Claude Code's name is one of rush's, and
 // the tool's own name.
 func (c *conn) tool(name string) (agent.ToolServer, string, bool) {
 	for _, t := range c.tools {
@@ -153,9 +153,9 @@ func (c *conn) isTrusted(name string) bool {
 	return ok && slices.Contains(t.Trusted, n)
 }
 
-// ownTraffic is a control request for agtop's own tools: an MCP message, or
+// ownTraffic is a control request for rush's own tools: an MCP message, or
 // a permission check for one that never asks. It stays between Claude Code
-// and agtop.
+// and rush.
 func (c *conn) ownTraffic(l []byte) bool {
 	if !bytes.HasPrefix(l, []byte(`{"type":"control_request"`)) {
 		return false
@@ -247,7 +247,7 @@ func (c *conn) own(ev headless.Event) bool {
 }
 
 // shareUsage passes the plan usage Claude Code reports with each request
-// to every agtop, as a reading of the login it runs on: the header and
+// to every rush, as a reading of the login it runs on: the header and
 // switching accounts then go by it, not by a fetch minutes old. A reading
 // like the last goes only every half minute.
 func (c *conn) shareUsage(ev headless.RateLimit) {

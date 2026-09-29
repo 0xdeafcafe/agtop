@@ -13,7 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
 // A list item's start: its indent, its bullet or number, and a task box.
@@ -353,7 +353,7 @@ func jsonProblems(text string) []docDiag {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	dec := jsontext.NewDecoder(strings.NewReader(text)) //nolint:agtop // strict on purpose: it reports names given twice
+	dec := jsontext.NewDecoder(strings.NewReader(text)) //nolint:rush // strict on purpose: it reports names given twice
 	_, err := dec.ReadValue()
 	if err == nil {
 		if rest := text[dec.InputOffset():]; strings.TrimSpace(rest) != "" {

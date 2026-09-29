@@ -3,13 +3,13 @@ package host
 import (
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
-// Claude Code's own lines read as agtop's events, a result by the call it
+// Claude Code's own lines read as rush's events, a result by the call it
 // answers; the host's own lines read as they always have.
-func TestDecoderReadsClaudeAsAgtop(t *testing.T) {
+func TestDecoderReadsClaudeAsRush(t *testing.T) {
 	var d Decoder
 	lines := []string{
 		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":"ls"}}]}}`,

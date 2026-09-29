@@ -2,8 +2,8 @@ package convo
 
 import (
 	"bytes"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/charmbracelet/x/ansi"
 	"maps"
 	"regexp"
@@ -64,8 +64,8 @@ func (d *drawer) recipient(st *Step) string {
 
 var hexID = regexp.MustCompile(`^a?[0-9a-f]{12,}$`)
 
-// peers is each session's name as agtop lists it, by the codename other
-// sessions know it by (agtop-8a, as ListAgents gives it).
+// peers is each session's name as rush lists it, by the codename other
+// sessions know it by (rush-8a, as ListAgents gives it).
 var peers atomic.Pointer[map[string]string]
 
 // SetPeers is who each codename is, as the list names them now. What was

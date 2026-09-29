@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"testing"

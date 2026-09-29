@@ -11,14 +11,14 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// writeSession leaves a stopped agtop-mode session behind, as a host that
+// writeSession leaves a stopped rush-mode session behind, as a host that
 // ended would.
 func writeSession(t *testing.T, id, name string) {
 	t.Helper()
@@ -50,10 +50,10 @@ func hostedPress(m *Model, s string) tea.Cmd {
 	return cmd
 }
 
-// Hosted shows the one session at the whole width under agtop's header: no
+// Hosted shows the one session at the whole width under rush's header: no
 // list, and the keys that go to other agents do nothing.
 func TestHostedShowsOneSession(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	writeSession(t, "bbbb2222", "another session")
 
@@ -67,8 +67,8 @@ func TestHostedShowsOneSession(t *testing.T) {
 			t.Errorf("hosted frame shows %q:\n%s", not, out)
 		}
 	}
-	// The header is agtop's, counting every agent, not only this one.
-	for _, want := range []string{"agtop", "finished", "Agents", "Efficiency", "Settings", "ctrl+\\"} {
+	// The header is rush's, counting every agent, not only this one.
+	for _, want := range []string{"rush", "finished", "Agents", "Efficiency", "Settings", "ctrl+\\"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hosted frame lacks %q:\n%s", want, out)
 		}
@@ -131,7 +131,7 @@ func TestHostedShowsOneSession(t *testing.T) {
 
 // Still opening, esc does nothing: the view stays.
 func TestHostedEscWhileOpening(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	m := NewHosted(state.Load(), "test", "aaaa1111")
 	if cmd := m.key(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil && isQuit(cmd) {
@@ -142,7 +142,7 @@ func TestHostedEscWhileOpening(t *testing.T) {
 // In hosted, ctrl+\\ opens the other places as usual, and Agents is the one
 // session again, never the list.
 func TestHostedPlaces(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	writeSession(t, "bbbb2222", "another session")
 	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
@@ -172,7 +172,7 @@ func TestHostedPlaces(t *testing.T) {
 // Hosted's Session runs to the right edge of a wide screen, past the width
 // a Session beside the list or alone in the full view stops at.
 func TestHostedFillsTheWidth(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
 	m.Frame(208, 45)
@@ -200,7 +200,7 @@ func TestHostedFillsTheWidth(t *testing.T) {
 // ctrl+6 shows the list beside hosted's session: every agent, to pick and
 // read. Again, or esc from the list, and the view is hosted's own session.
 func TestHostedListToggle(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	writeSession(t, "bbbb2222", "another session")
 	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
@@ -267,7 +267,7 @@ func TestListToggle(t *testing.T) {
 
 // Outside hosted the same keys do move: the test above means something.
 func TestPlacesMoveOutsideHosted(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	m := loaded(New(state.Load(), "test"))
 	m.Frame(160, 45)
@@ -280,7 +280,7 @@ func TestPlacesMoveOutsideHosted(t *testing.T) {
 // A question asked while the Session has the whole width is drawn under
 // its box: the list's hint row, where it's asked otherwise, isn't there.
 func TestHostedShowsAQuestion(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	m := NewHosted(state.Load(), "test", "aaaa1111")
 	m.host = &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
@@ -307,7 +307,7 @@ func isQuit(cmd tea.Cmd) bool {
 
 // esc on a running turn asks first; ! stops it and stops asking.
 func TestEscAsksBeforeStoppingTheTurn(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, _ := benchModel(160, 40)
 	c := &hostConn{kind: "claude", key: m.snap.Agents[0].Key, client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	c.sess.Turns = append(c.sess.Turns, &convo.Turn{Live: true})

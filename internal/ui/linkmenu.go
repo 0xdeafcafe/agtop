@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 )
 
 // linkAct is one thing the menu on a link can do with it.

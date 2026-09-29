@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// line is one event pi writes, with the fields of every type agtop reads.
+// line is one event pi writes, with the fields of every type rush reads.
 // Its "message" is an AgentMessage in message events, and text in an
 // extension's dialog.
 type line struct {
@@ -56,7 +56,7 @@ func (l *line) text() string {
 	return s
 }
 
-// handle turns what pi says into agtop's events.
+// handle turns what pi says into rush's events.
 func (c *Conn) handle(typ string, raw []byte) {
 	c.emit(c.events1(typ, raw)...)
 }
@@ -152,7 +152,7 @@ func (c *Conn) update(l *line) []event.Event {
 	return nil
 }
 
-// messageEnd is a whole message. Messages agtop sent come back from pi as
+// messageEnd is a whole message. Messages rush sent come back from pi as
 // it takes them in, and aren't told again: the host showed them as sent.
 func (c *Conn) messageEnd(m *message) []event.Event {
 	c.mu.Lock()
@@ -202,7 +202,7 @@ const (
 )
 
 // dialog is an extension asking something. Select and confirm are
-// questions; a text box agtop can't show is cancelled at once, and what
+// questions; a text box rush can't show is cancelled at once, and what
 // needs no answer is passed on as it is.
 func (c *Conn) dialog(l *line, raw []byte) []event.Event {
 	switch l.Method {

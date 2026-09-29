@@ -1,20 +1,20 @@
 package ui
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
-// interfaceSections are how agtop looks and what its keys do.
+// interfaceSections are how rush looks and what its keys do.
 func (m *Model) interfaceSections() []section {
 	c := &m.store.Config
 
 	view := choiceSetting("Layout", c.View,
-		"How agtop lays out Agents and the Session, now and next time. #view and shift+← → change it too.",
+		"How rush lays out Agents and the Session, now and next time. #view and shift+← → change it too.",
 		[][2]string{
 			{"split", "Agents on the left, the picked agent's Session beside them, when the screen is wide enough."},
 			{"agent", "one Session with the whole screen; esc shows Agents, and the next one you open has the whole screen too."},
 			{"list", "Agents alone; a Session you open takes the screen until esc."},
-			{"", "agtop asks which the next time it opens."},
+			{"", "rush asks which the next time it opens."},
 		}, func(v string) {
 			if v == "" {
 				c.View = ""
@@ -28,7 +28,7 @@ func (m *Model) interfaceSections() []section {
 		[][2]string{
 			{"rename", "renames it, as in the Finder; ctrl+o opens it."},
 			{"open", "opens its Session; ctrl+r renames it."},
-			{"", "agtop asks the first time you press it."},
+			{"", "rush asks the first time you press it."},
 		}, func(v string) { c.EnterOn = v })
 	enter.unset = "ask"
 	group := choiceSetting("Group by", firstNonEmpty(c.GroupBy, "status"), "How agents are sorted into sections.", [][2]string{
@@ -59,18 +59,18 @@ func (m *Model) interfaceSections() []section {
 		}, func(v string) { c.SortBy = v })
 
 	theme := choiceSetting("Theme", c.Theme,
-		"What agtop's colours are made for. Its text and panels are shades between your terminal's background and text colour, so they follow its theme; its orange, green and red stay, made as easy to read on your background as on agtop's own.",
+		"What rush's colours are made for. Its text and panels are shades between your terminal's background and text colour, so they follow its theme; its orange, green and red stay, made as easy to read on your background as on rush's own.",
 		[][2]string{
-			{"", "agtop asks the terminal for its background and text, again whenever you come back to it; a terminal that doesn't say gets agtop's dark."},
-			{"dark", "agtop's own dark colours, whatever the terminal says."},
-			{"light", "agtop's own light colours, for a light terminal that doesn't say it's light."},
+			{"", "rush asks the terminal for its background and text, again whenever you come back to it; a terminal that doesn't say gets rush's dark."},
+			{"dark", "rush's own dark colours, whatever the terminal says."},
+			{"light", "rush's own light colours, for a light terminal that doesn't say it's light."},
 		}, func(v string) {
 			c.Theme = v
 			m.applyColors()
 		})
 	theme.unset = "match terminal"
 	colours := choiceSetting("Colours", map[bool]string{true: "colour-blind", false: "standard"}[c.ColorBlind],
-		"How agtop tells good from bad: added and removed lines in a diff, done and failed steps and agents.",
+		"How rush tells good from bad: added and removed lines in a diff, done and failed steps and agents.",
 		[][2]string{
 			{"standard", "green and red."},
 			{"colour-blind", "sky blue and amber, which stay apart for red-green and blue-yellow colour blindness alike; + and − still mark every diff line."},

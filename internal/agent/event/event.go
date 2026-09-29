@@ -8,8 +8,8 @@ import (
 	"encoding/json/jsontext"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 // Event is one thing a session said or did.
@@ -94,7 +94,7 @@ type Part struct {
 type ImageData struct {
 	MediaType string
 	Data      []byte
-	Path      string // where agtop keeps a copy, when it does
+	Path      string // where rush keeps a copy, when it does
 }
 
 // CallUpdated is a tool call already sent, as it now reads: agents that

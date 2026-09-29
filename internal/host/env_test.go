@@ -13,12 +13,12 @@ import (
 func TestConfigEnvReachesClaude(t *testing.T) {
 	bin := setup(t)
 	envLog := filepath.Join(filepath.Dir(bin), "env.log")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$AGTOP_TEST_MARK\" >> \"$(dirname \"$0\")/env.log\"\n" + strings.TrimPrefix(fakeClaude, "#!/bin/sh\n")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$RUSH_TEST_MARK\" >> \"$(dirname \"$0\")/env.log\"\n" + strings.TrimPrefix(fakeClaude, "#!/bin/sh\n")
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Prompt: "one", Binary: bin, IdleStop: Duration(200 * time.Millisecond),
-		Env: []string{"AGTOP_TEST_MARK=card-42"}})
+		Env: []string{"RUSH_TEST_MARK=card-42"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +55,6 @@ func TestConfigEnvReachesClaude(t *testing.T) {
 		got = strings.Fields(string(b))
 	}
 	if len(got) != 2 || got[0] != "card-42" || got[1] != "card-42" {
-		t.Fatalf("claude saw AGTOP_TEST_MARK %q over two starts", got)
+		t.Fatalf("claude saw RUSH_TEST_MARK %q over two starts", got)
 	}
 }

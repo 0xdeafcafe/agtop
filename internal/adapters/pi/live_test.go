@@ -7,20 +7,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
 // TestLive runs a real pi on a model of the Ollama on this machine: a
 // turn that reads a file, then the session resumed and read back.
-// AGTOP_PI_LIVE=1 runs it; AGTOP_PI_MODEL is the model, qwen2.5:1.5b if
+// RUSH_PI_LIVE=1 runs it; RUSH_PI_MODEL is the model, qwen2.5:1.5b if
 // unset.
 func TestLive(t *testing.T) {
-	if os.Getenv("AGTOP_PI_LIVE") != "1" {
-		t.Skip("AGTOP_PI_LIVE=1 runs it")
+	if os.Getenv("RUSH_PI_LIVE") != "1" {
+		t.Skip("RUSH_PI_LIVE=1 runs it")
 	}
-	model := os.Getenv("AGTOP_PI_MODEL")
+	model := os.Getenv("RUSH_PI_MODEL")
 	if model == "" {
 		model = "qwen2.5:1.5b"
 	}
@@ -30,7 +30,7 @@ func TestLive(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "models.json"), []byte(models), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(work, "a.txt"), []byte("hello from agtop\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(work, "a.txt"), []byte("hello from rush\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	p := agent.Profile{Kind: Kind, Name: "Pi", Dir: home}

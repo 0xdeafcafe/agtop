@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // liveFor is how recently a rollout must have been written to for its
@@ -29,7 +29,7 @@ const (
 // refresh), so a rollout written in the last two minutes is taken as
 // running, and one in the last fifteen seconds as working. Only the last
 // week's folders are looked in: rollouts are filed by the day they began.
-// Threads agtop runs itself are also here; the host's rows claim them.
+// Threads rush runs itself are also here; the host's rows claim them.
 func (Adapter) Live(p agent.Profile) []agent.Session {
 	now := time.Now()
 	var names map[string]string

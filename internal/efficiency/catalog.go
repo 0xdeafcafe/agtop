@@ -25,7 +25,7 @@ type Saver struct {
 	Kind  Kind
 	URL   string
 	// Claim is what its authors say it saves, and Measured what someone
-	// else measured, when anyone has: shown as such, never as agtop's.
+	// else measured, when anyone has: shown as such, never as rush's.
 	Claim, Measured string
 	// Note is a caution shown before installing.
 	Note string
@@ -91,7 +91,7 @@ type Detect struct {
 
 func step(argv ...string) Step { return Step{Argv: argv} }
 
-// Catalog is agtop's curated list. Install commands are the projects' own
+// Catalog is rush's curated list. Install commands are the projects' own
 // documented ones, checked September 2026. Cuts are from independent
 // measurements where there are any, the authors' own where not, and say
 // which; retrieval savers' per-question figures compare against reading

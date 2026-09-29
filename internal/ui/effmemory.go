@@ -1,11 +1,11 @@
 package ui
 
-import "github.com/0xdeafcafe/agtop/internal/agent"
+import "github.com/0xdeafcafe/rush/internal/agent"
 
 // effMemoryPlace is the account and folder whose memory Efficiency's
 // findings look at: the selected agent's, or the active account's in the
-// folder agtop was started in. ok is false when that agent keeps no
-// memory agtop reads.
+// folder rush was started in. ok is false when that agent keeps no
+// memory rush reads.
 func (m *Model) effMemoryPlace() (p agent.Profile, cwd string, ok bool) {
 	p = m.store.Config.ActiveAccount().Profile()
 	if a := m.selected(); a != nil && a.Acct.Dir != "" {

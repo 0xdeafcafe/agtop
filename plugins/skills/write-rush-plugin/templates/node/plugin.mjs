@@ -1,9 +1,9 @@
-// A minimal agtop plugin in Node, no dependencies.
+// A minimal rush plugin in Node, no dependencies.
 //
 // It offers Claude three tools: note and notes, which keep notes in the
 // plugin's data folder (the only place it may write), and agents, which
-// calls agtop back to list its agents. Rename it, change the tools, and keep
-// the plumbing: agtop speaks JSON-RPC 2.0 on fd 3, each message a 4-byte
+// calls rush back to list its agents. Rename it, change the tools, and keep
+// the plumbing: rush speaks JSON-RPC 2.0 on fd 3, each message a 4-byte
 // big-endian length and then that many bytes of JSON.
 
 import { appendFileSync, readFileSync } from "node:fs";
@@ -30,14 +30,14 @@ const tools = [
   },
   {
     name: "agents",
-    description: "List the agents running in agtop.",
+    description: "List the agents running in rush.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
 ];
 
-const NOTES = join(process.env.AGTOP_PLUGIN_DATA, "notes.txt");
+const NOTES = join(process.env.RUSH_PLUGIN_DATA, "notes.txt");
 
-// callTool runs one tool. session is the agtop session that called it.
+// callTool runs one tool. session is the rush session that called it.
 async function callTool(session, name, args) {
   if (name === "note") {
     const text = (args?.text ?? "").trim();
@@ -53,14 +53,14 @@ async function callTool(session, name, args) {
     }
   }
   if (name === "agents") {
-    // Calling agtop back: needs "list" in the manifest's "sessions".
+    // Calling rush back: needs "list" in the manifest's "sessions".
     const sessions = await call("sessions.list");
     return sessions.map((s) => `${s.id} ${s.state.padEnd(8)} ${s.name ?? ""}: ${s.detail ?? ""}`).join("\n") || "No agents.";
   }
   throw new Error(`no tool named ${name}`);
 }
 
-// handle answers agtop's requests and takes its notifications.
+// handle answers rush's requests and takes its notifications.
 async function handle(method, params) {
   switch (method) {
     case "initialize":
@@ -89,7 +89,7 @@ const ipc = new net.Socket({ fd: 3, readable: true, writable: true });
 const pending = new Map();
 let nextId = 0;
 
-// call calls agtop and resolves to its result; rejects if it refuses.
+// call calls rush and resolves to its result; rejects if it refuses.
 function call(method, params) {
   const id = ++nextId;
   return new Promise((resolve, reject) => {
@@ -131,4 +131,4 @@ ipc.on("data", (chunk) => {
     );
   }
 });
-ipc.on("close", () => process.exit(0)); // agtop closed the channel: time to go
+ipc.on("close", () => process.exit(0)); // rush closed the channel: time to go

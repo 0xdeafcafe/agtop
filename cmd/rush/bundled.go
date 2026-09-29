@@ -1,0 +1,7 @@
+package main
+
+// The plugins that come with rush: see plugin.Bundle.
+import (
+	_ "github.com/0xdeafcafe/rush/internal/bundled/drafts"
+	_ "github.com/0xdeafcafe/rush/internal/bundled/queue"
+)

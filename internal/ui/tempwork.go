@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // tempShown is the least temp work worth pointing out.
@@ -189,7 +189,7 @@ func (m *Model) markDone(a *fleet.Agent) tea.Cmd {
 		switch {
 		case a.PID == 0 || a.Interactive:
 			return nil // nothing resident, or it's open in a terminal: leave it be
-		case a.Agtop:
+		case a.Rush:
 			m.flash("done: "+a.DisplayName+" · its process stopped, a message resumes it", false)
 			id := a.ID
 			return cmdErr("", func() error {

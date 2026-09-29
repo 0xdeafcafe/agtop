@@ -3,7 +3,7 @@ package headless
 import (
 	"encoding/base64"
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,13 +178,13 @@ loop:
 }
 
 // TestRealClaude runs one approved tool call through the installed claude.
-// It spends a few cents of Haiku, so it only runs with AGTOP_REAL_CLAUDE=1.
+// It spends a few cents of Haiku, so it only runs with RUSH_REAL_CLAUDE=1.
 func TestRealClaude(t *testing.T) {
-	if os.Getenv("AGTOP_REAL_CLAUDE") == "" {
-		t.Skip("set AGTOP_REAL_CLAUDE=1 to run against the installed claude")
+	if os.Getenv("RUSH_REAL_CLAUDE") == "" {
+		t.Skip("set RUSH_REAL_CLAUDE=1 to run against the installed claude")
 	}
 	// Outside ~/.claude, which Claude Code treats as sensitive and never asks about.
-	dir, err := os.MkdirTemp("/tmp", "agtop-headless-")
+	dir, err := os.MkdirTemp("/tmp", "rush-headless-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,12 +226,12 @@ func TestRealClaude(t *testing.T) {
 }
 
 func TestDecodeMCPMessage(t *testing.T) {
-	ev, err := Decode([]byte(`{"type":"control_request","request_id":"r9","request":{"subtype":"mcp_message","server_name":"agtop","message":{"jsonrpc":"2.0","id":1,"method":"tools/list"}}}`))
+	ev, err := Decode([]byte(`{"type":"control_request","request_id":"r9","request":{"subtype":"mcp_message","server_name":"rush","message":{"jsonrpc":"2.0","id":1,"method":"tools/list"}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	m, ok := ev.(MCPRequest)
-	if !ok || m.ID != "r9" || m.Server != "agtop" || !strings.Contains(string(m.Message), "tools/list") {
+	if !ok || m.ID != "r9" || m.Server != "rush" || !strings.Contains(string(m.Message), "tools/list") {
 		t.Fatalf("got %#v", ev)
 	}
 }

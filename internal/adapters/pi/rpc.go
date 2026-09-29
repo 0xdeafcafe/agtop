@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/pgguard"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/pgguard"
 )
 
 // response is Pi's answer to a command: its id, and data or an error.
@@ -168,7 +168,7 @@ func (c *client) call(ctx context.Context, cmd map[string]any, out any) error {
 		return errClosed
 	}
 	c.next++
-	id := "agtop-" + strconv.FormatInt(c.next, 10)
+	id := "rush-" + strconv.FormatInt(c.next, 10)
 	c.pending[id] = ch
 	c.mu.Unlock()
 	msg := make(map[string]any, len(cmd)+1)

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // SettingsPage is what settings.json and its env block offer: the keys
@@ -15,10 +15,10 @@ import (
 func (Adapter) SettingsPage() agent.SettingsPage {
 	models := []string{"opus", "opus[1m]", "sonnet", "haiku", "fable"}
 	return agent.SettingsPage{
-		Note:  "every Claude Code session reads it, not only agtop's",
+		Note:  "every Claude Code session reads it, not only rush's",
 		Unset: "Claude Code's own default",
 		Rows: []agent.SettingRow{
-			{Label: "Default model", Key: "model", What: "The model every session on this account starts with, unless a session or agtop picks one", Choices: models},
+			{Label: "Default model", Key: "model", What: "The model every session on this account starts with, unless a session or rush picks one", Choices: models},
 			{Label: "Default effort", Key: "effortLevel", What: "How hard sessions think by default", Choices: []string{"low", "medium", "high", "xhigh", "max"}},
 			{Label: "Permission mode", Key: "permissions.defaultMode", What: "What sessions may do without asking. Your allow and deny rules are kept", Choices: []string{"default", "acceptEdits", "plan", "auto"}},
 			{Label: "Always think", Key: "alwaysThinkingEnabled", What: "Extended thinking on every request", Type: agent.SettingFlag},

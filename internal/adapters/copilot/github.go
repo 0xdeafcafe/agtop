@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // token is the GitHub token Copilot is reached with: the one in the
-// environment, else gh's for the account agtop uses for Copilot.
+// environment, else gh's for the account rush uses for Copilot.
 func token() (string, error) {
 	for _, k := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
 		if v := os.Getenv(k); v != "" {
@@ -105,7 +105,7 @@ func fetchWith(ctx context.Context, url, tok string) (io.ReadCloser, error) {
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Copilot-Integration-Id", "copilot-4-cli")
-	req.Header.Set("User-Agent", "agtop")
+	req.Header.Set("User-Agent", "rush")
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

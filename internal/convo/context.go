@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 // --- what fills the context window ---

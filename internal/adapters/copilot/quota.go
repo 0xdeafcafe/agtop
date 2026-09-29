@@ -4,13 +4,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 // Quota is your premium requests this month: what Copilot's agents, and
 // its better models, spend.
-// a is the GitHub account to read; with none, the one agtop uses.
+// a is the GitHub account to read; with none, the one rush uses.
 func (Adapter) Quota(ctx context.Context, _ agent.Profile, a agent.Account) (usage.Quota, error) {
 	var u user
 	var err error
@@ -29,7 +29,7 @@ func (Adapter) Quota(ctx context.Context, _ agent.Profile, a agent.Account) (usa
 	return q, nil
 }
 
-// quotaOf is your Copilot's limits as agtop's. Chat and completions are
+// quotaOf is your Copilot's limits as rush's. Chat and completions are
 // unlimited on paid plans; premium requests are what run out.
 func quotaOf(u user, now time.Time) usage.Quota {
 	q := usage.Quota{Plan: u.Plan, FetchedAt: now, Source: usage.Fetched}

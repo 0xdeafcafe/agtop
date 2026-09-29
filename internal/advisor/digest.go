@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/efficiency"
+	"github.com/0xdeafcafe/rush/internal/efficiency"
 )
 
-// Input is what a pass is given: the figures, worked out by agtop, so the
+// Input is what a pass is given: the figures, worked out by rush, so the
 // model reads a few kilobytes rather than the transcripts themselves.
 type Input struct {
 	View     *efficiency.View

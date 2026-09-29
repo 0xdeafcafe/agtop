@@ -10,17 +10,17 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/efficiency"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/efficiency"
 )
 
 // effModel is a model in Efficiency with a view read from a made-up
 // account: a day of sessions, some using rtk.
 func effModel(t *testing.T, w, h int) *Model {
 	t.Helper()
-	t.Setenv("AGTOP_HOME", t.TempDir())
-	t.Setenv("AGTOP_CACHE", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
+	t.Setenv("RUSH_CACHE", t.TempDir())
 	acct := claude.Account{Name: "test", ConfigDir: t.TempDir()}
 	proj := filepath.Join(acct.ProjectsDir(), "-work-repo")
 	_ = os.MkdirAll(proj, 0o700)
@@ -48,7 +48,7 @@ func effModel(t *testing.T, w, h int) *Model {
 	e := &m.eff
 	q := efficiency.NewQuery(efficiency.Ranges[e.rng], time.Now())
 	m.onEffLoaded(effLoadedMsg{store: st, view: st.View(q), found: map[string]efficiency.Found{"rtk": {Status: efficiency.Partial, Wants: "its hook isn't in settings.json"}},
-		events: []efficiency.Event{{At: now.Add(-12 * time.Hour), Kind: "setting", Saver: "autocompact", Detail: "autoCompactWindow = 400000", Source: "agtop"}}})
+		events: []efficiency.Event{{At: now.Add(-12 * time.Hour), Kind: "setting", Saver: "autocompact", Detail: "autoCompactWindow = 400000", Source: "rush"}}})
 	return m
 }
 

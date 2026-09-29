@@ -1,13 +1,13 @@
-// Command neighbours is the smallest useful agtop plugin: one tool that
+// Command neighbours is the smallest useful rush plugin: one tool that
 // tells Claude which other agents are working in the same repository, and
 // on which branch, so it doesn't trip over them. It needs only the list
 // capability, and shows the whole shape of a plugin: answer initialize,
-// offer tools, answer tool calls, call agtop back.
+// offer tools, answer tool calls, call rush back.
 //
-//	mkdir -p ~/.config/agtop/plugins/neighbours
-//	go build -o ~/.config/agtop/plugins/neighbours/neighbours ./plugins/examples/neighbours
-//	cp plugins/examples/neighbours/plugin.json ~/.config/agtop/plugins/neighbours/
-//	agtop plugin approve neighbours
+//	mkdir -p ~/.config/rush/plugins/neighbours
+//	go build -o ~/.config/rush/plugins/neighbours/neighbours ./plugins/examples/neighbours
+//	cp plugins/examples/neighbours/plugin.json ~/.config/rush/plugins/neighbours/
+//	rush plugin approve neighbours
 package main
 
 import (
@@ -17,16 +17,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 var conn *plugin.Conn
 
 func main() {
-	f := os.NewFile(3, "agtop")
+	f := os.NewFile(3, "rush")
 	if f == nil {
-		fmt.Fprintln(os.Stderr, "run me from agtop: I talk on fd 3")
+		fmt.Fprintln(os.Stderr, "run me from rush: I talk on fd 3")
 		os.Exit(2)
 	}
 	conn = plugin.NewConn(f, handle)
@@ -44,7 +44,7 @@ func handle(ctx context.Context, method string, params jsontext.Value) (any, err
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
 		}}}, nil
 	case "tools.call":
-		// Who's calling comes with the call: agtop's id for the session,
+		// Who's calling comes with the call: rush's id for the session,
 		// and its folder.
 		var in struct {
 			Session string `json:"session"`
@@ -103,7 +103,7 @@ func neighbours(ctx context.Context, me, cwd string) (string, error) {
 	return b.String(), nil
 }
 
-// home is the main checkout a checkout belongs to, going by where agtop and
+// home is the main checkout a checkout belongs to, going by where rush and
 // Claude Code put worktrees.
 func home(repo string) string {
 	if i := strings.Index(repo, "/.claude/worktrees/"); i >= 0 {

@@ -1,12 +1,12 @@
 package keymap
 
-// Defaults are agtop's own keys, as its key handling is written. Keys that
+// Defaults are rush's own keys, as its key handling is written. Keys that
 // only edit text (arrows in a box, ctrl+a, backspace) aren't here: they
 // belong to the box, not to an action.
 var Defaults = []Action{
 	{ID: "bar.open", Context: Global, Title: "the command bar", Keys: []string{"ctrl+k", "super+k"}},
 	{ID: "bar.scope", Context: Global, Title: "the command bar, next scope", Keys: []string{"ctrl+f"}},
-	{ID: "quit", Context: Global, Title: "quit agtop", Keys: []string{"ctrl+q"}},
+	{ID: "quit", Context: Global, Title: "quit rush", Keys: []string{"ctrl+q"}},
 	{ID: "zen", Context: Global, Title: "Zen on and off", Keys: []string{"ctrl+z"}},
 	{ID: "place.prev", Context: Global, Title: "the place before", Keys: []string{",", "<"}},
 	{ID: "place.next", Context: Global, Title: "the next place", Keys: []string{".", ">", "ctrl+\\"}},

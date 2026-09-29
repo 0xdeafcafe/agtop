@@ -1,4 +1,4 @@
-// Command uiblock lists everything agtop's UI goroutine can reach that
+// Command uiblock lists everything rush's UI goroutine can reach that
 // waits: a system call (the disk, a process, the network) or a sleep. It
 // builds the whole program's call graph (VTA, so calls through interfaces
 // and func values count) and walks it from ui.New and the Model's Init,
@@ -10,7 +10,7 @@
 // A function marked //uiblock:nowait in its doc, saying why, is taken
 // at its word: the walk stops there.
 //
-// Each line is an agtop function that calls out to something that waits,
+// Each line is a rush function that calls out to something that waits,
 // with the shortest path from the UI to it. It exits 1 when there's any.
 package main
 
@@ -30,7 +30,7 @@ import (
 	"golang.org/x/tools/go/ssa/ssautil"
 )
 
-const mod = "github.com/0xdeafcafe/agtop"
+const mod = "github.com/0xdeafcafe/rush"
 
 // harmless are system calls that answer from the process itself.
 var harmless = map[string]bool{
@@ -61,7 +61,7 @@ func main() {
 		dir = flag.Arg(0)
 	}
 	cfg := &packages.Config{Mode: packages.LoadAllSyntax, Dir: dir}
-	pkgs, err := packages.Load(cfg, "./cmd/agtop")
+	pkgs, err := packages.Load(cfg, "./cmd/rush")
 	if err != nil || packages.PrintErrors(pkgs) > 0 {
 		fmt.Fprintln(os.Stderr, "uiblock: loading:", err)
 		os.Exit(2)

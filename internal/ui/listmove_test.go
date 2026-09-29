@@ -3,8 +3,8 @@ package ui
 import (
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // ↑↓ in Agents stop on every section heading, open or folded; there the

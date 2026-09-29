@@ -12,11 +12,11 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agtools"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agtools"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 var t0 = time.Date(2026, 9, 23, 22, 0, 0, 0, time.UTC)
@@ -45,20 +45,20 @@ func say(text string) headless.Message {
 // answer, and a live one with a failed command, an edit and a subagent.
 func session() *Session {
 	s := New()
-	s.Info.Cwd = "/work/agtop"
+	s.Info.Cwd = "/work/rush"
 	evs := []struct {
 		sec int
 		ev  any
 	}{
 		{0, host.Sent{Text: "the ux right now is totally broken when i attach"}},
 		{1, say("Looking at how attach restores the terminal modes.")},
-		{2, toolUse("r1", "Read", map[string]any{"file_path": "/work/agtop/internal/daemon/attach.go"})},
+		{2, toolUse("r1", "Read", map[string]any{"file_path": "/work/rush/internal/daemon/attach.go"})},
 		{3, toolResult("r1", "…", false, map[string]any{"type": "text", "file": map[string]any{"numLines": 166, "startLine": 1, "totalLines": 166}})},
-		{3, toolUse("g1", "Grep", map[string]any{"pattern": "1049h", "path": "/work/agtop/internal"})},
+		{3, toolUse("g1", "Grep", map[string]any{"pattern": "1049h", "path": "/work/rush/internal"})},
 		{4, toolResult("g1", "internal/daemon/attach.go\ninternal/ui/live.go", false, nil)},
 		{4, toolUse("b1", "Bash", map[string]any{"command": "go build ./..."})},
 		{6, toolResult("b1", "", false, map[string]any{"stdout": "", "stderr": ""})},
-		{7, toolUse("e1", "Edit", map[string]any{"file_path": "/work/agtop/internal/daemon/attach.go"})},
+		{7, toolUse("e1", "Edit", map[string]any{"file_path": "/work/rush/internal/daemon/attach.go"})},
 		{8, toolResult("e1", "ok", false, map[string]any{"structuredPatch": []map[string]any{{"oldStart": 60, "oldLines": 2, "newStart": 60, "newLines": 3,
 			"lines": []string{" \tfor _, m := range info.DecModes {", "-\t\tfmt.Fprint(out, x)", "+\t\tfmt.Fprint(out, y)", "+\t\tfmt.Fprint(out, z)"}}}})},
 		{9, say("Fixed the **alt screen**. Attach now clears to the alternate screen first.")},
@@ -66,10 +66,10 @@ func session() *Session {
 
 		{20, host.Sent{Text: "add modern key stuff to input too"}},
 		{21, headless.Delta{Thinking: true, Text: "hmm"}},
-		{22, toolUse("b2", "Bash", map[string]any{"command": "cd /work/agtop/internal/ui && go vet ./... 2>&1 | head -50"})},
+		{22, toolUse("b2", "Bash", map[string]any{"command": "cd /work/rush/internal/ui && go vet ./... 2>&1 | head -50"})},
 		{23, toolResult("b2", "Exit code 1\ninternal/ui/editor.go:41:2: unreachable code", true,
 			map[string]any{"stdout": "internal/ui/editor.go:41:2: unreachable code", "stderr": ""})},
-		{24, toolUse("w1", "Write", map[string]any{"file_path": "/work/agtop/internal/ui/editor.go", "content": "package ui\n\nfunc x() {}\n"})},
+		{24, toolUse("w1", "Write", map[string]any{"file_path": "/work/rush/internal/ui/editor.go", "content": "package ui\n\nfunc x() {}\n"})},
 		{25, toolResult("w1", "ok", false, map[string]any{"type": "create", "content": "package ui\n\nfunc x() {}\n"})},
 		{26, toolUse("a1", "Task", map[string]any{"subagent_type": "Explore", "description": "find the preview pane"})},
 		{27, headless.Message{Role: "assistant", ParentToolUseID: "a1", Blocks: []headless.Block{{Type: "tool_use", ID: "a1g", Name: "Grep", Input: raw(map[string]any{"pattern": "previewLines"})}}}},
@@ -461,7 +461,7 @@ func TestChanges(t *testing.T) {
 	if len(ch) != 2 || ch[0].Add != 2 || ch[0].Del != 1 || !ch[1].New || ch[1].Add != 3 {
 		t.Fatalf("changes: %+v %+v", ch[0], ch[1])
 	}
-	out := plain(s.ChangesView(Options{Width: 110, Now: at(60), Open: map[string]bool{"chg:/work/agtop/internal/daemon/attach.go": true}}))
+	out := plain(s.ChangesView(Options{Width: 110, Now: at(60), Open: map[string]bool{"chg:/work/rush/internal/daemon/attach.go": true}}))
 	for _, w := range []string{"This session  2 files · +5 −1", "internal/daemon/attach.go", "#1", "61 + ", "new · 3 lines"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("missing %q in\n%s", w, out)
@@ -535,7 +535,7 @@ func TestShellTurnsAndStyling(t *testing.T) {
 func TestInjectedPrompts(t *testing.T) {
 	cases := []struct{ in, from, text string }{
 		{"<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"lint lane\" finished</summary>\n</task-notification>", "background task · completed", `Agent "lint lane" finished`},
-		{`<cross-session-message from="uds:/x" from-name="agent wrapper">agtop: my edits are committed</cross-session-message>`, "message from agent wrapper", "agtop: my edits are committed"},
+		{`<cross-session-message from="uds:/x" from-name="agent wrapper">rush: my edits are committed</cross-session-message>`, "message from agent wrapper", "rush: my edits are committed"},
 	}
 	for _, c := range cases {
 		from, text, ok := Injected(c.in)
@@ -776,13 +776,13 @@ func TestChangesHunks(t *testing.T) {
 func TestNotice(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	lines := []string{
-		`{"type":"user","timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"/agtop"}}`,
-		`{"type":"system","subtype":"informational","level":"warning","timestamp":"2026-09-23T20:00:01Z","content":"Unknown command: /agtop. Did you mean /stop?"}`,
+		`{"type":"user","timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"/rush"}}`,
+		`{"type":"system","subtype":"informational","level":"warning","timestamp":"2026-09-23T20:00:01Z","content":"Unknown command: /rush. Did you mean /stop?"}`,
 	}
 	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 	tl := NewTail(path)
 	_, _ = tl.Read()
-	if out := plain(tl.Sess.Render(Options{Width: 100, Now: at(0)})); !strings.Contains(out, "● Unknown command: /agtop. Did you mean /stop?") {
+	if out := plain(tl.Sess.Render(Options{Width: 100, Now: at(0)})); !strings.Contains(out, "● Unknown command: /rush. Did you mean /stop?") {
 		t.Fatalf("notice missing:\n%s", out)
 	}
 }
@@ -871,7 +871,7 @@ func TestPastesAndImagesFold(t *testing.T) {
 	}
 	s := New()
 	at := func(sec int) time.Time { return time.Unix(int64(sec), 0) }
-	s.Apply(host.Sent{Text: in + "\n[image: /tmp/agtop-images/shot.png]"}, at(0))
+	s.Apply(host.Sent{Text: in + "\n[image: /tmp/rush-images/shot.png]"}, at(0))
 	s.Apply(headless.Result{Subtype: "success"}, at(1))
 	s.Apply(host.Sent{Images: []string{"image", "image"}}, at(2))
 	out := plain(s.Render(Options{Width: 120, Now: at(3)}))
@@ -1087,7 +1087,7 @@ func TestAnswerNestedListWraps(t *testing.T) {
 // pasted three times over, one unbroken word, is broken across rows, and
 // the words after it are all there.
 func TestOpenTurnShowsTheWholeMessage(t *testing.T) {
-	url := "https://github.com/0xdeafcafe/agtop/pull/2/files#diff-4f1c0d7e3a9b2c8d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0"
+	url := "https://github.com/0xdeafcafe/rush/pull/2/files#diff-4f1c0d7e3a9b2c8d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0"
 	tail := "this one keeps opening the wrong file when I click it, and the one after it too, " +
 		"so please look at how the links are resolved and fix both of them before the release"
 	s := New()

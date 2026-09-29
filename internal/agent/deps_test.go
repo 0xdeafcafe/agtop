@@ -15,7 +15,7 @@ func TestCoreImportsNoAgent(t *testing.T) {
 	}
 	for _, dep := range strings.Fields(string(out)) {
 		for _, banned := range []string{"/internal/adapters", "/internal/claude", "/internal/headless", "/internal/host", "/internal/daemon"} {
-			if strings.Contains(dep, "agtop"+banned) {
+			if strings.Contains(dep, "rush"+banned) {
 				t.Errorf("internal/agent depends on %s", dep)
 			}
 		}

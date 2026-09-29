@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // Commands are the prompt templates (/name) and skills (/skill:name) a

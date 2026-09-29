@@ -6,14 +6,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/squeeze"
+	"github.com/0xdeafcafe/rush/internal/squeeze"
 )
 
 // squeezedMsg says what a pass of transcript compression did.
 type squeezedMsg squeeze.Result
 
 // squeezeTranscripts stores transcripts untouched for two days compressed,
-// in the background: two minutes after agtop opens, then every six hours.
+// in the background: two minutes after rush opens, then every six hours.
 // They read exactly as before, to Claude Code and everything else.
 func (m *Model) squeezeTranscripts() tea.Cmd {
 	if m.store.Config.KeepTranscriptsPlain || m.squeezing || (m.tick != 120 && m.tick%21600 != 120) {

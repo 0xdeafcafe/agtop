@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
-// homesDir is where agtop keeps each Claude login's home (claude.LinkHome).
+// homesDir is where rush keeps each Claude login's home (claude.LinkHome).
 func homesDir() string { return filepath.Join(Dir(), string(claude.Kind)) }
 
-// ClaudeHome is the config folder agtop keeps for the login with id.
+// ClaudeHome is the config folder rush keeps for the login with id.
 func ClaudeHome(id string) claude.Account {
 	return claude.Account{ConfigDir: filepath.Join(homesDir(), id)}
 }
@@ -78,12 +78,12 @@ func UseLogin(root claude.Account, l claude.Login) error {
 	if !claude.HasHome(h) {
 		cred, err := Vault().Get(l.ID)
 		if err != nil {
-			return fmt.Errorf("agtop has no sign-in for %s; sign in to it again", l.Name)
+			return fmt.Errorf("rush has no sign-in for %s; sign in to it again", l.Name)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if id, err := claude.Owner(ctx, cred); err == nil && id != l.ID {
-			return fmt.Errorf("agtop's sign-in for %s is another account's; sign in to it again", l.Name)
+			return fmt.Errorf("rush's sign-in for %s is another account's; sign in to it again", l.Name)
 		}
 		if err := claude.SeedHome(h, root, l, cred); err != nil {
 			return err
@@ -108,7 +108,7 @@ func AdoptLogin(scratch claude.Account) (claude.Login, error) {
 	return l, nil
 }
 
-// ForgetLogin drops what agtop keeps of a login: its vault sign-in and
+// ForgetLogin drops what rush keeps of a login: its vault sign-in and
 // its home. Sessions it's the login in use for go back to ~/.claude.
 func ForgetLogin(id string) error {
 	if ClaudeUsing() == id {

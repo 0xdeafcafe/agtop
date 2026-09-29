@@ -2,7 +2,7 @@ package agent
 
 import "time"
 
-// Timeliner is an agent whose sessions agtop can follow as a timeline: what
+// Timeliner is an agent whose sessions rush can follow as a timeline: what
 // a session and its subagents have done, in time order.
 type Timeliner interface {
 	NewTimeline() Timeline

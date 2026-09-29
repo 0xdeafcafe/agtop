@@ -3,17 +3,17 @@ package ui
 import (
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
-	"github.com/0xdeafcafe/agtop/internal/theme"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/theme"
 )
 
 // Every provider has a glyph and a colour of its own, taken from its
 // brand where it has one, so which one a session, the header or the top
 // bar is on can be told at a glance.
 
-// look is a provider's glyph and colour, the colour as it is on agtop's
+// look is a provider's glyph and colour, the colour as it is on rush's
 // dark ground.
 type look struct {
 	glyph string
@@ -21,7 +21,7 @@ type look struct {
 }
 
 var (
-	// builtinLook is Claude Code's: its starburst, in agtop's orange.
+	// builtinLook is Claude Code's: its starburst, in rush's orange.
 	builtinLook = look{"✻", theme.RGB{R: 217, G: 119, B: 87}}
 	// otherLook is a provider without one of its own.
 	otherLook = look{"◇", theme.RGB{R: 143, G: 179, B: 217}}
@@ -41,7 +41,7 @@ var (
 )
 
 // unmarked is whether provider k's rows go without its mark, as they were
-// before agtop ran other agents: the one whose accounts are agtop's logins.
+// before rush ran other agents: the one whose accounts are rush's logins.
 func unmarked(k agent.Kind) bool { return k == loginsKind }
 
 // lookOf is provider k's look.
@@ -108,7 +108,7 @@ func (m *Model) sessionTag(a *fleet.Agent) string {
 	return strings.Join(parts, faint(" · "))
 }
 
-// accountOf is the account provider k is signed in as, when agtop keeps
+// accountOf is the account provider k is signed in as, when rush keeps
 // more than the one: a Claude Code login, or another agent's sign-in.
 func (m *Model) accountOf(k agent.Kind) string {
 	if k != loginsKind {
@@ -176,7 +176,7 @@ func (m *Model) startWith(dir string, plain bool) string {
 
 // levelWords say what each support level means.
 var levelWords = map[agent.Level]string{
-	agent.LevelFull:    "everything agtop does, used every day",
+	agent.LevelFull:    "everything rush does, used every day",
 	agent.LevelTested:  "tried against its real program",
 	agent.LevelPreview: "built, not yet tried against its real program",
 }
@@ -209,7 +209,7 @@ func (m *Model) chain(p state.Profile) string {
 	return strings.Join(parts, faint(" → "))
 }
 
-// notInstalled are the providers agtop has an adapter for that aren't
+// notInstalled are the providers rush has an adapter for that aren't
 // installed here, each with its support level.
 func (m *Model) notInstalled() string {
 	var out []string
@@ -221,7 +221,7 @@ func (m *Model) notInstalled() string {
 	return strings.Join(out, faint(" · "))
 }
 
-// featureGrid is what agtop can do with provider k, feature by feature, in
+// featureGrid is what rush can do with provider k, feature by feature, in
 // as many columns as fit: ✓ it can, – it can't, ◌ planned. A feature's
 // note follows the grid.
 func (m *Model) featureGrid(k agent.Kind, w int, label func(string) string) []string {

@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
 // Spawn is another agent a shell command ran: claude -p, codex exec,
@@ -282,7 +282,7 @@ func spawnIn(c command, body []string, stdin string) (Spawn, bool) {
 	}
 	args := words[1:]
 	print, sub, fromStdin, streamed := false, false, false, false
-	var loose []string // bare words after a flag agtop doesn't know, which may be its value
+	var loose []string // bare words after a flag rush doesn't know, which may be its value
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		// The subcommand is the first bare word, past any global flags:
@@ -330,7 +330,7 @@ func spawnIn(c command, body []string, stdin string) (Spawn, bool) {
 			}
 		}
 	}
-	// A bare word after a flag agtop doesn't know is the prompt only when
+	// A bare word after a flag rush doesn't know is the prompt only when
 	// nothing else is.
 	if sp.Prompt == "" && sp.From == "" && len(loose) > 0 && !fromStdin && c.stdin == "" && c.tag == "" && stdin == "" {
 		sp.Prompt = unquoteArg(loose[len(loose)-1])

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // fakeAgent is a provider for the resolver: installed unless missing.
@@ -21,7 +21,7 @@ func (f fakeAgent) Name() string     { return string(f.kind) }
 
 type missingAgent struct{ fakeAgent }
 
-func (missingAgent) Program() (string, []string) { return "agtop-no-such-program", nil }
+func (missingAgent) Program() (string, []string) { return "rush-no-such-program", nil }
 
 func init() {
 	for _, k := range []agent.Kind{"claude", "pa", "pb", "pc"} {
@@ -119,7 +119,7 @@ func TestPickFor(t *testing.T) {
 // become the Default profile, once; the old fields are still written.
 func TestMigrateProfiles(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("AGTOP_HOME", dir)
+	t.Setenv("RUSH_HOME", dir)
 	path := filepath.Join(dir, "config.json")
 	old := `{"dispatch":{"kind":"pa"},"switchOnLimit":"agent","agentOrder":["pb","pa"]}`
 	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
@@ -134,7 +134,7 @@ func TestMigrateProfiles(t *testing.T) {
 	if want := []string{"pa", "pb", "claude", "gone", "pc"}; !equal(d.Providers, want) {
 		t.Fatalf("providers %v, want %v", d.Providers, want)
 	}
-	// Changed here: written back where older agtops read it.
+	// Changed here: written back where older rushes read it.
 	d.Mix, d.OnLimit, d.Providers = "", LimitWait, []string{"claude", "pb"}
 	c.SetProfile(d.Name, d)
 	c.SetProfile("", Profile{Name: "work", Providers: []string{"pc"}})
@@ -182,11 +182,11 @@ func TestMigrateProfiles(t *testing.T) {
 	}
 }
 
-// The Default profile an older agtop made, doing no more than its first
+// The Default profile an older rush made, doing no more than its first
 // provider does, gives way to that provider's own; its folders follow.
 func TestMigratePlainDefault(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("AGTOP_HOME", dir)
+	t.Setenv("RUSH_HOME", dir)
 	old := `{"dispatch":{"kind":"claude"},"agentOrder":["claude","pa"],
 		"profiles":[{"name":"Default","providers":["claude","pa"]}],"defaultProfile":"Default",
 		"folderRules":[{"path":"~/w","profile":"Default"}]}`

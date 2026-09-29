@@ -18,9 +18,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/pgguard"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/pgguard"
 )
 
 // Options says which conversation to run and where.
@@ -116,7 +116,7 @@ func Start(o Options) (*Session, error) {
 	}
 	cmd := exec.Command(bin, o.args()...)
 	cmd.Dir = o.Dir
-	// agtop draws a question's option previews, which Claude Code only
+	// rush draws a question's option previews, which Claude Code only
 	// offers a headless session when told the format.
 	cmd.Env = append(append(o.Account.Env(), "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT=markdown"), o.Env...)
 	// Its own process group, so stopping the session takes its shells too.
@@ -203,7 +203,7 @@ func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte), skip 
 			// leave Claude Code waiting.
 			var e envelope
 			_ = jsonx.Unmarshal(o.Raw, &e)
-			_ = s.reply(e.RequestID, nil, "not supported by agtop")
+			_ = s.reply(e.RequestID, nil, "not supported by rush")
 			continue
 		}
 		events <- ev
@@ -413,7 +413,7 @@ func (s *Session) reply(id string, body any, errText string) error {
 // control sends a request to Claude Code and returns its id; the answer
 // arrives later as a ControlReply event.
 func (s *Session) control(req map[string]any) (string, error) {
-	id := fmt.Sprintf("agtop-%d", s.seq.Add(1))
+	id := fmt.Sprintf("rush-%d", s.seq.Add(1))
 	return id, s.write(map[string]any{"type": "control_request", "request_id": id, "request": req})
 }
 
@@ -422,7 +422,7 @@ func (s *Session) control(req map[string]any) (string, error) {
 // also registers the MCP servers the host runs in-process, whose messages
 // then arrive as MCPRequests; send it before the first message.
 //
-// It says agtop stops background tasks one at a time (StopTask), so an
+// It says rush stops background tasks one at a time (StopTask), so an
 // interrupt stops only the turn and leaves running subagents be; without
 // that, Claude Code kills them all with the turn.
 func (s *Session) Initialize(servers ...string) (string, error) {

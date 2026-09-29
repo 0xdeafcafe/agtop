@@ -1,6 +1,6 @@
 package agent
 
-// Brancher is an agent whose conversation agtop can copy for a fork that
+// Brancher is an agent whose conversation rush can copy for a fork that
 // remembers only part of it, or that runs in another folder: the copy is
 // resumed as a session of its own.
 type Brancher interface {

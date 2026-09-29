@@ -10,10 +10,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // --- /rewind ---
@@ -72,7 +72,7 @@ func (m *Model) openRewind(c *hostConn, a *fleet.Agent) tea.Cmd {
 func (m *Model) openRewindAt(c *hostConn, a *fleet.Agent, n int, prompt string) tea.Cmd {
 	switch {
 	case c.client == nil:
-		m.flash("/rewind works in agtop-mode sessions · /agtop moves this one over, or /fork from an earlier turn", true)
+		m.flash("/rewind works in rush-mode sessions · /rush moves this one over, or /fork from an earlier turn", true)
 		return nil
 	case busy(a) || c.sess.Live() != nil:
 		m.flash(a.DisplayName+" is working: stop it (esc) or let the turn end, then /rewind", true)
@@ -416,7 +416,7 @@ func (f *rewindSheet) start(m *Model) tea.Cmd {
 }
 
 // rewindHost tells an agent's host to carry on from sessionID. The host
-// hangs up once it has, or says why it won't. A host from an older agtop
+// hangs up once it has, or says why it won't. A host from an older rush
 // doesn't know how, so it's restarted on this one, already rewound.
 func rewindHost(id, sessionID string, resume bool, left host.Branch) (restarted bool, err error) {
 	if info, err := host.ReadInfo(id); err == nil && info.Proto < 1 {
@@ -454,7 +454,7 @@ func rewindLive(id, sessionID string, resume bool, left host.Branch) error {
 
 func restartNote(restarted bool) string {
 	if restarted {
-		return " · its host was from an older agtop, so it restarted on this one"
+		return " · its host was from an older rush, so it restarted on this one"
 	}
 	return ""
 }

@@ -8,14 +8,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // An agent a session ran from its shell (claude -p, codex exec) wrote a
-// session of its own. agtop finds it (by when it started, where, and what
+// session of its own. rush finds it (by when it started, where, and what
 // it was asked), draws its steps under the command's row, and lists it
 // with the session's subagents.
 
@@ -45,7 +45,7 @@ type spawnRun struct {
 	looked time.Time // when it was last looked for, while not found
 	lost   bool      // looked for past its command's end, and not found
 	fresh  bool      // its session was just read again, to give its step
-	hosted string    // the agtop session it runs as, when agtop hosts it
+	hosted string    // the rush session it runs as, when rush hosts it
 }
 
 // view is the spawned agent's conversation as a Tail, for the subagent
@@ -62,7 +62,7 @@ func (r *spawnRun) view() *convo.Tail {
 type spawnFoundMsg struct {
 	key    string
 	found  map[string]agent.Session
-	hosted map[string]string // the agtop sessions of those agtop hosts
+	hosted map[string]string // the rush sessions of those rush hosts
 }
 
 // spawnWant is a spawned agent to look for.
@@ -137,7 +137,7 @@ func (m *Model) refreshSpawns() tea.Cmd {
 				taken[s.Transcript] = true
 			}
 		}
-		// Run through agtop's stand-in, it's an agtop session: what you
+		// Run through rush's stand-in, it's a rush session: what you
 		// type while you watch it goes to it.
 		if len(found) > 0 {
 			infos := host.List()
@@ -344,8 +344,8 @@ func (c *hostConn) spawnState(sa convo.Subagent) (status string, live bool) {
 	return "", false
 }
 
-// watchedHost is the agtop session of the spawned agent the pane shows,
-// when agtop hosts it: what you send goes to it rather than the session.
+// watchedHost is the rush session of the spawned agent the pane shows,
+// when rush hosts it: what you send goes to it rather than the session.
 func (m *Model) watchedHost(c *hostConn) string {
 	if !m.watchingSub(c) {
 		return ""

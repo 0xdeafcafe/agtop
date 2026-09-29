@@ -1,7 +1,7 @@
 package convo
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // Conversation is the session told for a hand-off to another agent

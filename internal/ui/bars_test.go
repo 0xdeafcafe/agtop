@@ -9,19 +9,19 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/state"
-	"github.com/0xdeafcafe/agtop/internal/statusline"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/statusline"
 )
 
 func barAgentFixture(t *testing.T) (*Model, *fleet.Agent, *hostConn) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 160, h: 44}
-	a := &fleet.Agent{Key: "k", DisplayName: "fixer", Cwd: "/src/agtop", Branch: "main", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
+	a := &fleet.Agent{Key: "k", DisplayName: "fixer", Cwd: "/src/rush", Branch: "main", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
 	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}, client: &host.Client{}}
 	c.sess.Info = host.Info{Model: "claude-opus-5-5", Effort: "high", PermissionMode: "auto", CostUSD: 8.18, Queue: []string{"later"}}
 	c.sess.Context = 170_000
@@ -42,7 +42,7 @@ func TestAgentHeaderFollowsItsLayout(t *testing.T) {
 			t.Fatalf("line 1 lacks %q: %q", want, r1)
 		}
 	}
-	for _, want := range []string{"/src/agtop · main", "high · auto", "connected"} {
+	for _, want := range []string{"/src/rush · main", "high · auto", "connected"} {
 		if !strings.Contains(r2, want) {
 			t.Fatalf("line 2 lacks %q: %q", want, r2)
 		}
@@ -80,7 +80,7 @@ func TestAgentHeaderNarrowDropsTheLast(t *testing.T) {
 	m, a, c := barAgentFixture(t)
 	wide := ansi.Strip(m.paneHeader(a, c, 160)[1])
 	narrow := ansi.Strip(m.paneHeader(a, c, 44)[1])
-	if !strings.Contains(wide, "auto") || strings.Contains(narrow, "auto") || !strings.Contains(narrow, "/src/agtop") {
+	if !strings.Contains(wide, "auto") || strings.Contains(narrow, "auto") || !strings.Contains(narrow, "/src/rush") {
 		t.Fatalf("wide %q\nnarrow %q", wide, narrow)
 	}
 	if !strings.Contains(ansi.Strip(m.paneHeader(a, c, 44)[0]), "fixer") {
@@ -88,7 +88,7 @@ func TestAgentHeaderNarrowDropsTheLast(t *testing.T) {
 	}
 }
 
-// Saving keeps agtop's own lines, and leaves Claude Code's settings alone
+// Saving keeps rush's own lines, and leaves Claude Code's settings alone
 // when its line wasn't touched.
 func TestSaveBarsLeavesClaudeAlone(t *testing.T) {
 	m, a, c := barAgentFixture(t)

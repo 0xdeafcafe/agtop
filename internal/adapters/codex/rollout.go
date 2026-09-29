@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // A rollout is the JSONL file Codex writes each thread to, under
@@ -43,7 +43,7 @@ const maxLine = 256 << 20
 
 // readers keeps readLines' 1MB buffers, and headReaders readHeadLines'
 // 64KB ones: listing past threads reads the head of every rollout, and a
-// fresh buffer each was most of what agtop allocated. A head stops after a
+// fresh buffer each was most of what rush allocated. A head stops after a
 // few hundred lines, so a smaller buffer reads less past them.
 var readers, headReaders sync.Pool
 

@@ -3,10 +3,10 @@ package codex
 import (
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
-// Choices are Codex's reasoning efforts and agtop's three presets of its
+// Choices are Codex's reasoning efforts and rush's three presets of its
 // approval policy and sandbox (modes). Its models come and go with the
 // account, so Settings offers the ones your sessions have used, or a typed
 // one.

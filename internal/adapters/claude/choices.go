@@ -1,6 +1,6 @@
 package claude
 
-import "github.com/0xdeafcafe/agtop/internal/agent"
+import "github.com/0xdeafcafe/rush/internal/agent"
 
 // Choices are Claude Code's --model, --effort and --permission-mode.
 func (Adapter) Choices() agent.Choices {

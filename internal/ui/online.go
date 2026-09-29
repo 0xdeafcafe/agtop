@@ -9,26 +9,26 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/netproof"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/netproof"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// A Claude Code session agtop isn't hosting stops for good when its turn
+// A Claude Code session rush isn't hosting stops for good when its turn
 // dies on an API error: the network down, a connection dropped or stalled,
-// the API overloaded. agtop tells each to continue, waiting on the API with
+// the API overloaded. rush tells each to continue, waiting on the API with
 // every other session through netproof: one whose prompt cache is still
 // warm once the API can be reached, one whose cache has expired (its next
 // try re-reads the whole conversation at full price) only on proof the
 // connection holds, and then one first.
 
-// onlineEvery is how often agtop looks at whether a waiting session may
+// onlineEvery is how often rush looks at whether a waiting session may
 // try again.
 var onlineEvery = 5 * time.Second
 
 // onlineMost is how many times one session is told to continue before
-// agtop leaves it to you: an API that keeps failing gives up in the end.
+// rush leaves it to you: an API that keeps failing gives up in the end.
 const onlineMost = 8
 
 // cacheLife is how long Claude Code's prompt cache lasts: it writes the
@@ -131,7 +131,7 @@ func (m *Model) look() onlineLook {
 	return l
 }
 
-// watchOnline shares what's new about the API with every agtop process,
+// watchOnline shares what's new about the API with every rush process,
 // and looks at whether each waiting session may try again. Offline
 // (--soak) never does.
 func (m *Model) watchOnline() tea.Cmd {
@@ -181,7 +181,7 @@ func (m *Model) onOnline(msg onlineMsg) tea.Cmd {
 		i++
 		cmds = append(cmds, func() tea.Msg {
 			if !claimContinue(key, at) {
-				return nil // another agtop told it
+				return nil // another rush told it
 			}
 			time.Sleep(wait)
 			if err := replyOutside(kind, acct, id, "continue"); err != nil {
@@ -194,7 +194,7 @@ func (m *Model) onOnline(msg onlineMsg) tea.Cmd {
 }
 
 // claimContinue claims telling one session to continue from one halt for
-// this process, so two agtops open at once don't both send it. Claims a
+// this process, so two rushes open at once don't both send it. Claims a
 // few days old are cleared as it goes.
 func claimContinue(key string, at time.Time) bool {
 	dir := filepath.Join(state.Dir(), "online")

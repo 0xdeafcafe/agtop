@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // UseAgent sets cfg to run kind, in the agent's first config folder, and
-// reports an agent agtop doesn't know, can't run or can't find installed.
+// reports an agent rush doesn't know, can't run or can't find installed.
 // An account already set is kept.
 func (cfg *Config) UseAgent(kind string) error {
 	a, ok := agent.Get(agent.Kind(kind))
@@ -19,10 +19,10 @@ func (cfg *Config) UseAgent(kind string) error {
 		for _, a := range agent.All() {
 			kinds = append(kinds, string(a.Kind()))
 		}
-		return fmt.Errorf("agtop doesn't know the agent %q: it knows %s", kind, strings.Join(kinds, ", "))
+		return fmt.Errorf("rush doesn't know the agent %q: it knows %s", kind, strings.Join(kinds, ", "))
 	}
 	if _, ok := a.(agent.Driver); !ok {
-		return fmt.Errorf("agtop can't run %s sessions", a.Name())
+		return fmt.Errorf("rush can't run %s sessions", a.Name())
 	}
 	if cfg.Kind != "" && cfg.Kind != kind {
 		return fmt.Errorf("session %s is a %s session, not %s", cfg.ID, cfg.Kind, kind)
@@ -30,7 +30,7 @@ func (cfg *Config) UseAgent(kind string) error {
 	if !agent.Installed(a.Kind()) {
 		agent.Recheck() // it may have been installed since the last look
 		if !agent.Installed(a.Kind()) {
-			return fmt.Errorf("%s isn't installed: agtop can't find its program", a.Name())
+			return fmt.Errorf("%s isn't installed: rush can't find its program", a.Name())
 		}
 	}
 	if !agent.Runs(a.Kind()) {
@@ -43,14 +43,14 @@ func (cfg *Config) UseAgent(kind string) error {
 	if cfg.Account.Dir == "" {
 		ps := agent.ProfilesOf(a)
 		if len(ps) == 0 {
-			return fmt.Errorf("%s isn't installed: agtop can't find its program", a.Name())
+			return fmt.Errorf("%s isn't installed: rush can't find its program", a.Name())
 		}
 		cfg.Account = ps[0]
 	}
 	return nil
 }
 
-// Installed are the agents agtop can run here: their program is on the
+// Installed are the agents rush can run here: their program is on the
 // machine.
 func Installed() []agent.Adapter {
 	var out []agent.Adapter
@@ -62,7 +62,7 @@ func Installed() []agent.Adapter {
 	return out
 }
 
-// QuotasPath is where every agtop and session keeps other agents' plan
+// QuotasPath is where every rush and session keeps other agents' plan
 // limits as last read.
 func QuotasPath() string { return filepath.Join(state.Dir(), "quotas.json") }
 

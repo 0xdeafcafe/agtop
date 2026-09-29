@@ -6,10 +6,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // errNoTranscript is a session asked for its history that has no
@@ -27,7 +27,7 @@ type historyLine struct {
 	ToolUseResult jsontext.Value `json:"toolUseResult"`
 }
 
-// History reads s's transcript back as agtop's own events: its messages,
+// History reads s's transcript back as rush's own events: its messages,
 // from before before when that's set. A subagent's lines and Claude Code's
 // own notes are left out, as convo leaves them out of a conversation.
 func (Adapter) History(s agent.Session, before time.Time) ([]event.Event, error) { //nolint:gocritic // HistoryReader takes the session by value

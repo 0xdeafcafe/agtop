@@ -2,7 +2,7 @@ package efficiency
 
 import (
 	"bufio"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,7 +18,7 @@ type Event struct {
 	Kind    string    `json:"kind"` // install, remove, setting, note; "used" is worked out, never kept
 	Saver   string    `json:"saver,omitempty"`
 	Account string    `json:"account,omitempty"`
-	// Source is how it's known: agtop did it, agtop noticed it, it was
+	// Source is how it's known: rush did it, rush noticed it, it was
 	// read from an install date, or you wrote it.
 	Source string `json:"source"`
 	Detail string `json:"detail,omitempty"`
@@ -129,7 +129,7 @@ func Observe(env *Env) map[string]Found {
 	return found
 }
 
-// Remember records what agtop itself just changed, so Observe doesn't log
+// Remember records what rush itself just changed, so Observe doesn't log
 // it a second time as noticed.
 func Remember(env *Env, id string, f Found) {
 	eventsMu.Lock()

@@ -12,15 +12,15 @@ import (
 	"time"
 )
 
-// Clicking a notification, or an agent in the menu, comes back to agtop in
+// Clicking a notification, or an agent in the menu, comes back to rush in
 // the terminal it's open in (Warp, iTerm, Ghostty…), on that agent: each
-// agtop leaves its terminal's bundle ID under open/<pid> while it runs, and
+// rush leaves its terminal's bundle ID under open/<pid> while it runs, and
 // picks up an agent to go to from open/<pid>.goto.
 
 func openDir() string      { return filepath.Join(dir(), "open") }
 func lastTerminal() string { return filepath.Join(dir(), "terminal") }
 
-// Here marks this agtop as open in its terminal until the returned func is
+// Here marks this rush as open in its terminal until the returned func is
 // called.
 func Here() func() {
 	id := terminalID()
@@ -38,7 +38,7 @@ func Here() func() {
 	}
 }
 
-// Goto is the agent the menu bar app last asked this agtop to go to, once.
+// Goto is the agent the menu bar app last asked this rush to go to, once.
 func Goto() string {
 	p := filepath.Join(openDir(), strconv.Itoa(os.Getpid())+".goto")
 	b, err := os.ReadFile(p)
@@ -49,7 +49,7 @@ func Goto() string {
 	return strings.TrimSpace(string(b))
 }
 
-// terminalID is the bundle ID of the app agtop's terminal is: macOS hands
+// terminalID is the bundle ID of the app rush's terminal is: macOS hands
 // it to everything an app starts, tmux included; TERM_PROGRAM names the
 // usual ones when it didn't.
 func terminalID() string {
@@ -66,7 +66,7 @@ func terminalID() string {
 	}[os.Getenv("TERM_PROGRAM")]
 }
 
-// open is the agtop open most recently, and the terminal it's in.
+// open is the rush open most recently, and the terminal it's in.
 func open() (pid int, id string) {
 	ents, _ := os.ReadDir(openDir())
 	var at time.Time
@@ -90,8 +90,8 @@ func open() (pid int, id string) {
 	return pid, id
 }
 
-// Show brings agtop forward on the agent key (if any): the terminal it's
-// open in, or, with none open, a new agtop in the terminal it last was.
+// Show brings rush forward on the agent key (if any): the terminal it's
+// open in, or, with none open, a new rush in the terminal it last was.
 func Show(key string) error {
 	if pid, id := open(); pid != 0 {
 		if key != "" {
@@ -109,7 +109,7 @@ func Show(key string) error {
 }
 
 // runsFiles says whether the terminal runs a program it's asked to open;
-// the others don't take one this way, so a new agtop opens in Terminal.
+// the others don't take one this way, so a new rush opens in Terminal.
 func runsFiles(id string) bool {
 	return id == "com.apple.Terminal" || id == "com.googlecode.iterm2" || strings.HasPrefix(id, "dev.warp.Warp")
 }

@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // Claude Code's sessions, as found on disk. Live lists its background jobs
@@ -124,7 +124,7 @@ func readJob(acct claude.Account, id, dir string) (claude.Job, bool) {
 	return j, true
 }
 
-// codenames is each live session's name for the others (agtop-8a, as
+// codenames is each live session's name for the others (rush-8a, as
 // ListAgents lists it) by session id, kept apart from found so the UI can
 // read it without waiting on a listing. A session that ended keeps its
 // name: messages sent to it earlier still name it.

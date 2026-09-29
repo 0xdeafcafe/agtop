@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // kinds is what each of Claude Code's tools does.
@@ -40,7 +40,7 @@ func KindOf(name string) tool.Kind {
 	return tool.Other
 }
 
-// Call reads one of Claude Code's tool calls into agtop's own.
+// Call reads one of Claude Code's tool calls into rush's own.
 func Call(id, name string, input jsontext.Value) tool.Call {
 	c := tool.Call{ID: id, Name: name, Kind: kinds[name], Raw: input}
 	var in struct {
@@ -119,7 +119,7 @@ func Call(id, name string, input jsontext.Value) tool.Call {
 			x.Server, x.Tool = strings.TrimPrefix(server, "claude_ai_"), t
 			break
 		}
-		// Claude Code's own tools agtop has no kind for: what they're
+		// Claude Code's own tools rush has no kind for: what they're
 		// about, for drawing them by name.
 		x.Command, x.Path, x.Pattern, x.URL, x.Query = in.Command, in.FilePath, in.Pattern, in.URL, in.Query
 	}
@@ -128,7 +128,7 @@ func Call(id, name string, input jsontext.Value) tool.Call {
 
 var exitRe = regexp.MustCompile(`(?m)^(?:Error: )?Exit code (\d+)`)
 
-// Output reads a tool result into agtop's own: text is what Claude read,
+// Output reads a tool result into rush's own: text is what Claude read,
 // result is Claude Code's structured account of the run (its
 // toolUseResult), when there is one.
 func Output(c tool.Call, text string, isError bool, result jsontext.Value) tool.Output {

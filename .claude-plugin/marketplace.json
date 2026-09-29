@@ -1,17 +1,17 @@
 {
-  "name": "agtop",
+  "name": "rush",
   "owner": {
     "name": "Alexander Forbes-Reed"
   },
   "metadata": {
-    "description": "Skills for working with agtop",
+    "description": "Skills for working with rush",
     "version": "1.0.0"
   },
   "plugins": [
     {
-      "name": "agtop-plugin-dev",
-      "description": "Teaches Claude to write, test and debug sandboxed agtop plugins: tools, subagents, memory and agents of their own.",
-      "source": "./plugins/skills/write-agtop-plugin",
+      "name": "rush-plugin-dev",
+      "description": "Teaches Claude to write, test and debug sandboxed rush plugins: tools, subagents, memory and agents of their own.",
+      "source": "./plugins/skills/write-rush-plugin",
       "strict": false,
       "skills": ["./"]
     }

@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Worker is a live background session as the daemon tracks it.
@@ -64,7 +64,7 @@ func ReadRoster(a Account) Roster {
 
 type PR = agent.PR
 
-// ReadPRCache reuses Claude Code's own GitHub status cache; agtop makes no GitHub calls.
+// ReadPRCache reuses Claude Code's own GitHub status cache; rush makes no GitHub calls.
 func ReadPRCache(a Account) map[string]PR {
 	m := map[string]PR{}
 	b, err := os.ReadFile(a.PRCachePath())

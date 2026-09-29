@@ -10,9 +10,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/settingsfile"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/settingsfile"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // What an agent itself reads, on its page: the keys of its settings file
@@ -244,7 +244,7 @@ type settingsLoad struct {
 var settingsRead = newMemo(0, func(path string) settingsLoad {
 	s, err := settingsfile.Load(path)
 	if err != nil {
-		s, _ = settingsfile.Load(filepath.Join(filepath.Dir(path), ".agtop-unreadable", filepath.Base(path)))
+		s, _ = settingsfile.Load(filepath.Join(filepath.Dir(path), ".rush-unreadable", filepath.Base(path)))
 	}
 	return settingsLoad{s, err}
 })

@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/keymap"
+	"github.com/0xdeafcafe/rush/internal/keymap"
 )
 
 func TestKeyOfRoundTrips(t *testing.T) {

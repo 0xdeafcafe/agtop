@@ -3,7 +3,7 @@ package convo
 import (
 	"bufio"
 	"bytes"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"os"
 )

@@ -5,16 +5,16 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// NewHosted is the view of one agtop-mode session alone, for embedding in
-// another app: agtop's header, then its Session at the whole width, with no
+// NewHosted is the view of one rush-mode session alone, for embedding in
+// another app: rush's header, then its Session at the whole width, with no
 // Agents list and no keys that lead to another agent. Efficiency, Machine
 // and Settings open with ctrl+\, and Agents is this session. id is the
-// session's agtop id. Only ctrl+q quits: esc leaves the message box, then
+// session's rush id. Only ctrl+q quits: esc leaves the message box, then
 // stops the turn. The session's host keeps running.
 //
 // Past conversations are left out until its Agents list or the command bar
@@ -41,7 +41,7 @@ func (m *Model) hostedSnap(snap *fleet.Snapshot) *fleet.Snapshot {
 	m.fleetAgents = snap.Agents
 	var mine *fleet.Agent
 	for _, a := range snap.Agents {
-		if a.Agtop && a.ID == m.hosted {
+		if a.Rush && a.ID == m.hosted {
 			mine = a
 			m.hostedKey = a.Key
 			break

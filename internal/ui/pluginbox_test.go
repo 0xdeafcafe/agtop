@@ -7,8 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/hooks"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/hooks"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // A plugin sets a Session's box whole, chips and cursor and all, and only

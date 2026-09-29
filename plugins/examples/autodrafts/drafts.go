@@ -23,7 +23,7 @@ type Draft struct {
 }
 
 // Store is everything the plugin keeps, by box: a Session's box by its
-// agtop session id, the Prompt's as "".
+// rush session id, the Prompt's as "".
 type Store struct {
 	// Autosave is what each box held when it last settled, until it's
 	// sent, or kept as a draft.
@@ -169,7 +169,7 @@ func (b *Book) Sent(key string) bool {
 }
 
 // Restore takes box key's newest draft out, to put it back in the box; or
-// its autosave, when it has no draft (agtop quit with it typed). Taking it
+// its autosave, when it has no draft (rush quit with it typed). Taking it
 // out means restoring again goes one further back, and a restored draft
 // cleared again comes back as the newest.
 func (b *Book) Restore(key string) (string, bool) {

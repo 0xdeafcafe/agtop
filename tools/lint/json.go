@@ -8,11 +8,11 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// JSON keeps agtop on json v2, through internal/jsonx: v1 is banned, and
+// JSON keeps rush on json v2, through internal/jsonx: v1 is banned, and
 // v2's Marshal and Unmarshal are only called by jsonx, so every call gets
 // jsonx.Opts (what keeps other programs' JSON readable).
 var JSON = &analysis.Analyzer{
-	Name: "agtopjson",
+	Name: "rushjson",
 	Doc:  "bans encoding/json (v1), and calling json v2 other than through internal/jsonx",
 	Run:  runJSON,
 }

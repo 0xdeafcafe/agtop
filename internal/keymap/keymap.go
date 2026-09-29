@@ -1,12 +1,12 @@
-// Package keymap names what agtop's keys do, so you can move them.
+// Package keymap names what rush's keys do, so you can move them.
 //
-// Every key agtop answers to in the Agents list, a Session or anywhere is an
+// Every key rush answers to in the Agents list, a Session or anywhere is an
 // Action with the keys it has by default. keybindings.json says which keys
 // you gave an action instead, and those can be chords: "ctrl+x d" is ctrl+x
-// then d. A plugin's commands and agtop's own # commands are actions too,
+// then d. A plugin's commands and rush's own # commands are actions too,
 // with no key until you (or, where the key is free, the plugin) give one.
 //
-// agtop's key handling stays written against the default keys. A Map sits in
+// rush's key handling stays written against the default keys. A Map sits in
 // front of it and turns each key you press into the default key of the
 // action you bound it to: bind session.send to ctrl+enter and ctrl+enter
 // arrives as ctrl+s. A default key you moved away from does nothing, unless
@@ -66,9 +66,9 @@ type Action struct {
 	Context Context //
 	Title   string  // what it does, in a few words
 	// Keys are its default keys. The first is the one a key bound to it
-	// stands in for; the rest are other keys agtop already takes for it.
+	// stands in for; the rest are other keys rush already takes for it.
 	Keys []string
-	// Source is who added it: "" for agtop, else the plugin's name.
+	// Source is who added it: "" for rush, else the plugin's name.
 	Source string
 }
 
@@ -198,7 +198,7 @@ type Map struct {
 }
 
 // Build makes the Map from the actions, what you set, and what plugins
-// suggest. Your bindings win over agtop's defaults; a plugin's suggestion
+// suggest. Your bindings win over rush's defaults; a plugin's suggestion
 // is taken only where the key is free.
 func Build(actions []Action, file File, suggested map[string][]string) *Map {
 	m := &Map{
@@ -228,7 +228,7 @@ func Build(actions []Action, file File, suggested map[string][]string) *Map {
 	return m
 }
 
-// bindDefaults binds agtop's keys, except for actions you set.
+// bindDefaults binds rush's keys, except for actions you set.
 func (m *Map) bindDefaults(file File) {
 	for _, id := range m.order {
 		if _, yours := file.Bindings[id]; yours {
@@ -446,7 +446,7 @@ func (m *Map) Resolve(ctxs []Context, pending Seq, key string) Result {
 			if a.Command() {
 				return Result{Run: id}
 			}
-			// One of its own keys arrives as it is: agtop's handling
+			// One of its own keys arrives as it is: rush's handling
 			// may tell them apart (ctrl+\ moves even from a box).
 			if slices.Contains(a.Keys, s) {
 				return Result{Key: s}

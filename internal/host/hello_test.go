@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/headless"
 )
 
-// A client that says it reads events gets a Claude Code session as agtop's
-// own; one that says nothing, an older agtop, gets Claude Code's lines,
+// A client that says it reads events gets a Claude Code session as rush's
+// own; one that says nothing, an older rush, gets Claude Code's lines,
 // and the op it sends first is still carried out.
 func TestHelloChoosesEncoding(t *testing.T) {
 	bin := setup(t)
@@ -65,7 +65,7 @@ func TestHelloChoosesEncoding(t *testing.T) {
 }
 
 // Claude Code doesn't always start a line with its type: a turn's result
-// can come with its usage first. It's still Claude's, and goes as agtop's
+// can come with its usage first. It's still Claude's, and goes as rush's
 // own event; the host's own lines go as they are.
 func TestEncoderReadsClaudeInAnyOrder(t *testing.T) {
 	var e encoder

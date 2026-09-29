@@ -8,9 +8,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func imageBox(t *testing.T) (*Model, *hostConn) {
@@ -95,7 +95,7 @@ func TestImagePathsInline(t *testing.T) {
 // screenshot's the time it was taken. What's sent keeps [Image #N].
 func TestImageChipNames(t *testing.T) {
 	m, c := imageBox(t)
-	shot := filepath.Join(os.TempDir(), "agtop-images", "clipboard-20260929-154203.117.png")
+	shot := filepath.Join(os.TempDir(), "rush-images", "clipboard-20260929-154203.117.png")
 	m.attachImages([]string{"/Users/me/rush-icon-v2-c.png", shot})
 	if got := string(c.input); got != "[Image #1] [Image #2]" {
 		t.Fatalf("box holds %q", got)

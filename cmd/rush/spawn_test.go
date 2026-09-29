@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	tokens "github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	tokens "github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
-// A run agtop can print as its program would is hosted; anything else
+// A run rush can print as its program would is hosted; anything else
 // runs the real program.
 func TestParseRun(t *testing.T) {
 	hosted := []struct {
@@ -50,7 +50,7 @@ func TestParseRun(t *testing.T) {
 		{"codex", []string{"exec", "-"}}, // prompt on stdin
 		{"codex", []string{"exec"}},      // prompt on stdin
 		{"codex", []string{"exec", "resume", "--last"}},
-		{"codex", []string{"exec", "--output-schema", "s.json", "go"}}, // a flag agtop can't print
+		{"codex", []string{"exec", "--output-schema", "s.json", "go"}}, // a flag rush can't print
 		{"codex", []string{"exec", "-c", "sandbox_mode=x", "go"}},
 		{"codex", []string{"exec", "-s", "nope", "go"}},
 		{"codex", []string{"exec", "one", "two"}},
@@ -60,7 +60,7 @@ func TestParseRun(t *testing.T) {
 		{"claude", []string{"mcp", "list"}},
 		{"claude", []string{"-p", "--output-format", "stream-json", "hi"}},       // claude says it wants --verbose
 		{"claude", []string{"-p", "--output-format", "json", "--verbose", "hi"}}, // every message, as an array
-		{"claude", []string{"-p", "--resume", "abc", "hi"}},                      // a flag agtop doesn't take
+		{"claude", []string{"-p", "--resume", "abc", "hi"}},                      // a flag rush doesn't take
 		{"claude", []string{"-p", "--input-format", "stream-json"}},
 		{"copilot", []string{"-p", "hi"}}, // not printed as copilot would, yet
 		{"ls", []string{"-la"}},
@@ -76,7 +76,7 @@ func TestParseRun(t *testing.T) {
 // that leads back to them.
 func TestRealProgram(t *testing.T) {
 	cache := t.TempDir()
-	t.Setenv("AGTOP_CACHE", cache)
+	t.Setenv("RUSH_CACHE", cache)
 	shims, other, linked := host.ShimDir(), filepath.Join(cache, "bin"), filepath.Join(cache, "linked")
 	for _, d := range []string{shims, other, linked} {
 		if err := os.MkdirAll(d, 0o755); err != nil {

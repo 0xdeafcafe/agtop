@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // A running turn's finished steps come from the unit memo frame after
@@ -13,13 +13,13 @@ import (
 // a step draws again, and mustn't work out every step in it anew.
 func TestMemoKeepsWhatUnitsDrew(t *testing.T) {
 	s := New()
-	s.Info.Cwd = "/work/agtop"
+	s.Info.Cwd = "/work/rush"
 	sec := 0
 	s.Apply(host.Sent{Text: "go"}, at(sec))
 	for i := range 12 {
 		sec++
 		id := fmt.Sprint("b", i)
-		s.Apply(toolUse(id, "Bash", map[string]any{"command": fmt.Sprintf("ls /work/agtop/dir%d", i)}), at(sec))
+		s.Apply(toolUse(id, "Bash", map[string]any{"command": fmt.Sprintf("ls /work/rush/dir%d", i)}), at(sec))
 		s.Apply(toolResult(id, "a\nb", false, map[string]any{"stdout": "a\nb", "stderr": ""}), at(sec))
 	}
 	s.Turns[len(s.Turns)-1].Live = true

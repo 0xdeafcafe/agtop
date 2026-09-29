@@ -3,7 +3,7 @@ package efficiency
 import (
 	"path/filepath"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // MemoryFindings are what's untidy in the memory and instructions a

@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"maps"
 	"os"
@@ -501,7 +501,7 @@ func (r *SubagentRuns) Stats(path string, now time.Time) SubagentStats {
 	st := SubagentStats{Spawned: len(runs)}
 	// Only a run written in the last RunStale can be working: when none
 	// has been, what the transcripts say needn't be read. An old session's
-	// can be tens of megabytes, and every one was read as agtop started.
+	// can be tens of megabytes, and every one was read as rush started.
 	if !slices.ContainsFunc(runs, func(x SubagentRun) bool { return x.Mod.IsZero() || now.Sub(x.Mod) < RunStale }) {
 		r.running = nil
 		return st

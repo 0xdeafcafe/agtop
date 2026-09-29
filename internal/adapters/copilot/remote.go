@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/netwatch"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/netwatch"
 )
 
 // A remote session is Copilot's coding agent working on GitHub: given an
-// issue or a task, it works in a runner and opens a pull request. agtop
+// issue or a task, it works in a runner and opens a pull request. rush
 // lists them and reads their logs; it doesn't start or steer them.
 
 // remoteSession is one of Copilot's agent sessions, as its API gives it.
@@ -43,7 +43,7 @@ type remoteSession struct {
 var done = map[string]bool{"completed": true, "cancelled": true, "failed": true, "timed_out": true, "error": true}
 
 // listEvery is how often the sessions are asked for again: the list is
-// read on every refresh of agtop's.
+// read on every refresh of rush's.
 const listEvery = 20 * time.Second
 
 var (
@@ -57,7 +57,7 @@ var (
 
 // sessions are your latest remote sessions as last listed, with the API
 // they came from and their repositories' names. It never waits on the
-// network: agtop lists agents on every refresh, the first before it draws
+// network: rush lists agents on every refresh, the first before it draws
 // anything, so a stale listing asks for a new one in the background and
 // the next refresh has it.
 func sessions() ([]remoteSession, string, map[int64]string) {
@@ -125,7 +125,7 @@ func (Adapter) remote(p agent.Profile, ended bool) []agent.Session {
 	return out
 }
 
-// session is a remote session as agtop's own.
+// session is a remote session as rush's own.
 func (r remoteSession) session(p agent.Profile, base, repo string) agent.Session {
 	s := agent.Session{Kind: Kind, Profile: p, ID: r.ID, Name: r.Name, Model: strings.TrimPrefix(r.Model, "sweagent-capi:"),
 		Remote: true, Repo: repo, Transcript: base + "/agents/sessions/" + r.ID + "/logs",
@@ -156,7 +156,7 @@ func parseTime(s string) time.Time {
 // The task it was given isn't in the log: its name stands for it.
 func (Adapter) History(s agent.Session, before time.Time) ([]event.Event, error) {
 	if !s.Remote && !strings.HasPrefix(s.Transcript, "https://") {
-		return nil, fmt.Errorf("copilot: session %s has no log agtop can read", s.ID)
+		return nil, fmt.Errorf("copilot: session %s has no log rush can read", s.ID)
 	}
 	url := s.Transcript
 	if url == "" {
@@ -266,7 +266,7 @@ func created(raw jsontext.Value) time.Time {
 	return time.Time{}
 }
 
-// callOf is one of the coding agent's tool calls as agtop's own.
+// callOf is one of the coding agent's tool calls as rush's own.
 func callOf(id, name, arguments string) tool.Call {
 	c := tool.Call{ID: id, Name: name, Raw: jsontext.Value(arguments)}
 	var in struct {

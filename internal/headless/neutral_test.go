@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 func neutral(t *testing.T, n *Neutral, line string) []event.Event {
@@ -90,7 +90,7 @@ func TestNeutralBilling(t *testing.T) {
 	}
 }
 
-// Claude Code's tasks and its background list read as agtop's own.
+// Claude Code's tasks and its background list read as rush's own.
 func TestNeutralTasks(t *testing.T) {
 	var n Neutral
 	st := neutral(t, &n, `{"type":"system","subtype":"task_started","task_id":"b1","tool_use_id":"tu1","task_type":"local_bash","description":"npm test","is_backgrounded":true}`)[0].(event.TaskStarted)

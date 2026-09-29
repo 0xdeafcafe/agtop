@@ -11,7 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
 // pastes keeps the long pastes a box shows as chips; the text goes out in
@@ -221,7 +221,7 @@ type editedMsg struct {
 func editInEditor(text string, pane bool, id int) tea.Cmd {
 	var tmp string
 	prepare := func() (string, error) {
-		f, err := os.CreateTemp("", "agtop-*.md")
+		f, err := os.CreateTemp("", "rush-*.md")
 		if err != nil {
 			return "", err
 		}

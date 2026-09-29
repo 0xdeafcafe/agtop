@@ -3,7 +3,7 @@ package headless
 import (
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os/exec"
 	"strings"
 	"time"

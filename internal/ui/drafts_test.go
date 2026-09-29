@@ -9,16 +9,16 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // TestMain keeps what the tests save (drafts, config) out of your own
-// home. It's HOME rather than AGTOP_HOME so a test can still have a home
+// home. It's HOME rather than RUSH_HOME so a test can still have a home
 // of its own with t.Setenv("HOME", …).
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "agtop-ui-test")
+	dir, err := os.MkdirTemp("", "rush-ui-test")
 	if err != nil {
 		panic(err)
 	}
@@ -51,7 +51,7 @@ func typeInBox(m *Model, text string) {
 
 // A wiped box comes back with undo, and is kept in the drafts.
 func TestWipeUndoAndDrafts(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, c := draftModel()
 	typeInBox(m, "refactor the parser")
 	m.paneKey(tea.KeyPressMsg{}, "esc")
@@ -91,7 +91,7 @@ func TestWipeUndoAndDrafts(t *testing.T) {
 // alt+s keeps the box as a draft and clears it; alt+p brings the latest
 // back, then older ones, round to the newest again.
 func TestSaveAndRecallDrafts(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, c := draftModel()
 	m.paneKey(tea.KeyPressMsg{}, keyRecallDraft)
 	if len(c.input) != 0 {
@@ -135,7 +135,7 @@ func TestSaveAndRecallDrafts(t *testing.T) {
 // The drafts sheet has a tab for each kind, with counts; enter from any
 // of them puts one back in the box, and alt+s keeps a sent one as a draft.
 func TestDraftSheetKinds(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, c := draftModel()
 	old := time.Now().Add(-time.Hour)
 	for _, d := range []state.Draft{

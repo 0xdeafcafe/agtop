@@ -7,11 +7,11 @@ import (
 )
 
 // BenchmarkSubagentRunsStats reads a real session's runs from scratch, as
-// the first load after agtop starts does: AGTOP_SUBRUNS names its transcript.
+// the first load after rush starts does: RUSH_SUBRUNS names its transcript.
 func BenchmarkSubagentRunsStats(b *testing.B) {
-	path := os.Getenv("AGTOP_SUBRUNS")
+	path := os.Getenv("RUSH_SUBRUNS")
 	if path == "" {
-		b.Skip("AGTOP_SUBRUNS names a transcript with subagents")
+		b.Skip("RUSH_SUBRUNS names a transcript with subagents")
 	}
 	st, _ := os.Stat(path)
 	b.SetBytes(st.Size())

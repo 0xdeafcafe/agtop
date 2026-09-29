@@ -1,12 +1,12 @@
 package host
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // config.json has always kept the session's profile as {"name",
-// "configDir"}, and older agtops still read and write it in that shape, so
+// "configDir"}, and older rushes still read and write it in that shape, so
 // Account goes on disk and on the wire as it always has.
 type wireAccount struct {
 	Name      string `json:"name"`
@@ -32,7 +32,7 @@ func (cfg *Config) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	*cfg = Config(w.plainConfig)
-	cfg.Kind = string(agent.Migrated(cfg.Kind)) // migration: an older agtop's config names no kind for Claude Code
+	cfg.Kind = string(agent.Migrated(cfg.Kind)) // migration: an older rush's config names no kind for Claude Code
 	cfg.Account = agent.Profile{Kind: agent.Kind(cfg.Kind), Name: w.Account.Name, Dir: w.Account.ConfigDir}
 	return nil
 }

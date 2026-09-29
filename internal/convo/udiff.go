@@ -10,7 +10,7 @@ import (
 )
 
 // A diff a command printed (git diff, git show, git log -p, diff -u) is
-// drawn as agtop draws an edit: a header for each file saying what changed
+// drawn as rush draws an edit: a header for each file saying what changed
 // in it, line numbers from its hunks, each side highlighted in the file's
 // language, and the words that changed in a pair of lines picked out.
 

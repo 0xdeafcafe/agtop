@@ -8,15 +8,15 @@ import (
 
 // --- the menu bar icon ---
 
-// menuBarSheet offers, once, on a Mac, to put agtop in the menu bar.
+// menuBarSheet offers, once, on a Mac, to put rush in the menu bar.
 type menuBarSheet struct{ cur int }
 
 var menuBarChoices = []struct{ what, about string }{
 	{"Put it in the menu bar", "usage, what's working, and questions to answer from their notification"},
-	{"Not now", "agtop notifies from the terminal as it does now"},
+	{"Not now", "rush notifies from the terminal as it does now"},
 }
 
-// askMenuBar asks, the first time agtop opens on a Mac (after the layout),
+// askMenuBar asks, the first time rush opens on a Mac (after the layout),
 // whether to run the menu bar icon.
 func (m *Model) askMenuBar() {
 	c := &m.store.Config
@@ -29,11 +29,11 @@ func (m *Model) askMenuBar() {
 func (b *menuBarSheet) width(*Model) int { return 76 }
 
 func (b *menuBarSheet) body(m *Model, w, h int) []string {
-	out := []string{sheetTitle("Menu bar", "keep agtop in the macOS menu bar?", w), ""}
+	out := []string{sheetTitle("Menu bar", "keep rush in the macOS menu bar?", w), ""}
 	for i, c := range menuBarChoices {
 		out = append(out, sheetRow(paint(cText+bold, c.what)+"  "+dim(c.about), i == b.cur, w))
 	}
-	return append(out, "", dim("Settings › General or agtop menubar [off] changes it"), "",
+	return append(out, "", dim("Settings › General or rush menubar [off] changes it"), "",
 		keysFit(w, "↑↓", "choose", "enter", "pick", "esc", "not now"))
 }
 
@@ -61,6 +61,6 @@ func (b *menuBarSheet) pick(m *Model) tea.Cmd {
 	if !c.MenuBar {
 		return nil
 	}
-	m.flash("putting agtop in the menu bar…", false)
+	m.flash("putting rush in the menu bar…", false)
 	return m.startMenuBar()
 }

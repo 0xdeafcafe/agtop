@@ -3,10 +3,10 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/menubar"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
-	"github.com/0xdeafcafe/agtop/internal/statusline"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/menubar"
+	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/statusline"
 )
 
 // Reading the fleet walks the disk: jobs, sessions, transcripts, the

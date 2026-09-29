@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
 // What an agent's Claude leaves running is ended once that Claude exits,
 // and not before.
 func TestReaper(t *testing.T) {
-	// root stands in for an agtop host; its child for the Claude it runs,
+	// root stands in for a rush host; its child for the Claude it runs,
 	// which starts a background job and a foreground one.
 	root := exec.Command("/bin/sh", "-c", `(sh -c "sleep 301 & sleep 302") & wait`)
 	if err := root.Start(); err != nil {

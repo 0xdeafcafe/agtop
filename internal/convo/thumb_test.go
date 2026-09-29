@@ -12,22 +12,22 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 func TestStepPathsLink(t *testing.T) {
 	s := New()
-	s.Info.Cwd = "/work/agtop"
+	s.Info.Cwd = "/work/rush"
 	s.Apply(host.Sent{Text: "look"}, at(0))
 	s.Apply(toolUse("r1", "Read", map[string]any{"file_path": "docs/brand/icon.png"}), at(1))
-	s.Apply(toolUse("e1", "Edit", map[string]any{"file_path": "/work/agtop/main.go", "old_string": "a", "new_string": "b"}), at(2))
+	s.Apply(toolUse("e1", "Edit", map[string]any{"file_path": "/work/rush/main.go", "old_string": "a", "new_string": "b"}), at(2))
 	var out strings.Builder
 	for _, l := range s.Render(Options{Width: 100, Now: at(3)}) {
 		out.WriteString(l.Text + "\n")
 	}
-	for _, w := range []string{"\x1b]8;;file:///work/agtop/docs/brand/icon.png\x1b\\", "\x1b]8;;file:///work/agtop/main.go\x1b\\"} {
+	for _, w := range []string{"\x1b]8;;file:///work/rush/docs/brand/icon.png\x1b\\", "\x1b]8;;file:///work/rush/main.go\x1b\\"} {
 		if !strings.Contains(out.String(), w) {
 			t.Errorf("missing %q in %q", w, out.String())
 		}
@@ -103,9 +103,9 @@ func TestImageResult(t *testing.T) {
 		t.Fatalf("block: %+v", b)
 	}
 	s := New()
-	s.Info.Cwd = "/work/agtop"
+	s.Info.Cwd = "/work/rush"
 	s.Apply(host.Sent{Text: "look"}, at(0))
-	s.Apply(toolUse("img1", "Read", map[string]any{"file_path": "/work/agtop/shot.png"}), at(1))
+	s.Apply(toolUse("img1", "Read", map[string]any{"file_path": "/work/rush/shot.png"}), at(1))
 	s.Apply(ev, at(2))
 	render := func() string {
 		var b strings.Builder
@@ -123,7 +123,7 @@ func TestImageResult(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		out = render()
 	}
-	want := "\x1b]8;;file:///work/agtop/shot.png\x1b\\\x1b[38;2;255;0;0m\x1b[48;2;0;0;255m▀"
+	want := "\x1b]8;;file:///work/rush/shot.png\x1b\\\x1b[38;2;255;0;0m\x1b[48;2;0;0;255m▀"
 	if !strings.Contains(out, want) {
 		t.Errorf("no linked thumbnail in %q", out)
 	}

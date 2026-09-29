@@ -6,7 +6,7 @@ import (
 
 // --- which layout ---
 
-// viewSheet asks, the first time agtop opens, which layout to keep:
+// viewSheet asks, the first time rush opens, which layout to keep:
 // Agents and the Session side by side, the Session alone, or Agents alone.
 type viewSheet struct{ cur int }
 
@@ -23,7 +23,7 @@ func (m *Model) askView() {
 func (v *viewSheet) width(*Model) int { return 76 }
 
 func (v *viewSheet) body(m *Model, w, h int) []string {
-	out := []string{sheetTitle("Layout", "how should agtop open?", w), ""}
+	out := []string{sheetTitle("Layout", "how should rush open?", w), ""}
 	for i, c := range viewChoices {
 		out = append(out, sheetRow(paint(cText+bold, c.what)+"  "+dim(c.about), i == v.cur, w))
 	}
@@ -59,7 +59,7 @@ func (v *viewSheet) pick(m *Model) tea.Cmd {
 	return cmd
 }
 
-// openView puts the kept layout on screen as agtop opens: the Session
+// openView puts the kept layout on screen as rush opens: the Session
 // alone opens on the picked agent; the others lay out on their own.
 func (m *Model) openView() tea.Cmd {
 	m.full = false

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/efficiency"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/efficiency"
 )
 
 func TestDue(t *testing.T) {
@@ -129,7 +129,7 @@ esac
 }
 
 func TestPass(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	log := fakeClaude(t,
 		`{"type":"result","is_error":false,"total_cost_usd":0.01,"structured_output":{"findings":[`+
 			`{"title":"Big one","detail":"d","evidence":["/p/s.jsonl"],"weeklyCost":5,"fix":"rtk","open":""},`+
@@ -174,7 +174,7 @@ func TestPass(t *testing.T) {
 }
 
 func TestPassFails(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	fakeClaude(t, `{"type":"result","is_error":true,"subtype":"error_max_budget_usd","total_cost_usd":0.15,"result":"over budget"}`, `{}`)
 	now := time.Now()
 	in := Input{View: &efficiency.View{Q: efficiency.Query{From: now, To: now}}}
@@ -209,7 +209,7 @@ func TestSettledAndEviction(t *testing.T) {
 }
 
 func TestPassSkipsSettled(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	log := fakeClaude(t,
 		`{"type":"result","total_cost_usd":0.01,"structured_output":{"findings":[{"title":"Old news","detail":"","evidence":[],"weeklyCost":9,"fix":"","open":""}]}}`,
 		`{"type":"result","total_cost_usd":0.5,"structured_output":{"confirmed":true,"note":"","title":"x","detail":"","evidence":[],"weeklyCost":9,"fix":"","open":""}}`)
@@ -225,13 +225,13 @@ func TestPassSkipsSettled(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	unlock, ok := Lock()
 	if !ok {
 		t.Fatal("no lock")
 	}
 	if _, ok := Lock(); ok {
-		t.Fatal("two agtops both hold the pass")
+		t.Fatal("two rushes both hold the pass")
 	}
 	unlock()
 	unlock2, ok := Lock()
@@ -269,7 +269,7 @@ func TestActive(t *testing.T) {
 }
 
 func TestFailedReviews(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	fakeClaude(t,
 		`{"type":"result","total_cost_usd":0.01,"structured_output":{"findings":[{"title":"Flaky","detail":"","evidence":[],"weeklyCost":9,"fix":"","open":""}]}}`,
 		`not json`)
@@ -296,7 +296,7 @@ func TestFailedReviews(t *testing.T) {
 }
 
 func TestReserveAndBegin(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	now := time.Now()
 	if err := Begin(now); err != nil {
 		t.Fatal(err)
@@ -314,7 +314,7 @@ func TestReserveAndBegin(t *testing.T) {
 }
 
 func TestCorruptRecord(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	_ = os.MkdirAll(Dir(), 0o700)
 	_ = os.WriteFile(recordPath(), []byte("{broken"), 0o600)
 	r := Load()
@@ -340,15 +340,15 @@ func TestCheckOpen(t *testing.T) {
 }
 
 func TestEnabled(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	if Enabled() {
 		t.Fatal("on with no config")
 	}
-	_ = os.WriteFile(filepath.Join(os.Getenv("AGTOP_HOME"), "config.json"), []byte(`{"advisor":true}`), 0o600)
+	_ = os.WriteFile(filepath.Join(os.Getenv("RUSH_HOME"), "config.json"), []byte(`{"advisor":true}`), 0o600)
 	if !Enabled() {
 		t.Fatal("off with it on in the config")
 	}
-	t.Setenv("AGTOP_ADVISOR", "off")
+	t.Setenv("RUSH_ADVISOR", "off")
 	if Enabled() {
 		t.Fatal("on with the environment turning it off")
 	}

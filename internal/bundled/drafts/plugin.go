@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 func init() { plugin.RegisterBundle(plugin.Bundle{Manifest: Manifest, Run: Run}) }
@@ -20,9 +20,9 @@ func init() { plugin.RegisterBundle(plugin.Bundle{Manifest: Manifest, Run: Run})
 // Manifest is the drafts plugin's.
 var Manifest = plugin.Manifest{
 	Name: "drafts",
-	Description: "Keeps a message box until it's sent, even across agtop restarts; stashes a message while you send another; " +
+	Description: "Keeps a message box until it's sent, even across rush restarts; stashes a message while you send another; " +
 		"and puts back what you stashed, sent or cleared. Keeps it all in its data folder.",
-	Command: []string{"agtop"},
+	Command: []string{"rush"},
 	UI:      []string{plugin.UIEvents, plugin.UIInput, plugin.UINotify},
 	Commands: []plugin.CommandSpec{
 		{Name: "stash", Description: "set the message aside, or bring it back; it comes back by itself once you send", Key: "alt+s"},
@@ -143,7 +143,7 @@ func (a *app) handle(_ context.Context, method string, params jsontext.Value) (a
 }
 
 // event takes one thing that happened. Events come in order on the
-// connection's reading goroutine, so anything that calls agtop back goes
+// connection's reading goroutine, so anything that calls rush back goes
 // on its own.
 func (a *app) event(ev event) {
 	key, name := ev.key()
@@ -249,7 +249,7 @@ func (a *app) stashKeys() []string {
 	return out
 }
 
-// set sets a box in agtop, only while it holds what the book expects.
+// set sets a box in rush, only while it holds what the book expects.
 func (a *app) set(ui string, s Set) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -307,7 +307,7 @@ func (a *app) save() {
 	}
 }
 
-// load reads the store, or on the first run takes in the drafts agtop kept
+// load reads the store, or on the first run takes in the drafts rush kept
 // itself before they were a plugin.
 func load(path, dataDir string) Store {
 	var s Store
@@ -315,7 +315,7 @@ func load(path, dataDir string) Store {
 		_ = jsonx.Unmarshal(b, &s)
 		return s
 	}
-	// The data folder is <agtop's folder>/plugin-data/drafts.
+	// The data folder is <rush's folder>/plugin-data/drafts.
 	old, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(dataDir)), "drafts.json"))
 	if err != nil {
 		return s

@@ -7,7 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
 // Hit is one search result: where it is and the text around the match.
@@ -32,7 +32,7 @@ var knownKinds = map[string]bool{"failed": true, "edit": true, "cmd": true, "rea
 // finds only those.
 const WhoAgent = "agent"
 
-// whoClaude is is:claude, kept for searches typed before agtop ran other
+// whoClaude is is:claude, kept for searches typed before rush ran other
 // agents, until is:agent has been the word a while.
 const whoClaude = "claude" // migration: is:claude, the word before is:agent
 

@@ -1,5 +1,5 @@
-// Package jsonx is how agtop reads and writes JSON: encoding/json/v2, always
-// with Opts. Nothing else calls v2's Marshal or Unmarshal (agtop's linter
+// Package jsonx is how rush reads and writes JSON: encoding/json/v2, always
+// with Opts. Nothing else calls v2's Marshal or Unmarshal (rush's linter
 // says so), so every call gets the same options.
 package jsonx
 
@@ -28,7 +28,7 @@ var Opts = json.JoinOptions(
 	// writes [] and {}, which read back empty but not nil.
 	json.FormatNilSliceAsNull(true),
 	json.FormatNilMapAsNull(true),
-	// v1 wrote a map's keys in order, so agtop's files don't churn
+	// v1 wrote a map's keys in order, so rush's files don't churn
 	// between saves; v2 only does when asked. It only affects writing.
 	json.Deterministic(true),
 	// v2 has no default for a time.Duration (and Go 1.27's v2 takes no

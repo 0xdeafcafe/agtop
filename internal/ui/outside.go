@@ -3,13 +3,13 @@ package ui
 import (
 	"fmt"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
-// What agtop does to a session running outside agtop mode goes through its
-// agent's adapter (agent.Stopper and the rest): agtop knows no agent's
+// What rush does to a session running outside rush mode goes through its
+// agent's adapter (agent.Stopper and the rest): rush knows no agent's
 // program itself.
 
 // stopOutside ends a's process and keeps its conversation, the agent's own
@@ -29,7 +29,7 @@ func removeOutside(a *fleet.Agent) error {
 	if r, ok := agent.As[agent.Remover](agent.Kind(a.Kind)); ok {
 		return r.Remove(a.Acct, a.ID)
 	}
-	return fmt.Errorf("%s keeps its sessions itself: agtop can't delete them", agentName(a.Kind))
+	return fmt.Errorf("%s keeps its sessions itself: rush can't delete them", agentName(a.Kind))
 }
 
 // replyOutside sends text to a session of agent k's background service;

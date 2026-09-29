@@ -1,4 +1,4 @@
-// Package ui is the agtop view: the native layout plus cost, time, CPU/RAM,
+// Package ui is the rush view: the native layout plus cost, time, CPU/RAM,
 // preview, processes, accounts, groups and folder moves.
 package ui
 
@@ -18,21 +18,21 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/daemon"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/hooks"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/menubar"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
-	"github.com/0xdeafcafe/agtop/internal/state"
-	"github.com/0xdeafcafe/agtop/internal/statusline"
-	"github.com/0xdeafcafe/agtop/internal/theme"
-	"github.com/0xdeafcafe/agtop/internal/update"
+	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/daemon"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/hooks"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/menubar"
+	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/statusline"
+	"github.com/0xdeafcafe/rush/internal/theme"
+	"github.com/0xdeafcafe/rush/internal/update"
 )
 
 type mode int
@@ -137,7 +137,7 @@ type Model struct {
 	promptBoxY   int
 	inKind       inputKind
 	slashSel     int // the Prompt's command picker's selection
-	// paneFocus sends keys to an agtop-mode session's pane instead of the
+	// paneFocus sends keys to a rush-mode session's pane instead of the
 	// list and its prompt.
 	paneFocus bool
 	dragging  bool     // resizing the list by its edge
@@ -151,7 +151,7 @@ type Model struct {
 	frameLen   int // bytes in the last frame, to size the next
 	lastKeyAt  time.Time
 	paneTop    int // screen row of the pane's first line, for clicks
-	// host is the connection to the agtop-mode session the pane shows.
+	// host is the connection to the rush-mode session the pane shows.
 	host        *hostConn
 	hostOpening string
 	dirIdx      int
@@ -172,17 +172,17 @@ type Model struct {
 	// rewound holds the message /rewind put back, by agent, for the box
 	// once the pane reconnects.
 	rewound   map[string]string
-	bars      statusline.Bars  // agtop's own status lines: see bars.go
+	bars      statusline.Bars  // rush's own status lines: see bars.go
 	barDrops  map[int][]string // segments each of their lines last left out for room
 	embedded  bool
 	promptFor string
 	listW     int
 	pastes    pastes // long pastes in the main box, shown as chips
 	recall    recall // alt+p going back through the drafts, in the Prompt
-	blurred   bool   // the terminal says agtop isn't the focused window
+	blurred   bool   // the terminal says rush isn't the focused window
 	// undo is the Prompt's; a Session's box has its own.
 	undo undoStack
-	// The terminal's background and text, once it has said; agtop's
+	// The terminal's background and text, once it has said; rush's
 	// colours are made from them.
 	termBG, termFG *theme.RGB
 	ground         theme.Ground // what the colours are made for now
@@ -194,7 +194,7 @@ type Model struct {
 	openFailed   map[string]time.Time
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
 	online       onlineWatch            // sessions an API error stopped, told to continue once it can be reached
-	moveWhenIdle map[string]bool        // agents to move to agtop mode when their turn ends
+	moveWhenIdle map[string]bool        // agents to move to rush mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
 	ptrX, ptrY   int                    // where the mouse was last seen
 	ptrSeen      bool
@@ -202,7 +202,7 @@ type Model struct {
 	sheetAt      [2]int // where the open sheet's body was drawn: x, y
 	hibernated   map[string]bool
 	offline      bool // never ask Anthropic for usage (--soak)
-	// newer is the agtop that's out when it's newer than this one; #update
+	// newer is the rush that's out when it's newer than this one; #update
 	// installs it.
 	newer        update.Info
 	updating     bool
@@ -237,7 +237,7 @@ type Model struct {
 	// groupOf is the list section each agent is in, folded or not.
 	groupOf map[string]string
 	folders folderCache // what git says of the folders in the list
-	// hosted is the agtop-mode session shown alone (NewHosted), and hostedKey
+	// hosted is the rush-mode session shown alone (NewHosted), and hostedKey
 	// its agent's key once the snapshot has it.
 	hosted, hostedKey string
 	// hostedList is hosted with Agents shown beside the session (ctrl+6).
@@ -327,7 +327,7 @@ func newModel(store *state.Store, version string, skipPast bool) *Model {
 	m.applyColors()
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
 	// Nothing is read here, where the first frame waits: the first reading
-	// of the fleet and agtop's own status lines land a moment after it.
+	// of the fleet and rush's own status lines land a moment after it.
 	m.snap = &fleet.Snapshot{At: time.Now()}
 	m.refresh()
 	m.rebuild()
@@ -335,7 +335,7 @@ func newModel(store *state.Store, version string, skipPast bool) *Model {
 	return m
 }
 
-// launchDir is the folder agtop was started in, as the kernel has it.
+// launchDir is the folder rush was started in, as the kernel has it.
 func launchDir() tea.Msg {
 	d, err := os.Getwd()
 	if err != nil {
@@ -344,10 +344,10 @@ func launchDir() tea.Msg {
 	return applyMsg(func(m *Model) tea.Cmd { m.launchDir = d; return nil })
 }
 
-// barsMsg is agtop's own status lines, as read from disk.
+// barsMsg is rush's own status lines, as read from disk.
 type barsMsg statusline.Bars
 
-// loadBars reads agtop's own status lines off the UI goroutine.
+// loadBars reads rush's own status lines off the UI goroutine.
 func loadBars() tea.Msg { return barsMsg(statusline.LoadBars()) }
 
 type tickMsg time.Time
@@ -386,11 +386,11 @@ func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkPluginApprovals(), askColours)
 }
 
-// askColours asks the terminal for its background and text, which agtop's
-// colours are made from. A terminal that doesn't answer keeps agtop's own.
+// askColours asks the terminal for its background and text, which rush's
+// colours are made from. A terminal that doesn't answer keeps rush's own.
 var askColours = tea.Batch(tea.RequestBackgroundColor, tea.RequestForegroundColor)
 
-// applyColors makes agtop's colours for the theme in Settings, or for the
+// applyColors makes rush's colours for the theme in Settings, or for the
 // terminal's own background and text.
 func (m *Model) applyColors() {
 	c := m.store.Config
@@ -424,7 +424,7 @@ func (m *Model) startView() tea.Cmd {
 }
 
 // startMenuBar opens the menu bar icon when it's on, building it first if
-// agtop changed since; one left running by an older agtop is replaced.
+// rush changed since; one left running by an older rush is replaced.
 func (m *Model) startMenuBar() tea.Cmd {
 	if !m.store.Config.MenuBar || m.offline {
 		return nil
@@ -433,7 +433,7 @@ func (m *Model) startMenuBar() tea.Cmd {
 }
 
 // fetchUsage refreshes every account's plan usage from Anthropic. Readings
-// are shared with every other agtop through a file, so an account is asked
+// are shared with every other rush through a file, so an account is asked
 // only when its last reading is older than claude.UsageEvery and Anthropic
 // hasn't said to wait; offline (--soak) never asks.
 func (m *Model) fetchUsage() tea.Cmd {
@@ -456,7 +456,7 @@ func (m *Model) scan() tea.Cmd {
 	return func() tea.Msg { return scanMsg(sc.Run(targets)) }
 }
 
-// startDirs are the folders a new session can start in: where agtop was
+// startDirs are the folders a new session can start in: where rush was
 // opened, then folders with agents running, then recent ones.
 func (m *Model) startDirs() []string {
 	k := dirsKey{m.pickedDir, m.launchDir, dirsPrint(m.snap)}
@@ -789,8 +789,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cleanedMsg:
 		m.onCleaned(msg)
 		return m, nil
-	case movedToAgtopMsg:
-		// The old row is finished; the conversation carries on in agtop mode.
+	case movedToRushMsg:
+		// The old row is finished; the conversation carries on in rush mode.
 		m.store.Overlay.Done[msg.from] = time.Now()
 		// Messages still waiting for the old row go to the new session.
 		var carry tea.Cmd
@@ -819,7 +819,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		_ = m.store.SaveOverlay()
 		if a := m.agentByKey(msg.from); a != nil && a.Interactive {
-			defer m.flash(a.DisplayName+" carries on in agtop mode · its terminal copy is still open there, now under Done", false)
+			defer m.flash(a.DisplayName+" carries on in rush mode · its terminal copy is still open there, now under Done", false)
 		}
 		mm, cmd := m.update(msg.started)
 		return mm, tea.Batch(cmd, carry)
@@ -832,7 +832,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostStartedMsg:
 		if m.hosted != "" {
 			// It's in Agents; the hosted view stays on its own session.
-			m.flash("started "+msg.name+" · it's in agtop's Agents", false)
+			m.flash("started "+msg.name+" · it's in rush's Agents", false)
 			return m, nil
 		}
 		// Select the new session, once a reading has it, and give it the keys.
@@ -1007,7 +1007,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case updateMsg:
 		m.newer = msg.newer
-		m.flash("agtop "+msg.newer.Short()+" is out · #update installs it", false)
+		m.flash("rush "+msg.newer.Short()+" is out · #update installs it", false)
 		return m, nil
 	case pluginPendingMsg:
 		m.openPluginApproval(msg.pending)
@@ -1018,7 +1018,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flash("update: "+msg.err.Error(), true)
 		} else {
 			m.newer = update.Info{}
-			m.flash("agtop "+msg.to.Short()+" installed · reopen agtop to use it", false)
+			m.flash("rush "+msg.to.Short()+" installed · reopen rush to use it", false)
 		}
 		return m, nil
 	case doneMsg:
@@ -1046,7 +1046,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a == nil {
 			return m, nil
 		}
-		return m, m.moveToAgtopWith(a, msg.text)
+		return m, m.moveToRushWith(a, msg.text)
 	case attachDoneMsg:
 		m.attached = ""
 		m.refresh()
@@ -1058,7 +1058,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a := msg.agent
 			if daemon.IsRefusal(msg.err, "ENOJOB") {
 				// Claude Code has let the job go; its conversation carries on here.
-				return m, m.moveToAgtop(a)
+				return m, m.moveToRush(a)
 			}
 			at, ok := agent.As[agent.Attacher](agent.Kind(a.Kind))
 			if !ok {
@@ -1452,7 +1452,7 @@ func (m *Model) notify() {
 				m.react(fxDone)
 			}
 		}
-		// Not for the agent you're looking at while agtop has focus.
+		// Not for the agent you're looking at while rush has focus.
 		watching := !m.blurred && m.paneFocus && m.host != nil && m.host.key == a.Key
 		// The menu bar icon, when it runs, notifies instead, with buttons.
 		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.NeedsYou() && !watching {
@@ -1615,7 +1615,7 @@ func (m *Model) rebuild() {
 			continue // alt+f: only what's typed matches, by name or what was said
 		}
 		if sb != nil {
-			// The plugin's sections replace agtop's; each row still shows
+			// The plugin's sections replace rush's; each row still shows
 			// its agent's state.
 			name, rank, at := sidebarPlace(sb, a)
 			order[a] = at
@@ -1901,7 +1901,7 @@ func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 		return nil
 	}
 	if a.Past {
-		m.flash(a.DisplayName+" is a past conversation · a message resumes it in agtop mode", false)
+		m.flash(a.DisplayName+" is a past conversation · a message resumes it in rush mode", false)
 		return nil
 	}
 	// One attach at a time from here: the preview's would fight the full

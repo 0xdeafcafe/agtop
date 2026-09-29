@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // What Claude Code reads for a session: its auto memory, the CLAUDE.md

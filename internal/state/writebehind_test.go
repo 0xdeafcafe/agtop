@@ -11,7 +11,7 @@ import (
 // newest of each file on disk; a copy kept before is made before the save
 // that follows it.
 func TestWriteBehind(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	WriteBehind()
 	defer func() { behind.Lock(); behind.on = false; behind.Unlock() }()
 
@@ -46,7 +46,7 @@ func TestWriteBehind(t *testing.T) {
 // The writer encodes state.json from the overlay as it was saved: the view
 // changing its maps meanwhile neither shows in that save nor races it.
 func TestWriteBehindOverlay(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	WriteBehind()
 	defer func() { behind.Lock(); behind.on = false; behind.Unlock() }()
 

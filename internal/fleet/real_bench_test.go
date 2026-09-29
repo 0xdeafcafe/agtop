@@ -4,13 +4,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// On this machine's real agents: AGTOP_REAL=1 go test -bench Real ./internal/fleet
+// On this machine's real agents: RUSH_REAL=1 go test -bench Real ./internal/fleet
 func BenchmarkLoadReal(b *testing.B) {
-	if os.Getenv("AGTOP_REAL") == "" {
-		b.Skip("set AGTOP_REAL=1")
+	if os.Getenv("RUSH_REAL") == "" {
+		b.Skip("set RUSH_REAL=1")
 	}
 	l := NewLoader(state.Load())
 	l.Load(true)
@@ -21,8 +21,8 @@ func BenchmarkLoadReal(b *testing.B) {
 }
 
 func BenchmarkScanReal(b *testing.B) {
-	if os.Getenv("AGTOP_REAL") == "" {
-		b.Skip("set AGTOP_REAL=1")
+	if os.Getenv("RUSH_REAL") == "" {
+		b.Skip("set RUSH_REAL=1")
 	}
 	l := NewLoader(state.Load())
 	snap := l.Load(false)

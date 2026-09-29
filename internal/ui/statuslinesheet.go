@@ -10,11 +10,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/statusline"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/statusline"
 )
 
 // --- /statusline ---
@@ -23,11 +23,11 @@ import (
 // it drawn with this session's numbers, save. Three of them, one per tab:
 //
 //   - Claude Code's, under its prompt. Saving sets the account's
-//     settings.json statusLine to `agtop statusline`, which draws the
-//     layout kept in agtop's config.
-//   - the agent header, at the top of an agent's Session in agtop, and
-//   - the top bar, at the top right of agtop's window: both agtop's own,
-//     drawn from what agtop knows (bars.go), and shown live as you build
+//     settings.json statusLine to `rush statusline`, which draws the
+//     layout kept in rush's config.
+//   - the agent header, at the top of an agent's Session in rush, and
+//   - the top bar, at the top right of rush's window: both rush's own,
+//     drawn from what rush knows (bars.go), and shown live as you build
 //     them.
 type statusSheet struct {
 	prof agent.Profile
@@ -530,7 +530,7 @@ func trimmed(l statusline.Layout) statusline.Layout {
 	return l
 }
 
-// save keeps all three: agtop's own lines at once, and Claude Code's, in
+// save keeps all three: rush's own lines at once, and Claude Code's, in
 // settings.json too, only when it was changed. The files are written off
 // the UI; the sheet stays, saying so, until they are.
 func (st *statusSheet) save(m *Model) tea.Cmd {
@@ -601,7 +601,7 @@ func (st *statusSheet) turnOff(m *Model) tea.Cmd {
 		m.flash("there's no status line to turn off", false)
 		return nil
 	case !statusline.Ours(st.current):
-		st.err = "that status line is your own command, not agtop's: it's left alone"
+		st.err = "that status line is your own command, not rush's: it's left alone"
 		return nil
 	}
 	line, prof := st.line, st.prof
@@ -627,7 +627,7 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 	st.adopt()
 	about := map[int]string{
 		stAgent:  "the top of an agent's Session: right of its name, and under it",
-		stTop:    "the top right of agtop, about every agent at once",
+		stTop:    "the top right of rush, about every agent at once",
 		stClaude: "what " + agentName(string(st.kind)) + " shows under its prompt · " + st.prof.Name,
 	}[st.tab]
 	out := []string{sheetTitle("Status lines", about, w), "", "  " + sheetTabs(st.tabNames(), st.tab), ""}
@@ -675,7 +675,7 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		where := "  preview · the agent header, live on the real one too"
 		var well []string
 		if st.tab == stTop {
-			where = "  preview · agtop's top, live on the real one too"
+			where = "  preview · rush's top, live on the real one too"
 			// The header as it's drawn at this width.
 			wasW := m.w
 			m.w = cw - 2

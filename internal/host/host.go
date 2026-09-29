@@ -1,6 +1,6 @@
-// Package host keeps an agtop-mode session alive outside the agtop view.
+// Package host keeps a rush-mode session alive outside the rush view.
 //
-// Each session gets one small detached `agtop host run <id>` process. It owns
+// Each session gets one small detached `rush host run <id>` process. It owns
 // the session's agent, run headless through its adapter, and serves a unix
 // socket: a client that
 // connects is sent what the session has said so far, then everything live,
@@ -29,13 +29,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/netproof"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
-	"github.com/0xdeafcafe/agtop/internal/proc"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/netproof"
+	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Config is how a session is started. It is written next to the socket so
@@ -151,7 +151,7 @@ type Info struct {
 	// start: the turn it now begins with started then, and everything
 	// before it is in the transcript.
 	ReplayFrom time.Time `json:"replayFrom"`
-	// Proto is what the host can do, so a newer agtop can tell a host from
+	// Proto is what the host can do, so a newer rush can tell a host from
 	// an older one (0) that needs restarting to do it: see Proto.
 	Proto int `json:"proto,omitzero"`
 	// Kind is the agent it runs: empty is Claude Code.
@@ -189,8 +189,8 @@ type Task struct {
 // Proto is this build's host protocol: 1 adds rewind, 2 context usage and
 // control requests passed through (the ask op), 3 moving a running tool
 // to the background (the background op) and Info.Background, 4 other
-// agents' sessions as agtop's own events, 5 the client's hello (hello.go),
-// 6 Claude Code's sessions as agtop's own events too, to a client that
+// agents' sessions as rush's own events, 5 the client's hello (hello.go),
+// 6 Claude Code's sessions as rush's own events too, to a client that
 // says it reads them. A client sends its build's in the hello.
 const Proto = 6
 
@@ -269,6 +269,8 @@ func NewSessionID() (session, short string) {
 
 // Line types the host adds to Claude Code's own output.
 const (
+	// The host's own lines keep the name it had as agtop: sessions' logs
+	// hold them, and hosts from before the rename still write them.
 	typeInfo     = "agtop_info"
 	typeAnswered = "agtop_answered"
 	typeCommands = "agtop_commands"
@@ -325,7 +327,7 @@ var lowGC sync.Once
 const ringMax = 8 << 20
 
 // Run serves the session described by dir(id)/config.json until it is
-// stopped. It is what `agtop host run <id>` calls.
+// stopped. It is what `rush host run <id>` calls.
 func Run(id string) error {
 	// A host lives as long as its session and mostly waits. Its heap is the
 	// replay ring and whatever line is passing through; a soft limit makes
@@ -480,7 +482,7 @@ func background(was []Task, now []event.BackgroundTask, started map[string]time.
 }
 
 // tap records the agent's own lines for replay and passes them to clients:
-// its adapter keeps the traffic with agtop's own tools out of them.
+// its adapter keeps the traffic with rush's own tools out of them.
 func (s *server) tap(line []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

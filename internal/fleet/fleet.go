@@ -14,16 +14,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/advisor"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/daemon"
-	"github.com/0xdeafcafe/agtop/internal/fswait"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/proc"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/advisor"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/daemon"
+	"github.com/0xdeafcafe/rush/internal/fswait"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 type Agent struct {
@@ -53,7 +53,7 @@ type Agent struct {
 	// Headless is an interactive-kind session that is really `claude -p`
 	// driven by some other program: it can't be replied to at all.
 	Headless bool
-	// Advisor is agtop's own advisor at work (its `claude -p`), not yours.
+	// Advisor is rush's own advisor at work (its `claude -p`), not yours.
 	Advisor  bool
 	PID      int  // root of the process tree
 	Checking bool // turn just ended; Claude Code has not classified it yet
@@ -62,17 +62,17 @@ type Agent struct {
 	// its own tile rather than only the count.
 	Subagents []SubagentTile
 	Seen      bool // the user has opened or answered this question already
-	// Agtop is a session agtop runs itself, headless, through a host
+	// Rush is a session rush runs itself, headless, through a host
 	// process; its pane is the conversation rather than Claude Code's screen.
-	Agtop bool
+	Rush bool
 	// Past is a conversation nothing has open, known from its transcript
-	// alone: a message resumes it in agtop mode.
+	// alone: a message resumes it in rush mode.
 	Past bool
 	// Temp is how much disk its temp work takes, as last measured.
 	Temp int64
 	// Kind is the agent the session runs.
 	Kind string
-	// Profile is the profile an agtop session was started under.
+	// Profile is the profile a rush session was started under.
 	Profile string
 	// History is another agent's transcript, read through its adapter:
 	// TranscriptPath is only ever Claude Code's.
@@ -256,7 +256,7 @@ type Loader struct {
 	subs    map[string]subsEntry
 	quick   bool // this load leaves out what can wait: see LoadQuick
 	fetched map[string]claude.Usage
-	// UsagePath is the readings every agtop process and session shares;
+	// UsagePath is the readings every rush process and session shares;
 	// usageMod is its time when last read.
 	UsagePath string
 	usageMod  time.Time
@@ -544,7 +544,7 @@ func (l *Loader) Load(sampleProcs bool) *Snapshot {
 }
 
 // LoadQuick is Load without reading subagent runs, which means reading
-// every recent session's whole transcript: agtop's first list, drawn
+// every recent session's whole transcript: rush's first list, drawn
 // before anything else. The next Load is a whole one, and it counts them.
 func (l *Loader) LoadQuick() *Snapshot {
 	l.mu.Lock()
@@ -595,8 +595,8 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 
 	seen := map[string]bool{}
 	hosted := l.hosts.List()
-	// Claude Code processes agtop's own hosts run: they register as
-	// sessions too, but they're the agtop agents, not agents of their own.
+	// Claude Code processes rush's own hosts run: they register as
+	// sessions too, but they're the rush agents, not agents of their own.
 	ours := map[string]bool{}
 	oursPID := map[int]bool{}
 	for _, info := range hosted {
@@ -867,7 +867,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	return snap
 }
 
-// hosted turns an agtop-mode session's info into an agent row.
+// hosted turns a rush-mode session's info into an agent row.
 // discoverer is how agent k's sessions are found.
 func discoverer(k agent.Kind) (agent.Discoverer, bool) {
 	a, ok := agent.Get(k)
@@ -893,7 +893,7 @@ func isProgram(k agent.Kind, comm string) bool {
 	return p != "" && filepath.Base(comm) == p
 }
 
-// hostedAgent is an agtop session's row, with what you've set on it.
+// hostedAgent is a rush session's row, with what you've set on it.
 func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Table, now time.Time) *Agent {
 	ov := l.store.Overlay
 	a := l.hosted(acct, info, tab, now)
@@ -955,7 +955,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 		name = info.Detail
 	}
 	if name == "" {
-		name = "agtop session " + info.ID
+		name = "rush session " + info.ID
 	}
 	j := agent.Job{
 		ID: info.ID, Account: acct.Name, Name: name, State: st, Detail: info.Detail, Needs: info.Needs,
@@ -1002,7 +1002,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 	case info.Error != "" && st == "done":
 		j.Detail = "stopped mid-turn · your next message resumes it"
 	}
-	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: agent.Profile{Kind: agent.Kind(info.Kind), Name: acct.Name, Dir: acct.ConfigDir}, DisplayName: name, Agtop: true, Kind: info.Kind, Profile: info.Profile}
+	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: agent.Profile{Kind: agent.Kind(info.Kind), Name: acct.Name, Dir: acct.ConfigDir}, DisplayName: name, Rush: true, Kind: info.Kind, Profile: info.Profile}
 	if info.State != "stopped" && info.HostPID > 0 && (tab == nil || tab.Procs[info.HostPID] != nil) {
 		a.PID = info.HostPID
 	}
@@ -1032,7 +1032,7 @@ func (l *Loader) readUsage(acct claude.Account) claude.Usage {
 	return l.freshest(acct, u)
 }
 
-// freshest prefers agtop's own fetch when it is newer than Claude Code's cache.
+// freshest prefers rush's own fetch when it is newer than Claude Code's cache.
 // Windows that have reset since either reading are dropped.
 func (l *Loader) freshest(acct claude.Account, cached claude.Usage) claude.Usage {
 	f, ok := l.fetched[acct.ConfigDir]
@@ -1145,7 +1145,7 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 		var row ProcRow
 		switch {
 		case agentOf[pid] != nil && workerOf[pid] == nil:
-			// An agtop session's host, or a claude in a terminal: the agent.
+			// A rush session's host, or a claude in a terminal: the agent.
 			a := agentOf[pid]
 			row = ProcRow{PID: pid, Cmd: l.cmdline(p), Start: p.Start, Role: RoleWorker, Label: a.DisplayName, Key: a.Key}
 		case isProgram(home, p.Comm):
@@ -1341,7 +1341,7 @@ func (l *Loader) foldSpawns(tab *proc.Table, agents []*Agent, spawned []spawn, p
 		pid := a.PID
 		// Another agent's session says no process: a codex exec quiet for
 		// a while is listed as past while it still runs.
-		if pid == 0 && (a.Interactive && !a.Past || a.Headless) && !a.Remote && !a.Agtop {
+		if pid == 0 && (a.Interactive && !a.Past || a.Headless) && !a.Remote && !a.Rush {
 			pid = procOf(tab, agent.Kind(a.Kind), a.CreatedAt)
 		}
 		if pid != 0 {
@@ -1383,14 +1383,14 @@ func (l *Loader) foldSpawns(tab *proc.Table, agents []*Agent, spawned []spawn, p
 	return out
 }
 
-// hostedSpawns links the agtop sessions an agent's shell ran (agtop spawn,
+// hostedSpawns links the rush sessions an agent's shell ran (rush spawn,
 // through its stand-in on PATH) to the session that ran them, when that's
-// an agtop session too; one run by another is found by its process, while
+// a rush session too; one run by another is found by its process, while
 // it runs.
 func (l *Loader) hostedSpawns(hosted []host.Info, agents []*Agent, spawned []spawn) []spawn {
 	byID := map[string]*Agent{}
 	for _, a := range agents {
-		if a.Agtop {
+		if a.Rush {
 			byID[a.ID] = a
 		}
 	}

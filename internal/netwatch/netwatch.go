@@ -1,6 +1,6 @@
-// Package netwatch is what agtop knows about the network: whether the API
+// Package netwatch is what rush knows about the network: whether the API
 // can be reached, which network the machine is on and when that changed,
-// how fast bytes are moving, and which of agtop's own jobs that need the
+// how fast bytes are moving, and which of rush's own jobs that need the
 // network are waiting for it to come back.
 //
 // Everything is read on its own goroutine; the UI only ever takes the last
@@ -57,7 +57,7 @@ type State struct {
 	Target   string // what's checked: host:port
 
 	Network string    // the network the machine is on, as "en0 192.168.1.20"
-	Changed time.Time // when that last changed; zero if it hasn't since agtop opened
+	Changed time.Time // when that last changed; zero if it hasn't since rush opened
 	Changes int
 	// Noticed is how long after the network last changed a check said
 	// whether the API answers on it; zero until one has.
@@ -78,7 +78,7 @@ type State struct {
 	Jobs []Job // by name
 }
 
-// Job is one of agtop's jobs that needs the network.
+// Job is one of rush's jobs that needs the network.
 type Job struct {
 	Name    string
 	Paused  bool      // it asked while the network was down, and waits for it

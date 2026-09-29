@@ -1,5 +1,5 @@
-// Package lint is agtop's own checks, as a golangci-lint module plugin (see
-// .custom-gcl.yml): what the stock linters don't know about agtop.
+// Package lint is rush's own checks, as a golangci-lint module plugin (see
+// .custom-gcl.yml): what the stock linters don't know about rush.
 package lint
 
 import (
@@ -12,7 +12,7 @@ import (
 	"golang.org/x/tools/go/types/typeutil"
 )
 
-func init() { register.Plugin("agtop", New) }
+func init() { register.Plugin("rush", New) }
 
 type plugin struct{}
 

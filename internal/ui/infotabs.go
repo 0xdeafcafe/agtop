@@ -11,10 +11,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/settingsfile"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/settingsfile"
 )
 
 // --- the History and Settings tabs of infoSheet ---
@@ -37,7 +37,7 @@ func contextLines(c *hostConn, w int) []string {
 		}
 		switch {
 		case c.client == nil:
-			why = "a breakdown needs an agtop-mode session: sessions outside agtop only say how full it is"
+			why = "a breakdown needs a rush-mode session: sessions outside rush only say how full it is"
 		case s.Info.Proto < 2:
 			why = "this agent's host is older than the breakdown: it comes once the host restarts (it does after resting idle)"
 		case s.Info.ClaudePID == 0:
@@ -274,8 +274,8 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent, n settingsCounts) []s
 		return fmt.Sprintf("%d %s", n, many)
 	}
 	switch {
-	case strings.Contains(line, "agtop"):
-		line = "agtop's"
+	case strings.Contains(line, "rush"):
+		line = "rush's"
 	case line != "":
 		line = "your own command"
 	}
@@ -301,7 +301,7 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent, n settingsCounts) []s
 			open: func(m *Model) tea.Cmd { return m.openPlugins(c, a) }},
 		{name: "Skills", screen: "skills", value: join(count(skills, "skill", "skills"), count(cmds, "command", "commands")), about: "what Claude picks up, and your own / commands",
 			open: func(m *Model) tea.Cmd { m.openSkills(c, a); return nil }},
-		{name: "Status line", screen: "statusline", value: line, about: "this header, agtop's top bar, and Claude Code's",
+		{name: "Status line", screen: "statusline", value: line, about: "this header, rush's top bar, and Claude Code's",
 			open: func(m *Model) tea.Cmd { return m.openStatusLine(c, a) }},
 		{name: "Memory", screen: "memory", about: "CLAUDE.md and the other files Claude reads",
 			open: func(m *Model) tea.Cmd { m.sheet = nil; m.showView(c, "memory"); return nil }},

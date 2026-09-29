@@ -13,15 +13,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // balanceURL is DeepSeek's balance endpoint. Asking it spends nothing.
 var balanceURL = "https://api.deepseek.com/user/balance"
 
-// errNoKey is a dsh with no DeepSeek API key agtop can find.
+// errNoKey is a dsh with no DeepSeek API key rush can find.
 var errNoKey = errors.New("no DeepSeek API key: set one with dsh, or DEEPSEEK_API_KEY")
 
 // balance is /user/balance's answer.
@@ -71,7 +71,7 @@ func (Adapter) Quota(ctx context.Context, p agent.Profile, _ agent.Account) (usa
 	return quotaOf(b, time.Now()), nil
 }
 
-// quotaOf is a balance as agtop's reading: "¥110.00 left", or why it can't
+// quotaOf is a balance as rush's reading: "¥110.00 left", or why it can't
 // be used.
 func quotaOf(b balance, now time.Time) usage.Quota {
 	q := usage.Quota{FetchedAt: now, Source: usage.Fetched}

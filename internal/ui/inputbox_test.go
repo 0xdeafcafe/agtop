@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/mattn/go-runewidth"

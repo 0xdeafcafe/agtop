@@ -5,9 +5,9 @@ import (
 	"encoding/json/jsontext"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // call is a tool call as the updates so far describe it.
@@ -234,7 +234,7 @@ func deref(p *string) string {
 	return *p
 }
 
-// kindOf is ACP's ToolKind as agtop's.
+// kindOf is ACP's ToolKind as rush's.
 func kindOf(k string) tool.Kind {
 	switch k {
 	case "read":

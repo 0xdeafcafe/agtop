@@ -1,21 +1,21 @@
 # autodrafts
 
-agtop's drafts, rebuilt as a plugin. agtop already keeps what you type and don't send; this plugin does the same through the [UI hooks](../../skills/write-agtop-plugin/references/protocol.md#uievent-notification--needs-events-or-input), to show they're enough for it. agtop's built-in drafts stay as they are. Install it to read how it works, not because you need it.
+rush's drafts, rebuilt as a plugin. rush already keeps what you type and don't send; this plugin does the same through the [UI hooks](../../skills/write-rush-plugin/references/protocol.md#uievent-notification--needs-events-or-input), to show they're enough for it. rush's built-in drafts stay as they are. Install it to read how it works, not because you need it.
 
 What it does:
 
 - As you type in a message box (a Session's, or the Prompt's), it notes the text, and writes it down as that box's autosave once you stop typing for 1.5 seconds.
 - When you leave the Session, or clear the box with text in it, it keeps that text as a draft for that box.
 - When you send, it forgets the autosave: nothing is kept of what was sent.
-- `plugin:autodrafts.restore` (`alt+b`, if it's free) puts the box's newest draft back, and takes it out of the list, so running it again goes one further back. With no draft left, it puts back the autosave, what you were typing when agtop quit.
+- `plugin:autodrafts.restore` (`alt+b`, if it's free) puts the box's newest draft back, and takes it out of the list, so running it again goes one further back. With no draft left, it puts back the autosave, what you were typing when rush quit.
 - `plugin:autodrafts.list` says how many drafts the box keeps.
 - Settings, Plugins, *Drafts kept per box*: 10, 50 (the default) or 200. The oldest go first.
 
 ## What it's allowed to see
 
-**Everything you type in agtop's message boxes**, as you type it, and when you send or clear it. That's what `ui: ["input"]` means, and approval says so in capitals. It also hears which Session opened or closed (`events`), with what the agent list shows of it, and may show a notice (`notify`) and set a box's text (`input`).
+**Everything you type in rush's message boxes**, as you type it, and when you send or clear it. That's what `ui: ["input"]` means, and approval says so in capitals. It also hears which Session opened or closed (`events`), with what the agent list shows of it, and may show a notice (`notify`) and set a box's text (`input`).
 
-It keeps what you typed only in its data folder, `~/.config/agtop/plugin-data/autodrafts/drafts.json`, readable only by you, written whole each time (a temporary file renamed over it). It has no network, and can't start programs or read anything else: the sandbox stops it, whatever its code says. Delete that file to forget every draft; revoke the plugin to stop it hearing anything.
+It keeps what you typed only in its data folder, `~/.config/rush/plugin-data/autodrafts/drafts.json`, readable only by you, written whole each time (a temporary file renamed over it). It has no network, and can't start programs or read anything else: the sandbox stops it, whatever its code says. Delete that file to forget every draft; revoke the plugin to stop it hearing anything.
 
 ## Install
 
@@ -23,11 +23,11 @@ It has its own `go.mod` and uses only the standard library.
 
 ```sh
 cd plugins/examples/autodrafts
-mkdir -p ~/.config/agtop/plugins/autodrafts
-go build -o ~/.config/agtop/plugins/autodrafts/autodrafts .   # GOARCH=arm64 on Apple Silicon if go env GOARCH says amd64
-cp plugin.json ~/.config/agtop/plugins/autodrafts/
-agtop plugin check autodrafts     # valid, and what approving it allows
-agtop plugin approve autodrafts
+mkdir -p ~/.config/rush/plugins/autodrafts
+go build -o ~/.config/rush/plugins/autodrafts/autodrafts .   # GOARCH=arm64 on Apple Silicon if go env GOARCH says amd64
+cp plugin.json ~/.config/rush/plugins/autodrafts/
+rush plugin check autodrafts     # valid, and what approving it allows
+rush plugin approve autodrafts
 ```
 
 ## Reading it

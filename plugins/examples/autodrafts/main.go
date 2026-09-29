@@ -1,17 +1,17 @@
-// Command autodrafts rebuilds agtop's own drafts as a plugin, to show the
+// Command autodrafts rebuilds rush's own drafts as a plugin, to show the
 // UI hooks are enough for it: it hears what you type in a message box,
 // keeps what you left unsent (you left the Session, or cleared the box),
 // and puts the newest back when you ask.
 //
-// It sees everything you type in agtop, and keeps it only in its data
+// It sees everything you type in rush, and keeps it only in its data
 // folder, in drafts.json. It has no network and can't start programs.
-// agtop's built-in drafts stay as they are; this exists to show the API.
+// rush's built-in drafts stay as they are; this exists to show the API.
 //
 //	cd plugins/examples/autodrafts
-//	mkdir -p ~/.config/agtop/plugins/autodrafts
-//	go build -o ~/.config/agtop/plugins/autodrafts/autodrafts .
-//	cp plugin.json ~/.config/agtop/plugins/autodrafts/
-//	agtop plugin check autodrafts && agtop plugin approve autodrafts
+//	mkdir -p ~/.config/rush/plugins/autodrafts
+//	go build -o ~/.config/rush/plugins/autodrafts/autodrafts .
+//	cp plugin.json ~/.config/rush/plugins/autodrafts/
+//	rush plugin check autodrafts && rush plugin approve autodrafts
 package main
 
 import (
@@ -78,7 +78,7 @@ func (a *app) handle(method string, params json.RawMessage) (any, *rpcError) {
 		_ = json.Unmarshal(params, &in)
 		dir := in.DataDir
 		if dir == "" {
-			dir = os.Getenv("AGTOP_PLUGIN_DATA")
+			dir = os.Getenv("RUSH_PLUGIN_DATA")
 		}
 		a.mu.Lock()
 		a.path = filepath.Join(dir, "drafts.json")

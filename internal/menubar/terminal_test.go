@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-// An agtop open in Warp is the one the menu bar comes back to, on the
+// A rush open in Warp is the one the menu bar comes back to, on the
 // agent asked for; once it's closed, Warp is remembered.
 func TestHere(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the menu bar is macOS only")
 	}
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	t.Setenv("__CFBundleIdentifier", "dev.warp.Warp-Stable")
 	gone := filepath.Join(openDir(), "999999") // a pid that isn't running
 	release := Here()
@@ -23,7 +23,7 @@ func TestHere(t *testing.T) {
 		t.Fatalf("open: %d %q", pid, id)
 	}
 	if _, err := os.Stat(gone); err == nil {
-		t.Fatal("an agtop that's gone should be forgotten")
+		t.Fatal("a rush that's gone should be forgotten")
 	}
 	_ = os.WriteFile(filepath.Join(openDir(), strconv.Itoa(os.Getpid())+".goto"), []byte("acct/abc"), 0o600)
 	if k := Goto(); k != "acct/abc" || Goto() != "" {

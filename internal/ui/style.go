@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/theme"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/theme"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -25,8 +25,8 @@ var painted theme.Ground
 
 func init() { applyColors(theme.Dark, false) }
 
-// applyColors makes agtop's colours, here and in the conversation view,
-// for the terminal's ground g: each is written as it is on agtop's own
+// applyColors makes rush's colours, here and in the conversation view,
+// for the terminal's ground g: each is written as it is on rush's own
 // dark ground and moved onto g as text (ink), a ground for a row or
 // panel (surface), or a colour that says something (accent). colorBlind
 // makes good and bad sky blue and amber, not green and red.

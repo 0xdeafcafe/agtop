@@ -1,8 +1,8 @@
-// Package update finds out whether a newer agtop is out, and installs it.
+// Package update finds out whether a newer rush is out, and installs it.
 //
-// agtop is installed with go install, so the Go module proxy is where a
+// rush is installed with go install, so the Go module proxy is where a
 // new one shows up, and go install is how it's put in place: over the
-// agtop that's running, wherever that lives.
+// rush that's running, wherever that lives.
 package update
 
 import (
@@ -19,19 +19,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/netwatch"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/netwatch"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 const (
-	module = "github.com/0xdeafcafe/agtop"
-	pkg    = module + "/cmd/agtop"
-	// Every is how often agtop asks the proxy; every agtop shares the answer.
+	module = "github.com/0xdeafcafe/rush"
+	pkg    = module + "/cmd/rush"
+	// Every is how often rush asks the proxy; every rush shares the answer.
 	Every = 6 * time.Hour
 )
 
-// Info is one version of agtop, as the module proxy knows it.
+// Info is one version of rush, as the module proxy knows it.
 type Info struct {
 	Version string    `json:"Version"`
 	Time    time.Time `json:"Time"`
@@ -48,7 +48,7 @@ func (i Info) Short() string {
 // pseudo is a pseudo-version's time and commit.
 var pseudo = regexp.MustCompile(`(\d{14})-([0-9a-f]{12})(\+dirty)?$`)
 
-// Current is the agtop that's running. Built from a checkout with go build,
+// Current is the rush that's running. Built from a checkout with go build,
 // it has no version, and ok is false: there's nothing to compare.
 func Current() (i Info, ok bool) {
 	bi, found := debug.ReadBuildInfo()
@@ -63,7 +63,7 @@ func Current() (i Info, ok bool) {
 	return i, true
 }
 
-// Latest asks the module proxy for the newest agtop.
+// Latest asks the module proxy for the newest rush.
 func Latest(ctx context.Context) (Info, error) {
 	return fetch(ctx, "@latest")
 }
@@ -111,7 +111,7 @@ func Newer(ctx context.Context, cur, latest Info) bool {
 	return !cur.Time.IsZero() && latest.Time.After(cur.Time)
 }
 
-// cache is the last answer, shared by every agtop.
+// cache is the last answer, shared by every rush.
 type cache struct {
 	Checked time.Time `json:"checked"`
 	Latest  Info      `json:"latest"`
@@ -119,12 +119,12 @@ type cache struct {
 
 func cachePath() string { return filepath.Join(state.Dir(), "update.json") }
 
-// Job is what looking for a newer agtop is called where agtop shows what
+// Job is what looking for a newer rush is called where rush shows what
 // waits on the network.
 const Job = "Update check"
 
-// Check is the newer agtop that's out, if there is one, asking the proxy
-// only when no agtop has in the last Every.
+// Check is the newer rush that's out, if there is one, asking the proxy
+// only when no rush has in the last Every.
 func Check(ctx context.Context) (Info, bool) {
 	cur, ok := Current()
 	if !ok {
@@ -152,8 +152,8 @@ func Check(ctx context.Context) (Info, bool) {
 	return c.Latest, Newer(ctx, cur, c.Latest)
 }
 
-// Install puts the newest agtop over the one that's running, with go
-// install. What's running keeps running; the next agtop is the new one.
+// Install puts the newest rush over the one that's running, with go
+// install. What's running keeps running; the next rush is the new one.
 func Install(ctx context.Context) (Info, error) {
 	goBin, err := exec.LookPath("go")
 	if err != nil {
@@ -165,11 +165,11 @@ func Install(ctx context.Context) (Info, error) {
 	}
 	cmd := exec.CommandContext(ctx, goBin, "install", pkg+"@"+l.Version)
 	cmd.Env = os.Environ()
-	// Into the folder the running agtop is in, so it's the one replaced;
+	// Into the folder the running rush is in, so it's the one replaced;
 	// one built with go build is left alone, and Go picks the folder.
 	if _, ok := Current(); ok {
 		if exe, err := os.Executable(); err == nil {
-			if exe, err = filepath.EvalSymlinks(exe); err == nil && filepath.Base(exe) == "agtop" {
+			if exe, err = filepath.EvalSymlinks(exe); err == nil && filepath.Base(exe) == "rush" {
 				cmd.Env = append(cmd.Env, "GOBIN="+filepath.Dir(exe))
 			}
 		}

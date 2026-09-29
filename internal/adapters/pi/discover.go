@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Pi keeps a session in a file of its own, <dir>/sessions/--<cwd>--/
@@ -68,7 +68,7 @@ const (
 // Live are the sessions Pi wrote to lately: a pi in a terminal, most
 // often. Pi keeps no record of which sessions run, so one written in the
 // last two minutes is taken as running, and in the last fifteen seconds as
-// working. Sessions agtop runs itself are also here; the host's rows claim
+// working. Sessions rush runs itself are also here; the host's rows claim
 // them.
 func (Adapter) Live(p agent.Profile) []agent.Session {
 	now := time.Now()
@@ -140,7 +140,7 @@ func pastSession(path string) (agent.Session, bool) {
 }
 
 // entry is one line of a session file, with the fields of every type
-// agtop reads.
+// rush reads.
 type entry struct {
 	Type      string `json:"type"` // session, message, model_change, compaction, session_info, ...
 	ID        string `json:"id"`

@@ -13,45 +13,45 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/advisor"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/daemon"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/menubar"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
-	"github.com/0xdeafcafe/agtop/internal/plugind"
-	"github.com/0xdeafcafe/agtop/internal/state"
-	"github.com/0xdeafcafe/agtop/internal/statusline"
-	"github.com/0xdeafcafe/agtop/internal/ui"
-	"github.com/0xdeafcafe/agtop/internal/update"
+	"github.com/0xdeafcafe/rush/internal/advisor"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/daemon"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/menubar"
+	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/plugind"
+	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/statusline"
+	"github.com/0xdeafcafe/rush/internal/ui"
+	"github.com/0xdeafcafe/rush/internal/update"
 )
 
 var version = "0.1.0"
 
-// A go install'd agtop knows which one it is.
+// A go install'd rush knows which one it is.
 func init() {
 	if i, ok := update.Current(); ok {
 		version = i.Short()
 	}
 }
 
-const usage = `agtop — a lighter agents view for Claude Code
+const usage = `rush — a lighter agents view for Claude Code
 
-  agtop             open the view
-  agtop on          make "claude agents" open this view (adds one line to your shell rc)
-  agtop off         give "claude agents" back to Claude Code (instant, no shell reload)
-  agtop status      show whether it is on
-  agtop update      install the newest agtop, with go install
-  agtop menubar     put agtop in the menu bar: usage, what's working, and
+  rush             open the view
+  rush on          make "claude agents" open this view (adds one line to your shell rc)
+  rush off         give "claude agents" back to Claude Code (instant, no shell reload)
+  rush status      show whether it is on
+  rush update      install the newest rush, with go install
+  rush menubar     put rush in the menu bar: usage, what's working, and
                     questions you can answer from their notification
-  agtop menubar off take it out again
-  agtop plugin      sandboxed plugins: list, approve, revoke
-  agtop session     start, send to, stop and list agtop-mode sessions without
-                    the view ("agtop session help" for the commands)
-  agtop open <id> --hosted
-                    the view of one agtop-mode session alone, full width
-  agtop --dump      print what the view sees, for debugging
+  rush menubar off take it out again
+  rush plugin      sandboxed plugins: list, approve, revoke
+  rush session     start, send to, stop and list rush-mode sessions without
+                    the view ("rush session help" for the commands)
+  rush open <id> --hosted
+                    the view of one rush-mode session alone, full width
+  rush --dump      print what the view sees, for debugging
 `
 
 func main() {
@@ -59,7 +59,7 @@ func main() {
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "version":
-			fmt.Println("agtop", version)
+			fmt.Println("rush", version)
 			return
 		case "--help", "-h", "help":
 			fmt.Print(usage + pluginsUsage())
@@ -75,16 +75,16 @@ func main() {
 			return
 		case "attach":
 			if len(args) < 2 {
-				exitIf(fmt.Errorf("usage: agtop attach <id>"))
+				exitIf(fmt.Errorf("usage: rush attach <id>"))
 			}
 			s := &daemon.Session{Client: daemon.Client{Account: state.Load().Config.ActiveAccount()}, Short: args[1]}
 			exitIf(s.Run())
 			return
 		case "host":
-			// agtop host run <id>: the detached process an agtop-mode session
-			// lives in. agtop starts it; it is not meant to be run by hand.
+			// rush host run <id>: the detached process a rush-mode session
+			// lives in. rush starts it; it is not meant to be run by hand.
 			if len(args) < 3 || args[1] != "run" {
-				exitIf(fmt.Errorf("usage: agtop host run <id>"))
+				exitIf(fmt.Errorf("usage: rush host run <id>"))
 			}
 			background("") // it lowers GOGC itself once it runs turns
 			var err error
@@ -107,7 +107,7 @@ func main() {
 			exitIf(pluginCmd(args[1:]))
 			return
 		case "plugind":
-			// The plugin broker. agtop starts it when a plugin is approved;
+			// The plugin broker. rush starts it when a plugin is approved;
 			// it is not meant to be run by hand.
 			background("")
 			exitIf(plugind.Run())
@@ -125,17 +125,17 @@ func main() {
 			return
 		case "off":
 			exitIf(os.WriteFile(offFlag(), nil, 0o600))
-			fmt.Println(`off — "claude agents" opens the native view. "agtop on" turns it back on.`)
+			fmt.Println(`off — "claude agents" opens the native view. "rush on" turns it back on.`)
 			return
 		case "status":
 			if isOn() {
-				fmt.Println(`on — "claude agents" opens agtop`)
+				fmt.Println(`on — "claude agents" opens rush`)
 			} else {
 				fmt.Println(`off — "claude agents" opens the native view`)
 			}
 			return
 		}
-		// A plugin's own commands: its name, where agtop's commands take
+		// A plugin's own commands: its name, where rush's commands take
 		// theirs first.
 		if m, ok := plugin.CLIPlugins()[args[0]]; ok {
 			os.Exit(pluginCLI(args[0], m, args[1:], os.Stdout, os.Stderr))
@@ -157,12 +157,12 @@ func main() {
 	_ = state.Flush()
 	(<-here)()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "agtop:", err)
+		fmt.Fprintln(os.Stderr, "rush:", err)
 		os.Exit(1)
 	}
 }
 
-// background sets up one of agtop's own long-lived processes (a session's
+// background sets up one of rush's own long-lived processes (a session's
 // host, the menu bar feed, the plugin broker): one runs per agent, so each
 // should cost a few MB. They mostly wait, so two Ps is plenty: fewer
 // threads, and less cached per P. The runtime only takes that as it starts
@@ -170,7 +170,7 @@ func main() {
 // with it, once, and with gogc when that's set. Heap profiling is off
 // unless asked for.
 func background(gogc string) {
-	const mark = "AGTOP_GOENV"
+	const mark = "RUSH_GOENV"
 	if set, ok := os.LookupEnv(mark); ok {
 		// Not for Claude Code, or anything it runs.
 		for _, k := range strings.Fields(set) {
@@ -189,7 +189,7 @@ func background(gogc string) {
 			_ = syscall.Exec(exe, os.Args, env) // only returns if it failed
 		}
 	}
-	if os.Getenv("AGTOP_MEMPROFILE") == "" {
+	if os.Getenv("RUSH_MEMPROFILE") == "" {
 		runtime.MemProfileRate = 0
 	}
 }
@@ -209,7 +209,7 @@ func viewGC() {
 
 func exitIf(err error) {
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "agtop:", err)
+		fmt.Fprintln(os.Stderr, "rush:", err)
 		os.Exit(1)
 	}
 }
@@ -238,11 +238,11 @@ func rcFile() string {
 
 // The hook only intercepts "claude agents"; every other claude call passes
 // through untouched, and the off flag is read per call so toggling is instant.
-const hook = `# added by "agtop on" — remove with "agtop off" or delete this file
+const hook = `# added by "rush on" — remove with "rush off" or delete this file
 claude() {
-  if [ "$1" = "agents" ] && [ ! -f "%s" ] && command -v agtop >/dev/null 2>&1; then
+  if [ "$1" = "agents" ] && [ ! -f "%s" ] && command -v rush >/dev/null 2>&1; then
     shift
-    command agtop "$@"
+    command rush "$@"
   else
     command claude "$@"
   fi
@@ -271,7 +271,7 @@ func turnOn() error {
 		fmt.Printf("on — added one line to %s. Open a new terminal (or: . %s)\n", rc, hookPath())
 		return nil
 	}
-	fmt.Println(`on — "claude agents" opens agtop`)
+	fmt.Println(`on — "claude agents" opens rush`)
 	return nil
 }
 
@@ -312,7 +312,7 @@ func dump() {
 	fmt.Printf("machine mem=%.0fM cpu=%.1f%% spares=%d scan=%s\n", float64(snap.Machine.TotalMem)/(1<<20), snap.Machine.TotalCPU, snap.Machine.Spares, scan)
 }
 
-// render prints one frame, e.g. agtop --render 160x45 tab
+// render prints one frame, e.g. rush --render 160x45 tab
 func render(args []string) {
 	w, h := 160, 45
 	if len(args) > 0 {
@@ -360,18 +360,18 @@ func menuBar(args []string) error {
 		fmt.Println("off — the menu bar icon is gone")
 		return st.SaveConfig()
 	case len(args) > 0:
-		return fmt.Errorf("usage: agtop menubar [off]")
+		return fmt.Errorf("usage: rush menubar [off]")
 	}
 	fmt.Println("starting the menu bar icon (the first time builds it, a few seconds)…")
 	if err := menubar.Start(); err != nil {
 		return err
 	}
 	st.Config.MenuBar, st.Config.MenuBarAsked = true, true
-	fmt.Println("on — agtop is in your menu bar. Its menu can open it at login.")
+	fmt.Println("on — rush is in your menu bar. Its menu can open it at login.")
 	return st.SaveConfig()
 }
 
-// selfUpdate is agtop update: the newest agtop over this one, when there is
+// selfUpdate is rush update: the newest rush over this one, when there is
 // a newer one.
 func selfUpdate() error {
 	ctx := context.Background()
@@ -380,14 +380,14 @@ func selfUpdate() error {
 		return err
 	}
 	if cur, ok := update.Current(); ok && !update.Newer(ctx, cur, l) {
-		fmt.Println("agtop", cur.Short(), "is the newest")
+		fmt.Println("rush", cur.Short(), "is the newest")
 		return nil
 	}
-	fmt.Println("installing agtop", l.Short()+"…")
+	fmt.Println("installing rush", l.Short()+"…")
 	to, err := update.Install(ctx)
 	if err != nil {
 		return err
 	}
-	fmt.Println("agtop", to.Short(), "installed · reopen agtop to use it")
+	fmt.Println("rush", to.Short(), "installed · reopen rush to use it")
 	return nil
 }

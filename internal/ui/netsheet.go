@@ -8,8 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/netwatch"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/netwatch"
 )
 
 // --- the network ---
@@ -72,8 +72,8 @@ func netSeg() string {
 	return dim("net steady")
 }
 
-// netSheet is #network: whether the API answers, the network agtop is on,
-// what of agtop's waits for it, and the sessions it stopped.
+// netSheet is #network: whether the API answers, the network rush is on,
+// what of rush's waits for it, and the sessions it stopped.
 type netSheet struct{}
 
 func (*netSheet) width(*Model) int { return 96 }
@@ -92,7 +92,7 @@ func (*netSheet) body(m *Model, w, h int) []string {
 	s := netwatch.Now()
 	now := time.Now()
 	label := func(l string) string { return paint(cSub, fmt.Sprintf("%-13s", l)) }
-	out := []string{sheetTitle("Network", "whether the API answers, the network agtop is on, and what waits for it", w), ""}
+	out := []string{sheetTitle("Network", "whether the API answers, the network rush is on, and what waits for it", w), ""}
 
 	// The API.
 	var api string
@@ -145,7 +145,7 @@ func (*netSheet) body(m *Model, w, h int) []string {
 	// Noticing another network.
 	switch s.Changes {
 	case 0:
-		out = append(out, label("New network")+dim("none since agtop opened")+faint(" · interfaces looked at every 5s; a change checks the API at once"))
+		out = append(out, label("New network")+dim("none since rush opened")+faint(" · interfaces looked at every 5s; a change checks the API at once"))
 	default:
 		n := fmt.Sprintf("%d change%s · last %s ago", s.Changes, plural(s.Changes), age(now.Sub(s.Changed)))
 		how := paint(cYellow, "checking the API on it…")
@@ -155,8 +155,8 @@ func (*netSheet) body(m *Model, w, h int) []string {
 		out = append(out, label("New network")+dim(n+" · ")+how)
 	}
 
-	// agtop's own jobs.
-	out = append(out, "", paint(cText+bold, "agtop's jobs that use it"))
+	// rush's own jobs.
+	out = append(out, "", paint(cText+bold, "rush's jobs that use it"))
 	if len(s.Jobs) == 0 {
 		out = append(out, "  "+faint("none has run yet"))
 	}
@@ -201,7 +201,7 @@ func (*netSheet) body(m *Model, w, h int) []string {
 	n, longest, last, path := stallReport()
 	out = append(out, "", paint(cText+bold, "Keys and frames"))
 	if n == 0 {
-		out = append(out, "  "+paint(cGreen, "✓")+" "+dim(fmt.Sprintf("nothing has held the UI up over %s since agtop opened", stallAfter)))
+		out = append(out, "  "+paint(cGreen, "✓")+" "+dim(fmt.Sprintf("nothing has held the UI up over %s since rush opened", stallAfter)))
 	} else {
 		out = append(out, "  "+paint(cYellow, "!")+" "+paint(cText, fmt.Sprintf("held up %d× over %s", n, stallAfter))+
 			dim(fmt.Sprintf(" · longest %s by %s%s · last %s ago", longest.took.Round(time.Millisecond), longest.what, inWhere(longest.where), age(now.Sub(last.at)))),

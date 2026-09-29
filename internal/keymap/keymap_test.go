@@ -146,7 +146,7 @@ func TestPluginSuggestionOnlyWhereFree(t *testing.T) {
 		t.Errorf("suggested = %q", got)
 	}
 	if m.KeyText("session.send") != "ctrl+s" {
-		t.Error("a plugin moved agtop's key")
+		t.Error("a plugin moved rush's key")
 	}
 }
 
@@ -174,7 +174,7 @@ func TestDefaultsAreClean(t *testing.T) {
 		for _, k := range a.Keys {
 			s, _ := Parse(k)
 			if s.String() != k {
-				t.Errorf("%s: %q isn't written as agtop reads it (%q)", a.ID, k, s)
+				t.Errorf("%s: %q isn't written as rush reads it (%q)", a.ID, k, s)
 			}
 		}
 	}

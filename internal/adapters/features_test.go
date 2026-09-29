@@ -10,15 +10,15 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/acp"
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/codex"
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/copilot"
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/deepseek"
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/glm"
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/ollama"
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/pi"
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/acp"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/codex"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/copilot"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/deepseek"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/glm"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/ollama"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/pi"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // implements are the features that are an interface: an adapter has the
@@ -50,7 +50,7 @@ func TestFeaturesMatchInterfaces(t *testing.T) {
 	}
 }
 
-// Every feature an adapter declares is one agtop knows, and has a label.
+// Every feature an adapter declares is one rush knows, and has a label.
 func TestFeaturesKnown(t *testing.T) {
 	known := map[agent.Feature]bool{}
 	for _, i := range agent.AllFeatures() {
@@ -68,7 +68,7 @@ func TestFeaturesKnown(t *testing.T) {
 	}
 }
 
-// eventBacked are features no path of agtop's asks for: they happen when
+// eventBacked are features no path of rush's asks for: they happen when
 // the agent does them, and what shows them waits for it.
 var eventBacked = map[agent.Feature]string{
 	agent.FeatureQuestions: "the question sheet opens when the agent asks one",
@@ -163,7 +163,7 @@ func TestLevels(t *testing.T) {
 	}
 }
 
-// An empty kind, read from what an older agtop wrote, is Claude Code's;
+// An empty kind, read from what an older rush wrote, is Claude Code's;
 // the agents' programs are told from others.
 func TestLegacyKindAndPrograms(t *testing.T) {
 	if k := agent.Migrated(""); k != "claude" || agent.Migrated("codex") != "codex" {

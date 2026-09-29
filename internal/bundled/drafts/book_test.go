@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 var t0 = time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
@@ -73,7 +73,7 @@ func TestPutBackAndForget(t *testing.T) {
 		t.Fatalf("pick: %+v", p)
 	}
 	if _, err := plugin.CleanPick(p); err != nil {
-		t.Fatalf("the pick should be one agtop takes: %v", err)
+		t.Fatalf("the pick should be one rush takes: %v", err)
 	}
 	cur := box("half typed")
 	set, ok := b.PutBack(p.Items[1].ID, "s1", "one", &cur, t0)
@@ -102,7 +102,7 @@ func TestKeepsNewest(t *testing.T) {
 	}
 }
 
-// The first run takes in the drafts agtop kept itself.
+// The first run takes in the drafts rush kept itself.
 func TestLoadTakesInOldDrafts(t *testing.T) {
 	root := t.TempDir()
 	data := filepath.Join(root, "plugin-data", "drafts")

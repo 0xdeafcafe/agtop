@@ -7,11 +7,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/hooks"
-	"github.com/0xdeafcafe/agtop/internal/keymap"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/hooks"
+	"github.com/0xdeafcafe/rush/internal/keymap"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 func pressKeys(m *Model, keys ...string) {
@@ -97,7 +97,7 @@ func TestChordRunsCommand(t *testing.T) {
 }
 
 func TestKeysPageTakesKeys(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, _ := benchModel(200, 50)
 	m.setView(placeSettings)
 	m.setSettingsPage(pageKeys)
@@ -218,11 +218,11 @@ func TestPluginHashCommands(t *testing.T) {
 	}
 }
 
-// A stop agtop continues itself says so, so a plugin needn't too.
-func TestHaltSaysAgtopRetries(t *testing.T) {
+// A stop rush continues itself says so, so a plugin needn't too.
+func TestHaltSaysRushRetries(t *testing.T) {
 	now := time.Now()
 	stopped := func(kind, text string, hosted bool) *plugin.UIError {
-		a := &fleet.Agent{Key: "a", PID: 7, Agtop: hosted}
+		a := &fleet.Agent{Key: "a", PID: 7, Rush: hosted}
 		a.State, a.UpdatedAt = "done", now.Add(-time.Minute)
 		a.Spend.Halt = &claude.Halt{Kind: kind, Text: text, At: now.Add(-time.Minute)}
 		return haltKind(a)

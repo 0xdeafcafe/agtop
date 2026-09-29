@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"unicode/utf8"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// A plugin's settings are kept by agtop, in Root(), where the plugin can't
+// A plugin's settings are kept by rush, in Root(), where the plugin can't
 // read or write: it is told them at initialize and when one changes.
 
 // MaxSettingText is the longest a text setting's value may be, in bytes.
@@ -89,7 +89,7 @@ func checkSetting(s SettingSpec, v string) error {
 			return fmt.Errorf("%s can't hold control characters", s.Key)
 		}
 	default:
-		return fmt.Errorf("%s has no type agtop knows", s.Key)
+		return fmt.Errorf("%s has no type rush knows", s.Key)
 	}
 	return nil
 }
@@ -111,7 +111,7 @@ func SetSetting(name, key, value string) error {
 	if err := os.MkdirAll(Root(), 0o700); err != nil {
 		return err
 	}
-	// Two writers (two agtops, say) take turns, so neither loses the other's.
+	// Two writers (two rushes, say) take turns, so neither loses the other's.
 	lock, err := os.OpenFile(settingsLock(), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err

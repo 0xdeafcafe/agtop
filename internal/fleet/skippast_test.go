@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // pastAgent lists one past session and one running.
@@ -32,7 +32,7 @@ func (pastAgent) Past(agent.Profile) []agent.Session {
 func TestSkipPastLeavesPastSessionsOut(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("AGTOP_HOME", home+"/agtop")
+	t.Setenv("RUSH_HOME", home+"/rush")
 	agent.Register(pastAgent{dir: home + "/past"})
 
 	l := NewLoader(&state.Store{})

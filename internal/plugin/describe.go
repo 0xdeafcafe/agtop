@@ -7,7 +7,7 @@ import (
 )
 
 // Describe says, in plain words, what approving p allows: the same text
-// `agtop plugin check|approve` shows at a terminal, and what a UI's own
+// `rush plugin check|approve` shows at a terminal, and what a UI's own
 // approval dialog shows instead of one.
 func Describe(p Plugin) string {
 	var b strings.Builder
@@ -46,7 +46,7 @@ func Describe(p Plugin) string {
 			names = append(names, n)
 		}
 		sort.Strings(names)
-		w("\nOutside the sandbox, as you, agtop runs for it (with any arguments it adds):\n")
+		w("\nOutside the sandbox, as you, rush runs for it (with any arguments it adds):\n")
 		for _, n := range names {
 			w("  • %s\n", strings.Join(p.Exec[n], " "))
 		}
@@ -54,7 +54,7 @@ func Describe(p Plugin) string {
 
 	var grants []string
 	if p.HasTools() {
-		grants = append(grants, "offers its tools to every agtop-mode session (each call asks you first, as any tool does)")
+		grants = append(grants, "offers its tools to every rush-mode session (each call asks you first, as any tool does)")
 	}
 	if len(p.Agents) > 0 {
 		names := make([]string, 0, len(p.Agents))
@@ -62,14 +62,14 @@ func Describe(p Plugin) string {
 			names = append(names, p.Name+":"+n)
 		}
 		sort.Strings(names)
-		grants = append(grants, "adds subagents to every agtop-mode session: "+strings.Join(names, ", "))
+		grants = append(grants, "adds subagents to every rush-mode session: "+strings.Join(names, ", "))
 	}
 	if p.Prompt != "" {
-		grants = append(grants, fmt.Sprintf("adds %d characters to every agtop-mode session's system prompt:\n      %s",
+		grants = append(grants, fmt.Sprintf("adds %d characters to every rush-mode session's system prompt:\n      %s",
 			len(p.Prompt), strings.ReplaceAll(clip(p.Prompt, 400), "\n", "\n      ")))
 	}
 	if p.Can(CapList) {
-		grants = append(grants, "sees every agtop-mode session's name, folder, branch, state, cost and context use (not what was said)")
+		grants = append(grants, "sees every rush-mode session's name, folder, branch, state, cost and context use (not what was said)")
 	}
 	if p.Can(CapStart) {
 		grants = append(grants, fmt.Sprintf("starts sessions on your account in %s, never in a mode that skips asking you;\n"+
@@ -94,13 +94,13 @@ func Describe(p Plugin) string {
 		grants = append(grants, "arranges your agent list: groups and names agents in sections of its own, offered as a group-by mode")
 	}
 	if p.CanUI(UIInput) {
-		grants = append(grants, "SEES EVERYTHING YOU TYPE in agtop's message boxes, as you type it and when you send or clear it, and may set what's in them")
+		grants = append(grants, "SEES EVERYTHING YOU TYPE in rush's message boxes, as you type it and when you send or clear it, and may set what's in them")
 	}
 	if p.CanUI(UIIntercept) {
 		grants = append(grants, fmt.Sprintf("is asked before each message you send goes, and may change it or hold it back (it has %v; after that it goes as it was)", InterceptBudget))
 	}
 	if p.CanUI(UIEvents) {
-		grants = append(grants, "hears what happens in agtop's screen: sessions seen, opened and left, turns starting and ending, why a session stopped, the network going and coming back; with each, what the agent list shows of the session (never what was said)")
+		grants = append(grants, "hears what happens in rush's screen: sessions seen, opened and left, turns starting and ending, why a session stopped, the network going and coming back; with each, what the agent list shows of the session (never what was said)")
 	}
 	if p.CanUI(UISend) {
 		grants = append(grants, fmt.Sprintf("sends messages, as if you'd typed them, to sessions in %s that ask you before acting", strings.Join(p.Workspaces, ", ")))
@@ -109,7 +109,7 @@ func Describe(p Plugin) string {
 		grants = append(grants, "adds sections to a Session's overview, and a word or two to its row in the list")
 	}
 	if p.CanUI(UINotify) {
-		grants = append(grants, "shows short notices at the bottom of agtop's screen")
+		grants = append(grants, "shows short notices at the bottom of rush's screen")
 	}
 	if len(p.Commands) > 0 {
 		cs := make([]string, 0, len(p.Commands))
@@ -125,9 +125,9 @@ func Describe(p Plugin) string {
 	if len(p.CLI) > 0 {
 		cs := make([]string, 0, len(p.CLI))
 		for _, c := range p.CLI {
-			cs = append(cs, "agtop "+p.Name+" "+c.Name)
+			cs = append(cs, "rush "+p.Name+" "+c.Name)
 		}
-		grants = append(grants, "adds commands to agtop's CLI, run by the plugin with what it may do: "+strings.Join(cs, ", "))
+		grants = append(grants, "adds commands to rush's CLI, run by the plugin with what it may do: "+strings.Join(cs, ", "))
 	}
 	if len(p.Settings) > 0 {
 		ss := make([]string, 0, len(p.Settings))

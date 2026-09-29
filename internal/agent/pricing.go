@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/0xdeafcafe/agtop/internal/agent/usage"
+import "github.com/0xdeafcafe/rush/internal/agent/usage"
 
 // DefaultModeler is an agent that says which model its sessions run when
 // none is picked, to price tokens whose model isn't known.

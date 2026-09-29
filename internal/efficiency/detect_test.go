@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	. "github.com/0xdeafcafe/agtop/internal/efficiency"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	. "github.com/0xdeafcafe/rush/internal/efficiency"
 )
 
 // testAccount is an account in a folder of its own, on a machine with no
@@ -61,9 +61,9 @@ func TestDetect(t *testing.T) {
 }
 
 // Settings savers are changed in place, keeping the rest of the file, and
-// logged as agtop's doing.
+// logged as rush's doing.
 func TestSettingPlan(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := testAccount(t, `{"model":"opus","env":{"KEEP":"1"}}`)
 	sv := Find("autocompact")
 	p := NewPlan(LoadEnv(a), sv, false)
@@ -78,7 +78,7 @@ func TestSettingPlan(t *testing.T) {
 		t.Fatalf("settings after: %s", b)
 	}
 	evs := LoadEvents()
-	if len(evs) != 1 || evs[0].Kind != "setting" || evs[0].Source != "agtop" {
+	if len(evs) != 1 || evs[0].Kind != "setting" || evs[0].Source != "rush" {
 		t.Fatalf("events: %+v", evs)
 	}
 	backups, _ := filepath.Glob(filepath.Join(Dir(), "backups", "*", "settings.json"))
@@ -88,7 +88,7 @@ func TestSettingPlan(t *testing.T) {
 	// Observing afterwards doesn't log it again.
 	Observe(LoadEnv(a))
 	if n := len(LoadEvents()); n != 1 {
-		t.Fatalf("observing logged agtop's own change again: %d events", n)
+		t.Fatalf("observing logged rush's own change again: %d events", n)
 	}
 
 	rm := NewPlan(LoadEnv(a), sv, true)
@@ -101,10 +101,10 @@ func TestSettingPlan(t *testing.T) {
 	}
 }
 
-// A change made outside agtop is noticed and logged; the first look at an
+// A change made outside rush is noticed and logged; the first look at an
 // account logs nothing without an install date.
 func TestObserve(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := testAccount(t, `{}`)
 	Observe(LoadEnv(a))
 	if n := len(LoadEvents()); n != 0 {
@@ -121,6 +121,6 @@ func TestObserve(t *testing.T) {
 func TestManualIsBlocked(t *testing.T) {
 	a := testAccount(t, "")
 	if p := NewPlan(LoadEnv(a), Find("headroom"), false); p.Blocked == "" {
-		t.Fatal("headroom is set up by hand; agtop shouldn't run anything")
+		t.Fatal("headroom is set up by hand; rush shouldn't run anything")
 	}
 }

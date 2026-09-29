@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/settingsfile"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/settingsfile"
 )
 
 // Status is how far a saver is set up.
@@ -61,7 +61,7 @@ func LoadEnv(p agent.Profile) *Env {
 }
 
 // searchPath is where programs are looked for: the PATH, and where
-// package managers put them, which a GUI-started agtop's PATH may miss.
+// package managers put them, which a GUI-started rush's PATH may miss.
 var searchPath = func() []string {
 	home, _ := os.UserHomeDir()
 	dirs := filepath.SplitList(os.Getenv("PATH"))

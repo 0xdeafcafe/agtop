@@ -9,9 +9,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/hooks"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/hooks"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 func ctrlK() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl} }
@@ -375,7 +375,7 @@ func TestBarSearchSetting(t *testing.T) {
 	}
 }
 
-// The bar offers agtop's own # commands and plugins' commands, gated on
+// The bar offers rush's own # commands and plugins' commands, gated on
 // whether an agent's in view for those that act on one, and running them
 // the way typing them would.
 func TestBarCommands(t *testing.T) {
@@ -397,7 +397,7 @@ func TestBarCommands(t *testing.T) {
 		t.Fatal("an agent-scoped command is offered with nothing focused")
 	}
 	if !has(got, "#profile") {
-		t.Fatal("an agtop-wide command should be offered regardless")
+		t.Fatal("a rush-wide command should be offered regardless")
 	}
 	if !has(got, "#haven.open") {
 		t.Fatal("a plugin's command should be offered")

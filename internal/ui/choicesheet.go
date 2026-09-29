@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // --- a command's argument from a list: /model, /effort ---
@@ -77,7 +77,7 @@ func argNow(c *hostConn, name string, opts []agent.Choice) (now string, known bo
 // agent's own default.
 func (m *Model) setArg(c *hostConn, name, id string) tea.Cmd {
 	if c.client == nil {
-		m.flash("/"+name+" works in agtop-mode sessions · /agtop moves this one over", true)
+		m.flash("/"+name+" works in rush-mode sessions · /rush moves this one over", true)
 		return nil
 	}
 	if id == "default" {

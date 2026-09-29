@@ -10,10 +10,10 @@ import (
 // A sign-in with MCP servers' logins in it runs past what one of
 // security's prompt lines holds; it must still be saved whole.
 func TestKeychainWriteLong(t *testing.T) {
-	if os.Getenv("AGTOP_KEYCHAIN_TEST") == "" {
-		t.Skip("writes to your login keychain; set AGTOP_KEYCHAIN_TEST=1")
+	if os.Getenv("RUSH_KEYCHAIN_TEST") == "" {
+		t.Skip("writes to your login keychain; set RUSH_KEYCHAIN_TEST=1")
 	}
-	const svc = "agtop-test"
+	const svc = "rush-test"
 	defer keychainDelete(svc, "t")
 	for _, n := range []int{100, 2719, 6000} {
 		secret := []byte(`{"claudeAiOauth":{"refreshToken":"` + strings.Repeat("x", n) + `"}}`)
@@ -30,8 +30,8 @@ func TestKeychainWriteLong(t *testing.T) {
 // Claude Code reads its sign-in under your user name. Another item under
 // the same service (an older tool's) mustn't catch what a switch writes.
 func TestCredsGoToClaudeCodesItem(t *testing.T) {
-	if os.Getenv("AGTOP_KEYCHAIN_TEST") == "" {
-		t.Skip("writes to your login keychain; set AGTOP_KEYCHAIN_TEST=1")
+	if os.Getenv("RUSH_KEYCHAIN_TEST") == "" {
+		t.Skip("writes to your login keychain; set RUSH_KEYCHAIN_TEST=1")
 	}
 	a := Account{ConfigDir: t.TempDir()}
 	svc := a.keychainService()

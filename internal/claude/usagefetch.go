@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"net/http"
 	"strconv"
@@ -63,7 +63,7 @@ func FetchUsageAs(ctx context.Context, raw []byte, id string) (Usage, error) {
 	case err != nil:
 		return Usage{}, fmt.Errorf("couldn't tell whose sign-in it is: %w", err)
 	case owner != id:
-		return Usage{}, errors.New("agtop's sign-in for it is another account's; sign in again")
+		return Usage{}, errors.New("rush's sign-in for it is another account's; sign in again")
 	}
 	u, err := FetchUsageWith(ctx, raw)
 	u.AccountID = id

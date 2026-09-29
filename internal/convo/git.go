@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// gitOut is what git prints for cmd when agtop colours it: "log" for a
+// gitOut is what git prints for cmd when rush colours it: "log" for a
 // history, "status" for what's changed; "" for anything else.
 func gitOut(cmd string) string {
 	f := strings.Fields(strings.Split(cmd, "|")[0])

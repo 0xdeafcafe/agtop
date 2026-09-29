@@ -9,15 +9,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 func testPlugin(t *testing.T, m plugin.Manifest) (*runner, plugin.Plugin) {
 	t.Helper()
 	home, _ := filepath.EvalSymlinks(t.TempDir())
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	if m.Name == "" {
 		m.Name = "kanban"
 	}

@@ -6,14 +6,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Stepping the list's edge past either end leaves one side alone, and
 // stepping back brings the split back.
 func TestStepSplit(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
 	side := func() (int, int) { l, p, _ := m.layout(); m.listW = l; return l, p }
@@ -60,7 +60,7 @@ func TestStepSplit(t *testing.T) {
 
 // shift+← → do it too (Terminal.app's option isn't alt), and so does #view.
 func TestSplitKeys(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
 	m.listW, _, _ = m.layout()
@@ -90,7 +90,7 @@ func TestSplitKeys(t *testing.T) {
 // whole screen, the next one opens there too; closing goes back to Agents
 // alone, and splitting it keeps the split, next time too.
 func TestChatOpensAsLast(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
 	m.command(a, "#view list")
@@ -119,10 +119,10 @@ func TestChatOpensAsLast(t *testing.T) {
 	}
 }
 
-// The layout picked is kept for next time: #view agent opens agtop on the
+// The layout picked is kept for next time: #view agent opens rush on the
 // Session alone, #view list on Agents alone.
 func TestViewKept(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
 	m.store.Config.MenuBarAsked = true
@@ -137,10 +137,10 @@ func TestViewKept(t *testing.T) {
 	}
 }
 
-// The first time, agtop asks which layout; a layout kept before there was
+// The first time, rush asks which layout; a layout kept before there was
 // a choice counts as the answer.
 func TestViewAsked(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
 	m.store.Config.MenuBarAsked = true
@@ -165,7 +165,7 @@ func TestViewAsked(t *testing.T) {
 // Typing #view's choices lays the screen out without asking the layout
 // which layout is on (that went round forever).
 func TestHashViewPicker(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a", inKind: inPrompt}
 	m.input = []rune("#view ")
@@ -178,7 +178,7 @@ func TestHashViewPicker(t *testing.T) {
 // With the Session alone kept, leaving it is a peek at Agents: enter opens
 // the one picked, alone again, and esc goes back to the one you left.
 func TestPeekFromSession(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a, b := &fleet.Agent{Key: "a", DisplayName: "alpha"}, &fleet.Agent{Key: "b", DisplayName: "beta"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{Agents: []*fleet.Agent{a, b}}, w: 240, h: 50, order: []*fleet.Agent{a, b}, sel: "a", inKind: inPrompt, previews: map[string]previewEntry{}}
 	esc := tea.KeyPressMsg{Code: tea.KeyEscape}
@@ -207,12 +207,12 @@ func TestPeekFromSession(t *testing.T) {
 	}
 }
 
-// On a Mac, once the layout's picked, agtop offers the menu bar icon, once.
+// On a Mac, once the layout's picked, rush offers the menu bar icon, once.
 func TestMenuBarAsked(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the menu bar is macOS only")
 	}
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	a := &fleet.Agent{Key: "a"}
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{}, w: 240, h: 50, order: []*fleet.Agent{a}, sel: "a"}
 	m.startView()

@@ -1,28 +1,28 @@
-// Command kanban connects agtop to kanban-code
+// Command kanban connects rush to kanban-code
 // (github.com/langwatch/kanban-code), the board that shows coding agents as
 // cards. kanban-code knows what the work is: cards, their issues, pull
-// requests, checks and review threads. agtop runs the agents. This plugin
+// requests, checks and review threads. rush runs the agents. This plugin
 // joins the two:
 //
 //   - Claude can read the board, and the card it's working on, with the
 //     issue, the PR, failing checks and unresolved review threads.
-//   - Claude (or you, through it) can start an agent on a card: in agtop,
+//   - Claude (or you, through it) can start an agent on a card: in rush,
 //     in the card's worktree or a new one, tagged with the card. Once the
 //     agent's conversation has begun, the plugin has kanban-code link the
 //     card to it, so the card follows the agent across the board.
 //   - When a card's PR gets a failing check or a new review thread, the
 //     agent working on it hears about it: the plugin queues it a message,
 //     sent when its turn ends.
-//   - agtop's agent list can show the board: a section per column, and
+//   - rush's agent list can show the board: a section per column, and
 //     each card's agent under the card's name (sidebar.set).
 //
 // It reads ~/.kanban-code/links.json, and changes cards only through the
 // kanban CLI, which asks the running app to: the app owns the file.
 //
-//	mkdir -p ~/.config/agtop/plugins/kanban
-//	go build -o ~/.config/agtop/plugins/kanban/kanban ./plugins/examples/kanban
-//	cp plugins/examples/kanban/plugin.json ~/.config/agtop/plugins/kanban/
-//	agtop plugin approve kanban
+//	mkdir -p ~/.config/rush/plugins/kanban
+//	go build -o ~/.config/rush/plugins/kanban/kanban ./plugins/examples/kanban
+//	cp plugins/examples/kanban/plugin.json ~/.config/rush/plugins/kanban/
+//	rush plugin approve kanban
 package main
 
 import (
@@ -38,11 +38,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
-// session is what agtop says about one of its sessions.
+// session is what rush says about one of its sessions.
 type session struct {
 	ID        string            `json:"id"`
 	SessionID string            `json:"sessionId"`
@@ -61,8 +61,8 @@ var (
 	data string // the plugin's data folder
 
 	mu       sync.Mutex
-	sessions = map[string]session{} // agtop's sessions, by agtop id
-	// watching closes once agtop has sent its sessions: until then, a card
+	sessions = map[string]session{} // rush's sessions, by rush id
+	// watching closes once rush has sent its sessions: until then, a card
 	// can't tell it already has an agent.
 	watching = make(chan struct{})
 	st       memory
@@ -87,9 +87,9 @@ type prSeen struct {
 }
 
 func main() {
-	f := os.NewFile(3, "agtop")
+	f := os.NewFile(3, "rush")
 	if f == nil {
-		fmt.Fprintln(os.Stderr, "run me from agtop: I talk on fd 3")
+		fmt.Fprintln(os.Stderr, "run me from rush: I talk on fd 3")
 		os.Exit(2)
 	}
 	// Well under the 64 MB the manifest asks for: the board is read often,
@@ -151,10 +151,10 @@ func handle(ctx context.Context, method string, params jsontext.Value) (any, err
 	return nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: "method not found: " + method}
 }
 
-// follow watches agtop's sessions, and every minute looks at the board for
+// follow watches rush's sessions, and every minute looks at the board for
 // news for the agents working on cards.
 func follow() {
-	// agtop takes the watch once initialize has been answered.
+	// rush takes the watch once initialize has been answered.
 	for {
 		var list []session
 		err := conn.Call(context.Background(), "sessions.watch", nil, &list)
@@ -234,7 +234,7 @@ func link(s session) {
 	mu.Unlock()
 }
 
-// review passes on what's new on the PRs of cards an agent in agtop is
+// review passes on what's new on the PRs of cards an agent in rush is
 // working on: a check that started failing, review threads that appeared.
 // The first look at a card only notes how it is.
 func review() {
@@ -343,7 +343,7 @@ func call(ctx context.Context, me session, name string, args jsontext.Value) (st
 		}
 		s, ok := working(cards, c)
 		if !ok {
-			return "", fmt.Errorf("no agent in agtop is working on %s; start one with start_card", c.title())
+			return "", fmt.Errorf("no agent in rush is working on %s; start one with start_card", c.title())
 		}
 		if err := conn.Call(ctx, "sessions.queue", map[string]any{"id": s.ID, "text": in.Text}, nil); err != nil {
 			return "", err
@@ -353,9 +353,9 @@ func call(ctx context.Context, me session, name string, args jsontext.Value) (st
 	return "", fmt.Errorf("no tool named %s", name)
 }
 
-// working is the live agtop session working on a card, if there is one.
+// working is the live rush session working on a card, if there is one.
 func working(cards []card, c card) (session, bool) {
-	// Just started, agtop may not have said yet which agents are running:
+	// Just started, rush may not have said yet which agents are running:
 	// wait a moment rather than start a second one on the card.
 	select {
 	case <-watching:
@@ -415,11 +415,11 @@ func task(c card) string {
 	default:
 		b.WriteString(c.title())
 	}
-	b.WriteString("\n\nThis is kanban card " + c.ID + "; mcp__agtop-kanban__my_card shows it, with its PR and review state once there is one.")
+	b.WriteString("\n\nThis is kanban card " + c.ID + "; mcp__rush-kanban__my_card shows it, with its PR and review state once there is one.")
 	return b.String()
 }
 
-// kanban runs the kanban CLI, which agtop runs for the plugin, outside its
+// kanban runs the kanban CLI, which rush runs for the plugin, outside its
 // sandbox.
 func kanban(ctx context.Context, args ...string) (string, error) {
 	var out struct {
@@ -487,12 +487,12 @@ var tools = []map[string]any{
 		"inputSchema": schema(map[string]string{"column": "Only this column: in_progress, requires_attention, in_review, backlog or done."})},
 	{"name": "my_card", "description": "The kanban-code card you're working on: its task or issue, its worktree, and its PRs with their status, failing checks and unresolved review threads.",
 		"inputSchema": schema(map[string]string{})},
-	{"name": "start_card", "description": "Start an agent in agtop on a kanban-code card: in the card's worktree, or a new worktree of its project. It's asked to do the card's task or issue, unless you give a prompt. The card follows it across the board.",
+	{"name": "start_card", "description": "Start an agent in rush on a kanban-code card: in the card's worktree, or a new worktree of its project. It's asked to do the card's task or issue, unless you give a prompt. The card follows it across the board.",
 		"inputSchema": schema(map[string]string{
 			"card":           "The card's id, id prefix, or name.",
 			"prompt":         "What to ask the agent, instead of the card's own task.",
 			"permissionMode": "default, acceptEdits or plan. Your default if left out.",
 		}, "card")},
-	{"name": "card_message", "description": "Send a message to the agent in agtop working on a kanban-code card. It goes when the agent's turn ends.",
+	{"name": "card_message", "description": "Send a message to the agent in rush working on a kanban-code card. It goes when the agent's turn ends.",
 		"inputSchema": schema(map[string]string{"card": "The card's id, id prefix, or name.", "text": "The message."}, "card", "text")},
 }

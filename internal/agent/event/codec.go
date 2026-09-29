@@ -3,7 +3,7 @@ package event
 import (
 	"encoding/json/jsontext"
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"reflect"
 )
 

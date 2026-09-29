@@ -2,14 +2,14 @@ package efficiency
 
 import (
 	"context"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os/exec"
 	"time"
 )
 
 // Gain is a day of a saver's own account of what it saved. It's the
 // saver's estimate (rtk counts bytes of shell output over four), shown
-// beside what agtop measured, never instead of it.
+// beside what rush measured, never instead of it.
 type Gain struct {
 	Day      string  `json:"date"`
 	Commands int     `json:"commands"`

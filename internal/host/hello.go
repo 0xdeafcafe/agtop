@@ -7,22 +7,22 @@ import (
 	"net"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // A client says hello first, with its protocol (op "hello", its Proto). One
-// from eventsFrom on gets a Claude Code session as agtop's own events, as
+// from eventsFrom on gets a Claude Code session as rush's own events, as
 // any other agent's session comes; one that says less, or sends no hello
-// (an older agtop), gets Claude Code's lines as it always has. Hosts from
+// (an older rush), gets Claude Code's lines as it always has. Hosts from
 // before the hello take it for an op they don't know, and do nothing.
 
 // eventsFrom is the first client protocol that reads Claude Code's
-// sessions as agtop's own events.
+// sessions as rush's own events.
 const eventsFrom = 6
 
 // helloWait is how long a new connection's first line may take to say
-// what the client reads, before it's taken for an older agtop's.
+// what the client reads, before it's taken for an older rush's.
 const helloWait = 300 * time.Millisecond
 
 // hello reads a connection's first line, waiting up to helloWait for it:
@@ -43,7 +43,7 @@ func hello(nc net.Conn) (proto int, rest io.Reader) {
 	return 0, io.MultiReader(bytes.NewReader(bytes.Clone(line)), r)
 }
 
-// encoder turns Claude Code's lines into agtop's own events, for one client
+// encoder turns Claude Code's lines into rush's own events, for one client
 // that reads them. Everything else, the host's own lines and other agents'
 // events, goes as it is.
 type encoder struct {

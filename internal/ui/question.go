@@ -7,17 +7,17 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // The question card's grounds: the card itself, the option under the
 // cursor, and the keycaps that number the options.
 var qCard, qSel, qCap string
 
-// A lit chip or keycap is in agtop's own colours on any ground, with its
+// A lit chip or keycap is in rush's own colours on any ground, with its
 // own dark text.
 const (
 	qCapOn = "\x1b[48;2;217;119;87m"

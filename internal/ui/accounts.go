@@ -9,20 +9,20 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/charmbracelet/x/ansi"
 )
 
 // Providers lists every installed agent (a provider: Claude Code, Codex,
 // Copilot…), in the default profile's order, each with the accounts it
-// can be signed in as, how far agtop's support for it has been tried, and
-// what agtop can do with it. Every agent runs from its own home
-// (~/.claude, ~/.codex…); an account is a sign-in agtop puts in that home
+// can be signed in as, how far rush's support for it has been tried, and
+// what rush can do with it. Every agent runs from its own home
+// (~/.claude, ~/.codex…); an account is a sign-in rush puts in that home
 // when you switch to it.
 
 // accountsState is what Accounts knows beyond the snapshot.
@@ -35,12 +35,12 @@ type accountsState struct {
 	// spill is the agent new sessions run instead of the default
 	// profile's first, while every account of that is nearly out.
 	spill string
-	// switchedAt is when agtop last switched an agent's account itself.
+	// switchedAt is when rush last switched an agent's account itself.
 	switchedAt map[string]time.Time
 	// profile is the profile picked for the next session started from the
 	// Prompt (#profile): it goes once used.
 	profile string
-	// handedOff are the sessions a usage limit stopped that agtop handed
+	// handedOff are the sessions a usage limit stopped that rush handed
 	// to another provider, or tried to, by key: each is handed on once.
 	handedOff map[string]bool
 }
@@ -171,7 +171,7 @@ func (m *Model) accountRows() []acctRow {
 				out = append(out, r)
 			}
 		default:
-			// An agent agtop can't switch: its one sign-in is its own.
+			// An agent rush can't switch: its one sign-in is its own.
 			if p, ok := m.profileOf(ad); ok {
 				head.q = m.quotas[p.Dir]
 			}
@@ -181,7 +181,7 @@ func (m *Model) accountRows() []acctRow {
 	return out
 }
 
-// switches is whether agtop can switch agent k between accounts.
+// switches is whether rush can switch agent k between accounts.
 func switches(k agent.Kind) bool {
 	if k == loginsKind {
 		return true
@@ -261,7 +261,7 @@ func (m *Model) startQuota() (usage.Quota, bool) {
 	return usage.Quota{}, true
 }
 
-// findSignIns asks each agent agtop can switch who it's signed in as, and
+// findSignIns asks each agent rush can switch who it's signed in as, and
 // which accounts it knows of itself.
 func (m *Model) findSignIns() tea.Cmd {
 	if m.offline {
@@ -332,7 +332,7 @@ func (m *Model) switchAccount(a agent.Account, why string) tea.Cmd {
 	acc, ok := ad.(agent.Accounts)
 	p, found := m.profileOf(ad)
 	if !ok || !found {
-		m.flash("agtop can't switch "+ad.Name()+"'s account", true)
+		m.flash("rush can't switch "+ad.Name()+"'s account", true)
 		return nil
 	}
 	return func() tea.Msg {
@@ -358,7 +358,7 @@ func (msg acctSwitchedMsg) applyTo(m *Model) tea.Cmd {
 	m.accts.switchedAt[k] = time.Now()
 	if ad, _ := agent.Get(msg.to.Kind); ad != nil {
 		if _, own := ad.(agent.Known); own {
-			// Which of its accounts the agent runs on is agtop's to keep.
+			// Which of its accounts the agent runs on is rush's to keep.
 			cfg := &m.store.Config
 			if cfg.Using == nil {
 				cfg.Using = map[string]string{}
@@ -385,7 +385,7 @@ func (m *Model) addAccount(k agent.Kind) tea.Cmd {
 	acc, ok := ad.(agent.Accounts)
 	p, found := m.profileOf(ad)
 	if !ok || !found {
-		m.flash(agentName(string(k))+" signs in through its own program; agtop can't keep more than one account of it", true)
+		m.flash(agentName(string(k))+" signs in through its own program; rush can't keep more than one account of it", true)
 		return nil
 	}
 	// Making the sign-in (its home, its command) touches the disk: done
@@ -439,7 +439,7 @@ func (m *Model) forgetAccount(r acctRow) {
 		return
 	}
 	d := m.dialog
-	m.confirmThen(fmt.Sprintf("Forget %s (%s)? agtop drops its saved sign-in; sessions already on it keep going.", r.name(), firstNonEmpty(r.email(), agentName(string(r.kind)))), func() tea.Cmd {
+	m.confirmThen(fmt.Sprintf("Forget %s (%s)? rush drops its saved sign-in; sessions already on it keep going.", r.name(), firstNonEmpty(r.email(), agentName(string(r.kind)))), func() tea.Cmd {
 		m.store.Config.ForgetSignIn(string(r.kind), r.acct.ID)
 		_ = m.store.SaveConfig()
 		d.cursor = max(0, d.cursor-1)
@@ -548,7 +548,7 @@ func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
 			m.flash("switch to another account before forgetting "+lv.Name, true)
 			return nil
 		}
-		m.confirmThen(fmt.Sprintf("Forget %s (%s)? agtop drops its saved sign-in; sessions already on it keep going.", lv.Name, lv.Email), func() tea.Cmd {
+		m.confirmThen(fmt.Sprintf("Forget %s (%s)? rush drops its saved sign-in; sessions already on it keep going.", lv.Name, lv.Email), func() tea.Cmd {
 			var keep []claude.Login
 			for _, l := range m.store.Config.Logins {
 				if l.ID != lv.ID {
@@ -598,7 +598,7 @@ func (m *Model) accountsBody(w int) []string {
 	out = append(out, "  "+head)
 	rows := m.accountRows()
 	if len(rows) == 0 {
-		out = append(out, "", dim("  No coding agent is installed where agtop looks: install Claude Code, Codex or another, and it shows here."))
+		out = append(out, "", dim("  No coding agent is installed where rush looks: install Claude Code, Codex or another, and it shows here."))
 	}
 	defer func() {
 		if missing := m.notInstalled(); missing != "" {
@@ -780,7 +780,7 @@ func (m *Model) accountDetail(r acctRow, w int) []string {
 			out = append(out, label("can't run")+faint(hint))
 		}
 		if !switches(r.kind) {
-			out = append(out, label("accounts")+faint("it signs in through its own program; agtop uses whichever account that is"))
+			out = append(out, label("accounts")+faint("it signs in through its own program; rush uses whichever account that is"))
 		}
 		var live, total int
 		var today float64
@@ -820,7 +820,7 @@ func (m *Model) accountDetail(r acctRow, w int) []string {
 		who = append(who, "who it is isn't known yet")
 	}
 	out = append(out, label("who")+paint(cText, strings.Join(who, " · ")))
-	state := "kept by agtop · enter switches to it"
+	state := "kept by rush · enter switches to it"
 	if r.current {
 		state = "in use: new " + agentName(string(r.kind)) + " sessions run on it"
 	}

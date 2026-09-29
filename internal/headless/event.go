@@ -1,6 +1,6 @@
 // Package headless runs Claude Code as a bare agent loop: `claude -p` speaking
 // stream-json on stdin and stdout. Claude Code keeps the model, tools, hooks,
-// MCP and compaction; agtop draws the session and answers its permission
+// MCP and compaction; rush draws the session and answers its permission
 // prompts, so no terminal UI, PTY host or daemon runs for it.
 package headless
 
@@ -9,8 +9,8 @@ import (
 	"encoding/json/jsontext"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Event is one decoded line of Claude Code's output.

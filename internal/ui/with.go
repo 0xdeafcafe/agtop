@@ -3,8 +3,8 @@ package ui
 import (
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // withAgent sets the agent new sessions run, or, with no agent named, says

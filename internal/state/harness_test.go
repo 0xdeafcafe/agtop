@@ -3,7 +3,7 @@ package state
 import (
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // rider is provider pr in harness h, as agent kind.

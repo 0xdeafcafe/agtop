@@ -133,7 +133,7 @@ func Findings(v *View, found map[string]Found) []Finding {
 		}
 	}
 	if status("history") == Off {
-		add(Finding{Title: "Claude Code deletes transcripts after 30 days", Detail: "agtop keeps totals of deleted ones, but not their detail", Fix: "history", rank: 4})
+		add(Finding{Title: "Claude Code deletes transcripts after 30 days", Detail: "rush keeps totals of deleted ones, but not their detail", Fix: "history", rank: 4})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]

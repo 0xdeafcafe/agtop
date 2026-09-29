@@ -39,7 +39,7 @@ func Watch(pgid int) *Guard {
 		return nil
 	}
 	defer r.Close()
-	cmd := exec.Command("/bin/sh", "-c", script, "agtop-guard", strconv.Itoa(pgid))
+	cmd := exec.Command("/bin/sh", "-c", script, "rush-guard", strconv.Itoa(pgid))
 	cmd.Stdin = r
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {

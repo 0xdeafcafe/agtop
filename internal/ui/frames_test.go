@@ -10,18 +10,18 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/headless"
 )
 
-// TestDumpFrames writes whole frames in a few states to $AGTOP_FRAMES,
+// TestDumpFrames writes whole frames in a few states to $RUSH_FRAMES,
 // digits masked so the clock doesn't show: diff two dumps to check a
 // change drew nothing differently. A frame that isn't the shell at all
 // (the wrong size, a row past the edge, the header gone) fails it there, so
 // a broken build is found before a diff is read.
 func TestDumpFrames(t *testing.T) {
-	out := os.Getenv("AGTOP_FRAMES")
+	out := os.Getenv("RUSH_FRAMES")
 	if out == "" {
-		t.Skip("set AGTOP_FRAMES=<file> to dump frames")
+		t.Skip("set RUSH_FRAMES=<file> to dump frames")
 	}
 	// Digits in the text, not in the escapes: a colour that changed shows.
 	digits := regexp.MustCompile(`\x1b\[[0-9;:?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|[0-9]+`)

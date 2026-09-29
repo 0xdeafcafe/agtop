@@ -5,16 +5,16 @@ import (
 	"time"
 )
 
-// LegacyKind is the agent an empty kind meant: agtop ran only Claude Code
+// LegacyKind is the agent an empty kind meant: rush ran only Claude Code
 // before it ran others, and wrote no kind for it.
 const LegacyKind Kind = "claude" // migration: what older state meant by no kind
 
 // Migrated is a kind read from state, a host's info or config an older
-// agtop wrote, as it's kept now: an empty one is LegacyKind. Call it only
+// rush wrote, as it's kept now: an empty one is LegacyKind. Call it only
 // where such a kind is read in; nothing past there sees an empty kind.
 func Migrated(kind string) Kind {
 	if kind == "" {
-		return LegacyKind // migration: older agtops wrote no kind for Claude Code
+		return LegacyKind // migration: older rushes wrote no kind for Claude Code
 	}
 	return Kind(kind)
 }

@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/keymap"
+	"github.com/0xdeafcafe/rush/internal/keymap"
 )
 
 // keyState is the keymap in force and a chord being typed.
@@ -25,7 +25,7 @@ type keyState struct {
 // chordWait is how long a chord waits for its next key.
 const chordWait = 2 * time.Second
 
-// keyActions are every action a key can be bound to: agtop's keys, its #
+// keyActions are every action a key can be bound to: rush's keys, its #
 // commands, and what plugins offer.
 func (m *Model) keyActions() []keymap.Action {
 	out := append([]keymap.Action(nil), keymap.Defaults...)
@@ -53,7 +53,7 @@ func (m *Model) setKeys(f keymap.File) {
 	m.keys.m = keymap.Build(m.keyActions(), f, m.pluginKeys())
 }
 
-// keyMap is the keymap in force; before keybindings.json is read, agtop's
+// keyMap is the keymap in force; before keybindings.json is read, rush's
 // own.
 func (m *Model) keyMap() *keymap.Map {
 	if m.keys.m == nil {
@@ -96,7 +96,7 @@ func (m *Model) onPages() bool {
 	return false
 }
 
-// remapKey turns the key pressed into the one agtop's handling expects, by
+// remapKey turns the key pressed into the one rush's handling expects, by
 // the keymap. It reports true when the key is used up: a chord begun, a
 // command run, or a key that no longer does anything.
 func (m *Model) remapKey(k *tea.KeyPressMsg, s *string) (tea.Cmd, bool) {

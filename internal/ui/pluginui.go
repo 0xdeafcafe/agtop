@@ -8,13 +8,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/hooks"
-	"github.com/0xdeafcafe/agtop/internal/keymap"
-	"github.com/0xdeafcafe/agtop/internal/netwatch"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/hooks"
+	"github.com/0xdeafcafe/rush/internal/keymap"
+	"github.com/0xdeafcafe/rush/internal/netwatch"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // Plugins take part in the screen only through m.hooks, which never waits:
@@ -88,7 +88,7 @@ func (m *Model) onHooks(msg tea.Msg) tea.Cmd {
 	return m.hooks.Next()
 }
 
-// pluginDo does what a plugin asked, as far as agtop lets it.
+// pluginDo does what a plugin asked, as far as rush lets it.
 func (m *Model) pluginDo(d plugin.UIDo) tea.Cmd {
 	switch d.Kind {
 	case "notify":
@@ -115,7 +115,7 @@ func (m *Model) pluginDo(d plugin.UIDo) tea.Cmd {
 			// Never on a plugin's word to one that acts without asking.
 			m.flash(d.Plugin+" can't send to "+a.DisplayName+": it doesn't ask before acting", true)
 			return nil
-		case !a.Agtop && (a.Live() || a.Busy()):
+		case !a.Rush && (a.Live() || a.Busy()):
 			return nil
 		}
 		cmd := m.replyTo(a, d.Text, d.Text)
@@ -130,7 +130,7 @@ func (m *Model) skipsAsking(a *fleet.Agent) bool {
 	mode := ""
 	if c := m.host; c != nil && c.key == a.Key {
 		mode = c.sess.Info.PermissionMode
-	} else if a.Agtop {
+	} else if a.Rush {
 		mode = m.store.Config.Dispatch.Permission
 	}
 	return mode == "bypassPermissions" || mode == "auto"
@@ -214,7 +214,7 @@ func (m *Model) uiSession(a *fleet.Agent) *plugin.UISession {
 		return nil
 	}
 	return &plugin.UISession{ID: a.Key, SessionID: a.SessionID, Name: a.DisplayName, Agent: a.Kind,
-		Cwd: a.Cwd, Repo: a.Repo, Branch: a.Branch, State: a.State, Hosted: a.Agtop}
+		Cwd: a.Cwd, Repo: a.Repo, Branch: a.Branch, State: a.State, Hosted: a.Rush}
 }
 
 // haltKind sorts why an agent stopped, for a plugin.
@@ -234,8 +234,8 @@ func haltKind(a *fleet.Agent) *plugin.UIError {
 	case a.Retryable():
 		e.Kind = "retryable"
 	}
-	// agtop continues its own sessions after these, and the rest for a day.
-	e.Retrying = (e.Kind == "offline" || e.Kind == "retryable") && (a.Agtop || a.Continues(time.Now()))
+	// rush continues its own sessions after these, and the rest for a day.
+	e.Retrying = (e.Kind == "offline" || e.Kind == "retryable") && (a.Rush || a.Continues(time.Now()))
 	return e
 }
 

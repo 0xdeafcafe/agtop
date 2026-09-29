@@ -12,19 +12,19 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // TestDump writes everything the renderer draws, escapes and all, for the
-// bench session and a few real transcripts, to $AGTOP_DUMP: diff two dumps
+// bench session and a few real transcripts, to $RUSH_DUMP: diff two dumps
 // to check a change to the renderer drew nothing differently. A view that
 // draws nothing, or rows past its width, fails it there, before the dump is
 // written, so a broken renderer is found before a diff is read.
 func TestDump(t *testing.T) {
-	out := os.Getenv("AGTOP_DUMP")
+	out := os.Getenv("RUSH_DUMP")
 	if out == "" {
-		t.Skip("set AGTOP_DUMP=<file> to dump the renderer's output")
+		t.Skip("set RUSH_DUMP=<file> to dump the renderer's output")
 	}
 	var b strings.Builder
 	dump := func(name string, w int, lines []Line) {
@@ -134,7 +134,7 @@ func settle(t *testing.T, s *Session) {
 // and words sent mid-turn, with and without screenshots.
 func cases() *Session {
 	s := New()
-	s.Info.Cwd = "/work/agtop"
+	s.Info.Cwd = "/work/rush"
 	deny := func(id, cmd, out string, sec int) {
 		s.Apply(toolUse(id, "Bash", map[string]any{"command": cmd}), at(sec))
 		s.Apply(toolResult(id, out, true, nil), at(sec))

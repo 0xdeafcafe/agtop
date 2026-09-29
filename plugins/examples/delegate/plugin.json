@@ -1,6 +1,6 @@
 {
   "name": "delegate",
-  "description": "Lets Claude start agents of its own in agtop, follow them and message them.",
+  "description": "Lets Claude start agents of its own in rush, follow them and message them.",
   "version": "1",
   "command": ["delegate"],
   "tools": true,
@@ -14,5 +14,5 @@
       "tools": ["Read", "Grep", "Glob", "Bash"]
     }
   },
-  "prompt": "You can hand self-contained work to other agents with the mcp__agtop-delegate__start_agent tool, and follow them with agent_result. Do it for independent tasks in another folder or that would take long; keep work that needs your context."
+  "prompt": "You can hand self-contained work to other agents with the mcp__rush-delegate__start_agent tool, and follow them with agent_result. Do it for independent tasks in another folder or that would take long; keep work that needs your context."
 }

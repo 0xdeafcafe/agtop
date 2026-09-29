@@ -2,20 +2,20 @@
 // trusting it.
 //
 // A plugin is a folder in Root() with a plugin.json manifest and a program.
-// It runs in its own process, started by the broker (`agtop plugind`), in a
+// It runs in its own process, started by the broker (`rush plugind`), in a
 // macOS sandbox that denies everything it wasn't given: it reads its own
 // folder and the system's libraries, writes only its data folder, starts no
-// other programs, and reaches the network only through agtop's proxy, to the
+// other programs, and reaches the network only through rush's proxy, to the
 // hosts its manifest names. It runs at utility QoS, and the broker ends it if
 // it grows past its memory limit.
 //
-// It talks to agtop over one end of a socket pair, handed to it as fd 3: no
+// It talks to rush over one end of a socket pair, handed to it as fd 3: no
 // path on disk, so nothing else can connect to either side. The messages are
 // JSON-RPC 2.0 in length-prefixed frames. A plugin whose manifest says
 // "protocol": "mcp" is an ordinary MCP server spoken to on stdio instead, so
 // an off-the-shelf one, a memory server say, runs sandboxed as it is.
 //
-// Nothing runs until you approve it (`agtop plugin approve`), which records a
+// Nothing runs until you approve it (`rush plugin approve`), which records a
 // digest of every file in its folder along with the manifest you read. If a
 // file changes, the plugin stops running until you approve it again. Agents,
 // prompt text and tools all come from the manifest as approved, not as it is
@@ -43,8 +43,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Root holds one folder per installed plugin.
@@ -64,13 +64,13 @@ func approvedPath() string { return filepath.Join(Root(), "approved.json") }
 
 // Protocols a plugin can speak.
 const (
-	ProtoAgtop = "agtop" // framed JSON-RPC on fd 3; the default
+	ProtoRush = "rush" // framed JSON-RPC on fd 3; the default
 	ProtoMCP   = "mcp"   // an MCP server on stdio
 )
 
 // Capabilities a plugin can be given over sessions.
 const (
-	// CapList lists every agtop-mode session, and follows the list as it
+	// CapList lists every rush-mode session, and follows the list as it
 	// changes: each one's name, folder, repo and branch, state, what it's
 	// doing, its cost and context. Not what was said.
 	CapList = "list"
@@ -104,14 +104,14 @@ type Manifest struct {
 	Command  []string          `json:"command"`
 	Protocol string            `json:"protocol,omitempty"`
 	Env      map[string]string `json:"env,omitempty"` // ${DATA} and ${PLUGIN} are expanded
-	// Tools offers the plugin's tools to every agtop-mode session, as
-	// mcp__agtop-<name>__<tool>. They ask before running, like any tool.
+	// Tools offers the plugin's tools to every rush-mode session, as
+	// mcp__rush-<name>__<tool>. They ask before running, like any tool.
 	// An MCP plugin always offers them.
 	Tools    bool     `json:"tools,omitzero"`
 	Sessions []string `json:"sessions,omitempty"` // capabilities, see Cap*
 	// Workspaces are the folders sessions it starts may run in.
 	Workspaces []string `json:"workspaces,omitempty"`
-	// Network is the host:port pairs it may reach, through agtop's proxy.
+	// Network is the host:port pairs it may reach, through rush's proxy.
 	Network []string `json:"network,omitempty"`
 	// Read is more paths it may read, for an interpreter's libraries or
 	// another tool's files.
@@ -119,26 +119,26 @@ type Manifest struct {
 	// Write is more paths it may write (and read), another tool's files
 	// say, beyond its data folder.
 	Write []string `json:"write,omitempty"`
-	// Exec names programs agtop runs for it, outside the sandbox, as you:
+	// Exec names programs rush runs for it, outside the sandbox, as you:
 	// each a fixed command line the plugin may add arguments to. It is how
 	// a plugin drives another tool's CLI.
 	Exec     map[string][]string `json:"exec,omitempty"`
 	MemoryMB int                 `json:"memoryMB,omitzero"` // default DefaultMemoryMB
-	// Agents are subagents given to every agtop-mode session, as Claude
+	// Agents are subagents given to every rush-mode session, as Claude
 	// Code's --agents takes them; each is named <plugin>:<agent>.
 	Agents map[string]jsontext.Value `json:"agents,omitempty"`
-	// Prompt is added to every agtop-mode session's system prompt.
+	// Prompt is added to every rush-mode session's system prompt.
 	Prompt string `json:"prompt,omitempty"`
-	// Sidebar lets it arrange agtop's agent list with sidebar.set: its own
+	// Sidebar lets it arrange rush's agent list with sidebar.set: its own
 	// sections, and a name for each agent. See Sidebar.
 	Sidebar bool `json:"sidebar,omitzero"`
-	// UI is what it may do in agtop's own screen. See UI*.
+	// UI is what it may do in rush's own screen. See UI*.
 	UI []string `json:"ui,omitempty"`
 	// Commands it adds to the # commands, the command bar and the keymap.
 	Commands []CommandSpec `json:"commands,omitempty"`
 	// Settings it offers under Settings, Plugins.
 	Settings []SettingSpec `json:"settings,omitempty"`
-	// CLI is the commands it adds to agtop's CLI: see CLISpec.
+	// CLI is the commands it adds to rush's CLI: see CLISpec.
 	CLI []CLISpec `json:"cli,omitempty"`
 	// Requires is what the system must offer for it to run at all, on top
 	// of being approved: see Requires.
@@ -174,13 +174,13 @@ var agentRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,40}$`)
 type Plugin struct {
 	Manifest
 	Dir     string // its folder; none for a bundled one
-	Bundled bool   // agtop's own: see Bundle
+	Bundled bool   // rush's own: see Bundle
 }
 
 // Proto is the protocol it speaks.
 func (m Manifest) Proto() string {
-	if m.Protocol == "" {
-		return ProtoAgtop
+	if m.Protocol == "" || m.Protocol == "agtop" { // as it was called before the rename
+		return ProtoRush
 	}
 	return m.Protocol
 }
@@ -261,7 +261,7 @@ func (m Manifest) Unmet() string {
 }
 
 // ServerPrefix starts every plugin's MCP server name.
-const ServerPrefix = "agtop-"
+const ServerPrefix = "rush-"
 
 // NameOf is the plugin behind an MCP server name, if it is one.
 func NameOf(server string) (string, bool) {
@@ -285,13 +285,13 @@ func (m Manifest) Validate(dir string) error {
 		}
 	}
 	switch m.Proto() {
-	case ProtoAgtop:
+	case ProtoRush:
 	case ProtoMCP:
 		if len(m.Sessions) > 0 {
 			return errors.New("an MCP plugin cannot be given session capabilities: it has no way to ask for them")
 		}
 	default:
-		return fmt.Errorf("protocol %q: use %q or %q", m.Protocol, ProtoAgtop, ProtoMCP)
+		return fmt.Errorf("protocol %q: use %q or %q", m.Protocol, ProtoRush, ProtoMCP)
 	}
 	for _, c := range m.Sessions {
 		if !slices.Contains(caps, c) {
@@ -328,7 +328,7 @@ func (m Manifest) Validate(dir string) error {
 			return fmt.Errorf("write path %q is too broad", w)
 		}
 	}
-	if len(m.Exec) > 0 && m.Proto() != ProtoAgtop {
+	if len(m.Exec) > 0 && m.Proto() != ProtoRush {
 		return errors.New("an MCP plugin cannot be given programs to run: it has no way to ask for them")
 	}
 	for name, argv := range m.Exec {
@@ -352,7 +352,7 @@ func (m Manifest) Validate(dir string) error {
 	if m.MemoryMB < 0 || m.MemoryMB > 8192 {
 		return fmt.Errorf("memoryMB %d: use 1 to 8192", m.MemoryMB)
 	}
-	if m.Sidebar && m.Proto() != ProtoAgtop {
+	if m.Sidebar && m.Proto() != ProtoRush {
 		return errors.New("an MCP plugin cannot be given the sidebar: it has no way to set it")
 	}
 	if err := m.validateUI(); err != nil {
@@ -471,7 +471,7 @@ func Installed() ([]Plugin, map[string]error) {
 
 // Pending lists installed plugins waiting on you: never approved, or
 // changed since they were, and not already told "not now" at this digest.
-// It's what a UI's own approval dialog offers, instead of `agtop plugin
+// It's what a UI's own approval dialog offers, instead of `rush plugin
 // approve`.
 func Pending() []Plugin {
 	installed, _ := Installed()
@@ -479,7 +479,7 @@ func Pending() []Plugin {
 	var out []Plugin
 	for _, p := range installed {
 		if _, ok := BundleNamed(p.Name); ok {
-			continue // agtop's own of that name runs instead
+			continue // rush's own of that name runs instead
 		}
 		d, err := Digest(p.Dir)
 		if err != nil {
@@ -620,7 +620,7 @@ func Verify(name string) (Plugin, error) {
 		return Plugin{}, err
 	}
 	if d != a.Digest {
-		return Plugin{}, fmt.Errorf("%s changed since it was approved; run agtop plugin approve %s", name, name)
+		return Plugin{}, fmt.Errorf("%s changed since it was approved; run rush plugin approve %s", name, name)
 	}
 	return Plugin{Manifest: a.Manifest, Dir: dir}, nil
 }
@@ -699,7 +699,7 @@ func ForSession() Contributions {
 			agents[m.Name+":"+an] = def
 		}
 		if p := strings.TrimSpace(m.Prompt); p != "" {
-			prompts = append(prompts, "# From the agtop plugin "+m.Name+"\n\n"+p)
+			prompts = append(prompts, "# From the rush plugin "+m.Name+"\n\n"+p)
 		}
 	}
 	if len(agents) > 0 {

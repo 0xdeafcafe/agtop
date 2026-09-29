@@ -9,13 +9,13 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// A bundled plugin ships inside agtop. Its code is agtop's own, so it's
-// trusted as agtop is: it runs without being approved, outside the sandbox,
-// on every system, as `agtop plugin run <name>` speaking the same protocol
-// on fd 3 as any other. What it may do in agtop's screen is still its
+// A bundled plugin ships inside rush. Its code is rush's own, so it's
+// trusted as rush is: it runs without being approved, outside the sandbox,
+// on every system, as `rush plugin run <name>` speaking the same protocol
+// on fd 3 as any other. What it may do in rush's screen is still its
 // manifest's, checked by the broker as for any plugin. Each is on until
 // you turn it off.
 type Bundle struct {
@@ -24,7 +24,7 @@ type Bundle struct {
 	Run func(rw io.ReadWriteCloser) error
 }
 
-// bundledDigest stands for a bundled plugin's files: they're agtop's
+// bundledDigest stands for a bundled plugin's files: they're rush's
 // binary, which the broker runs from.
 const bundledDigest = "bundled"
 
@@ -53,8 +53,8 @@ func (m *Manifest) validateBundled() error {
 	if !nameRE.MatchString(m.Name) {
 		return errors.New("bad name")
 	}
-	if m.Proto() != ProtoAgtop || len(m.Network) > 0 || len(m.Exec) > 0 {
-		return errors.New("a bundled plugin speaks agtop's protocol, with no network or exec")
+	if m.Proto() != ProtoRush || len(m.Network) > 0 || len(m.Exec) > 0 {
+		return errors.New("a bundled plugin speaks rush's protocol, with no network or exec")
 	}
 	if err := m.validateUI(); err != nil {
 		return err
@@ -102,7 +102,7 @@ func BundledOn(name string) bool {
 // SetBundled turns a bundled plugin on or off.
 func SetBundled(name string, on bool) error {
 	if _, ok := BundleNamed(name); !ok {
-		return errors.New(name + " isn't bundled with agtop")
+		return errors.New(name + " isn't bundled with rush")
 	}
 	off := slices.DeleteFunc(BundledOff(), func(n string) bool { return n == name })
 	if !on {
@@ -147,7 +147,7 @@ func Enabled() map[string]Approval {
 func RunBundled(name string) error {
 	b, ok := BundleNamed(name)
 	if !ok {
-		return errors.New(name + " isn't bundled with agtop")
+		return errors.New(name + " isn't bundled with rush")
 	}
 	f := os.NewFile(3, "plugin-ipc")
 	if f == nil {

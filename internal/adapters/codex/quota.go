@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 // rateLimitWindow is one of a snapshot's windows.
@@ -91,7 +91,7 @@ func accountBilling(a accountResponse) (usage.Billing, bool) {
 // "primary" and "secondary", and other limits' are prefixed with their id.
 const mainLimit = "codex"
 
-// quotaFrom is a snapshot as agtop's windows. A window the snapshot
+// quotaFrom is a snapshot as rush's windows. A window the snapshot
 // doesn't have is left out rather than read as empty.
 func quotaFrom(s rateLimitSnapshot) usage.Quota {
 	q := usage.Quota{Plan: s.PlanType, FetchedAt: time.Now(), Source: usage.Live}

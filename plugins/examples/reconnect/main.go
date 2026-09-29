@@ -1,19 +1,19 @@
-// Command reconnect rebuilds agtop's own retry as a plugin, to show the UI
+// Command reconnect rebuilds rush's own retry as a plugin, to show the UI
 // hooks are enough for it: when a session stops because the network went
 // away, or on an error worth another go, it sends "continue" once the
 // network is back, backing off between tries, and says so when it gives
 // up. It never continues a session stopped by a usage limit, a login
 // problem, or anything else.
 //
-// It hears what agtop's agent list shows of sessions, never what was said,
+// It hears what rush's agent list shows of sessions, never what was said,
 // and may send only to sessions in its workspaces that ask before acting.
-// agtop's built-in retry stays as it is; this exists to show the API.
+// rush's built-in retry stays as it is; this exists to show the API.
 //
 //	cd plugins/examples/reconnect
-//	mkdir -p ~/.config/agtop/plugins/reconnect
-//	go build -o ~/.config/agtop/plugins/reconnect/reconnect .
-//	cp plugin.json ~/.config/agtop/plugins/reconnect/
-//	agtop plugin check reconnect && agtop plugin approve reconnect
+//	mkdir -p ~/.config/rush/plugins/reconnect
+//	go build -o ~/.config/rush/plugins/reconnect/reconnect .
+//	cp plugin.json ~/.config/rush/plugins/reconnect/
+//	rush plugin check reconnect && rush plugin approve reconnect
 package main
 
 import (
@@ -35,7 +35,7 @@ type event struct {
 	Error   *struct {
 		Kind     string `json:"kind"`
 		Message  string `json:"message"`
-		Retrying bool   `json:"retrying"` // agtop continues it itself
+		Retrying bool   `json:"retrying"` // rush continues it itself
 	} `json:"error"`
 }
 
@@ -162,7 +162,7 @@ func (a *app) do(d Action) {
 	fmt.Fprintf(os.Stderr, "continued %s (try %d)\n", d.Session, d.Try)
 }
 
-// notify says something about a session; agtop names the plugin and it.
+// notify says something about a session; rush names the plugin and it.
 func (a *app) notify(session, text string) {
 	_ = a.c.call("ui.notify", map[string]any{"session": session, "text": text, "tone": "warn"}, nil)
 }

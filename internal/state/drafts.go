@@ -1,7 +1,7 @@
 package state
 
 import (
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +28,7 @@ type Draft struct {
 	Agent string    `json:"agent,omitempty"` // the agent's key
 	Name  string    `json:"name,omitempty"`  // and its name then
 	Kind  string    `json:"kind,omitempty"`
-	// Sent is what older agtops read; it's kept in step with Kind.
+	// Sent is what older rushes read; it's kept in step with Kind.
 	Sent bool `json:"sent,omitzero"`
 }
 
@@ -142,7 +142,7 @@ func DraftsOf(kind string) []Draft {
 }
 
 // DraftCount is how many drafts of a kind are kept. It reads the file
-// again when another agtop may have changed it; KeptCount is the one that
+// again when another rush may have changed it; KeptCount is the one that
 // never waits.
 func DraftCount(kind string) int {
 	path := draftsPath()
@@ -172,7 +172,7 @@ func refreshDrafts() {
 	}
 	cacheMu.Unlock()
 	if !same {
-		loadDrafts() // another agtop saved some
+		loadDrafts() // another rush saved some
 	}
 }
 
@@ -186,7 +186,7 @@ func Kept() (list []Draft, ok bool) {
 	path := draftsPath()
 	cacheMu.Lock()
 	if draftCache.path != path {
-		draftCache.loaded = false // AGTOP_HOME moved, as in tests
+		draftCache.loaded = false // RUSH_HOME moved, as in tests
 	}
 	look := lookDue()
 	list, ok = draftCache.list, draftCache.loaded
@@ -204,7 +204,7 @@ func Kept() (list []Draft, ok bool) {
 
 // KeptCount is how many drafts of a kind are kept, from memory: cheap
 // enough to ask every frame. At most once a second it has the file looked
-// at again in the background, for what another agtop saved.
+// at again in the background, for what another rush saved.
 func KeptCount(kind string) int {
 	cacheMu.Lock()
 	look := lookDue()

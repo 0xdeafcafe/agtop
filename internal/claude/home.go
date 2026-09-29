@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// A login's home is a config folder of its own that agtop keeps for it,
+// A login's home is a config folder of its own that rush keeps for it,
 // so a session runs as the login whatever ~/.claude is signed in as.
 // Only the sign-in and the state file are its own: everything else in it
 // links to ~/.claude, so transcripts, settings, plugins and memory are the
@@ -121,7 +121,7 @@ func SeedHome(home, root Account, l Login, cred []byte) error {
 		return nil
 	}
 	if !usable(cred) {
-		return fmt.Errorf("agtop has no sign-in for %s; sign in to it again", l.Name)
+		return fmt.Errorf("rush has no sign-in for %s; sign in to it again", l.Name)
 	}
 	// The vault's copy has the MCP servers' logins from when it was put
 	// away: the ones ~/.claude holds now are the ones to carry on with.

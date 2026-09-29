@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/brand/rush-icon.png" width="180" alt="agtop's icon: a tilted amber bottle labelled RUSH, AI harness polisher, not for agent consumption">
+  <img src="docs/brand/rush-icon.png" width="180" alt="rush's icon: a tilted amber bottle labelled RUSH, AI harness polisher, not for agent consumption">
 </p>
 
-<h1 align="center">agtop</h1>
+<h1 align="center">rush</h1>
 
 <p align="center">
   One place for every coding agent you run, written in Go and built to be very fast.<br>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/session-code.webp" alt="agtop: a Session with a failed step opened, its script and error">
+  <img src="docs/screenshots/session-code.webp" alt="rush: a Session with a failed step opened, its script and error">
 </p>
 
 <table>
@@ -49,20 +49,20 @@
 ## Install
 
 ```sh
-go install github.com/0xdeafcafe/agtop/cmd/agtop@latest
+go install github.com/0xdeafcafe/rush/cmd/rush@latest
 ```
 
-This needs Go 1.27.1 or newer. It puts `agtop` in `$(go env GOPATH)/bin`, so make sure that folder is on your `PATH`. On Apple Silicon, check that `go env GOARCH` says `arm64`: an amd64 Go builds an x86_64 agtop that runs under Rosetta. From a checkout, `GOARCH=arm64 go build -o "$(go env GOPATH)/bin/agtop" ./cmd/agtop` builds it natively.
+This needs Go 1.27.1 or newer. It puts `rush` in `$(go env GOPATH)/bin`, so make sure that folder is on your `PATH`. On Apple Silicon, check that `go env GOARCH` says `arm64`: an amd64 Go builds an x86_64 rush that runs under Rosetta. From a checkout, `GOARCH=arm64 go build -o "$(go env GOPATH)/bin/rush" ./cmd/rush` builds it natively.
 
 ```sh
-agtop            # open it
-agtop on         # make `claude agents` open agtop (adds one line to ~/.zshrc)
-agtop off        # give `claude agents` back to Claude Code
-agtop menubar    # put agtop in the macOS menu bar (`agtop menubar off` takes it out)
-agtop update     # install the newest agtop
+rush            # open it
+rush on         # make `claude agents` open rush (adds one line to ~/.zshrc)
+rush off        # give `claude agents` back to Claude Code
+rush menubar    # put rush in the macOS menu bar (`rush menubar off` takes it out)
+rush update     # install the newest rush
 ```
 
-agtop checks for a newer version now and then and says so at the foot of the list. `#update` installs it from inside, the same as `agtop update`; reopen agtop to use it.
+rush checks for a newer version now and then and says so at the foot of the list. `#update` installs it from inside, the same as `rush update`; reopen rush to use it.
 
 Getting started sits at the foot of the list until you've tried the basics, ticking each off as you go. `#tips` brings it back, `#tips off` puts it away, and `?` is a guide to the keys.
 
@@ -84,11 +84,11 @@ The list is every agent you have, with what it's doing right now: "running pnpm 
 
 ## Providers
 
-agtop runs any agent it has an adapter for, and shows only the ones you have installed. It finds them on your `PATH` and where their installers put them, so an agent installed while agtop is open turns up without a restart.
+rush runs any agent it has an adapter for, and shows only the ones you have installed. It finds them on your `PATH` and where their installers put them, so an agent installed while rush is open turns up without a restart.
 
-| Provider | How agtop runs it | Support |
+| Provider | How rush runs it | Support |
 | --- | --- | --- |
-| Claude Code | headless, hosted by agtop | full |
+| Claude Code | headless, hosted by rush | full |
 | Codex | its own `codex app-server` | tested |
 | Copilot | the Copilot CLI, signed in with `gh`'s token; its coding agent's sessions on GitHub too, with their repo and PR | tested |
 | Gemini, Kimi, OpenCode, Vibe | over the Agent Client Protocol | preview |
@@ -96,7 +96,7 @@ agtop runs any agent it has an adapter for, and shows only the ones you have ins
 | GLM | ZCode, Z.ai's own agent, through `zcode-acp-server` | preview |
 | Ollama | Claude Code on Ollama's Anthropic API, tuned per model | preview |
 
-Full is what I use every day, tested has been tried against the real program, and preview is built but not yet tried against it. Settings › Providers shows each one's level and what agtop can do with it, feature by feature: ✓ it can, – it can't, ◌ planned.
+Full is what I use every day, tested has been tried against the real program, and preview is built but not yet tried against it. Settings › Providers shows each one's level and what rush can do with it, feature by feature: ✓ it can, – it can't, ◌ planned.
 
 `#with codex` (or any of them) makes new sessions start with that agent; `#with claude` goes back, and `#with` alone says which it is and what's installed. Their past sessions sit in the list beside Claude's, marked with their agent, and a message resumes one with its own agent, model and mode. A Codex running in a terminal is followed as it works, as a Claude Code one is. In a session, `/` offers only what that agent can do.
 
@@ -111,9 +111,9 @@ Full is what I use every day, tested has been tried against the real program, an
 Settings › Accounts lists each installed provider and, under it, the accounts it can run on: who each is, its plan, its limits, and which is in use. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
 
 - `enter` switches to an account. `a` adds an account, `r` renames, `l` signs in again, `d` forgets.
-- A running agent keeps the account it started with, so after a switch each agtop session starts again on the new one at its first safe point: an idle one at once, one in a turn once the turn ends, one with work in the background once that's done. The conversation and its queue carry over.
+- A running agent keeps the account it started with, so after a switch each rush session starts again on the new one at its first safe point: an idle one at once, one in a turn once the turn ends, one with work in the background once that's done. The conversation and its queue carry over.
 - `1`–`9` jump to a provider, `o` opens its settings, and `p` goes to Profiles, where the order of providers is set.
-- Codex keeps several sign-ins in agtop's vault and swaps one into `~/.codex`. Copilot runs on whichever of `gh`'s GitHub accounts you pick, without changing `gh`'s own. DeepSeek shows its balance; GLM its Coding Plan's limits.
+- Codex keeps several sign-ins in rush's vault and swaps one into `~/.codex`. Copilot runs on whichever of `gh`'s GitHub accounts you pick, without changing `gh`'s own. DeepSeek shows its balance; GLM its Coding Plan's limits.
 
 The top bar shows which provider, account and profile new sessions start on, that account's limits, and the battery and free disk. Settings › Agents shows one installed agent at a time (`1`–`9` picks it) and sets the model, effort and permissions its new sessions start with, plus what's that agent's own (for Claude Code: agent definitions, settings.json and its environment). Settings › Overview shows every provider's account, limits, spend today and this week, and what needs you. Settings › Profiles lists each provider's own profile and yours: which providers new sessions run, in order, which harness each runs in, what happens when their accounts run low, and which folders get which profile.
 
@@ -139,13 +139,13 @@ Every installed provider is a profile of its own, built in: sessions under `clau
 
 A provider can run in more than one harness, the program around the model. Ollama's models run in Claude Code (the default), Pi or Codex. Open a provider's own profile to choose which harness it runs in everywhere. In a profile of yours, `h` on a provider chooses again for that profile alone. `#profile ollama-pi` runs one session on Ollama in Pi, whatever the setting.
 
-A session gets the profile picked for it (`#profile <name>`, or `agtop session start --profile`), else the one for the longest folder rule its folder falls under, else the default. It keeps that profile when it's resumed. If agtop had made a Default profile from your old default agent that did no more than that agent, it gave way to that provider's own profile, and folders that named it moved with it.
+A session gets the profile picked for it (`#profile <name>`, or `rush session start --profile`), else the one for the longest folder rule its folder falls under, else the default. It keeps that profile when it's resumed. If rush had made a Default profile from your old default agent that did no more than that agent, it gave way to that provider's own profile, and folders that named it moved with it.
 
 `alt+w`, from anywhere, lists every profile, each provider's own first: pick one to make it the default. Settings › Profiles does the rest: new profiles, renaming and deleting them, the order of their providers and where each runs, what happens when accounts run low, and folders (`+ add a folder` starts from the selected session's folder).
 
 ## Sessions
 
-An agent run in agtop mode (headless, hosted by agtop) opens in a Session beside the list. `[` and `]` move between its views: Conversation, Overview and Changes always, then Tasks, Queue, Subagents, Background and Artifacts when there's something in them, and Memory.
+An agent run in rush mode (headless, hosted by rush) opens in a Session beside the list. `[` and `]` move between its views: Conversation, Overview and Changes always, then Tasks, Queue, Subagents, Background and Artifacts when there's something in them, and Memory.
 
 <table>
   <tr>
@@ -182,7 +182,7 @@ An agent run in agtop mode (headless, hosted by agtop) opens in a Session beside
 
 Running shells, monitors, workflows and subagents sit in the dock under the conversation, each with its latest line: `↑` picks one, `b` sends it to the background, `x` stops it. A running Bash chain says which of its commands runs now and how long each finished one took ("3/4 go test"), and `k` ends the one it's stuck on and lets the chain carry on as it would after a failure. A tool call to allow, a question or a usage limit opens over the conversation and takes the keys; `esc` sets it aside in the dock.
 
-`/` in the message box has the agent's commands and skills, and agtop's own sheets for the ones Claude Code draws itself:
+`/` in the message box has the agent's commands and skills, and rush's own sheets for the ones Claude Code draws itself:
 
 - `/fork` a conversation, from any turn, into the same folder or a new worktree, with its own model, effort and permissions.
 - `/rewind` to before one of your messages, keeping the code or putting the files back, with a note of what the dropped turns learned.
@@ -208,7 +208,7 @@ The place next to Agents says what's happening across every repo, in three pages
 
 `ctrl+k` opens the command bar: a place, an agent, a Session's view, a turn (`#12`), `Back` to where you jumped from, or a new agent with what you typed. Words search the open conversation and every agent's transcript, and `in:name`, `is:failed`, `file:x` and `turn:10-13` narrow it. `ctrl+f` is the same bar, starting where you are. With many long transcripts, Settings › Interface › *ctrl+k searches transcripts* › *on ctrl+enter* keeps typing to names and commands; `ctrl+enter` then searches the transcripts (`ctrl+j` in terminals that send `ctrl+enter` as `enter`).
 
-`#` runs agtop's own commands on the selected agent: `#done` `#go` `#stop` `#restart` `#rm` `#kill` `#clean` `#cd` `#add-dir` `#rename` `#group` `#pin` `#pr` `#full` `#sort` `#by` `#split` `#folder` `#with` `#profile` `#account` `#efficiency` `#advisor` `#statusline` `#view` `#width` `#dock` `#drafts` `#hibernate` `#native` `#mackeys` `#tips` `#update`. `/` is left to the agent.
+`#` runs rush's own commands on the selected agent: `#done` `#go` `#stop` `#restart` `#rm` `#kill` `#clean` `#cd` `#add-dir` `#rename` `#group` `#pin` `#pr` `#full` `#sort` `#by` `#split` `#folder` `#with` `#profile` `#account` `#efficiency` `#advisor` `#statusline` `#view` `#width` `#dock` `#drafts` `#hibernate` `#native` `#mackeys` `#tips` `#update`. `/` is left to the agent.
 
 <table>
   <tr>
@@ -237,9 +237,9 @@ Where your tokens go, and whether the things that promise to cut them do. It rea
 
 ### The advisor
 
-Off until you turn it on with `#advisor on`. After your agents have done some work, at most every three hours, agtop works out a digest of the last week (spend, context, tool output, rereads, subagents, savers, the costliest sessions) and Haiku proposes up to five changes from it, reading short briefs of the transcripts for evidence. Opus then checks each one worth $2 a week or more against the transcripts, three a day at most, and rewrites or rejects it. Both run with no shell, web, hooks or MCP servers, and can't read outside those folders.
+Off until you turn it on with `#advisor on`. After your agents have done some work, at most every three hours, rush works out a digest of the last week (spend, context, tool output, rereads, subagents, savers, the costliest sessions) and Haiku proposes up to five changes from it, reading short briefs of the transcripts for evidence. Opus then checks each one worth $2 a week or more against the transcripts, three a day at most, and rewrites or rejects it. Both run with no shell, web, hooks or MCP servers, and can't read outside those folders.
 
-What Opus confirms goes first in the findings, marked ✦; `x` puts one away for good. A pass costs about $0.30, and the findings page shows what the advisor has cost so far. Only one agtop runs it at a time, and it keeps to its budget across windows and restarts.
+What Opus confirms goes first in the findings, marked ✦; `x` puts one away for good. A pass costs about $0.30, and the findings page shows what the advisor has cost so far. Only one rush runs it at a time, and it keeps to its budget across windows and restarts.
 
 ## Machine
 
@@ -258,16 +258,16 @@ What Opus confirms goes first in the findings, marked ✦; `x` puts one away for
 
 ## Plugins
 
-Plugins add tools, subagents, prompt text and memory to every agtop-mode session, and can run agents of their own. Any MCP server can be one. Each runs sandboxed and does only what you approved: no files but its own, no network but the hosts it named, no programs, and only the agents it started. macOS only for now.
+Plugins add tools, subagents, prompt text and memory to every rush-mode session, and can run agents of their own. Any MCP server can be one. Each runs sandboxed and does only what you approved: no files but its own, no network but the hosts it named, no programs, and only the agents it started. macOS only for now.
 
 ```sh
-agtop plugin list            # what's installed, approved and running
-agtop plugin approve <name>  # read what it may do, and say yes
+rush plugin list            # what's installed, approved and running
+rush plugin approve <name>  # read what it may do, and say yes
 ```
 
-To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe/agtop`, then `/plugin install agtop-plugin-dev@agtop`.
+To have Claude write one, install the skill: `/plugin marketplace add 0xdeafcafe/rush`, then `/plugin install rush-plugin-dev@rush`.
 
-A plugin can also take part in agtop's screen, as far as you approved:
+A plugin can also take part in rush's screen, as far as you approved:
 
 - hear what happens there (sessions opened, turns ending, a session an error stopped, the network going and coming back);
 - add sections to a Session's overview and a word to its row;
@@ -275,44 +275,44 @@ A plugin can also take part in agtop's screen, as far as you approved:
 - with `input`, see and set what you type;
 - with `intercept`, change or hold back a message before it goes.
 
-None of it can hold agtop up. The screen hands plugins events without waiting, draws what they added from a copy it already has, and gives an intercept 400 ms before the message goes as it was. The [`autodrafts`](plugins/examples/autodrafts) and [`reconnect`](plugins/examples/reconnect) examples rebuild drafts and reconnect-and-continue this way.
+None of it can hold rush up. The screen hands plugins events without waiting, draws what they added from a copy it already has, and gives an intercept 400 ms before the message goes as it was. The [`autodrafts`](plugins/examples/autodrafts) and [`reconnect`](plugins/examples/reconnect) examples rebuild drafts and reconnect-and-continue this way.
 
 [plugins/](plugins) has everything else: using and writing them, the examples, the skill, and how it works.
 
-## Embedding agtop
+## Embedding rush
 
-Another app can run agtop-mode sessions without the view and show one of them in a terminal of its own.
+Another app can run rush-mode sessions without the view and show one of them in a terminal of its own.
 
 ```sh
-agtop session start --cwd DIR [--agent A] [--profile P] [--session-id UUID] [--resume] [--name N] \
+rush session start --cwd DIR [--agent A] [--profile P] [--session-id UUID] [--resume] [--name N] \
   [--prompt-file F] [--image PATH]... [--env K=V]... [--meta k=v]... \
   [--binary PATH] [--model M] [--effort E] [--permission-mode M] --json
-echo 'the next message' | agtop session send <id> [--now] [--image PATH]...
-agtop session interrupt <id>
-agtop session stop <id>
-agtop session info <id> --json
-agtop session list --json [--meta k=v]...
-agtop queue send|remove <id> <n> [--was TEXT]
+echo 'the next message' | rush session send <id> [--now] [--image PATH]...
+rush session interrupt <id>
+rush session stop <id>
+rush session info <id> --json
+rush session list --json [--meta k=v]...
+rush queue send|remove <id> <n> [--was TEXT]
 ```
 
 `start` runs the first installed provider of the session's profile (`--profile`, else the folder's rule, else the default) unless `--agent` names one (`codex`, `copilot`, `kimi`…). It uses the model, effort, permission mode and limit settings from Settings unless a flag gives them (for another agent, its own), and prints the session's info with `"alive"` added. With `--session-id` it is idempotent: a session already running is printed, not started again. A stopped one needs `--resume`, which brings the same conversation back. `--env` values reach the agent on every start of it, idle restarts and resumes included. `--meta` tags the session; `list --meta` filters on the tags.
 
-`send` reads the message from stdin. An image the text names as `[Image #N]` (the Nth `--image`) goes right after that marker; the others go with the message as before. If the session is stopped it resumes with the message, as sending from the view does. `info` exits 1 with `{"error":"not found"}` for an id with no session. `agtop queue` comes from the `queue` plugin bundled with agtop: `send` sends the message queued at place `n` (from 0, as `info` lists the queue) now, and `remove` drops it; `--was` names it by its text, so it's still the one meant if the queue moved. `alive` is whether the session's host is running; a host whose agent is resting while idle counts as alive.
+`send` reads the message from stdin. An image the text names as `[Image #N]` (the Nth `--image`) goes right after that marker; the others go with the message as before. If the session is stopped it resumes with the message, as sending from the view does. `info` exits 1 with `{"error":"not found"}` for an id with no session. `rush queue` comes from the `queue` plugin bundled with rush: `send` sends the message queued at place `n` (from 0, as `info` lists the queue) now, and `remove` drops it; `--was` names it by its text, so it's still the one meant if the queue moved. `alive` is whether the session's host is running; a host whose agent is resting while idle counts as alive.
 
 A plugin can also arrange the Agents list for an embedding app: with the `sidebar` capability it sends sections and a name for each agent, keyed by session id, and the list offers them as a group-by mode (`ctrl+s`, or `/by plugin:<name>`). The [`kanban`](plugins/examples/kanban) example shows the kanban-code board this way.
 
-`agtop open <id> --hosted` is the view of that one session alone, under agtop's header, with the Session at the terminal's whole width and no Agents list. `ctrl+\` opens Efficiency, Machine and Settings as usual, and Agents is the session again. The keys that lead to other agents or open the list (`ctrl+z ctrl+n tab`) do nothing, and `, . < >` are typed into the box. `ctrl+k` searches every agent and place; going to another agent from it shows the list beside it, as `ctrl+6` does. `ctrl+6` (sent as `ctrl+^` by most terminals) shows Agents beside the session, to pick and answer another agent; `ctrl+6` again, or `esc` from the list, hides it and the view is back on the hosted session. Outside hosted, `ctrl+6` hides or shows Agents beside an open Session for the moment, while `#view` keeps the layout you chose. The message box has the keys from the start. `esc` on an empty box takes the keys off it (typing, `enter` or `→` gives them back), and `esc` again stops the running turn, as `ctrl+x` does; `esc` never closes the view. Only `ctrl+q` does, and the session keeps running. A stopped session shows its conversation and resumes with the first message. Past conversations aren't read until `ctrl+6` or `ctrl+k` needs every agent, so the view opens at once however many there are.
+`rush open <id> --hosted` is the view of that one session alone, under rush's header, with the Session at the terminal's whole width and no Agents list. `ctrl+\` opens Efficiency, Machine and Settings as usual, and Agents is the session again. The keys that lead to other agents or open the list (`ctrl+z ctrl+n tab`) do nothing, and `, . < >` are typed into the box. `ctrl+k` searches every agent and place; going to another agent from it shows the list beside it, as `ctrl+6` does. `ctrl+6` (sent as `ctrl+^` by most terminals) shows Agents beside the session, to pick and answer another agent; `ctrl+6` again, or `esc` from the list, hides it and the view is back on the hosted session. Outside hosted, `ctrl+6` hides or shows Agents beside an open Session for the moment, while `#view` keeps the layout you chose. The message box has the keys from the start. `esc` on an empty box takes the keys off it (typing, `enter` or `→` gives them back), and `esc` again stops the running turn, as `ctrl+x` does; `esc` never closes the view. Only `ctrl+q` does, and the session keeps running. A stopped session shows its conversation and resumes with the first message. Past conversations aren't read until `ctrl+6` or `ctrl+k` needs every agent, so the view opens at once however many there are.
 
 ## And
 
-- **Menu bar**: every account's limits, each by its own name (Codex's week reads 7d), the agents working, and a badge for each waiting on you. Questions arrive as notifications you can answer from; clicking one brings back the terminal agtop is open in (Warp, iTerm, Ghostty…) on that agent. agtop offers it the first time it opens on a Mac. It's a small Swift app built on your Mac the first time (it needs Xcode's command line tools).
+- **Menu bar**: every account's limits, each by its own name (Codex's week reads 7d), the agents working, and a badge for each waiting on you. Questions arrive as notifications you can answer from; clicking one brings back the terminal rush is open in (Warp, iTerm, Ghostty…) on that agent. rush offers it the first time it opens on a Mac. It's a small Swift app built on your Mac the first time (it needs Xcode's command line tools).
 - **Zen** (`ctrl+z`): only the agent that needs you and its box, then the next one. A bar across the top says where you are in the queue; `ctrl+n` skips, holding `tab` peeks at what's working, `ctrl+z` again leaves.
 - **Terminal.app** keeps ⌘ for its own menus. `#mackeys on` sets up Hammerspoon to send ⌘← → ⌘⌫ ⌘⌦ and ⌘Z on as editing keys, only while Terminal.app is in front; `#mackeys off` takes it out again.
-- **Status lines**: `/statusline` lays out the agent header, agtop's top bar and Claude Code's own status line, with a live preview.
+- **Status lines**: `/statusline` lays out the agent header, rush's top bar and Claude Code's own status line, with a live preview.
 - **Colours** made from your terminal's own background and text, or set to dark or light, and a colour-blind palette, in Settings › Interface.
 - **Copy on select**: text you drag over goes to the clipboard as you let go, unless you turn it off in Settings › Interface; then it stays selected for cmd+c or ctrl+c.
-- **Settings from the environment**: any setting kept in `config.json` can be set for one run as `AGTOP_` and its key in upper snake case, a nested one after its parent's: `AGTOP_COPY_ON_SELECT=0`, `AGTOP_THEME=light`, `AGTOP_HIBERNATE_AFTER_MINUTES=30`. It isn't saved: `config.json` keeps what it had, unless you change the setting in agtop meanwhile. Lists and maps can't be set this way.
-- **Light**: about 40 MB with a session open, 56 MB for a 38-hour session with 342 subagent runs. Idle, it does almost nothing: the kernel says when a transcript changed, and only that file is read again. `agtop --soak 30s 200x50` measures it against your own agents.
+- **Settings from the environment**: any setting kept in `config.json` can be set for one run as `RUSH_` and its key in upper snake case, a nested one after its parent's: `RUSH_COPY_ON_SELECT=0`, `RUSH_THEME=light`, `RUSH_HIBERNATE_AFTER_MINUTES=30`. It isn't saved: `config.json` keeps what it had, unless you change the setting in rush meanwhile. Lists and maps can't be set this way.
+- **Light**: about 40 MB with a session open, 56 MB for a 38-hour session with 342 subagent runs. Idle, it does almost nothing: the kernel says when a transcript changed, and only that file is read again. `rush --soak 30s 200x50` measures it against your own agents.
 
 ## Keys
 
@@ -339,11 +339,11 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `ctrl+l` | move the agent, or pick a new session's folder |
 | `ctrl+z` | Zen |
 | `alt+w` | the default profile |
-| `#` | agtop's commands |
+| `#` | rush's commands |
 | `/` | the agent's commands and skills |
 | `?` | the guide |
 
-Every key can move. **Settings → Keys** lists every action, where it works (everywhere, the list, a Session) and its keys. Press `enter` on one, then the keys you want. A chord is several, `ctrl+x` then `d` say, ended with `enter`. `a` adds a key, `x` leaves it with none, and `r` puts agtop's back. Each `#` command, and each plugin's commands, can have keys too. A key that would take another's asks first. What you change goes in `~/.config/agtop/keybindings.json`:
+Every key can move. **Settings → Keys** lists every action, where it works (everywhere, the list, a Session) and its keys. Press `enter` on one, then the keys you want. A chord is several, `ctrl+x` then `d` say, ended with `enter`. `a` adds a key, `x` leaves it with none, and `r` puts rush's back. Each `#` command, and each plugin's commands, can have keys too. A key that would take another's asks first. What you change goes in `~/.config/rush/keybindings.json`:
 
 ```json
 {"bindings": {"session.send": ["ctrl+enter"], "command:drafts": ["ctrl+x d"], "list.pr": []}}
@@ -351,29 +351,29 @@ Every key can move. **Settings → Keys** lists every action, where it works (ev
 
 ## What's coming
 
-None of this is in agtop yet. Some of it is being built now, and the rest is next in line.
+None of this is in rush yet. Some of it is being built now, and the rest is next in line.
 
 - **Limits and prices for everyone**: limits for Kimi and Vibe, prices for Codex and the ACP agents (Copilot's models already say their premium-request multiplier), and Efficiency for agents other than Claude Code.
-- **Copilot's coding agent**, started and steered from agtop rather than only watched.
+- **Copilot's coding agent**, started and steered from rush rather than only watched.
 - **Codex accounts** read live when they aren't the one in use, rather than showing their last reading.
 - **Ollama sessions** in the list with the rest, and re-tuned when you change model mid-session.
 - **Plugins' tools in every agent**, over MCP, which the ACP agents already accept.
 - **ZCode spoken to directly**, dropping the `zcode-acp-server` bridge, and Goose over ACP.
-- **Claude Code as just another adapter**: its discovery moves into its adapter, and its sessions go over the wire as agtop's own events like everyone else's. You won't see this one, but it's what makes the rest cheap to add.
-- **`agtop on` for other agents**, if `codex` or `copilot` grow a view worth replacing.
+- **Claude Code as just another adapter**: its discovery moves into its adapter, and its sessions go over the wire as rush's own events like everyone else's. You won't see this one, but it's what makes the rest cheap to add.
+- **`rush on` for other agents**, if `codex` or `copilot` grow a view worth replacing.
 
 Rewind, fork, checkpoints, the context breakdown, background task control and the screen tab have no equivalent in the Agent Client Protocol, so they stay hidden for those agents rather than faked. [docs/multi-agent.md](docs/multi-agent.md) has the design and where it stands.
 
 ## How it works
 
-agtop reads Claude Code's files: `jobs/*/state.json`, `daemon/roster.json`, `jobs/pins.json`, the transcripts and the cached plan usage. It changes things only through Claude Code (the daemon's control socket, or the `claude` CLI), with one exception: switching account writes the other sign-in into Claude Code's keychain item and its `oauthAccount` into `~/.claude.json`. Each sign-in is kept in your login keychain as `agtop-login`.
+rush reads Claude Code's files: `jobs/*/state.json`, `daemon/roster.json`, `jobs/pins.json`, the transcripts and the cached plan usage. It changes things only through Claude Code (the daemon's control socket, or the `claude` CLI), with one exception: switching account writes the other sign-in into Claude Code's keychain item and its `oauthAccount` into `~/.claude.json`. Each sign-in is kept in your login keychain as `rush-login`.
 
-Other agents run through adapters in [internal/adapters](internal/adapters): Codex over its app-server's JSON-RPC, the rest over the Agent Client Protocol, and Ollama through Claude Code. Each adapter declares which of agtop's features it supports, and the core asks that rather than checking for an agent by name. Whatever the agent, its events draw as a session. Switching a Codex account puts its sign-in in `~/.codex`, keeping the one there first so its refreshed tokens aren't lost; an API-key sign-in is named by a hash of the key, never the key.
+Other agents run through adapters in [internal/adapters](internal/adapters): Codex over its app-server's JSON-RPC, the rest over the Agent Client Protocol, and Ollama through Claude Code. Each adapter declares which of rush's features it supports, and the core asks that rather than checking for an agent by name. Whatever the agent, its events draw as a session. Switching a Codex account puts its sign-in in `~/.codex`, keeping the one there first so its refreshed tokens aren't lost; an API-key sign-in is named by a hash of the key, never the key.
 
-Its own state (Done, names, groups, accounts and profiles, not their sign-ins) lives in `~/.config/agtop`, and a cost cache in `~/Library/Caches/agtop`.
+Its own state (Done, names, groups, accounts and profiles, not their sign-ins) lives in `~/.config/rush`, and a cost cache in `~/Library/Caches/rush`.
 
-Plugins run under `agtop plugind`, sandboxed; [plugins/ARCHITECTURE.md](plugins/ARCHITECTURE.md) has how.
+Plugins run under `rush plugind`, sandboxed; [plugins/ARCHITECTURE.md](plugins/ARCHITECTURE.md) has how.
 
 The control socket and the files are undocumented, checked against Claude Code v2.1.280. If an update changes them, the column affected shows `–`, and opening an agent falls back to `claude attach`.
 
-Limits are asked of each agent at most every five minutes per account, shared by every agtop that's open. Costs are estimates at list prices, not your bill.
+Limits are asked of each agent at most every five minutes per account, shared by every rush that's open. Costs are estimates at list prices, not your bill.

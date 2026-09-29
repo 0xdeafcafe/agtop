@@ -10,7 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 )
 
 // docEditor edits one file in place: markdown and JSON are coloured as you
@@ -266,7 +266,7 @@ func writeDoc(w docWrite) docSaved {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return docSaved{err: err}
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".agtop-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".rush-*")
 	if err != nil {
 		return docSaved{err: err}
 	}

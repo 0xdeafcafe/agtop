@@ -10,10 +10,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/advisor"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/efficiency"
+	"github.com/0xdeafcafe/rush/internal/advisor"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/efficiency"
 )
 
 // The Efficiency place: where tokens go, the savers that cut them, and
@@ -109,7 +109,7 @@ func (m *Model) effOpen() tea.Cmd {
 }
 
 // effFolder is the folder "this folder" means: the selected agent's, or
-// where agtop was started.
+// where rush was started.
 func (m *Model) effFolder() string {
 	if a := m.selected(); a != nil && a.Cwd != "" {
 		return a.Cwd

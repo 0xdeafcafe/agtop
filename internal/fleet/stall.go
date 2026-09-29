@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // A finished turn is one of three things: an answer, a question, or an
@@ -18,13 +18,13 @@ func (a *Agent) Halted() bool {
 		a.State != "stopped"
 }
 
-// Continues is a halted Claude Code session agtop isn't hosting whose
+// Continues is a halted Claude Code session rush isn't hosting whose
 // turn, in the last day, died on an error trying again gets past: the
-// network down, a connection dropped or stalled, the API failing. agtop
+// network down, a connection dropped or stalled, the API failing. rush
 // tells it to continue once the API can be reached, as its own sessions
 // do.
 func (a *Agent) Continues(now time.Time) bool {
-	if !a.Halted() || a.Agtop || now.Sub(a.Spend.Halt.At) >= 24*time.Hour {
+	if !a.Halted() || a.Rush || now.Sub(a.Spend.Halt.At) >= 24*time.Hour {
 		return false
 	}
 	t := strings.ToLower(a.Spend.Halt.Text)

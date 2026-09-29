@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // A step keeps its call in Claude Code's words (Step.Tool, Step.Input,
-// Step.Result) beside agtop's own, for what still reads those: another
+// Step.Result) beside rush's own, for what still reads those: another
 // agent's call is put as the Claude tool of its kind.
 
 // stepTool is a call as a step's Tool and Input: Claude Code's own as it

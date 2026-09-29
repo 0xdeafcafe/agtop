@@ -7,13 +7,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 // --- /plugins ---
 
-// pluginSheet is agtop's /plugins: what's installed (on/off, update,
+// pluginSheet is rush's /plugins: what's installed (on/off, update,
 // remove, what each brings and costs), what the marketplaces offer
 // (search, install), and the marketplaces themselves. Changes go through
 // the agent's adapter, so they're exactly what its own screen would do.
@@ -53,7 +53,7 @@ const (
 func (m *Model) openPlugins(c *hostConn, a *fleet.Agent) tea.Cmd {
 	plug, ok := agent.As[agent.Plugger](sessionAgent(c))
 	if !ok || !canScreen(c, "plugin") {
-		m.flash(agentName(string(sessionAgent(c)))+" has no plugins agtop manages", true)
+		m.flash(agentName(string(sessionAgent(c)))+" has no plugins rush manages", true)
 		return nil
 	}
 	p := &pluginSheet{conn: c.key, plug: plug, acct: a.Acct, cwd: firstNonEmpty(c.sess.Info.Cwd, a.Cwd), costs: map[string]string{}, costAsked: map[string]bool{}}
@@ -451,7 +451,7 @@ func installs(n int) string {
 	return fmt.Sprint(n)
 }
 
-// reloadPlugins has the Session's agtop session pick up plugin changes; a
+// reloadPlugins has the Session's rush session pick up plugin changes; a
 // turn under way is left alone.
 func (m *Model) reloadPlugins(key string) tea.Cmd {
 	c := m.host

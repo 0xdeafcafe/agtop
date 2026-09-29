@@ -14,21 +14,21 @@ import (
 )
 
 // #mackeys: Terminal.app keeps ⌘ for its own menus, so ⌘← and the like
-// never reach agtop there, and without "Use Option as Meta key" ⌥⌫ arrives
+// never reach rush there, and without "Use Option as Meta key" ⌥⌫ arrives
 // as a plain backspace. Opted into, Hammerspoon sends them on as the
-// ctrl keys agtop and the shell understand, and only while Terminal.app is
+// ctrl keys rush and the shell understand, and only while Terminal.app is
 // in front.
 
-// inAppleTerminal is whether agtop is drawing in macOS's own Terminal.app.
+// inAppleTerminal is whether rush is drawing in macOS's own Terminal.app.
 func inAppleTerminal() bool {
 	return runtime.GOOS == "darwin" && os.Getenv("TERM_PROGRAM") == "Apple_Terminal"
 }
 
-// hsRequire is the line agtop adds to Hammerspoon's init.lua.
-const hsRequire = `require("agtop") -- agtop's ⌘ keys for Terminal.app; #mackeys off removes this`
+// hsRequire is the line rush adds to Hammerspoon's init.lua.
+const hsRequire = `require("rush") -- rush's ⌘ keys for Terminal.app; #mackeys off removes this`
 
-// hsScript is ~/.hammerspoon/agtop.lua.
-const hsScript = `-- Written by agtop (#mackeys); #mackeys off removes it, and agtop
+// hsScript is ~/.hammerspoon/rush.lua.
+const hsScript = `-- Written by rush (#mackeys); #mackeys off removes it, and rush
 -- overwrites any change. Terminal.app keeps ⌘ for its menus, so while it is
 -- in front these ⌘ keys (and ⌥⌫) are sent as the ctrl keys a terminal
 -- understands.
@@ -90,13 +90,13 @@ func hammerspoonApp() string {
 	return ""
 }
 
-// macKeysOn is whether Hammerspoon is set to load agtop's keys.
+// macKeysOn is whether Hammerspoon is set to load rush's keys.
 func macKeysOn() bool {
 	init, err := os.ReadFile(filepath.Join(hsDir(), "init.lua"))
 	if err != nil || !strings.Contains(string(init), hsRequire) {
 		return false
 	}
-	_, err = os.Stat(filepath.Join(hsDir(), "agtop.lua"))
+	_, err = os.Stat(filepath.Join(hsDir(), "rush.lua"))
 	return err == nil
 }
 
@@ -143,7 +143,7 @@ func (m *Model) macKeysCommand(arg string) tea.Cmd {
 	})
 }
 
-// macKeysInstall installs Hammerspoon if it isn't, writes agtop's keys into
+// macKeysInstall installs Hammerspoon if it isn't, writes rush's keys into
 // its config and restarts it so they load.
 func macKeysInstall() error {
 	if hammerspoonApp() == "" {
@@ -159,7 +159,7 @@ func macKeysInstall() error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "agtop.lua"), []byte(hsScript), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "rush.lua"), []byte(hsScript), 0o644); err != nil {
 		return err
 	}
 	initPath := filepath.Join(dir, "init.lua")
@@ -179,7 +179,7 @@ func macKeysInstall() error {
 	return restartHammerspoon(true)
 }
 
-// macKeysRemove takes agtop's keys back out of Hammerspoon's config.
+// macKeysRemove takes rush's keys back out of Hammerspoon's config.
 func macKeysRemove() error {
 	dir := hsDir()
 	initPath := filepath.Join(dir, "init.lua")
@@ -190,7 +190,7 @@ func macKeysRemove() error {
 			return err
 		}
 	}
-	if err := os.Remove(filepath.Join(dir, "agtop.lua")); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(filepath.Join(dir, "rush.lua")); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return restartHammerspoon(false)

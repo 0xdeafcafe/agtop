@@ -1,4 +1,4 @@
-// Package pi is Pi, Mario Zechner's coding agent, as an agtop adapter. It
+// Package pi is Pi, Mario Zechner's coding agent, as a rush adapter. It
 // drives `pi --mode rpc`, Pi's own protocol of JSON lines over stdin and
 // stdout, and reads Pi's session files back for past sessions.
 package pi
@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // Kind is Pi's.
@@ -28,9 +28,9 @@ func (Adapter) Program() (string, []string) {
 	return "pi", []string{"Library/pnpm", ".local/share/pnpm"}
 }
 
-// features are what RPC mode gives agtop. Pi runs every tool without
+// features are what RPC mode gives rush. Pi runs every tool without
 // asking and keeps no modes, plans, subagents or MCP by design; those come
-// as extensions, which agtop doesn't know.
+// as extensions, which rush doesn't know.
 var features = map[agent.Feature]agent.Support{
 	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes.With("the whole session, not from a message"),
 	agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes.With("any model Pi has, at once"),
@@ -86,7 +86,7 @@ func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 }
 
 // RunsSession is whether a command line is a pi in RPC mode on session
-// sessionID: one agtop started, resumed or forked it with.
+// sessionID: one rush started, resumed or forked it with.
 func (Adapter) RunsSession(args []string, sessionID string) bool {
 	if sessionID == "" || !slices.Contains(args, "rpc") {
 		return false

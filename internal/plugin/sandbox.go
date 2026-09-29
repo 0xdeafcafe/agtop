@@ -13,7 +13,7 @@ import (
 // Launch is how to start one plugin.
 type Launch struct {
 	Plugin Plugin
-	// ProxyPort is agtop's proxy for this plugin, or 0 for no network.
+	// ProxyPort is rush's proxy for this plugin, or 0 for no network.
 	ProxyPort int
 }
 
@@ -39,9 +39,12 @@ func (l Launch) Env() []string {
 	tmp := filepath.Join(data, "tmp")
 	fixed := map[string]string{
 		"PATH": "/usr/bin:/bin", "HOME": data, "TMPDIR": tmp + "/",
+		"RUSH_PLUGIN": m.Name, "RUSH_PLUGIN_DATA": data,
+		// and as they were called before the rename, for plugins written then
 		"AGTOP_PLUGIN": m.Name, "AGTOP_PLUGIN_DATA": data,
 	}
-	if m.Proto() == ProtoAgtop {
+	if m.Proto() == ProtoRush {
+		fixed["RUSH_IPC_FD"] = "3"
 		fixed["AGTOP_IPC_FD"] = "3"
 	}
 	if l.ProxyPort > 0 {
@@ -64,7 +67,7 @@ func (l Launch) Env() []string {
 }
 
 // Process is the plugin's process, its stdio and extra files for the caller
-// to wire up: a bundled plugin is agtop itself, `agtop plugin run <name>`,
+// to wire up: a bundled plugin is rush itself, `rush plugin run <name>`,
 // in its data folder; any other is Command, sandboxed.
 func (l Launch) Process() (*exec.Cmd, error) {
 	if !l.Plugin.Bundled {

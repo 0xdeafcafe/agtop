@@ -7,7 +7,7 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"os/exec"
 	osuser "os/user"
@@ -18,9 +18,9 @@ import (
 	"time"
 )
 
-// Login is one Claude account agtop can sign ~/.claude in as. Every
+// Login is one Claude account rush can sign ~/.claude in as. Every
 // session shares ~/.claude (settings, transcripts, history); what differs
-// between accounts is only the sign-in, which agtop keeps in its Vault and
+// between accounts is only the sign-in, which rush keeps in its Vault and
 // puts in place when you switch.
 type Login struct {
 	Name  string `json:"name"`
@@ -39,7 +39,7 @@ func (l Login) UsageKey() string { return "login:" + l.ID }
 // in the login keychain on macOS, in files only you can read elsewhere.
 type Vault struct{ Dir string }
 
-const vaultService = "agtop-login"
+const vaultService = "rush-login"
 
 func (v Vault) Get(id string) ([]byte, error) {
 	if runtime.GOOS == "darwin" {
@@ -65,11 +65,11 @@ func (v Vault) Forget(id string) error {
 	return os.Remove(filepath.Join(v.Dir, id+".json"))
 }
 
-// Lock keeps two agtops from switching any agent's account at once; the
+// Lock keeps two rushes from switching any agent's account at once; the
 // func it returns lets go.
 func (v Vault) Lock() (func(), error) { return v.lock() }
 
-// lock keeps two agtops from switching at once.
+// lock keeps two rushes from switching at once.
 func (v Vault) lock() (func(), error) {
 	if err := os.MkdirAll(v.Dir, 0o700); err != nil {
 		return nil, err
@@ -154,17 +154,17 @@ func (v Vault) Use(root Account, to Login) error {
 	defer unlock()
 	cred, err := v.Get(to.ID)
 	if err != nil || !usable(cred) {
-		return fmt.Errorf("agtop has no sign-in for %s; sign in to it again", to.Name)
+		return fmt.Errorf("rush has no sign-in for %s; sign in to it again", to.Name)
 	}
 	if len(to.Profile) == 0 {
-		return fmt.Errorf("agtop doesn't know who %s is; sign in to it again", to.Name)
+		return fmt.Errorf("rush doesn't know who %s is; sign in to it again", to.Name)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if id, err := Owner(ctx, cred); err == nil && id != to.ID {
-		// Kept under the wrong name by an agtop from before it checked.
+		// Kept under the wrong name by a rush from before it checked.
 		_ = v.Forget(to.ID)
-		return fmt.Errorf("agtop's sign-in for %s was another account's; sign in to it again", to.Name)
+		return fmt.Errorf("rush's sign-in for %s was another account's; sign in to it again", to.Name)
 	}
 	if _, _, _, err := v.Keep(root); err != nil {
 		return fmt.Errorf("couldn't keep the account in use: %w", err)

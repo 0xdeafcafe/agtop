@@ -1,3 +1,3 @@
-module github.com/0xdeafcafe/agtop/plugins/examples/autodrafts
+module github.com/0xdeafcafe/rush/plugins/examples/autodrafts
 
 go 1.27

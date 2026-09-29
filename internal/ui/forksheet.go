@@ -10,11 +10,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // --- /fork ---
@@ -53,7 +53,7 @@ type forkSheet struct {
 }
 
 // forkLookup is what the fork sheet looks up in the background: the git
-// checkout the session is in, and how an agtop session was started.
+// checkout the session is in, and how a rush session was started.
 type forkLookup struct {
 	repo string
 	was  host.Config
@@ -117,16 +117,16 @@ func (m *Model) openFork(c *hostConn, a *fleet.Agent, name string) {
 		conn: c.key, agent: a.DisplayName, prof: a.Acct, kind: k, br: br, sid: sid, cwd: cwd,
 		path: firstNonEmpty(c.path, a.TranscriptPath),
 		name: []rune(firstNonEmpty(name, a.DisplayName+" (fork)")),
-		now:  c.sess.Info, hosted: a.Agtop, id: a.ID,
+		now:  c.sess.Info, hosted: a.Rush, id: a.ID,
 		models: choiceIDs(ch.Models), efforts: choiceIDs(ch.Efforts), perms: choiceIDs(ch.Modes),
 	}
 	if f.path == "" && br != nil {
 		f.path = br.TranscriptPath(a.Acct, cwd, sid)
 	}
 	f.namePos = len(f.name)
-	// Whether it's in a git checkout, and how an agtop session was started,
+	// Whether it's in a git checkout, and how a rush session was started,
 	// are looked up in the background; the sheet fills them in when they're in.
-	hosted, id := a.Agtop, a.ID
+	hosted, id := a.Rush, a.ID
 	f.look.start(func() forkLookup { return lookFork(cwd, hosted, id) })
 	f.poll()
 	// Newest first: "all of it", then up to each earlier turn.

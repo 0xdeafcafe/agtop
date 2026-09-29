@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // Job is one of Claude Code's tasks: a Bash command, a monitor, a
 // subagent or a workflow, whether the turn waits on it or it runs in the
-// background. Only a session agtop runs hears of them.
+// background. Only a session rush runs hears of them.
 type Job struct {
 	ID         string
 	ToolUseID  string // the tool call that started it
@@ -131,7 +131,7 @@ func (s *Session) job(id string, now time.Time) *Job {
 	return j
 }
 
-// jobStatus is Claude Code's word for how a task ended, as agtop says it.
+// jobStatus is Claude Code's word for how a task ended, as rush says it.
 func jobStatus(st string) string {
 	switch st {
 	case "killed", "stopped":

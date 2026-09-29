@@ -1,6 +1,6 @@
 // Package advisor watches how you use your agents and says what would cut
 // tokens or time. It works in two passes: a cheap model (Haiku) reads a
-// digest agtop works out itself and proposes candidates, and now and then
+// digest rush works out itself and proposes candidates, and now and then
 // an expensive one (Opus) checks the ones worth money against the
 // transcripts before they reach you. It's opt-in: nothing runs until you
 // turn it on.
@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/efficiency"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/efficiency"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 const (
@@ -99,7 +99,7 @@ func Load() *Record {
 }
 
 // Enabled is whether the advisor is on in the config on disk: another
-// agtop may have turned it off. AGTOP_ADVISOR decides it for this run.
+// rush may have turned it off. RUSH_ADVISOR decides it for this run.
 func Enabled() bool {
 	if on, ok := state.EnvBool("advisor"); ok {
 		return on
@@ -111,7 +111,7 @@ func Enabled() bool {
 	return err == nil && jsonx.Unmarshal(b, &c) == nil && c.Advisor
 }
 
-// Begin marks a pass as started, before it spends anything: if agtop quits
+// Begin marks a pass as started, before it spends anything: if rush quits
 // halfway, the next one still waits out the gap.
 func Begin(now time.Time) error {
 	r := Load()
@@ -136,7 +136,7 @@ func (r *Record) Save() error {
 	if err != nil {
 		return err
 	}
-	// A temp file of its own, so two agtops saving at once can't write
+	// A temp file of its own, so two rushes saving at once can't write
 	// into each other's.
 	f, err := os.CreateTemp(Dir(), "record.*.tmp")
 	if err != nil {
@@ -290,7 +290,7 @@ func (r *Record) Merge(res Result) []Finding {
 	return fresh
 }
 
-// Lock claims the next pass for this process, so two agtops open at once
+// Lock claims the next pass for this process, so two rushes open at once
 // don't both run one (and both spend the day's reviews). ok is false when
 // another holds it; unlock lets it go.
 func Lock() (unlock func(), ok bool) {

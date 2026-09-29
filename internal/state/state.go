@@ -14,24 +14,36 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 func Dir() string {
-	if d := os.Getenv("AGTOP_HOME"); d != "" {
+	if d := os.Getenv("RUSH_HOME"); d != "" {
 		return d
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "agtop")
+	return pick(filepath.Join(home, ".config", "rush"), filepath.Join(home, ".config", "agtop"), "config.json")
+}
+
+// pick is rush's folder, or the one it had as agtop while that's the one
+// in use (rush's has no mark in it yet): nothing is moved, so what runs
+// from there keeps working. Copy agtop's to rush's to switch.
+func pick(rush, agtop, mark string) string {
+	if _, err := os.Stat(filepath.Join(rush, mark)); err != nil {
+		if _, err := os.Stat(filepath.Join(agtop, mark)); err == nil {
+			return agtop
+		}
+	}
+	return rush
 }
 
 // Key identifies a job across accounts.
 func Key(account, id string) string { return account + "/" + id }
 
 type Config struct {
-	// Folders are the Claude config folders an older agtop was given:
+	// Folders are the Claude config folders an older rush was given:
 	// ~/.claude and ~/.claude-*. Everything is in ~/.claude now; the others
 	// are only read to take their sign-ins and past sessions in, once, and
 	// dropped after. ~/.claude's entry stays: its name is what its
@@ -46,11 +58,11 @@ type Config struct {
 	// Logins are the Claude accounts ~/.claude can be signed in as; their
 	// sign-ins are in the vault, not here.
 	Logins []claude.Login `json:"logins,omitempty"`
-	// SignIns are the accounts of agents other than Claude Code that agtop
+	// SignIns are the accounts of agents other than Claude Code that rush
 	// keeps, several to an agent; their credentials are in the vault or
 	// the agent's own keeping, not here.
 	SignIns []SignIn `json:"signIns,omitempty"`
-	// Using is the account an agent runs on where agtop picks it rather
+	// Using is the account an agent runs on where rush picks it rather
 	// than the agent's home saying: a SignIn's ID, by kind.
 	Using map[string]string `json:"using,omitempty"`
 	// Profiles are the named lists of providers sessions run, with what
@@ -58,7 +70,7 @@ type Config struct {
 	// is a profile of its own besides (Builtins). DefaultProfile names the
 	// one a session gets when neither you nor a FolderRule picked one.
 	// DefaultAgent, SwitchOnLimit and AgentOrder are still written from
-	// it for older agtops.
+	// it for older rushes.
 	Profiles       []Profile    `json:"profiles,omitempty"`
 	DefaultProfile string       `json:"defaultProfile,omitempty"`
 	FolderRules    []FolderRule `json:"folderRules,omitempty"`
@@ -68,7 +80,7 @@ type Config struct {
 	// BuiltinProfiles is set once an older config's profiles were fitted
 	// to built-in ones (migrateProfiles).
 	BuiltinProfiles bool `json:"builtinProfiles,omitzero"`
-	// SwitchOnLimit is what agtop does when the account in use is nearly out:
+	// SwitchOnLimit is what rush does when the account in use is nearly out:
 	// "" (or "account") switches to another account of the same agent, and
 	// sessions carry on; "agent" does that, then starts new sessions on
 	// the next agent in AgentOrder once every account of it is out; "off"
@@ -77,7 +89,7 @@ type Config struct {
 	// AgentOrder is the agents new sessions move on to, in turn, when
 	// SwitchOnLimit is "agent". Installed agents not in it come after, by name.
 	AgentOrder []string `json:"agentOrder,omitempty"`
-	// StayOnAccount is SwitchOnLimit "off" as agtops before it read it:
+	// StayOnAccount is SwitchOnLimit "off" as rushes before it read it:
 	// kept in step with it.
 	StayOnAccount bool   `json:"stayOnAccount,omitzero"`
 	GroupBy       string `json:"groupBy"`
@@ -89,11 +101,11 @@ type Config struct {
 	Quiet     bool            `json:"quiet,omitzero"`
 	DockLines int             `json:"dockLines,omitzero"`
 	// SideWidth is the agent list's share of a split screen, 0.25 to 0.5;
-	// zero means agtop's own choice.
+	// zero means rush's own choice.
 	SideWidth float64 `json:"sideWidth,omitzero"`
 	// View is the layout you picked: "split" (Agents and the Session side
 	// by side), "agent" (the Session alone) or "list" (Agents alone).
-	// Empty asks, the first time agtop opens.
+	// Empty asks, the first time rush opens.
 	View string `json:"view,omitempty"`
 	// ListOnly keeps a wide screen to the list alone: no Session beside
 	// it until you open one.
@@ -112,7 +124,7 @@ type Config struct {
 	// before its worktree (clean and pushed) and temp work are removed on
 	// their own; 0 is the default, and a negative number turns it off.
 	CleanupHours int `json:"cleanupHours,omitzero"`
-	// TrimRunningTmp lets a running agtop session clear its own old tmp
+	// TrimRunningTmp lets a running rush session clear its own old tmp
 	// when the disk runs low: what's been untouched for three hours and is
 	// open in no process. Off unless set.
 	TrimRunningTmp bool `json:"trimRunningTmp,omitzero"`
@@ -121,7 +133,7 @@ type Config struct {
 	// ColorBlind draws added and removed, done and failed in sky blue and
 	// amber instead of green and red.
 	ColorBlind bool `json:"colorBlind,omitzero"`
-	// Theme is what agtop's colours are made for: "dark" or "light", or,
+	// Theme is what rush's colours are made for: "dark" or "light", or,
 	// empty, whatever the terminal says its background and text are.
 	Theme string `json:"theme,omitempty"`
 	// ShowWhitespace marks spaces and tabs in diffs, as · and →.
@@ -138,16 +150,16 @@ type Config struct {
 	EnterSendsCommand bool `json:"enterSendsCommand,omitzero"`
 	// StopTurnUnasked has esc stop a running turn without asking first.
 	StopTurnUnasked bool `json:"stopTurnUnasked,omitzero"`
-	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
+	// MenuBar keeps rush's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitzero"`
-	// MenuBarAsked is set once agtop has offered the menu bar icon.
+	// MenuBarAsked is set once rush has offered the menu bar icon.
 	MenuBarAsked bool `json:"menuBarAsked,omitzero"`
 	// Onboarding is how far a new user has got: the Getting started steps
 	// they've done, which one-time tips have shown, and whether they've put
 	// Getting started away.
 	Onboarding Onboarding `json:"onboarding"`
-	// Advisor lets agtop's advisor look over your agents' figures now and
+	// Advisor lets rush's advisor look over your agents' figures now and
 	// then, on Haiku, with Opus checking what it finds, to say what would
 	// cut tokens or time. Off until you turn it on.
 	Advisor bool `json:"advisor,omitzero"`
@@ -157,7 +169,7 @@ type Config struct {
 func (c Config) CopiesOnSelect() bool { return c.CopyOnSelect == nil || *c.CopyOnSelect }
 
 // SignIn is an account of an agent other than Claude Code: who it is, and
-// what agtop calls it.
+// what rush calls it.
 type SignIn struct {
 	Kind  string `json:"kind"`
 	ID    string `json:"id"` // the agent's own id for the account
@@ -173,8 +185,8 @@ const (
 	OnLimitOff     = "off"
 )
 
-// migrate brings a config written by an older agtop up to date. It only
-// adds and renames: nothing an older agtop reads is taken away.
+// migrate brings a config written by an older rush up to date. It only
+// adds and renames: nothing an older rush reads is taken away.
 func (c *Config) migrate() {
 	if c.StayOnAccount && c.SwitchOnLimit == "" {
 		c.SwitchOnLimit = OnLimitOff
@@ -194,7 +206,7 @@ func (c *Config) migrate() {
 	c.migrateProfiles()
 }
 
-// SetSwitchOnLimit sets what agtop does when an account is nearly out.
+// SetSwitchOnLimit sets what rush does when an account is nearly out.
 func (c *Config) SetSwitchOnLimit(v string) {
 	c.SwitchOnLimit, c.StayOnAccount = v, v == OnLimitOff
 }
@@ -246,7 +258,7 @@ func (c Config) signInNamed(kind, name string) bool {
 	return false
 }
 
-// SignInsOf are the accounts agtop keeps for agent kind.
+// SignInsOf are the accounts rush keeps for agent kind.
 func (c Config) SignInsOf(kind string) []SignIn {
 	var out []SignIn
 	for _, s := range c.SignIns {
@@ -271,7 +283,7 @@ func (c *Config) ForgetSignIn(kind, id string) {
 	}
 }
 
-// Onboarding is what agtop has taught you so far.
+// Onboarding is what rush has taught you so far.
 type Onboarding struct {
 	Steps  []string `json:"steps,omitempty"`
 	Tips   []string `json:"tips,omitempty"`
@@ -309,24 +321,24 @@ type Dispatch struct {
 	Model      string `json:"model,omitempty"`
 	Effort     string `json:"effort,omitempty"`
 	Permission string `json:"permission,omitempty"`
-	// RunIn is where new Claude sessions run: "" for agtop mode (agtop's own
+	// RunIn is where new Claude sessions run: "" for rush mode (rush's own
 	// host, headless) or "daemon" for Claude Code's background service.
 	RunIn string `json:"runIn,omitempty"`
-	// OnLimit is what agtop-mode sessions do when a usage limit stops them:
+	// OnLimit is what rush-mode sessions do when a usage limit stops them:
 	// "" asks once per session (opt-in), "auto" continues at the reset,
 	// "off" waits for you.
 	OnLimit string `json:"onLimit,omitempty"`
-	// Lean starts agtop-mode sessions without Claude Code's non-essential
+	// Lean starts rush-mode sessions without Claude Code's non-essential
 	// network traffic: ready in about half the time, but without DesignSync,
 	// Projects, plugin downloads or live preview.
 	Lean bool `json:"lean,omitzero"`
-	// RestMinutes is how long an idle agtop-mode session keeps Claude Code
+	// RestMinutes is how long an idle rush-mode session keeps Claude Code
 	// running before stopping it (a message starts it again); 0 is the
 	// default, as soon as it's done.
 	RestMinutes int `json:"restMinutes,omitzero"`
 	// Starts are what new sessions of the agents other than the built-in
 	// one start with, by kind; the built-in's are Model, Effort and
-	// Permission above, where older agtops read them.
+	// Permission above, where older rushes read them.
 	Starts map[string]Start `json:"starts,omitempty"`
 }
 
@@ -362,14 +374,14 @@ func (d *Dispatch) SetStartFor(kind string, s Start) {
 	d.Starts[kind] = s
 }
 
-// DefaultRest is how long an idle agtop-mode session keeps Claude Code
+// DefaultRest is how long an idle rush-mode session keeps Claude Code
 // running when RestMinutes isn't set: a moment after it's done, with
 // nothing left in the background. An idle Claude Code holds 150-200 MB;
 // starting it again takes about a second, and the prompt cache (an hour)
 // isn't lost.
 const DefaultRest = 3 * time.Second
 
-// Rest is how long an idle agtop-mode session keeps Claude Code running.
+// Rest is how long an idle rush-mode session keeps Claude Code running.
 func (d Dispatch) Rest() time.Duration {
 	if d.RestMinutes > 0 {
 		return time.Duration(d.RestMinutes) * time.Minute
@@ -387,7 +399,7 @@ func (d Dispatch) Flags() []string {
 	return f
 }
 
-// OldFolders are the folders besides ~/.claude an older agtop was given,
+// OldFolders are the folders besides ~/.claude an older rush was given,
 // whose sign-ins and past sessions are still to be taken in.
 func (c Config) OldFolders() []claude.Account {
 	var out []claude.Account
@@ -422,10 +434,10 @@ func (c Config) ActiveAccount() claude.Account {
 	return root
 }
 
-// Vault is where agtop keeps the sign-ins of the logins not in use.
+// Vault is where rush keeps the sign-ins of the logins not in use.
 func Vault() claude.Vault { return claude.Vault{Dir: filepath.Join(Dir(), "logins")} }
 
-// SwitchAt is how full, in percent, the login in use may get before agtop
+// SwitchAt is how full, in percent, the login in use may get before rush
 // switches to another.
 const SwitchAt = 95.0
 
@@ -583,7 +595,7 @@ func (s *Store) SaveConfig() error {
 }
 
 // KeepBefore copies config.json aside as config.json.<name>, once, before
-// a change an older agtop wouldn't make: the copy is never overwritten.
+// a change an older rush wouldn't make: the copy is never overwritten.
 // With WriteBehind on, the writer copies it, before any save after.
 //
 //uiblock:nowait the view turns WriteBehind on: its goroutine copies
@@ -612,7 +624,7 @@ func readJSON(path string, v any) {
 	}
 }
 
-// loadJSON reads one of agtop's own files, falling back to the copy of it
+// loadJSON reads one of rush's own files, falling back to the copy of it
 // last read whole when it can't be: starting from nothing would save
 // nothing over it, and your settings, accounts and done marks with it. The
 // unreadable one is kept aside as .broken.
@@ -643,7 +655,7 @@ func writeBytes(path string, b []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	// A temp file of its own, so two agtops saving at once can't write
+	// A temp file of its own, so two rushes saving at once can't write
 	// into each other's and leave half of one behind.
 	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
@@ -674,17 +686,17 @@ type CostCache struct {
 }
 
 func cacheDir() string {
-	if d := os.Getenv("AGTOP_CACHE"); d != "" {
+	if d := os.Getenv("RUSH_CACHE"); d != "" {
 		return d
 	}
 	d, err := os.UserCacheDir()
 	if err != nil {
 		return Dir()
 	}
-	return filepath.Join(d, "agtop")
+	return pick(filepath.Join(d, "rush"), filepath.Join(d, "agtop"), "")
 }
 
-// CachePath is a file in agtop's cache folder: what can be worked out
+// CachePath is a file in rush's cache folder: what can be worked out
 // again, but is kept so a restart needn't.
 func CachePath(name string) string { return filepath.Join(cacheDir(), name) }
 

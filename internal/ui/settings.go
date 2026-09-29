@@ -7,10 +7,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/keymap"
-	"github.com/0xdeafcafe/agtop/internal/settingsfile"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/keymap"
+	"github.com/0xdeafcafe/rush/internal/settingsfile"
 )
 
 // Settings is a place of pages, and [ and ] go between them, as in every
@@ -84,7 +84,7 @@ type dialog struct {
 	agent  agent.Kind // the one Agents shows
 
 	profile  string // the profile Profiles is editing; empty lists them
-	features bool   // Agents shows what agtop can do with the agent
+	features bool   // Agents shows what rush can do with the agent
 	advanced bool   // Agents shows the agent's advanced sections
 	keyCtx   int    // which of keymap.Contexts Keys shows
 

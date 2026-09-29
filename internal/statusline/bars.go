@@ -6,23 +6,23 @@ import (
 	"reflect"
 	"slices"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// Bars are agtop's own status lines, built the same way as Claude Code's
-// but drawn by agtop from what it knows: Top at the top right of the
+// Bars are rush's own status lines, built the same way as Claude Code's
+// but drawn by rush from what it knows: Top at the top right of the
 // window, about every agent at once, and Agent at the top of an agent's
-// Session. Their segments are agtop's (see ui/bars.go).
+// Session. Their segments are rush's (see ui/bars.go).
 type Bars struct {
 	Top   Layout `json:"top"`
 	Agent Layout `json:"agent"`
 }
 
-// BarLines is how many lines each of agtop's own has room for.
+// BarLines is how many lines each of rush's own has room for.
 const BarLines = 2
 
-// DefaultTop and DefaultAgent are what agtop showed before they could be
+// DefaultTop and DefaultAgent are what rush showed before they could be
 // changed.
 func DefaultTop() Layout {
 	return Layout{Lines: [][]string{{"today", "usage"}, {"ram", "tokens", "cpu", "net", "disk", "battery", "tmp"}}, Sep: " · "}

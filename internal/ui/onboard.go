@@ -7,10 +7,10 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 )
 
-// Onboarding teaches agtop two ways: a Getting started card under the list
+// Onboarding teaches rush two ways: a Getting started card under the list
 // that ticks off as you do each thing, and a one-time tip the first time
 // something happens that a key helps with.
 
@@ -88,7 +88,7 @@ func (m *Model) startedLines(w int) []string {
 		}
 		out = append(out, l)
 	}
-	// # is the way in to most of agtop: say so, and how this card goes.
+	// # is the way in to most of rush: say so, and how this card goes.
 	hint := " " + paint(cOrange+bold, "#") + faint(" for commands: pin, done, group, sort… · ") + paint(cOrange+bold, "#tips off") + faint(" hides this")
 	if cellw.String(ansi.Strip(hint)) > w+3 {
 		hint = " " + paint(cOrange+bold, "#") + faint(" for commands · ") + paint(cOrange+bold, "#tips off") + faint(" hides this")

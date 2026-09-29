@@ -15,12 +15,12 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 
-	"github.com/0xdeafcafe/agtop/internal/agtools"
+	"github.com/0xdeafcafe/rush/internal/agtools"
 )
 
 // Line is one drawn row. Ref names what it belongs to, for selection and the
@@ -407,7 +407,7 @@ func ImageLabel(path string) string {
 	if m := screenshotRe.FindStringSubmatch(strings.ReplaceAll(name, "\u202f", " ")); m != nil {
 		return "screenshot " + m[1]
 	}
-	// An image pasted as data is saved by agtop as clipboard-<time>.png.
+	// An image pasted as data is saved by rush as clipboard-<time>.png.
 	if m := clipboardRe.FindStringSubmatch(name); m != nil {
 		return "screenshot " + m[1] + ":" + m[2]
 	}
@@ -437,7 +437,7 @@ func imageChips(names []string, w int) []string {
 	return rows
 }
 
-// unasked names a turn with no message agtop saw start it. The first is
+// unasked names a turn with no message rush saw start it. The first is
 // the replay beginning partway through a turn, its start left in the
 // transcript; any later one is the agent waking for something it didn't
 // say, such as background work finishing.
@@ -2766,7 +2766,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	last := -1
 	emit := func(i int, l string) {
 		// A tool's own escape codes (colours, cursor moves, titles) would
-		// reach the terminal or throw widths off; agtop does the colour.
+		// reach the terminal or throw widths off; rush does the colour.
 		l = expandTabs(cleanOutput(l))
 		if d.marks[strings.TrimSpace(l)] {
 			put(b, "", markHeading(strings.TrimSpace(l), w))
@@ -3129,7 +3129,7 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-// figure draws what Claude showed with agtop's show tool: the drawing as it
+// figure draws what Claude showed with rush's show tool: the drawing as it
 // was sent, in a frame of its own as wide as the pane allows, never wrapped
 // or folded. The top edge carries its title and is the row you pick to copy
 // it. It reports false while there is no drawing yet to show.

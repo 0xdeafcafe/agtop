@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // The GLM Coding Plan's limits, as ZCode itself reads them: api.z.ai for
@@ -133,7 +133,7 @@ func (Adapter) Quota(ctx context.Context, p agent.Profile, _ agent.Account) (usa
 	return quotaOf(r, time.Now()), nil
 }
 
-// quotaOf is the plan's limits as agtop's windows.
+// quotaOf is the plan's limits as rush's windows.
 func quotaOf(r quotaResponse, now time.Time) usage.Quota {
 	q := usage.Quota{Plan: r.Data.Level, FetchedAt: now, Source: usage.Fetched}
 	for _, l := range r.Data.Limits {

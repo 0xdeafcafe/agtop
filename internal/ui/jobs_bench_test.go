@@ -11,13 +11,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
-// realTasks is the agtop session with the most task output files under
-// ~/.config/agtop/sessions, its short id and the files; skips without one.
+// realTasks is the rush session with the most task output files under
+// ~/.config/rush/sessions, its short id and the files; skips without one.
 func realTasks(b *testing.B) (string, string, []string) {
 	var best, bestID, bestSess string
 	n := 0
@@ -26,7 +26,7 @@ func realTasks(b *testing.B) (string, string, []string) {
 	if err != nil {
 		b.Skip(err)
 	}
-	b.Setenv("AGTOP_HOME", filepath.Join(u.HomeDir, ".config", "agtop"))
+	b.Setenv("RUSH_HOME", filepath.Join(u.HomeDir, ".config", "rush"))
 	dirs, _ := filepath.Glob(filepath.Join(host.Root(), "*", "tmp", "claude-*", "*", "*", "tasks"))
 	for _, d := range dirs {
 		fs, _ := filepath.Glob(filepath.Join(d, "*.output"))
@@ -38,7 +38,7 @@ func realTasks(b *testing.B) (string, string, []string) {
 		}
 	}
 	if n < 20 {
-		b.Skip("no agtop session with many tasks under " + host.Root())
+		b.Skip("no rush session with many tasks under " + host.Root())
 	}
 	fs, _ := filepath.Glob(filepath.Join(best, "*.output"))
 	sort.Strings(fs)

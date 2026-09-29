@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
-// The test binary stands in for agtop when a host is spawned.
+// The test binary stands in for rush when a host is spawned.
 func TestMain(m *testing.M) {
 	if len(os.Args) == 4 && os.Args[1] == "host" && os.Args[2] == "run" {
 		if err := host.Run(os.Args[3]); err != nil {
@@ -23,17 +23,17 @@ func TestMain(m *testing.M) {
 
 // TestRealSession drives a real Claude Code session through a host and
 // draws it, so the event mapping is checked against what Claude Code
-// actually sends. It spends a few cents of Haiku: AGTOP_REAL_CLAUDE=1.
+// actually sends. It spends a few cents of Haiku: RUSH_REAL_CLAUDE=1.
 func TestRealSession(t *testing.T) {
-	if os.Getenv("AGTOP_REAL_CLAUDE") == "" {
-		t.Skip("set AGTOP_REAL_CLAUDE=1 to run against the installed claude")
+	if os.Getenv("RUSH_REAL_CLAUDE") == "" {
+		t.Skip("set RUSH_REAL_CLAUDE=1 to run against the installed claude")
 	}
-	home, err := os.MkdirTemp("/tmp", "agtop-convo-")
+	home, err := os.MkdirTemp("/tmp", "rush-convo-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(home)
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	work := filepath.Join(home, "work")
 	_ = os.MkdirAll(work, 0o755)
 	_ = os.WriteFile(filepath.Join(work, "notes.txt"), []byte("alpha\nbeta\ngamma\n"), 0o644)

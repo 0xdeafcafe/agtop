@@ -10,9 +10,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 // fakeQueueHost is a session's host holding a queue, for its queue ops:
@@ -77,7 +77,7 @@ func TestQueuedSendAndRemove(t *testing.T) {
 	}
 	t.Cleanup(func() { os.RemoveAll(home) })
 	home, _ = filepath.EvalSymlinks(home)
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	ws := filepath.Join(home, "ws")
 	_ = os.MkdirAll(ws, 0o700)
 	m := plugin.Manifest{Name: "queue", Sessions: []string{plugin.CapQueued}, Workspaces: []string{ws}}
@@ -100,7 +100,7 @@ func TestQueuedSendAndRemove(t *testing.T) {
 		t.Fatalf("the plugin was told %s", b)
 	}
 	// Naming one by its text would let a plugin test guesses at the queue:
-	// only agtop's own plugins may, and then was names the one meant even
+	// only rush's own plugins may, and then was names the one meant even
 	// if the queue moved.
 	if _, err := call("sessions.queued.remove", `{"id": "q1", "index": 0, "was": "third"}`); !denied(err) {
 		t.Fatalf("an installed plugin named a message by its text: %v", err)

@@ -1,9 +1,9 @@
-"""A minimal agtop plugin in Python, standard library only.
+"""A minimal rush plugin in Python, standard library only.
 
 It offers Claude three tools: note and notes, which keep notes in the plugin's
-data folder (the only place it may write), and agents, which calls agtop back
+data folder (the only place it may write), and agents, which calls rush back
 to list its agents. Rename it, change the tools, and keep the plumbing:
-agtop speaks JSON-RPC 2.0 on fd 3, each message a 4-byte big-endian length
+rush speaks JSON-RPC 2.0 on fd 3, each message a 4-byte big-endian length
 and then that many bytes of JSON.
 """
 
@@ -34,16 +34,16 @@ TOOLS = [
     },
     {
         "name": "agents",
-        "description": "List the agents running in agtop.",
+        "description": "List the agents running in rush.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
 ]
 
-NOTES = os.path.join(os.environ["AGTOP_PLUGIN_DATA"], "notes.txt")
+NOTES = os.path.join(os.environ["RUSH_PLUGIN_DATA"], "notes.txt")
 
 
 def call_tool(session, name, args):
-    """Run one tool. session is the agtop session that called it."""
+    """Run one tool. session is the rush session that called it."""
     if name == "note":
         text = (args or {}).get("text", "").strip()
         if not text:
@@ -58,14 +58,14 @@ def call_tool(session, name, args):
         except FileNotFoundError:
             return "No notes yet."
     if name == "agents":
-        # Calling agtop back: needs "list" in the manifest's "sessions".
+        # Calling rush back: needs "list" in the manifest's "sessions".
         sessions = call("sessions.list")
         return "\n".join(f"{s['id']} {s['state']:<8} {s.get('name', '')}: {s.get('detail', '')}" for s in sessions) or "No agents."
     raise ValueError(f"no tool named {name}")
 
 
 def handle(method, params):
-    """Answer agtop's requests and take its notifications."""
+    """Answer rush's requests and take its notifications."""
     if method == "initialize":
         # params: protocol, name, dataDir, sessions, workspaces, network.
         return {}
@@ -104,7 +104,7 @@ next_id = 0
 
 
 def call(method, params=None):
-    """Call agtop and return its result; raises RpcError if it refuses."""
+    """Call rush and return its result; raises RpcError if it refuses."""
     global next_id
     with plock:
         next_id += 1
@@ -151,7 +151,7 @@ def main():
             (n,) = struct.unpack(">I", read_exact(4))
             msg = json.loads(read_exact(n))
         except (EOFError, OSError):
-            return  # agtop closed the channel: time to go
+            return  # rush closed the channel: time to go
         if "method" not in msg:
             with plock:  # a reply to one of our calls
                 slot = pending.pop(msg.get("id"), None)

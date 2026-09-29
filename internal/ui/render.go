@@ -16,8 +16,8 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 	time.Sleep(500 * time.Millisecond)
 	m.refreshNow()
 	m.drain(m.refreshFolders())
-	// AGTOP_RENDER_SELECT picks an agent by name, for checking one pane.
-	if want := os.Getenv("AGTOP_RENDER_SELECT"); want != "" {
+	// RUSH_RENDER_SELECT picks an agent by name, for checking one pane.
+	if want := os.Getenv("RUSH_RENDER_SELECT"); want != "" {
 		for _, a := range m.order {
 			if strings.Contains(strings.ToLower(a.DisplayName), strings.ToLower(want)) {
 				m.sel = a.Key
@@ -60,7 +60,7 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 }
 
 // Offline keeps the view from asking Anthropic for plan usage; it shows
-// the readings other agtops made. For --soak, run many times in a row.
+// the readings other rushes made. For --soak, run many times in a row.
 func (m *Model) Offline() { m.offline = true }
 
 // Select picks the first agent whose name contains part and shows its

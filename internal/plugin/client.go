@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"errors"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"net"
 	"os"
 	"os/exec"
@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// BrokerSock is where the broker listens for agtop itself: session hosts
+// BrokerSock is where the broker listens for rush itself: session hosts
 // and the CLI. Plugins can't reach it; their sandbox connects nowhere but
 // their proxy.
 func BrokerSock() string { return filepath.Join(Root(), "broker.sock") }
@@ -29,7 +29,7 @@ func BrokerLog() string { return filepath.Join(Root(), "broker.log") }
 func DialBroker() (*Conn, error) { return DialBrokerWith(nil) }
 
 // DialBrokerWith connects to the running broker, answering what it sends
-// with h: how an agtop window hears from its plugins.
+// with h: how a rush window hears from its plugins.
 func DialBrokerWith(h Handler) (*Conn, error) {
 	c, err := net.DialTimeout("unix", BrokerSock(), time.Second)
 	if err != nil {
@@ -136,7 +136,7 @@ func (b *Broker) MCP(plugin, session string, msg jsontext.Value) jsontext.Value 
 		res, err = c.CallRaw(ctx, "mcp", mustJSON(map[string]any{"plugin": plugin, "session": session, "message": msg}))
 	}
 	if err != nil {
-		e := &Error{Code: CodeServer, Message: "agtop plugin " + plugin + ": " + err.Error()}
+		e := &Error{Code: CodeServer, Message: "rush plugin " + plugin + ": " + err.Error()}
 		if pe := (*Error)(nil); errors.As(err, &pe) {
 			e.Code = pe.Code
 		}

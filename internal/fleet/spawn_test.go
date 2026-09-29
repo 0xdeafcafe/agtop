@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/codex"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/proc"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/codex"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
 // A claude -p a session's shell ran is that session's: found through the
@@ -16,7 +16,7 @@ import (
 // process runs itself (a host's Claude Code) isn't.
 func TestSpawnOf(t *testing.T) {
 	tab := &proc.Table{Procs: map[int]*proc.Proc{
-		10: {PID: 10, PPID: 1},  // agtop host
+		10: {PID: 10, PPID: 1},  // rush host
 		11: {PID: 11, PPID: 10}, // its Claude Code
 		12: {PID: 12, PPID: 11}, // zsh -c
 		13: {PID: 13, PPID: 12}, // claude -p
@@ -89,14 +89,14 @@ func keys(as []*Agent) []string {
 	return out
 }
 
-// A run an agent's stand-in hosted is listed with the agtop session that
+// A run an agent's stand-in hosted is listed with the rush session that
 // ran it, running or not; one another agent ran is found by its process.
 func TestHostedSpawns(t *testing.T) {
-	parent := &Agent{Key: "default/a:parent00", Agtop: true}
+	parent := &Agent{Key: "default/a:parent00", Rush: true}
 	parent.ID = "parent00"
-	kid := &Agent{Key: "codex/a:kid00000", Agtop: true}
+	kid := &Agent{Key: "codex/a:kid00000", Rush: true}
 	kid.ID = "kid00000"
-	orphan := &Agent{Key: "codex/a:orphan00", Agtop: true, PID: 40}
+	orphan := &Agent{Key: "codex/a:orphan00", Rush: true, PID: 40}
 	orphan.ID = "orphan00"
 	hosted := []host.Info{
 		{ID: "parent00"},

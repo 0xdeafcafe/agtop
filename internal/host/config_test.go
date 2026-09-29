@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// config.json keeps the profile as older agtops wrote and read it.
+// config.json keeps the profile as older rushes wrote and read it.
 func TestConfigAccountOnDisk(t *testing.T) {
 	old := []byte(`{"id":"abc","sessionId":"s","account":{"name":"work","configDir":"/h/.claude-work"},"cwd":"/w","kind":"codex"}`)
 	var cfg Config

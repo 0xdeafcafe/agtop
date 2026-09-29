@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	. "github.com/0xdeafcafe/agtop/internal/efficiency"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	. "github.com/0xdeafcafe/rush/internal/efficiency"
 )
 
 // These read Claude Code's own transcripts through its adapter:
@@ -141,7 +141,7 @@ func TestScanIncremental(t *testing.T) {
 }
 
 func TestViewAndFindings(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	p := writeTranscript(t, transcript)
 	f := &File{Account: "/acct"}
 	if _, err := Scan(source(t), p, f, nil); err != nil {

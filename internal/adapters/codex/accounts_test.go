@@ -2,7 +2,7 @@ package codex
 
 import (
 	"encoding/base64"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"strings"
 	"testing"

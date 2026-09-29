@@ -7,14 +7,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/charmbracelet/x/ansi"
 )
 
 // Overview is every installed provider at a glance: the account each is
 // on and its limits, what its sessions cost today and this week, how many
-// run, and what needs you: an account nearly out, or one agtop can't
+// run, and what needs you: an account nearly out, or one rush can't
 // read. enter goes to the provider's own page.
 
 // provUse is one provider's line of Overview.
@@ -126,7 +126,7 @@ func (m *Model) overviewBody(w int) []string {
 	out = append(out, "  "+faint(fit("PROVIDER", cols[0])+fit("ON", cols[1])+fit("LIMITS", cols[2]+cols[3])+
 		right("TODAY", cols[4])+right("WEEK", cols[5])+right("RUNNING", cols[6])))
 	if len(use) == 0 {
-		out = append(out, "", dim("  No coding agent is installed where agtop looks: install Claude Code, Codex or another, and it shows here."))
+		out = append(out, "", dim("  No coding agent is installed where rush looks: install Claude Code, Codex or another, and it shows here."))
 	}
 	for i, u := range use {
 		star := " "
@@ -205,7 +205,7 @@ func (m *Model) overviewBody(w int) []string {
 		needs = append(needs, paint(cYellow, "→ ")+dim("new sessions run ")+paint(cText, agentName(sp))+dim(" for now: the first provider's accounts are all nearly out"))
 	}
 	if len(needs) == 0 {
-		needs = append(needs, paint(cGreen, "✓ ")+dim("every account agtop can read has room"))
+		needs = append(needs, paint(cGreen, "✓ ")+dim("every account rush can read has room"))
 	}
 	for _, l := range needs {
 		out = append(out, "  "+l)

@@ -5,8 +5,8 @@ import (
 	"encoding/json/jsontext"
 	"fmt"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-// Plugin, PluginParts and Marketplace are agtop's, as Claude Code's plugin
+// Plugin, PluginParts and Marketplace are rush's, as Claude Code's plugin
 // list gives them.
 type (
 	Plugin      = agent.Plugin

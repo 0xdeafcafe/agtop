@@ -133,9 +133,9 @@ func TestRestoreWalksBackThenFallsBackToAutosave(t *testing.T) {
 	b := NewBook(Store{}, 50)
 	b.Keep("s1", "first", t0)
 	b.Keep("s1", "second", t0.Add(time.Second))
-	b.Changed("s1", "typing when agtop quit", t0.Add(2*time.Second))
+	b.Changed("s1", "typing when rush quit", t0.Add(2*time.Second))
 	b.Settle(t0.Add(time.Minute))
-	for _, want := range []string{"second", "first", "typing when agtop quit"} {
+	for _, want := range []string{"second", "first", "typing when rush quit"} {
 		got, ok := b.Restore("s1")
 		if !ok || got != want {
 			t.Fatalf("Restore = %q, %v; want %q", got, ok, want)

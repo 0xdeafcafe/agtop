@@ -1,5 +1,5 @@
-// Package convo turns an agtop-mode session's event stream into turns and
-// steps, and draws them in agtop's own style: folding turns headed by your
+// Package convo turns a rush-mode session's event stream into turns and
+// steps, and draws them in rush's own style: folding turns headed by your
 // words, one row per tool call with its outcome on the right, and output
 // that opens by itself when something failed.
 //
@@ -16,14 +16,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Status is where a step is.
@@ -60,11 +60,11 @@ type Step struct {
 	Images   []*event.ImageData
 	Approval *Asking // what it waits on you for, while it does
 
-	// call is the step's call as agtop's own, read once as the step is
-	// made: the agent's own when it spoke agtop's events, else Claude
+	// call is the step's call as rush's own, read once as the step is
+	// made: the agent's own when it spoke rush's events, else Claude
 	// Code's words read.
 	call *tool.Call
-	// output is how the call came out, as agtop's own: read once, as it
+	// output is how the call came out, as rush's own: read once, as it
 	// comes back.
 	output *tool.Output
 	parent *Step
@@ -223,7 +223,7 @@ type ToolStat struct {
 	Time   time.Duration
 }
 
-// Session is everything known about one agtop-mode session.
+// Session is everything known about one rush-mode session.
 type Session struct {
 	Turns    []*Turn
 	Info     host.Info
@@ -279,7 +279,7 @@ type Session struct {
 
 	jobs []*Job // Claude Code's tasks, in the order they started
 
-	// nt reads Claude Code's own events as agtop's.
+	// nt reads Claude Code's own events as rush's.
 	nt headless.Neutral
 
 	// TaskStatus is what Claude Code last said about each background task
@@ -924,7 +924,7 @@ func slimResult(k tool.Kind, raw jsontext.Value) jsontext.Value {
 	return b
 }
 
-// Call is the step's call as agtop's own: the one its agent made, or its
+// Call is the step's call as rush's own: the one its agent made, or its
 // input read from Claude Code's words, with the kind its agent gave it.
 func (st *Step) Call() tool.Call {
 	if st.call != nil {
@@ -940,7 +940,7 @@ func (st *Step) read() {
 	st.call = &c
 }
 
-// setCall keeps a copy of the call its agent made, in agtop's own words.
+// setCall keeps a copy of the call its agent made, in rush's own words.
 func (st *Step) setCall(c *tool.Call) {
 	cp := *c
 	st.Kind, st.call = cp.Kind, &cp
@@ -958,7 +958,7 @@ func (st *Step) readOutput(isError bool) {
 	st.output = &o
 }
 
-// out is how the step's call came out, as agtop's own: its streams, its
+// out is how the step's call came out, as rush's own: its streams, its
 // exit, the hunks it changed, the lines it read. Empty until it's back.
 func (st *Step) out() *tool.Output {
 	if st.output == nil {
@@ -968,7 +968,7 @@ func (st *Step) out() *tool.Output {
 	return st.output
 }
 
-// in is what the step's call works on, as agtop's own: the path, command,
+// in is what the step's call works on, as rush's own: the path, command,
 // pattern and the rest, whichever agent's words its input is in.
 func (st *Step) in() *tool.Input {
 	if st.call == nil {

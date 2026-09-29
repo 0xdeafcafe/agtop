@@ -11,17 +11,17 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // --- /status, /usage, /stats ---
 
-// infoSheet is Claude Code's /status, /usage and /stats done agtop's way,
+// infoSheet is Claude Code's /status, /usage and /stats done rush's way,
 // as tabs of one sheet: the agent and what it runs on, the plan's limits
 // and what's been spent, the account's history, and where its settings
 // are. It reads live data every frame, so it follows the agent while it's
@@ -36,7 +36,7 @@ type infoSheet struct {
 	stats    agent.Stats
 	statsErr error
 	settings []settingsLink // the Settings tab's rows, read when it opens
-	// quota is the limits of an agent whose accounts aren't agtop's
+	// quota is the limits of an agent whose accounts aren't rush's
 	// logins, as last read into quotas.json; read when it opens.
 	quota *usage.Quota
 
@@ -281,7 +281,7 @@ func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 	var conn string
 	switch {
 	case c.client != nil:
-		conn = paint(cOrange, "agtop") + dim(fmt.Sprintf(" · host pid %d", s.Info.HostPID))
+		conn = paint(cOrange, "rush") + dim(fmt.Sprintf(" · host pid %d", s.Info.HostPID))
 		if s.Info.ClaudePID != 0 {
 			conn += dim(fmt.Sprintf(" · %s pid %d", program, s.Info.ClaudePID))
 		} else {
@@ -410,7 +410,7 @@ func bigMeter(pct float64, resets, now time.Time, window time.Duration, w int) s
 
 // usageLines is the Usage tab: the plan's limits, what this agent has
 // spent, and every account's. other is the limits of an agent whose
-// accounts aren't agtop's logins, as last read.
+// accounts aren't rush's logins, as last read.
 func usageLines(m *Model, c *hostConn, a *fleet.Agent, other *usage.Quota, w int) []string { //nolint:gocognit // one section after another, each a few rows
 	var out []string
 	now := m.snap.At
@@ -522,7 +522,7 @@ func usageLines(m *Model, c *hostConn, a *fleet.Agent, other *usage.Quota, w int
 	return out
 }
 
-// unknownSheet asks what to do with a / command agtop doesn't know
+// unknownSheet asks what to do with a / command rush doesn't know
 // (askUnknown): open Claude Code on it, or send it to Claude after all.
 type unknownSheet struct {
 	conn, line string
@@ -555,8 +555,8 @@ func (k *unknownSheet) key(m *Model, _ tea.KeyPressMsg, s string) tea.Cmd {
 
 func (k *unknownSheet) body(m *Model, w, h int) []string {
 	name, _, _ := strings.Cut(k.line, " ")
-	out := []string{sheetTitle("/"+name, "isn't a command agtop knows", w), ""}
-	for _, l := range wrap("agtop has no view of its own for it, and this session didn't list it among its commands, so it's most likely one of Claude Code's own screens.", w-4) {
+	out := []string{sheetTitle("/"+name, "isn't a command rush knows", w), ""}
+	for _, l := range wrap("rush has no view of its own for it, and this session didn't list it among its commands, so it's most likely one of Claude Code's own screens.", w-4) {
 		out = append(out, "  "+paint(cSub, l))
 	}
 	out = append(out, "")
@@ -605,7 +605,7 @@ func (k *claudeSheet) body(m *Model, w, h int) []string {
 	out := []string{sheetTitle("claude:"+name, about, w), ""}
 	banner := "  " + paint(cOrange, "↗ ") + paint(cText+bold, "This opens a real Claude Code")
 	out = append(out, onBg(bgChrome, banner, w), "")
-	for _, l := range wrap("/"+name+" is Claude Code's own, for your account or Claude's cloud, and agtop leaves it to Claude Code. agtop hands the terminal to a fresh Claude Code in this agent's folder, on its account, and opens /"+k.line+" there. It isn't this conversation.", w-4) {
+	for _, l := range wrap("/"+name+" is Claude Code's own, for your account or Claude's cloud, and rush leaves it to Claude Code. rush hands the terminal to a fresh Claude Code in this agent's folder, on its account, and opens /"+k.line+" there. It isn't this conversation.", w-4) {
 		out = append(out, "  "+paint(cSub, l))
 	}
 	out = append(out, "")

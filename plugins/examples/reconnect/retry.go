@@ -17,7 +17,7 @@ func Retryable(kind string) bool { return kind == "offline" || kind == "retryabl
 type Config struct {
 	Wait  time.Duration // before the first try, and the backoff's base
 	Tries int           // continues sent before giving up
-	// Alongside is retrying sessions agtop says it's retrying itself.
+	// Alongside is retrying sessions rush says it's retrying itself.
 	Alongside bool
 }
 
@@ -69,7 +69,7 @@ type Retrier struct {
 	wait map[string]*waiting
 }
 
-// NewRetrier starts with the network taken to be up: agtop says when it
+// NewRetrier starts with the network taken to be up: rush says when it
 // goes down.
 func NewRetrier(c Config) *Retrier {
 	return &Retrier{Config: c, up: true, wait: map[string]*waiting{}}

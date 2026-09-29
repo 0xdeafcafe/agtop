@@ -1,5 +1,5 @@
-// Package statusline is agtop's status line for Claude Code: the layout
-// you build in agtop's /statusline, and `agtop statusline`, the command
+// Package statusline is rush's status line for Claude Code: the layout
+// you build in rush's /statusline, and `rush statusline`, the command
 // Claude Code runs to draw it (session JSON on stdin, one line out).
 package statusline
 
@@ -16,11 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Layout is which segments show on which line, in order, and how they're
@@ -30,7 +30,7 @@ type Layout struct {
 	Sep   string     `json:"sep"`
 	Plain bool       `json:"plain,omitzero"` // no colour
 	// Custom is a status line command of your own, drawn by the "custom"
-	// segment: the one agtop's replaced, kept.
+	// segment: the one rush's replaced, kept.
 	Custom string `json:"custom,omitempty"`
 }
 
@@ -204,7 +204,7 @@ var Segments = []Segment{
 		}
 		return fmt.Sprintf("%s+%d%s %s−%d", green, in.Cost.LinesAdded, reset, red, in.Cost.LinesRemoved), ""
 	}},
-	{"usage", "Plan usage", "the 5-hour and weekly limits, as agtop last read them", func(_ Input, x *extra) (string, string) {
+	{"usage", "Plan usage", "the 5-hour and weekly limits, as rush last read them", func(_ Input, x *extra) (string, string) {
 		u := x.usage
 		if u == nil {
 			return "", ""
@@ -440,7 +440,7 @@ func gitBranch(dir string) string {
 }
 
 // planUsage is the limits of the account the folder is signed in to, as
-// agtop last read them.
+// rush last read them.
 func planUsage(configDir string) *usage.Quota {
 	var q usage.Quota
 	k := agent.Kind(state.LoginsKind)
@@ -507,7 +507,7 @@ func Save(l Layout) error {
 	return os.WriteFile(Path(), append(b, '\n'), 0o600)
 }
 
-// Run is `agtop statusline`: read the session from stdin, print the line.
+// Run is `rush statusline`: read the session from stdin, print the line.
 func Run(stdin io.Reader, stdout io.Writer) error {
 	raw, err := io.ReadAll(stdin)
 	if err != nil {
@@ -526,20 +526,20 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	return err
 }
 
-// Command is the statusLine command agtop writes into settings.json.
+// Command is the statusLine command rush writes into settings.json.
 func Command() string {
-	bin, err := exec.LookPath("agtop")
+	bin, err := exec.LookPath("rush")
 	if err != nil {
 		if bin, err = os.Executable(); err != nil {
-			bin = "agtop"
+			bin = "rush"
 		}
 	}
 	return shellQuote(bin) + " statusline"
 }
 
-// Ours says whether a statusLine command is agtop's.
+// Ours says whether a statusLine command is rush's.
 func Ours(cmd string) bool {
-	return strings.HasSuffix(strings.TrimSpace(cmd), "agtop statusline") || strings.HasSuffix(strings.TrimSpace(cmd), "agtop' statusline")
+	return strings.HasSuffix(strings.TrimSpace(cmd), "rush statusline") || strings.HasSuffix(strings.TrimSpace(cmd), "rush' statusline")
 }
 
 func shellQuote(s string) string {

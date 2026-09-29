@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Split by project, each status section keeps its place and its rows sit
@@ -80,8 +80,8 @@ func TestProjectSplit(t *testing.T) {
 
 // Two folders of one name are told apart by the folders they're in.
 func TestFolderTitles(t *testing.T) {
-	got := folderTitles(map[string]bool{"/src/lw/langwatch": true, "/tmp/w/langwatch": true, "/src/agtop": true, scratchSection: true})
-	want := map[string]string{"/src/lw/langwatch": "lw/langwatch", "/tmp/w/langwatch": "w/langwatch", "/src/agtop": "agtop", scratchSection: scratchSection}
+	got := folderTitles(map[string]bool{"/src/lw/langwatch": true, "/tmp/w/langwatch": true, "/src/rush": true, scratchSection: true})
+	want := map[string]string{"/src/lw/langwatch": "lw/langwatch", "/tmp/w/langwatch": "w/langwatch", "/src/rush": "rush", scratchSection: scratchSection}
 	for k, v := range want {
 		if got[k] != v {
 			t.Errorf("%s: %q, want %q", k, got[k], v)

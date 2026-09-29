@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/headless"
-	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // A message draws as its card with no row over it, names the subagent it
@@ -71,13 +71,13 @@ func TestMessageCard(t *testing.T) {
 // A message to another session names it as the list does, its codename
 // after; one to a name no session has reads as it was sent.
 func TestMessageToSession(t *testing.T) {
-	SetPeers(map[string]string{"agtop-8a": "Settings plugins refactor"})
+	SetPeers(map[string]string{"rush-8a": "Settings plugins refactor"})
 	t.Cleanup(func() { SetPeers(nil) })
 	s := New()
 	s.Info.Cwd = "/work"
 	for i, e := range []any{
 		host.Sent{Text: "go"},
-		toolUse("m1", "SendMessage", map[string]any{"to": "agtop-8a", "message": "Rebased, over to you."}),
+		toolUse("m1", "SendMessage", map[string]any{"to": "rush-8a", "message": "Rebased, over to you."}),
 		toolResult("m1", "", false, map[string]any{"success": true}),
 		toolUse("m2", "SendMessage", map[string]any{"to": "main", "message": "Done."}),
 		toolResult("m2", "", false, map[string]any{"success": true}),
@@ -86,7 +86,7 @@ func TestMessageToSession(t *testing.T) {
 		s.Apply(e, at(i))
 	}
 	got := plain(s.Render(Options{Width: 100, Now: at(20)}))
-	for _, w := range []string{"→ to Settings plugins refactor (agtop-8a) ─", "→ to main ─"} {
+	for _, w := range []string{"→ to Settings plugins refactor (rush-8a) ─", "→ to main ─"} {
 		if !strings.Contains(got, w) {
 			t.Errorf("missing %q in\n%s", w, got)
 		}

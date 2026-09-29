@@ -8,13 +8,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/keymap"
+	"github.com/0xdeafcafe/rush/internal/keymap"
 )
 
-// Settings, Keys: every action agtop's keys do and the keys it has, one
+// Settings, Keys: every action rush's keys do and the keys it has, one
 // place at a time (1-9 or ← → pick it). enter takes the keys you press
 // next (a chord is several, ended with enter), a adds another, x takes
-// them all away, r puts agtop's back. What you change goes in
+// them all away, r puts rush's back. What you change goes in
 // keybindings.json.
 
 // keysPage is the page's own state: keys being taken for an action.
@@ -49,7 +49,7 @@ func (m *Model) keyContext() keymap.Context {
 	return cs[min(m.dialog.keyCtx, len(cs)-1)]
 }
 
-// keyRows are the actions of the context Keys shows, agtop's before
+// keyRows are the actions of the context Keys shows, rush's before
 // plugins'.
 func (m *Model) keyRows() []keymap.Action {
 	c := m.keyContext()
@@ -81,7 +81,7 @@ func (m *Model) showKey(id string) {
 func contextWhere(c keymap.Context) string {
 	switch c {
 	case keymap.Global:
-		return "anywhere in agtop, over sheets and the command bar too"
+		return "anywhere in rush, over sheets and the command bar too"
 	case keymap.List:
 		return "in the Agents list and the Prompt under it"
 	case keymap.Session:
@@ -118,14 +118,14 @@ func (m *Model) keysBody(w int) []string {
 
 	var out []string
 	short := m.h < 36 // no room to explain
-	for _, l := range wrap("What each key does, by where it works. Pick one and press enter to give it keys of your own; they replace agtop's for it. Yours are kept in "+tildify(keymap.Path())+".", w-4) {
+	for _, l := range wrap("What each key does, by where it works. Pick one and press enter to give it keys of your own; they replace rush's for it. Yours are kept in "+tildify(keymap.Path())+".", w-4) {
 		if short {
 			break
 		}
 		out = append(out, dim(l))
 	}
 	if p := km.Problems(); len(p) > 0 {
-		out = append(out, "", paint(cYellow, "! ")+paint(cText, "keybindings.json has bindings agtop can't use:"))
+		out = append(out, "", paint(cYellow, "! ")+paint(cText, "keybindings.json has bindings rush can't use:"))
 		for i, pr := range p {
 			if i == 3 {
 				out = append(out, faint("    … and "+strconv.Itoa(len(p)-3)+" more"))
@@ -226,12 +226,12 @@ func (m *Model) keysBody(w int) []string {
 				}
 				def = keyCaps(seqs, "")
 			}
-			out = append(out, label("agtop's")+def+paint(cBlue, "   • yours now: r puts these back"))
+			out = append(out, label("rush's")+def+paint(cBlue, "   • yours now: r puts these back"))
 		}
 		out = append(out, label("Works")+" "+dim(contextWhere(cur.Context)),
 			label("Name")+" "+faint(cur.ID+", as keybindings.json calls it"))
 	}
-	keys := append([]string{"enter", "new keys", "a", "add a key", "x", "no key", "r", "agtop's", "1-" + strconv.Itoa(len(ctxs)) + " ← →", "where"}, pagesKeys...)
+	keys := append([]string{"enter", "new keys", "a", "add a key", "x", "no key", "r", "rush's", "1-" + strconv.Itoa(len(ctxs)) + " ← →", "where"}, pagesKeys...)
 	return append(out, "", keysFit(w, keys...))
 }
 
@@ -343,14 +343,14 @@ func (m *Model) takeKey(s string) tea.Cmd {
 	return nil
 }
 
-// saveBinding sets id's keys (nil for agtop's) and writes
+// saveBinding sets id's keys (nil for rush's) and writes
 // keybindings.json, off the UI.
 func (m *Model) saveBinding(id string, keys []string) tea.Cmd {
 	f := m.keys.file.With(id, keys)
 	m.setKeys(f)
 	switch {
 	case keys == nil:
-		m.flash(id+": agtop's keys again", false)
+		m.flash(id+": rush's keys again", false)
 	case len(keys) == 0:
 		m.flash(id+": no key", false)
 	default:

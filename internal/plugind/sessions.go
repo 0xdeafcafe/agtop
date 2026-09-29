@@ -13,13 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Limits on how much a plugin can start, so a runaway one can't spend your
@@ -91,7 +91,7 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params jsontext.
 	}
 	if strings.HasPrefix(method, "ui.") {
 		if r.b == nil || r.b.ui == nil {
-			return nil, errors.New("agtop's screen isn't reachable")
+			return nil, errors.New("rush's screen isn't reachable")
 		}
 		return r.b.ui.fromPlugin(&p, method, params)
 	}
@@ -171,7 +171,7 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params jsontext.
 		}
 		// Said to be from the plugin, so neither you nor Claude takes it
 		// for yours.
-		text := "[from the agtop plugin " + p.Name + "]\n" + in.Text
+		text := "[from the rush plugin " + p.Name + "]\n" + in.Text
 		return withHost(in.ID, func(c *host.Client) error { return c.Send(text) })
 
 	case "sessions.queued.send", "sessions.queued.remove":
@@ -187,7 +187,7 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params jsontext.
 		if in.Was != "" && !p.Bundled {
 			// Naming a message by its text would let a plugin test guesses
 			// at what's queued, which it's never to see.
-			return nil, plugin.Denied("only agtop's own plugins name a queued message by its text")
+			return nil, plugin.Denied("only rush's own plugins name a queued message by its text")
 		}
 		return queued(in.ID, in.Index, in.Was, method == "sessions.queued.send")
 
@@ -249,7 +249,7 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params jsontext.
 	return nil, &plugin.Error{Code: plugin.CodeNoMethod, Message: "method not found: " + method}
 }
 
-// setSidebar keeps how the plugin arranges agtop's agent list, once it is
+// setSidebar keeps how the plugin arranges rush's agent list, once it is
 // checked and cleaned, where the UI reads it and the plugin can't write.
 func (r *runner) setSidebar(p plugin.Plugin, params jsontext.Value) (any, error) {
 	if !p.Sidebar {
@@ -265,7 +265,7 @@ func (r *runner) setSidebar(p plugin.Plugin, params jsontext.Value) (any, error)
 	return map[string]any{}, nil
 }
 
-// idRE is a session id as agtop makes them. An id becomes a path, so
+// idRE is a session id as rush makes them. An id becomes a path, so
 // nothing else gets near the filesystem.
 var idRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
@@ -528,7 +528,7 @@ func (r *runner) start(p plugin.Plugin, q startReq) (any, error) {
 
 var worktreeUnsafe = regexp.MustCompile(`[^a-z0-9]+`)
 
-// worktreeName is a folder name made from s, as agtop's forks name theirs.
+// worktreeName is a folder name made from s, as rush's forks name theirs.
 func worktreeName(s string) string {
 	s = strings.Trim(worktreeUnsafe.ReplaceAllString(strings.ToLower(s), "-"), "-")
 	if len(s) > 40 {

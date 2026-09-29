@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// The test binary stands in for agtop: host.Spawn runs `<exe> host run <id>`.
+// The test binary stands in for rush: host.Spawn runs `<exe> host run <id>`.
 func TestMain(m *testing.M) {
 	if len(os.Args) == 4 && os.Args[1] == "host" && os.Args[2] == "run" {
 		if err := host.Run(os.Args[3]); err != nil {
@@ -45,11 +45,11 @@ done
 
 func setup(t *testing.T) (bin string) {
 	t.Helper()
-	home, err := os.MkdirTemp("/tmp", "agtop-cli-")
+	home, err := os.MkdirTemp("/tmp", "rush-cli-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	bin = filepath.Join(home, "claude")
 	if err := os.WriteFile(bin, []byte(fakeClaude), 0o755); err != nil {
 		t.Fatal(err)
@@ -62,9 +62,9 @@ func setup(t *testing.T) (bin string) {
 			}
 		}
 		// A stopped session's host stays up for the next message; the test
-		// binary standing in for agtop must not outlive the test. Only this
+		// binary standing in for rush must not outlive the test. Only this
 		// test's home is looked at.
-		if os.Getenv("AGTOP_HOME") != home {
+		if os.Getenv("RUSH_HOME") != home {
 			os.RemoveAll(home)
 			return
 		}

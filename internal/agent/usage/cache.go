@@ -4,15 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/netwatch"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/netwatch"
 	"os"
 	"path/filepath"
 	"syscall"
 	"time"
 )
 
-// Every is how old a reading may get before it's read again. Every agtop
+// Every is how old a reading may get before it's read again. Every rush
 // process and session shares them, so however many are open an account is
 // asked once in that time.
 const Every = 5 * time.Minute
@@ -55,7 +55,7 @@ func Record(path, key string, q Quota) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// Job is what reading other agents' limits is called where agtop shows
+// Job is what reading other agents' limits is called where rush shows
 // what waits on the network.
 const Job = "Other agents' limits"
 

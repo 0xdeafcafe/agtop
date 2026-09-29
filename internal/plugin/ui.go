@@ -10,16 +10,16 @@ import (
 	"unicode/utf8"
 )
 
-// A plugin can take part in agtop's own screen, as far as its manifest's
+// A plugin can take part in rush's own screen, as far as its manifest's
 // "ui" list says: hear what happens there, add to it, and have a say before
-// a message goes. It never runs on agtop's UI goroutine. The UI hands the
+// a message goes. It never runs on rush's UI goroutine. The UI hands the
 // broker events without waiting, draws what plugins added from a copy it
 // already holds, and waits for an intercept only in the background, and
 // only so long, before sending the message as it was.
 
 // UI capabilities.
 const (
-	// UIEvents hears what happens in agtop's screen: a Session opened or
+	// UIEvents hears what happens in rush's screen: a Session opened or
 	// left, a turn started or ended, a session stopped by an error and of
 	// what kind, the API going away and coming back. What the agent list
 	// shows of a session, never what was said.
@@ -36,7 +36,7 @@ const (
 	// UIOverview adds sections to a Session's overview, and a short status
 	// to its row in the list.
 	UIOverview = "overview"
-	// UINotify shows a short message at the bottom of agtop's screen.
+	// UINotify shows a short message at the bottom of rush's screen.
 	UINotify = "notify"
 	// UISend sends a message to a session as if you'd typed it and pressed
 	// enter, or continues one an error stopped. It needs "events", and
@@ -47,7 +47,7 @@ const (
 
 var uiCaps = []string{UIEvents, UIInput, UIIntercept, UIOverview, UINotify, UISend}
 
-// InterceptBudget is how long agtop waits for all intercepts of one
+// InterceptBudget is how long rush waits for all intercepts of one
 // message together, and each plugin's share of it.
 const (
 	InterceptBudget    = 400 * time.Millisecond
@@ -79,7 +79,7 @@ type CommandSpec struct {
 }
 
 // SettingSpec is a setting a plugin offers, shown under Settings, Plugins.
-// agtop keeps its value, in a file the plugin can't write, and hands it the
+// rush keeps its value, in a file the plugin can't write, and hands it the
 // values at initialize and when you change one.
 type SettingSpec struct {
 	Key         string   `json:"key"`
@@ -97,8 +97,8 @@ func (m *Manifest) CanUI(c string) bool { return slices.Contains(m.UI, c) }
 
 // validateUI checks the manifest's ui, commands and settings.
 func (m *Manifest) validateUI() error {
-	if (len(m.UI) > 0 || len(m.Commands) > 0 || len(m.Settings) > 0) && m.Proto() != ProtoAgtop {
-		return errors.New("an MCP plugin cannot take part in agtop's screen: it has no way to hear from it")
+	if (len(m.UI) > 0 || len(m.Commands) > 0 || len(m.Settings) > 0) && m.Proto() != ProtoRush {
+		return errors.New("an MCP plugin cannot take part in rush's screen: it has no way to hear from it")
 	}
 	for _, c := range m.UI {
 		if !slices.Contains(uiCaps, c) {
@@ -193,7 +193,7 @@ func (s SettingSpec) validate() error {
 
 // UISession is what a UI event says about a session: what the list shows.
 type UISession struct {
-	ID        string `json:"id"`                  // agtop's key for it
+	ID        string `json:"id"`                  // rush's key for it
 	SessionID string `json:"sessionId,omitempty"` // Claude Code's (or the agent's) id
 	Name      string `json:"name,omitempty"`
 	Agent     string `json:"agent,omitempty"` // claude, codex, …
@@ -201,12 +201,12 @@ type UISession struct {
 	Repo      string `json:"repo,omitempty"`
 	Branch    string `json:"branch,omitempty"`
 	State     string `json:"state,omitempty"`
-	Hosted    bool   `json:"hosted,omitzero"` // an agtop-mode session
+	Hosted    bool   `json:"hosted,omitzero"` // a rush-mode session
 }
 
 // UI event kinds.
 const (
-	EvSessionSeen    = "session.seen"    // one agtop shows: each recent one when a plugin connects, and each new one
+	EvSessionSeen    = "session.seen"    // one rush shows: each recent one when a plugin connects, and each new one
 	EvSessionOpened  = "session.opened"  // its Session came into view
 	EvSessionLeft    = "session.left"    // its Session went out of view
 	EvTurnStarted    = "turn.started"    //
@@ -220,10 +220,10 @@ const (
 	EvCommand        = "command"         // not sent: commands come as ui.command requests
 )
 
-// UIEvent is one thing that happened in agtop's screen.
+// UIEvent is one thing that happened in rush's screen.
 type UIEvent struct {
 	Kind    string     `json:"kind"`
-	UI      string     `json:"ui"` // which agtop window
+	UI      string     `json:"ui"` // which rush window
 	At      time.Time  `json:"at"`
 	Session *UISession `json:"session,omitempty"`
 	// Error is why a session stopped: limit, auth, offline, retryable,
@@ -267,7 +267,7 @@ func (b *Box) Size() int {
 type UIError struct {
 	Kind    string `json:"kind"`
 	Message string `json:"message,omitempty"`
-	// Retrying is agtop telling the session to continue itself, as it does
+	// Retrying is rush telling the session to continue itself, as it does
 	// after an offline or retryable error; a plugin needn't too.
 	Retrying bool `json:"retrying,omitempty"`
 }
@@ -287,7 +287,7 @@ func (e UIEvent) For(m *Manifest) (UIEvent, bool) {
 	return e, true
 }
 
-// Line is a line a plugin draws, with a tone agtop colours it by.
+// Line is a line a plugin draws, with a tone rush colours it by.
 type Line struct {
 	Text string `json:"text"`
 	Tone string `json:"tone,omitempty"` // "", dim, good, warn, bad, accent
@@ -388,13 +388,13 @@ func clip(s string, n int) string {
 // Contributions a UI draws from, as the broker holds them.
 type UIState struct {
 	Plugins []UIPlugin `json:"plugins"`
-	// Sections are each session's overview sections, by agtop session id,
+	// Sections are each session's overview sections, by rush session id,
 	// each plugin's in the order it gave them.
 	Sections map[string][]UISection `json:"sections,omitempty"`
-	// Statuses are each session's row statuses, by agtop session id.
+	// Statuses are each session's row statuses, by rush session id.
 	Statuses map[string][]UIStatus `json:"statuses,omitempty"`
 	// Notes are what plugins put on the edge of a message box: a
-	// session's, by agtop session id, or the Prompt's, by "".
+	// session's, by rush session id, or the Prompt's, by "".
 	Notes map[string][]UIStatus `json:"notes,omitempty"`
 }
 
@@ -421,7 +421,7 @@ type UIStatus struct {
 	Status
 }
 
-// UIDo is something a plugin asks one agtop window (or, with no UI, every
+// UIDo is something a plugin asks one rush window (or, with no UI, every
 // one) to do now.
 type UIDo struct {
 	Plugin  string `json:"plugin"`

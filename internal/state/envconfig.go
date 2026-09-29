@@ -8,13 +8,13 @@ import (
 	"unicode"
 )
 
-// Any setting agtop keeps in config.json can be set for one run from the
-// environment: AGTOP_ and its JSON key in upper snake case, a nested one
-// after its parent's, so copyOnSelect is AGTOP_COPY_ON_SELECT and
-// hibernate.afterMinutes AGTOP_HIBERNATE_AFTER_MINUTES. Settings that are
+// Any setting rush keeps in config.json can be set for one run from the
+// environment: RUSH_ and its JSON key in upper snake case, a nested one
+// after its parent's, so copyOnSelect is RUSH_COPY_ON_SELECT and
+// hibernate.afterMinutes RUSH_HIBERNATE_AFTER_MINUTES. Settings that are
 // lists or maps can't be. A value from the environment isn't saved: what
 // config.json held is written back in its place, unless you change the
-// setting in agtop meanwhile.
+// setting in rush meanwhile.
 
 // envSet is one setting the environment set.
 type envSet struct {
@@ -28,7 +28,7 @@ type envSet struct {
 // ("copyOnSelect", "hibernate.afterMinutes").
 func EnvName(key string) string {
 	var b strings.Builder
-	b.WriteString("AGTOP_")
+	b.WriteString("RUSH_")
 	for i, r := range key {
 		switch {
 		case r == '.':

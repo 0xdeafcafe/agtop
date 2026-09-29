@@ -15,14 +15,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 func testBroker(t *testing.T) *broker {
 	t.Helper()
 	home, _ := filepath.EvalSymlinks(t.TempDir())
-	t.Setenv("AGTOP_HOME", home)
+	t.Setenv("RUSH_HOME", home)
 	b := &broker{log: log.New(io.Discard, "", 0), plugins: map[string]*runner{}, quit: make(chan struct{})}
 	b.ui = newUIHub(b)
 	return b
@@ -75,7 +75,7 @@ func (f *fakePlugin) call(method string, params, out any) error {
 	return f.conn.Call(ctx, method, params, out)
 }
 
-// fakeUI is an agtop window attached to the broker.
+// fakeUI is a rush window attached to the broker.
 type fakeUI struct {
 	conn   *plugin.Conn
 	states chan plugin.UIState

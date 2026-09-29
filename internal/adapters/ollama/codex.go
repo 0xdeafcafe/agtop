@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"time"
 
-	codexad "github.com/0xdeafcafe/agtop/internal/adapters/codex"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	codexad "github.com/0xdeafcafe/rush/internal/adapters/codex"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // CodexKind is Ollama in Codex's.
@@ -19,7 +19,7 @@ const CodexKind agent.Kind = "ollama-codex"
 func init() { agent.Register(CodexAdapter{}) }
 
 // CodexAdapter is Codex on Ollama: `codex app-server`, as the codex
-// adapter drives it, with a model provider of agtop's own pointed at
+// adapter drives it, with a model provider of rush's own pointed at
 // Ollama's OpenAI-compatible Responses API, in a CODEX_HOME of its own so
 // its threads never mix with the user's ~/.codex, nor reach their OpenAI
 // account.
@@ -37,7 +37,7 @@ func (CodexAdapter) Rides() agent.Kind { return codexad.Kind }
 // Provider is Ollama, whichever harness it runs in.
 func (CodexAdapter) Provider() string { return string(Kind) }
 
-// codexFeatures are Codex's, less what a local model or agtop's own
+// codexFeatures are Codex's, less what a local model or rush's own
 // folder hasn't: no account, no limits, and nothing to sign in to.
 var codexFeatures = map[agent.Feature]agent.Support{
 	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
@@ -56,7 +56,7 @@ var codexFeatures = map[agent.Feature]agent.Support{
 func (CodexAdapter) Features() map[agent.Feature]agent.Support { return codexFeatures }
 func (CodexAdapter) Level() agent.Level                        { return agent.LevelTested }
 
-// Profiles is agtop's own CODEX_HOME for Ollama, when ollama and codex
+// Profiles is rush's own CODEX_HOME for Ollama, when ollama and codex
 // are both here.
 func (CodexAdapter) Profiles() []agent.Profile {
 	if !agent.Installed(CodexKind) {
@@ -71,10 +71,10 @@ func codexHome() string { return filepath.Join(state.Dir(), "ollama-codex") }
 // Cost is nothing: the model runs here.
 func (CodexAdapter) Cost(string, usage.TokenUsage) (float64, bool) { return 0, true }
 
-// codexProvider is the id of the model provider agtop gives Codex. It's
-// agtop's own rather than Codex's built-in "ollama", so its base URL can
+// codexProvider is the id of the model provider rush gives Codex. It's
+// rush's own rather than Codex's built-in "ollama", so its base URL can
 // follow OLLAMA_HOST.
-const codexProvider = "agtop-ollama"
+const codexProvider = "rush-ollama"
 
 // codexFlags are app-server's config overrides that run it on model m,
 // served at base, ahead of flags so the caller's own win.
@@ -108,12 +108,12 @@ func (CodexAdapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn
 	return codexad.Adapter{}.Start(ctx, o)
 }
 
-// Live are the threads Codex wrote to lately in agtop's folder.
+// Live are the threads Codex wrote to lately in rush's folder.
 func (CodexAdapter) Live(p agent.Profile) []agent.Session {
 	return ours(codexad.Adapter{}.Live(p))
 }
 
-// Past is every thread in agtop's folder.
+// Past is every thread in rush's folder.
 func (CodexAdapter) Past(p agent.Profile) []agent.Session {
 	return ours(codexad.Adapter{}.Past(p))
 }

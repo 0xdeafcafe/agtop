@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // BenchmarkPastReal lists this machine's Codex threads, as the list does
@@ -29,7 +29,7 @@ func BenchmarkPastReal(b *testing.B) {
 	}
 }
 
-// BenchmarkReadHeadReal reads every rollout's head afresh, as agtop does
+// BenchmarkReadHeadReal reads every rollout's head afresh, as rush does
 // for each as it starts.
 func BenchmarkReadHeadReal(b *testing.B) {
 	u, err := user.Current()

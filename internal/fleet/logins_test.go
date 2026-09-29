@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func loginAt(id string, current bool, fiveHour, sevenDay float64) LoginView {
@@ -97,7 +97,7 @@ func TestFreshestSkipsOtherAccountsReading(t *testing.T) {
 }
 
 func TestLoginsUseOwnReadingAfterSwitch(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	l := NewLoader(&state.Store{})
 	now := time.Now()
 	cfg := state.Config{Logins: []claude.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}
@@ -148,7 +148,7 @@ func TestPutBackNeedsTwoLooks(t *testing.T) {
 // The login in use in its home is the current one, whatever ~/.claude is
 // signed in as, and ~/.claude's reading stays with ~/.claude's login.
 func TestLoginInUseInItsHome(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	l := NewLoader(&state.Store{})
 	now := time.Now()
 	cfg := state.Config{Logins: []claude.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}

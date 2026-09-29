@@ -9,23 +9,23 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // keyPrefix marks a Claude login's account key: the rest is where its
 // reading is kept in usage.json.
 const keyPrefix = "claude:"
 
-// accountOf is a saved login as agtop's own account.
+// accountOf is a saved login as rush's own account.
 func accountOf(l claude.Login) agent.Account {
 	return agent.Account{Kind: Kind, ID: l.ID, Key: keyPrefix + l.UsageKey(), Name: l.Name, Email: l.Email, Org: l.Org}
 }
 
-// Accounts are the logins agtop keeps, which ~/.claude can be signed in as.
+// Accounts are the logins rush keeps, which ~/.claude can be signed in as.
 func (a Adapter) Accounts() []agent.Account {
 	var out []agent.Account
 	for _, l := range a.config().Logins {
@@ -58,11 +58,11 @@ func (a Adapter) Current(p agent.Profile) (agent.Account, error) {
 	return agent.Account{Kind: Kind, Key: keyPrefix + claude.Login{ID: id}.UsageKey()}, nil
 }
 
-// Switch signs p in as acct, from the sign-in agtop keeps for it.
+// Switch signs p in as acct, from the sign-in rush keeps for it.
 func (a Adapter) Switch(p agent.Profile, acct agent.Account) error {
 	l, ok := a.login(acct)
 	if !ok {
-		return errors.New("agtop has no sign-in for " + acct.Name)
+		return errors.New("rush has no sign-in for " + acct.Name)
 	}
 	return state.UseLogin(Account(p), l)
 }
@@ -107,12 +107,12 @@ func firstOf(vs ...string) string {
 	return ""
 }
 
-// Forget drops agtop's copy of a's sign-in.
+// Forget drops rush's copy of a's sign-in.
 func (Adapter) Forget(a agent.Account) error {
 	return state.ForgetLogin(a.ID)
 }
 
-// Quota asks Anthropic for acct's limits with the sign-in agtop keeps
+// Quota asks Anthropic for acct's limits with the sign-in rush keeps
 // for it, whichever folder is signed in as it. It doesn't share or cache the reading: see claude.RefreshUsageFor.
 func (a Adapter) Quota(ctx context.Context, _ agent.Profile, acct agent.Account) (usage.Quota, error) {
 	id := strings.TrimPrefix(strings.TrimPrefix(acct.Key, keyPrefix), "login:")

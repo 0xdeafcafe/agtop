@@ -5,17 +5,17 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/update"
+	"github.com/0xdeafcafe/rush/internal/update"
 )
 
-// updateMsg is a newer agtop being out; updatedMsg is #update finishing.
+// updateMsg is a newer rush being out; updatedMsg is #update finishing.
 type updateMsg struct{ newer update.Info }
 type updatedMsg struct {
 	to  update.Info
 	err error
 }
 
-// checkUpdate asks, in the background, whether a newer agtop is out.
+// checkUpdate asks, in the background, whether a newer rush is out.
 // Offline (--soak) never asks.
 func (m *Model) checkUpdate() tea.Cmd {
 	if m.offline {
@@ -29,14 +29,14 @@ func (m *Model) checkUpdate() tea.Cmd {
 	}
 }
 
-// installUpdate is #update: the newest agtop over this one, with go install.
+// installUpdate is #update: the newest rush over this one, with go install.
 func (m *Model) installUpdate() tea.Cmd {
 	if m.updating {
 		m.flash("already updating…", false)
 		return nil
 	}
 	m.updating = true
-	m.flash("updating agtop…", false)
+	m.flash("updating rush…", false)
 	return func() tea.Msg {
 		to, err := update.Install(context.Background())
 		return updatedMsg{to: to, err: err}

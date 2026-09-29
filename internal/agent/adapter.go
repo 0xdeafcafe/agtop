@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/agent/event"
-	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 )
 
 // Kind names an agent: "claude", "codex", "copilot", "kimi".
@@ -36,28 +36,28 @@ type Account struct {
 	Plan  string
 }
 
-// Adapter is one agent as agtop knows it. The optional parts below are
+// Adapter is one agent as rush knows it. The optional parts below are
 // found with a type assertion; an adapter has only those it can do.
 type Adapter interface {
 	Kind() Kind
 	Name() string // "Claude Code"
-	// Features is what agtop can do with it, feature by feature. A
+	// Features is what rush can do with it, feature by feature. A
 	// feature it leaves out is No.
 	Features() map[Feature]Support
-	// Level is how far agtop's support for it has been tried.
+	// Level is how far rush's support for it has been tried.
 	Level() Level
 	// Profiles are its config homes on this machine.
 	Profiles() []Profile
 }
 
-// Discoverer finds an agent's sessions outside agtop: those running in a
+// Discoverer finds an agent's sessions outside rush: those running in a
 // terminal or its own daemon, and past ones with a transcript.
 type Discoverer interface {
 	Live(p Profile) []Session
 	Past(p Profile) []Session
 }
 
-// Driver runs a session headless, for agtop to draw.
+// Driver runs a session headless, for rush to draw.
 type Driver interface {
 	Start(ctx context.Context, o StartOptions) (Conn, error)
 }
@@ -88,14 +88,14 @@ type StartOptions struct {
 	// Lean starts it without its non-essential network traffic, where it
 	// can.
 	Lean bool
-	// Tools are MCP servers agtop serves in process for the session.
+	// Tools are MCP servers rush serves in process for the session.
 	Tools []ToolServer
 	// Agents are subagents to offer it, by name, each defined in its
 	// agent's own words; Prompt is added to its system prompt.
 	Agents map[string]jsontext.Value
 	Prompt string
 	// Tap, when set, gets every line the agent writes, as it writes it, in
-	// its own words: what agtops that don't read events are sent.
+	// its own words: what rushes that don't read events are sent.
 	Tap func(line []byte)
 	// Lightly lets Events leave out what's only streamed text and tool
 	// results: the caller has them from Tap.
@@ -138,7 +138,7 @@ type QuotaSource interface {
 }
 
 // Accounts signs an agent's home in to one of several accounts. Which
-// accounts there are, and what they're called, is agtop's to keep; the
+// accounts there are, and what they're called, is rush's to keep; the
 // adapter keeps their credentials.
 type Accounts interface {
 	// Current is who p is signed in as.
@@ -148,12 +148,12 @@ type Accounts interface {
 	// SignIn signs in to an account in the terminal, apart from p: cmd
 	// runs, then done keeps the credential and says whose it is.
 	SignIn(p Profile) (cmd *exec.Cmd, done func() (Account, error), err error)
-	// Forget drops the credential agtop keeps for a.
+	// Forget drops the credential rush keeps for a.
 	Forget(a Account) error
 }
 
 // Known is an Accounts whose agent keeps a list of its own sign-ins
-// (Copilot's are gh's): agtop lists them as they are.
+// (Copilot's are gh's): rush lists them as they are.
 type Known interface {
 	Known() []Account
 }

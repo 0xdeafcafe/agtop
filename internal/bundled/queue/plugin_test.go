@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 )
 
 func TestParse(t *testing.T) {
@@ -62,7 +62,7 @@ func TestCLIRun(t *testing.T) {
 	if out := cli("send", "gone", "0"); out.Exit != 1 || !strings.Contains(out.Stderr, "no session gone") {
 		t.Fatalf("a failed send: %+v", out)
 	}
-	if out := cli("send", "a1"); out.Exit != 2 || !strings.Contains(out.Stderr, "usage: agtop queue send") {
+	if out := cli("send", "a1"); out.Exit != 2 || !strings.Contains(out.Stderr, "usage: rush queue send") {
 		t.Fatalf("bad args: %+v", out)
 	}
 }

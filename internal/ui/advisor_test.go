@@ -9,12 +9,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/advisor"
-	"github.com/0xdeafcafe/agtop/internal/efficiency"
+	"github.com/0xdeafcafe/rush/internal/advisor"
+	"github.com/0xdeafcafe/rush/internal/efficiency"
 )
 
 func TestAdvisorOptIn(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no claude: nothing may run by accident
 	m, _ := benchModel(150, 40)
 	m.onboard = true
@@ -36,7 +36,7 @@ func TestAdvisorOptIn(t *testing.T) {
 }
 
 func TestAdvisorFindings(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, _ := benchModel(150, 40)
 	m.store.Config.Advisor = true
 	m.eff.base = []efficiency.Finding{{Title: "Shell output is 40%"}}
@@ -56,7 +56,7 @@ func TestAdvisorFindings(t *testing.T) {
 	}
 	f := m.eff.findings
 	if len(f) != 3 || f[0].Advice != "b" || f[1].Advice != "" || f[2].Advice != "a" {
-		t.Fatalf("want confirmed, then agtop's own, then guesses: %+v", f)
+		t.Fatalf("want confirmed, then rush's own, then guesses: %+v", f)
 	}
 	m.setEffPage(effFindings)
 	m.eff.view = &efficiency.View{}
@@ -67,7 +67,7 @@ func TestAdvisorFindings(t *testing.T) {
 		}
 	}
 	// A pass landing while one is chosen keeps that one chosen.
-	m.eff.finding = 1 // agtop's own
+	m.eff.finding = 1 // rush's own
 	m.advRefresh()
 	if m.eff.findings[m.eff.finding].Advice != "" {
 		t.Fatal("the choice moved when the findings were put in again")
@@ -87,7 +87,7 @@ func TestAdvisorFindings(t *testing.T) {
 }
 
 func TestAdvisorOffline(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	m, _ := benchModel(150, 40)
 	m.store.Config.Advisor, m.offline = true, true
 	m.eff.adv.checked = time.Now().Add(-time.Hour)

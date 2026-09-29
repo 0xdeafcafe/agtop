@@ -11,11 +11,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/state"
+	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
@@ -133,7 +133,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.quitKey()
 	}
 	// On a Claude Code agent's screen, typing goes into it: ← moves its
-	// cursor rather than leaving. tab, { } [ ] and ctrl+] stay agtop's.
+	// cursor rather than leaving. tab, { } [ ] and ctrl+] stay rush's.
 	if !m.zen && m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && m.viewName(m.host) == "screen" && m.canEmbed() {
 		switch s {
 		case "tab", "{", "}", "shift+tab", "[", "]", "ctrl+]":
@@ -253,7 +253,7 @@ func (m *Model) switchFocus() tea.Cmd {
 	if a == nil || strings.HasPrefix(m.sel, "§") {
 		return nil
 	}
-	if a.Agtop {
+	if a.Rush {
 		return m.focusPane(a)
 	}
 	if m.canEmbed() {
@@ -673,20 +673,20 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 }
 
 // replyTo sends text to an agent however it takes messages: its host, a
-// resume into agtop mode, its queue while it's busy, or Claude Code.
-// tagged is the text with its pastes marked, for agtop sessions.
+// resume into rush mode, its queue while it's busy, or Claude Code.
+// tagged is the text with its pastes marked, for rush sessions.
 func (m *Model) replyTo(a *fleet.Agent, text, tagged string) tea.Cmd {
 	m.markSeen(a)
 	m.flash("sending to "+a.DisplayName+"…", false)
 	m.loader.Nudge(a.Key)
 	m.refresh()
-	if a.Agtop {
+	if a.Rush {
 		return sendHosted(a, tagged)
 	}
 	text = withImages(text, m.images)
 	m.images = nil
 	if a.Past {
-		return m.moveToAgtopWith(a, text)
+		return m.moveToRushWith(a, text)
 	}
 	if q := m.localQ[a.Key]; busy(a) || q != nil && len(q.items) > 0 {
 		m.queueLocal(a.Key, text)
@@ -715,7 +715,7 @@ func (m *Model) keepGoing(a *fleet.Agent) tea.Cmd {
 
 func (m *Model) submit() tea.Cmd {
 	text := strings.TrimSpace(m.pastes.expand(string(m.input), false))
-	tagged := strings.TrimSpace(m.pastes.expand(string(m.input), true)) // for agtop sessions
+	tagged := strings.TrimSpace(m.pastes.expand(string(m.input), true)) // for rush sessions
 	kind := m.inKind
 	a := m.selected()
 	if kind == inRename || kind == inGroup {
@@ -805,7 +805,7 @@ func (m *Model) submit() tea.Cmd {
 	}
 }
 
-// command runs one of agtop's # commands on agent a: the selected one from
+// command runs one of rush's # commands on agent a: the selected one from
 // the Prompt, the Session's own from its box.
 func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	f := strings.Fields(text)
@@ -972,13 +972,13 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		if _, err := fmt.Sscanf(strings.TrimSuffix(arg, "%"), "%g", &pct); err != nil || pct <= 0 {
 			m.store.Config.SideWidth = 0
 			_ = m.store.SaveConfig()
-			m.flash("list width back to agtop's choice · /width 30% sets your own", false)
+			m.flash("list width back to rush's choice · /width 30% sets your own", false)
 			return nil
 		}
 		m.setSideWidth(int(pct / 100 * float64(m.w)))
-	case "agtop":
+	case "rush":
 		if need() {
-			return m.moveToAgtop(a)
+			return m.moveToRush(a)
 		}
 	case "with":
 		m.withAgent(arg)
@@ -1012,7 +1012,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "full":
 		if need() {
-			if a.Agtop || a.Interactive || a.Past {
+			if a.Rush || a.Interactive || a.Past {
 				m.flash("only a Claude Code agent in the background opens full screen", true)
 				return nil
 			}
@@ -1029,9 +1029,9 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	case "network":
 		m.sheet = &netSheet{}
 	case "efficiency":
-		// It reads the transcripts of the accounts agtop switches between.
+		// It reads the transcripts of the accounts rush switches between.
 		if !agent.Supports(loginsKind, agent.FeatureEfficiency) {
-			m.flash(agentName(string(loginsKind))+"'s efficiency isn't something agtop reads yet", true)
+			m.flash(agentName(string(loginsKind))+"'s efficiency isn't something rush reads yet", true)
 			return nil
 		}
 		m.setView(placeEff)
@@ -1048,7 +1048,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		m.store.Config.DockLines = min(max(n, 1), 15)
 		_ = m.store.SaveConfig()
 	default:
-		m.flash("unknown command #"+name+" · # lists agtop's", true)
+		m.flash("unknown command #"+name+" · # lists rush's", true)
 	}
 	return nil
 }
@@ -1081,7 +1081,7 @@ func (m *Model) relaunch(a *fleet.Agent, dir string, addDirs []string, to agent.
 	}
 	mover, ok := agent.As[agent.Mover](agent.Kind(a.Kind))
 	if !ok {
-		m.flash(agentName(a.Kind)+" can't move a session outside agtop mode · /agtop moves it over first", true)
+		m.flash(agentName(a.Kind)+" can't move a session outside rush mode · /rush moves it over first", true)
 		return nil
 	}
 	mv := agent.Move{From: a.Acct, To: to, Job: a.Job, Extra: a.Extra, Dir: dir, AddDirs: addDirs, Note: note}

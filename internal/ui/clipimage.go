@@ -13,7 +13,7 @@ import (
 )
 
 // setClipboard puts text on the clipboard through the terminal (OSC 52),
-// and on a Mac agtop runs on, through pbcopy as well: Terminal.app ignores
+// and on a Mac rush runs on, through pbcopy as well: Terminal.app ignores
 // OSC 52, so a copy there would otherwise go nowhere.
 func setClipboard(text string) tea.Cmd {
 	osc := tea.SetClipboard(text)
@@ -37,7 +37,7 @@ type clipImageMsg struct {
 
 // pasteClipImage reads an image off the clipboard, as ctrl+v does in Claude
 // Code: a terminal pastes only text, so a screenshot copied to the clipboard
-// never reaches agtop as a paste.
+// never reaches rush as a paste.
 func pasteClipImage() tea.Cmd {
 	return func() tea.Msg {
 		path, err := clipImage()
@@ -49,7 +49,7 @@ func pasteClipImage() tea.Cmd {
 // the Finder as itself, image data saved as a PNG under the temp dir. It is
 // "" with no error when the clipboard holds no image.
 func clipImage() (string, error) {
-	dir := filepath.Join(os.TempDir(), "agtop-images")
+	dir := filepath.Join(os.TempDir(), "rush-images")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}

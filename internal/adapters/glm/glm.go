@@ -1,6 +1,6 @@
 // Package glm is Z.ai's GLM models through ZCode, Z.ai's own coding agent,
-// as an agtop adapter. ZCode doesn't speak ACP itself: its machine
-// interface is its own protocol (zcode app-server --stdio). agtop runs it
+// as a rush adapter. ZCode doesn't speak ACP itself: its machine
+// interface is its own protocol (zcode app-server --stdio). rush runs it
 // through zcode-acp-server (npm zcode-acp), which drives that same ZCode
 // runtime and speaks ACP, and reads the GLM Coding Plan's limits as ZCode
 // does. It stays out of sight until both are installed.
@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/0xdeafcafe/agtop/internal/adapters/acp"
-	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/adapters/acp"
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // Kind is GLM's.
@@ -30,7 +30,7 @@ var cli = acp.Agent{ID: Kind, Title: "GLM", Command: "zcode-acp-server",
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "GLM" }
 
-// Program is the ACP bridge, what agtop runs.
+// Program is the ACP bridge, what rush runs.
 func (Adapter) Program() (string, []string) { return "zcode-acp-server", nil }
 
 // Features are the bridge's over ACP (ZCode's modes: plan, build, edit,

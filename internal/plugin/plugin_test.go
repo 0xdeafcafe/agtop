@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-// install writes a plugin into AGTOP_HOME, which the test has set, and
+// install writes a plugin into RUSH_HOME, which the test has set, and
 // returns its folder.
 func install(t *testing.T, m Manifest, files map[string]string) string {
 	t.Helper()
@@ -93,7 +93,7 @@ func TestValidate(t *testing.T) {
 }
 
 func TestLoadRejectsUnknownFields(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	dir := install(t, Manifest{Name: "p", Command: []string{"bin"}}, nil)
 	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(`{"name":"p","command":["bin"],"sandbox":false}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 }
 
 func TestApprovalPinsTheFiles(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	dir := install(t, Manifest{Name: "p", Command: []string{"bin"}}, map[string]string{"bin": "#!v1"})
 	if _, err := Verify("p"); err == nil {
 		t.Fatal("an unapproved plugin verified")
@@ -147,7 +147,7 @@ func TestApprovalPinsTheFiles(t *testing.T) {
 }
 
 func TestForSession(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	for _, m := range []Manifest{
 		{Name: "a", Command: []string{"a"}, Tools: true, Prompt: "Be kind.",
 			Agents: map[string]jsontext.Value{"rev": jsontext.Value(`{"description":"d","prompt":"p"}`)}},
@@ -163,19 +163,19 @@ func TestForSession(t *testing.T) {
 		}
 	}
 	c := ForSession()
-	if !slices.Equal(c.Servers, []string{"agtop-a", "agtop-b"}) {
+	if !slices.Equal(c.Servers, []string{"rush-a", "rush-b"}) {
 		t.Fatalf("servers = %v", c.Servers)
 	}
 	if len(c.Agents) != 1 || c.Agents["a:rev"] == nil {
 		t.Fatalf("agents missing or unnamespaced: %v", c.Agents)
 	}
-	if c.Prompt != "# From the agtop plugin a\n\nBe kind." {
+	if c.Prompt != "# From the rush plugin a\n\nBe kind." {
 		t.Fatalf("prompt = %q", c.Prompt)
 	}
 }
 
 func TestEnvIsCleanAndFixed(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
+	t.Setenv("RUSH_HOME", t.TempDir())
 	t.Setenv("ANTHROPIC_API_KEY", "secret")
 	t.Setenv("CLAUDE_CONFIG_DIR", "/Users/me/.claude")
 	l := Launch{Plugin: Plugin{Manifest: Manifest{Name: "p", Command: []string{"x"},
@@ -190,7 +190,7 @@ func TestEnvIsCleanAndFixed(t *testing.T) {
 		return ""
 	}
 	if get("ANTHROPIC_API_KEY") != "" || get("CLAUDE_CONFIG_DIR") != "" {
-		t.Fatal("a secret from agtop's environment reached the plugin")
+		t.Fatal("a secret from rush's environment reached the plugin")
 	}
 	if get("HOME") != DataDir("p") {
 		t.Fatalf("HOME = %q: the manifest moved it", get("HOME"))
@@ -198,7 +198,7 @@ func TestEnvIsCleanAndFixed(t *testing.T) {
 	if get("STORE") != DataDir("p")+"/db" {
 		t.Fatalf("STORE = %q", get("STORE"))
 	}
-	if get("HTTPS_PROXY") != "http://127.0.0.1:4242" || get("AGTOP_IPC_FD") != "3" {
+	if get("HTTPS_PROXY") != "http://127.0.0.1:4242" || get("RUSH_IPC_FD") != "3" {
 		t.Fatalf("proxy/ipc env missing: %v", env)
 	}
 }

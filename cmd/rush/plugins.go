@@ -10,23 +10,23 @@ import (
 
 	"github.com/charmbracelet/x/term"
 
-	"github.com/0xdeafcafe/agtop/internal/hooks"
-	"github.com/0xdeafcafe/agtop/internal/plugin"
-	"github.com/0xdeafcafe/agtop/internal/plugind"
+	"github.com/0xdeafcafe/rush/internal/hooks"
+	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/plugind"
 )
 
-const pluginUsage = `agtop plugin — plugins, bundled and sandboxed
+const pluginUsage = `rush plugin — plugins, bundled and sandboxed
 
-  agtop plugin list            what's bundled, installed, approved and running
-  agtop plugin check <name>    check a plugin and show what approving it allows
-  agtop plugin approve <name>  read what a plugin may do, and let it run
-  agtop plugin revoke <name>   stop it running
-  agtop plugin off <name>      turn a bundled plugin off
-  agtop plugin on <name>       and on again
-  agtop plugin logs <name>     where its output goes
+  rush plugin list            what's bundled, installed, approved and running
+  rush plugin check <name>    check a plugin and show what approving it allows
+  rush plugin approve <name>  read what a plugin may do, and let it run
+  rush plugin revoke <name>   stop it running
+  rush plugin off <name>      turn a bundled plugin off
+  rush plugin on <name>       and on again
+  rush plugin logs <name>     where its output goes
 
 Plugins you install live in %s/<name>, each with a plugin.json.
-Bundled plugins come with agtop and are on until you turn them off.
+Bundled plugins come with rush and are on until you turn them off.
 `
 
 func pluginCmd(args []string) error {
@@ -40,12 +40,12 @@ func pluginCmd(args []string) error {
 	case "run":
 		// How the broker starts a bundled plugin; not meant to be run by hand.
 		if len(args) != 2 {
-			return fmt.Errorf("usage: agtop plugin run <name>")
+			return fmt.Errorf("usage: rush plugin run <name>")
 		}
 		return plugin.RunBundled(args[1])
 	case "on", "off":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: agtop plugin %s <name>", args[0])
+			return fmt.Errorf("usage: rush plugin %s <name>", args[0])
 		}
 		if err := plugin.SetBundled(args[1], args[0] == "on"); err != nil {
 			return err
@@ -54,7 +54,7 @@ func pluginCmd(args []string) error {
 		return hooks.Reload()
 	case "check":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: agtop plugin check <name>")
+			return fmt.Errorf("usage: rush plugin check <name>")
 		}
 		p, err := plugin.Load(filepath.Join(plugin.Root(), args[1]))
 		if err != nil {
@@ -73,21 +73,21 @@ func pluginCmd(args []string) error {
 		a, ok := plugin.Approvals()[p.Name]
 		switch d, _ := plugin.Digest(p.Dir); {
 		case !ok:
-			fmt.Printf("\nValid, not approved. To run it: agtop plugin approve %s\n", p.Name)
+			fmt.Printf("\nValid, not approved. To run it: rush plugin approve %s\n", p.Name)
 		case d != a.Digest:
-			fmt.Printf("\nValid, changed since approval. To run it: agtop plugin approve %s\n", p.Name)
+			fmt.Printf("\nValid, changed since approval. To run it: rush plugin approve %s\n", p.Name)
 		default:
 			fmt.Println("\nValid and approved.")
 		}
 		return nil
 	case "approve":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: agtop plugin approve <name>")
+			return fmt.Errorf("usage: rush plugin approve <name>")
 		}
 		return pluginApprove(args[1])
 	case "revoke":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: agtop plugin revoke <name>")
+			return fmt.Errorf("usage: rush plugin revoke <name>")
 		}
 		if err := plugin.Revoke(args[1]); err != nil {
 			return err
@@ -96,7 +96,7 @@ func pluginCmd(args []string) error {
 		return plugind.Reload()
 	case "logs":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: agtop plugin logs <name>")
+			return fmt.Errorf("usage: rush plugin logs <name>")
 		}
 		fmt.Println(plugin.LogPath(args[1]))
 		fmt.Println(plugin.BrokerLog())
@@ -116,7 +116,7 @@ func pluginList() error {
 		}
 	}
 	for _, b := range plugin.Bundles() {
-		status := "bundled, off: agtop plugin on " + b.Manifest.Name
+		status := "bundled, off: rush plugin on " + b.Manifest.Name
 		switch {
 		case b.Manifest.Unmet() != "":
 			status = "bundled, " + b.Manifest.Unmet()
@@ -146,7 +146,7 @@ func pluginList() error {
 		if reason := p.Manifest.Unmet(); reason != "" {
 			status = reason
 		} else if bundledName {
-			status = "not run: a plugin bundled with agtop has this name"
+			status = "not run: a plugin bundled with rush has this name"
 		} else if a, ok := approvals[p.Name]; ok {
 			status = "approved"
 			if d, err := plugin.Digest(p.Dir); err != nil || d != a.Digest {
