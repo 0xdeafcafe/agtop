@@ -31,10 +31,15 @@ type Totals struct {
 	// Dirs are the folders the session worked in (the line's cwd), which
 	// says which worktrees are its; capped so a wandering one stays small.
 	Dirs []string `json:"w,omitempty"`
-	// Dir is where the session works now: its newest cwd, or where it last
-	// cd'd or wrote a file, since Claude Code's cwd never follows it into a
-	// checkout outside the one it started in.
+	// Dir is where the session works now: where it last wrote a file, or,
+	// before it has, its newest cwd or where it last cd'd, since Claude
+	// Code's cwd never follows it into a checkout outside the one it started
+	// in. Once it writes, only another write or entering a worktree moves
+	// it: a session editing a worktree that runs git from the main checkout
+	// would otherwise flip between the two with every command.
 	Dir string `json:"cw,omitempty"`
+	// Wrote says Dir is where it last wrote.
+	Wrote bool `json:"ww,omitzero"`
 	// Cwd is the newest line's cwd, so only a real move of it overrides Dir.
 	Cwd string `json:"cc,omitempty"`
 	// pending is the newest assistant message; its usage can still change
@@ -218,7 +223,7 @@ func consume(t *Totals, b []byte) {
 			Cwd string `json:"relocatedCwd"`
 		}
 		if jsonx.Unmarshal(b, &r) == nil && r.Cwd != "" {
-			t.Cwd, t.Dir = r.Cwd, r.Cwd
+			t.Cwd, t.Dir, t.Wrote = r.Cwd, r.Cwd, false
 		}
 		return
 	}
@@ -231,15 +236,18 @@ func consume(t *Totals, b []byte) {
 	}
 	if l.Cwd != "" {
 		if l.Cwd != t.Cwd {
-			t.Cwd, t.Dir = l.Cwd, l.Cwd
+			t.Cwd = l.Cwd
+			if !t.Wrote {
+				t.Dir = l.Cwd
+			}
 		}
 		if len(t.Dirs) < 64 && (len(t.Dirs) == 0 || t.Dirs[len(t.Dirs)-1] != l.Cwd) {
 			addUnique(&t.Dirs, l.Cwd)
 		}
 	}
 	if bytes.Contains(b, toolUseMarker) {
-		if d := workedIn(l.Message.Content); d != "" {
-			t.Dir = d
+		if d, wrote := workedIn(l.Message.Content); d != "" && (wrote || !t.Wrote) {
+			t.Dir, t.Wrote = d, wrote
 			if len(t.Dirs) < 64 {
 				addUnique(&t.Dirs, d)
 			}
@@ -334,7 +342,7 @@ var toolUseMarker = []byte(`"type":"tool_use"`)
 
 // workedIn is the folder a message's tool calls last worked in: a Bash
 // command's leading `cd /abs`, or the folder of a file it wrote.
-func workedIn(content jsontext.Value) string {
+func workedIn(content jsontext.Value) (dir string, wrote bool) {
 	var blocks []struct {
 		Type  string `json:"type"`
 		Name  string `json:"name"`
@@ -345,9 +353,8 @@ func workedIn(content jsontext.Value) string {
 		} `json:"input"`
 	}
 	if jsonx.Unmarshal(content, &blocks) != nil {
-		return ""
+		return "", false
 	}
-	dir := ""
 	for _, b := range blocks {
 		if b.Type != "tool_use" {
 			continue
@@ -361,11 +368,11 @@ func workedIn(content jsontext.Value) string {
 		case "NotebookEdit":
 			d = filepath.Dir(b.Input.NotebookPath)
 		}
-		if workFolder(d) {
-			dir = d
+		if workFolder(d) && (b.Name != "Bash" || !wrote) {
+			dir, wrote = d, b.Name != "Bash"
 		}
 	}
-	return dir
+	return dir, wrote
 }
 
 // cdTarget is the folder a command starts by cd'ing into, if it does.

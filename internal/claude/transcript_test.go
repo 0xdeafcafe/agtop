@@ -133,7 +133,7 @@ func TestScanCountsCompactions(t *testing.T) {
 	}
 }
 
-func TestDirFollowsCdAndWritesUntilCwdMoves(t *testing.T) {
+func TestDirFollowsWritesOverCdAndCwd(t *testing.T) {
 	line := func(cwd, content string) string {
 		return `{"type":"assistant","cwd":"` + cwd + `","message":{"id":"x","content":[` + content + `]}}`
 	}
@@ -152,10 +152,14 @@ func TestDirFollowsCdAndWritesUntilCwdMoves(t *testing.T) {
 	step(line("/r/main", bash("cd /r/pr6900 && git status")), "/r/pr6900")
 	step(line("/r/main", bash("ls")), "/r/pr6900")
 	step(line("/r/main", bash("cd /tmp/x && ls")), "/r/pr6900")
-	step(line("/r/main", `{"type":"tool_use","name":"Write","input":{"file_path":"/Users/me/.claude/projects/p/memory/m.md"}}`), "/r/pr6900")
-	step(line("/r/main", `{"type":"tool_use","name":"Edit","input":{"file_path":"/r/wt/a/b.go"}}`), "/r/wt/a")
 	step(line("/r/other", `{"type":"text","text":"moved"}`), "/r/other")
 	step(line("/r/other", bash(`cd \"/r/q q\"; make`)), "/r/q q")
+	step(line("/r/main", `{"type":"tool_use","name":"Write","input":{"file_path":"/Users/me/.claude/projects/p/memory/m.md"}}`), "/r/main")
+	step(line("/r/main", `{"type":"tool_use","name":"Edit","input":{"file_path":"/r/wt/a/b.go"}}`), "/r/wt/a")
+	// Once it writes, git run from the main checkout doesn't move it back.
+	step(line("/r/main", bash("cd /r/main && git log")), "/r/wt/a")
+	step(line("/r/other", `{"type":"text","text":"moved"}`), "/r/wt/a")
+	step(line("/r/other", `{"type":"tool_use","name":"Edit","input":{"file_path":"/r/wt2/c.go"}},`+bash("cd /r/main")), "/r/wt2")
 	// EnterWorktree: the move is known before the next reply.
 	step(`{"type":"relocated","sessionId":"s","relocatedCwd":"/r/.claude/worktrees/w"}`, "/r/.claude/worktrees/w")
 	step(line("/r/.claude/worktrees/w", `{"type":"text","text":"in"}`), "/r/.claude/worktrees/w")
