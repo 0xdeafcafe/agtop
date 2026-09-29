@@ -159,26 +159,8 @@ func (a *Agent) Elapsed(now time.Time) time.Duration {
 	return d
 }
 
-type Spend struct {
-	Cost  float64
-	Usage usage.TokenUsage
-	Model string
-	First time.Time
-	Last  time.Time
-	PRs   []string
-	Dirs  []string // folders the agent worked in, subagents included
-	Dir   string   // where its own transcript (not a subagent's) last worked
-	Today float64
-	Ready bool
-	Halt  *agent.Halt // the error its last turn ended on, if any
-	// Progress is the last count it reported moving ("lint 11,065 →
-	// 9,052"), and when; Context is its newest message's context, and
-	// Compacts how often that was compacted.
-	Progress   string
-	ProgressAt time.Time
-	Context    int64
-	Compacts   int
-}
+// Spend is what an agent's transcripts say it cost.
+type Spend = agent.Spend
 
 type AccountView struct {
 	state.Folder
