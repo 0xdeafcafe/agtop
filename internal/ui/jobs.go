@@ -54,7 +54,7 @@ func jobIcon(kind string) (string, string) {
 	case "subagent":
 		return "⇉", cBlue
 	}
-	return "▸", cSub
+	return "$", cSub
 }
 
 // jobLabel is what a task is doing in a line: the command for a shell,
@@ -249,15 +249,31 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 		return append(lines, convo.Line{Text: dim("  nothing running · shells, monitors and workflows Claude starts show here")})
 	}
 	now := time.Now()
+	// edge runs down the left of an opened task, beside every part of it,
+	// so its processes, command and output read as inside it: the pick's
+	// bar when it's picked.
+	edge := func(ref, r string) string {
+		if !c.open[ref] {
+			return r
+		}
+		bar := paint(cEdge, "│")
+		switch {
+		case ref == o.Selected && o.Focused:
+			bar = paint(cOrange, "▍")
+		case ref == o.Selected:
+			bar = faint("▍")
+		}
+		return bar + ansi.Cut(r, 1, w)
+	}
 	emit := func(ref string, rows []string, pick bool) {
 		for _, r := range rows {
 			switch {
 			case pick && ref == o.Selected:
 				r = picked1(r, w, o.Focused)
 			case pick && ref == c.subHover:
-				r = hoverLine(r, w)
+				r = edge(ref, hoverLine(r, w))
 			default:
-				r = fit(r, w)
+				r = edge(ref, fit(r, w))
 			}
 			lines = append(lines, convo.Line{Text: r, Ref: ref})
 		}
@@ -271,10 +287,11 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			ref := "job:" + j.ID
 			kind := c.sess.JobKind(j)
 			icon, col := jobIcon(kind)
-			if icon == "▸" && c.open[ref] {
-				icon = "▾" // opened
-			}
 			mark := paint(col, icon)
+			fold := faint("▸") // every task opens, whatever it is
+			if c.open[ref] {
+				fold = paint(cText, "▾")
+			}
 			if j.Running() && !j.Background {
 				mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
 			}
@@ -306,8 +323,8 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			if full := c.sess.JobCommand(j); kind == "shell" && full != "" && j.Label != "" && j.Label != full {
 				label, cmd = oneLine(j.Label), jobLabel(c, j)
 			}
-			left := "  " + mark + " " + paint(cText+bold, fmt.Sprintf("%-8s", kind)) + " " +
-				paint(cSub, ansi.Truncate(label, max(12, w-cellw.String(ansi.Strip(right))-16), "…"))
+			left := "  " + fold + " " + mark + " " + paint(cText+bold, fmt.Sprintf("%-8s", kind)) + " " +
+				paint(cSub, ansi.Truncate(label, max(12, w-cellw.String(ansi.Strip(right))-18), "…"))
 			rows := []string{spread(left, right, w)}
 			var facts []string
 			if rp, ok := c.sess.RunningPart(j.ToolUseID); ok {
@@ -391,7 +408,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			}
 			emit(ref, rows[:top], true)
 			for _, l := range body {
-				lines = append(lines, convo.Line{Text: l.Text, Ref: ref})
+				lines = append(lines, convo.Line{Text: edge(ref, l.Text), Ref: ref})
 			}
 			// Under the command's well the output reads as the call's, as in
 			// the conversation, not as the pick again.

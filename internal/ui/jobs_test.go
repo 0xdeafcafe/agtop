@@ -103,6 +103,7 @@ func joinLines(ls []convo.Line) string {
 	}
 	return b.String()
 }
+
 // A file read by a task that had ended is still read again for one that
 // runs: tasks can share a file, and a running one's output keeps coming.
 func TestTailSharedFileKeepsComing(t *testing.T) {
@@ -209,5 +210,43 @@ func TestJobCrashed(t *testing.T) {
 	c.tails = nil
 	if got := ansi.Strip(strings.Join(m.jobsPreview(c, s.RunningJobs(), 120), "\n")); strings.Contains(got, "crashed?") {
 		t.Fatalf("called crashed while still writing:\n%s", got)
+	}
+}
+
+// An opened task has one bar down its left, beside its processes, its
+// command and its output, so they read as inside it.
+func TestOpenedJobEdge(t *testing.T) {
+	s := convo.New()
+	now := time.Now()
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 10, State: "working"}}, now)
+	s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "t2", Name: "Bash",
+		Input: []byte(`{"command":"for p in a b; do echo $p; done > out.log\ncat out.log","run_in_background":true}`)}}}, now)
+	s.Apply(headless.TaskStarted{ID: "b2", ToolUseID: "t2", Type: "local_bash", Description: "check the lot", Backgrounded: true}, now)
+	tab := &proc.Table{At: now, Procs: map[int]*proc.Proc{
+		10: {PID: 10, Comm: "claude", Start: now.Add(-time.Hour)},
+		12: {PID: 12, PPID: 10, Comm: "zsh", Start: now.Add(time.Second), CPU: 1, Footprint: 2 << 20},
+	}, Children: map[int][]int{10: {12}}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{"job:b2": true}}
+	m := &Model{snap: &fleet.Snapshot{Table: tab}, host: c}
+	var job []string
+	for _, l := range m.jobLines(c, convo.Options{Width: 110, Open: c.open, Selected: "job:b2", Focused: true}) {
+		if l.Ref == "job:b2" {
+			job = append(job, ansi.Strip(l.Text))
+		}
+	}
+	if len(job) < 4 {
+		t.Fatalf("opened, too little:\n%s", strings.Join(job, "\n"))
+	}
+	if !strings.Contains(job[0], "▾ $ shell") {
+		t.Errorf("opened, no ▾ before the task: %q", job[0])
+	}
+	delete(c.open, "job:b2")
+	if l := ansi.Strip(m.jobLines(c, convo.Options{Width: 110})[3].Text); !strings.Contains(l, "▸ $ shell") {
+		t.Errorf("closed, no ▸ before the task: %q", l)
+	}
+	for _, l := range job {
+		if !strings.HasPrefix(l, "▍") {
+			t.Errorf("a row of the opened task without the bar: %q\n%s", l, strings.Join(job, "\n"))
+		}
 	}
 }
