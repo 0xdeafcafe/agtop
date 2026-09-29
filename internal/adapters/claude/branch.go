@@ -27,6 +27,10 @@ func (Adapter) DefaultModel() string { return "claude-opus-5-5" }
 // ContextWindow is the model's: everything current but Haiku has 1M.
 func (Adapter) ContextWindow(model string) int64 { return claude.ContextWindow(model) }
 
+// Reads is what every current Claude model reads: images and PDFs, not
+// audio or video.
+func (Adapter) Reads(string) (agent.Media, bool) { return agent.MediaImage | agent.MediaPDF, true }
+
 // ModelName is Claude's model id as people say it: "Opus 5.5".
 func (Adapter) ModelName(id string) string { return claude.ModelName(id) }
 

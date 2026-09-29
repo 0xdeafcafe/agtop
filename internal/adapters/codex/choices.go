@@ -1,6 +1,10 @@
 package codex
 
-import "github.com/0xdeafcafe/agtop/internal/agent"
+import (
+	"strings"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
+)
 
 // Choices are Codex's reasoning efforts and agtop's three presets of its
 // approval policy and sandbox (modes). Its models come and go with the
@@ -20,4 +24,18 @@ func (Adapter) Choices() agent.Choices {
 			{ID: "full-access", Note: "never asks, and can reach anything. Only for sandboxed or throwaway work."},
 		},
 	}
+}
+
+// Reads is what model reads, by family: every GPT reads images, but
+// Spark, which reads only text. Codex sends nothing else.
+// ponytail: a table by name; app-server's model/list says each model's
+// input modalities, for when a new family gets it wrong.
+func (Adapter) Reads(model string) (agent.Media, bool) {
+	switch {
+	case strings.Contains(model, "spark"):
+		return 0, true
+	case strings.HasPrefix(model, "gpt-"):
+		return agent.MediaImage, true
+	}
+	return 0, false
 }

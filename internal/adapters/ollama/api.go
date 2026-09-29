@@ -8,6 +8,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
 // server is where Ollama listens: OLLAMA_HOST as Ollama itself reads it,
@@ -145,6 +149,7 @@ func show(ctx context.Context, name string) (Model, error) {
 	}
 	m := Model{Name: name, Capabilities: s.Capabilities, Family: s.Details.Family,
 		Params: s.Details.ParameterSize, Quant: s.Details.QuantizationLevel}
+	shown.Store(name, m.Can("vision"))
 	for k, v := range s.ModelInfo {
 		if strings.HasSuffix(k, ".context_length") {
 			if f, ok := v.(float64); ok {
@@ -160,3 +165,38 @@ func show(ctx context.Context, name string) (Model, error) {
 func load(ctx context.Context, name string) error {
 	return call(ctx, http.MethodPost, "/api/generate", map[string]string{"model": name}, nil)
 }
+
+// shown is whether each model /api/show has told of reads images.
+var shown, asking sync.Map
+
+// reads is what model reads, as /api/show says: images when it has
+// vision, and nothing else. A model not asked of yet is asked of in the
+// background, and not known until the answer comes, so nothing waits on
+// the network.
+// ponytail: the first send to a model not yet shown in this process goes
+// unchecked; ask when a session's model is first seen if that matters.
+func reads(model string) (agent.Media, bool) {
+	model = strings.TrimPrefix(model, piProvider+"/")
+	if model == "" {
+		return 0, false
+	}
+	if v, ok := shown.Load(model); ok {
+		if v.(bool) {
+			return agent.MediaImage, true
+		}
+		return 0, true
+	}
+	if _, busy := asking.LoadOrStore(model, true); !busy {
+		go func() {
+			defer asking.Delete(model)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, _ = show(ctx, model)
+		}()
+	}
+	return 0, false
+}
+
+func (Adapter) Reads(model string) (agent.Media, bool)      { return reads(model) }
+func (CodexAdapter) Reads(model string) (agent.Media, bool) { return reads(model) }
+func (PiAdapter) Reads(model string) (agent.Media, bool)    { return reads(model) }

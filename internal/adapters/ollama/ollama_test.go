@@ -133,3 +133,19 @@ func TestOllamaIsNoAgentsProgram(t *testing.T) {
 		t.Error("an ollama process taken for an agent's own")
 	}
 }
+
+// What a model reads is what /api/show said of it, under Pi's name for it
+// too; one not shown yet isn't known.
+func TestReads(t *testing.T) {
+	shown.Store("seer:4b", true)
+	shown.Store("blind:4b", false)
+	asking.Store("unasked:4b", true) // as if a show were on its way
+	for model, want := range map[string]agent.Media{"seer:4b": agent.MediaImage, "ollama/seer:4b": agent.MediaImage, "blind:4b": 0} {
+		if got, ok := reads(model); !ok || got != want {
+			t.Errorf("reads(%s) = %v, %v; want %v", model, got, ok, want)
+		}
+	}
+	if _, ok := reads("unasked:4b"); ok {
+		t.Error("a model not shown yet is known")
+	}
+}

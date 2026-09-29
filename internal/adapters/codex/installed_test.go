@@ -35,3 +35,16 @@ func TestProfilesNeedCodexInstalled(t *testing.T) {
 		t.Fatalf("codex is installed, Profiles = %+v", ps)
 	}
 }
+
+// GPTs read images, Spark doesn't, and a model of no family known isn't
+// known.
+func TestReads(t *testing.T) {
+	for model, want := range map[string]agent.Media{"gpt-5.5-codex": agent.MediaImage, "gpt-5.3-codex-spark": 0} {
+		if got, ok := (Adapter{}).Reads(model); !ok || got != want {
+			t.Errorf("Reads(%s) = %v, %v; want %v", model, got, ok, want)
+		}
+	}
+	if _, ok := (Adapter{}).Reads("o9"); ok {
+		t.Error("o9 is known")
+	}
+}
