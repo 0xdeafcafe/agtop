@@ -119,8 +119,8 @@ func fillUsage(p *Proc) {
 	}
 }
 
-// Args reads a process's argv from /proc/<pid>/cmdline.
-func Args(pid int) []string {
+// args reads a process's argv from /proc/<pid>/cmdline.
+func args(pid int) []string {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
 	if err != nil || len(b) == 0 {
 		return nil

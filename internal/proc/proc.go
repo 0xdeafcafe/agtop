@@ -21,9 +21,24 @@ type Table struct {
 	Children map[int][]int
 }
 
+// Demo stands in for the machine's processes when set: the made-up ones
+// the screenshots tool (tools/shots) draws. Their memory and CPU time are
+// taken as given, and Args are their arguments.
+var Demo *DemoTable
+
+type DemoTable struct {
+	Procs func() []*Proc
+	Args  map[int][]string
+}
+
 // Snapshot samples every process. prev supplies the CPU-time baseline.
 func Snapshot(prev *Table) *Table {
-	ps := list()
+	var ps []*Proc
+	if Demo != nil {
+		ps = Demo.Procs()
+	} else {
+		ps = list()
+	}
 	t := &Table{At: time.Now(), Procs: make(map[int]*Proc, len(ps)), Children: make(map[int][]int, len(ps)/4)}
 	for _, p := range ps {
 		t.Procs[p.PID] = p
@@ -46,7 +61,9 @@ func (t *Table) Fill(prev *Table, roots []int) {
 		if p == nil {
 			return
 		}
-		fillUsage(p)
+		if Demo == nil {
+			fillUsage(p)
+		}
 		if prev != nil {
 			if old := prev.Procs[pid]; old != nil && old.Start.Equal(p.Start) {
 				dt := t.At.Sub(prev.At)
@@ -62,6 +79,14 @@ func (t *Table) Fill(prev *Table, roots []int) {
 	for _, r := range roots {
 		walk(r)
 	}
+}
+
+// Args is a process's arguments.
+func Args(pid int) []string {
+	if Demo != nil {
+		return Demo.Args[pid]
+	}
+	return args(pid)
 }
 
 func (t *Table) withUsage(_ *Table) *Table { return t }

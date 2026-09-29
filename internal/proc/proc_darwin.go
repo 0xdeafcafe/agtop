@@ -123,8 +123,8 @@ func fillUsage(p *Proc) {
 	p.CPUTime = time.Duration(float64(ri.UserTime+ri.SystemTime) * tickNanos)
 }
 
-// Args reads a process's argv through kern.procargs2.
-func Args(pid int) []string {
+// args reads a process's argv through kern.procargs2.
+func args(pid int) []string {
 	b, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil || len(b) < 4 {
 		return nil
