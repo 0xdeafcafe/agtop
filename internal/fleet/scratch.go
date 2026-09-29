@@ -7,6 +7,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
 // ScratchIdle is how long something in /tmp goes untouched before it's
@@ -70,10 +72,16 @@ func scratchEntries() []string {
 		return nil
 	}
 	uid := uint32(os.Getuid())
-	own := filepath.Base(ClaudeScratch())
+	// Agents' own scratch roots are cleaned with their sessions.
+	own := map[string]bool{}
+	for _, a := range agent.All() {
+		if s, ok := a.(agent.Scratcher); ok && s.ScratchRoot() != "" {
+			own[filepath.Base(s.ScratchRoot())] = true
+		}
+	}
 	var out []string
 	for _, e := range ents {
-		if e.Name() == own || strings.HasPrefix(e.Name(), "tmux-") {
+		if own[e.Name()] || strings.HasPrefix(e.Name(), "tmux-") {
 			continue
 		}
 		if t := e.Type(); t&^fs.ModeDir != 0 {
