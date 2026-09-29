@@ -310,7 +310,7 @@ func New(store *state.Store, version string) *Model {
 	}
 	m.applyColors()
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
-	m.snap = m.loader.Load(true)
+	m.snap = m.loader.LoadQuick() // drawn at once; the first refresh counts subagents
 	m.loadSidebars()
 	m.rebuild()
 	m.onboard = true
@@ -730,7 +730,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.w, m.h = msg.Width, msg.Height
 		return m, nil
 	case snapMsg:
-		m.onSnap(msg)
+		return m, m.onSnap(msg)
+	case shellsMsg:
+		m.onShells(msg)
 		return m, nil
 	case netMsg:
 		return m, m.onNet()
