@@ -112,18 +112,57 @@ func ones(n int) []int {
 	return gs
 }
 
-// An agent's subagents sit beside it, and a group that doesn't fit what's
-// left of a row starts the next.
-func TestWallSlotsGroup(t *testing.T) {
-	slots, n := wallSlots([]int{1, 3, 2, 1}, 4)
-	want := []int{0, 1, 2, 3, 4, 5, 6}
-	if fmt.Sprint(slots) != fmt.Sprint(want) || n != 7 {
-		t.Errorf("slots %v (%d), want %v", slots, n, want)
+// A group that fits a row sits side by side, joined, starting a row of its
+// own when what's left is too little; a bigger one has a row to itself,
+// the agent down the first column and its subagents stacked in the rest.
+func TestWallLayout(t *testing.T) {
+	shape := func(rows []wallRow) string {
+		var out []string
+		for _, r := range rows {
+			var cells []string
+			for _, c := range r.cells {
+				cells = append(cells, fmt.Sprintf("%d:c%d/%d/%d", c.item, c.col, c.k, c.n))
+			}
+			out = append(out, strings.Join(cells, " ")+fmt.Sprint(r.joined))
+		}
+		return strings.Join(out, " | ")
 	}
-	slots, n = wallSlots([]int{2, 3, 1}, 4)
-	want = []int{0, 1, 4, 5, 6, 7}
-	if fmt.Sprint(slots) != fmt.Sprint(want) || n != 8 {
-		t.Errorf("slots %v (%d), want %v", slots, n, want)
+	// 1 alone, then a group of 3 that doesn't fit what's left, then 1.
+	got := shape(wallLayout([]int{1, 3, 1}, 3, 2))
+	want := "0:c0/0/1[false false false] | 1:c0/0/1 2:c1/0/1 3:c2/0/1[true true false] | 4:c0/0/1[false false false]"
+	if got != want {
+		t.Errorf("side by side:\n got %s\nwant %s", got, want)
+	}
+	// An agent with 5 subagents on 3 columns, 3 stacked at most: 3 in one
+	// column, 2 in the other, all on the agent's row.
+	got = shape(wallLayout([]int{6}, 3, 3))
+	want = "0:c0/0/1 1:c1/0/3 2:c1/1/3 3:c1/2/3 4:c2/0/2 5:c2/1/2[true true false]"
+	if got != want {
+		t.Errorf("stacked:\n got %s\nwant %s", got, want)
+	}
+	// Too many to stack: the rest go on in the row under, beside nothing.
+	got = shape(wallLayout([]int{6}, 3, 1))
+	want = "0:c0/0/1 1:c1/0/1 2:c2/0/1[true true false] | 3:c1/0/1 4:c2/0/1[false true false] | 5:c1/0/1[false false false]"
+	if got != want {
+		t.Errorf("spilling:\n got %s\nwant %s", got, want)
+	}
+}
+
+// Up, down and across go by where tiles are: from a stacked subagent up
+// to the one above it, across to the agent beside.
+func TestWallStep(t *testing.T) {
+	geo := wallGeos(wallLayout([]int{4, 1}, 2, 3), 5)
+	if j := wallStep(geo, 2, 0, -1); j != 1 {
+		t.Errorf("up from the second stacked subagent: %d", j)
+	}
+	if j := wallStep(geo, 2, -1, 0); j != 0 {
+		t.Errorf("left from a subagent: %d, want its agent", j)
+	}
+	if j := wallStep(geo, 0, 1, 0); j != 1 {
+		t.Errorf("right from the agent: %d, want its top subagent", j)
+	}
+	if j := wallStep(geo, 3, 0, 1); j != 4 {
+		t.Errorf("down from the last subagent: %d", j)
 	}
 }
 

@@ -153,33 +153,152 @@ func wallGroups(items []wallItem) []int {
 	return gs
 }
 
-// wallSlots places groups of tiles in a grid cols wide: a group that doesn't
-// fit what's left of a row starts the next, so an agent and its subagents
-// sit together. It's each tile's slot, and the slots used.
-func wallSlots(groups []int, cols int) (slots []int, n int) {
-	for _, g := range groups {
-		if c := n % cols; c > 0 && c+g > cols {
-			n += cols - c
-		}
-		for range g {
-			slots = append(slots, n)
-			n++
-		}
-	}
-	return slots, n
+// wallCell is a tile's place in a row of the Wall: its column, and which
+// of the n tiles stacked in that column it is.
+type wallCell struct {
+	item, col, k, n int
 }
 
-// wallAt is the tile in each slot.
-func wallAt(slots []int) map[int]int {
-	at := make(map[int]int, len(slots))
-	for i, s := range slots {
-		at[s] = i
+// wallRow is a row of the Wall's tiles; joined[c] is set where the tiles
+// either side of the gap after column c are one agent's, so their top
+// edges join up.
+type wallRow struct {
+	cells  []wallCell
+	joined []bool
+}
+
+// wallSubMinH is the least a subagent's tile is, stacked with others.
+const wallSubMinH = 5
+
+// wallLayout sets groups of tiles in rows cols wide. A group that fits a
+// row sits in it side by side, starting a row of its own when what's left
+// of this one is too little. One with more subagents than that has a row
+// to itself: the agent down its first column, its subagents stacked up to
+// stack high in the others, going on to more rows only when they must.
+func wallLayout(groups []int, cols, stack int) []wallRow {
+	var rows []wallRow
+	cur, col := wallRow{joined: make([]bool, cols)}, 0
+	flush := func() {
+		if len(cur.cells) > 0 {
+			rows = append(rows, cur)
+		}
+		cur, col = wallRow{joined: make([]bool, cols)}, 0
 	}
-	return at
+	i := 0
+	for _, g := range groups {
+		if g <= cols {
+			if col+g > cols {
+				flush()
+			}
+			for j := range g {
+				cur.cells = append(cur.cells, wallCell{item: i + j, col: col, n: 1})
+				if j > 0 {
+					cur.joined[col-1] = true
+				}
+				col++
+			}
+			i += g
+			continue
+		}
+		flush()
+		rows = append(rows, wallStacked(i, g, cols, stack)...)
+		i += g
+	}
+	flush()
+	return rows
+}
+
+// wallStacked are the rows of a group too big for one side by side: the
+// agent (tile i) down the first column, its g-1 subagents stacked up to
+// stack high in the others; with one column, the agent on a row of its own.
+func wallStacked(i, g, cols, stack int) []wallRow {
+	var rows []wallRow
+	cur := wallRow{cells: []wallCell{{item: i, n: 1}}, joined: make([]bool, cols)}
+	start := 1
+	if cols == 1 {
+		rows = append(rows, cur)
+		cur, start = wallRow{joined: make([]bool, cols)}, 0
+	}
+	sc := cols - start
+	next, left := i+1, g-1
+	for left > 0 {
+		take := min(left, sc*stack)
+		used := min(take, sc)
+		for c := range used {
+			n := take/used + boolInt(c < take%used)
+			for k := range n {
+				cur.cells = append(cur.cells, wallCell{item: next, col: start + c, k: k, n: n})
+				next++
+			}
+		}
+		from := start
+		if cur.cells[0].item == i {
+			from = 0 // the agent's in this row: its edge joins its subagents'
+		}
+		for c := from; c < start+used-1; c++ {
+			cur.joined[c] = true
+		}
+		left -= take
+		rows = append(rows, cur)
+		cur = wallRow{joined: make([]bool, cols)}
+	}
+	return rows
+}
+
+// wallGeo is where a tile is on the Wall for moving between them: its
+// column, and its top and bottom in rows of wallGeoH.
+type wallGeo struct{ col, top, bot int }
+
+const wallGeoH = 60
+
+func wallGeos(layout []wallRow, n int) []wallGeo {
+	g := make([]wallGeo, n)
+	for r, row := range layout {
+		for _, c := range row.cells {
+			if c.item < n {
+				g[c.item] = wallGeo{c.col, r*wallGeoH + c.k*wallGeoH/c.n, r*wallGeoH + (c.k+1)*wallGeoH/c.n}
+			}
+		}
+	}
+	return g
+}
+
+// wallStep is the tile next to tile i the way dx or dy goes: the nearest
+// above or below, in the nearest column; beside, overlapping it. -1 for
+// none.
+func wallStep(geo []wallGeo, i, dx, dy int) int {
+	cur := geo[i]
+	best, bestD := -1, 0
+	for j, g := range geo {
+		var d int
+		switch {
+		case j == i:
+			continue
+		case dy < 0 && g.bot <= cur.top:
+			d = (cur.top-g.bot)*100 + abs(g.col-cur.col)
+		case dy > 0 && g.top >= cur.bot:
+			d = (g.top-cur.bot)*100 + abs(g.col-cur.col)
+		case dx != 0 && sign(g.col-cur.col) == dx && g.top < cur.bot && g.bot > cur.top:
+			d = abs(g.col-cur.col)*1000 + abs(g.top-cur.top)
+		default:
+			continue
+		}
+		if best < 0 || d < bestD {
+			best, bestD = j, d
+		}
+	}
+	return best
+}
+
+// wallRows is how many rows groups take cols wide in h: fewer subagents
+// stack in a column when the rows are shorter.
+func wallRows(groups []int, cols, h int) []wallRow {
+	layout := wallLayout(groups, cols, max(1, h/wallSubMinH))
+	return wallLayout(groups, cols, max(1, h/len(layout)/wallSubMinH))
 }
 
 // wallGrid lays groups of tiles out in w×h: the columns, the rows that fit
-// on screen, and each tile's height. It picks tiles about three and a half
+// on screen, and each row's height. It picks tiles about three and a half
 // times as wide as tall (a cell is twice as tall as wide), wasting few.
 func wallGrid(groups []int, w, h int) (cols, rows, tileH int) {
 	n := 0
@@ -192,14 +311,22 @@ func wallGrid(groups []int, w, h int) (cols, rows, tileH int) {
 	maxCols := max(1, (w+1)/(wallMinW+1))
 	best, bestRows, bestScore := 0, 0, math.Inf(1)
 	for c := 1; c <= min(maxCols, n); c++ {
-		_, used := wallSlots(groups, c)
-		r := (used + c - 1) / c
+		layout := wallRows(groups, c, h)
+		r := len(layout)
 		th := h / r
 		if th < wallMinH {
 			continue
 		}
+		used := 0
+		for _, row := range layout {
+			on := map[int]bool{}
+			for _, cell := range row.cells {
+				on[cell.col] = true
+			}
+			used += len(on)
+		}
 		tw := (w - (c - 1)) / c
-		score := math.Abs(math.Log(float64(tw)/float64(th)/3.5)) + 1.5*float64(r*c-n)/float64(n)
+		score := math.Abs(math.Log(float64(tw)/float64(th)/3.5)) + 1.5*float64(r*c-used)/float64(n)
 		if score < bestScore {
 			best, bestRows, bestScore = c, r, score
 		}
@@ -213,6 +340,9 @@ func wallGrid(groups []int, w, h int) (cols, rows, tileH int) {
 	return min(maxCols, n), rows, h / rows
 }
 
+// wallStack is how many subagents stack in a column in rows tileH tall.
+func wallStack(tileH int) int { return max(1, tileH/wallSubMinH) }
+
 // wallBody draws the tiles into the frame's body: w wide, h tall.
 func (m *Model) wallBody(w, h int) []string {
 	items := m.wallItems()
@@ -223,52 +353,35 @@ func (m *Model) wallBody(w, h int) []string {
 	m.wallPrune(items)
 	groups := wallGroups(items)
 	cols, rows, tileH := wallGrid(groups, w, h)
-	slots, used := wallSlots(groups, cols)
-	at := wallAt(slots)
+	layout := wallLayout(groups, cols, wallStack(tileH))
+	rowOf := make([]int, len(items))
+	for r, row := range layout {
+		for _, c := range row.cells {
+			rowOf[c.item] = r
+		}
+	}
 	pick := m.wallPick(items)
-	m.wallScroll(slots[pick]/cols, (used+cols-1)/cols, rows)
-	m.wall.above, m.wall.below = wallOffscreen(slots, cols, m.wall.top, rows)
+	rows = min(rows, len(layout))
+	m.wallScroll(rowOf[pick], len(layout), rows)
+	m.wall.above, m.wall.below = wallOffscreen(rowOf, m.wall.top, rows)
 
 	tileW := (w - (cols - 1)) / cols
 	extraW := w - (cols - 1) - tileW*cols
+	colW, colX := make([]int, cols), make([]int, cols)
+	for c, x := 0, 0; c < cols; c++ {
+		colW[c], colX[c] = tileW, x
+		if c < extraW {
+			colW[c]++
+		}
+		x += colW[c] + 1
+	}
 	out := make([]string, 0, h)
-	for r := 0; r < rows; r++ {
+	for r := range rows {
 		th := tileH
 		if r == rows-1 {
 			th = h - tileH*(rows-1) // the last row takes what's left over
 		}
-		row := make([][]string, 0, cols)
-		widths := make([]int, 0, cols)
-		x := 0
-		for c := 0; c < cols; c++ {
-			tw := tileW
-			if c < extraW {
-				tw++
-			}
-			if i, ok := at[(m.wall.top+r)*cols+c]; ok {
-				it := items[i]
-				row = append(row, m.wallTile(it, tw, th, i == pick))
-				m.wall.tiles = append(m.wall.tiles, wallTile{key: it.key, x: x, y: len(out), w: tw, h: th})
-			} else {
-				row = append(row, nil)
-			}
-			widths = append(widths, tw)
-			x += tw + 1
-		}
-		for y := 0; y < th; y++ {
-			var b strings.Builder
-			for c, t := range row {
-				if c > 0 {
-					b.WriteByte(' ')
-				}
-				if y < len(t) {
-					b.WriteString(t[y])
-				} else {
-					b.WriteString(blanks(widths[c]))
-				}
-			}
-			out = append(out, b.String())
-		}
+		out = append(out, m.wallRowLines(layout[m.wall.top+r], items, colW, colX, th, len(out), pick)...)
 	}
 	return out
 }
@@ -284,10 +397,10 @@ func (m *Model) wallScroll(row, all, rows int) {
 }
 
 // wallOffscreen counts the tiles in rows above top, and below the rows
-// shown from it.
-func wallOffscreen(slots []int, cols, top, rows int) (above, below int) {
-	for _, s := range slots {
-		switch r := s / cols; {
+// shown from it; rowOf is each tile's row.
+func wallOffscreen(rowOf []int, top, rows int) (above, below int) {
+	for _, r := range rowOf {
+		switch {
 		case r < top:
 			above++
 		case r >= top+rows:
@@ -306,6 +419,46 @@ func (m *Model) wallEmpty(w, h int) []string {
 	}
 	if h > 0 {
 		out[h/2] = blanks((w-cellw.String(msg))/2) + dim(msg)
+	}
+	return out
+}
+
+// wallRowLines draws a row of tiles th tall, the row's top y lines down
+// the body, noting where each tile is for clicks.
+func (m *Model) wallRowLines(row wallRow, items []wallItem, colW, colX []int, th, y, pick int) []string {
+	cols := len(colW)
+	lines := make([][]string, cols)
+	for _, c := range row.cells {
+		ch, y0 := th/c.n, c.k*(th/c.n)
+		if c.k == c.n-1 {
+			ch = th - y0 // the last in a column takes what's left over
+		}
+		it := items[c.item]
+		t := m.wallTile(it, colW[c.col], ch, c.item == pick)
+		for len(t) < ch {
+			t = append(t, blanks(colW[c.col]))
+		}
+		lines[c.col] = append(lines[c.col], t...)
+		m.wall.tiles = append(m.wall.tiles, wallTile{key: it.key, x: colX[c.col], y: y + y0, w: colW[c.col], h: ch})
+	}
+	out := make([]string, 0, th)
+	for ly := range th {
+		var b strings.Builder
+		for c := range cols {
+			if c > 0 {
+				if ly == 0 && row.joined[c-1] {
+					b.WriteString(paint(cSub, "─")) // one agent's tiles, joined along the top
+				} else {
+					b.WriteByte(' ')
+				}
+			}
+			if ly < len(lines[c]) {
+				b.WriteString(lines[c][ly])
+			} else {
+				b.WriteString(blanks(colW[c]))
+			}
+		}
+		out = append(out, b.String())
 	}
 	return out
 }
@@ -769,21 +922,14 @@ func (m *Model) wallKey(s string) tea.Cmd {
 	}
 	i := m.wallPick(items)
 	groups := wallGroups(items)
-	cols, _, _ := wallGrid(groups, m.w-4, m.wallH())
-	slots, _ := wallSlots(groups, cols)
-	move := func(d int) {
-		if j := i + d; j >= 0 && j < len(items) {
-			m.wall.sel = items[j].key
-		}
-	}
-	// vert moves a row up or down, to the tile nearest the same column.
-	vert := func(d int) {
-		row, col := slots[i]/cols+d, slots[i]%cols
-		j := -1
-		for k, s := range slots {
-			if s/cols == row && (j < 0 || s%cols <= col) {
-				j = k
-			}
+	cols, _, tileH := wallGrid(groups, m.w-4, m.wallH())
+	geo := wallGeos(wallLayout(groups, cols, wallStack(tileH)), len(items))
+	// move goes to the tile the way dx or dy goes; across, with none
+	// there, to the one before or after it.
+	move := func(dx, dy int) {
+		j := wallStep(geo, i, dx, dy)
+		if j < 0 && dx != 0 && i+dx >= 0 && i+dx < len(items) {
+			j = i + dx
 		}
 		if j >= 0 {
 			m.wall.sel = items[j].key
@@ -794,13 +940,13 @@ func (m *Model) wallKey(s string) tea.Cmd {
 	case "esc", "q":
 		m.setView(placeAgents)
 	case "left", "h":
-		move(-1)
+		move(-1, 0)
 	case "right", "l":
-		move(1)
+		move(1, 0)
 	case "up", "k":
-		vert(-1)
+		move(0, -1)
 	case "down", "j":
-		vert(1)
+		move(0, 1)
 	case "home", "g":
 		m.wall.sel = items[0].key
 	case "end", "G":
