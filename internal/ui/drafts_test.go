@@ -23,6 +23,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("HOME", dir)
+	// Drafts are written at once, so a test sees them straight after.
+	state.RunLater = func(f func()) { f() }
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
@@ -102,6 +104,7 @@ func TestSaveAndRecallDrafts(t *testing.T) {
 			t.Fatalf("alt+s should clear the box: %q", string(c.input))
 		}
 	}
+	state.SettleDrafts() // written in the background
 	if n := state.DraftCount(state.KindDraft); n != 3 {
 		t.Fatalf("drafts kept: %d, want 3", n)
 	}
@@ -161,6 +164,7 @@ func TestDraftSheetKinds(t *testing.T) {
 		t.Fatalf("Sent: %+v", got)
 	}
 	d.key(m, tea.KeyPressMsg{}, keySaveDraft)
+	state.SettleDrafts()
 	if n := state.DraftCount(state.KindDraft); n != 2 {
 		t.Fatalf("alt+s on a sent one should keep it as a draft: %d drafts", n)
 	}

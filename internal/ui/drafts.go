@@ -118,10 +118,11 @@ func (m *Model) promptDraft(kind string) (state.Draft, bool) {
 	return state.Draft{Text: text, At: time.Now(), Kind: kind}, true
 }
 
-// keepLater saves d without holding up the frame.
+// keepLater saves d without holding up the frame: it's in the drafts at
+// once, and written in the background.
 func keepLater(d state.Draft, ok bool) {
 	if ok {
-		go func() { _ = state.AddDraft(d) }()
+		state.KeepLater(d)
 	}
 }
 
@@ -171,7 +172,7 @@ func (m *Model) saveDraft(c *hostConn) {
 		return
 	}
 	c.undo.save(c.input, c.back, false)
-	_ = state.AddDraft(d)
+	state.KeepLater(d)
 	c.input, c.back, c.anchor = nil, 0, 0
 	c.recall = recall{}
 	m.flash(draftKept(), false)
@@ -184,7 +185,7 @@ func (m *Model) savePromptDraft() {
 		m.flash("nothing to keep · "+keySaveDraft+" keeps what you've typed as a draft", false)
 		return
 	}
-	_ = state.AddDraft(d)
+	state.KeepLater(d)
 	m.input, m.back, m.anchor = nil, 0, 0
 	m.recall = recall{}
 	m.flash(draftKept(), false)
@@ -213,8 +214,9 @@ func (r *recall) next(cur string) (text string, again, ok bool) {
 		again = true
 	} else {
 		*r = recall{}
-		for _, d := range state.DraftsOf(state.KindDraft) {
-			if strings.TrimSpace(d.Text) != cur {
+		all, _ := state.Kept()
+		for _, d := range all {
+			if d.Kind == state.KindDraft && strings.TrimSpace(d.Text) != cur {
 				r.list = append(r.list, d.Text)
 			}
 		}
@@ -286,7 +288,8 @@ func draftsHolder(what, none string) string {
 // and cleared, newest first; enter puts one back in the box.
 type draftSheet struct {
 	all    []state.Draft
-	kind   int // which of state.DraftKinds shows
+	loaded bool // all has been read: until then the sheet says so
+	kind   int  // which of state.DraftKinds shows
 	filter []rune
 	cur    int
 	host   *hostConn // the box it goes back into; nil for the Prompt
@@ -295,9 +298,23 @@ type draftSheet struct {
 var draftKindNames = map[string]string{state.KindDraft: "Drafts", state.KindSent: "Sent", state.KindCleared: "Cleared"}
 
 func (m *Model) openDrafts(c *hostConn) {
-	d := &draftSheet{all: state.Drafts(), host: c}
-	d.kind = d.startKind()
+	d := &draftSheet{host: c}
+	d.adopt()
 	m.sheet = d
+}
+
+// adopt takes the drafts from memory once they've been read, which
+// asking for them starts.
+func (d *draftSheet) adopt() {
+	if d.loaded {
+		return
+	}
+	all, ok := state.Kept()
+	if !ok {
+		return
+	}
+	d.all, d.loaded = slices.Clone(all), true
+	d.kind = d.startKind()
 }
 
 // startKind is the tab the sheet opens on: the kind of what you just did,
@@ -345,6 +362,7 @@ func (d *draftSheet) shown() []state.Draft {
 func (d *draftSheet) width(m *Model) int { return 112 }
 
 func (d *draftSheet) body(m *Model, w, h int) []string {
+	d.adopt()
 	out := []string{sheetTitle("Drafts", "what you kept, sent and cleared · enter puts one back in the box", w), ""}
 	var tabs []string
 	for _, k := range state.DraftKinds {
@@ -363,6 +381,9 @@ func (d *draftSheet) body(m *Model, w, h int) []string {
 		}[d.kindOf()]
 		if len(d.filter) > 0 {
 			msg = "none of these has that · ] looks in the next"
+		}
+		if !d.loaded {
+			msg = "reading what you've kept…"
 		}
 		out = append(out, "  "+faint(msg))
 	}
@@ -393,6 +414,7 @@ func (d *draftSheet) body(m *Model, w, h int) []string {
 }
 
 func (d *draftSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
+	d.adopt()
 	list := d.shown()
 	switch s {
 	case "esc", "ctrl+c", "ctrl+r":
@@ -413,14 +435,15 @@ func (d *draftSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 		if d.cur < len(list) {
 			x := list[d.cur]
 			d.all = slices.DeleteFunc(d.all, func(o state.Draft) bool { return o.Text == x.Text && o.Kind == x.Kind })
-			go func() { _ = state.RemoveDraft(x.Kind, x.Text) }()
+			state.ForgetLater(x.Kind, x.Text)
 		}
 	case keySaveDraft:
 		if d.cur < len(list) && d.kindOf() != state.KindDraft {
 			x := list[d.cur]
 			x.Kind, x.At = state.KindDraft, time.Now()
-			_ = state.AddDraft(x)
-			d.all = state.Drafts()
+			state.KeepLater(x)
+			all, _ := state.Kept()
+			d.all = slices.Clone(all)
 			m.flash(draftKept(), false)
 		}
 	case "enter":
@@ -518,5 +541,6 @@ func (m *Model) boxVert(c *hostConn, d int, shift bool) {
 	c.back = len(c.input) - pos
 }
 
-// draftCount is how many drafts wait, cheap enough for every frame.
-func draftCount() int { return state.DraftCount(state.KindDraft) }
+// draftCount is how many drafts wait, from memory: cheap enough for every
+// frame.
+func draftCount() int { return state.KeptCount(state.KindDraft) }

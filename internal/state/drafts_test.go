@@ -61,3 +61,29 @@ func TestDraftKinds(t *testing.T) {
 		t.Fatalf("remove: %v %+v", err, Drafts())
 	}
 }
+
+// KeepLater and ForgetLater change what's kept in memory at once, and
+// write it in the background, in order.
+func TestDraftsLater(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	if _, ok := Kept(); ok {
+		SettleDrafts()
+	}
+	SettleDrafts()
+	if _, ok := Kept(); !ok {
+		t.Fatal("asking for them should have them read")
+	}
+	KeepLater(Draft{Text: "one", Kind: KindDraft, At: time.Now()})
+	KeepLater(Draft{Text: "two", Kind: KindDraft, At: time.Now()})
+	if KeptCount(KindDraft) != 2 {
+		t.Fatalf("memory should have both at once: %d", KeptCount(KindDraft))
+	}
+	ForgetLater(KindDraft, "one")
+	if ds, _ := Kept(); len(ds) != 1 || ds[0].Text != "two" {
+		t.Fatalf("forgotten at once: %+v", ds)
+	}
+	SettleDrafts()
+	if ds := Drafts(); len(ds) != 1 || ds[0].Text != "two" {
+		t.Fatalf("on disk: %+v", ds)
+	}
+}
