@@ -616,3 +616,29 @@ func TestRingTrimsWholeTurns(t *testing.T) {
 		t.Fatalf("ReplayFrom is %v, the last turn began at %v", s.info.ReplayFrom, last)
 	}
 }
+
+// interruptConn counts the turns it was asked to stop.
+type interruptConn struct {
+	fakeConn
+	stops int
+}
+
+func (c *interruptConn) Interrupt() error { c.stops++; return nil }
+
+// Sent now mid-turn, a message stops the turn and waits first in the
+// queue, rather than going to a turn that may be stuck in a long tool.
+func TestSendNowMidTurnCutsIn(t *testing.T) {
+	setup(t)
+	c := &interruptConn{}
+	s := &server{cfg: Config{ID: "q", Kind: "claude"}, conn: c, clients: map[*conn]struct{}{}}
+	s.info.State, s.info.Queue, s.info.QueueHeld = "working", []string{"a", "b"}, true
+	if err := s.send("now", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.do(op{Op: "queue_send", Index: 2, Was: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(s.info.Queue, "|"); got != "b|now|a" || s.info.QueueHeld || c.stops != 2 {
+		t.Errorf("queue %q held %v stops %d", got, s.info.QueueHeld, c.stops)
+	}
+}

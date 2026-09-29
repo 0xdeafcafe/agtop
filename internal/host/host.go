@@ -989,15 +989,38 @@ func (s *server) send(text string, images []string, now bool) error {
 		pics = append(pics, pic)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	waiting := s.info.Limit != nil && s.info.Limit.Continue && !s.info.Limit.ResetsAt.IsZero()
 	busy := s.info.State == "working" || s.info.State == "blocked" || waiting
 	if !now && busy && len(images) == 0 {
 		s.info.Queue = append(s.info.Queue, text)
 		s.publish()
+		s.mu.Unlock()
 		return nil
 	}
+	if now && len(images) == 0 && s.cutsIn() {
+		s.cutIn(text)
+		conn := s.conn
+		s.mu.Unlock()
+		return conn.Interrupt()
+	}
+	defer s.mu.Unlock()
 	return s.deliver(text, images, pics)
+}
+
+// cutsIn is whether a message sent now waits for the turn to be stopped
+// rather than going to it: handed to the turn, it would wait on whatever
+// the turn is doing (a tool can run for minutes) with no way to take it
+// back. Called with mu held.
+func (s *server) cutsIn() bool {
+	return s.conn != nil && s.info.State == "working" && agent.Supports(agent.Kind(s.cfg.Kind), agent.FeatureInterrupt)
+}
+
+// cutIn puts text first in the queue and lets the queue go, so it's sent
+// the moment the turn, which the caller stops, ends. Called with mu held.
+func (s *server) cutIn(text string) {
+	s.info.Queue = append([]string{text}, s.info.Queue...)
+	s.info.QueueHeld = false
+	s.publish()
 }
 
 // sendQueue sends what's queued: all of it as one message, or the first
@@ -1252,7 +1275,19 @@ func (s *server) do(o op) error {
 		s.publish()
 		s.mu.Unlock()
 		return nil
-	case "queue_edit", "queue_remove", "queue_move", "queue_merge", "queue_send":
+	case "queue_send":
+		// Mid-turn it cuts in, as a send now does.
+		if i := slices.Index(s.info.Queue, o.Was); i >= 0 && o.Was != "" && s.cutsIn() {
+			s.info.Queue = slices.Delete(slices.Clone(s.info.Queue), i, i+1)
+			s.cutIn(o.Was)
+			conn := s.conn
+			s.mu.Unlock()
+			return conn.Interrupt()
+		}
+		err := s.editQueue(o)
+		s.mu.Unlock()
+		return err
+	case "queue_edit", "queue_remove", "queue_move", "queue_merge":
 		err := s.editQueue(o)
 		s.mu.Unlock()
 		return err
