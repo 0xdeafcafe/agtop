@@ -32,6 +32,10 @@ type ShellProc struct {
 type partRun struct {
 	start, end, seen time.Time
 	procs            []PartProc // its processes when last seen
+	// runs is how many times it was seen start: more than once in a loop.
+	// ponytail: a quick command can start and end between looks and go
+	// uncounted; a slow one (the loop's sleep) counts the rounds right.
+	runs int
 }
 
 // PartProc is a process running a command of a chain, and its start, which
@@ -136,12 +140,16 @@ func (st *Step) watch(sh Shell, now time.Time) {
 	}
 	for k, t := range seen {
 		r := st.parts[k]
-		if r == nil {
-			r = &partRun{start: t}
+		switch {
+		case r == nil:
+			r = &partRun{start: t, runs: 1}
 			st.parts[k] = r
-		}
-		if t.Before(r.start) {
+		case t.Before(r.start):
 			r.start = t
+		case t.After(r.start):
+			// A new process for it: a loop has come round to it again.
+			r.start = t
+			r.runs++
 		}
 		r.seen, r.end, r.procs = now, time.Time{}, procs[k]
 		st.at = max(st.at, k)
@@ -247,14 +255,18 @@ func (d *drawer) partMarks(st *Step, n int) []string {
 			continue
 		}
 		stop := r.end
+		round := ""
+		if r.runs > 1 {
+			round = " · run " + strconv.Itoa(r.runs)
+		}
 		switch {
 		case stop.IsZero() && live:
-			marks[k] = paint(cOrange, spinner[d.o.Tick%len(spinner)]+" "+dur(end.Sub(r.start)))
+			marks[k] = paint(cOrange, spinner[d.o.Tick%len(spinner)]+" "+dur(end.Sub(r.start))+round)
 			continue
 		case stop.IsZero():
 			stop = end
 		}
-		t := dur(max(0, stop.Sub(r.start)))
+		t := dur(max(0, stop.Sub(r.start))) + round
 		if st.Status == Failed && k == st.at {
 			marks[k] = paint(cRed, "✗ "+t)
 		} else {
@@ -320,7 +332,11 @@ func (st *Step) runningPart() string {
 		return ""
 	}
 	w := bare(fieldsOf(segs[k].text))
-	return strings.Join(append([]string{strconv.Itoa(k+1) + "/" + strconv.Itoa(len(segs))}, w[:min(2, len(w))]...), " ")
+	out := strings.Join(append([]string{strconv.Itoa(k+1) + "/" + strconv.Itoa(len(segs))}, w[:min(2, len(w))]...), " ")
+	if n := st.parts[k].runs; n > 1 {
+		out += " · run " + strconv.Itoa(n)
+	}
+	return out
 }
 
 // RunningPart is the command of a Bash call's chain that runs now.

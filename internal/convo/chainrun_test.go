@@ -154,3 +154,32 @@ func TestPartMarksFillGaps(t *testing.T) {
 		t.Fatalf("marks = %q, want %q", strings.Join(got, "|"), want)
 	}
 }
+
+// A loop's command seen start again counts a run and times this one, not
+// all of them since the first.
+func TestWatchShellsLoop(t *testing.T) {
+	t0 := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	cmd := "for i in $(seq 1 30); do curl -s x && break; sleep 10; done; echo ok"
+	s, st := runningChain(cmd, t0)
+	look := func(at time.Duration, p ShellProc) {
+		s.WatchShells([]Shell{{Cmd: "eval '" + cmd + "'", Start: t0, Kids: []ShellProc{p}}}, t0.Add(at))
+	}
+	sleep := func(from time.Duration) ShellProc {
+		return ShellProc{Args: []string{"sleep", "10"}, Start: t0.Add(from)}
+	}
+	look(2*time.Second, sleep(time.Second))
+	look(9*time.Second, sleep(time.Second))
+	look(13*time.Second, sleep(12*time.Second))
+	k := -1
+	for i, r := range st.parts {
+		if r.runs > 0 {
+			k = i
+		}
+	}
+	if k < 0 || st.parts[k].runs != 2 || !st.parts[k].start.Equal(t0.Add(12*time.Second)) {
+		t.Fatalf("sleep should be on its second run, from 12s: %+v", st.parts[k])
+	}
+	if got := st.runningPart(); !strings.HasSuffix(got, "sleep 10 · run 2") {
+		t.Errorf("runningPart = %q", got)
+	}
+}
