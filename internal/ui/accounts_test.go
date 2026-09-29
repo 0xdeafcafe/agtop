@@ -146,7 +146,7 @@ func TestAccountsGroupedByAgent(t *testing.T) {
 		}
 	}
 	plain := ansi.Strip(strings.Join(body, "\n"))
-	for _, want := range []string{"★ ◇ Claude Code", "one@example.com", "ZGone"} {
+	for _, want := range []string{"★ ✻ Claude Code", "one@example.com", "ZGone"} {
 		if strings.Contains(plain, want) != (want != "ZGone") {
 			t.Errorf("want %q shown %v in:\n%s", want, want != "ZGone", plain)
 		}

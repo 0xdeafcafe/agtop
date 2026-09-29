@@ -24,8 +24,8 @@ type Adapter struct {
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Claude Code" }
 
-// Builtin: the core still runs and reads Claude Code's sessions itself.
-func (Adapter) Builtin() {}
+// ClaudeTranscripts: its transcripts are Claude Code's own.
+func (Adapter) ClaudeTranscripts() {}
 
 // Program is claude, which Claude Code's own installer puts in
 // ~/.claude/local.
@@ -86,23 +86,23 @@ func (Adapter) Commands(p agent.Profile, cwd string) []agent.Command {
 }
 
 var (
-	_ agent.Adapter       = Adapter{}
-	_ agent.Driver        = Adapter{}
-	_ agent.Pricer        = Adapter{}
-	_ agent.Commander     = Adapter{}
-	_ agent.Builtin       = Adapter{}
-	_ agent.Answerer      = (*conn)(nil)
-	_ agent.Responder     = (*conn)(nil)
-	_ agent.Asker         = (*conn)(nil)
-	_ agent.ContextReader = (*conn)(nil)
-	_ agent.TaskStopper   = (*conn)(nil)
-	_ agent.Backgrounder  = (*conn)(nil)
-	_ agent.Staler        = (*conn)(nil)
-	_ agent.QuotaKeeper   = (*conn)(nil)
-	_ agent.Ender         = (*conn)(nil)
-	_ agent.PIDer         = (*conn)(nil)
-	_ agent.Tapper        = (*conn)(nil)
-	_ agent.Describer     = Adapter{}
+	_ agent.Adapter           = Adapter{}
+	_ agent.Driver            = Adapter{}
+	_ agent.Pricer            = Adapter{}
+	_ agent.Commander         = Adapter{}
+	_ agent.ClaudeTranscripts = Adapter{}
+	_ agent.Answerer          = (*conn)(nil)
+	_ agent.Responder         = (*conn)(nil)
+	_ agent.Asker             = (*conn)(nil)
+	_ agent.ContextReader     = (*conn)(nil)
+	_ agent.TaskStopper       = (*conn)(nil)
+	_ agent.Backgrounder      = (*conn)(nil)
+	_ agent.Staler            = (*conn)(nil)
+	_ agent.QuotaKeeper       = (*conn)(nil)
+	_ agent.Ender             = (*conn)(nil)
+	_ agent.PIDer             = (*conn)(nil)
+	_ agent.Tapper            = (*conn)(nil)
+	_ agent.Describer         = Adapter{}
 )
 
 // Doing is a call in a few words, with words of its own for Claude Code's

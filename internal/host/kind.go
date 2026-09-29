@@ -11,11 +11,8 @@ import (
 
 // UseAgent sets cfg to run kind, in the agent's first config folder, and
 // reports an agent agtop doesn't know, can't run or can't find installed.
-// The built-in agent, the default, needs nothing.
+// An account already set is kept.
 func (cfg *Config) UseAgent(kind string) error {
-	if agent.IsBuiltin(agent.Kind(kind)) {
-		return nil
-	}
 	a, ok := agent.Get(agent.Kind(kind))
 	if !ok {
 		var kinds []string

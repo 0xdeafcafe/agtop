@@ -22,7 +22,7 @@ type othersListing struct {
 // stands for: running ones (a codex in a terminal), which agtop can only
 // show, and past ones, which a message resumes in agtop mode with their
 // agent.
-func (l *Loader) otherAgents(home agent.Kind, claimed, seen map[string]bool, now time.Time) []*Agent {
+func (l *Loader) otherAgents(home agent.Kind, claimed, seen map[string]bool, now time.Time) []*Agent { //nolint:gocognit // one listing per agent, each kept a while
 	if l.others == nil {
 		l.others = map[string]othersListing{}
 	}

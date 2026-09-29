@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"bytes"
-	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,9 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // An agent a session ran from its shell (claude -p, codex exec) wrote a
@@ -123,22 +119,15 @@ func (m *Model) refreshSpawns() tea.Cmd {
 	}
 	c.spawnLooking = true
 	key := c.key
-	var accts []claude.Account
+	var mine []agent.Profile // the session's own profile, where its spawns likely wrote
 	if a := m.agentByKey(c.key); a != nil {
-		accts = append(accts, claude.AccountOf(a.Acct))
-	}
-	for _, a := range agent.All() {
-		if agent.IsBuiltin(a.Kind()) {
-			for _, p := range a.Profiles() {
-				accts = append(accts, claude.Account{Name: p.Name, ConfigDir: p.Dir})
-			}
-		}
+		mine = append(mine, a.Acct)
 	}
 	own := c.path
 	return func() tea.Msg {
 		found := map[string]agent.Session{}
 		for _, w := range want {
-			if s, ok := findSpawn(w, accts, own, taken); ok {
+			if s, ok := findSpawn(w, mine, own, taken); ok {
 				found[w.step] = s
 				taken[s.Transcript] = true
 			}
@@ -161,7 +150,7 @@ func (m *Model) onSpawnFound(msg spawnFoundMsg) {
 		}
 		sp, _ := st.Spawn()
 		r.kind, r.prompt, r.path, r.born = s.Kind, sp.Prompt, s.Transcript, s.CreatedAt
-		if agent.IsBuiltin(s.Kind) {
+		if agent.ReadsAsClaude(s.Kind) {
 			r.tail = convo.NewTail(s.Transcript)
 		} else {
 			r.hist = &history{kind: s.Kind, s: s}
@@ -220,7 +209,7 @@ func (m *Model) spawnDir(c *hostConn, sp convo.Spawn) string {
 // begun while its command ran, asked what the command asked, and in the
 // folder it ran in when that's known. own and taken are transcripts that
 // are someone else's.
-func findSpawn(w spawnWant, accts []claude.Account, own string, taken map[string]bool) (agent.Session, bool) {
+func findSpawn(w spawnWant, mine []agent.Profile, own string, taken map[string]bool) (agent.Session, bool) {
 	from, to := w.start.Add(-3*time.Second), w.end.Add(3*time.Second)
 	fits := func(s agent.Session) bool {
 		if s.Transcript == "" || s.Transcript == own || taken[s.Transcript] {
@@ -231,12 +220,12 @@ func findSpawn(w spawnWant, accts []claude.Account, own string, taken map[string
 		}
 		return samePrompt(w.sp.Prompt, s.Name)
 	}
-	if agent.IsBuiltin(w.sp.Kind) {
-		return findClaudeSpawn(w, accts, fits)
-	}
 	a, ok := agent.Get(w.sp.Kind)
 	if !ok {
 		return agent.Session{}, false
+	}
+	if f, ok := a.(agent.SpawnFinder); ok {
+		return f.FindSpawn(append(mine, a.Profiles()...), w.dir, w.start, fits)
 	}
 	d, ok := a.(agent.Discoverer)
 	if !ok {
@@ -258,95 +247,6 @@ func findSpawn(w spawnWant, accts []claude.Account, own string, taken map[string
 		}
 	}
 	return best, best.Transcript != ""
-}
-
-// findClaudeSpawn looks for a Claude Code transcript begun while the
-// command ran: in the folder of the project it ran in first, then in any
-// project folder written to since.
-func findClaudeSpawn(w spawnWant, accts []claude.Account, fits func(agent.Session) bool) (agent.Session, bool) {
-	seen := map[string]bool{}
-	for _, acct := range accts {
-		root := acct.ProjectsDir()
-		if seen[root] {
-			continue
-		}
-		seen[root] = true
-		// Claude Code names the folder for where it really is: /tmp is
-		// /private/tmp.
-		dirs := []string{filepath.Join(root, claude.ProjectSlug(w.dir))}
-		if real, err := filepath.EvalSymlinks(w.dir); err == nil && real != w.dir {
-			dirs = append(dirs, filepath.Join(root, claude.ProjectSlug(real)))
-		}
-		ents, _ := os.ReadDir(root)
-		for _, e := range ents {
-			if fi, err := e.Info(); err == nil && e.IsDir() && !fi.ModTime().Before(w.start.Add(-3*time.Second)) {
-				dirs = append(dirs, filepath.Join(root, e.Name()))
-			}
-		}
-		for _, dir := range dirs {
-			files, _ := os.ReadDir(dir)
-			for _, f := range files {
-				if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
-					continue
-				}
-				fi, err := f.Info()
-				if err != nil || fi.ModTime().Before(w.start) {
-					continue
-				}
-				path := filepath.Join(dir, f.Name())
-				if seen[path] {
-					continue
-				}
-				seen[path] = true
-				text, at := firstPrompt(path)
-				s := agent.Session{Kind: w.sp.Kind, ID: strings.TrimSuffix(f.Name(), ".jsonl"), Name: text, Transcript: path, CreatedAt: at}
-				if !at.IsZero() && fits(s) {
-					return s, true
-				}
-			}
-		}
-	}
-	return agent.Session{}, false
-}
-
-// firstPrompt is the first thing a Claude Code transcript was asked, and
-// when, read from its head alone.
-func firstPrompt(path string) (string, time.Time) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", time.Time{}
-	}
-	defer f.Close()
-	b := make([]byte, 64<<10)
-	n, _ := f.Read(b)
-	for _, l := range bytes.Split(b[:n], []byte{'\n'}) {
-		if !bytes.Contains(l, []byte(`"type":"user"`)) {
-			continue
-		}
-		var line struct {
-			Type        string    `json:"type"`
-			IsSidechain bool      `json:"isSidechain"`
-			Timestamp   time.Time `json:"timestamp"`
-			Message     struct {
-				Content jsontext.Value `json:"content"`
-			} `json:"message"`
-		}
-		if jsonx.Unmarshal(l, &line) != nil || line.Type != "user" || line.IsSidechain {
-			continue
-		}
-		var text string
-		if jsonx.Unmarshal(line.Message.Content, &text) != nil {
-			var blocks []struct{ Type, Text string }
-			_ = jsonx.Unmarshal(line.Message.Content, &blocks)
-			for _, bl := range blocks {
-				if bl.Type == "text" {
-					text += bl.Text
-				}
-			}
-		}
-		return text, line.Timestamp
-	}
-	return "", time.Time{}
 }
 
 // samePrompt is whether a session's first words are what the command

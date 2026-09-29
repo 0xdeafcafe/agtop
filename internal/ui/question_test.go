@@ -2,6 +2,8 @@ package ui
 
 import (
 	"encoding/json/jsontext"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
@@ -621,7 +624,12 @@ func TestFleetSlash(t *testing.T) {
 // A message for a job Claude Code has let go of carries the conversation on
 // in agtop mode instead of failing.
 func TestJobGoneMovesToAgtop(t *testing.T) {
-	a := &fleet.Agent{Key: "acct/gone", DisplayName: "gone"}
+	bin := t.TempDir() // Claude Code is installed
+	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o755)
+	t.Setenv("PATH", bin)
+	agent.Recheck()
+	t.Cleanup(agent.Recheck)
+	a := &fleet.Agent{Key: "acct/gone", DisplayName: "gone", Kind: "claude"}
 	a.SessionID, a.State = "sess", "done"
 	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}}
 	m.order = m.snap.Agents

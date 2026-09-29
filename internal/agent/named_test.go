@@ -16,7 +16,7 @@ var namedOK = []string{"internal/claude/", "internal/adapters/claude/", "interna
 
 // namedYet are files that still name Claude Code, and why. The list only
 // shrinks: a new "claude" belongs behind the Claude adapter, or asks the
-// registry (agent.Supports, agent.IsBuiltin, agent.KindOf).
+// registry (agent.Supports, an adapter interface, agent.ProgramOf).
 var namedYet = map[string]string{
 	// Accounts and state are being reworked into providers and profiles.
 	"internal/ui/settings_claude.go": "Claude Code's own page of Settings",

@@ -39,9 +39,13 @@ var (
 	}
 )
 
-// lookOf is provider k's look; an empty kind is the built-in agent's.
+// unmarked is whether provider k's rows go without its mark, as they were
+// before agtop ran other agents: the one whose accounts are agtop's logins.
+func unmarked(k agent.Kind) bool { return k == loginsKind }
+
+// lookOf is provider k's look.
 func lookOf(k agent.Kind) look {
-	if agent.IsBuiltin(k) {
+	if unmarked(k) {
 		return builtinLook
 	}
 	if l, ok := looks[k]; ok {
@@ -69,7 +73,7 @@ func providerTag(k agent.Kind) string {
 // so its rows stay as they were; the glyph and kind for any other.
 func rowBadge(a *fleet.Agent) string {
 	k := agent.Kind(a.Kind)
-	if agent.IsBuiltin(k) {
+	if unmarked(k) {
 		return ""
 	}
 	l := lookOf(k)

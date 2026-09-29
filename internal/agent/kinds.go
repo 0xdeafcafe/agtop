@@ -1,27 +1,9 @@
 package agent
 
-import "path/filepath"
-
-// Builtin is an adapter whose sessions the core still runs and reads
-// itself, as it did before agtop ran other agents: the host drives them
-// through headless and sends clients their own stream-json lines, and
-// fleet and convo find and read their transcripts directly. Only Claude
-// Code's is, until the rest of docs/multi-agent.md's refactor moves all
-// that behind its adapter; then this goes.
-type Builtin interface {
-	Builtin()
-}
-
-// BuiltinKind is the kind of the built-in agent; empty when none is
-// registered.
-func BuiltinKind() Kind {
-	for _, a := range All() {
-		if _, ok := a.(Builtin); ok {
-			return a.Kind()
-		}
-	}
-	return ""
-}
+import (
+	"path/filepath"
+	"time"
+)
 
 // LegacyKind is the agent an empty kind meant: agtop ran only Claude Code
 // before it ran others, and wrote no kind for it.
@@ -37,18 +19,29 @@ func Migrated(kind string) Kind {
 	return Kind(kind)
 }
 
-// IsBuiltin is whether agent k is the built-in one. Empty is, whether or
-// not it's registered.
-func IsBuiltin(k Kind) bool {
-	if k == "" {
-		return true
-	}
+// ClaudeTranscripts is an adapter whose sessions write Claude Code's
+// transcripts, which the conversation pane reads as they grow and which
+// sit where a Claude Code account keeps them. Another agent's are read
+// through its HistoryReader.
+type ClaudeTranscripts interface {
+	ClaudeTranscripts()
+}
+
+// ReadsAsClaude is whether agent k's transcripts are Claude Code's.
+func ReadsAsClaude(k Kind) bool {
 	a, ok := Get(k)
 	if !ok {
 		return false
 	}
-	_, ok = a.(Builtin)
+	_, ok = a.(ClaudeTranscripts)
 	return ok
+}
+
+// SpawnFinder is an adapter that finds a session one of its programs
+// began from another's shell itself, faster than listing every session:
+// one begun in dir after start that fits, looked for in profiles.
+type SpawnFinder interface {
+	FindSpawn(profiles []Profile, dir string, start time.Time, fits func(Session) bool) (Session, bool)
 }
 
 // ProgramOf is what agent k's program is called; empty when it has none,

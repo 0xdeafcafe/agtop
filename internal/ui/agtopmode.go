@@ -259,7 +259,7 @@ func (m *Model) readUnread(c *hostConn) tea.Cmd {
 // conversation's subagents.
 func (m *Model) followSessionID(c *hostConn) {
 	i := c.sess.Info
-	if c.client == nil || i.SessionID == "" || i.Cwd == "" || !agent.IsBuiltin(agent.Kind(i.Kind)) {
+	if c.client == nil || i.SessionID == "" || i.Cwd == "" || !agent.ReadsAsClaude(sessionAgent(c)) {
 		return
 	}
 	if c.path != "" && strings.HasSuffix(c.path, string(filepath.Separator)+i.SessionID+".jsonl") {
@@ -1084,7 +1084,7 @@ func openHost(a *fleet.Agent) tea.Cmd {
 				sess = convo.History(filepath.Join(filepath.Dir(path), cfg.From+".jsonl"), started)
 			}
 		}
-		if infoErr == nil && !agent.IsBuiltin(agent.Kind(info.Kind)) {
+		if infoErr == nil && !agent.ReadsAsClaude(agent.Kind(info.Kind)) {
 			// Another agent's: what came before the replay is in its own
 			// history, read through its adapter.
 			sess = convo.New()
@@ -3043,20 +3043,18 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 	}
 	kind, profile := m.startKindIn(dir), m.startProfile(dir).Name
 	m.accts.profile = "" // a profile picked with #profile is for one session
-	cfg := host.Config{
-		Account: m.store.Config.ActiveAccount().Profile(), Cwd: dir, Prompt: text, Images: images, Name: name,
-		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
-		Profile: profile,
+	// Each agent starts with what its own Settings page says.
+	st := d.StartFor(kind)
+	cfg := host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, IdleStop: host.Duration(d.Rest()), Profile: profile,
+		Model: st.Model, Effort: st.Effort, PermissionMode: st.Mode}
+	if agent.Kind(kind) == loginsKind {
+		// Dispatch's own settings are this agent's, and its account the one
+		// switched in.
+		cfg.Account, cfg.LimitMode, cfg.Lean = m.store.Config.ActiveAccount().Profile(), d.OnLimit, d.Lean
 	}
-	if !agent.IsBuiltin(agent.Kind(kind)) {
-		// Another agent starts with what its own Settings page says.
-		st := d.StartFor(kind)
-		cfg = host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, IdleStop: host.Duration(d.Rest()), Profile: profile,
-			Model: st.Model, Effort: st.Effort, PermissionMode: st.Mode}
-		if err := cfg.UseAgent(kind); err != nil {
-			m.flash(err.Error(), true)
-			return nil
-		}
+	if err := cfg.UseAgent(kind); err != nil {
+		m.flash(err.Error(), true)
+		return nil
 	}
 	m.flash("starting a new session…", false)
 	return func() tea.Msg {
@@ -3129,18 +3127,16 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 	}
 	delete(m.moveWhenIdle, a.Key)
 	d := m.store.Config.Dispatch
-	cfg := host.Config{
-		SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
-		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
+	cfg := host.Config{SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
+		IdleStop: host.Duration(d.Rest())}
+	if agent.Kind(a.Kind) == loginsKind {
+		// Dispatch's own settings are this agent's; another carries on with
+		// its own model and mode.
+		cfg.Model, cfg.Effort, cfg.PermissionMode, cfg.LimitMode, cfg.Lean = d.Model, d.Effort, d.Permission, d.OnLimit, d.Lean
 	}
-	if !agent.IsBuiltin(agent.Kind(a.Kind)) {
-		// Another agent's: it carries on with its own model and mode.
-		cfg = host.Config{SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
-			IdleStop: host.Duration(d.Rest())}
-		if err := cfg.UseAgent(a.Kind); err != nil {
-			m.flash(err.Error(), true)
-			return nil
-		}
+	if err := cfg.UseAgent(a.Kind); err != nil {
+		m.flash(err.Error(), true)
+		return nil
 	}
 	old := a.Key
 	if a.Interactive {

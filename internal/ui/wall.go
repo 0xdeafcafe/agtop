@@ -257,7 +257,7 @@ func (m *Model) wallTile(a *fleet.Agent, w, h int, picked bool) []string {
 	if model == "" {
 		model = strings.TrimPrefix(a.Spend.Model, "claude-")
 	}
-	if agent.Kind(a.Kind) != agent.BuiltinKind() {
+	if !unmarked(agent.Kind(a.Kind)) {
 		model = strings.TrimSpace(agentName(a.Kind) + " " + model)
 	}
 	meta := strings.Join(nonEmpty(model, age(a.Age(now))), " · ")

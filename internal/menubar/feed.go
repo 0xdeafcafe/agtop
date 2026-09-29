@@ -79,8 +79,12 @@ func windows(q usage.Quota) (first, second Window) {
 func otherAccounts(snap *fleet.Snapshot) []Account {
 	readings := usage.Load(host.QuotasPath())
 	var out []Account
+	shown := map[agent.Kind]bool{} // agents whose accounts the feed has
+	for i := range snap.Accounts {
+		shown[snap.Accounts[i].Profile().Kind] = true
+	}
 	for _, a := range host.Installed() {
-		if _, ok := a.(agent.QuotaSource); !ok || agent.IsBuiltin(a.Kind()) {
+		if _, ok := a.(agent.QuotaSource); !ok || shown[a.Kind()] {
 			continue
 		}
 		q, ok := readings[host.QuotaKey(a.Profiles()[0])]

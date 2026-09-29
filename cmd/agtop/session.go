@@ -13,7 +13,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -284,25 +283,23 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 			}
 		}
 	}
-	if !agent.IsBuiltin(agent.Kind(kind)) {
-		if err := cfg.UseAgent(kind); err != nil {
-			return asJSON, err
-		}
-		// The defaults in Settings are Claude Code's model, effort and
-		// modes: another agent starts with its own unless told.
-		d = state.Dispatch{Lean: d.Lean, RestMinutes: d.RestMinutes}
-	}
-	if cfg.Account.Dir == "" {
+	kind = or(kind, or(cfg.Kind, st.Config.DefaultAgent()))
+	if kind == state.LoginsKind && cfg.Account.Dir == "" {
 		cfg.Account = st.Config.ActiveAccount().Profile()
 	}
+	if err := cfg.UseAgent(kind); err != nil {
+		return asJSON, err
+	}
+	// Each agent starts with what its own Settings page says, unless told.
+	start := d.StartFor(kind)
 	cfg.Prompt, cfg.Images = prompt, images
 	cfg.Lean, cfg.IdleStop = d.Lean, host.Duration(d.Rest())
-	if cfg.LimitMode == "" {
+	if cfg.LimitMode == "" && kind == state.LoginsKind { // Dispatch's own are that agent's
 		cfg.LimitMode = d.OnLimit
 	}
-	cfg.Model = or(model, or(cfg.Model, d.Model))
-	cfg.Effort = or(effort, or(cfg.Effort, d.Effort))
-	cfg.PermissionMode = or(mode, or(cfg.PermissionMode, d.Permission))
+	cfg.Model = or(model, or(cfg.Model, start.Model))
+	cfg.Effort = or(effort, or(cfg.Effort, start.Effort))
+	cfg.PermissionMode = or(mode, or(cfg.PermissionMode, start.Mode))
 	cfg.Binary = or(binary, cfg.Binary)
 	if len(env) > 0 {
 		cfg.Env = env
