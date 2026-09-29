@@ -123,6 +123,11 @@ func SeedHome(home, root Account, l Login, cred []byte) error {
 	if !usable(cred) {
 		return fmt.Errorf("agtop has no sign-in for %s; sign in to it again", l.Name)
 	}
+	// The vault's copy has the MCP servers' logins from when it was put
+	// away: the ones ~/.claude holds now are the ones to carry on with.
+	if now, err := readCreds(root); err == nil {
+		cred = withMCPLogins(cred, now)
+	}
 	return writeCreds(home, cred)
 }
 

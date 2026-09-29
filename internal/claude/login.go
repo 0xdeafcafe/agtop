@@ -206,14 +206,18 @@ func (v Vault) Adopt(scratch Account) (Login, error) {
 // dropping them or bringing back the other account's older copies.
 func withMCPLogins(cred, now []byte) []byte {
 	var from map[string]jsontext.Value
-	if jsonx.Unmarshal(now, &from) != nil || len(from["mcpOAuth"]) == 0 {
-		return cred
+	if !usable(now) || jsonx.Unmarshal(now, &from) != nil {
+		return cred // nothing sound to go by: leave cred as it was
 	}
 	var to map[string]jsontext.Value
 	if jsonx.Unmarshal(cred, &to) != nil {
 		return cred
 	}
-	to["mcpOAuth"] = from["mcpOAuth"]
+	if len(from["mcpOAuth"]) == 0 {
+		delete(to, "mcpOAuth") // signed out of them all
+	} else {
+		to["mcpOAuth"] = from["mcpOAuth"]
+	}
 	out, err := jsonx.Marshal(to)
 	if err != nil {
 		return cred
