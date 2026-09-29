@@ -2798,6 +2798,9 @@ func (m *Model) clickBox(x, y int) bool {
 			return true
 		}
 		c.back, c.anchor = len(c.input)-pos, pos+1 // a drag from here selects
+		if from, to := boxWord(c.input, pos, m.dbl); from < to {
+			c.back, c.anchor = len(c.input)-to, from+1
+		}
 		m.boxDrag = 1
 	case which == 2:
 		m.paneFocus, m.embedded = false, false
@@ -2808,11 +2811,27 @@ func (m *Model) clickBox(x, y int) bool {
 		}
 		m.setCursor(pos)
 		m.anchor = pos + 1 // a drag from here selects
+		if from, to := boxWord(m.input, pos, m.dbl); from < to {
+			m.setCursor(to)
+			m.anchor = from + 1
+		}
 		m.boxDrag = 2
 	default:
 		return false
 	}
 	return true
+}
+
+// boxWord is the word a double-click at pos in a box lands on: the one
+// the cursor sits in or just after.
+func boxWord(buf []rune, pos int, dbl bool) (int, int) {
+	if !dbl {
+		return 0, 0
+	}
+	if from, to := wordAt(buf, pos); from < to {
+		return from, to
+	}
+	return wordAt(buf, pos-1)
 }
 
 // dragBox moves the cursor of the box a drag started in to the text under

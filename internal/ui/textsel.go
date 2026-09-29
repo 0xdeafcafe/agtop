@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -69,7 +70,57 @@ func (m *Model) startTextSel(c *hostConn, x, y int) bool {
 	}
 	at, _ := m.textCell(c, x, y)
 	c.txt = textSel{drag: true, a: at, b: at, view: m.viewName(c), pressY: y}
+	if m.dbl && at.row < len(c.shown) {
+		c.txt.selectWord(c.shown[at.row].Text)
+	}
 	return true
+}
+
+// selectWord makes a double-click's selection the word under it.
+func (s *textSel) selectWord(line string) {
+	if from, to, ok := wordCells(line, s.a.col); ok {
+		s.a.col, s.b.col = from, to-1
+		s.on, s.moved = true, true
+	}
+}
+
+// wordCells is the word in a drawn row around cell col, [from, to).
+func wordCells(line string, col int) (int, int, bool) {
+	rs := []rune(ansi.Strip(line))
+	at := make([]int, len(rs)+1) // the cell each rune starts at
+	i := -1
+	for j, r := range rs {
+		at[j+1] = at[j] + cellw.String(string(r))
+		if i < 0 && at[j+1] > col {
+			i = j
+		}
+	}
+	from, to := wordAt(rs, i)
+	return at[from], at[to], from < to
+}
+
+// wordAt is the word around rs[i], [from, to): out to the nearest blank,
+// bracket, quote or comma either side, less a full stop or colon ending it,
+// so a path or URL is taken whole.
+func wordAt(rs []rune, i int) (int, int) {
+	if i < 0 || i >= len(rs) || wordBreak(rs[i]) {
+		return 0, 0
+	}
+	from, to := i, i+1
+	for from > 0 && !wordBreak(rs[from-1]) {
+		from--
+	}
+	for to < len(rs) && !wordBreak(rs[to]) {
+		to++
+	}
+	for to > i+1 && strings.ContainsRune(".:!?", rs[to-1]) {
+		to--
+	}
+	return from, to
+}
+
+func wordBreak(r rune) bool {
+	return unicode.IsSpace(r) || strings.ContainsRune("()[]{}<>\"'`,;|▏▍│", r)
 }
 
 // dragTextSel moves the drag's end to the pointer. Past the top or bottom

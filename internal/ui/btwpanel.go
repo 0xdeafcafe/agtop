@@ -205,6 +205,9 @@ func (m *Model) clickBtw(c *hostConn, x, y int) bool {
 	t.focused, m.paneFocus = true, true
 	at := t.cellAt(x, y)
 	t.sel = textSel{drag: true, a: at, b: at}
+	if m.dbl && at.row < len(t.shown) {
+		t.sel.selectWord(t.shown[at.row].Text)
+	}
 	return true
 }
 

@@ -120,6 +120,11 @@ type Model struct {
 	rowKeys      []string
 	listTop      int
 	lastClick    time.Time
+	// pressAt and pressXY are the last left press, and dbl whether the
+	// one being handled is a second on the same cell: a double-click.
+	pressAt time.Time
+	pressXY [2]int
+	dbl     bool
 
 	input  []rune
 	back   int // cursor distance from the input's end
@@ -1260,6 +1265,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case tea.MouseClickMsg:
 		m.ptrX, m.ptrY, m.ptrSeen = msg.X, msg.Y, true
+		if msg.Button == tea.MouseLeft {
+			at := [2]int{msg.X, msg.Y}
+			m.dbl = at == m.pressXY && time.Since(m.pressAt) < 400*time.Millisecond
+			m.pressAt, m.pressXY = time.Now(), at
+		}
 		if m.sheet != nil {
 			if msg.Button == tea.MouseLeft {
 				return m, m.sheetMouse(mousePress, msg.X, msg.Y)

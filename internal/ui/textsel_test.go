@@ -83,3 +83,41 @@ func dump(lines []convo.Line) string {
 	}
 	return b.String()
 }
+
+func TestWordCells(t *testing.T) {
+	for _, tc := range []struct {
+		line string
+		col  int
+		want string
+		ok   bool
+	}{
+		{"run go test ./internal/ui now", 14, "./internal/ui", true},
+		{"see (foo_bar), then", 6, "foo_bar", true},
+		{"it's at https://x.io/a?b=1.", 12, "https://x.io/a?b=1", true},
+		{"ends here.", 7, "here", true},
+		{"日本 word", 5, "word", true},
+		{"two  spaces", 4, "", false},
+		{"\x1b[1mbold\x1b[0m text", 1, "bold", true},
+	} {
+		from, to, ok := wordCells(tc.line, tc.col)
+		got := ""
+		if ok {
+			got = ansi.Cut(ansi.Strip(tc.line), from, to)
+		}
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("wordCells(%q, %d) = %q %v, want %q %v", tc.line, tc.col, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestBoxWord(t *testing.T) {
+	buf := []rune("fix the bug")
+	for pos, want := range map[int]string{5: "the", 7: "the", 8: "bug", 11: "bug"} {
+		if from, to := boxWord(buf, pos, true); string(buf[from:to]) != want {
+			t.Errorf("boxWord at %d = %q, want %q", pos, string(buf[from:to]), want)
+		}
+	}
+	if from, to := boxWord(buf, 5, false); from != to {
+		t.Error("a single click selected a word")
+	}
+}
