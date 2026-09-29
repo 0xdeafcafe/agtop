@@ -125,10 +125,10 @@ func (m *Model) fleetArgs(name string) (opts []string, now string) {
 		}
 		return opts, m.store.Config.DefaultAgent()
 	case "profile":
-		for _, p := range m.store.Config.Profiles {
+		for _, p := range m.store.Config.AllProfiles() {
 			opts = append(opts, p.Name)
 		}
-		// Each provider is a profile of its own, for a session beside the rest.
+		// Each agent is a profile too: its provider in its harness.
 		for _, a := range m.agentOrder() {
 			if _, ok := m.store.Config.ProfileNamed(string(a.Kind())); ok && !slices.Contains(opts, string(a.Kind())) {
 				opts = append(opts, string(a.Kind()))

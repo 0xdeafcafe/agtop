@@ -83,7 +83,7 @@ func (m *Model) usePickedProfile(name string) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		var names []string
-		for _, p := range cfg.Profiles {
+		for _, p := range cfg.AllProfiles() {
 			names = append(names, p.Name)
 		}
 		m.flash("the next session runs "+m.startProfile(m.startDir()).Name+" · profiles: "+strings.Join(names, ", "), false)
@@ -146,7 +146,8 @@ func (m *Model) handOffStopped() tea.Cmd {
 		}
 		// Only to a provider that can start from another's conversation.
 		takers := p
-		takers.Providers = slices.DeleteFunc(slices.Clone(p.Providers), func(k string) bool {
+		takers.Providers = slices.DeleteFunc(slices.Clone(p.Providers), func(pr string) bool {
+			k := p.KindOf(pr)
 			return k != kind && !agent.Supports(agent.Kind(k), agent.FeatureHandoffIn)
 		})
 		to, ok := takers.Next(kind, room)
@@ -180,45 +181,31 @@ func (m *Model) handOff(a *fleet.Agent, to state.Pick, p state.Profile) tea.Cmd 
 	}
 }
 
-// openProfilePicker is alt+w: a picker of the profiles, to make one the
-// default, then the installed providers, to put one first in the default
-// profile, then Profiles itself.
+// openProfilePicker is alt+w: a picker of the profiles, each installed
+// provider's own then yours, to make one the default, then Profiles
+// itself.
 func (m *Model) openProfilePicker() {
 	cfg := m.store.Config
 	def := cfg.Default()
 	p := &picker{title: "New sessions run"}
-	for _, pr := range cfg.Profiles {
+	for _, pr := range cfg.AllProfiles() {
 		name := pr.Name
 		mark := "  "
 		if strings.EqualFold(name, def.Name) {
 			mark = paint(cOrange, "★ ")
 			p.cursor = len(p.acts)
 		}
+		label := mark + paint(cText+bold, fit(name, 14)) + " " + m.chain(pr)
+		if ownProfile(name) {
+			label = mark + m.chain(pr)
+		}
 		p.acts = append(p.acts, linkAct{
-			label: mark + paint(cText+bold, fit(name, 14)) + " " + m.chain(pr),
+			label: label,
 			do: func(m *Model) tea.Cmd {
 				m.store.Config.SetDefaultProfile(name)
 				_ = m.store.SaveConfig()
 				m.spillTo()
 				m.flash(name+" is the default profile · "+m.profileWords(m.store.Config.Default()), false)
-				return nil
-			},
-		})
-	}
-	for _, ad := range m.agentOrder() {
-		k := ad.Kind()
-		if !agent.Runs(k) {
-			continue
-		}
-		note := faint("  put first in " + def.Name)
-		if inst := def.Installed(); len(inst) > 0 && inst[0] == string(k) {
-			note = dim("  first in " + def.Name)
-		}
-		p.acts = append(p.acts, linkAct{
-			label: "  " + providerTag(k) + note,
-			do: func(m *Model) tea.Cmd {
-				m.withAgent(string(k))
-				m.spillTo()
 				return nil
 			},
 		})

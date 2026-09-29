@@ -168,12 +168,58 @@ func TestMigrateProfiles(t *testing.T) {
 	if s.Config.DefaultProfile != "Home" || s.Config.FolderRules[0].Profile != "Job" || s.Config.Dispatch.Kind != "pb" {
 		t.Fatalf("after renaming: %+v", s.Config)
 	}
-	if !s.Config.DeleteProfile("job") || len(s.Config.FolderRules) != 0 || s.Config.DeleteProfile("home") {
+	if !s.Config.DeleteProfile("job") || len(s.Config.FolderRules) != 0 || s.Config.DeleteProfile("pa") {
 		t.Fatalf("after deleting: %+v", s.Config)
 	}
 	s.Config.SetDefaultProvider("pa")
-	if got := s.Config.Default().Providers; !equal(got, []string{"pa", "pb"}) {
-		t.Fatalf("default provider set to %v", got)
+	if d := s.Config.Default(); !d.Builtin || !equal(d.Providers, []string{"pa"}) || s.Config.Dispatch.Kind != "pa" {
+		t.Fatalf("default provider set to %+v", d)
+	}
+	// Deleting the default leaves its first provider's own.
+	s.Config.SetDefaultProfile("home")
+	if !s.Config.DeleteProfile("home") || s.Config.Default().Name != "pb" {
+		t.Fatalf("after deleting the default: %+v", s.Config.Default())
+	}
+}
+
+// The Default profile an older agtop made, doing no more than its first
+// provider does, gives way to that provider's own; its folders follow.
+func TestMigratePlainDefault(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AGTOP_HOME", dir)
+	old := `{"dispatch":{"kind":"claude"},"agentOrder":["claude","pa"],
+		"profiles":[{"name":"Default","providers":["claude","pa"]}],"defaultProfile":"Default",
+		"folderRules":[{"path":"~/w","profile":"Default"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := Load().Config
+	if len(c.Profiles) != 0 || c.DefaultProfile != "claude" || c.FolderRules[0].Profile != "claude" || !c.Default().Builtin {
+		t.Fatalf("migrated to %+v", c)
+	}
+	// Nor from before profiles.
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"dispatch":{"kind":"pa"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c := Load().Config; len(c.Profiles) != 0 || c.Default().Name != "pa" {
+		t.Fatalf("migrated to %+v", c)
+	}
+}
+
+// Every installed provider is a profile; one you made of its name stands
+// in for it.
+func TestBuiltins(t *testing.T) {
+	c := Config{Profiles: []Profile{{Name: "pb", Providers: []string{"pa", "pb"}}, {Name: "mine", Providers: []string{"pc"}}}}
+	all := c.AllProfiles()
+	names := make([]string, 0, len(all))
+	for _, p := range all {
+		names = append(names, p.Name)
+	}
+	if !equal(names, []string{"claude", "pa", "pc", "pb", "mine"}) {
+		t.Fatalf("profiles %v", names)
+	}
+	if c.Default().Name != "claude" {
+		t.Fatalf("default %+v", c.Default())
 	}
 }
 

@@ -111,7 +111,7 @@ Settings › Accounts lists each installed provider and, under it, the accounts 
 - `1`–`9` jump to a provider, `o` opens its settings, and `p` goes to Profiles, where the order of providers is set.
 - Codex keeps several sign-ins in agtop's vault and swaps one into `~/.codex`. Copilot runs on whichever of `gh`'s GitHub accounts you pick, without changing `gh`'s own. DeepSeek shows its balance; GLM its Coding Plan's limits.
 
-The top bar shows which provider, account and profile new sessions start on, that account's limits, and the battery and free disk. Settings › Agents shows one installed agent at a time (`1`–`9` picks it) and sets the model, effort and permissions its new sessions start with, plus what's that agent's own (for Claude Code: agent definitions, settings.json and its environment). Settings › Overview shows every provider's account, limits, spend today and this week, and what needs you. Settings › Profiles makes and edits profiles: which agents new sessions run, in order, what happens when their accounts run low, and which folders get which profile.
+The top bar shows which provider, account and profile new sessions start on, that account's limits, and the battery and free disk. Settings › Agents shows one installed agent at a time (`1`–`9` picks it) and sets the model, effort and permissions its new sessions start with, plus what's that agent's own (for Claude Code: agent definitions, settings.json and its environment). Settings › Overview shows every provider's account, limits, spend today and this week, and what needs you. Settings › Profiles lists each provider's own profile and yours: which providers new sessions run, in order, which harness each runs in, what happens when their accounts run low, and which folders get which profile.
 
 <table>
   <tr>
@@ -128,14 +128,16 @@ The top bar shows which provider, account and profile new sessions start on, tha
 
 ### Profiles
 
-A profile is a named list of providers plus what to do when they run out:
+Every installed provider is a profile of its own, built in: sessions under `claude` run Claude alone, sessions under `ollama` run Ollama's models alone. You don't make or keep these. The profiles you make group providers, in order, with what to do when they run out:
 
 - **Stay or mix**: new sessions stay on the first provider, or move on to the next once every account of the current one is nearly out.
 - **At a limit**, for a conversation a usage limit stops: `wait` for the reset, move to another `account` of the same provider and carry on, or `handoff`, which tries another account first and then hands the conversation to the next provider in the list with room.
 
-A session gets the profile picked for it (`#profile <name>`, or `agtop session start --profile`), else the one for the longest folder rule its folder falls under, else the default. It keeps that profile when it's resumed. Your old default agent and switching order became a profile called Default the first time agtop loaded your config.
+A provider can run in more than one harness, the program around the model. Ollama's models run in Claude Code (the default), Pi or Codex. Open a provider's own profile to choose which harness it runs in everywhere. In a profile of yours, `h` on a provider chooses again for that profile alone. `#profile ollama-pi` runs one session on Ollama in Pi, whatever the setting.
 
-`alt+w`, from anywhere, lists your profiles and installed providers: pick a profile to make it the default, or a provider to put it first in the default profile. Settings › Profiles does the rest: new profiles, renaming and deleting them, the order of their providers, what happens when accounts run low, and folders (`+ add a folder` starts from the selected session's folder).
+A session gets the profile picked for it (`#profile <name>`, or `agtop session start --profile`), else the one for the longest folder rule its folder falls under, else the default. It keeps that profile when it's resumed. If agtop had made a Default profile from your old default agent that did no more than that agent, it gave way to that provider's own profile, and folders that named it moved with it.
+
+`alt+w`, from anywhere, lists every profile, each provider's own first: pick one to make it the default. Settings › Profiles does the rest: new profiles, renaming and deleting them, the order of their providers and where each runs, what happens when accounts run low, and folders (`+ add a folder` starts from the selected session's folder).
 
 ## Sessions
 
@@ -328,7 +330,7 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `ctrl+x` | stop; twice on a stopped agent deletes it |
 | `ctrl+l` | change repo |
 | `ctrl+z` | Zen |
-| `alt+w` | the default profile or provider |
+| `alt+w` | the default profile |
 | `#` | agtop's commands |
 | `/` | the agent's commands and skills |
 | `?` | the guide |

@@ -36,6 +36,7 @@ var (
 		"vibe":     {"■", theme.RGB{R: 245, G: 165, B: 60}},  // Mistral's amber
 		"ollama":   {"◉", theme.RGB{R: 232, G: 232, B: 226}}, // Ollama's white llama
 		"opencode": {"▣", theme.RGB{R: 186, G: 182, B: 176}},
+		"pi":       {"π", theme.RGB{R: 230, G: 190, B: 120}},
 	}
 )
 
@@ -49,6 +50,11 @@ func lookOf(k agent.Kind) look {
 		return builtinLook
 	}
 	if l, ok := looks[k]; ok {
+		return l
+	}
+	// A provider in another's harness looks like the provider: Ollama in
+	// Pi is Ollama's.
+	if l, ok := looks[agent.Kind(agent.ProviderOf(k))]; ok {
 		return l
 	}
 	return otherLook
@@ -80,11 +86,11 @@ func rowBadge(a *fleet.Agent) string {
 	return paint(l.colour(), l.glyph+" "+string(k))
 }
 
-// showProfile is whether a profile's name is worth showing: there's more
-// than one, or it isn't the default.
+// showProfile is whether a profile's name is worth showing: it isn't the
+// default, or you've made profiles of your own to tell it from.
 func (m *Model) showProfile(name string) bool {
 	cfg := m.store.Config
-	return name != "" && (len(cfg.Profiles) > 1 || !strings.EqualFold(name, cfg.Default().Name))
+	return name != "" && (len(cfg.Profiles) > 0 || !strings.EqualFold(name, cfg.Default().Name))
 }
 
 // sessionTag is what a session's header says it runs on: the provider's
@@ -190,12 +196,15 @@ func (m *Model) chain(p state.Profile) string {
 	if len(inst) == 0 {
 		return paint(cYellow, "none of its providers is installed")
 	}
-	if !p.Mixes() {
-		return providerTag(agent.Kind(inst[0])) + dim(" only")
+	tag := func(k string) string {
+		return providerTag(agent.Kind(agent.ProviderOf(agent.Kind(k)))) + dim(runsInWords(agent.Kind(k)))
+	}
+	if !p.Mixes() || len(inst) == 1 {
+		return tag(inst[0]) + dim(" only")
 	}
 	var parts []string
 	for _, k := range inst {
-		parts = append(parts, providerTag(agent.Kind(k)))
+		parts = append(parts, tag(k))
 	}
 	return strings.Join(parts, faint(" → "))
 }

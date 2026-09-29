@@ -127,7 +127,8 @@ func TestAccountsGroupedByAgent(t *testing.T) {
 		t.Fatalf("rows: %s", got)
 	}
 	// Its order is the default profile's: Profiles changes it.
-	m.store.Config.AgentOrder = []string{"claude", "zcodex", "zplain"}
+	m.store.Config.SetProfile("", state.Profile{Name: "all", Providers: []string{"claude", "zcodex", "zplain"}})
+	m.store.Config.SetDefaultProfile("all")
 	m.dialog.cursor = 0
 	// 3 jumps to the third agent.
 	m.accountsKey("3")
@@ -177,13 +178,15 @@ func TestAccountsSwitchAnotherAgent(t *testing.T) {
 // you asked agtop to stay put.
 func TestAccountsSwitchOnLimit(t *testing.T) {
 	m, switched := accountsModel(t)
-	m.store.Config.SetSwitchOnLimit(state.OnLimitOff)
+	cfg := &m.store.Config
+	cfg.SetProfile("", state.Profile{Name: "stay", Providers: []string{"claude", "zcodex"}, OnLimit: state.LimitWait})
+	cfg.SetDefaultProfile("stay")
 	if cmd := m.checkLimits(); cmd != nil {
 		if msg := cmd(); msg != nil {
 			t.Fatalf("switched while told to stay: %v", msg)
 		}
 	}
-	m.store.Config.SetSwitchOnLimit(state.OnLimitAccount)
+	cfg.SetDefaultProfile("claude")
 	cmd := m.checkLimits()
 	if cmd == nil {
 		t.Fatal("no switch at 97%")
@@ -202,8 +205,8 @@ func TestAccountsSwitchOnLimit(t *testing.T) {
 // new sessions run the next agent in your order, and go back after.
 func TestAccountsSpillToNextAgent(t *testing.T) {
 	m, _ := accountsModel(t)
-	m.store.Config.SetSwitchOnLimit(state.OnLimitAgent)
-	m.store.Config.AgentOrder = []string{"claude", "zcodex", "zplain"}
+	m.store.Config.SetProfile("", state.Profile{Name: "mix", Providers: []string{"claude", "zcodex", "zplain"}, Mix: state.MixMix})
+	m.store.Config.SetDefaultProfile("mix")
 	for i := range m.snap.Logins {
 		m.snap.Logins[i].Quota.Windows[0].Percent = 99
 	}

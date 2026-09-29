@@ -43,6 +43,7 @@ func TestPickFollowsRoom(t *testing.T) {
 	m, _ := accountsModel(t)
 	cfg := &m.store.Config
 	cfg.SetProfile("", state.Profile{Name: "Default", Providers: []string{"zcodex", "zplain"}, Mix: state.MixMix})
+	cfg.SetDefaultProfile("Default")
 	if k := m.startKindIn("/x"); k != "zcodex" {
 		t.Fatalf("with room, new sessions run %q", k)
 	}
@@ -94,29 +95,33 @@ func TestHandOffStopped(t *testing.T) {
 	}
 }
 
-// alt+w picks the default profile, or puts a provider first in it.
+// alt+w picks the default profile: a provider's own, or one of yours.
 func TestProfilePicker(t *testing.T) {
 	m, _ := accountsModel(t)
 	cfg := &m.store.Config
-	cfg.SetProfile("", state.Profile{Name: "Default", Providers: []string{"claude", "zcodex"}})
-	cfg.SetProfile("", state.Profile{Name: "work", Providers: []string{"zplain"}})
-	m.openProfilePicker()
-	if m.picker == nil || m.picker.cursor != 0 {
-		t.Fatal("the picker didn't open on the default")
+	cfg.SetProfile("", state.Profile{Name: "work", Providers: []string{"zplain", "zcodex"}})
+	pick := func(label string) {
+		t.Helper()
+		m.openProfilePicker()
+		for i, a := range m.picker.acts {
+			if strings.Contains(ansi.Strip(a.label), label) {
+				m.picker.cursor = i
+				m.pickerKey("enter")
+				return
+			}
+		}
+		t.Fatalf("no %q in the picker", label)
 	}
-	m.picker.cursor = 1
-	m.pickerKey("enter")
+	m.openProfilePicker()
+	if m.picker == nil || !strings.Contains(ansi.Strip(m.picker.acts[m.picker.cursor].label), "★ ✻ Claude only") {
+		t.Fatal("the picker didn't open on the default, Claude Code's own")
+	}
+	pick("work")
 	if cfg.DefaultProfile != "work" {
 		t.Fatalf("default is %q", cfg.DefaultProfile)
 	}
-	m.openProfilePicker()
-	for i, a := range m.picker.acts {
-		if strings.Contains(ansi.Strip(a.label), "ZCodex") {
-			m.picker.cursor = i
-		}
-	}
-	m.pickerKey("enter")
-	if got := cfg.Default().Providers; got[0] != "zcodex" {
-		t.Fatalf("work's providers are %v", got)
+	pick("ZCodex only")
+	if d := cfg.Default(); d.Name != "zcodex" || !d.Builtin {
+		t.Fatalf("default is %+v", d)
 	}
 }

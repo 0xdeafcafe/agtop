@@ -9,17 +9,27 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 )
 
-// A profile is a named list of providers (the coding agents: Claude Code,
-// Codex, Copilot…) plus what to do when they run out. Accounts within a
-// provider rotate as they always have; a profile only says which providers
-// a session may use, in which order. Each session gets one: the one picked
-// for it, else the one its folder's rule names, else the default.
+// A profile is a named list of providers (where the model comes from:
+// Claude, Codex, Ollama…) plus what to do when they run out. Every
+// installed provider is a profile of its own, built in and never stored;
+// the ones you make pick and group providers. Accounts within a provider
+// rotate as they always have. Each session gets one profile: the one
+// picked for it, else the one its folder's rule names, else the default.
+//
+// A provider runs in a harness (agent.Harnesses): Ollama in Claude Code,
+// Pi or Codex. Config.RunsIn picks it for each provider, and a profile's
+// own RunsIn picks it for that profile alone.
 
 // Profile is a named list of providers and a policy.
 type Profile struct {
 	Name string `json:"name"`
-	// Providers are the agents' kinds, in the order new sessions try them.
+	// Providers are the providers, in the order new sessions try them.
+	// Before harnesses these were agents' kinds, and still read as such:
+	// "ollama" is Ollama's provider as well as Ollama in Claude Code.
 	Providers []string `json:"providers,omitempty"`
+	// RunsIn is the harness a provider runs in under this profile, by
+	// provider, where it isn't the one Config.RunsIn gives it.
+	RunsIn map[string]string `json:"runsIn,omitempty"`
 	// Mix is where new sessions go once every account of the first
 	// provider is nearly out: "" or "stay" waits on it, "mix" moves on to
 	// the next provider that has room.
@@ -29,6 +39,10 @@ type Profile struct {
 	// account of the same provider, and "handoff" does that, then hands
 	// the conversation to the next provider when none has room.
 	OnLimit string `json:"onLimit,omitempty"`
+	// Builtin is a provider's own profile, made here rather than stored.
+	Builtin bool `json:"-"`
+	// runsIn is Config.RunsIn, for the providers RunsIn leaves out.
+	runsIn map[string]string
 }
 
 // What Profile.Mix and Profile.OnLimit can be.
@@ -43,7 +57,7 @@ const (
 
 // DefaultProfileName is what the profile made from an older config is
 // called.
-const DefaultProfileName = "Default"
+const DefaultProfileName = "Default" // migration: built-in profiles replaced it
 
 // LoginsKind is the agent whose accounts are Config.Logins, and whose
 // Start is kept in Dispatch's own fields, where older agtops read it.
@@ -68,14 +82,44 @@ func (p Profile) Limit() string {
 	return p.OnLimit
 }
 
-// Has is whether the profile lists provider kind.
-func (p Profile) Has(kind string) bool { return slices.Contains(p.Providers, kind) }
+// Harness is the harness provider runs in under this profile: its own
+// choice, else the config's; empty for the provider's default.
+func (p Profile) Harness(provider string) agent.Kind {
+	if h := p.RunsIn[provider]; h != "" {
+		return agent.Kind(h)
+	}
+	return agent.Kind(p.runsIn[provider])
+}
 
-// Installed are the profile's providers agtop can run sessions of here,
-// in order.
+// KindOf is the agent that runs provider under this profile.
+func (p Profile) KindOf(provider string) string {
+	if k, ok := agent.KindFor(provider, p.Harness(provider)); ok {
+		return string(k)
+	}
+	return provider // no adapter for it: stays as named, and isn't installed
+}
+
+// Kinds are the agents that run the profile's providers, in order.
+func (p Profile) Kinds() []string {
+	var out []string
+	for _, pr := range p.Providers {
+		if k := p.KindOf(pr); !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// Has is whether the profile runs agent kind, or lists it as a provider.
+func (p Profile) Has(kind string) bool {
+	return slices.Contains(p.Providers, kind) || slices.Contains(p.Kinds(), kind)
+}
+
+// Installed are the agents of the profile's providers agtop can run
+// sessions of here, in order.
 func (p Profile) Installed() []string {
 	var out []string
-	for _, k := range p.Providers {
+	for _, k := range p.Kinds() {
 		if agent.Runs(agent.Kind(k)) {
 			out = append(out, k)
 		}
@@ -83,32 +127,73 @@ func (p Profile) Installed() []string {
 	return out
 }
 
-// ProfileNamed is the profile called name, ignoring case. A provider
-// that no profile is named after is a profile of its own, of it alone:
-// "#profile ollama" runs the next session there, beside the rest.
+// ProfileNamed is the profile called name, ignoring case: one you made,
+// else a provider's own ("ollama"), else an agent's, which is its
+// provider in that harness ("ollama-pi" is Ollama in Pi).
 func (c Config) ProfileNamed(name string) (Profile, bool) {
 	for _, p := range c.Profiles {
 		if strings.EqualFold(p.Name, name) {
+			p.runsIn = c.RunsIn
 			return p, true
 		}
 	}
-	if k := agent.Kind(strings.ToLower(name)); name != "" {
-		if _, ok := agent.Get(k); ok {
-			return Profile{Name: string(k), Providers: []string{string(k)}}, true
-		}
+	k := agent.Kind(strings.ToLower(name))
+	if name == "" {
+		return Profile{}, false
+	}
+	if slices.Contains(agent.Providers(), string(k)) {
+		return c.builtin(string(k)), true
+	}
+	if _, ok := agent.Get(k); ok {
+		p := c.builtin(agent.ProviderOf(k))
+		p.Name, p.RunsIn = string(k), map[string]string{p.Providers[0]: string(agent.HarnessOf(k))}
+		return p, true
 	}
 	return Profile{}, false
 }
 
-// Default is the profile a session gets when nothing else says.
+// builtin is provider's own profile: it alone, in the harness the config
+// gives it, moving to another of its accounts at a limit.
+func (c *Config) builtin(provider string) Profile {
+	return Profile{Name: provider, Providers: []string{provider}, Builtin: true, runsIn: c.RunsIn}
+}
+
+// Builtins are the installed providers' own profiles, by name, less any
+// you made of the same name, which stands in for it.
+func (c *Config) Builtins() []Profile {
+	var out []Profile
+	for _, pr := range agent.Providers() {
+		if !agent.ProviderInstalled(pr) {
+			continue
+		}
+		if slices.ContainsFunc(c.Profiles, func(p Profile) bool { return strings.EqualFold(p.Name, pr) }) {
+			continue
+		}
+		out = append(out, c.builtin(pr))
+	}
+	return out
+}
+
+// AllProfiles are the providers' own profiles, then yours.
+func (c *Config) AllProfiles() []Profile {
+	out := c.Builtins()
+	for _, p := range c.Profiles {
+		p.runsIn = c.RunsIn
+		out = append(out, p)
+	}
+	return out
+}
+
+// Default is the profile a session gets when nothing else says: the one
+// you made the default, else the default agent's provider's own.
 func (c Config) Default() Profile {
 	if p, ok := c.ProfileNamed(c.DefaultProfile); ok {
 		return p
 	}
-	if len(c.Profiles) > 0 {
-		return c.Profiles[0]
+	if p, ok := c.ProfileNamed(agent.ProviderOf(agent.Kind(c.DefaultAgent()))); ok {
+		return p
 	}
-	return c.legacyProfile()
+	return c.builtin(LoginsKind)
 }
 
 // ProfileFor is the profile a session in cwd gets: explicit when it names
@@ -269,7 +354,7 @@ func (p Profile) PickFor(kind string, room Room) (Pick, bool) {
 func (c Config) legacyProfile() Profile {
 	p := Profile{Name: DefaultProfileName, Providers: []string{c.DefaultAgent()}}
 	for _, k := range c.AgentOrder {
-		if !p.Has(k) {
+		if !slices.Contains(p.Providers, k) {
 			p.Providers = append(p.Providers, k)
 		}
 	}
@@ -278,8 +363,8 @@ func (c Config) legacyProfile() Profile {
 		p.Mix = MixMix
 		// An older agtop moved on through every installed agent, those not
 		// in its order after, by name.
-		for _, a := range agent.All() {
-			if k := string(a.Kind()); !p.Has(k) {
+		for _, k := range agent.Providers() {
+			if !slices.Contains(p.Providers, k) {
 				p.Providers = append(p.Providers, k)
 			}
 		}
@@ -289,13 +374,40 @@ func (c Config) legacyProfile() Profile {
 	return p
 }
 
-// migrateProfiles makes the Default profile from an older config, once.
-func (c *Config) migrateProfiles() {
-	if len(c.Profiles) > 0 {
+// plain is whether p does no more than its first provider's own profile:
+// it never moves on to another, and switches account at a limit.
+func (p Profile) plain() bool {
+	return !p.Mixes() && p.Limit() == LimitAccount && len(p.RunsIn) == 0
+}
+
+// migrateProfiles keeps what an older config meant, once. A config from
+// before profiles, or with the Default profile agtop made from one, needs
+// no profile of its own when that did only what its first provider's
+// built-in one does: its default is that one, and its folders get it.
+// Otherwise the Default profile stays (or is made) for what it does.
+func (c *Config) migrateProfiles() { // migration: built-in profiles replaced Default
+	if c.BuiltinProfiles {
 		return
 	}
-	p := c.legacyProfile()
-	c.Profiles, c.DefaultProfile = []Profile{p}, p.Name
+	c.BuiltinProfiles = true
+	if len(c.Profiles) == 0 {
+		if p := c.legacyProfile(); !p.plain() {
+			c.Profiles, c.DefaultProfile = []Profile{p}, p.Name
+			return
+		}
+		c.DefaultProfile = agent.ProviderOf(agent.Kind(c.DefaultAgent()))
+		return
+	}
+	if len(c.Profiles) != 1 || c.Profiles[0].Name != DefaultProfileName || !c.Profiles[0].plain() || len(c.Profiles[0].Providers) == 0 {
+		return
+	}
+	to := agent.ProviderOf(agent.Kind(c.Profiles[0].Providers[0]))
+	for i, r := range c.FolderRules {
+		if strings.EqualFold(r.Profile, DefaultProfileName) {
+			c.FolderRules[i].Profile = to
+		}
+	}
+	c.Profiles, c.DefaultProfile = nil, to
 }
 
 // SyncLegacy writes the default profile back into the fields older agtops
@@ -303,10 +415,10 @@ func (c *Config) migrateProfiles() {
 // Call it after changing profiles.
 func (c *Config) SyncLegacy() {
 	p := c.Default()
-	if len(p.Providers) > 0 {
-		c.Dispatch.Kind = p.Providers[0]
+	if ks := p.Kinds(); len(ks) > 0 {
+		c.Dispatch.Kind = ks[0]
+		c.AgentOrder = ks
 	}
-	c.AgentOrder = append([]string(nil), p.Providers...)
 	switch {
 	case p.Limit() == LimitWait:
 		c.SetSwitchOnLimit(OnLimitOff)
@@ -318,8 +430,10 @@ func (c *Config) SyncLegacy() {
 }
 
 // SetProfile adds p, or replaces the profile called old (which may be
-// p's own name), keeping rules and the default pointing at it.
+// p's own name), keeping rules and the default pointing at it. A
+// provider's own profile, changed, becomes one of yours.
 func (c *Config) SetProfile(old string, p Profile) {
+	p.Builtin, p.runsIn = false, nil
 	i := slices.IndexFunc(c.Profiles, func(q Profile) bool { return strings.EqualFold(q.Name, old) })
 	if i < 0 {
 		c.Profiles = append(c.Profiles, p)
@@ -339,16 +453,22 @@ func (c *Config) SetProfile(old string, p Profile) {
 	c.SyncLegacy()
 }
 
-// DeleteProfile drops the profile called name, and the folder rules that
-// name it. The last profile stays: there's always a default.
+// DeleteProfile drops the profile you made called name, and the folder
+// rules that name it; a provider's own can't go. When it was the default,
+// the default is its first provider's own again.
 func (c *Config) DeleteProfile(name string) bool {
-	if len(c.Profiles) < 2 {
+	i := slices.IndexFunc(c.Profiles, func(p Profile) bool { return strings.EqualFold(p.Name, name) })
+	if i < 0 {
 		return false
 	}
-	c.Profiles = slices.DeleteFunc(c.Profiles, func(p Profile) bool { return strings.EqualFold(p.Name, name) })
+	gone := c.Profiles[i]
+	c.Profiles = slices.Delete(c.Profiles, i, i+1)
 	c.FolderRules = slices.DeleteFunc(c.FolderRules, func(r FolderRule) bool { return strings.EqualFold(r.Profile, name) })
 	if strings.EqualFold(c.DefaultProfile, name) {
-		c.DefaultProfile = c.Profiles[0].Name
+		c.DefaultProfile = ""
+		if len(gone.Providers) > 0 {
+			c.DefaultProfile = agent.ProviderOf(agent.Kind(gone.Providers[0]))
+		}
 	}
 	c.SyncLegacy()
 	return true
@@ -364,12 +484,25 @@ func (c *Config) SetDefaultProfile(name string) bool {
 	return ok
 }
 
-// SetDefaultProvider puts provider kind first in the default profile, so
-// new sessions run it.
-func (c *Config) SetDefaultProvider(kind string) {
-	p := c.Default()
-	p.Providers = append([]string{kind}, slices.DeleteFunc(slices.Clone(p.Providers), func(k string) bool { return k == kind })...)
-	c.SetProfile(p.Name, p)
+// SetDefaultProvider makes agent kind's own profile the default, so new
+// sessions run it: "ollama-pi" is Ollama's, in Pi.
+func (c *Config) SetDefaultProvider(kind string) { c.SetDefaultProfile(kind) }
+
+// SetRunsIn gives provider the harness it runs in wherever a profile
+// doesn't pick one; empty is its default.
+func (c *Config) SetRunsIn(provider, harness string) {
+	if def := agent.Harnesses(provider); len(def) > 0 && string(agent.HarnessOf(def[0])) == harness {
+		harness = ""
+	}
+	if harness == "" {
+		delete(c.RunsIn, provider)
+	} else {
+		if c.RunsIn == nil {
+			c.RunsIn = map[string]string{}
+		}
+		c.RunsIn[provider] = harness
+	}
+	c.SyncLegacy()
 }
 
 // SetRule gives folder path the profile called name; an empty name drops

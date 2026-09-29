@@ -54,13 +54,20 @@ type Config struct {
 	// than the agent's home saying: a SignIn's ID, by kind.
 	Using map[string]string `json:"using,omitempty"`
 	// Profiles are the named lists of providers sessions run, with what
-	// happens when they run out; DefaultProfile names the one a session
-	// gets when neither you nor a FolderRule picked one. The Default
-	// profile is made once from DefaultAgent, SwitchOnLimit and
-	// AgentOrder, which are still written from it for older agtops.
+	// happens when they run out, that you made; every installed provider
+	// is a profile of its own besides (Builtins). DefaultProfile names the
+	// one a session gets when neither you nor a FolderRule picked one.
+	// DefaultAgent, SwitchOnLimit and AgentOrder are still written from
+	// it for older agtops.
 	Profiles       []Profile    `json:"profiles,omitempty"`
 	DefaultProfile string       `json:"defaultProfile,omitempty"`
 	FolderRules    []FolderRule `json:"folderRules,omitempty"`
+	// RunsIn is the harness each provider runs in, by provider, where
+	// it isn't its usual one: "ollama": "pi" runs Ollama in Pi.
+	RunsIn map[string]string `json:"runsIn,omitempty"`
+	// BuiltinProfiles is set once an older config's profiles were fitted
+	// to built-in ones (migrateProfiles).
+	BuiltinProfiles bool `json:"builtinProfiles,omitzero"`
 	// SwitchOnLimit is what agtop does when the account in use is nearly out:
 	// "" (or "account") switches to another account of the same agent, and
 	// sessions carry on; "agent" does that, then starts new sessions on

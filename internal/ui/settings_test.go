@@ -131,7 +131,7 @@ func TestSettingsProfiles(t *testing.T) {
 		t.Fatalf("n didn't make and open a profile: %d profiles, open %q", len(cfg.Profiles), m.dialog.profile)
 	}
 	body := ansi.Strip(strings.Join(m.dialogBody(130), "\n"))
-	for _, want := range []string{"client", "Agents", "When the first is out", "When a limit stops a session", "Folders"} {
+	for _, want := range []string{"client", "Providers", "When a limit stops a session", "Folders"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the open profile doesn't show %q:\n%s", want, body)
 		}
@@ -148,6 +148,9 @@ func TestSettingsProfiles(t *testing.T) {
 		if r.label == "When a limit stops a session" {
 			m.dialog.cursor = i
 		}
+	if body := ansi.Strip(strings.Join(m.dialogBody(130), "\n")); !strings.Contains(body, "When the first is out") {
+		t.Fatalf("with two providers, no choice of what to do when the first is out:\n%s", body)
+	}
 	}
 	press("right")
 	if p, _ = m.editing(); p.Limit() != state.LimitHandoff {

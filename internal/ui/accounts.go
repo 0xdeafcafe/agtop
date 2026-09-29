@@ -100,7 +100,7 @@ func (m *Model) agentOrder() []agent.Adapter {
 		by[string(a.Kind())] = a
 	}
 	var out []agent.Adapter
-	for _, k := range m.store.Config.Default().Providers {
+	for _, k := range m.store.Config.Default().Kinds() {
 		if a, ok := by[k]; ok {
 			out = append(out, a)
 			delete(by, k)
