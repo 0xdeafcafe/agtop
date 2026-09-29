@@ -126,7 +126,8 @@ type wallItem struct {
 
 // wallItems are the Wall's tiles: wallAgents' agents, each followed at once
 // by its own subagents still running, so a fleet busy underneath reads top
-// to bottom as it happens rather than behind a count.
+// to bottom as it happens rather than behind a count. wallSlots keeps each
+// agent's together on a row.
 func (m *Model) wallItems() []wallItem {
 	agents := m.wallAgents()
 	out := make([]wallItem, 0, len(agents))
@@ -140,17 +141,59 @@ func (m *Model) wallItems() []wallItem {
 	return out
 }
 
-// wallGrid lays n tiles out in w×h: the columns, the rows that fit on
-// screen, and each tile's height. It picks tiles about three and a half
+// wallGroups are the sizes of items' groups: an agent and its subagents.
+func wallGroups(items []wallItem) []int {
+	var gs []int
+	for i, it := range items {
+		if i == 0 || it.a != items[i-1].a {
+			gs = append(gs, 0)
+		}
+		gs[len(gs)-1]++
+	}
+	return gs
+}
+
+// wallSlots places groups of tiles in a grid cols wide: a group that doesn't
+// fit what's left of a row starts the next, so an agent and its subagents
+// sit together. It's each tile's slot, and the slots used.
+func wallSlots(groups []int, cols int) (slots []int, n int) {
+	for _, g := range groups {
+		if c := n % cols; c > 0 && c+g > cols {
+			n += cols - c
+		}
+		for range g {
+			slots = append(slots, n)
+			n++
+		}
+	}
+	return slots, n
+}
+
+// wallAt is the tile in each slot.
+func wallAt(slots []int) map[int]int {
+	at := make(map[int]int, len(slots))
+	for i, s := range slots {
+		at[s] = i
+	}
+	return at
+}
+
+// wallGrid lays groups of tiles out in w×h: the columns, the rows that fit
+// on screen, and each tile's height. It picks tiles about three and a half
 // times as wide as tall (a cell is twice as tall as wide), wasting few.
-func wallGrid(n, w, h int) (cols, rows, tileH int) {
+func wallGrid(groups []int, w, h int) (cols, rows, tileH int) {
+	n := 0
+	for _, g := range groups {
+		n += g
+	}
 	if n == 0 || w <= 0 || h <= 0 {
 		return 1, 1, max(h, 0)
 	}
 	maxCols := max(1, (w+1)/(wallMinW+1))
-	best, bestScore := 0, math.Inf(1)
+	best, bestRows, bestScore := 0, 0, math.Inf(1)
 	for c := 1; c <= min(maxCols, n); c++ {
-		r := (n + c - 1) / c
+		_, used := wallSlots(groups, c)
+		r := (used + c - 1) / c
 		th := h / r
 		if th < wallMinH {
 			continue
@@ -158,12 +201,11 @@ func wallGrid(n, w, h int) (cols, rows, tileH int) {
 		tw := (w - (c - 1)) / c
 		score := math.Abs(math.Log(float64(tw)/float64(th)/3.5)) + 1.5*float64(r*c-n)/float64(n)
 		if score < bestScore {
-			best, bestScore = c, score
+			best, bestRows, bestScore = c, r, score
 		}
 	}
 	if best > 0 {
-		r := (n + best - 1) / best
-		return best, r, h / r
+		return best, bestRows, h / bestRows
 	}
 	// They don't all fit: as many columns as there's room for, and pages
 	// of rows.
@@ -176,28 +218,16 @@ func (m *Model) wallBody(w, h int) []string {
 	items := m.wallItems()
 	m.wall.tiles, m.wall.above, m.wall.below = m.wall.tiles[:0], 0, 0
 	if len(items) == 0 {
-		out := make([]string, h)
-		msg := "nothing open right now"
-		if !m.wall.all {
-			msg += faint("  ·  a shows the last day's")
-		}
-		if h > 0 {
-			out[h/2] = blanks((w-cellw.String(msg))/2) + dim(msg)
-		}
-		return out
+		return m.wallEmpty(w, h)
 	}
 	m.wallPrune(items)
-	cols, rows, tileH := wallGrid(len(items), w, h)
+	groups := wallGroups(items)
+	cols, rows, tileH := wallGrid(groups, w, h)
+	slots, used := wallSlots(groups, cols)
+	at := wallAt(slots)
 	pick := m.wallPick(items)
-	allRows := (len(items) + cols - 1) / cols
-	// Keep the picked tile's row on screen.
-	if r := pick / cols; r < m.wall.top {
-		m.wall.top = r
-	} else if r >= m.wall.top+rows {
-		m.wall.top = r - rows + 1
-	}
-	m.wall.top = max(0, min(m.wall.top, allRows-rows))
-	m.wall.above, m.wall.below = m.wall.top*cols, max(0, len(items)-(m.wall.top+rows)*cols)
+	m.wallScroll(slots[pick]/cols, (used+cols-1)/cols, rows)
+	m.wall.above, m.wall.below = wallOffscreen(slots, cols, m.wall.top, rows)
 
 	tileW := (w - (cols - 1)) / cols
 	extraW := w - (cols - 1) - tileW*cols
@@ -215,8 +245,7 @@ func (m *Model) wallBody(w, h int) []string {
 			if c < extraW {
 				tw++
 			}
-			i := (m.wall.top+r)*cols + c
-			if i < len(items) {
+			if i, ok := at[(m.wall.top+r)*cols+c]; ok {
 				it := items[i]
 				row = append(row, m.wallTile(it, tw, th, i == pick))
 				m.wall.tiles = append(m.wall.tiles, wallTile{key: it.key, x: x, y: len(out), w: tw, h: th})
@@ -240,6 +269,43 @@ func (m *Model) wallBody(w, h int) []string {
 			}
 			out = append(out, b.String())
 		}
+	}
+	return out
+}
+
+// wallScroll keeps row, the picked tile's, among the rows shown of all.
+func (m *Model) wallScroll(row, all, rows int) {
+	if row < m.wall.top {
+		m.wall.top = row
+	} else if row >= m.wall.top+rows {
+		m.wall.top = row - rows + 1
+	}
+	m.wall.top = max(0, min(m.wall.top, all-rows))
+}
+
+// wallOffscreen counts the tiles in rows above top, and below the rows
+// shown from it.
+func wallOffscreen(slots []int, cols, top, rows int) (above, below int) {
+	for _, s := range slots {
+		switch r := s / cols; {
+		case r < top:
+			above++
+		case r >= top+rows:
+			below++
+		}
+	}
+	return above, below
+}
+
+// wallEmpty is the body when there's nothing to show.
+func (m *Model) wallEmpty(w, h int) []string {
+	out := make([]string, h)
+	msg := "nothing open right now"
+	if !m.wall.all {
+		msg += faint("  ·  a shows the last day's")
+	}
+	if h > 0 {
+		out[h/2] = blanks((w-cellw.String(msg))/2) + dim(msg)
 	}
 	return out
 }
@@ -702,9 +768,24 @@ func (m *Model) wallKey(s string) tea.Cmd {
 		return nil
 	}
 	i := m.wallPick(items)
-	cols, _, _ := wallGrid(len(items), m.w-4, m.wallH())
+	groups := wallGroups(items)
+	cols, _, _ := wallGrid(groups, m.w-4, m.wallH())
+	slots, _ := wallSlots(groups, cols)
 	move := func(d int) {
 		if j := i + d; j >= 0 && j < len(items) {
+			m.wall.sel = items[j].key
+		}
+	}
+	// vert moves a row up or down, to the tile nearest the same column.
+	vert := func(d int) {
+		row, col := slots[i]/cols+d, slots[i]%cols
+		j := -1
+		for k, s := range slots {
+			if s/cols == row && (j < 0 || s%cols <= col) {
+				j = k
+			}
+		}
+		if j >= 0 {
 			m.wall.sel = items[j].key
 		}
 	}
@@ -717,9 +798,9 @@ func (m *Model) wallKey(s string) tea.Cmd {
 	case "right", "l":
 		move(1)
 	case "up", "k":
-		move(-cols)
+		vert(-1)
 	case "down", "j":
-		move(cols)
+		vert(1)
 	case "home", "g":
 		m.wall.sel = items[0].key
 	case "end", "G":

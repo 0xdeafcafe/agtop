@@ -76,7 +76,7 @@ func TestWallOrderAndKeys(t *testing.T) {
 	if agents[0].State != "blocked" {
 		t.Fatalf("first tile %s, want the one that needs you", agents[0].State)
 	}
-	cols, _, _ := wallGrid(len(agents), m.w-4, m.wallH())
+	cols, _, _ := wallGrid(wallGroups(m.wallItems()), m.w-4, m.wallH())
 	m.wallKey("down")
 	if m.wall.sel != agents[min(cols, len(agents)-1)].Key {
 		t.Fatalf("down went to %s", m.wall.sel)
@@ -93,13 +93,51 @@ func TestWallOrderAndKeys(t *testing.T) {
 
 func TestWallGrid(t *testing.T) {
 	for _, tc := range []struct{ n, w, h, cols int }{{1, 200, 40, 1}, {2, 200, 40, 2}, {4, 200, 40, 2}, {9, 200, 40, 3}} {
-		c, r, th := wallGrid(tc.n, tc.w, tc.h)
+		c, r, th := wallGrid(ones(tc.n), tc.w, tc.h)
 		if c != tc.cols || th < wallMinH || c*r < tc.n {
 			t.Errorf("%v: %d cols × %d rows, %d tall", tc, c, r, th)
 		}
 	}
 	// Too many to fit pages them rather than squashing.
-	if _, r, th := wallGrid(40, 120, 30); th < wallMinH || r*wallMinH > 30 {
+	if _, r, th := wallGrid(ones(40), 120, 30); th < wallMinH || r*wallMinH > 30 {
 		t.Errorf("40 tiles: %d rows %d tall", r, th)
+	}
+}
+
+func ones(n int) []int {
+	gs := make([]int, n)
+	for i := range gs {
+		gs[i] = 1
+	}
+	return gs
+}
+
+// An agent's subagents sit beside it, and a group that doesn't fit what's
+// left of a row starts the next.
+func TestWallSlotsGroup(t *testing.T) {
+	slots, n := wallSlots([]int{1, 3, 2, 1}, 4)
+	want := []int{0, 1, 2, 3, 4, 5, 6}
+	if fmt.Sprint(slots) != fmt.Sprint(want) || n != 7 {
+		t.Errorf("slots %v (%d), want %v", slots, n, want)
+	}
+	slots, n = wallSlots([]int{2, 3, 1}, 4)
+	want = []int{0, 1, 4, 5, 6, 7}
+	if fmt.Sprint(slots) != fmt.Sprint(want) || n != 8 {
+		t.Errorf("slots %v (%d), want %v", slots, n, want)
+	}
+}
+
+func TestWallKeepsSubagentsWithTheirAgent(t *testing.T) {
+	m := wallModel(4, 200, 50)
+	agents := m.wallAgents()
+	agents[1].Subagents = []fleet.SubagentTile{{ID: "s1", Description: "a"}, {ID: "s2", Description: "b"}}
+	m.View()
+	byKey := map[string]wallTile{}
+	for _, t := range m.wall.tiles {
+		byKey[t.key] = t
+	}
+	p, s := byKey[agents[1].Key], byKey[agents[1].Key+"\x00s2"]
+	if p.y != s.y {
+		t.Errorf("subagent on row %d, its agent on %d", s.y, p.y)
 	}
 }
