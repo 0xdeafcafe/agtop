@@ -76,6 +76,9 @@ func contextLines(c *hostConn, w int) []string {
 // historyLines is the History tab: the agent's own record of the
 // account's use (Claude Code's /stats), by day and by model, fitted to h.
 func (k *infoSheet) historyLines(a *fleet.Agent, w, h int) []string {
+	if !k.loaded {
+		return []string{dim("  reading " + agentName(a.Kind) + "'s record…")}
+	}
 	st := k.stats
 	if k.statsErr != nil {
 		why := agentName(a.Kind) + " hasn't kept a record for this account yet"
@@ -184,60 +187,74 @@ type settingsLink struct {
 	open               func(m *Model) tea.Cmd
 }
 
-// settingsLinks reads what the Settings tab shows, from every settings
-// file the agent's session reads.
-func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
-	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
-	var allow, ask, deny, hooks, plugins, env int
-	model, mode, line := "", "", ""
-	for i, f := range settingsFiles(sessionAgent(c), a.Acct, cwd) {
-		s, err := settingsfile.Load(f.path)
-		if err != nil {
-			continue
-		}
-		var rules []string
-		for _, kind := range []struct {
-			key string
-			n   *int
-		}{{"permissions.allow", &allow}, {"permissions.ask", &ask}, {"permissions.deny", &deny}} {
-			rules = nil
-			if s.Get(kind.key, &rules) {
-				*kind.n += len(rules)
-			}
-		}
-		var hs map[string][]jsontext.Value
-		if s.Get("hooks", &hs) {
-			for _, list := range hs {
-				hooks += len(list)
-			}
-		}
-		var on map[string]bool
-		if s.Get("enabledPlugins", &on) {
-			for _, v := range on {
-				if v {
-					plugins++
-				}
-			}
-		}
-		if i == 0 {
-			env = len(s.Env())
-		}
-		model = firstNonEmpty(s.String("model"), model)
-		mode = firstNonEmpty(s.String("permissions.defaultMode"), mode)
-		line = firstNonEmpty(s.String("statusLine.command"), line)
-	}
-	skills, cmds := 0, 0
-	var have []agent.Command
-	if cm, ok := agent.As[agent.Commander](sessionAgent(c)); ok {
-		have = cm.Commands(a.Acct, cwd)
-	}
-	for _, f := range have {
-		if f.Skill {
-			skills++
-		} else {
-			cmds++
+// settingsCounts is what the Settings tab shows of the settings files
+// and commands, read off the UI.
+type settingsCounts struct {
+	allow, ask, deny, hooks, plugins, env, skills, cmds int
+	model, mode, line                                   string
+}
+
+// readSettingsCounts reads every settings file a session of kind on acct
+// in cwd reads, and its commands and skills. It reads the disk.
+func readSettingsCounts(kind agent.Kind, acct agent.Profile, cwd string) settingsCounts {
+	var n settingsCounts
+	for i, f := range settingsFiles(kind, acct, cwd) {
+		if s, err := settingsfile.Load(f.path); err == nil {
+			n.add(s, i == 0)
 		}
 	}
+	if cm, ok := agent.As[agent.Commander](kind); ok {
+		for _, f := range cm.Commands(acct, cwd) {
+			if f.Skill {
+				n.skills++
+			} else {
+				n.cmds++
+			}
+		}
+	}
+	return n
+}
+
+// add counts one settings file in; the first is the account's own, whose
+// env block is the one shown.
+func (n *settingsCounts) add(s *settingsfile.File, first bool) {
+	var rules []string
+	for _, kind := range []struct {
+		key string
+		n   *int
+	}{{"permissions.allow", &n.allow}, {"permissions.ask", &n.ask}, {"permissions.deny", &n.deny}} {
+		rules = nil
+		if s.Get(kind.key, &rules) {
+			*kind.n += len(rules)
+		}
+	}
+	var hs map[string][]jsontext.Value
+	if s.Get("hooks", &hs) {
+		for _, list := range hs {
+			n.hooks += len(list)
+		}
+	}
+	var on map[string]bool
+	if s.Get("enabledPlugins", &on) {
+		for _, v := range on {
+			if v {
+				n.plugins++
+			}
+		}
+	}
+	if first {
+		n.env = len(s.Env())
+	}
+	n.model = firstNonEmpty(s.String("model"), n.model)
+	n.mode = firstNonEmpty(s.String("permissions.defaultMode"), n.mode)
+	n.line = firstNonEmpty(s.String("statusLine.command"), n.line)
+}
+
+// settingsLinks are the Settings tab's rows, from what was read of the
+// settings files the agent's session reads.
+func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent, n settingsCounts) []settingsLink {
+	allow, ask, deny, hooks, plugins, env, skills, cmds := n.allow, n.ask, n.deny, n.hooks, n.plugins, n.env, n.skills, n.cmds
+	model, mode, line := n.model, n.mode, n.line
 	join := func(parts ...string) string {
 		var out []string
 		for _, p := range parts {
@@ -277,7 +294,7 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 		{name: agentName(string(k)), value: join(model, count(env, "env var", "env vars")), about: "settings.json and the environment every session starts with",
 			open: func(m *Model) tea.Cmd { m.sheet = nil; m.openAgentSettings(k); return nil }},
 		{name: "Permissions", screen: "permissions", value: join(mode, count(allow, "allow", "allow"), count(ask, "ask", "ask"), count(deny, "deny", "deny")), about: "what tools may do without asking",
-			open: func(m *Model) tea.Cmd { m.openPermissions(c, a); return nil }},
+			open: func(m *Model) tea.Cmd { return m.openPermissions(c, a) }},
 		{name: "Hooks", screen: "hooks", value: count(hooks, "hook", "hooks"), about: "commands run around tools, prompts and sessions",
 			open: func(m *Model) tea.Cmd { return m.openHooks(c, a) }},
 		{name: "Plugins", screen: "plugin", value: count(plugins, "on", "on"), about: "installed plugins, discover more, marketplaces",
@@ -285,7 +302,7 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 		{name: "Skills", screen: "skills", value: join(count(skills, "skill", "skills"), count(cmds, "command", "commands")), about: "what Claude picks up, and your own / commands",
 			open: func(m *Model) tea.Cmd { m.openSkills(c, a); return nil }},
 		{name: "Status line", screen: "statusline", value: line, about: "this header, agtop's top bar, and Claude Code's",
-			open: func(m *Model) tea.Cmd { m.openStatusLine(c, a); return nil }},
+			open: func(m *Model) tea.Cmd { return m.openStatusLine(c, a) }},
 		{name: "Memory", screen: "memory", about: "CLAUDE.md and the other files Claude reads",
 			open: func(m *Model) tea.Cmd { m.sheet = nil; m.showView(c, "memory"); return nil }},
 		{name: "MCP servers", screen: "mcp", value: mcp, about: "connect, sign in, tools", claude: true,
@@ -302,6 +319,9 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 
 // settingsLines is the Settings tab.
 func (k *infoSheet) settingsLines(w int) []string {
+	if !k.loaded {
+		return []string{dim("  reading the settings files…")}
+	}
 	var out []string
 	for i, l := range k.settings {
 		value := l.value

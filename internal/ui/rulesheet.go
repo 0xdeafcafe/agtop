@@ -60,60 +60,98 @@ type permSheet struct {
 	input  []rune
 	pos    int
 	target int // which file a new rule goes to
+	// The files are read, and changed, off the UI: read is what's out,
+	// and loaded says the first read has landed.
+	read   *pending[permRead]
+	loaded bool
 	armed  string
 	err    string
 }
 
-func (m *Model) openPermissions(c *hostConn, a *fleet.Agent) {
-	p := &permSheet{files: settingsFiles(sessionAgent(c), a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd))}
-	p.target = len(p.files) - 1
-	p.load()
+func (m *Model) openPermissions(c *hostConn, a *fleet.Agent) tea.Cmd {
+	kind, acct, cwd := sessionAgent(c), a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
+	p := &permSheet{}
+	p.read = goPending(func() permRead { return readRules(settingsFiles(kind, acct, cwd)) })
+	p.adopt()
 	m.sheet = p
+	return p.read.wait()
 }
 
-func (p *permSheet) load() {
-	p.rules = [3][]permRule{}
-	p.mode = ""
-	for _, f := range p.files {
+// permRead is every rule in the files, as read off the UI.
+type permRead struct {
+	files []settingsFile
+	rules [3][]permRule
+	mode  string
+	err   string
+}
+
+func readRules(files []settingsFile) permRead {
+	r := permRead{files: files}
+	for _, f := range files {
 		s, err := settingsfile.Load(f.path)
 		if err != nil {
-			p.err = err.Error()
+			r.err = err.Error()
 			continue
 		}
 		for i, kind := range ruleKinds {
 			var list []string
 			s.Get("permissions."+kind, &list)
-			for _, r := range list {
-				p.rules[i] = append(p.rules[i], permRule{r, f})
+			for _, rule := range list {
+				r.rules[i] = append(r.rules[i], permRule{rule, f})
 			}
 		}
 		if m := s.String("permissions.defaultMode"); m != "" {
-			p.mode = m + " (" + f.label + ")"
+			r.mode = m + " (" + f.label + ")"
 		}
+	}
+	return r
+}
+
+// adopt takes in what was read, once it has landed.
+func (p *permSheet) adopt() {
+	r, ok := p.read.take()
+	if !ok {
+		return
+	}
+	if !p.loaded {
+		p.target = len(r.files) - 1
+	}
+	p.read, p.loaded = nil, true
+	p.files, p.rules, p.mode = r.files, r.rules, r.mode
+	if r.err != "" {
+		p.err = r.err
 	}
 }
 
 // change edits one file's list for the tab's kind and reads everything
-// again.
-func (p *permSheet) change(f settingsFile, edit func([]string) []string) {
-	s, err := settingsfile.Load(f.path)
-	if err == nil {
-		key := "permissions." + ruleKinds[p.tab]
-		var list []string
-		s.Get(key, &list)
-		list = edit(list)
-		var v any = list
-		if len(list) == 0 {
-			v = nil
+// again, off the UI; one change waits for the one before.
+func (p *permSheet) change(f settingsFile, edit func([]string) []string) tea.Cmd {
+	key, files, prev := "permissions."+ruleKinds[p.tab], p.files, p.read
+	p.read = goPending(func() permRead {
+		if prev != nil {
+			<-prev.done
 		}
-		if err = s.Set(key, v); err == nil {
-			err = s.Save()
+		s, err := settingsfile.Load(f.path)
+		if err == nil {
+			var list []string
+			s.Get(key, &list)
+			list = edit(list)
+			var v any = list
+			if len(list) == 0 {
+				v = nil
+			}
+			if err = s.Set(key, v); err == nil {
+				err = s.Save()
+			}
 		}
-	}
-	if err != nil {
-		p.err = "couldn't save " + tildify(f.path) + ": " + err.Error()
-	}
-	p.load()
+		r := readRules(files)
+		if err != nil {
+			r.err = "couldn't save " + tildify(f.path) + ": " + err.Error()
+		}
+		return r
+	})
+	p.adopt()
+	return p.read.wait()
 }
 
 func (p *permSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
@@ -131,7 +169,7 @@ func (p *permSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 			text := strings.TrimSpace(string(p.input))
 			p.adding, p.input, p.pos = false, nil, 0
 			if text != "" {
-				p.change(p.files[p.target], func(l []string) []string {
+				return p.change(p.files[p.target], func(l []string) []string {
 					if slices.Contains(l, text) {
 						return l
 					}
@@ -143,9 +181,16 @@ func (p *permSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		return nil
 	}
+	p.adopt()
 	list := p.rules[p.tab]
 	cur := &p.cur[p.tab]
 	*cur = max(0, min(*cur, len(list)-1))
+	if !p.loaded || len(p.files) == 0 {
+		if s == "esc" || s == "ctrl+c" || s == "q" {
+			m.sheet = nil
+		}
+		return nil // nothing to change until the files are read
+	}
 	switch s {
 	case "esc", "ctrl+c", "q":
 		m.sheet = nil
@@ -172,7 +217,7 @@ func (p *permSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 		p.armed = ""
-		p.change(r.file, func(l []string) []string { return slices.DeleteFunc(l, func(x string) bool { return x == r.text }) })
+		return p.change(r.file, func(l []string) []string { return slices.DeleteFunc(l, func(x string) bool { return x == r.text }) })
 	case "ctrl+e", "e":
 		if len(list) > 0 {
 			return editFile(list[*cur].file.path)
@@ -183,8 +228,12 @@ func (p *permSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 }
 
 func (p *permSheet) body(m *Model, w, h int) []string {
+	p.adopt()
 	about := "what Claude may do without asking, must ask about, and may never do"
 	out := []string{sheetTitle("Permissions", about, w), ""}
+	if !p.loaded {
+		return append(out, dim("  reading the settings files…"), "", keysFit(w, "esc", "close"))
+	}
 	out = append(out, sheetTabs([]string{
 		fmt.Sprintf("Allow %d", len(p.rules[0])), fmt.Sprintf("Ask %d", len(p.rules[1])), fmt.Sprintf("Deny %d", len(p.rules[2])),
 	}, p.tab))
@@ -229,41 +278,56 @@ type hook struct {
 // hookSheet is /hooks: every hook by event, from each settings file and
 // plugin, with the file it's in; enter opens that file to change it.
 type hookSheet struct {
+	hooks   []hook
+	off     bool // disableAllHooks
+	user    string
+	cur     int
+	loading bool // the settings files are being read, off the UI
+}
+
+// hooksRead is the hooks in the settings files, as read off the UI.
+type hooksRead struct {
 	hooks []hook
-	off   bool // disableAllHooks
+	off   bool
 	user  string
-	cur   int
 }
 
 func (m *Model) openHooks(c *hostConn, a *fleet.Agent) tea.Cmd {
-	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
-	hs := &hookSheet{}
-	for i, f := range settingsFiles(sessionAgent(c), a.Acct, cwd) {
-		if i == 0 {
-			hs.user = f.path
-		}
-		s, err := settingsfile.Load(f.path)
-		if err != nil {
-			continue
-		}
-		var off bool
-		if s.Get("disableAllHooks", &off) && off {
-			hs.off = true
-		}
-		var raw jsontext.Value
-		if s.Get("hooks", &raw) {
-			hs.hooks = append(hs.hooks, parseHooks(raw, f)...)
-		}
-	}
-	hs.sort()
+	kind, acct, cwd := sessionAgent(c), a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
+	hs := &hookSheet{loading: true}
 	m.sheet = hs
-	// Enabled plugins' hooks come after, read-only.
-	acct := a.Acct
-	plug, ok := agent.As[agent.Plugger](sessionAgent(c))
-	if !ok {
+	read := sheetDo(func() (hooksRead, error) {
+		var r hooksRead
+		for i, f := range settingsFiles(kind, acct, cwd) {
+			if i == 0 {
+				r.user = f.path
+			}
+			s, err := settingsfile.Load(f.path)
+			if err != nil {
+				continue
+			}
+			var off bool
+			if s.Get("disableAllHooks", &off) && off {
+				r.off = true
+			}
+			var raw jsontext.Value
+			if s.Get("hooks", &raw) {
+				r.hooks = append(r.hooks, parseHooks(raw, f)...)
+			}
+		}
+		return r, nil
+	}, func(m *Model, r hooksRead, _ error) tea.Cmd {
+		hs.loading, hs.off, hs.user = false, r.off, r.user
+		hs.hooks = append(r.hooks, hs.hooks...) // the plugins' may have landed first
+		hs.sort()
 		return nil
+	})
+	// Enabled plugins' hooks come after, read-only.
+	plug, ok := agent.As[agent.Plugger](kind)
+	if !ok {
+		return read
 	}
-	return sheetDo(func() ([]hook, error) {
+	return tea.Batch(read, sheetDo(func() ([]hook, error) {
 		inst, _, err := plug.Plugins(acct, cwd)
 		var out []hook
 		for _, pl := range inst {
@@ -285,7 +349,7 @@ func (m *Model) openHooks(c *hostConn, a *fleet.Agent) tea.Cmd {
 		hs.hooks = append(hs.hooks, more...)
 		hs.sort()
 		return nil
-	})
+	}))
 }
 
 func (hs *hookSheet) sort() {
@@ -367,6 +431,9 @@ func (hs *hookSheet) body(m *Model, w, h int) []string {
 	}
 	if len(rows) == 0 {
 		rows = append(rows, dim("  no hooks · enter opens your settings.json to add one"))
+		if hs.loading {
+			rows[0] = dim("  reading the settings files…")
+		}
 	}
 	from, to := window(len(rows), selAt, listH)
 	out = append(out, rows[from:to]...)

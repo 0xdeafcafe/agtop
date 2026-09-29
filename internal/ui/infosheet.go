@@ -39,6 +39,33 @@ type infoSheet struct {
 	// quota is the limits of an agent whose accounts aren't agtop's
 	// logins, as last read into quotas.json; read when it opens.
 	quota *usage.Quota
+
+	// What's read when it opens is read off the UI; until it lands the
+	// tabs that show it say so.
+	read   *pending[infoRead]
+	loaded bool
+}
+
+// infoRead is what the sheet reads from disk when it opens.
+type infoRead struct {
+	stats    agent.Stats
+	statsErr error
+	counts   *settingsCounts // for the Settings tab
+	quota    *usage.Quota
+}
+
+// adopt takes in what was read, once it has landed.
+func (k *infoSheet) adopt(m *Model) {
+	r, ok := k.read.take()
+	if !ok {
+		return
+	}
+	k.read, k.loaded = nil, true
+	k.stats, k.statsErr, k.quota = r.stats, r.statsErr, r.quota
+	c, a := m.sheetConn(k.conn), m.agentByKey(k.conn)
+	if r.counts != nil && c != nil && a != nil {
+		k.settings = m.settingsLinks(c, a, *r.counts)
+	}
 }
 
 const (
@@ -61,7 +88,7 @@ var infoTabNeeds = [infoTabs]string{infoContext: "context", infoUsage: "usage", 
 // errNoStats is an agent that keeps no record of its use.
 var errNoStats = fmt.Errorf("no record kept: %w", fs.ErrNotExist)
 
-func (m *Model) openInfo(c *hostConn, tab int) {
+func (m *Model) openInfo(c *hostConn, tab int) tea.Cmd {
 	k := &infoSheet{conn: c.key, tab: tab}
 	for t := range infoTabs {
 		if need := infoTabNeeds[t]; need == "" || canScreen(c, need) {
@@ -72,25 +99,41 @@ func (m *Model) openInfo(c *hostConn, tab int) {
 		k.tab = infoStatus
 	}
 	if a := m.agentByKey(c.key); a != nil {
-		if slices.Contains(k.shown, infoHistory) {
-			k.statsErr = errNoStats
-			if sr, ok := agent.As[agent.StatsReader](sessionAgent(c)); ok {
-				k.stats, k.statsErr = sr.Stats(a.Acct)
+		// Read off the UI: the agent's record, its settings files, and
+		// the limits last read for it.
+		kind, acct, cwd := sessionAgent(c), a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
+		stats := slices.Contains(k.shown, infoHistory)
+		settings := slices.Contains(k.shown, infoSettings)
+		quota := slices.Contains(k.shown, infoUsage) && agent.Kind(a.Kind) != loginsKind
+		k.read = goPending(func() infoRead {
+			var r infoRead
+			if stats {
+				r.statsErr = errNoStats
+				if sr, ok := agent.As[agent.StatsReader](kind); ok {
+					r.stats, r.statsErr = sr.Stats(acct)
+				}
 			}
+			if settings {
+				n := readSettingsCounts(kind, acct, cwd)
+				r.counts = &n
+			}
+			if quota {
+				q := usage.Load(host.QuotasPath())[host.QuotaKey(acct)]
+				r.quota = &q
+			}
+			return r
+		})
+		if quota {
+			k.quota = &usage.Quota{Problem: "reading its last reading…"}
 		}
-		if slices.Contains(k.shown, infoSettings) {
-			k.settings = m.settingsLinks(c, a)
-		}
-		if slices.Contains(k.shown, infoUsage) && agent.Kind(a.Kind) != loginsKind {
-			q := usage.Load(host.QuotasPath())[host.QuotaKey(a.Acct)]
-			k.quota = &q
-		}
+		k.adopt(m)
 	}
 	m.sheet = k
 	// A fresh count of the context, from a host that can.
 	if cl := c.client; cl != nil && c.sess.Info.Proto >= 2 && slices.Contains(k.shown, infoContext) {
 		go func() { _ = cl.AskContext() }()
 	}
+	return k.read.wait()
 }
 
 // step moves to the next tab shown, or the one before.
@@ -129,6 +172,7 @@ func infoRow(label, value string, w int) string {
 func infoHead(s string) string { return paint(cSub+bold, "  "+s) }
 
 func (k *infoSheet) key(m *Model, _ tea.KeyPressMsg, s string) tea.Cmd {
+	k.adopt(m)
 	switch s {
 	case "esc", "ctrl+c", "q":
 		m.sheet = nil
@@ -161,6 +205,7 @@ func (k *infoSheet) key(m *Model, _ tea.KeyPressMsg, s string) tea.Cmd {
 }
 
 func (k *infoSheet) body(m *Model, w, h int) []string {
+	k.adopt(m)
 	c, a := m.sheetConn(k.conn), m.agentByKey(k.conn)
 	name := "Status"
 	if a != nil {
