@@ -332,11 +332,15 @@ func newModel(store *state.Store, version string, skipPast bool) *Model {
 	return m
 }
 
-// launchDir is the folder rush was started in, as the kernel has it.
+// launchDir is the folder rush was started in, as the kernel has it: the
+// top of the checkout or worktree it's in, not a folder inside one.
 func launchDir() tea.Msg {
 	d, err := os.Getwd()
 	if err != nil {
 		return nil
+	}
+	if root := actions.RepoRoot(d); root != "" {
+		d = root
 	}
 	return applyMsg(func(m *Model) tea.Cmd { m.launchDir = d; return nil })
 }
