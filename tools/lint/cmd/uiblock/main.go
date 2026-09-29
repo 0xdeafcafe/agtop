@@ -219,6 +219,9 @@ func pure(e *callgraph.Edge) bool {
 		}
 	}
 	f := e.Caller.Func
+	if f.Pkg == nil && f.Origin() != nil {
+		f = f.Origin() // a generic's instance (slices.Sorted, say) has no package of its own
+	}
 	if f.Pkg == nil {
 		return false
 	}
