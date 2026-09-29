@@ -1254,16 +1254,31 @@ type memoKey struct {
 	n, width, cw, pal  int
 }
 
-// memoTurn ages the paragraph memo: what the last two renders drew stays,
-// the rest goes.
+// memoTurn ages the memos. Each keeps what it's asked for until it holds
+// memoKeep entries; then what was asked for since the last time stays and
+// the rest goes. Ageing every render would drop what a memoized unit drew
+// without asking: a folded run that gains a step would work out every
+// step in it again, in one frame.
 func (s *Session) memoTurn() {
-	s.memoOld, s.memo = s.memo, make(map[memoKey][]Line, len(s.memo))
-	s.chainsOld, s.chains = s.chains, make(map[string]string, len(s.chains))
 	if f := s.Info.Cwd + "|" + s.Cwd; f != s.rowsFor {
-		s.rows, s.rowsFor = nil, f // paths read relative to other folders now
+		s.rows, s.rowsOld, s.rowsFor = nil, nil, f // paths read relative to other folders now
 	}
-	s.rowsOld, s.rows = s.rows, make(map[stepKey]string, len(s.rows))
-	s.cardsOld, s.cards = s.cards, make(map[stepKey][]card, len(s.cards))
+	s.memoOld, s.memo = age(s.memoOld, s.memo)
+	s.chainsOld, s.chains = age(s.chainsOld, s.chains)
+	s.rowsOld, s.rows = age(s.rowsOld, s.rows)
+	s.cardsOld, s.cards = age(s.cardsOld, s.cards)
+}
+
+const memoKeep = 8192
+
+func age[K comparable, V any](old, cur map[K]V) (map[K]V, map[K]V) {
+	switch {
+	case cur == nil:
+		return old, make(map[K]V)
+	case len(cur) < memoKeep:
+		return old, cur
+	}
+	return cur, make(map[K]V, len(cur)/2)
 }
 
 // stepKey names a step's label, summary or verb as drawn: they read only
