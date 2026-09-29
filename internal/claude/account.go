@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"path/filepath"
@@ -14,6 +15,19 @@ import (
 type Account struct {
 	Name      string `json:"name"`
 	ConfigDir string `json:"configDir"`
+}
+
+// Kind is Claude Code's among agtop's agents.
+const Kind agent.Kind = "claude"
+
+// AccountOf is a profile as the Claude config folder it is.
+func AccountOf(p agent.Profile) Account {
+	return Account{Name: p.Name, ConfigDir: p.Dir}
+}
+
+// Profile is the config folder as agtop's own profile of Claude Code.
+func (a Account) Profile() agent.Profile {
+	return agent.Profile{Kind: Kind, Name: a.Name, Dir: a.ConfigDir}
 }
 
 func DefaultAccount() Account {

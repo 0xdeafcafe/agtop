@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -44,12 +43,12 @@ func (cfg *Config) UseAgent(kind string) error {
 		}
 	}
 	cfg.Kind = kind
-	if cfg.Account.ConfigDir == "" {
+	if cfg.Account.Dir == "" {
 		ps := a.Profiles()
 		if len(ps) == 0 {
 			return fmt.Errorf("%s isn't installed: agtop can't find its program", a.Name())
 		}
-		cfg.Account = claude.Account{Name: ps[0].Name, ConfigDir: ps[0].Dir}
+		cfg.Account = ps[0]
 	}
 	return nil
 }

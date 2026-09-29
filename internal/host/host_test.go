@@ -542,7 +542,7 @@ func TestRewindKeepsBranches(t *testing.T) {
 func TestRewindByRestart(t *testing.T) {
 	bin := setup(t)
 	acct := claude.Account{Name: "t", ConfigDir: t.TempDir()}
-	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Binary: bin, Account: acct, Resume: true, SessionID: "old-0000-aaaa"})
+	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Binary: bin, Account: acct.Profile(), Resume: true, SessionID: "old-0000-aaaa"})
 	if err != nil {
 		t.Fatal(err)
 	}

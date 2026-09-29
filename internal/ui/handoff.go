@@ -81,7 +81,7 @@ func (m *Model) handoffTo(c *hostConn, a *fleet.Agent, to string) tea.Cmd {
 		return nil
 	}
 	if agent.IsBuiltin(k) {
-		cfg.Account = m.store.Config.ActiveAccount()
+		cfg.Account = m.store.Config.ActiveAccount().Profile()
 	}
 	cfg.Prompt = agent.Handoff(m.conversationOf(a)).Text
 	m.flash("handing "+a.DisplayName+" to "+agentName(string(k))+"…", false)

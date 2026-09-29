@@ -302,7 +302,7 @@ func (f *forkSheet) start(m *Model) tea.Cmd {
 		name = f.agent + " (fork)"
 	}
 	cfg := host.Config{
-		Account: f.acct, Cwd: f.cwd, Name: name, Resume: true,
+		Account: f.acct.Profile(), Cwd: f.cwd, Name: name, Resume: true,
 		Model:          firstNonEmpty(forkModels[f.model], f.current("model"), d.Model),
 		Effort:         firstNonEmpty(forkEfforts[f.effort], f.current("effort"), d.Effort),
 		PermissionMode: firstNonEmpty(forkPerms[f.perm], f.current("perm"), d.Permission),
@@ -338,12 +338,12 @@ func (f *forkSheet) start(m *Model) tea.Cmd {
 				}
 			}
 			newID, _ := host.NewSessionID()
-			if err := claude.CopyTranscript(src, cfg.Account.TranscriptPath(cfg.Cwd, newID), sid, newID, upTo); err != nil {
+			if err := claude.CopyTranscript(src, f.acct.TranscriptPath(cfg.Cwd, newID), sid, newID, upTo); err != nil {
 				return doneMsg{err: fmt.Errorf("couldn't copy the conversation: %w", err)}
 			}
 			// Its file checkpoints too, so it can rewind; without them it
 			// still runs.
-			_ = cfg.Account.CopyCheckpoints(sid, newID)
+			_ = f.acct.CopyCheckpoints(sid, newID)
 			cfg.SessionID = newID
 		}
 		started, err := host.Spawn(cfg)

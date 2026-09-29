@@ -34,7 +34,7 @@ func (s *server) startAgent() error {
 		return fmt.Errorf("agtop can't run %s", a.Name())
 	}
 	o := agent.StartOptions{
-		Profile: agent.Profile{Kind: a.Kind(), Name: s.cfg.Account.Name, Dir: s.cfg.Account.ConfigDir},
+		Profile: agent.Profile{Kind: a.Kind(), Name: s.cfg.Account.Name, Dir: s.cfg.Account.Dir},
 		Dir:     s.cfg.Cwd, SessionID: s.cfg.SessionID, Resume: s.began && s.cfg.SessionID != "", Fork: s.began && s.cfg.Fork,
 		Model: s.cfg.Model, Effort: s.cfg.Effort, Mode: s.cfg.PermissionMode,
 		Env: append([]string{"TMPDIR=" + TempDir(s.cfg.ID)}, s.cfg.Env...), Flags: s.cfg.Flags, Binary: s.cfg.Binary,
@@ -100,7 +100,7 @@ func (s *server) onAgentEvent(ev event.Event) {
 		s.info.ContextTokens = e.Tokens
 	case event.Quota:
 		// Every agtop shows it at once, as with Claude's readings.
-		p := agent.Profile{Kind: agent.Kind(s.cfg.Kind), Dir: s.cfg.Account.ConfigDir}
+		p := agent.Profile{Kind: agent.Kind(s.cfg.Kind), Dir: s.cfg.Account.Dir}
 		q := e.Quota
 		go func() { _ = usage.Record(QuotasPath(), QuotaKey(p), q) }()
 	}

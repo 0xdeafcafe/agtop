@@ -12,7 +12,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 )
 
 // fakeAgent is an agent other than Claude Code: each message runs a
@@ -76,7 +75,7 @@ func (c *fakeConn) Close() error          { c.once.Do(func() { close(c.events) }
 
 func TestHostRunsAnyAgent(t *testing.T) {
 	home := filepath.Dir(setup(t))
-	cfg, err := Spawn(Config{Kind: "fake", Cwd: home, Account: claude.Account{Name: "fake", ConfigDir: home}, Prompt: "hi", IdleStop: Duration(300 * time.Millisecond)})
+	cfg, err := Spawn(Config{Kind: "fake", Cwd: home, Account: agent.Profile{Kind: "fake", Name: "fake", Dir: home}, Prompt: "hi", IdleStop: Duration(300 * time.Millisecond)})
 	if err != nil {
 		t.Fatal(err)
 	}

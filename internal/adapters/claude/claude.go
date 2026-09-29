@@ -21,7 +21,7 @@ import (
 )
 
 // Kind is Claude Code's.
-const Kind agent.Kind = "claude"
+const Kind = claude.Kind
 
 func init() { agent.Register(Adapter{}) }
 
@@ -74,12 +74,12 @@ func (a Adapter) config() state.Config {
 
 // Profile is a Claude config folder as agtop's own.
 func Profile(a claude.Account) agent.Profile {
-	return agent.Profile{Kind: Kind, Name: a.Name, Dir: a.ConfigDir}
+	return a.Profile()
 }
 
 // Account is a profile as the Claude config folder it is.
 func Account(p agent.Profile) claude.Account {
-	return claude.Account{Name: p.Name, ConfigDir: p.Dir}
+	return claude.AccountOf(p)
 }
 
 // Cost is what model's tokens cost at list prices.

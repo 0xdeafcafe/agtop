@@ -51,17 +51,17 @@ type Config struct {
 	Fork bool `json:"fork,omitzero"`
 	// From is the conversation this one continues, for showing its history
 	// (a fork's own transcript may start empty).
-	From           string         `json:"from,omitempty"`
-	Account        claude.Account `json:"account"`
-	Cwd            string         `json:"cwd"`
-	Name           string         `json:"name,omitempty"`
-	Model          string         `json:"model,omitempty"`
-	Effort         string         `json:"effort,omitempty"`
-	PermissionMode string         `json:"permissionMode,omitempty"`
-	Flags          []string       `json:"flags,omitempty"`
-	Prompt         string         `json:"prompt,omitempty"` // first message
-	Images         []string       `json:"images,omitempty"` // files attached to it
-	IdleStop       Duration       `json:"idleStop,omitzero"`
+	From           string        `json:"from,omitempty"`
+	Account        agent.Profile `json:"account"` // as {"name", "configDir"}: see wireConfig
+	Cwd            string        `json:"cwd"`
+	Name           string        `json:"name,omitempty"`
+	Model          string        `json:"model,omitempty"`
+	Effort         string        `json:"effort,omitempty"`
+	PermissionMode string        `json:"permissionMode,omitempty"`
+	Flags          []string      `json:"flags,omitempty"`
+	Prompt         string        `json:"prompt,omitempty"` // first message
+	Images         []string      `json:"images,omitempty"` // files attached to it
+	IdleStop       Duration      `json:"idleStop,omitzero"`
 	// LimitMode is what happens when a usage limit stops the session:
 	// "auto" continues at the reset, "off" waits for you, and "" (opt-in)
 	// asks once per session.
@@ -402,7 +402,7 @@ func (s *server) start() error {
 		return s.startAgent()
 	}
 	o := headless.Options{
-		Account: s.cfg.Account, Dir: s.cfg.Cwd, Model: s.cfg.Model, Effort: s.cfg.Effort,
+		Account: claude.AccountOf(s.cfg.Account), Dir: s.cfg.Cwd, Model: s.cfg.Model, Effort: s.cfg.Effort,
 		PermissionMode: s.cfg.PermissionMode, Binary: s.cfg.Binary, Tap: s.tap, Skip: relayOnly,
 		// agtop's own tools only draw, so they never ask.
 		Flags: []string{"--allowedTools", strings.Join(agtools.Allowed(), ",")},
@@ -435,7 +435,7 @@ func (s *server) start() error {
 	} else {
 		o.SessionID = s.cfg.SessionID
 	}
-	s.login = claude.SignedInAs(s.cfg.Account)
+	s.login = claude.SignedInAs(claude.AccountOf(s.cfg.Account))
 	sess, err := headless.Start(o)
 	if err != nil {
 		return err
@@ -827,7 +827,7 @@ func (s *server) onEvent(ev headless.Event) {
 				return
 			}
 			s.armIdle()
-			if s.login != "" && claude.SignedInAs(s.cfg.Account) != s.login {
+			if s.login != "" && claude.SignedInAs(claude.AccountOf(s.cfg.Account)) != s.login {
 				// Switched since it started: it rests now, rather than
 				// holding the old sign-in and writing it back as it
 				// refreshes it.
@@ -933,7 +933,7 @@ func (s *server) shareUsage(ev headless.RateLimit) {
 	}
 	u.AccountID = s.login
 	s.liveUsage = u
-	acct := s.cfg.Account
+	acct := claude.AccountOf(s.cfg.Account)
 	go func() {
 		// Only while the folder is still signed in as it started: after a
 		// switch, the reading may be the new login's.

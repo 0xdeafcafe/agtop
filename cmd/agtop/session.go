@@ -292,8 +292,8 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 		// modes: another agent starts with its own unless told.
 		d = state.Dispatch{Lean: d.Lean, RestMinutes: d.RestMinutes}
 	}
-	if cfg.Account.ConfigDir == "" {
-		cfg.Account = st.Config.ActiveAccount()
+	if cfg.Account.Dir == "" {
+		cfg.Account = st.Config.ActiveAccount().Profile()
 	}
 	cfg.Prompt, cfg.Images = prompt, images
 	cfg.Lean, cfg.IdleStop = d.Lean, host.Duration(d.Rest())

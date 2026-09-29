@@ -2961,7 +2961,7 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool)
 	case a.Agtop:
 		cfg, err := host.ReadConfig(a.ID)
 		if err != nil {
-			cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
+			cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct.Profile(), Cwd: a.Cwd, Name: a.DisplayName}
 		}
 		cfg.Resume, cfg.Prompt, cfg.Images = true, text, images
 		cfg.Lean, cfg.IdleStop = m.store.Config.Dispatch.Lean, host.Duration(m.store.Config.Dispatch.Rest())
@@ -3004,7 +3004,7 @@ func jsonUnmarshal(b []byte, v any) error { return jsonx.Unmarshal(b, v) }
 func (m *Model) resume(a *fleet.Agent) tea.Cmd {
 	cfg, err := host.ReadConfig(a.ID)
 	if err != nil {
-		cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
+		cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct.Profile(), Cwd: a.Cwd, Name: a.DisplayName}
 	}
 	cfg.Resume, cfg.Prompt = true, ""
 	cfg.Lean, cfg.IdleStop = m.store.Config.Dispatch.Lean, host.Duration(m.store.Config.Dispatch.Rest())
@@ -3037,7 +3037,7 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 	kind, profile := m.startKindIn(dir), m.startProfile(dir).Name
 	m.accts.profile = "" // a profile picked with #profile is for one session
 	cfg := host.Config{
-		Account: m.store.Config.ActiveAccount(), Cwd: dir, Prompt: text, Images: images, Name: name,
+		Account: m.store.Config.ActiveAccount().Profile(), Cwd: dir, Prompt: text, Images: images, Name: name,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
 		Profile: profile,
 	}
@@ -3123,12 +3123,12 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 	delete(m.moveWhenIdle, a.Key)
 	d := m.store.Config.Dispatch
 	cfg := host.Config{
-		SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
+		SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct.Profile(), Cwd: a.Cwd, Name: a.DisplayName,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
 	}
 	if !agent.IsBuiltin(agent.Kind(a.Kind)) {
 		// Another agent's: it carries on with its own model and mode.
-		cfg = host.Config{SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
+		cfg = host.Config{SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct.Profile(), Cwd: a.Cwd, Name: a.DisplayName,
 			IdleStop: host.Duration(d.Rest())}
 		if err := cfg.UseAgent(a.Kind); err != nil {
 			m.flash(err.Error(), true)

@@ -416,7 +416,7 @@ func (r *runner) start(p plugin.Plugin, q startReq) (any, error) {
 	st := state.Load()
 	d := st.Config.Dispatch
 	cfg := host.Config{
-		Account: st.Config.ActiveAccount(), Cwd: dir, Prompt: prompt, Name: name,
+		Account: st.Config.ActiveAccount().Profile(), Cwd: dir, Prompt: prompt, Name: name,
 		Model: or(model, d.Model), Effort: or(effort, d.Effort), PermissionMode: mode,
 		LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()), StartedBy: p.Name, Meta: q.meta,
 	}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
@@ -436,7 +437,7 @@ func Restart(id string, change func(*Config)) error {
 // sessionID, with the path it leaves kept as a branch.
 func RewindByRestart(id, sessionID string, resume bool, left Branch) error {
 	return Restart(id, func(cfg *Config) {
-		_, err := os.Stat(cfg.Account.TranscriptPath(cfg.Cwd, cfg.SessionID))
+		_, err := os.Stat(claude.AccountOf(cfg.Account).TranscriptPath(cfg.Cwd, cfg.SessionID))
 		cfg.rewindTo(sessionID, resume, &left, err == nil)
 	})
 }
