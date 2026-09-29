@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -91,6 +92,35 @@ func jobState(j *convo.Job, now time.Time) string {
 	return dim("⏹ "+j.Status) + dim(took)
 }
 
+// jobPID is the process a running shell task runs as: of those Claude
+// started, the one that started with it.
+// ponytail: matched on start time alone, so two shells started in the same
+// second can swap; the task's own pid if Claude Code ever says it.
+func (m *Model) jobPID(c *hostConn, j *convo.Job) int {
+	if !j.Running() || c.sess.JobKind(j) != "shell" || m.snap == nil || m.snap.Table == nil || j.Start.IsZero() {
+		return 0
+	}
+	tab, best, gap := m.snap.Table, 0, 3*time.Second
+	for _, k := range tab.Children[c.sess.Info.ClaudePID] {
+		if p := tab.Procs[k]; p != nil {
+			if d := p.Start.Sub(j.Start).Abs(); d < gap {
+				best, gap = k, d
+			}
+		}
+	}
+	return best
+}
+
+// jobUsage is a running task's CPU and memory, for the end of its row.
+func (m *Model) jobUsage(c *hostConn, j *convo.Job) string {
+	pid := m.jobPID(c, j)
+	if pid == 0 {
+		return ""
+	}
+	b, cpu, _ := m.snap.Table.Sum(pid, nil)
+	return cpuColor(cpu, fmt.Sprintf("%.0f%%", cpu)) + dim(" · ") + memColor(b, mem(b)) + dim("  ·  ")
+}
+
 // jobsPreview is the dock's block of running tasks: a heading, then a row
 // each with its latest line of output under it.
 func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
@@ -144,7 +174,7 @@ func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
 		if !j.Background {
 			mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
 		}
-		right := jobState(j, now) + "  "
+		right := m.jobUsage(c, j) + jobState(j, now) + "  "
 		left := "  " + mark + " " + paint(cText+bold, fmt.Sprintf("%-7s", kind)) + " " +
 			paint(cSub, ansi.Truncate(jobLabel(c, j), max(12, w-cellw.String(ansi.Strip(right))-14), "…"))
 		rows := []string{spread(left, right, w)}
@@ -239,7 +269,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 					continue
 				}
 			}
-			right := jobState(j, now) + "  "
+			right := m.jobUsage(c, j) + jobState(j, now) + "  "
 			// A shell says what it's for; its command comes under it.
 			label, cmd := jobLabel(c, j), ""
 			if full := c.sess.JobCommand(j); kind == "shell" && full != "" && j.Label != "" && j.Label != full {
@@ -272,6 +302,15 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			}
 			if len(body) == 0 && cmd != "" {
 				rows = append(rows, ansi.Truncate("      "+faint("$ "+cmd), w-2, "…"))
+			}
+			if pid := m.jobPID(c, j); pid != 0 && c.open[ref] {
+				// Opened, what it runs: the processes under it, busiest first.
+				nodes := m.snap.Table.Tree(pid)
+				sort.SliceStable(nodes, func(a, b int) bool { return nodes[a].CPU > nodes[b].CPU })
+				for _, n := range nodes[:min(len(nodes), 5)] {
+					rows = append(rows, "      "+dim(fit(m.shortCmd(n.PID, n.Comm), max(10, w-24)))+
+						cpuColor(n.CPU, right1(fmt.Sprintf("%.0f%%", n.CPU), 6))+memColor(n.Footprint, right1(mem(n.Footprint), 8)))
+				}
 			}
 			top := len(rows)
 			switch {

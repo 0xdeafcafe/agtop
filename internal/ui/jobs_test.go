@@ -14,6 +14,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
 // What Claude Code runs shows in the dock: a command the turn waits on,
@@ -155,5 +156,34 @@ func TestBackgroundHoverClick(t *testing.T) {
 	m.clickRow(c, 3)
 	if c.open["job:b2"] {
 		t.Fatal("a second click closes it")
+	}
+}
+
+// A running shell shows what it uses, in the dock and the background
+// view: the process Claude started with it and those under it.
+func TestJobUsage(t *testing.T) {
+	s := convo.New()
+	now := time.Now()
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 10, State: "working"}}, now)
+	s.Apply(headless.TaskStarted{ID: "b2", ToolUseID: "t2", Type: "local_bash", Description: "npm run dev", Backgrounded: true}, now)
+	tab := &proc.Table{At: now, Procs: map[int]*proc.Proc{
+		10: {PID: 10, Comm: "claude", Start: now.Add(-time.Hour)},
+		11: {PID: 11, PPID: 10, Comm: "node", Start: now.Add(-time.Hour), CPU: 90, Footprint: 900 << 20}, // an MCP server
+		12: {PID: 12, PPID: 10, Comm: "zsh", Start: now.Add(time.Second), CPU: 1, Footprint: 2 << 20},
+		13: {PID: 13, PPID: 12, Comm: "vite", Start: now.Add(2 * time.Second), CPU: 24, Footprint: 300 << 20},
+	}, Children: map[int][]int{10: {11, 12}, 12: {13}}}
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{"job:b2": true}}
+	m := &Model{snap: &fleet.Snapshot{Table: tab}, host: c}
+	dock := ansi.Strip(strings.Join(m.jobsPreview(c, s.RunningJobs(), 110), "\n"))
+	if !strings.Contains(dock, "25% · 302M") {
+		t.Fatalf("the dock row has no usage:\n%s", dock)
+	}
+	var page []string
+	for _, l := range m.jobLines(c, convo.Options{Width: 110, Open: c.open}) {
+		page = append(page, ansi.Strip(l.Text))
+	}
+	got := strings.Join(page, "\n")
+	if !strings.Contains(got, "25% · 302M") || !strings.Contains(got, "vite") || strings.Contains(got, "node") {
+		t.Fatalf("the view's usage and processes:\n%s", got)
 	}
 }
