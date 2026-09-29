@@ -5,9 +5,12 @@
 package headless
 
 import (
+	"encoding/base64"
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"strings"
+
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Event is one decoded line of Claude Code's output.
@@ -81,8 +84,9 @@ type Block struct {
 	ID        string // tool_use
 	Name      string // tool_use
 	Input     jsontext.Value
-	ToolUseID string // tool_result
-	IsError   bool   // tool_result
+	ToolUseID string            // tool_result
+	IsError   bool              // tool_result
+	Images    []event.ImageData // tool_result: the images it gave back
 }
 
 type Usage struct {
@@ -524,36 +528,43 @@ func decodeMessage(e envelope) (Event, error) {
 		case "thinking":
 			blk.Text = b.Thinking
 		case "tool_result":
-			blk.Text = flatten(b.Content)
+			blk.Text, blk.Images = flatten(b.Content)
 		}
 		out.Blocks = append(out.Blocks, blk)
 	}
 	return out, nil
 }
 
-// flatten reads a tool result's content, a string or a list of blocks, as text.
-func flatten(raw jsontext.Value) string {
+// flatten reads a tool result's content, a string or a list of blocks, as
+// text and the images it holds.
+func flatten(raw jsontext.Value) (string, []event.ImageData) {
 	var s string
 	if jsonx.Unmarshal(raw, &s) == nil {
-		return s
+		return s, nil
 	}
 	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type   string `json:"type"`
+		Text   string `json:"text"`
+		Source struct {
+			MediaType string `json:"media_type"`
+			Data      string `json:"data"`
+		} `json:"source"`
 	}
 	if jsonx.Unmarshal(raw, &parts) != nil {
-		return ""
+		return "", nil
 	}
 	var out []string
+	var images []event.ImageData
 	for _, p := range parts {
 		switch p.Type {
 		case "text":
 			out = append(out, p.Text)
 		case "image":
-			out = append(out, "[image]")
+			data, _ := base64.StdEncoding.DecodeString(p.Source.Data)
+			images = append(images, event.ImageData{MediaType: p.Source.MediaType, Data: data})
 		}
 	}
-	return strings.Join(out, "\n")
+	return strings.Join(out, "\n"), images
 }
 
 func decodeControl(e envelope, other Other) (Event, error) {

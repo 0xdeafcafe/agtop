@@ -53,6 +53,11 @@ type Step struct {
 	Start    time.Time
 	End      time.Time
 	Children []*Step // a subagent's own steps
+	// Images are what the tool gave back as pictures: a Read of one, a
+	// screenshot.
+	// ponytail: the bytes stay for the session's life; let them go once
+	// the thumbnail's made if screenshot-heavy sessions get too big.
+	Images   []*event.ImageData
 	Approval *Asking // what it waits on you for, while it does
 
 	// call is the step's call as agtop's own, read once as the step is
@@ -595,9 +600,16 @@ func (s *Session) results(m *event.Message, now time.Time) {
 			}
 		}
 	}
+	var last *Step
 	for _, p := range m.Parts {
-		if p.Kind == event.ToolResult && p.Output != nil {
+		switch {
+		case p.Kind == event.ToolResult && p.Output != nil:
 			s.result(p.Output, now)
+			last = s.byID[p.Output.CallID]
+		case p.Kind == event.Image && p.Image != nil && last != nil:
+			// An image a tool gave back, drawn under its step.
+			last.Images = append(last.Images, p.Image)
+			s.touchStep(last)
 		}
 	}
 }

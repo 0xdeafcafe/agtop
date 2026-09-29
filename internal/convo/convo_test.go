@@ -86,7 +86,7 @@ func session() *Session {
 func plain(lines []Line) string {
 	var b strings.Builder
 	for _, l := range lines {
-		b.WriteString(strings.TrimRight(stripANSI(l.Text), " "))
+		b.WriteString(strings.TrimRight(ansi.Strip(l.Text), " "))
 		b.WriteByte('\n')
 	}
 	return b.String()

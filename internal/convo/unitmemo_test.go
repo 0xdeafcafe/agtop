@@ -40,10 +40,10 @@ func settledTranscript(t *testing.T, p string) *Session {
 		t.Fatal(err)
 	}
 	for range 20 {
-		g := commitsGen.Load()
+		g := lookupsGen.Load()
 		tl.Sess.Render(Options{Width: 120, Now: time.Unix(1e9, 0)})
 		time.Sleep(300 * time.Millisecond)
-		if commitsGen.Load() == g {
+		if lookupsGen.Load() == g {
 			break
 		}
 	}
