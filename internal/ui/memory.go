@@ -64,7 +64,7 @@ func (m *Model) memoryOf(c *hostConn) []memFile {
 	}
 	cfg, cwd := m.store.Config.ActiveAccount().ConfigDir, c.sess.Info.Cwd
 	if a := m.agentByKey(c.key); a != nil {
-		cfg, cwd = a.Acct.ConfigDir, firstNonEmpty(cwd, a.Cwd)
+		cfg, cwd = a.Acct.Dir, firstNonEmpty(cwd, a.Cwd)
 	}
 	proj := ""
 	if c.path != "" {

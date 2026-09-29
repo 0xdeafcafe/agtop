@@ -662,12 +662,12 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 	}
 	if a.PID != 0 || (a.Live() && a.Worker != nil) {
 		m.flash("stopping "+a.DisplayName+"…", false)
-		return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID, a.PID) })
+		return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(claude.AccountOf(a.Acct), a.ID, a.PID) })
 	}
 	if m.armed == a.Key && time.Since(m.armedAt) < 5*time.Second {
 		m.armed = ""
 		m.flash("deleting "+a.DisplayName+"…", false)
-		return cmdErr("deleted "+a.DisplayName, func() error { return actions.Remove(a.Acct, a.ID) })
+		return cmdErr("deleted "+a.DisplayName, func() error { return actions.Remove(claude.AccountOf(a.Acct), a.ID) })
 	}
 	m.armed, m.armedAt = a.Key, time.Now()
 	m.flash("ctrl+x again within 5s to delete "+a.DisplayName+" (and its worktree, when that's safe)", false)
@@ -861,7 +861,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			if a.Past {
 				return m.stopOrRemove(a)
 			}
-			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID, a.PID) })
+			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(claude.AccountOf(a.Acct), a.ID, a.PID) })
 		}
 	case "rm":
 		if need() && a.Past {
@@ -872,7 +872,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 				question: "Delete " + a.DisplayName + "?",
 				detail:   "removes the session, and its worktree when that's safe",
 				onYes: func() tea.Cmd {
-					return cmdErr("deleted "+a.DisplayName, func() error { return actions.Remove(a.Acct, a.ID) })
+					return cmdErr("deleted "+a.DisplayName, func() error { return actions.Remove(claude.AccountOf(a.Acct), a.ID) })
 				},
 			}
 		}
@@ -890,7 +890,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 				m.flash("which folder? /cd <path>", true)
 				return nil
 			}
-			return m.relaunch(a, expand(arg), nil, a.Acct)
+			return m.relaunch(a, expand(arg), nil, claude.AccountOf(a.Acct))
 		}
 	case "add-dir":
 		if need() {
@@ -898,7 +898,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 				m.flash("which folder? /add-dir <path>", true)
 				return nil
 			}
-			return m.relaunch(a, "", []string{expand(arg)}, a.Acct)
+			return m.relaunch(a, "", []string{expand(arg)}, claude.AccountOf(a.Acct))
 		}
 	case "account":
 		if arg == "" {
@@ -1076,7 +1076,7 @@ func (m *Model) relaunch(a *fleet.Agent, dir string, addDirs []string, to claude
 	// Claude Code's job file, when it has one, has the flags it started with.
 	j, _ := a.Extra.(claude.Job)
 	j.Job = a.Job
-	r := actions.Relaunch{From: a.Acct, To: to, Job: j, Dir: dir, AddDirs: addDirs, Note: note}
+	r := actions.Relaunch{From: claude.AccountOf(a.Acct), To: to, Job: j, Dir: dir, AddDirs: addDirs, Note: note}
 	m.flash("relaunching "+a.DisplayName+"…", false)
 	return func() tea.Msg {
 		id, err := r.Run()
@@ -1126,7 +1126,7 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 		question: "Stop " + a.DisplayName + "?",
 		detail:   fmt.Sprintf("%d processes · %s · the conversation is kept", n, mem(memBytes)),
 		onYes: func() tea.Cmd {
-			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(a.Acct, a.ID, a.PID) })
+			return cmdErr("stopped "+a.DisplayName, func() error { return actions.Stop(claude.AccountOf(a.Acct), a.ID, a.PID) })
 		},
 		bangText: "SIGKILL the whole tree",
 		onBang:   killTree(root, start),
@@ -1441,9 +1441,9 @@ func (m *Model) cwdKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 		if m.cwdMove {
-			return m.relaunch(a, target, nil, a.Acct)
+			return m.relaunch(a, target, nil, claude.AccountOf(a.Acct))
 		}
-		return m.relaunch(a, "", []string{target}, a.Acct)
+		return m.relaunch(a, "", []string{target}, claude.AccountOf(a.Acct))
 	default:
 		if m.editKey(k, s) {
 			m.cwdCursor = -1

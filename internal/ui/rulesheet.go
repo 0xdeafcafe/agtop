@@ -64,7 +64,7 @@ type permSheet struct {
 }
 
 func (m *Model) openPermissions(c *hostConn, a *fleet.Agent) {
-	p := &permSheet{files: settingsFiles(a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd))}
+	p := &permSheet{files: settingsFiles(claude.AccountOf(a.Acct), firstNonEmpty(c.sess.Info.Cwd, a.Cwd))}
 	p.target = len(p.files) - 1
 	p.load()
 	m.sheet = p
@@ -236,8 +236,8 @@ type hookSheet struct {
 
 func (m *Model) openHooks(c *hostConn, a *fleet.Agent) tea.Cmd {
 	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
-	hs := &hookSheet{user: filepath.Join(a.Acct.ConfigDir, "settings.json")}
-	for _, f := range settingsFiles(a.Acct, cwd) {
+	hs := &hookSheet{user: filepath.Join(a.Acct.Dir, "settings.json")}
+	for _, f := range settingsFiles(claude.AccountOf(a.Acct), cwd) {
 		s, err := claude.LoadSettingsFile(f.path)
 		if err != nil {
 			continue
@@ -256,7 +256,7 @@ func (m *Model) openHooks(c *hostConn, a *fleet.Agent) tea.Cmd {
 	// Enabled plugins' hooks come after, read-only.
 	acct := a.Acct
 	return sheetDo(func() ([]hook, error) {
-		inst, _, err := claude.Plugins(acct, cwd)
+		inst, _, err := claude.Plugins(claude.AccountOf(acct), cwd)
 		var out []hook
 		for _, pl := range inst {
 			if !pl.Enabled {

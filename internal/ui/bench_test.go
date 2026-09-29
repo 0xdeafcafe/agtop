@@ -71,7 +71,7 @@ func benchModel(w, h int) (*Model, chan []byte) {
 	now := time.Now()
 	snap := &fleet.Snapshot{At: now}
 	for i := 0; i < 30; i++ {
-		a := &fleet.Agent{Key: fmt.Sprintf("default/a:%d", i), DisplayName: fmt.Sprintf("agent number %d doing things", i), Acct: claude.DefaultAccount()}
+		a := &fleet.Agent{Key: fmt.Sprintf("default/a:%d", i), DisplayName: fmt.Sprintf("agent number %d doing things", i), Acct: claude.DefaultAccount().Profile()}
 		a.ID = fmt.Sprintf("%08x", i)
 		a.Cwd, a.Repo, a.Branch = "/work/agtop", "/work/agtop", "main"
 		a.UpdatedAt = now.Add(-time.Duration(i) * time.Minute)

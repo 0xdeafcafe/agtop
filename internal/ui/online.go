@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/netproof"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -184,7 +185,7 @@ func (m *Model) onOnline(msg onlineMsg) tea.Cmd {
 				return nil // another agtop told it
 			}
 			time.Sleep(wait)
-			if err := actions.Reply(acct, id, "continue"); err != nil {
+			if err := actions.Reply(claude.AccountOf(acct), id, "continue"); err != nil {
 				return doneMsg{err: err}
 			}
 			return doneMsg{text: "the API is back · " + name + " continues"}

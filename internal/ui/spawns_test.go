@@ -42,7 +42,7 @@ func TestSpawnFollowed(t *testing.T) {
 	s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash",
 		Input: []byte(`{"command":"claude -p \"check the parser for off-by-ones\""}`)}}}, now.Add(-time.Second))
 	c := &hostConn{key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}}
-	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{{Key: "k", Acct: acct}}}, host: c}
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{{Key: "k", Acct: acct.Profile()}}}, host: c}
 
 	cmd := m.refreshSpawns()
 	if cmd == nil {

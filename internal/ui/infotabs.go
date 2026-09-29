@@ -185,7 +185,7 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
 	var allow, ask, deny, hooks, plugins, env int
 	model, mode, line := "", "", ""
-	for i, f := range settingsFiles(a.Acct, cwd) {
+	for i, f := range settingsFiles(claude.AccountOf(a.Acct), cwd) {
 		s, err := claude.LoadSettingsFile(f.path)
 		if err != nil {
 			continue
@@ -222,7 +222,7 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent) []settingsLink {
 		line = firstNonEmpty(s.String("statusLine.command"), line)
 	}
 	skills, cmds := 0, 0
-	for _, f := range claude.Commands(firstNonEmpty(a.Acct.ConfigDir, claude.DefaultAccount().ConfigDir), cwd) {
+	for _, f := range claude.Commands(firstNonEmpty(a.Acct.Dir, claude.DefaultAccount().ConfigDir), cwd) {
 		if f.Skill {
 			skills++
 		} else {

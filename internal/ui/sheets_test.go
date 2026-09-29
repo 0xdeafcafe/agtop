@@ -103,7 +103,7 @@ func TestPluginSheet(t *testing.T) {
 func TestStatusSheet(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
-	a := &fleet.Agent{Key: "k", Cwd: "/src/agtop", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}}
+	a := &fleet.Agent{Key: "k", Cwd: "/src/agtop", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
 	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
 	c.sess.Model = "Opus 5.5"
 	m.openStatusLine(c, a)
@@ -133,9 +133,9 @@ func TestStatusSheet(t *testing.T) {
 		t.Fatalf("headings:\n%s", text())
 	}
 	// Saving writes the layout and points settings.json at agtop.
-	os.WriteFile(filepath.Join(a.Acct.ConfigDir, "settings.json"), []byte(`{"model":"opus"}`), 0o600)
+	os.WriteFile(filepath.Join(a.Acct.Dir, "settings.json"), []byte(`{"model":"opus"}`), 0o600)
 	st.key(m, tea.KeyPressMsg{}, "enter")
-	b, _ := os.ReadFile(filepath.Join(a.Acct.ConfigDir, "settings.json"))
+	b, _ := os.ReadFile(filepath.Join(a.Acct.Dir, "settings.json"))
 	if !strings.Contains(string(b), "statusline") || !strings.Contains(string(b), `"model": "opus"`) || m.sheet != nil {
 		t.Fatalf("settings.json after save:\n%s", b)
 	}
@@ -203,8 +203,8 @@ func TestStatusSheetDrag(t *testing.T) {
 func TestStatusSheetKeepsYourOwn(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
-	a := &fleet.Agent{Key: "k", Cwd: t.TempDir(), Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}}
-	os.WriteFile(filepath.Join(a.Acct.ConfigDir, "settings.json"), []byte(`{"statusLine":{"type":"command","command":"cat >/dev/null; echo mine"}}`), 0o600)
+	a := &fleet.Agent{Key: "k", Cwd: t.TempDir(), Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
+	os.WriteFile(filepath.Join(a.Acct.Dir, "settings.json"), []byte(`{"statusLine":{"type":"command","command":"cat >/dev/null; echo mine"}}`), 0o600)
 	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
 	m.openStatusLine(c, a)
 	st := m.sheet.(*statusSheet)
@@ -228,8 +228,8 @@ func TestStatusSheetKeepsYourOwn(t *testing.T) {
 func TestPermSheet(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
 	cwd := t.TempDir()
-	a := &fleet.Agent{Key: "k", Cwd: cwd, Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}}
-	user := filepath.Join(a.Acct.ConfigDir, "settings.json")
+	a := &fleet.Agent{Key: "k", Cwd: cwd, Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
+	user := filepath.Join(a.Acct.Dir, "settings.json")
 	os.WriteFile(user, []byte(`{"model":"opus","permissions":{"allow":["Read"],"defaultMode":"auto"}}`), 0o600)
 	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}}
 	m.openPermissions(c, a)

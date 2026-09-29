@@ -40,7 +40,7 @@ func agentHistory(kind agent.Kind, s agent.Session, before time.Time) *convo.Ses
 func openHistory(a *fleet.Agent) tea.Cmd {
 	key, id := a.Key, a.ID
 	h := &history{kind: agent.Kind(a.Kind), s: agent.Session{ID: a.SessionID, Name: a.DisplayName, Transcript: a.History,
-		State: a.State, Remote: a.Remote, Profile: agent.Profile{Kind: agent.Kind(a.Kind), Dir: a.Acct.ConfigDir}}}
+		State: a.State, Remote: a.Remote, Profile: agent.Profile{Kind: agent.Kind(a.Kind), Dir: a.Acct.Dir}}}
 	return func() tea.Msg {
 		h.stat()
 		sess := agentHistory(h.kind, h.s, time.Time{})

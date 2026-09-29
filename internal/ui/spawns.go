@@ -125,7 +125,7 @@ func (m *Model) refreshSpawns() tea.Cmd {
 	key := c.key
 	var accts []claude.Account
 	if a := m.agentByKey(c.key); a != nil {
-		accts = append(accts, a.Acct)
+		accts = append(accts, claude.AccountOf(a.Acct))
 	}
 	for _, a := range agent.All() {
 		if agent.IsBuiltin(a.Kind()) {

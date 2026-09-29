@@ -24,9 +24,10 @@ type Agent struct {
 	agent.Job
 	// Extra is the adapter's own record of it: Claude Code's job file
 	// (claude.Job) for its background sessions.
-	Extra       any
-	Key         string
-	Acct        claude.Account
+	Extra any
+	Key   string
+	// Acct is the profile it runs in: the agent's config folder.
+	Acct        agent.Profile
 	DisplayName string
 	Pinned      bool
 	Done        bool
@@ -544,7 +545,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			key := state.Key(acct.Name, id)
 			seen[key] = true
 			claimed[j.SessionID] = true
-			a := &Agent{Job: j.Job, Extra: *j, Key: key, Acct: acct, DisplayName: j.Name}
+			a := &Agent{Job: j.Job, Extra: *j, Key: key, Acct: acct.Profile(), DisplayName: j.Name}
 			if ss, ok := byJob[id]; ok {
 				a.applyStatus(ss)
 			}
@@ -635,7 +636,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 					j.Detail = "run by another program"
 				}
 			}
-			a := &Agent{Job: j, Key: key, Acct: acct, DisplayName: ss.Name, Interactive: true, Headless: headless, PID: ss.PID}
+			a := &Agent{Job: j, Key: key, Acct: acct.Profile(), DisplayName: ss.Name, Interactive: true, Headless: headless, PID: ss.PID}
 			if n := ov.Names[key]; n != "" {
 				a.DisplayName = n
 			}
@@ -846,7 +847,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 	case info.Error != "" && st == "done":
 		j.Detail = "stopped mid-turn · your next message resumes it"
 	}
-	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: acct, DisplayName: name, Agtop: true, Kind: info.Kind, Profile: info.Profile}
+	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: agent.Profile{Kind: agent.KindOf(info.Kind), Name: acct.Name, Dir: acct.ConfigDir}, DisplayName: name, Agtop: true, Kind: info.Kind, Profile: info.Profile}
 	if info.State != "stopped" && info.HostPID > 0 && (tab == nil || tab.Procs[info.HostPID] != nil) {
 		a.PID = info.HostPID
 	}

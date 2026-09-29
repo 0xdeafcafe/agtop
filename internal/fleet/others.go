@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -77,7 +76,7 @@ func (l *Loader) otherRow(a agent.Adapter, p agent.Profile, s agent.Session, key
 	ov := l.store.Overlay
 	j := agent.Job{ID: s.ID[:8], Account: p.Name, Name: s.Name, State: "stopped", Cwd: s.Cwd,
 		SessionID: s.ID, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt}
-	ag := &Agent{Job: j, Key: key, Acct: claude.Account{Name: p.Name, ConfigDir: p.Dir}, DisplayName: s.Name,
+	ag := &Agent{Job: j, Key: key, Acct: p, DisplayName: s.Name,
 		Kind: string(a.Kind()), History: s.Transcript, Remote: s.Remote, PRs: s.PRs}
 	ag.Detail, ag.Needs = s.Detail, s.Needs
 	if n := ov.Names[key]; n != "" {

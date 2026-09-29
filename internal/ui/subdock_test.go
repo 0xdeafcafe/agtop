@@ -363,7 +363,7 @@ func TestSubagentsFollowTheSessionID(t *testing.T) {
 
 	s := convo.New()
 	c := &hostConn{key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}, path: old}
-	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{{Key: "k", Acct: acct}}}, host: c}
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{{Key: "k", Acct: acct.Profile()}}}, host: c}
 	m.drain(m.refreshSubs())
 	if len(c.subs) != 0 {
 		t.Fatalf("found runs under the old id: %v", c.subs)

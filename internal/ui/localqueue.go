@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -55,7 +56,7 @@ func canQueue(a *fleet.Agent) bool { return a != nil && !a.Agtop && !a.Interacti
 func reply(a *fleet.Agent, text string) tea.Cmd {
 	acct, id, key, name := a.Acct, a.ID, a.Key, a.DisplayName
 	return func() tea.Msg {
-		err := actions.Reply(acct, id, text)
+		err := actions.Reply(claude.AccountOf(acct), id, text)
 		switch {
 		case daemon.IsRefusal(err, "ENOJOB"):
 			return jobGoneMsg{key: key, text: text}
@@ -144,7 +145,7 @@ func (m *Model) sendLocal(key string, a *fleet.Agent, q *localQueue) tea.Cmd {
 	q.items, q.sentAt = nil, time.Now()
 	acct, id, name := a.Acct, a.ID, a.DisplayName
 	return func() tea.Msg {
-		err := actions.Reply(acct, id, text)
+		err := actions.Reply(claude.AccountOf(acct), id, text)
 		if daemon.IsRefusal(err, "ENOJOB") {
 			return jobGoneMsg{key: key, text: text}
 		}

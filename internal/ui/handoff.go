@@ -25,7 +25,7 @@ func (m *Model) conversationOf(a *fleet.Agent) agent.Conversation {
 		sess = convo.History(a.TranscriptPath, time.Time{})
 	default:
 		sess = agentHistory(kind, agent.Session{ID: a.SessionID, Name: a.DisplayName, Transcript: a.History,
-			Profile: agent.Profile{Kind: kind, Dir: a.Acct.ConfigDir}}, time.Time{})
+			Profile: agent.Profile{Kind: kind, Dir: a.Acct.Dir}}, time.Time{})
 	}
 	c := sess.Conversation(kind)
 	if c.Name == "" {

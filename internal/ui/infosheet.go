@@ -47,7 +47,7 @@ var infoTabNames = [infoTabs]string{"Status", "Context", "Usage", "History", "Se
 func (m *Model) openInfo(c *hostConn, tab int) {
 	k := &infoSheet{conn: c.key, tab: tab}
 	if a := m.agentByKey(c.key); a != nil {
-		k.stats, k.statsErr = claude.LoadStats(a.Acct)
+		k.stats, k.statsErr = claude.LoadStats(claude.AccountOf(a.Acct))
 		k.settings = m.settingsLinks(c, a)
 	}
 	m.sheet = k
@@ -69,11 +69,11 @@ func (m *Model) sheetConn(key string) *hostConn {
 // accountView is the fleet's view of the account a runs on.
 func (m *Model) accountView(a *fleet.Agent) (fleet.AccountView, bool) {
 	for _, av := range m.snap.Accounts {
-		if av.ConfigDir == a.Acct.ConfigDir || av.ConfigDir == "" && a.Acct.ConfigDir == "" {
+		if av.ConfigDir == a.Acct.Dir || av.ConfigDir == "" && a.Acct.Dir == "" {
 			return av, true
 		}
 	}
-	return fleet.AccountView{Account: a.Acct}, false
+	return fleet.AccountView{Account: claude.AccountOf(a.Acct)}, false
 }
 
 // infoRow is a label and its value, lined up.
@@ -224,7 +224,7 @@ func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 		}
 	}
 	out = append(out, infoRow("plan", paint(cText, strings.Join(plan, " · ")), w))
-	out = append(out, infoRow("config", dim(tildify(firstNonEmpty(a.Acct.ConfigDir, claude.DefaultAccount().ConfigDir))), w))
+	out = append(out, infoRow("config", dim(tildify(firstNonEmpty(a.Acct.Dir, claude.DefaultAccount().ConfigDir))), w))
 
 	out = append(out, "", infoHead("Claude Code"))
 	ver := s.Version
@@ -408,7 +408,7 @@ func usageLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 				parts = append(parts, dim(fmt.Sprintf("%d running", x.Live)))
 			}
 			name := x.Name
-			if x.ConfigDir == a.Acct.ConfigDir {
+			if x.ConfigDir == a.Acct.Dir {
 				name += " ◂"
 			}
 			out = append(out, infoRow(name, strings.Join(parts, dim("  ·  ")), w))

@@ -265,7 +265,7 @@ func (m *Model) followSessionID(c *hostConn) {
 		return
 	}
 	if a := m.agentByKey(c.key); a != nil {
-		c.path = a.Acct.TranscriptPath(i.Cwd, i.SessionID)
+		c.path = claude.AccountOf(a.Acct).TranscriptPath(i.Cwd, i.SessionID)
 	}
 }
 
@@ -1064,7 +1064,7 @@ func openHost(a *fleet.Agent) tea.Cmd {
 		info, infoErr := host.ReadInfo(id)
 		if infoErr == nil && info.SessionID != "" && info.Cwd != "" {
 			// The list may not have caught up with a rewind yet.
-			path = acct.TranscriptPath(info.Cwd, info.SessionID)
+			path = claude.AccountOf(acct).TranscriptPath(info.Cwd, info.SessionID)
 		}
 		trimmed := infoErr == nil && !info.ReplayFrom.IsZero()
 		if cfg, err := host.ReadConfig(id); err == nil && (cfg.Resume || trimmed) {
@@ -1091,7 +1091,7 @@ func openHost(a *fleet.Agent) tea.Cmd {
 				if trimmed {
 					started = info.ReplayFrom
 				}
-				sess = agentHistory(agent.Kind(info.Kind), agent.Session{ID: info.SessionID, Profile: agent.Profile{Kind: agent.Kind(info.Kind), Dir: acct.ConfigDir}}, started)
+				sess = agentHistory(agent.Kind(info.Kind), agent.Session{ID: info.SessionID, Profile: agent.Profile{Kind: agent.Kind(info.Kind), Dir: acct.Dir}}, started)
 			}
 			path = ""
 		}
@@ -2961,7 +2961,7 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool)
 	case a.Agtop:
 		cfg, err := host.ReadConfig(a.ID)
 		if err != nil {
-			cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct.Profile(), Cwd: a.Cwd, Name: a.DisplayName}
+			cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
 		}
 		cfg.Resume, cfg.Prompt, cfg.Images = true, text, images
 		cfg.Lean, cfg.IdleStop = m.store.Config.Dispatch.Lean, host.Duration(m.store.Config.Dispatch.Rest())
@@ -3004,7 +3004,7 @@ func jsonUnmarshal(b []byte, v any) error { return jsonx.Unmarshal(b, v) }
 func (m *Model) resume(a *fleet.Agent) tea.Cmd {
 	cfg, err := host.ReadConfig(a.ID)
 	if err != nil {
-		cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct.Profile(), Cwd: a.Cwd, Name: a.DisplayName}
+		cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
 	}
 	cfg.Resume, cfg.Prompt = true, ""
 	cfg.Lean, cfg.IdleStop = m.store.Config.Dispatch.Lean, host.Duration(m.store.Config.Dispatch.Rest())
@@ -3123,12 +3123,12 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 	delete(m.moveWhenIdle, a.Key)
 	d := m.store.Config.Dispatch
 	cfg := host.Config{
-		SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct.Profile(), Cwd: a.Cwd, Name: a.DisplayName,
+		SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
 		Model: d.Model, Effort: d.Effort, PermissionMode: d.Permission, LimitMode: d.OnLimit, Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
 	}
 	if !agent.IsBuiltin(agent.Kind(a.Kind)) {
 		// Another agent's: it carries on with its own model and mode.
-		cfg = host.Config{SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct.Profile(), Cwd: a.Cwd, Name: a.DisplayName,
+		cfg = host.Config{SessionID: a.SessionID, Resume: true, Prompt: prompt, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName,
 			IdleStop: host.Duration(d.Rest())}
 		if err := cfg.UseAgent(a.Kind); err != nil {
 			m.flash(err.Error(), true)
@@ -3153,7 +3153,7 @@ func (m *Model) moveToAgtopWith(a *fleet.Agent, prompt string) tea.Cmd {
 	m.flash("moving "+a.DisplayName+" to agtop mode…", false)
 	return func() tea.Msg {
 		if a.PID != 0 || a.Live() {
-			if err := actions.Stop(a.Acct, a.ID, a.PID); err != nil {
+			if err := actions.Stop(claude.AccountOf(a.Acct), a.ID, a.PID); err != nil {
 				return doneMsg{err: fmt.Errorf("couldn't stop the Claude Code copy: %w", err)}
 			}
 		}

@@ -28,7 +28,7 @@ type skillSheet struct {
 
 func (m *Model) openSkills(c *hostConn, a *fleet.Agent) {
 	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
-	all := claude.Commands(firstNonEmpty(a.Acct.ConfigDir, claude.DefaultAccount().ConfigDir), cwd)
+	all := claude.Commands(firstNonEmpty(a.Acct.Dir, claude.DefaultAccount().ConfigDir), cwd)
 	m.sheet = &skillSheet{conn: c.key, all: all}
 }
 

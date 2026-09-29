@@ -22,7 +22,7 @@ func workModel(agents ...*fleet.Agent) *Model {
 }
 
 func workAgent(key, repo, st string, ago time.Duration) *fleet.Agent {
-	a := &fleet.Agent{Key: key, DisplayName: key, PID: 7, Acct: claude.DefaultAccount(), Repo: repo}
+	a := &fleet.Agent{Key: key, DisplayName: key, PID: 7, Acct: claude.DefaultAccount().Profile(), Repo: repo}
 	a.ID, a.State, a.UpdatedAt, a.Cwd = key, st, time.Now().Add(-ago), repo
 	return a
 }

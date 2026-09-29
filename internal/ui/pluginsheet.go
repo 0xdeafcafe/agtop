@@ -51,7 +51,7 @@ const (
 )
 
 func (m *Model) openPlugins(c *hostConn, a *fleet.Agent) tea.Cmd {
-	p := &pluginSheet{conn: c.key, acct: a.Acct, cwd: firstNonEmpty(c.sess.Info.Cwd, a.Cwd), costs: map[string]string{}, costAsked: map[string]bool{}}
+	p := &pluginSheet{conn: c.key, acct: claude.AccountOf(a.Acct), cwd: firstNonEmpty(c.sess.Info.Cwd, a.Cwd), costs: map[string]string{}, costAsked: map[string]bool{}}
 	m.sheet = p
 	return p.load()
 }

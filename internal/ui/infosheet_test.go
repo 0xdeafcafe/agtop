@@ -23,7 +23,7 @@ func infoModel(t *testing.T) (*Model, *hostConn) {
 	t.Setenv("HOME", t.TempDir())
 	now := time.Now()
 	acct := claude.Account{Name: "work", ConfigDir: t.TempDir()}
-	a := &fleet.Agent{Key: "k", Cwd: "/src/agtop", Acct: acct}
+	a := &fleet.Agent{Key: "k", Cwd: "/src/agtop", Acct: acct.Profile()}
 	usage := claude.Usage{Email: "me@x", Plan: "Max", FiveHour: claude.Window{Present: true, Percent: 42, ResetsAt: now.Add(2 * time.Hour)}, SevenDay: claude.Window{Present: true, Percent: 12, ResetsAt: now.Add(3 * 24 * time.Hour)}}
 	m := &Model{store: &state.Store{}, w: 140, h: 50, snap: &fleet.Snapshot{At: now, Agents: []*fleet.Agent{a},
 		Accounts: []fleet.AccountView{{Account: acct, Usage: usage, Quota: usage.Quota(""), Today: 3.5, Current: true}}}}
@@ -105,12 +105,12 @@ func TestUnknownCommandAsks(t *testing.T) {
 func TestInfoTabs(t *testing.T) {
 	m, c := infoModel(t)
 	acct := m.snap.Agents[0].Acct
-	os.WriteFile(filepath.Join(acct.ConfigDir, "stats-cache.json"), []byte(`{"lastComputedDate":"2026-09-23","totalSessions":302,"totalMessages":278004,
+	os.WriteFile(filepath.Join(acct.Dir, "stats-cache.json"), []byte(`{"lastComputedDate":"2026-09-23","totalSessions":302,"totalMessages":278004,
 		"dailyActivity":[{"date":"2026-09-22","messageCount":15769,"sessionCount":12,"toolCallCount":9000},{"date":"2026-09-21","messageCount":4297,"sessionCount":10,"toolCallCount":9392}],
 		"dailyModelTokens":[{"date":"2026-09-22","tokensByModel":{"claude-opus-5":1500000}}],
 		"modelUsage":{"claude-opus-5":{"inputTokens":1,"outputTokens":2,"cacheReadInputTokens":3,"cacheCreationInputTokens":4}},
 		"hourCounts":{"14":38,"21":39}}`), 0o600)
-	os.WriteFile(filepath.Join(acct.ConfigDir, "settings.json"), []byte(`{"model":"opus","permissions":{"allow":["Bash(ls)","Read"],"deny":["Bash(rm:*)"]},"env":{"A":"1"}}`), 0o600)
+	os.WriteFile(filepath.Join(acct.Dir, "settings.json"), []byte(`{"model":"opus","permissions":{"allow":["Bash(ls)","Read"],"deny":["Bash(rm:*)"]},"env":{"A":"1"}}`), 0o600)
 	m.openInfo(c, infoStatus)
 	k := m.sheet.(*infoSheet)
 	text := func() string { return ansi.Strip(strings.Join(k.body(m, 96, 50), "\n")) }

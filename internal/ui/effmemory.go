@@ -5,8 +5,8 @@ package ui
 // folder agtop was started in.
 func (m *Model) effMemoryPlace() (cfg, cwd string) {
 	cfg = m.store.Config.ActiveAccount().ConfigDir
-	if a := m.selected(); a != nil && a.Acct.ConfigDir != "" {
-		cfg = a.Acct.ConfigDir
+	if a := m.selected(); a != nil && a.Acct.Dir != "" {
+		cfg = a.Acct.Dir
 	}
 	return cfg, m.effFolder()
 }

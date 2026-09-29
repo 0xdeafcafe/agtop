@@ -33,7 +33,7 @@ func (a *Agent) TempDirs() []TempDir {
 	case a.Agtop:
 		out = append(out, TempDir{Path: host.TempDir(a.ID), Keep: true})
 	case !a.Interactive && !a.Past && a.ID != "":
-		out = append(out, TempDir{Path: filepath.Join(a.Acct.JobsDir(), a.ID, "tmp"), Keep: true})
+		out = append(out, TempDir{Path: filepath.Join(claude.AccountOf(a.Acct).JobsDir(), a.ID, "tmp"), Keep: true})
 	}
 	if a.SessionID != "" && a.Cwd != "" {
 		out = append(out, TempDir{Path: filepath.Join(ClaudeScratch(), claude.ProjectSlug(a.Cwd), a.SessionID)})

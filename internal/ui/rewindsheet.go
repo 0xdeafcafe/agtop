@@ -80,7 +80,7 @@ func (m *Model) openRewindAt(c *hostConn, a *fleet.Agent, n int, prompt string) 
 		return nil
 	}
 	f := &rewindSheet{
-		agentKey: c.key, id: a.ID, agent: a.DisplayName, acct: a.Acct,
+		agentKey: c.key, id: a.ID, agent: a.DisplayName, acct: claude.AccountOf(a.Acct),
 		sid:  firstNonEmpty(c.sess.Info.SessionID, a.SessionID),
 		cwd:  firstNonEmpty(c.sess.Info.Cwd, a.Cwd),
 		path: c.path, model: c.sess.Info.Model,

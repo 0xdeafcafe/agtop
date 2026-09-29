@@ -76,8 +76,8 @@ func (m *Model) openFork(c *hostConn, a *fleet.Agent, name string) {
 	}
 	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
 	f := &forkSheet{
-		conn: c.key, agent: a.DisplayName, acct: a.Acct, sid: sid, cwd: cwd,
-		path: firstNonEmpty(c.path, a.TranscriptPath, a.Acct.TranscriptPath(cwd, sid)),
+		conn: c.key, agent: a.DisplayName, acct: claude.AccountOf(a.Acct), sid: sid, cwd: cwd,
+		path: firstNonEmpty(c.path, a.TranscriptPath, claude.AccountOf(a.Acct).TranscriptPath(cwd, sid)),
 		name: []rune(firstNonEmpty(name, a.DisplayName+" (fork)")),
 		now:  c.sess.Info, hosted: a.Agtop, repo: actions.RepoRoot(cwd),
 	}

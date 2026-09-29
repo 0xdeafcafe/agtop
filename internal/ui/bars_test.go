@@ -21,7 +21,7 @@ func barAgentFixture(t *testing.T) (*Model, *fleet.Agent, *hostConn) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 160, h: 44}
-	a := &fleet.Agent{Key: "k", DisplayName: "fixer", Cwd: "/src/agtop", Branch: "main", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}}
+	a := &fleet.Agent{Key: "k", DisplayName: "fixer", Cwd: "/src/agtop", Branch: "main", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
 	c := &hostConn{key: "k", sess: convo.New(), open: map[string]bool{}, client: &host.Client{}}
 	c.sess.Info = host.Info{Model: "claude-opus-5-5", Effort: "high", PermissionMode: "auto", CostUSD: 8.18, Queue: []string{"later"}}
 	c.sess.Context = 170_000
@@ -92,7 +92,7 @@ func TestAgentHeaderNarrowDropsTheLast(t *testing.T) {
 // when its line wasn't touched.
 func TestSaveBarsLeavesClaudeAlone(t *testing.T) {
 	m, a, c := barAgentFixture(t)
-	settings := filepath.Join(a.Acct.ConfigDir, "settings.json")
+	settings := filepath.Join(a.Acct.Dir, "settings.json")
 	os.WriteFile(settings, []byte(`{"model":"opus"}`), 0o600)
 	m.openStatusLine(c, a)
 	st := m.sheet.(*statusSheet)

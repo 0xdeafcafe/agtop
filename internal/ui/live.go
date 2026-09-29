@@ -57,7 +57,7 @@ type liveMsg struct{ l *live }
 // liveCapable is true for sessions the daemon hosts with a process running.
 // Attaching to anything else would respawn it just to show a preview.
 func liveCapable(a *fleet.Agent) bool {
-	return a != nil && !a.Interactive && a.Worker != nil && daemonRunning(a.Acct)
+	return a != nil && !a.Interactive && a.Worker != nil && daemonRunning(claude.AccountOf(a.Acct))
 }
 
 // daemonRunning is whether an account's daemon is up, looked at once a
@@ -87,7 +87,7 @@ var daemons struct {
 }
 
 func openLive(a *fleet.Agent, w, h int) tea.Cmd {
-	cl := daemon.Client{Account: a.Acct}
+	cl := daemon.Client{Account: claude.AccountOf(a.Acct)}
 	l := &live{
 		key: a.Key, short: a.ID, cl: cl, w: w, h: h,
 		id:   fmt.Sprintf("agtop-preview-%d", os.Getpid()),

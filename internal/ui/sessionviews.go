@@ -613,7 +613,7 @@ func (m *Model) loadLocal(c *hostConn) {
 		return
 	}
 	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
-	found := claude.Commands(firstNonEmpty(a.Acct.ConfigDir, claude.DefaultAccount().ConfigDir), cwd)
+	found := claude.Commands(firstNonEmpty(a.Acct.Dir, claude.DefaultAccount().ConfigDir), cwd)
 	c.local, c.skills = c.local[:0], map[string]bool{}
 	for _, f := range found {
 		c.local = append(c.local, headless.Command{Name: f.Name, Description: f.Description, ArgumentHint: f.ArgumentHint})
@@ -1048,7 +1048,7 @@ func (m *Model) showView(c *hostConn, name string) bool {
 func (m *Model) openScreen(c *hostConn, a *fleet.Agent, screen string) tea.Cmd {
 	key := c.key
 	hint := "\033[2m  agtop · Claude Code's /" + screen + " · when you're done: esc, then ctrl+c twice to come back\033[0m"
-	cmd := actions.Screen(a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd), screen, hint)
+	cmd := actions.Screen(claude.AccountOf(a.Acct), firstNonEmpty(c.sess.Info.Cwd, a.Cwd), screen, hint)
 	return tea.ExecProcess(cmd, func(err error) tea.Msg { return screenDoneMsg{key: key, screen: screen, err: err} })
 }
 

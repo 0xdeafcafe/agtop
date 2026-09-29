@@ -70,9 +70,9 @@ func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 	if bars.Agent.Lines == nil {
 		bars.Agent = statusline.DefaultAgent()
 	}
-	st := &statusSheet{acct: a.Acct, a: a, c: c, claude: statusline.Load().Clone(), in: previewInput(c, a),
+	st := &statusSheet{acct: claude.AccountOf(a.Acct), a: a, c: c, claude: statusline.Load().Clone(), in: previewInput(c, a),
 		bars: statusline.Bars{Top: bars.Top.Clone(), Agent: bars.Agent.Clone()}}
-	if s, err := claude.LoadSettings(a.Acct); err == nil {
+	if s, err := claude.LoadSettings(claude.AccountOf(a.Acct)); err == nil {
 		st.current = s.String("statusLine.command")
 	}
 	// Taken before your own line is folded in, so saving adopts it.
@@ -99,7 +99,7 @@ func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 func (m *Model) openTopBar(a *fleet.Agent) {
 	c := m.host
 	if a == nil {
-		a = &fleet.Agent{Acct: m.store.Config.ActiveAccount(), Cwd: m.launchDir}
+		a = &fleet.Agent{Acct: m.store.Config.ActiveAccount().Profile(), Cwd: m.launchDir}
 	}
 	if c == nil || c.key != a.Key {
 		c = &hostConn{key: a.Key, sess: convo.New(), open: map[string]bool{}}

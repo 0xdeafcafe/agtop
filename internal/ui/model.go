@@ -931,7 +931,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Claude Code has let the job go; its conversation carries on here.
 				return m, m.moveToAgtop(a)
 			}
-			return m, tea.ExecProcess(actions.AttachFallback(a.Acct, a.ID), func(err error) tea.Msg {
+			return m, tea.ExecProcess(actions.AttachFallback(claude.AccountOf(a.Acct), a.ID), func(err error) tea.Msg {
 				return doneMsg{err: err}
 			})
 		}
@@ -1315,7 +1315,7 @@ func (m *Model) hibernate() {
 	for _, a := range m.snap.Agents {
 		if a.Worker != nil && a.State == "done" && a.Age(m.snap.At) > time.Duration(after)*time.Minute && !m.hibernated[a.Key] {
 			m.hibernated[a.Key] = true // one try each; a failed stop is not retried every second
-			go actions.Stop(a.Acct, a.ID, a.PID)
+			go actions.Stop(claude.AccountOf(a.Acct), a.ID, a.PID)
 		}
 	}
 }
@@ -1721,12 +1721,12 @@ func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 	// One attach at a time from here: the preview's would fight the full
 	// screen over the session's size.
 	m.closeLive()
-	s := &daemon.Session{Client: daemon.Client{Account: a.Acct}, Short: a.ID}
+	s := &daemon.Session{Client: daemon.Client{Account: claude.AccountOf(a.Acct)}, Short: a.ID}
 	return tea.Exec(s, func(err error) tea.Msg { return attachDoneMsg{agent: a, err: err} })
 }
 
 func (m *Model) togglePin(a *fleet.Agent) tea.Cmd {
-	pins, err := claude.LoadPins(a.Acct)
+	pins, err := claude.LoadPins(claude.AccountOf(a.Acct))
 	if err != nil {
 		m.flash(err.Error(), true)
 		return nil
@@ -1743,7 +1743,7 @@ func (m *Model) togglePin(a *fleet.Agent) tea.Cmd {
 	if !found {
 		out = append(out, a.ID)
 	}
-	return cmdErr("", func() error { return claude.WritePins(a.Acct, out) })
+	return cmdErr("", func() error { return claude.WritePins(claude.AccountOf(a.Acct), out) })
 }
 
 func (m *Model) toggleDone(a *fleet.Agent) {
