@@ -2005,7 +2005,7 @@ func (m *Model) promptLines(w int) []string {
 		b.topL = dim("group for ") + paint(cText, oneLine(a.DisplayName)) + dim(" · enter saves")
 		b.holder = "a group name · empty clears it"
 	case m.inKind == inReply && a != nil && !a.Agtop:
-		b.topL = dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…")) + dim(" · enter sends")
+		b.topL = dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…"))
 		b.holder = draftsHolder("a message for this agent", " · esc leaves reply mode")
 	case typingHash(text):
 		b.topL = dim("agtop command · enter runs it")

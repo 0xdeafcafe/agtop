@@ -2090,8 +2090,6 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if len(c.input) > 0 {
 			top += dim(" · " + m.sendNowKey() + " sends it now")
 		}
-	default:
-		top += dim(" · enter sends")
 	}
 	bt := m.btwFor(c.key)
 	btwOn := bt != nil && bt.focused
