@@ -78,7 +78,7 @@ func (Adapter) Live(p agent.Profile) []agent.Session {
 		}
 		out = append(out, agent.Session{Kind: Kind, Profile: p, ID: j.SessionID, Name: j.Name, State: j.State,
 			Detail: j.Detail, Needs: j.Needs, Cwd: j.Cwd, Transcript: j.TranscriptPath, Todos: j.TodoItems,
-			Running: j.Running, CreatedAt: j.CreatedAt, UpdatedAt: j.UpdatedAt, Extra: j})
+			Running: j.Running, CreatedAt: j.CreatedAt, UpdatedAt: j.UpdatedAt, Extra: j, Job: &j.Job})
 	}
 	for dir := range found.jobs {
 		if strings.HasPrefix(dir, acct.JobsDir()) && !jobs[dir] {
@@ -88,9 +88,14 @@ func (Adapter) Live(p agent.Profile) []agent.Session {
 	sessions := readSessions(acct)
 	for i := range sessions {
 		ss := &sessions[i]
-		out = append(out, agent.Session{Kind: Kind, Profile: p, ID: ss.SessionID, Name: ss.Name, Cwd: ss.Cwd, PID: ss.PID,
+		s := agent.Session{Kind: Kind, Profile: p, ID: ss.SessionID, Name: ss.Name, Cwd: ss.Cwd, PID: ss.PID,
 			Transcript: filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(ss.Cwd), ss.SessionID+".jsonl"),
-			CreatedAt:  ss.StartedAt(), UpdatedAt: ss.UpdatedAt(), Extra: *ss})
+			CreatedAt:  ss.StartedAt(), UpdatedAt: ss.UpdatedAt(), Extra: *ss,
+			JobID: ss.JobID, Interactive: ss.Kind == "interactive", Status: ss.Status}
+		if ss.StatusMs > 0 {
+			s.StatusAt = ss.StatusAt()
+		}
+		out = append(out, s)
 	}
 	return out
 }

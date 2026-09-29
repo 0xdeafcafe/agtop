@@ -20,6 +20,7 @@ type SubagentRun struct {
 	// Type and Description are the run's own words: which subagent it is,
 	// and what it was asked.
 	Type, Description string
+	Path              string // its own transcript
 }
 
 // SubagentRuns follows a session's transcript, and its subagent runs'
@@ -50,6 +51,13 @@ type SubagentRuns interface {
 // from their transcripts.
 type RunFollower interface {
 	SubagentRuns() SubagentRuns
+	// SubagentsDir is the folder a session's runs keep their transcripts
+	// in, beside its own at transcript.
+	SubagentsDir(transcript string) string
+	// CountSubagents counts a session's runs from what each says of
+	// itself, without reading their transcripts: those still writing
+	// are working.
+	CountSubagents(transcript string, now time.Time) SubagentStats
 }
 
 // FollowRuns is a new follower of a session of agent k's subagent runs;

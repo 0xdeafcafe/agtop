@@ -17,8 +17,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/advisor"
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/claude"
-	"github.com/0xdeafcafe/rush/internal/daemon"
 	"github.com/0xdeafcafe/rush/internal/fswait"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
@@ -29,7 +27,7 @@ import (
 type Agent struct {
 	agent.Job
 	// Extra is the adapter's own record of it: Claude Code's job file
-	// (claude.Job) for its background sessions.
+	// for its background sessions.
 	Extra any
 	Key   string
 	// Acct is the profile it runs in: the agent's config folder.
@@ -38,7 +36,7 @@ type Agent struct {
 	Pinned      bool
 	Done        bool
 	Group       string
-	Worker      *claude.Worker
+	Worker      *Worker
 	Repo        string
 	// Root is the main checkout of Repo's repository: Repo itself, or for
 	// a linked worktree the checkout it was made from.
@@ -94,7 +92,7 @@ func (a *Agent) Waiting() bool {
 
 // applyStatus trusts the session's live busy/idle flag over the job file,
 // whose state Claude Code only re-summarises every 15-40s.
-func (a *Agent) applyStatus(ss claude.Session) {
+func (a *Agent) applyStatus(ss agent.Session) {
 	switch {
 	case ss.Status == "busy" && a.State == "running":
 		a.State = "working"
@@ -102,7 +100,7 @@ func (a *Agent) applyStatus(ss claude.Session) {
 		a.State, a.Needs, a.Detail = "working", "", ""
 	case ss.Status == "busy" && a.State == "done" && len(a.Background) == 0:
 		a.State, a.Detail = "working", ""
-	case ss.Status == "idle" && a.State == "working" && ss.StatusMs > 0 && ss.StatusAt().After(a.UpdatedAt):
+	case ss.Status == "idle" && a.State == "working" && !ss.StatusAt.IsZero() && ss.StatusAt.After(a.UpdatedAt):
 		a.State, a.Checking, a.Needs = "blocked", true, ""
 	}
 }
@@ -161,6 +159,10 @@ func (a *Agent) Elapsed(now time.Time) time.Duration {
 
 // Spend is what an agent's transcripts say it cost.
 type Spend = agent.Spend
+
+// Worker is the process a background job runs in, under its agent's own
+// service.
+type Worker struct{ PID int }
 
 type AccountView struct {
 	state.Folder
@@ -408,7 +410,7 @@ type subsEntry struct {
 	dir  time.Time // the subagents folder's time when counted
 	main int64     // the transcript's size when counted
 	gone bool      // whether its process was known to be gone
-	runs *claude.SubagentRuns
+	runs agent.SubagentRuns
 }
 
 // subagents counts an agent's subagent runs, and those still working.
@@ -418,9 +420,13 @@ type subsEntry struct {
 // session's process is known to have exited. It's counted again when a run
 // started (the folder changed), when the transcript grew (a run ended or
 // was woken), when some were working, or after 30s.
-func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) (agent.SubagentStats, []SubagentTile) {
+func (l *Loader) subagents(k agent.Kind, key, transcript string, gone bool, now time.Time) (agent.SubagentStats, []SubagentTile) {
+	f, ok := agent.As[agent.RunFollower](k)
+	if !ok {
+		return agent.SubagentStats{}, nil
+	}
 	var dir time.Time
-	if st, err := os.Stat(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")); err == nil {
+	if st, err := os.Stat(f.SubagentsDir(transcript)); err == nil {
 		dir = st.ModTime()
 	} else {
 		return agent.SubagentStats{}, nil
@@ -441,9 +447,9 @@ func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) (ag
 		return e.st, subagentTiles(transcript, e.runs.Running())
 	}
 	if e.runs == nil {
-		e.runs = &claude.SubagentRuns{}
+		e.runs = f.SubagentRuns()
 	}
-	e.runs.Gone = gone
+	e.runs.SetGone(gone)
 	e.st, e.at, e.dir, e.main, e.gone = e.runs.Stats(transcript, now), now, dir, main, gone
 	l.subs[key] = e
 	return e.st, subagentTiles(transcript, e.runs.Running())
@@ -460,14 +466,13 @@ type SubagentTile struct {
 // subagentTiles are the runs a SubagentRuns calls still working, as tiles:
 // each one's own transcript sits flat beside the others, whatever its
 // depth, under the session's own.
-func subagentTiles(transcript string, runs []claude.SubagentRun) []SubagentTile {
+func subagentTiles(transcript string, runs []agent.SubagentRun) []SubagentTile {
 	if len(runs) == 0 {
 		return nil
 	}
-	dir := filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")
 	out := make([]SubagentTile, 0, len(runs))
 	for _, r := range runs {
-		t := SubagentTile{ID: r.ID, Type: r.Type, Description: r.Description, Path: filepath.Join(dir, "agent-"+r.ID+".jsonl")}
+		t := SubagentTile{ID: r.ID, Type: r.Type, Description: r.Description, Path: r.Path}
 		t.Worktree, _ = SubWorktree(t.Path, TranscriptCwd(transcript))
 		out = append(out, t)
 	}
@@ -578,7 +583,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	snap := &Snapshot{At: now}
 	cfg := l.store.Config
 	ov := l.store.Overlay
-	active := claude.Active(cfg)
+	active := cfg.ActiveAccount()
 
 	var tab *proc.Table
 	if sampleProcs {
@@ -611,49 +616,45 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	}
 	l.branches(hosted, claimed)
 	l.syncUsage()
-	for _, acct := range []claude.Account{active} { // ~/.claude: every session runs there
-		roster := l.memo(acct.RosterPath(), func() any { return claude.ReadRoster(acct) }).(claude.Roster)
-		prs := l.memo(acct.PRCachePath(), func() any { return claude.ReadPRCache(acct) }).(map[string]agent.PR)
-		pins := l.memo(claude.PinsPath(acct), func() any {
-			pins := map[string]int{}
-			for i, id := range claude.ReadPins(acct) {
-				pins[id] = i + 1
-			}
-			return pins
-		}).(map[string]int)
-		av := AccountView{Folder: state.Folder(acct), Daemon: daemon.Client{Account: acct}.Running(), Current: true}
-		av.Usage = l.readUsage(acct.Profile())
-		av.Quota = av.Usage.Quota(ReadingKey(acct.Profile(), av.Usage))
+	for _, p := range []agent.Profile{active.Profile()} { // ~/.claude: every session runs there
+		var workers, pins map[string]int
+		var prs map[string]agent.PR
+		if k, ok := agent.As[agent.JobKeeper](p.Kind); ok {
+			workers, pins, prs = k.Workers(p), k.Pins(p), k.LinkedPRs(p)
+		}
+		av := AccountView{Folder: active, Current: true}
+		if j, ok := agent.As[agent.Joiner](p.Kind); ok {
+			av.Daemon = j.ServiceUp(p)
+		}
+		av.Usage = l.readUsage(p)
+		av.Quota = av.Usage.Quota(ReadingKey(p, av.Usage))
 		// Its sessions, as its adapter finds them: background jobs, then
-		// every session file whose process is alive.
-		var jobs []claude.Job
-		var sessions []claude.Session
-		live := liveOf(acct.Profile())
-		for i := range live {
-			switch x := live[i].Extra.(type) {
-			case claude.Job:
-				jobs = append(jobs, x)
-			case claude.Session:
-				sessions = append(sessions, x)
+		// every session whose process is alive.
+		var jobs, sessions []agent.Session
+		for _, s := range liveOf(p) {
+			if s.Job != nil {
+				jobs = append(jobs, s)
+			} else {
+				sessions = append(sessions, s)
 			}
 		}
-		byJob := map[string]claude.Session{}
+		byJob := map[string]agent.Session{}
 		for _, ss := range sessions {
 			parents[ss.PID] = true
 		}
 		for _, ss := range sessions {
-			claimed[ss.SessionID] = true
+			claimed[ss.ID] = true
 			if ss.JobID != "" {
 				byJob[ss.JobID] = ss
 			}
 		}
 		for i := range jobs {
-			j := &jobs[i]
+			j := jobs[i].Job
 			id := j.ID
-			key := state.Key(acct.Name, id)
+			key := state.Key(p.Name, id)
 			seen[key] = true
 			claimed[j.SessionID] = true
-			a := &Agent{Job: j.Job, Extra: *j, Key: key, Acct: acct.Profile(), Kind: string(acct.Profile().Kind), DisplayName: j.Name}
+			a := &Agent{Job: *j, Extra: jobs[i].Extra, Key: key, Acct: p, Kind: string(p.Kind), DisplayName: j.Name}
 			if ss, ok := byJob[id]; ok {
 				a.applyStatus(ss)
 			}
@@ -677,9 +678,8 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			if t, ok := ov.Seen[key]; ok && !j.UpdatedAt.After(t) {
 				a.Seen = true
 			}
-			if w, ok := roster.Workers[id]; ok {
-				w := w
-				a.Worker = &w
+			if pid, ok := workers[id]; ok {
+				a.Worker = &Worker{PID: pid}
 			}
 			// A job's worktree, not its cwd, is where it actually runs:
 			// Claude Code doesn't always move cwd to match once a job's
@@ -696,7 +696,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			a.Spend = l.spend[key]
 			if j.TranscriptPath != "" && (a.Live() || a.PID != 0 || now.Sub(j.UpdatedAt) < 24*time.Hour) {
 				// Its process isn't always known, so it's never taken as gone.
-				a.Subs, a.Subagents = l.subagents(key, j.TranscriptPath, false, now)
+				a.Subs, a.Subagents = l.subagents(p.Kind, key, j.TranscriptPath, false, now)
 			}
 			for _, u := range a.Spend.PRs {
 				// Only PRs Claude Code linked to a session; a URL merely
@@ -727,19 +727,19 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			snap.Agents = append(snap.Agents, a)
 		}
 		for _, ss := range sessions {
-			if ss.Kind != "interactive" || len(ss.SessionID) < 8 || tab != nil && !isProgramPID(tab, ss.PID, acct.Profile().Kind) || ours[ss.SessionID] || oursPID[ss.PID] {
+			if !ss.Interactive || len(ss.ID) < 8 || tab != nil && !isProgramPID(tab, ss.PID, p.Kind) || ours[ss.ID] || oursPID[ss.PID] {
 				continue
 			}
-			key := state.Key(acct.Name, "i:"+ss.SessionID[:8])
+			key := state.Key(p.Name, "i:"+ss.ID[:8])
 			seen[key] = true
 			st := "idle"
 			if ss.Status == "busy" || ss.Status == "shell" {
 				st = "working"
 			}
 			j := agent.Job{
-				ID: ss.SessionID[:8], Account: acct.Name, Name: ss.Name, State: st, Cwd: ss.Cwd,
-				SessionID: ss.SessionID, CreatedAt: ss.StartedAt(), UpdatedAt: ss.UpdatedAt(),
-				TranscriptPath: l.transcriptOf(acct, ss.Cwd, ss.SessionID),
+				ID: ss.ID[:8], Account: p.Name, Name: ss.Name, State: st, Cwd: ss.Cwd,
+				SessionID: ss.ID, CreatedAt: ss.CreatedAt, UpdatedAt: ss.UpdatedAt,
+				TranscriptPath: l.transcriptOf(p, ss.Cwd, ss.ID),
 			}
 			headless := l.isPrint(tab, ss.PID)
 			if headless && spawnOf(tab, ss.PID, parents) != 0 {
@@ -752,7 +752,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 					j.Detail = "run by another program"
 				}
 			}
-			a := &Agent{Job: j, Key: key, Acct: acct.Profile(), Kind: string(acct.Profile().Kind), DisplayName: ss.Name, Interactive: true, Headless: headless, PID: ss.PID}
+			a := &Agent{Job: j, Key: key, Acct: p, Kind: string(p.Kind), DisplayName: ss.Name, Interactive: true, Headless: headless, PID: ss.PID}
 			if ss.Cwd == advisor.Dir() {
 				a.Advisor, a.DisplayName, a.Detail = true, "✦ advisor", "looking over your sessions for savings"
 				if tab != nil && tab.Procs[ss.PID] != nil && strings.Contains(l.cmdline(tab.Procs[ss.PID]), "--model opus") {
@@ -773,7 +773,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 				dir = a.Spend.Dir
 			}
 			a.Repo, a.Branch = l.gitFor(dir, now)
-			a.Subs, a.Subagents = l.subagents(key, j.TranscriptPath, false, now) // listed only while its process runs
+			a.Subs, a.Subagents = l.subagents(p.Kind, key, j.TranscriptPath, false, now) // listed only while its process runs
 			l.sample(tab, a)
 			if a.Live() {
 				av.Live++
@@ -786,10 +786,10 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		for _, info := range hosted {
 			// Every Claude session runs in ~/.claude, whatever name its
 			// folder had when it started.
-			if info.Kind != string(acct.Profile().Kind) {
+			if info.Kind != string(p.Kind) {
 				continue // listed under its own profile, below
 			}
-			a := l.hostedAgent(acct, info, tab, now)
+			a := l.hostedAgent(p, info, tab, now)
 			if a.Live() {
 				av.Live++
 			}
@@ -802,7 +802,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			snap.Accounts = append(snap.Accounts, av)
 			continue
 		}
-		for _, a := range l.pastAgents(acct, claimed, seen, now) {
+		for _, a := range l.pastAgents(p, claimed, seen, now) {
 			av.Agents++
 			av.Spend += a.Spend.Cost
 			av.Today += a.Spend.Today
@@ -814,7 +814,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	// under their own profile's name.
 	for _, info := range hosted {
 		if info.Kind != string(active.Profile().Kind) {
-			snap.Agents = append(snap.Agents, l.hostedAgent(claude.Account{Name: info.Account}, info, tab, now))
+			snap.Agents = append(snap.Agents, l.hostedAgent(agent.Profile{Kind: active.Profile().Kind, Name: info.Account}, info, tab, now))
 		}
 	}
 	snap.Agents = append(snap.Agents, l.otherAgents(active.Profile().Kind, claimed, seen, now, skipPast)...)
@@ -886,9 +886,9 @@ func isProgram(k agent.Kind, comm string) bool {
 }
 
 // hostedAgent is a rush session's row, with what you've set on it.
-func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Table, now time.Time) *Agent {
+func (l *Loader) hostedAgent(p agent.Profile, info host.Info, tab *proc.Table, now time.Time) *Agent {
 	ov := l.store.Overlay
-	a := l.hosted(acct, info, tab, now)
+	a := l.hosted(p, info, tab, now)
 	if n := ov.Names[a.Key]; n != "" {
 		a.DisplayName = n
 	}
@@ -905,7 +905,7 @@ func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Tabl
 		// Its host says whether Claude Code runs: when neither runs, nor
 		// does anything Claude Code started.
 		gone := a.PID == 0 || info.Proto >= 3 && info.ClaudePID == 0 && info.State != "working"
-		a.Subs, a.Subagents = l.subagents(a.Key, a.Job.TranscriptPath, gone, now)
+		a.Subs, a.Subagents = l.subagents(a.Acct.Kind, a.Key, a.Job.TranscriptPath, gone, now)
 	}
 	// A transcript is priced call by call, subagents and all; the host's
 	// own figure is only for agents that leave none. (Older hosts summed
@@ -919,14 +919,19 @@ func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Tabl
 // transcriptOf is where a session's conversation is now: under the
 // folder it started in, or, once entering a worktree has moved it,
 // wherever it was found, remembered so it's looked for only once.
-func (l *Loader) transcriptOf(acct claude.Account, cwd, sid string) string {
+func (l *Loader) transcriptOf(pr agent.Profile, cwd, sid string) string {
 	if p, ok := l.moved[sid]; ok {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
 	}
-	p := acct.FindTranscript(cwd, sid)
-	if p != acct.TranscriptPath(cwd, sid) {
+	at := agent.TranscriptPath(pr.Kind, pr, cwd, sid)
+	t, ok := agent.As[agent.Transcripts](pr.Kind)
+	if !ok {
+		return at
+	}
+	p := t.FindTranscript(pr, cwd, sid)
+	if p != at {
 		l.moved[sid] = p
 	} else {
 		delete(l.moved, sid)
@@ -934,7 +939,7 @@ func (l *Loader) transcriptOf(acct claude.Account, cwd, sid string) string {
 	return p
 }
 
-func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, now time.Time) *Agent {
+func (l *Loader) hosted(p agent.Profile, info host.Info, tab *proc.Table, now time.Time) *Agent {
 	st := info.State
 	switch st {
 	case "idle", "starting":
@@ -950,11 +955,11 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 		name = "rush session " + info.ID
 	}
 	j := agent.Job{
-		ID: info.ID, Account: acct.Name, Name: name, State: st, Detail: info.Detail, Needs: info.Needs,
+		ID: info.ID, Account: p.Name, Name: name, State: st, Detail: info.Detail, Needs: info.Needs,
 		Cwd: info.Cwd, SessionID: info.SessionID, CreatedAt: info.StartedAt, UpdatedAt: info.UpdatedAt,
 	}
-	if info.Kind == string(acct.Profile().Kind) {
-		j.TranscriptPath = l.transcriptOf(acct, info.Cwd, info.SessionID)
+	if info.Kind == string(p.Kind) {
+		j.TranscriptPath = l.transcriptOf(p, info.Cwd, info.SessionID)
 	}
 	// What it runs in the background, as Claude Code's own background
 	// sessions record theirs, so the list says so alike.
@@ -970,7 +975,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 		default:
 			kind = "task"
 		}
-		j.Running = append(j.Running, claude.Task{Kind: kind, Label: t.Label, StartedAt: t.StartedAt})
+		j.Running = append(j.Running, agent.Task{Kind: kind, Label: t.Label, StartedAt: t.StartedAt})
 		j.Background = append(j.Background, kind+"\x00"+t.Label)
 		j.InFlight++
 	}
@@ -994,7 +999,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 	case info.Error != "" && st == "done":
 		j.Detail = "stopped mid-turn · your next message resumes it"
 	}
-	a := &Agent{Job: j, Key: state.Key(acct.Name, "a:"+info.ID), Acct: agent.Profile{Kind: agent.Kind(info.Kind), Name: acct.Name, Dir: acct.ConfigDir}, DisplayName: name, Rush: true, Kind: info.Kind, Profile: info.Profile}
+	a := &Agent{Job: j, Key: state.Key(p.Name, "a:"+info.ID), Acct: agent.Profile{Kind: agent.Kind(info.Kind), Name: p.Name, Dir: p.Dir}, DisplayName: name, Rush: true, Kind: info.Kind, Profile: info.Profile}
 	if info.State != "stopped" && info.HostPID > 0 && (tab == nil || tab.Procs[info.HostPID] != nil) {
 		a.PID = info.HostPID
 	}
@@ -1278,7 +1283,7 @@ func isPrint(args []string) bool {
 
 // Where says where an interactive-kind agent is being driven from.
 func (a *Agent) Where() string {
-	if a.Headless && a.Kind == string(claude.Kind) {
+	if a.Headless && a.Kind == state.LoginsKind {
 		return "run by another program (claude -p)"
 	}
 	if a.Headless {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/fswait"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/proc"
@@ -107,31 +107,28 @@ func (l *Loader) read(snap *Snapshot, hosted []host.Info) {
 // folders sessions and jobs register in, the hosts' info, the settings it
 // reads, and each live agent's transcript and subagents.
 func (l *Loader) watchPaths(snap *Snapshot, hosted []host.Info) []string {
-	acct := claude.Active(l.store.Config)
-	paths := []string{
-		acct.ConfigDir, filepath.Join(acct.ConfigDir, "sessions"), acct.JobsDir(), filepath.Dir(acct.RosterPath()),
-		acct.RosterPath(), acct.PRCachePath(), claude.PinsPath(acct), acct.StatePath(),
-		state.Dir(), host.Root(), l.UsagePath,
-	}
+	p := l.store.Config.ActiveAccount().Profile()
+	paths := []string{state.Dir(), host.Root(), l.UsagePath}
 	for _, info := range hosted {
 		if info.State != "stopped" {
 			paths = append(paths, filepath.Join(host.Root(), info.ID)) // its info.json is replaced on each change
 		}
 	}
+	var jobs []string
 	for _, a := range snap.Agents {
 		if !a.Live() && a.PID == 0 && !a.Busy() {
 			continue
 		}
-		if a.Interactive || a.Worker != nil {
-			paths = append(paths, filepath.Join(acct.ConfigDir, "sessions"))
-		}
 		if a.ID != "" && !a.Rush && !a.Interactive {
-			paths = append(paths, filepath.Join(acct.JobsDir(), a.ID), filepath.Join(acct.JobsDir(), a.ID, "state.json"))
+			jobs = append(jobs, a.ID)
 		}
 		if p := a.TranscriptPath; p != "" {
 			sess := strings.TrimSuffix(p, ".jsonl")
 			paths = append(paths, p, filepath.Dir(p), sess, filepath.Join(sess, "subagents"))
 		}
+	}
+	if k, ok := agent.As[agent.JobKeeper](p.Kind); ok {
+		paths = append(paths, k.Watched(p, jobs)...)
 	}
 	return paths
 }

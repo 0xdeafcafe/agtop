@@ -193,7 +193,8 @@ func (r *SubagentRuns) list() []SubagentRun {
 			}
 		}
 		run := SubagentRun{ID: m.id, ToolUseID: m.toolUse, Depth: m.depth, Type: m.agentType, Description: m.description}
-		if fi, err := os.Stat(filepath.Join(dir, "agent-"+m.id+".jsonl")); err == nil {
+		run.Path = filepath.Join(dir, "agent-"+m.id+".jsonl")
+		if fi, err := os.Stat(run.Path); err == nil {
 			run.Mod = fi.ModTime()
 		}
 		out = append(out, run)
