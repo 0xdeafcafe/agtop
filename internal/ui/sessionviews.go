@@ -390,8 +390,8 @@ var agtopCommands = []event.Command{
 	{Name: "clear", Description: "start a fresh session in the same folder (this one stays in the list)"},
 	{Name: "fork", Description: "carry on in a copy of this conversation, as a new agent (this one stays as it is)", ArgumentHint: "[name]"},
 	{Name: "rewind", Description: "go back to before one of your messages and try again; the path you leave is kept as a branch"},
-	{Name: "model", Description: "switch model for the next turn: /model opus, sonnet, haiku, fable", ArgumentHint: "<model>"},
-	{Name: "effort", Description: "change effort (applies from the next start): low, medium, high, xhigh, max", ArgumentHint: "<level>"},
+	{Name: "model", Description: "pick the model for the next turn, or name one", ArgumentHint: "[model]"},
+	{Name: "effort", Description: "pick the effort (applies from the next start), or name one", ArgumentHint: "[level]"},
 	{Name: "plan", Description: "plan mode on, or off again: Claude plans and asks before it changes anything"},
 	{Name: "diff", Description: "what changed: this session's edits and the working tree (the changes view)"},
 	{Name: "tasks", Description: "what's running: shells, monitors and subagents, to stop or background"},
@@ -648,21 +648,6 @@ func (m *Model) sessionCommands(c *hostConn, a *fleet.Agent) []agent.Command {
 	return m.commandsOf(k, p, firstNonEmpty(c.sess.Info.Cwd, a.Cwd))
 }
 
-// argChoices are what /model and /effort offer once you've typed a space.
-var argChoices = map[string][]event.Command{
-	"model": {
-		{Name: "opus", Description: "most capable"},
-		{Name: "opus[1m]", Description: "Opus with a 1M-token context"},
-		{Name: "sonnet", Description: "fast and capable"},
-		{Name: "haiku", Description: "fastest and cheapest"},
-		{Name: "fable", Description: "Fable"},
-		{Name: "default", Description: "the account's default"},
-	},
-	"effort": {
-		{Name: "low"}, {Name: "medium"}, {Name: "high"}, {Name: "xhigh"}, {Name: "max"},
-	},
-}
-
 // argMatches is the picker for a command's argument: "/model so" offers
 // the models starting with so, the current one marked.
 func argMatches(c *hostConn) []event.Command {
@@ -671,24 +656,21 @@ func argMatches(c *hostConn) []event.Command {
 		return nil
 	}
 	name, q, ok := strings.Cut(text[1:], " ")
-	opts := argChoices[name]
+	opts := argOptions(c, name)
 	if !ok || opts == nil || strings.Contains(q, " ") {
 		return nil
 	}
-	now := c.sess.Info.Model
-	if name == "effort" {
-		now = c.sess.Info.Effort
-	}
+	now, known := argNow(c, name, opts)
 	var out []event.Command
-	for _, o := range opts {
-		if !strings.HasPrefix(o.Name, strings.ToLower(q)) {
+	for _, o := range append(opts, agent.Choice{ID: "default", Note: "the agent's own"}) {
+		if !strings.HasPrefix(o.ID, strings.ToLower(q)) {
 			continue
 		}
-		d := o.Description
-		if now != "" && (now == o.Name || name == "model" && strings.Contains(now, strings.TrimSuffix(o.Name, "[1m]"))) {
+		d := o.Note
+		if known && (now == o.ID || now == "" && o.ID == "default") {
 			d = strings.TrimPrefix(d+" · now", " · ")
 		}
-		out = append(out, event.Command{Name: name + " " + o.Name, Description: d})
+		out = append(out, event.Command{Name: name + " " + o.ID, Description: d})
 	}
 	return out
 }
@@ -962,20 +944,11 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		m.leavePane()
 		m.flash("past conversations are in Agents: pick one, and a message carries it on", false)
 		return nil, true
-	case "model":
-		if c.client == nil {
-			m.flash("/model works in agtop-mode sessions · /agtop moves this one over", true)
+	case "model", "effort":
+		if arg == "" && c.client != nil && m.openChoices(c, name) {
 			return nil, true
 		}
-		m.flash("model: "+firstNonEmpty(arg, "default")+" from the next turn", false)
-		return hostCmd(func() error { return c.client.SetModel(arg) }), true
-	case "effort":
-		if c.client == nil {
-			m.flash("/effort works in agtop-mode sessions · /agtop moves this one over", true)
-			return nil, true
-		}
-		m.flash("effort: "+firstNonEmpty(arg, "default")+" from the next start", false)
-		return hostCmd(func() error { return c.client.SetEffort(arg) }), true
+		return m.setArg(c, name, arg), true
 	}
 	if screen, ok := claudeScreen(name); ok && (arg == "" || screen != "mcp" && screen != "config") && a != nil {
 		if cmd, ok := m.agtopScreen(c, a, screen); ok {

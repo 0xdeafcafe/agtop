@@ -917,9 +917,10 @@ type hostConn struct {
 
 	key    string
 	id     string
-	kind   agent.Kind   // the agent it runs, as its row says
-	client *host.Client // an agtop session's host; nil when read from a transcript
-	tail   *convo.Tail  // a Claude Code session's transcript, followed as it grows
+	kind   agent.Kind        // the agent it runs, as its row says
+	client *host.Client      // an agtop session's host; nil when read from a transcript
+	picked map[string]string // what /model and /effort last set here, by command: the host doesn't say
+	tail   *convo.Tail       // a Claude Code session's transcript, followed as it grows
 	// hist is another agent's session read from its history, read again
 	// as it grows: see followHistory.
 	hist  *history
