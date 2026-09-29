@@ -3,10 +3,12 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
@@ -226,5 +228,18 @@ func TestPromptChipAndUndo(t *testing.T) {
 	press("super+z")
 	if got := string(m.input); got != "see "+chip || m.pastes.expand(string(m.input), false) != "see one\ntwo" {
 		t.Fatalf("undo: %q", got)
+	}
+}
+
+// A queued message's images are chips where their markers are; one no
+// marker stands for goes after.
+func TestQueueChips(t *testing.T) {
+	text, rest := queueChips("[Image #1] look at this", []string{"/a/shot.png", "/a/other.png"})
+	plain := ansi.Strip(text)
+	if strings.Contains(plain, "[Image #") || !strings.HasPrefix(plain, "▣ shot.png") {
+		t.Errorf("text %q", plain)
+	}
+	if len(rest) != 1 || rest[0] != "/a/other.png" {
+		t.Errorf("rest %v", rest)
 	}
 }

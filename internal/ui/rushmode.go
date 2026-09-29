@@ -2151,14 +2151,18 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			qi = c.sess.Info.QueueImages
 		}
 		for i := start; i < min(len(q), start+3); i++ {
-			// Its images, as chips after its text.
-			var pics strings.Builder
+			// Its images, as chips where their markers are, as the box has
+			// them; any without a marker after its text.
+			var imgs []string
 			if i < len(qi) {
-				for _, p := range qi[i] {
-					pics.WriteString(" " + bgChip + cBlue + "▣ " + cText + convo.ImageLabel(p) + " " + reset)
-				}
+				imgs = qi[i]
 			}
-			text := ansi.Truncate(shortImages(oneLine(q[i])), max(10, w-8-ansi.StringWidth(pics.String())), "…")
+			text, rest := queueChips(shortImages(oneLine(q[i])), imgs)
+			var pics strings.Builder
+			for _, p := range rest {
+				pics.WriteString(" " + queueChip(p))
+			}
+			text = ansi.Truncate(text, max(10, w-8-ansi.StringWidth(pics.String())), "…")
 			row := ansi.Truncate("  "+paint(cQueue, strconv.Itoa(i+1))+"  "+paint(cText, text)+pics.String(), w, "…")
 			if picked && i == pick {
 				row = picked1(row, w, m.paneFocus)
@@ -3940,4 +3944,30 @@ func (c *hostConn) subWhere(id string) string {
 		return "  " + faint("⎇ ") + dim(wt)
 	}
 	return ""
+}
+
+// queueChip is a queued message's image as a chip.
+func queueChip(path string) string {
+	return bgChip + cBlue + "▣ " + cText + convo.ImageLabel(path) + " " + reset
+}
+
+// queueChips is a queued message's text with each [Image #N] as image N's
+// chip, and the images no marker stands for.
+func queueChips(text string, images []string) (string, []string) {
+	used := make([]bool, len(images))
+	text = imageMarkerRe.ReplaceAllStringFunc(text, func(mk string) string {
+		n, _ := strconv.Atoi(imageMarkerRe.FindStringSubmatch(mk)[1])
+		if n < 1 || n > len(images) {
+			return mk
+		}
+		used[n-1] = true
+		return queueChip(images[n-1]) + cText
+	})
+	var rest []string
+	for i, p := range images {
+		if !used[i] {
+			rest = append(rest, p)
+		}
+	}
+	return text, rest
 }
