@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
@@ -255,8 +256,12 @@ func (m *Model) openHooks(c *hostConn, a *fleet.Agent) tea.Cmd {
 	m.sheet = hs
 	// Enabled plugins' hooks come after, read-only.
 	acct := a.Acct
+	plug, ok := agent.As[agent.Plugger](sessionAgent(c))
+	if !ok {
+		return nil
+	}
 	return sheetDo(func() ([]hook, error) {
-		inst, _, err := claude.Plugins(claude.AccountOf(acct), cwd)
+		inst, _, err := plug.Plugins(acct, cwd)
 		var out []hook
 		for _, pl := range inst {
 			if !pl.Enabled {

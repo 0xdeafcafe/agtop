@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
@@ -16,10 +16,11 @@ import (
 // pluginSheet is agtop's /plugins: what's installed (on/off, update,
 // remove, what each brings and costs), what the marketplaces offer
 // (search, install), and the marketplaces themselves. Changes go through
-// `claude plugin`, so they're exactly what Claude Code's screen would do.
+// the agent's adapter, so they're exactly what its own screen would do.
 type pluginSheet struct {
 	conn string // the Session it was opened from, reloaded after changes
-	acct claude.Account
+	plug agent.Plugger
+	acct agent.Profile
 	cwd  string
 
 	tab       int
@@ -31,9 +32,9 @@ type pluginSheet struct {
 	sourcePos int
 
 	loaded    bool
-	installed []claude.Plugin
-	available []claude.Plugin
-	markets   []claude.Marketplace
+	installed []agent.Plugin
+	available []agent.Plugin
+	markets   []agent.Marketplace
 	costs     map[string]string // always-on tokens, by plugin id
 	costAsked map[string]bool
 
@@ -51,23 +52,28 @@ const (
 )
 
 func (m *Model) openPlugins(c *hostConn, a *fleet.Agent) tea.Cmd {
-	p := &pluginSheet{conn: c.key, acct: claude.AccountOf(a.Acct), cwd: firstNonEmpty(c.sess.Info.Cwd, a.Cwd), costs: map[string]string{}, costAsked: map[string]bool{}}
+	plug, ok := agent.As[agent.Plugger](sessionAgent(c))
+	if !ok || !canScreen(c, "plugin") {
+		m.flash(agentName(string(sessionAgent(c)))+" has no plugins agtop manages", true)
+		return nil
+	}
+	p := &pluginSheet{conn: c.key, plug: plug, acct: a.Acct, cwd: firstNonEmpty(c.sess.Info.Cwd, a.Cwd), costs: map[string]string{}, costAsked: map[string]bool{}}
 	m.sheet = p
 	return p.load()
 }
 
 func (p *pluginSheet) load() tea.Cmd {
-	acct, cwd := p.acct, p.cwd
+	plug, acct, cwd := p.plug, p.acct, p.cwd
 	type lists struct {
-		inst, avail []claude.Plugin
-		markets     []claude.Marketplace
+		inst, avail []agent.Plugin
+		markets     []agent.Marketplace
 	}
 	return sheetDo(func() (lists, error) {
-		inst, avail, err := claude.Plugins(acct, cwd)
+		inst, avail, err := plug.Plugins(acct, cwd)
 		if err != nil {
 			return lists{}, err
 		}
-		ms, err := claude.Marketplaces(acct, cwd)
+		ms, err := plug.Marketplaces(acct, cwd)
 		return lists{inst, avail, ms}, err
 	}, func(m *Model, l lists, err error) tea.Cmd {
 		if m.sheet != p {
@@ -94,8 +100,8 @@ func (p *pluginSheet) askCost() tea.Cmd {
 		return nil
 	}
 	p.costAsked[pl.ID] = true
-	acct, dir := p.acct, firstNonEmpty(pl.ProjectPath, p.cwd)
-	return sheetDo(func() (string, error) { return claude.PluginCost(acct, dir, pl.ID) },
+	plug, acct, dir := p.plug, p.acct, firstNonEmpty(pl.ProjectPath, p.cwd)
+	return sheetDo(func() (string, error) { return plug.PluginCost(acct, dir, pl.ID) },
 		func(m *Model, cost string, err error) tea.Cmd {
 			if err == nil && cost != "" {
 				p.costs[pl.ID] = cost
@@ -104,15 +110,15 @@ func (p *pluginSheet) askCost() tea.Cmd {
 		})
 }
 
-// run does a `claude plugin …` change, then reads everything again.
-func (p *pluginSheet) run(what, dir string, args ...string) tea.Cmd {
+// run makes a change through the agent, then reads everything again.
+func (p *pluginSheet) run(what, dir string, c agent.PluginChange) tea.Cmd {
 	if p.busy != "" {
 		return nil
 	}
 	p.busy, p.err, p.done, p.armed = what, "", "", ""
-	acct := p.acct
-	return sheetDo(func() ([]byte, error) { return claude.PluginCLI(acct, dir, args...) },
-		func(m *Model, _ []byte, err error) tea.Cmd {
+	plug, acct := p.plug, p.acct
+	return sheetDo(func() (struct{}, error) { return struct{}{}, plug.ChangePlugins(acct, dir, c) },
+		func(m *Model, _ struct{}, err error) tea.Cmd {
 			p.busy = ""
 			if err != nil {
 				p.err = err.Error()
@@ -124,12 +130,12 @@ func (p *pluginSheet) run(what, dir string, args ...string) tea.Cmd {
 }
 
 // shown is the Discover list for the search.
-func (p *pluginSheet) shown() []claude.Plugin {
+func (p *pluginSheet) shown() []agent.Plugin {
 	q := strings.ToLower(strings.TrimSpace(string(p.query)))
 	if q == "" {
 		return p.available
 	}
-	var out []claude.Plugin
+	var out []agent.Plugin
 	for _, pl := range p.available {
 		if strings.Contains(strings.ToLower(pl.Name+" "+pl.Marketplace+" "+pl.Description), q) {
 			out = append(out, pl)
@@ -157,7 +163,7 @@ func (p *pluginSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 			src := strings.TrimSpace(string(p.source))
 			p.adding, p.source, p.sourcePos = false, nil, 0
 			if src != "" {
-				return p.run("adding "+src+"…", p.cwd, "marketplace", "add", src)
+				return p.run("adding "+src+"…", p.cwd, agent.PluginChange{Op: agent.MarketAdd, ID: src})
 			}
 		default:
 			p.source, p.sourcePos, _ = edit(p.source, p.sourcePos, k, s)
@@ -200,21 +206,21 @@ func (p *pluginSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 		pl := p.installed[min(*cur, len(p.installed)-1)]
-		dir, scope := firstNonEmpty(pl.ProjectPath, p.cwd), []string{"--scope", firstNonEmpty(pl.Scope, "user")}
+		dir, scope := firstNonEmpty(pl.ProjectPath, p.cwd), firstNonEmpty(pl.Scope, "user")
 		switch s {
 		case "space", "enter":
 			if pl.Enabled {
-				return p.run("turning off "+pl.Name+"…", dir, append([]string{"disable", pl.ID}, scope...)...)
+				return p.run("turning off "+pl.Name+"…", dir, agent.PluginChange{Op: agent.PluginDisable, ID: pl.ID, Scope: scope})
 			}
-			return p.run("turning on "+pl.Name+"…", dir, append([]string{"enable", pl.ID}, scope...)...)
+			return p.run("turning on "+pl.Name+"…", dir, agent.PluginChange{Op: agent.PluginEnable, ID: pl.ID, Scope: scope})
 		case "u":
-			return p.run("updating "+pl.Name+"…", dir, append([]string{"update", pl.ID}, scope...)...)
+			return p.run("updating "+pl.Name+"…", dir, agent.PluginChange{Op: agent.PluginUpdate, ID: pl.ID, Scope: scope})
 		case "x", "delete", "backspace":
 			if p.armed != pl.ID {
 				p.armed = pl.ID
 				return nil
 			}
-			return p.run("removing "+pl.Name+"…", dir, append([]string{"uninstall", pl.ID}, scope...)...)
+			return p.run("removing "+pl.Name+"…", dir, agent.PluginChange{Op: agent.PluginRemove, ID: pl.ID, Scope: scope})
 		}
 	case plDiscover:
 		list := p.shown()
@@ -224,7 +230,7 @@ func (p *pluginSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 				return nil
 			}
 			pl := list[min(*cur, len(list)-1)]
-			return p.run("installing "+pl.Name+"…", p.cwd, "install", pl.ID, "--scope", "user")
+			return p.run("installing "+pl.Name+"…", p.cwd, agent.PluginChange{Op: agent.PluginInstall, ID: pl.ID, Scope: "user"})
 		default:
 			if q, pos, ok := edit(p.query, p.queryPos, k, s); ok {
 				p.query, p.queryPos, *cur = q, pos, 0
@@ -236,7 +242,7 @@ func (p *pluginSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 			p.adding = true
 			return nil
 		case "U":
-			return p.run("updating every marketplace…", p.cwd, "marketplace", "update")
+			return p.run("updating every marketplace…", p.cwd, agent.PluginChange{Op: agent.MarketUpdate})
 		}
 		if len(p.markets) == 0 {
 			return nil
@@ -244,13 +250,13 @@ func (p *pluginSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 		mk := p.markets[min(*cur, len(p.markets)-1)]
 		switch s {
 		case "u", "enter":
-			return p.run("updating "+mk.Name+"…", p.cwd, "marketplace", "update", mk.Name)
+			return p.run("updating "+mk.Name+"…", p.cwd, agent.PluginChange{Op: agent.MarketUpdate, ID: mk.Name})
 		case "x", "delete", "backspace":
 			if p.armed != mk.Name {
 				p.armed = mk.Name
 				return nil
 			}
-			return p.run("removing "+mk.Name+"…", p.cwd, "marketplace", "remove", mk.Name)
+			return p.run("removing "+mk.Name+"…", p.cwd, agent.PluginChange{Op: agent.MarketRemove, ID: mk.Name})
 		}
 	}
 	return nil

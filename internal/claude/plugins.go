@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json/jsontext"
 	"fmt"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"os"
 	"os/exec"
@@ -13,50 +15,13 @@ import (
 	"strings"
 )
 
-// Plugin is an installed plugin, or one a marketplace offers.
-type Plugin struct {
-	ID          string `json:"id"` // name@marketplace
-	Name        string `json:"name"`
-	Marketplace string `json:"marketplaceName"`
-	Description string `json:"description"`
-	Version     string `json:"version"`
-	Installs    int    `json:"installCount"`
-
-	// Installed ones only.
-	Installed   bool   `json:"-"`
-	Enabled     bool   `json:"enabled"`
-	Scope       string `json:"scope"` // user, project, local
-	ProjectPath string `json:"projectPath"`
-	InstallPath string `json:"installPath"`
-	LastUpdated string `json:"lastUpdated"`
-
-	Parts PluginParts `json:"-"`
-}
-
-// PluginParts is what a plugin brings, read from its folder.
-type PluginParts struct {
-	Skills, Agents, Commands, Hooks, MCP []string
-}
-
-// Marketplace is a catalogue plugins are installed from.
-type Marketplace struct {
-	Name     string `json:"name"`
-	Source   string `json:"source"`
-	Repo     string `json:"repo"`
-	URL      string `json:"url"`
-	Location string `json:"installLocation"`
-}
-
-// Where is how a marketplace is found: its GitHub repo, URL or folder.
-func (m Marketplace) Where() string {
-	switch {
-	case m.Repo != "":
-		return m.Repo
-	case m.URL != "":
-		return m.URL
-	}
-	return m.Location
-}
+// Plugin, PluginParts and Marketplace are agtop's, as Claude Code's plugin
+// list gives them.
+type (
+	Plugin      = agent.Plugin
+	PluginParts = agent.PluginParts
+	Marketplace = agent.Marketplace
+)
 
 // PluginCLI runs `claude plugin …` for the account in dir.
 func PluginCLI(a Account, dir string, args ...string) ([]byte, error) {

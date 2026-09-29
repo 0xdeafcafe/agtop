@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
@@ -19,7 +19,7 @@ import (
 // into the message box) or edit your own.
 type skillSheet struct {
 	conn     string
-	all      []claude.Command
+	all      []agent.Command
 	tab      int // 0 skills, 1 commands
 	cur      [2]int
 	query    []rune
@@ -27,9 +27,17 @@ type skillSheet struct {
 }
 
 func (m *Model) openSkills(c *hostConn, a *fleet.Agent) {
-	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
-	all := claude.Commands(firstNonEmpty(a.Acct.Dir, claude.DefaultAccount().ConfigDir), cwd)
-	m.sheet = &skillSheet{conn: c.key, all: all}
+	ad, ok := agent.Get(sessionAgent(c))
+	cmdr, lists := ad.(agent.Commander)
+	if !ok || !lists || !canScreen(c, "skills") {
+		m.flash(agentName(string(sessionAgent(c)))+" has no skills or commands agtop lists", true)
+		return
+	}
+	p := a.Acct
+	if ps := ad.Profiles(); p.Dir == "" && len(ps) > 0 {
+		p = ps[0]
+	}
+	m.sheet = &skillSheet{conn: c.key, all: cmdr.Commands(p, firstNonEmpty(c.sess.Info.Cwd, a.Cwd))}
 }
 
 // sourceRank puts your own first, then the project's, claude.ai's, and
@@ -47,9 +55,9 @@ func sourceRank(s string) int {
 }
 
 // shown is the tab's list for the search, grouped by source.
-func (k *skillSheet) shown() []claude.Command {
+func (k *skillSheet) shown() []agent.Command {
 	q := strings.ToLower(strings.TrimSpace(string(k.query)))
-	var out []claude.Command
+	var out []agent.Command
 	for _, c := range k.all {
 		if c.Skill != (k.tab == 0) {
 			continue
@@ -118,7 +126,7 @@ func (k *skillSheet) key(m *Model, kp tea.KeyPressMsg, s string) tea.Cmd {
 	return nil
 }
 
-func editable(c claude.Command) bool { return c.Source == "yours" || c.Source == "project" }
+func editable(c agent.Command) bool { return c.Source == "yours" || c.Source == "project" }
 
 func (k *skillSheet) body(m *Model, w, h int) []string {
 	skills, cmds := 0, 0
@@ -168,7 +176,7 @@ func (k *skillSheet) body(m *Model, w, h int) []string {
 	return append(out, "", keysFit(w, "type", "search", "enter", "use it", "ctrl+e", "edit", "[ ]", "skills/commands", "esc", "close"))
 }
 
-func (k *skillSheet) detail(list []claude.Command, cur int, w int) []string {
+func (k *skillSheet) detail(list []agent.Command, cur int, w int) []string {
 	if len(list) == 0 {
 		return nil
 	}

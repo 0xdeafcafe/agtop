@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
@@ -63,11 +64,11 @@ func TestForkCutsTheTranscript(t *testing.T) {
 
 func TestPluginSheet(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 44}
-	p := &pluginSheet{loaded: true, acct: claude.Account{Name: "work"}, cwd: "/x", costs: map[string]string{"lw@m": "~108 tok"}, costAsked: map[string]bool{"lw@m": true}}
-	p.installed = []claude.Plugin{{ID: "lw@m", Name: "lw", Marketplace: "m", Enabled: true, Scope: "user", Description: "records things",
-		Parts: claude.PluginParts{Skills: []string{"lw"}, Hooks: []string{"SessionStart", "Stop"}}}}
-	p.available = []claude.Plugin{{ID: "a@m", Name: "alpha", Installs: 1_300_000, Description: "front ends"}, {ID: "b@m", Name: "beta", Installs: 12, Description: "tests"}}
-	p.markets = []claude.Marketplace{{Name: "m", Source: "github", Repo: "o/m"}}
+	p := &pluginSheet{loaded: true, acct: agent.Profile{Name: "work"}, cwd: "/x", costs: map[string]string{"lw@m": "~108 tok"}, costAsked: map[string]bool{"lw@m": true}}
+	p.installed = []agent.Plugin{{ID: "lw@m", Name: "lw", Marketplace: "m", Enabled: true, Scope: "user", Description: "records things",
+		Parts: agent.PluginParts{Skills: []string{"lw"}, Hooks: []string{"SessionStart", "Stop"}}}}
+	p.available = []agent.Plugin{{ID: "a@m", Name: "alpha", Installs: 1_300_000, Description: "front ends"}, {ID: "b@m", Name: "beta", Installs: 12, Description: "tests"}}
+	p.markets = []agent.Marketplace{{Name: "m", Source: "github", Repo: "o/m"}}
 	m.sheet = p
 	text := func() string { return ansi.Strip(strings.Join(p.body(m, 120, 40), "\n")) }
 	for _, want := range []string{"Installed 1/1 on", "Discover 2", "● lw", "1 skill: lw", "2 hooks: SessionStart, Stop", "~108 tok in every session"} {
