@@ -202,7 +202,7 @@ func (w *world) accounts(ago func(time.Duration) time.Time) error {
 		{Name: "lumen", ID: loginLumen, Email: "sam@lumen.example", Org: "Lumen Labs"},
 	}
 	cfg := state.Config{
-		Folders: []claude.Account{{Name: "work", ConfigDir: claudeDir}}, FoldersImported: true, Logins: logins,
+		Folders: []state.Folder{{Name: "work", ConfigDir: claudeDir}}, FoldersImported: true, Logins: logins,
 		SignIns: []state.SignIn{
 			{Kind: "codex", ID: "user-acme-7f3a", Name: "work", Email: "sam@acme.example", Plan: "pro"},
 			{Kind: "codex", ID: "user-home-1b9c", Name: "personal", Email: "sam.rivera@example.com", Plan: "plus"},
