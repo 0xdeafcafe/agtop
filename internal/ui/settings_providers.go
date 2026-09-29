@@ -159,7 +159,21 @@ func sameDay(a, b time.Time) bool {
 func (m *Model) providersKey(s string) tea.Cmd {
 	d := m.dialog
 	if d.inside {
-		return m.formKey(m.provForm(m.provPicked()), s)
+		secs := m.provForm(m.provPicked())
+		if row := rowAt(secs, d.cursor); s == "left" || s == "h" {
+			// ← on a row with no choices to go back through goes back out
+			// to the list, as esc does.
+			if row.key != nil {
+				if cmd, used := row.key(s); used {
+					return cmd
+				}
+			}
+			if len(row.choices) == 0 {
+				d.inside, d.cursor = false, d.pick
+				return nil
+			}
+		}
+		return m.formKey(secs, s)
 	}
 	items, it := m.provItems(), m.provPicked()
 	if n := int(s[0] - '0'); len(s) == 1 && n >= 1 && n <= 9 {
@@ -254,7 +268,11 @@ func (m *Model) providersBody(w int) []string {
 	if d.inside {
 		row := rowAt(secs, d.cursor)
 		detail = append(detail, m.about(row, dw)...)
-		keys = m.formKeys(row, nil, w)
+		back := []string{"esc", "back"}
+		if len(row.choices) == 0 {
+			back[0] = "← esc"
+		}
+		keys = m.formKeys(row, back, w)
 	}
 	for i, l := range detail {
 		if cellw.String(ansi.Strip(l)) > dw {

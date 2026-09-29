@@ -116,6 +116,20 @@ func TestSettingsProvidersOnePage(t *testing.T) {
 	if m.dialog == nil || m.dialog.inside || m.provPicked().provider != "zcodex" {
 		t.Fatal("esc didn't go back to the list, on the provider")
 	}
+	// ← on a row with no choices goes back out too; on one with choices it
+	// goes back through them.
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	secs := m.provForm(m.provPicked())
+	for i, r := range flat(secs) {
+		if len(r.choices) == 0 && r.key == nil {
+			m.dialog.cursor = i
+			break
+		}
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if m.dialog.inside || m.provPicked().provider != "zcodex" {
+		t.Fatal("← didn't go back to the list, on the provider")
+	}
 	m.openAgentSettings("zplain")
 	if m.dialog.page != pageProviders || !m.dialog.inside || m.provPicked().provider != "zplain" {
 		t.Fatal("openAgentSettings didn't land in the agent's provider")
