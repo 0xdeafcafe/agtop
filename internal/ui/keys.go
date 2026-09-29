@@ -53,14 +53,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 				question: "Quit with unsaved changes to " + tildify(c.memEd.path) + "?",
 				detail:   "they're lost",
 				onYes: func() tea.Cmd {
-					m.scanner.Flush()
-					return tea.Quit
+					return m.quit()
 				},
 			}
 			return nil
 		}
-		m.scanner.Flush()
-		return tea.Quit
+		return m.quit()
 	}
 	if m.confirm != nil {
 		return m.confirmKey(s)
@@ -385,8 +383,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		case m.armed != "":
 			m.armed = ""
 		case time.Since(m.quitArmed) < 2*time.Second:
-			m.scanner.Flush()
-			return tea.Quit
+			return m.quit()
 		default:
 			m.quitArmed = time.Now()
 			m.flash("esc again to quit", false)
@@ -526,7 +523,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if s == "space" && (m.inKind == inPrompt || m.inKind == inReply) && m.anchor == 0 {
 		// A path to an image, typed or dropped in as keys, becomes an
 		// attachment once it's done.
-		if in, imgs := pullImages(m.input, m.images); len(imgs) > len(m.images) {
+		if in, imgs := pullImages(m.input, m.images, m.lookPath); len(imgs) > len(m.images) {
 			m.input, m.images = in, imgs
 			m.setCursor(len(in))
 		}
@@ -597,11 +594,17 @@ func (m *Model) nextNeedingYou() tea.Cmd {
 	return m.loadPreview()
 }
 
+// quit ends the view once the spend read so far is saved, off the UI
+// goroutine: the next start needn't read it all again.
+func (m *Model) quit() tea.Cmd {
+	sc := m.scanner
+	return func() tea.Msg { sc.Flush(); return tea.QuitMsg{} }
+}
+
 // quitKey arms quitting on the first ctrl+c and quits on a second one.
 func (m *Model) quitKey() tea.Cmd {
 	if time.Since(m.quitArmed) < 2*time.Second {
-		m.scanner.Flush()
-		return tea.Quit
+		return m.quit()
 	}
 	m.quitArmed = time.Now()
 	m.flash("ctrl+c again to quit", false)
@@ -997,8 +1000,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		m.mode = modeHelp
 		m.didStep("keys")
 	case "quit":
-		m.scanner.Flush()
-		return tea.Quit
+		return m.quit()
 	case "pin":
 		if need() {
 			m.didStep("pin")
@@ -1396,15 +1398,8 @@ func (m *Model) cwdChoices() []string {
 	}
 	for _, a := range m.snap.Agents {
 		add(a.Repo)
-		if a.Repo != "" {
-			wt := filepath.Join(a.Repo, ".claude", "worktrees")
-			if ents, err := os.ReadDir(wt); err == nil {
-				for _, e := range ents {
-					if e.IsDir() {
-						add(filepath.Join(wt, e.Name()))
-					}
-				}
-			}
+		for _, wt := range m.worktreesOf(a.Repo) {
+			add(wt)
 		}
 		add(a.Cwd)
 	}

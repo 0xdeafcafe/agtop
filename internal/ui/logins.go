@@ -364,13 +364,15 @@ func (m *Model) addLogin(name string) tea.Cmd {
 		m.flash(agentName(string(loginsKind))+" can't sign in from agtop", true)
 		return nil
 	}
-	return tea.ExecProcess(lg.Login(scratch.Profile()), func(err error) tea.Msg {
-		if err != nil {
-			return addedLoginMsg{name: name, err: err}
-		}
-		l, err := state.AdoptLogin(scratch)
-		return addedLoginMsg{name: name, l: l, err: err}
-	})
+	return func() tea.Msg { // its command is made off the UI goroutine
+		return tea.ExecProcess(lg.Login(scratch.Profile()), func(err error) tea.Msg {
+			if err != nil {
+				return addedLoginMsg{name: name, err: err}
+			}
+			l, err := state.AdoptLogin(scratch)
+			return addedLoginMsg{name: name, l: l, err: err}
+		})()
+	}
 }
 
 func (m *Model) onAddedLogin(msg addedLoginMsg) tea.Cmd {
@@ -395,6 +397,17 @@ func (m *Model) onAddedLogin(msg addedLoginMsg) tea.Cmd {
 	return tea.Batch(m.fetchLoginUsage()...)
 }
 
+// signedInAs is whether the login with this id is the one signed in, as
+// the last reading of the fleet found.
+func (m *Model) signedInAs(id string) bool {
+	for _, lv := range m.snap.Logins {
+		if lv.Current && lv.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // useLogin switches to the account named, or with that email: one of
 // the agent new sessions run first, then any other installed agent's.
 func (m *Model) useLogin(name string) tea.Cmd {
@@ -413,7 +426,7 @@ func (m *Model) useLogin(name string) tea.Cmd {
 	}
 	for _, l := range m.store.Config.Logins {
 		if strings.EqualFold(l.Name, name) || strings.EqualFold(l.Email, name) {
-			if l.ID == claude.SignedInAs(m.store.Config.ActiveAccount()) {
+			if m.signedInAs(l.ID) {
 				m.flash("already on "+l.Name, false)
 				return nil
 			}

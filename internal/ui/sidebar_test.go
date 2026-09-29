@@ -28,6 +28,14 @@ func sidebarPlugin(t *testing.T, s plugin.Sidebar) {
 	}
 }
 
+// loaded is a view with its first reading of the fleet taken in, as the
+// running view has it a moment after it starts.
+func loaded(m *Model) *Model {
+	m.refreshNow()
+	m.pinHosted()
+	return m
+}
+
 func sid(id string) string { return id + "-0000-4000-8000-000000000000" }
 
 func TestSidebarArrangesTheList(t *testing.T) {
@@ -44,7 +52,7 @@ func TestSidebarArrangesTheList(t *testing.T) {
 			sid("cccc3333"): {Name: "Card named C", Section: "In Progress"},
 		}})
 
-	m := New(state.Load(), "test")
+	m := loaded(New(state.Load(), "test"))
 	if modes := m.groupModes(); modes[len(modes)-1] != "plugin:kanban" {
 		t.Fatalf("group modes = %v", modes)
 	}
@@ -111,12 +119,12 @@ func TestSidebarIgnoredWhenRevokedOrHosted(t *testing.T) {
 	store := state.Load()
 	store.Config.GroupBy = "plugin:kanban"
 
-	hosted := NewHosted(store, "test", "aaaa1111")
+	hosted := loaded(NewHosted(store, "test", "aaaa1111"))
 	if hosted.activeSidebar() != nil || hosted.snap.Agents[0].DisplayName != "session a" {
 		t.Fatal("hosted was arranged by the plugin")
 	}
 
-	m := New(store, "test")
+	m := loaded(New(store, "test"))
 	if m.activeSidebar() == nil {
 		t.Fatal("the plugin's mode is off")
 	}

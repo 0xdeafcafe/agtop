@@ -84,7 +84,7 @@ func TestImagePathsInline(t *testing.T) {
 		t.Fatal(err)
 	}
 	var r imageRefs
-	got, ok := r.inline(`before '` + p + `' after`)
+	got, ok := r.inline(`before '`+p+`' after`, statLook)
 	if !ok || got != "before [Image #1] after" || r.Path[1] != p {
 		t.Fatalf("inline = %q %v %v", got, ok, r.Path)
 	}

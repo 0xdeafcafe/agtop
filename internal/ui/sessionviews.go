@@ -617,30 +617,35 @@ func slashMatches(c *hostConn) []event.Command {
 }
 
 // loadLocal fills in the commands and skills on disk for the agent's
-// account and folder (read at most every 30 seconds).
+// account and folder, as read at most 30 seconds ago (see commandsOf).
 func (m *Model) loadLocal(c *hostConn) {
 	a := m.agentByKey(c.key)
 	if a == nil {
 		return
 	}
-	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
 	c.local, c.skills = c.local[:0], map[string]bool{}
-	ad, ok := agent.Get(sessionAgent(c))
-	cmdr, lists := ad.(agent.Commander)
-	if !ok || !lists {
-		return
-	}
-	p := a.Acct
-	if ps := ad.Profiles(); p.Dir == "" && len(ps) > 0 {
-		p = ps[0]
-	}
-	found := cmdr.Commands(p, cwd)
+	found := m.sessionCommands(c, a)
 	for _, f := range found {
 		c.local = append(c.local, event.Command{Name: f.Name, Description: f.Description, ArgumentHint: f.ArgumentHint})
 		if f.Skill {
 			c.skills[f.Name] = true
 		}
 	}
+}
+
+// sessionCommands are the commands and skills on disk for the agent's
+// account and folder, as last read; nil when its agent lists none.
+func (m *Model) sessionCommands(c *hostConn, a *fleet.Agent) []agent.Command {
+	k := sessionAgent(c)
+	ad, ok := agent.Get(k)
+	if _, lists := ad.(agent.Commander); !ok || !lists {
+		return nil
+	}
+	p := a.Acct
+	if ps := agent.ProfilesOf(ad); p.Dir == "" && len(ps) > 0 {
+		p = ps[0]
+	}
+	return m.commandsOf(k, p, firstNonEmpty(c.sess.Info.Cwd, a.Cwd))
 }
 
 // argChoices are what /model and /effort offer once you've typed a space.
@@ -1077,8 +1082,11 @@ func (m *Model) openScreen(c *hostConn, a *fleet.Agent, screen string) tea.Cmd {
 		return nil
 	}
 	hint := "\033[2m  agtop · " + agentName(string(k)) + "'s /" + screen + " · when you're done: esc, then ctrl+c twice to come back\033[0m"
-	cmd := sc.Screen(a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd), screen, hint)
-	return tea.ExecProcess(cmd, func(err error) tea.Msg { return screenDoneMsg{key: key, screen: screen, err: err} })
+	acct, cwd := a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
+	return func() tea.Msg {
+		cmd := sc.Screen(acct, cwd, screen, hint) // it reads the account's settings
+		return tea.ExecProcess(cmd, func(err error) tea.Msg { return screenDoneMsg{key: key, screen: screen, err: err} })()
+	}
 }
 
 type screenDoneMsg struct {

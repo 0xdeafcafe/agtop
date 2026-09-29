@@ -5,9 +5,11 @@ package ui
 import (
 	"cmp"
 	"fmt"
+	"hash/maphash"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -158,6 +160,7 @@ type Model struct {
 	host        *hostConn
 	hostOpening string
 	dirIdx      int
+	dirs        startDirsMemo
 
 	status    string
 	statusErr bool
@@ -250,6 +253,11 @@ type Model struct {
 	// snapWanted is a reading of the fleet asked for, snapLoading one
 	// being made; selectOnLoad is an agent to select once one has it.
 	snapWanted, snapLoading bool
+	fleetRead               bool                            // a reading has landed: before it, the list says it's reading
+	procWords               known[procKey, string]          // processes' words, as shortCmd draws them
+	pickTrees               known[string, []string]         // repositories' worktrees, for the folder picker
+	localCmds               known[cmdsKey, []agent.Command] // commands and skills on disk: see commandsOf
+	paths                   known[string, pathFact]         // what's at paths typed, pasted or dropped: see lookPath
 	selectOnLoad            string
 	// keysDisambiguated is when the terminal said it tells ctrl+enter
 	// from enter.
@@ -306,13 +314,12 @@ func New(store *state.Store, version string) *Model { return newModel(store, ver
 // newModel is New, leaving past conversations out of its readings when
 // skipPast (see fleet.Loader.SkipPast) until something needs every agent.
 func newModel(store *state.Store, version string, skipPast bool) *Model {
-	dir, _ := os.Getwd()
+	dir := os.Getenv("PWD") // the shell's word for now: Init asks the kernel
 	m := &Model{
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
 		lastState: map[string]string{}, cwdMove: true,
 		hibernated: map[string]bool{},
-		bars:       statusline.LoadBars(),
 	}
 	// Each second's refresh reads only what changed on disk; everything
 	// is read afresh every few seconds all the same.
@@ -323,12 +330,29 @@ func newModel(store *state.Store, version string, skipPast bool) *Model {
 	}
 	m.applyColors()
 	convo.SetShowWhitespace(store.Config.ShowWhitespace)
-	m.snap = m.loader.LoadQuick() // drawn at once; the first refresh counts subagents
-	m.loadSidebars()
+	// Nothing is read here, where the first frame waits: the first reading
+	// of the fleet and agtop's own status lines land a moment after it.
+	m.snap = &fleet.Snapshot{At: time.Now()}
+	m.refresh()
 	m.rebuild()
 	m.onboard = true
 	return m
 }
+
+// launchDir is the folder agtop was started in, as the kernel has it.
+func launchDir() tea.Msg {
+	d, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	return applyMsg(func(m *Model) tea.Cmd { m.launchDir = d; return nil })
+}
+
+// barsMsg is agtop's own status lines, as read from disk.
+type barsMsg statusline.Bars
+
+// loadBars reads agtop's own status lines off the UI goroutine.
+func loadBars() tea.Msg { return barsMsg(statusline.LoadBars()) }
 
 type tickMsg time.Time
 type usageMsg struct {
@@ -361,9 +385,9 @@ func (m *Model) Init() tea.Cmd {
 	watchUI()
 	if m.hosted != "" {
 		// Only the one session: nothing about the app as a whole.
-		return tea.Batch(tick(), m.scan(), m.loadPreview(), askColours, m.loadKeys(), m.startHooks())
+		return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadPreview(), askColours, m.loadKeys(), m.startHooks())
 	}
-	return tea.Batch(tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkPluginApprovals(), askColours)
+	return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkPluginApprovals(), askColours)
 }
 
 // askColours asks the terminal for its background and text, which agtop's
@@ -439,6 +463,46 @@ func (m *Model) scan() tea.Cmd {
 // startDirs are the folders a new session can start in: where agtop was
 // opened, then folders with agents running, then recent ones.
 func (m *Model) startDirs() []string {
+	k := dirsKey{m.launchDir, dirsPrint(m.snap)}
+	if !m.dirs.ok || m.dirs.key != k {
+		m.dirs = startDirsMemo{k, m.readStartDirs(), true}
+	}
+	return slices.Clip(m.dirs.out) // what's appended to it is copied
+}
+
+// startDirsMemo is startDirs as last worked out: the header asks each frame.
+type startDirsMemo struct {
+	key dirsKey
+	out []string
+	ok  bool
+}
+
+type dirsKey struct {
+	launchDir string
+	agents    uint64 // dirsPrint of the agents it was worked out from
+}
+
+// dirsPrint fingerprints what startDirs reads of the agents, without
+// allocating: a frame asks it, and an agent can move in place.
+func dirsPrint(snap *fleet.Snapshot) uint64 {
+	h := uint64(14695981039346656037)
+	mix := func(v uint64) { h = (h ^ v) * 1099511628211 }
+	for _, a := range snap.Agents {
+		mix(maphash.String(dirsSeed, a.Cwd))
+		mix(uint64(a.UpdatedAt.UnixNano()))
+		if a.Open() {
+			mix(1)
+		}
+		if a.Interactive || a.Past {
+			mix(2)
+		}
+	}
+	return h
+}
+
+var dirsSeed = maphash.MakeSeed()
+
+func (m *Model) readStartDirs() []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(d string) {
@@ -644,7 +708,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if c := m.host; c != nil && c.paneKick && !c.paneReading {
 		c.paneKick, paneCmd = false, m.refreshSubs()
 	}
-	return m, tea.Batch(cmd, copyCmd, fxCmd, paneCmd, m.relayout(), m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd())
+	return m, tea.Batch(cmd, copyCmd, fxCmd, paneCmd, m.relayout(), m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd(), m.asks())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -750,6 +814,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onSnap(msg)
 	case shellsMsg:
 		m.onShells(msg)
+		return m, nil
+	case barsMsg:
+		m.bars = statusline.Bars(msg)
 		return m, nil
 	case netMsg:
 		return m, m.onNet()
@@ -964,9 +1031,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.flash("couldn't open "+a.DisplayName+": "+msg.err.Error(), true)
 				return m, nil
 			}
-			return m, tea.ExecProcess(at.Attach(a.Acct, a.ID), func(err error) tea.Msg {
-				return doneMsg{err: err}
-			})
+			// The command is made (its program looked for) before the
+			// terminal is handed over, off the UI goroutine.
+			acct, id := a.Acct, a.ID
+			return m, func() tea.Msg {
+				return tea.ExecProcess(at.Attach(acct, id), func(err error) tea.Msg {
+					return doneMsg{err: err}
+				})()
+			}
 		}
 		return m, nil
 	case clipImageMsg:
@@ -983,9 +1055,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.embedded {
 			msg.Content = cleanPaste(msg.Content)
 		}
+		// Whether it names files is asked of the disk first, off the UI
+		// goroutine; the paste comes back once that's known.
+		if !m.pathsKnown(msg.Content) {
+			return m, m.statPaste(msg)
+		}
 		// Files dropped onto the terminal go to the box they were dropped
 		// on, not the one that has the keys.
-		if m.ptrSeen && isDrop(msg.Content) {
+		if m.ptrSeen && isDrop(msg.Content, m.lookPath) {
 			m.focusAt(m.ptrX, m.ptrY)
 		}
 		if m.embedded {
@@ -1005,10 +1082,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// paths. In a Session's box each becomes [Image #N] where it was
 		// dropped; in the Prompt, an attachment.
 		if c := m.host; c != nil && m.paneFocus && m.dialog == nil {
-			if t, ok := c.imgs.inline(msg.Content); ok {
+			if t, ok := c.imgs.inline(msg.Content, m.lookPath); ok {
 				msg.Content = t
 			}
-		} else if rest, imgs := extractImages(msg.Content); imgs != nil && m.dialog == nil {
+		} else if rest, imgs := extractImages(msg.Content, m.lookPath); imgs != nil && m.dialog == nil {
 			m.attachImages(imgs)
 			if rest == "" {
 				return m, nil
@@ -1329,19 +1406,31 @@ func (m *Model) notify() {
 		// Not for the agent you're looking at while agtop has focus.
 		watching := !m.blurred && m.paneFocus && m.host != nil && m.host.key == a.Key
 		// The menu bar icon, when it runs, notifies instead, with buttons.
-		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.NeedsYou() && !watching && !menubar.Running() {
+		if !first && !m.store.Config.Quiet && prev != "" && prev != "blocked" && a.NeedsYou() && !watching {
 			body := a.Needs
 			if body == "" {
 				body = oneLine(a.Detail)
 			}
-			actions.Notify(a.DisplayName+" needs you", body)
+			notifyLater(a.DisplayName+" needs you", body, true)
 		}
 		// A turn that died on an error goes nowhere until someone says so;
 		// the menu bar only knows about questions, so this is said here.
 		if !first && !m.store.Config.Quiet && prev != "" && a.Halted() && !wasFailing && !watching {
-			actions.Notify(a.DisplayName+" stopped", a.HaltReason())
+			notifyLater(a.DisplayName+" stopped", a.HaltReason(), false)
 		}
 	}
+}
+
+// notifyLater posts a notification from a goroutine of its own: posting
+// runs a program, and whether the menu bar runs is a look at the disk.
+// With unlessMenuBar, the menu bar posts it instead when it runs.
+func notifyLater(title, body string, unlessMenuBar bool) {
+	go func() {
+		if unlessMenuBar && menubar.Running() {
+			return
+		}
+		actions.Notify(title, body)
+	}()
 }
 
 // hibernate stops finished agents whose process is still resident.
@@ -1764,24 +1853,26 @@ func (m *Model) attach(a *fleet.Agent) tea.Cmd {
 }
 
 func (m *Model) togglePin(a *fleet.Agent) tea.Cmd {
-	pins, err := claude.LoadPins(claude.AccountOf(a.Acct))
-	if err != nil {
-		m.flash(err.Error(), true)
-		return nil
-	}
-	out := pins[:0:0]
-	found := false
-	for _, id := range pins {
-		if id == a.ID {
-			found = true
-			continue
+	acct, id := claude.AccountOf(a.Acct), a.ID
+	return cmdErr("", func() error {
+		pins, err := claude.LoadPins(acct)
+		if err != nil {
+			return err
 		}
-		out = append(out, id)
-	}
-	if !found {
-		out = append(out, a.ID)
-	}
-	return cmdErr("", func() error { return claude.WritePins(claude.AccountOf(a.Acct), out) })
+		out := pins[:0:0]
+		found := false
+		for _, p := range pins {
+			if p == id {
+				found = true
+				continue
+			}
+			out = append(out, p)
+		}
+		if !found {
+			out = append(out, id)
+		}
+		return claude.WritePins(acct, out)
+	})
 }
 
 func (m *Model) toggleDone(a *fleet.Agent) {
@@ -1841,7 +1932,10 @@ func (m *Model) neighbour(key string) string {
 }
 
 func (m *Model) nativeView() tea.Cmd {
-	c := exec.Command(claude.Program, "agents")
-	c.Env = m.store.Config.ActiveAccount().Env()
-	return tea.ExecProcess(c, func(err error) tea.Msg { return doneMsg{err: err} })
+	env := m.store.Config.ActiveAccount().Env()
+	return func() tea.Msg { // exec.Command looks the program up on PATH
+		c := exec.Command(claude.Program, "agents")
+		c.Env = env
+		return tea.ExecProcess(c, func(err error) tea.Msg { return doneMsg{err: err} })()
+	}
 }

@@ -180,7 +180,7 @@ func editSel(buf []rune, pos, anchor int, k tea.KeyPressMsg, s string) (nbuf []r
 	from, to := min(anchor, pos), max(anchor, pos)
 	if has {
 		switch {
-		case s == "ctrl+c" || s == "super+c":
+		case s == "ctrl+c":
 			return buf, pos, -1, string(buf[from:to]), true
 		case s == "backspace" || s == "delete" || s == "ctrl+h":
 			return cut(buf, from, to), from, -1, "", true
@@ -224,12 +224,12 @@ func (m *Model) copyText(t string) {
 // extractImages takes the image files named anywhere in text (a dropped or
 // typed path, escaped or quoted, or a file:// URL) out of it, returning the
 // rest of the text and the images.
-func extractImages(text string) (string, []string) {
+func extractImages(text string, look pathLookup) (string, []string) {
 	var imgs []string
 	var b strings.Builder
 	last := 0
 	for _, sp := range pathSpans(text) {
-		p := imagePath(sp.tok)
+		p := imagePath(sp.tok, look)
 		if p == "" {
 			continue
 		}
@@ -247,18 +247,38 @@ func extractImages(text string) (string, []string) {
 	return strings.TrimSpace(b.String()), imgs
 }
 
-// imagePath is tok as an image file that exists, or "".
-func imagePath(tok string) string {
+// imagePath is tok as an image file that exists, as look says, or "".
+func imagePath(tok string, look pathLookup) string {
 	p := filePath(tok)
-	switch strings.ToLower(filepath.Ext(p)) {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
-	default:
+	if !isImageFile(p) {
 		return ""
 	}
-	if st, err := os.Stat(p); err != nil || st.IsDir() {
+	if f := look(p); !f.ok || f.dir {
 		return ""
 	}
 	return p
+}
+
+// isImageFile is whether p is named as an image.
+func isImageFile(p string) bool {
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		return true
+	}
+	return false
+}
+
+// pathCandidates are the paths text could name, as imagePath, isDrop and
+// imagePaths would look at them.
+func pathCandidates(text string) []string {
+	var out []string
+	for _, sp := range pathSpans(text) {
+		out = append(out, filePath(sp.tok))
+	}
+	for _, tok := range splitPaths(text) {
+		out = append(out, filePath(tok))
+	}
+	return out
 }
 
 // filePath is tok as a path on disk: a file URL unescaped, ~ expanded.
@@ -279,14 +299,14 @@ func filePath(tok string) string {
 
 // isDrop is whether a paste is files dropped onto the terminal: nothing but
 // paths that exist.
-func isDrop(text string) bool {
+func isDrop(text string, look pathLookup) bool {
 	spans := pathSpans(text)
 	for _, sp := range spans {
 		p := filePath(sp.tok)
 		if !filepath.IsAbs(p) {
 			return false
 		}
-		if _, err := os.Stat(p); err != nil {
+		if !look(p).ok {
 			return false
 		}
 	}
@@ -353,12 +373,12 @@ func shortImages(s string) string {
 }
 
 // pullImages moves image paths typed into a box out into its attachments.
-func pullImages(in []rune, images []string) ([]rune, []string) {
+func pullImages(in []rune, images []string, look pathLookup) ([]rune, []string) {
 	text := string(in)
 	if !strings.ContainsAny(text, ".") || !imageExt.MatchString(text) {
 		return in, images
 	}
-	rest, imgs := extractImages(text)
+	rest, imgs := extractImages(text, look)
 	if imgs == nil {
 		return in, images
 	}
@@ -374,10 +394,10 @@ var imageExt = regexp.MustCompile(`(?i)\.(png|jpe?g|gif|webp)\b`)
 // separated by spaces or newlines, quoted or with escaped spaces. It returns
 // nil unless every piece is an image file that exists, so ordinary text is
 // never swallowed.
-func imagePaths(paste string) []string {
+func imagePaths(paste string, look pathLookup) []string {
 	var out []string
 	for _, tok := range splitPaths(paste) {
-		p := imagePath(tok)
+		p := imagePath(tok, look)
 		if p == "" {
 			return nil
 		}

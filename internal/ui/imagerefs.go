@@ -31,11 +31,11 @@ func (r *imageRefs) add(path string) string {
 
 // inline puts a marker in place of each image file named in text: dropped
 // or typed paths become the images they name, where they were.
-func (r *imageRefs) inline(text string) (string, bool) {
+func (r *imageRefs) inline(text string, look pathLookup) (string, bool) {
 	var b strings.Builder
 	last, found := 0, false
 	for _, sp := range pathSpans(text) {
-		p := imagePath(sp.tok)
+		p := imagePath(sp.tok, look)
 		if p == "" {
 			continue
 		}

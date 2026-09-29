@@ -57,7 +57,7 @@ func TestHostedShowsOneSession(t *testing.T) {
 	writeSession(t, "aaaa1111", "the hosted session")
 	writeSession(t, "bbbb2222", "another session")
 
-	m := NewHosted(state.Load(), "test", "aaaa1111")
+	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
 	if len(m.snap.Agents) != 1 || m.hostedKey == "" {
 		t.Fatalf("hosted snapshot: %d agents, key %q", len(m.snap.Agents), m.hostedKey)
 	}
@@ -133,7 +133,7 @@ func TestHostedShowsOneSession(t *testing.T) {
 func TestHostedEscWhileOpening(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
-	m := NewHosted(state.Load(), "test", "aaaa1111")
+	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
 	if cmd := m.key(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil && isQuit(cmd) {
 		t.Fatal("esc while opening quit hosted")
 	}
@@ -145,7 +145,7 @@ func TestHostedPlaces(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	writeSession(t, "bbbb2222", "another session")
-	m := NewHosted(state.Load(), "test", "aaaa1111")
+	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
 	m.Frame(160, 45)
 	m.host = &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 
@@ -180,7 +180,7 @@ func TestHostedPlaces(t *testing.T) {
 func TestHostedFillsTheWidth(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
-	m := NewHosted(state.Load(), "test", "aaaa1111")
+	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
 	m.Frame(208, 45)
 	m.host = &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 	out := m.Frame(208, 45)
@@ -209,7 +209,7 @@ func TestHostedListToggle(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	writeSession(t, "bbbb2222", "another session")
-	m := NewHosted(state.Load(), "test", "aaaa1111")
+	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
 	m.Frame(200, 45)
 	m.host = &hostConn{key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 	if out := m.render(); strings.Contains(out, "another session") || !strings.Contains(out, "ctrl+6") {
@@ -256,7 +256,7 @@ func TestHostedCommandBar(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
 	writeSession(t, "bbbb2222", "another session")
-	m := NewHosted(state.Load(), "test", "aaaa1111")
+	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
 	m.Frame(200, 45)
 	m.host = &hostConn{key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 	m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
@@ -322,7 +322,7 @@ func TestListToggle(t *testing.T) {
 func TestPlacesMoveOutsideHosted(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
-	m := New(state.Load(), "test")
+	m := loaded(New(state.Load(), "test"))
 	m.Frame(160, 45)
 	hostedPress(m, ".")
 	if m.view == placeAgents {
@@ -335,7 +335,7 @@ func TestPlacesMoveOutsideHosted(t *testing.T) {
 func TestHostedShowsAQuestion(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
-	m := NewHosted(state.Load(), "test", "aaaa1111")
+	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
 	m.host = &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 	m.confirm = &confirmation{question: "Send to a cold cache?"}
 	if out := ansi.Strip(m.Frame(160, 45)); !strings.Contains(out, "Send to a cold cache?") {

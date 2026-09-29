@@ -6,6 +6,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/menubar"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
+	"github.com/0xdeafcafe/agtop/internal/statusline"
 )
 
 // Reading the fleet walks the disk: jobs, sessions, transcripts, the
@@ -63,6 +64,9 @@ func (m *Model) onSnap(msg snapMsg) tea.Cmd {
 // --soak and tests, which have no loop to hand a reading back to.
 func (m *Model) refreshNow() {
 	m.snapWanted = false
+	if m.bars.Top.Lines == nil && m.bars.Agent.Lines == nil {
+		m.bars = statusline.LoadBars()
+	}
 	var sb []plugin.Sidebar
 	if m.hosted == "" {
 		sb = m.sidebarFiles.Load()
@@ -73,6 +77,7 @@ func (m *Model) refreshNow() {
 // applySnap takes in a reading: what changed is noticed, finished agents
 // are put away, and the list is laid out again.
 func (m *Model) applySnap(snap *fleet.Snapshot, sidebars []plugin.Sidebar) {
+	m.fleetRead = true
 	m.snap = m.hostedSnap(snap)
 	m.notify()
 	if m.hosted == "" {

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -164,15 +165,16 @@ func (m *Model) handOffStopped() tea.Cmd {
 // conversation on: in the same folder, under the same profile, opened
 // with the conversation so far. The one a limit stopped is left as it is.
 func (m *Model) handOff(a *fleet.Agent, to state.Pick, p state.Profile) tea.Cmd {
-	in := agent.Handoff(m.conversationOf(a))
-	cfg := host.Config{Cwd: a.Cwd, Prompt: in.Text, Images: in.Images, Name: a.DisplayName + " · on " + agentName(to.Kind), Profile: p.Name,
+	conv, name := m.conversationLater(a), a.DisplayName
+	cfg := host.Config{Cwd: a.Cwd, Name: name + " · on " + agentName(to.Kind), Profile: p.Name,
 		IdleStop: host.Duration(m.store.Config.Dispatch.Rest())}
-	if err := cfg.UseAgent(to.Kind); err != nil {
-		m.flash("couldn't hand "+a.DisplayName+" on: "+err.Error(), true)
-		return nil
-	}
-	m.flash(a.DisplayName+" is out of "+agentName(a.Kind)+" · handing it to "+agentName(to.Kind), false)
+	m.flash(name+" is out of "+agentName(a.Kind)+" · handing it to "+agentName(to.Kind), false)
 	return func() tea.Msg {
+		in := agent.Handoff(conv())
+		cfg.Prompt, cfg.Images = in.Text, in.Images
+		if err := cfg.UseAgent(to.Kind); err != nil {
+			return doneMsg{err: fmt.Errorf("couldn't hand %s on: %w", name, err)}
+		}
 		c, err := host.Spawn(cfg)
 		if err != nil {
 			return doneMsg{err: err}

@@ -11,7 +11,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
-	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // press types s as keys: "ctrl+left", or plain text wrapped in quotes.
@@ -94,7 +93,7 @@ func TestImagePaths(t *testing.T) {
 		{dir + "/notes.txt", 0},   // must be an image
 	}
 	for _, c := range cases {
-		if got := imagePaths(c.paste); len(got) != c.want {
+		if got := imagePaths(c.paste, statLook); len(got) != c.want {
 			t.Errorf("%q: got %v", c.paste, got)
 		}
 	}
@@ -205,11 +204,11 @@ func TestImagePathsOddNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	esc := strings.ReplaceAll(name, " ", `\ `)
-	if got := imagePaths(esc); len(got) != 1 || got[0] != name {
+	if got := imagePaths(esc, statLook); len(got) != 1 || got[0] != name {
 		t.Fatalf("escaped path with U+202F: %v", got)
 	}
 	u := "file://" + strings.ReplaceAll(strings.ReplaceAll(name, " ", "%20"), " ", "%E2%80%AF")
-	if got := imagePaths(u); len(got) != 1 || got[0] != name {
+	if got := imagePaths(u, statLook); len(got) != 1 || got[0] != name {
 		t.Fatalf("file URL: %v", got)
 	}
 }
@@ -219,14 +218,14 @@ func TestExtractImages(t *testing.T) {
 	a := filepath.Join(dir, "Screenshot 2026-09-24 at 00.03.09.png")
 	_ = os.WriteFile(a, []byte("x"), 0o644)
 	in := strings.ReplaceAll(a, " ", `\ `) + " still no image detection?\nand /var/nope.png stays"
-	rest, imgs := extractImages(in)
+	rest, imgs := extractImages(in, statLook)
 	if len(imgs) != 1 || imgs[0] != a {
 		t.Fatalf("imgs = %v", imgs)
 	}
 	if rest != "still no image detection?\nand /var/nope.png stays" {
 		t.Fatalf("rest = %q", rest)
 	}
-	if r, imgs := extractImages("no images here"); imgs != nil || r != "no images here" {
+	if r, imgs := extractImages("no images here", statLook); imgs != nil || r != "no images here" {
 		t.Fatal("plain text changed")
 	}
 }
@@ -266,7 +265,7 @@ func TestTypedImages(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "shot one.png")
 	_ = os.WriteFile(p, []byte("x"), 0o644)
-	in, imgs := pullImages([]rune("look "+strings.ReplaceAll(p, " ", `\ `)+" "), nil)
+	in, imgs := pullImages([]rune("look "+strings.ReplaceAll(p, " ", `\ `)+" "), nil, statLook)
 	if len(imgs) != 1 || string(in) != "look " {
 		t.Fatalf("pullImages = %q %v", string(in), imgs)
 	}
@@ -279,7 +278,8 @@ func TestTypedImages(t *testing.T) {
 	for _, r := range "look " + strings.ReplaceAll(p, " ", `\ `) {
 		m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
-	m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	m.drain(cmd) // whether it's a file is read off the UI goroutine
 	if string(m.input) != "look " || len(m.images) != 1 {
 		t.Fatalf("typed path: input %q images %v", string(m.input), m.images)
 	}
@@ -308,7 +308,7 @@ func TestDropGoesWhereItFalls(t *testing.T) {
 	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !isDrop(f+" ") || !isDrop("file://"+f) || isDrop("hello "+f) || isDrop("") || isDrop("notes.txt") {
+	if !isDrop(f+" ", statLook) || !isDrop("file://"+f, statLook) || isDrop("hello "+f, statLook) || isDrop("", statLook) || isDrop("notes.txt", statLook) {
 		t.Fatal("isDrop doesn't tell a drop from a paste")
 	}
 	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
@@ -324,33 +324,5 @@ func TestDropGoesWhereItFalls(t *testing.T) {
 	m.focusAt(40, 10) // the edge between them
 	if m.paneFocus {
 		t.Fatal("a drop on the edge moved the keys")
-	}
-}
-
-// cmd+c copies a selection in a box, as ctrl+c does.
-func TestSuperCCopiesTheSelection(t *testing.T) {
-	buf := []rune("hello world")
-	_, _, anchor, copied, ok := editSel(buf, 5, 0, tea.KeyPressMsg{}, "super+c")
-	if !ok || copied != "hello" || anchor != -1 {
-		t.Fatalf("copied %q, anchor %d, ok %v", copied, anchor, ok)
-	}
-}
-
-// With copy on select off, a drag in the box leaves its selection for
-// cmd+c rather than copying.
-func TestBoxDragKeepsTheSelection(t *testing.T) {
-	off := false
-	m := &Model{store: &state.Store{}}
-	m.store.Config.CopyOnSelect = &off
-	m.input, m.back, m.anchor, m.boxDrag = []rune("hello world"), 6, 1, 2
-	m.endBoxDrag()
-	if m.pendingCopy != "" || m.anchor != 1 {
-		t.Fatalf("copied %q, anchor %d", m.pendingCopy, m.anchor)
-	}
-	m.store.Config.CopyOnSelect = nil
-	m.boxDrag = 2
-	m.endBoxDrag()
-	if m.pendingCopy != "hello" {
-		t.Fatalf("on, it copies: %q", m.pendingCopy)
 	}
 }

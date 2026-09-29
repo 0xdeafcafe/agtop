@@ -87,16 +87,23 @@ func (m *Model) openRewindAt(c *hostConn, a *fleet.Agent, n int, prompt string) 
 		previews: map[string]*filesPreview{},
 	}
 	type found struct {
-		starts []convo.TurnStart
-		cfg    host.Config
+		starts   []convo.TurnStart
+		branches []host.Branch // newest first, those whose transcript is still there
 	}
+	path, id, acct, cwd := f.path, f.id, f.acct, f.cwd
 	return sheetDo(func() (found, error) {
-		starts, err := convo.TurnStarts(f.path)
+		starts, err := convo.TurnStarts(path)
 		if err != nil {
 			return found{}, fmt.Errorf("couldn't read the conversation: %w", err)
 		}
-		cfg, _ := host.ReadConfig(f.id)
-		return found{starts, cfg}, nil
+		cfg, _ := host.ReadConfig(id)
+		v := found{starts: starts}
+		for i := len(cfg.Branches) - 1; i >= 0; i-- {
+			if b := cfg.Branches[i]; statOK(acct.TranscriptPath(cwd, b.SessionID)) {
+				v.branches = append(v.branches, b)
+			}
+		}
+		return v, nil
 	}, func(m *Model, v found, err error) tea.Cmd {
 		if err != nil {
 			m.flash(err.Error(), true)
@@ -107,12 +114,7 @@ func (m *Model) openRewindAt(c *hostConn, a *fleet.Agent, n int, prompt string) 
 				f.turns = append(f.turns, s)
 			}
 		}
-		for i := len(v.cfg.Branches) - 1; i >= 0; i-- {
-			b := v.cfg.Branches[i]
-			if _, err := os.Stat(f.acct.TranscriptPath(f.cwd, b.SessionID)); err == nil {
-				f.branches = append(f.branches, b)
-			}
-		}
+		f.branches = append(f.branches, v.branches...)
 		if prompt != "" {
 			gap := -1
 			for i, t := range f.turns {
@@ -205,28 +207,32 @@ func (f *rewindSheet) body(m *Model, w, h int) []string {
 	row := func(i int, line string) {
 		out = append(out, sheetRow(ansi.Truncate(line, w-2, "…"), i == f.sel, w))
 	}
-	items := make([]func(), 0, f.n()+2)
-	for i, t := range f.turns {
-		items = append(items, func() {
+	// The list's items: the turns, then, when there are any, a heading and
+	// the branches. Only the ones in view are drawn.
+	items := len(f.turns)
+	if len(f.branches) > 0 {
+		items += 1 + len(f.branches)
+	}
+	draw := func(k int) {
+		switch {
+		case k < len(f.turns):
+			t := f.turns[k]
 			label := fmt.Sprintf("turn %d", t.N)
-			if i == 0 {
+			if k == 0 {
 				label += " · the last"
 			}
-			row(i, paint(cSub, fit(label, 20))+paint(cText, oneLine(t.Prompt)))
-		})
-	}
-	if len(f.branches) > 0 {
-		items = append(items, func() { out = append(out, "", dim("  or go back down a path you left")) })
-		for j, b := range f.branches {
-			i := len(f.turns) + j
-			items = append(items, func() {
-				label := fmt.Sprintf("⑂ from turn %d", max(1, b.From))
-				what := fmt.Sprintf("%d of your messages · left %s ago", b.Turns, age(now.Sub(b.Left)))
-				if b.Last != "" {
-					what += " · " + oneLine(b.Last)
-				}
-				row(i, paint(cSub, fit(label, 20))+paint(cText, what))
-			})
+			row(k, paint(cSub, fit(label, 20))+paint(cText, oneLine(t.Prompt)))
+		case k == len(f.turns):
+			out = append(out, "", dim("  or go back down a path you left"))
+		default:
+			j := k - len(f.turns) - 1
+			b := f.branches[j]
+			label := fmt.Sprintf("⑂ from turn %d", max(1, b.From))
+			what := fmt.Sprintf("%d of your messages · left %s ago", b.Turns, age(now.Sub(b.Left)))
+			if b.Last != "" {
+				what += " · " + oneLine(b.Last)
+			}
+			row(len(f.turns)+j, paint(cSub, fit(label, 20))+paint(cText, what))
 		}
 	}
 	// Keep the picked row in view: the list is short enough to window by
@@ -235,12 +241,12 @@ func (f *rewindSheet) body(m *Model, w, h int) []string {
 	if f.sel >= len(f.turns) {
 		pos++ // the branches heading
 	}
-	from, to := window(len(items), pos, room)
-	for _, draw := range items[from:to] {
-		draw()
+	from, to := window(items, pos, room)
+	for k := from; k < to; k++ {
+		draw(k)
 	}
-	if to < len(items) {
-		out = append(out, faint(fmt.Sprintf("  … %d more", len(items)-to)))
+	if to < items {
+		out = append(out, faint(fmt.Sprintf("  … %d more", items-to)))
 	}
 	out = append(out, "")
 
@@ -453,4 +459,10 @@ func (m *Model) onRewound(msg rewoundMsg) tea.Cmd {
 		m.dropHost()
 	}
 	return nil
+}
+
+// statOK is whether path is there.
+func statOK(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

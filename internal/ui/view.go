@@ -16,7 +16,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/theme"
 )
 
@@ -1207,7 +1206,11 @@ func (m *Model) listLines(w, h int) []string {
 		}
 	}
 	if len(m.order) == 0 {
-		all = append(all, "", dim("  No agents yet. Describe a task below to start one."))
+		msg := "  No agents yet. Describe a task below to start one."
+		if !m.fleetRead {
+			msg = "  Reading your agents…"
+		}
+		all = append(all, "", dim(msg))
 		keys = append(keys, "", "")
 		cont = append(cont, false, false)
 	}
@@ -2412,15 +2415,4 @@ func (m *Model) helpBody() []string {
 		out = append(out, "", "")
 	}
 	return append(out, faint("[ ] next · any key closes"))
-}
-
-// shortCmd is a process's command with the home folder and binary paths trimmed.
-func (m *Model) shortCmd(pid int, comm string) string {
-	args := proc.Args(pid)
-	if len(args) == 0 {
-		return comm
-	}
-	args[0] = filepath.Base(args[0])
-	cmd := oneLine(strings.Join(args, " "))
-	return strings.TrimRight(ansi.Strip(trimCmd(cmd, 200)), " ")
 }

@@ -25,7 +25,7 @@ func NewHosted(store *state.Store, version, id string) *Model {
 	m := newModel(store, version, true)
 	m.hosted = id
 	m.onboard = false
-	m.snap = m.hostedSnap(m.loader.Load(true))
+	m.snap = m.hostedSnap(m.snap) // its reading lands as the view starts
 	m.rebuild()
 	m.pinHosted()
 	return m

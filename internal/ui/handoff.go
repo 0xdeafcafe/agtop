@@ -12,13 +12,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
-// conversationOf is an agent row's conversation, told for a hand-off. It
-// may read a transcript: call it off the UI goroutine, or use
-// conversationLater.
-func (m *Model) conversationOf(a *fleet.Agent) agent.Conversation {
-	return m.conversationLater(a)()
-}
-
 // conversationLater is an agent row's conversation, told for a hand-off,
 // as a func for the Cmd that hands it off: the open pane's is told now,
 // on the UI goroutine that owns it; one read from its transcript or

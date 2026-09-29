@@ -19,8 +19,9 @@ import (
 // into the message box) or edit your own.
 type skillSheet struct {
 	conn     string
-	all      []agent.Command
-	tab      int // 0 skills, 1 commands
+	agent    string          // whose: its commands are read off the UI goroutine
+	all      []agent.Command // as last read: see commandsOf
+	tab      int             // 0 skills, 1 commands
 	cur      [2]int
 	query    []rune
 	queryPos int
@@ -28,16 +29,21 @@ type skillSheet struct {
 
 func (m *Model) openSkills(c *hostConn, a *fleet.Agent) {
 	ad, ok := agent.Get(sessionAgent(c))
-	cmdr, lists := ad.(agent.Commander)
+	_, lists := ad.(agent.Commander)
 	if !ok || !lists || !canScreen(c, "skills") {
 		m.flash(agentName(string(sessionAgent(c)))+" has no skills or commands agtop lists", true)
 		return
 	}
-	p := a.Acct
-	if ps := ad.Profiles(); p.Dir == "" && len(ps) > 0 {
-		p = ps[0]
+	m.sheet = &skillSheet{conn: c.key, agent: a.Key}
+}
+
+// refresh takes the commands as last read, for the session still open.
+func (k *skillSheet) refresh(m *Model) {
+	c, a := m.host, m.agentByKey(k.agent)
+	if c == nil || c.key != k.conn || a == nil {
+		return
 	}
-	m.sheet = &skillSheet{conn: c.key, all: cmdr.Commands(p, firstNonEmpty(c.sess.Info.Cwd, a.Cwd))}
+	k.all = m.sessionCommands(c, a)
 }
 
 // sourceRank puts your own first, then the project's, claude.ai's, and
@@ -129,6 +135,7 @@ func (k *skillSheet) key(m *Model, kp tea.KeyPressMsg, s string) tea.Cmd {
 func editable(c agent.Command) bool { return c.Source == "yours" || c.Source == "project" }
 
 func (k *skillSheet) body(m *Model, w, h int) []string {
+	k.refresh(m)
 	skills, cmds := 0, 0
 	for _, c := range k.all {
 		if c.Skill {

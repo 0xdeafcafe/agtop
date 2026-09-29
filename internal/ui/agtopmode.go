@@ -1263,7 +1263,7 @@ func (m *Model) dropHost() {
 		m.host.unwatch()
 	}
 	if m.host != nil && m.host.client != nil {
-		_ = m.host.client.Close()
+		go m.host.client.Close() //nolint:errcheck // a socket let go: nothing waits on its close
 	}
 	if c := m.host; c != nil && (len(c.sess.Turns) > 40 || len(c.subTails) > 20) {
 		// A big conversation was just let go: hand its memory back now
@@ -1329,7 +1329,7 @@ func (m *Model) followTail() {
 func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 	if msg.key != m.hostOpening {
 		if msg.c != nil {
-			_ = msg.c.client.Close()
+			go msg.c.client.Close() //nolint:errcheck // one opened too late: nothing waits on its close
 		}
 		return nil
 	}
@@ -2319,14 +2319,6 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.leavePane()
 		}
 		return nil
-	case "super+c":
-		// cmd+c, when the terminal hands it over: the text dragged over in
-		// the conversation, unless the box has a selection of its own,
-		// which the editor below copies.
-		if c.txt.on && (c.anchor == 0 || c.anchor-1 == len(c.input)-c.back) {
-			m.copyText(selectedText(c.shown, c.txt.a, c.txt.b, c.paneW))
-			return nil
-		}
 	case "ctrl+c":
 		switch {
 		case c.anchor > 0 && c.anchor-1 != len(c.input)-c.back:
@@ -2583,7 +2575,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if s == "space" || s == "enter" {
 		// A path you typed to an image becomes the image once it's done,
 		// where it was typed.
-		if t, ok := c.imgs.inline(string(c.input)); ok {
+		if t, ok := c.imgs.inline(string(c.input), m.lookPath); ok {
 			c.input = []rune(t)
 			c.back = min(c.back, len(c.input))
 		}
@@ -2646,8 +2638,7 @@ func (m *Model) dragBox(x, y int) {
 }
 
 // endBoxDrag finishes a drag in an input box: what it selected goes to the
-// clipboard, as a terminal's own selection would, unless CopyOnSelect is
-// off: then it stays selected.
+// clipboard, as a terminal's own selection would.
 func (m *Model) endBoxDrag() {
 	var buf []rune
 	var pos, anchor int
@@ -2660,9 +2651,7 @@ func (m *Model) endBoxDrag() {
 	drag := m.boxDrag
 	m.boxDrag = 0
 	if anchor >= 0 && anchor != pos && anchor <= len(buf) {
-		if m.store.Config.CopiesOnSelect() {
-			m.copyText(string(buf[min(anchor, pos):max(anchor, pos)]))
-		}
+		m.copyText(string(buf[min(anchor, pos):max(anchor, pos)]))
 		return
 	}
 	// A plain click leaves no selection behind.
@@ -2756,7 +2745,7 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	// appear; paths typed or dropped without a paste become images too,
 	// at the end.
 	text, images := c.imgs.resolve(text)
-	if rest, imgs := extractImages(text); imgs != nil {
+	if rest, imgs := extractImages(text, m.lookPath); imgs != nil {
 		images, text = append(images, imgs...), rest
 	}
 	if k := sessionAgent(c); len(images) > 0 && !agent.Supports(k, agent.FeatureImages) {
@@ -2983,19 +2972,21 @@ func (m *Model) sendOffline(c *hostConn, text string, images []string, now bool)
 		if !m.canResume(a) {
 			return nil
 		}
-		cfg, err := host.ReadConfig(a.ID)
-		if err != nil {
-			cfg = host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
-		}
-		cfg.Resume, cfg.Prompt, cfg.Images = true, text, images
-		cfg.Lean, cfg.IdleStop = m.store.Config.Dispatch.Lean, host.Duration(m.store.Config.Dispatch.Rest())
-		m.flash("resuming "+a.DisplayName+"…", false)
+		fallback := host.Config{ID: a.ID, SessionID: a.SessionID, Account: a.Acct, Cwd: a.Cwd, Name: a.DisplayName}
+		lean, rest, name := m.store.Config.Dispatch.Lean, host.Duration(m.store.Config.Dispatch.Rest()), a.DisplayName
+		m.flash("resuming "+name+"…", false)
 		m.markSending(c, text)
 		return sendingVia(c.key, func() tea.Msg {
+			cfg, err := host.ReadConfig(fallback.ID)
+			if err != nil {
+				cfg = fallback
+			}
+			cfg.Resume, cfg.Prompt, cfg.Images = true, text, images
+			cfg.Lean, cfg.IdleStop = lean, rest
 			if _, err := host.Spawn(cfg); err != nil {
 				return doneMsg{err: err}
 			}
-			return doneMsg{text: "resumed " + a.DisplayName}
+			return doneMsg{text: "resumed " + name}
 		})
 	}
 	text = withImages(text, images)
@@ -3060,7 +3051,7 @@ func (m *Model) canResume(a *fleet.Agent) bool {
 func (m *Model) startHosted(text, dir string) tea.Cmd {
 	d := m.store.Config.Dispatch
 	images := m.images
-	if rest, imgs := extractImages(text); imgs != nil {
+	if rest, imgs := extractImages(text, m.lookPath); imgs != nil {
 		images, text = append(images, imgs...), rest
 	}
 	m.images = nil

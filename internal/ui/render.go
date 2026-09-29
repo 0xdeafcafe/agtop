@@ -84,5 +84,7 @@ func (m *Model) drain(cmd tea.Cmd) {
 		m.onFolders(msg)
 	case paneMsg:
 		m.drain(m.onPane(msg))
+	case applyMsg:
+		m.drain(msg.applyTo(m))
 	}
 }

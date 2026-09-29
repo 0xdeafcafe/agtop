@@ -58,8 +58,10 @@ func clipImage() (string, error) {
 	case "darwin":
 		// A copied file: attach the file itself when it's an image.
 		if b, err := exec.Command("osascript", "-e", "POSIX path of (the clipboard as «class furl»)").Output(); err == nil {
-			if p := imagePath(strings.TrimSpace(string(b))); p != "" {
-				return p, nil
+			if p := filePath(strings.TrimSpace(string(b))); isImageFile(p) {
+				if st, err := os.Stat(p); err == nil && !st.IsDir() {
+					return p, nil
+				}
 			}
 		}
 		script := []string{

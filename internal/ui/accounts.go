@@ -122,7 +122,7 @@ func (m *Model) profileOf(a agent.Adapter) (agent.Profile, bool) {
 		acct := m.store.Config.ActiveAccount()
 		return agent.Profile{Kind: loginsKind, Name: acct.Name, Dir: acct.ConfigDir}, true
 	}
-	ps := a.Profiles()
+	ps := agent.ProfilesOf(a)
 	if len(ps) == 0 {
 		return agent.Profile{}, false
 	}
@@ -388,18 +388,21 @@ func (m *Model) addAccount(k agent.Kind) tea.Cmd {
 		m.flash(agentName(string(k))+" signs in through its own program; agtop can't keep more than one account of it", true)
 		return nil
 	}
-	cmd, done, err := acc.SignIn(p)
-	if err != nil {
-		m.flash("couldn't sign in: "+err.Error(), true)
-		return nil
-	}
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+	// Making the sign-in (its home, its command) touches the disk: done
+	// before the terminal is handed over, off the UI goroutine.
+	return func() tea.Msg {
+		cmd, done, err := acc.SignIn(p)
 		if err != nil {
 			return acctAddedMsg{kind: k, err: err}
 		}
-		a, err := done()
-		return acctAddedMsg{kind: k, a: a, err: err}
-	})
+		return tea.ExecProcess(cmd, func(err error) tea.Msg {
+			if err != nil {
+				return acctAddedMsg{kind: k, err: err}
+			}
+			a, err := done()
+			return acctAddedMsg{kind: k, a: a, err: err}
+		})()
+	}
 }
 
 // acctAddedMsg is an account just signed in to from Accounts.
@@ -437,14 +440,15 @@ func (m *Model) forgetAccount(r acctRow) {
 	}
 	d := m.dialog
 	m.confirmThen(fmt.Sprintf("Forget %s (%s)? agtop drops its saved sign-in; sessions already on it keep going.", r.name(), firstNonEmpty(r.email(), agentName(string(r.kind)))), func() tea.Cmd {
-		if ad, ok := agent.Get(r.kind); ok {
-			if acc, ok := ad.(agent.Accounts); ok {
-				_ = acc.Forget(r.acct)
-			}
-		}
 		m.store.Config.ForgetSignIn(string(r.kind), r.acct.ID)
 		_ = m.store.SaveConfig()
 		d.cursor = max(0, d.cursor-1)
+		if ad, ok := agent.Get(r.kind); ok {
+			if acc, ok := ad.(agent.Accounts); ok {
+				gone := r.acct
+				return func() tea.Msg { _ = acc.Forget(gone); return nil }
+			}
+		}
 		return nil
 	})
 }
@@ -552,11 +556,11 @@ func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
 				}
 			}
 			m.store.Config.Logins = keep
-			_ = state.ForgetLogin(lv.ID) // the keychain and its home
 			_ = m.store.SaveConfig()
 			m.refresh()
 			m.dialog.cursor = max(0, m.dialog.cursor-1)
-			return nil
+			id := lv.ID
+			return func() tea.Msg { _ = state.ForgetLogin(id); return nil } // the keychain and its home
 		})
 	}
 	return nil
