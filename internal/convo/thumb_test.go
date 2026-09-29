@@ -127,6 +127,15 @@ func TestImageResult(t *testing.T) {
 	if !strings.Contains(out, want) {
 		t.Errorf("no linked thumbnail in %q", out)
 	}
+	// It stays once a later step is the latest, and never folds away.
+	s.Apply(toolUse("b1", "Bash", map[string]any{"command": "ls"}), at(3))
+	s.Apply(toolResult("b1", "shot.png", false, nil), at(3))
+	if out := render(); !strings.Contains(out, want) {
+		t.Errorf("thumbnail gone once another step came:\n%s", ansi.Strip(out))
+	}
+	if foldable(s.byID["img1"]) {
+		t.Error("a picture folds away")
+	}
 }
 
 // A frame asking for a thumbnail never waits for it: while no slot's free

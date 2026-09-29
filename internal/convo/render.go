@@ -1743,9 +1743,10 @@ func stripANSI(s string) string {
 }
 
 // foldable steps are the clean, routine ones a finished turn can fold into
-// a single row. Edits never fold: they're what you'd review.
+// a single row. Edits never fold: they're what you'd review; nor do
+// pictures, which show on their own.
 func foldable(st *Step) bool {
-	if st.Status != OK || hidden(st) {
+	if st.Status != OK || hidden(st) || len(st.Images) > 0 || st.kind() == tool.Read && thumbable(st.in().Path) {
 		return false
 	}
 	switch glyphFor(st) {
@@ -1830,9 +1831,12 @@ func (d *drawer) step(st *Step, depth int) {
 	} else {
 		d.add(ref, "", left, "")
 	}
-	// What it did comes after what it ran, when that's open.
+	// What it did comes after what it ran, when that's open. A picture it
+	// read shows either way, as a card would.
 	if open {
 		d.body(st, indent+4)
+	} else if !brief {
+		d.pictures(st, indent+4)
 	}
 	d.cards(st, indent+2)
 	d.denial(st, indent+2)
