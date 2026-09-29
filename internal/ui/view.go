@@ -1225,7 +1225,7 @@ func (m *Model) listLines(w, h int) []string {
 		case lineAgent:
 			sel := l.agent.Key == m.sel
 			rw, pad := w-l.inset, strings.Repeat(" ", l.inset)
-			emit(pad+m.agentLine(l.agent, rw, sel, nameCol-len(pad), two), l.agent.Key, sel)
+			emit(pad+m.agentLine(l.agent, rw, w, sel, nameCol-len(pad), two), l.agent.Key, sel)
 			if two {
 				emit(pad+m.agentSub(l.agent, rw), l.agent.Key, sel)
 				cont[len(cont)-1] = true
@@ -1556,9 +1556,11 @@ func (m *Model) agentSub(a *fleet.Agent, w int) string {
 }
 
 // agentLine is the first line of a row: marker, name, badges, figures, and
-// the summary too unless the row is stacked.
-func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked bool) string {
-	wAct, wCPU, wRAM, wTok, wCost := colWidths(w)
+// the summary too unless the row is stacked. listW is the whole list's
+// width, which says which columns there are, as the header does: a row
+// inset under its project is narrower than the header it sits under.
+func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, stacked bool) string {
+	wAct, wCPU, wRAM, wTok, wCost := colWidths(listW)
 	now := m.snap.At
 	live := a.Live()
 	marker := " "

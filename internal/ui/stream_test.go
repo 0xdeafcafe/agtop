@@ -225,3 +225,27 @@ func TestFollowingKeepsTheEnd(t *testing.T) {
 		}
 	}
 }
+
+// A row inset under its project has the header's columns, lined up: at a
+// width where the header has CPU, so does the row, under it.
+func TestInsetRowMatchesHeader(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	const w, inset = 98, 4
+	head := ansi.Strip(m.columnHeader(w))
+	var a *fleet.Agent
+	for _, x := range m.snap.Agents {
+		if x.PID != 0 && x.Live() {
+			a = x
+			break
+		}
+	}
+	a.CreatedAt = m.snap.At.Add(-time.Minute) // a time that fits its column
+	row := ansi.Strip(strings.Repeat(" ", inset) + m.agentLine(a, w-inset, w, false, 28, false))
+	col := func(s, sub string) int { return cellw.String(s[:strings.Index(s, sub)+len(sub)]) }
+	if !strings.Contains(row, "%") {
+		t.Fatalf("the row has no CPU column under the header's:\n%s\n%s", head, row)
+	}
+	if got, want := col(row, "%"), col(head, "CPU"); got != want {
+		t.Errorf("the row's CPU ends at %d, the header's at %d:\n%s\n%s", got, want, head, row)
+	}
+}
