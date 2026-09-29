@@ -122,6 +122,9 @@ type Config struct {
 	// SearchTranscriptsOnKey keeps ctrl+k to agent names and commands while
 	// you type; ctrl+enter (or ctrl+j) then searches the transcripts.
 	SearchTranscriptsOnKey bool `json:"searchTranscriptsOnKey,omitzero"`
+	// EnterSendsCommand has enter send a message that ends in a /command
+	// typed in full, rather than completing it first.
+	EnterSendsCommand bool `json:"enterSendsCommand,omitzero"`
 	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitzero"`

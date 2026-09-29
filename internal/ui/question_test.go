@@ -805,3 +805,25 @@ func TestConfirmModal(t *testing.T) {
 		}
 	}
 }
+
+// With enter set to send, a message ending in a command typed in full
+// sends: completing it would only add a space. A partial word still
+// completes, and by default a full one does too.
+func TestSlashFullWordSends(t *testing.T) {
+	c := &hostConn{kind: "claude", sess: convo.New(), open: map[string]bool{}}
+	c.local = []event.Command{{Name: "pdf"}, {Name: "pdf-tools"}}
+	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}}
+	c.input, c.back = []rune("then run /pdf"), 0
+	if _, used := m.slashKey(c, "enter"); !used || string(c.input) != "then run /pdf " {
+		t.Fatalf("by default a full word completes, got %q", string(c.input))
+	}
+	m.store.Config.EnterSendsCommand = true
+	c.input, c.back = []rune("then run /pdf"), 0
+	if _, used := m.slashKey(c, "enter"); used || string(c.input) != "then run /pdf" {
+		t.Fatalf("enter was taken by the picker, box now %q", string(c.input))
+	}
+	c.input = []rune("then run /pd")
+	if _, used := m.slashKey(c, "enter"); !used || string(c.input) != "then run /pdf " {
+		t.Fatalf("a partial word still completes, got %q", string(c.input))
+	}
+}

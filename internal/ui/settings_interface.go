@@ -93,8 +93,16 @@ func (m *Model) interfaceSections() []section {
 			{"on ctrl+enter", "names and commands as you type; ctrl+enter (or ctrl+j) then searches the transcripts."},
 		}, func(v string) { c.SearchTranscriptsOnKey = v == "on ctrl+enter" })
 
+	command := choiceSetting("Enter after a /command", map[bool]string{true: "sends", false: "completes"}[c.EnterSendsCommand],
+		"What enter does when a message ends in a /command the picker shows, typed in full.",
+		[][2]string{
+			{"completes", "puts the command in with a space after it; enter again sends the message."},
+			{"sends", "sends the message as it is; a command typed in part is still completed."},
+		}, func(v string) { c.EnterSendsCommand = v == "sends" })
+
 	return []section{
 		{title: "Look", rows: []setting{view, theme, colours, spaces}},
 		{title: "Agents list", rows: []setting{group, split, sortBy, enter, search}},
+		{title: "Message box", rows: []setting{command}},
 	}
 }

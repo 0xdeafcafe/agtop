@@ -810,6 +810,9 @@ func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
 			c.input, c.back = []rune("/"+cmds[c.slashSel].Name), 0
 			return m.sendPane(c, false), true
 		}
+		if strings.EqualFold(string(c.input[start:end]), "/"+cmds[c.slashSel].Name) && m.store.Config.EnterSendsCommand {
+			return nil, false // typed in full, there's nothing to complete
+		}
 		complete(" ")
 		return nil, true
 	}
