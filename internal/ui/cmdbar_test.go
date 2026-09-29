@@ -33,11 +33,11 @@ func TestBarOpensAndGoes(t *testing.T) {
 	}
 	// Clean-up lives on Projects now, so "clean" finds Projects.
 	typeBar(m, "clean")
-	if it := m.bar.items[0]; it.title != "Agents › Projects" {
+	if it := m.bar.items[0]; !strings.HasPrefix(it.title, "Projects › ") {
 		t.Fatalf("top match for clean: %q", it.title)
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.bar != nil || m.view != placeAgents || m.mode != modeProjects {
+	if m.bar != nil || m.view != placeProjects || m.mode != modeProjects {
 		t.Fatalf("enter didn't go to Projects: view %d mode %d", m.view, m.mode)
 	}
 	// Back returns to the agent it came from.

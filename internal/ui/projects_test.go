@@ -65,7 +65,7 @@ func TestProjectsSections(t *testing.T) {
 	}
 	m.clean.tmp = fleet.Scratch{Items: 3, Size: 4 << 20, StaleItems: 1, Stale: 1 << 20, Checked: now}
 	page := ansi.Strip(strings.Join(m.projectsBody(), "\n"))
-	m.projectsKey("3")
+	m.setProjPage(ptTemp)
 	page += ansi.Strip(strings.Join(m.projectsBody(), "\n"))
 	last := -1
 	for _, s := range []string{"Projects", "◆ alpha", "OTHER FOLDERS", "◇ Downloads", "Temporary", "◌ /tmp", "◌ Sort downloads"} {

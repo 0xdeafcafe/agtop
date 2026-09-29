@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/actions"
 	"github.com/0xdeafcafe/rush/internal/agent"
@@ -17,8 +16,8 @@ import (
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
-// The Agents place's Projects page: where agents work, and what they
-// leave behind, on four tabs.
+// The Projects place: where agents work, and what they leave behind, on
+// four pages.
 //
 //   - Projects: every repository (◆) and other folder (◇) an agent worked in
 //     over the last day, listed on the left; the one picked, whole, on the
@@ -29,11 +28,11 @@ import (
 //     anyone's work.
 //   - System: processes no project owns, orphans first.
 //
-// 1–4 and tab pick the tab; ↑↓ move in the list; enter on a project goes
+// [ ] and tab turn the page; ↑↓ move in the list; enter on a project goes
 // into it on the right, ← or esc comes back. Nothing is deleted without
 // the Delete sheet saying first what goes and what's lost.
 
-// The page's tabs.
+// The place's pages, in projPages' order.
 const (
 	ptProjects = iota
 	ptWorktrees
@@ -312,22 +311,32 @@ func pad(body []string, n int) []string {
 
 func (m *Model) projTab() int { return m.work.projTab % ptCount }
 
-// tabBar is the page's tabs, each with how much is under it, and at the
-// right what can go without losing anything.
-func (m *Model) tabBar(w int) string {
-	list := m.projects()
-	var repos, folders, wts, running int
-	for _, p := range list {
+// projPages are the Projects place's pages.
+var projPages = []string{"Projects", "Worktrees", "Temporary", "System"}
+
+// setProjPage shows one of the Projects place's pages, from its top.
+func (m *Model) setProjPage(t int) {
+	m.work.projTab, m.work.projIn = (t+ptCount)%ptCount, false
+	m.work.projPos, m.work.projSel = 0, ""
+}
+
+// projectsOpen is what opening the Projects place starts: finding its
+// folders' git state.
+func (m *Model) projectsOpen() tea.Cmd {
+	if m.mode != modeProjects {
+		return nil
+	}
+	return m.refreshFolders()
+}
+
+// projPageNames are the Projects place's pages, each with how much is
+// under it.
+func (m *Model) projPageNames() []string {
+	var n, wts int
+	for _, p := range m.projects() {
+		n++
 		if p.repo {
-			repos++
 			wts += len(projectTrees(p, m.folders.byRoot[p.key]))
-		} else {
-			folders++
-		}
-		for _, a := range p.agents {
-			if a.Live() || a.Busy() {
-				running++
-			}
 		}
 	}
 	var temp int64
@@ -337,29 +346,27 @@ func (m *Model) tabBar(w int) string {
 		}
 	}
 	temp += m.clean.tmp.Size
-	sys := len(m.procs())
-	names := [ptCount]string{
-		kindMark(kindProject) + " Projects " + dim(strconv.Itoa(repos+folders)),
-		kindMark(kindWorktree) + " Worktrees " + dim(strconv.Itoa(wts)),
-		kindMark(kindTemp) + " Temporary " + dim(disk(temp)),
-		paint(cSub, "⚙") + " System " + dim(strconv.Itoa(sys)),
+	return []string{
+		"Projects " + strconv.Itoa(n),
+		"Worktrees " + strconv.Itoa(wts),
+		"Temporary " + disk(temp),
+		"System " + strconv.Itoa(len(m.procs())),
 	}
-	var b strings.Builder
-	for i, n := range names {
-		label := strconv.Itoa(i+1) + " " + n
-		if i == m.projTab() {
-			b.WriteString(tabOn + " " + ansiPlain(label) + " " + reset)
-		} else {
-			b.WriteString(tabOff + " " + label + " " + reset)
-		}
-		b.WriteString(" ")
-	}
-	left := b.String()
-	return fit(left, w-cellw.String(ansiPlain(m.projectsSummary(running)))) + m.projectsSummary(running)
 }
 
-// ansiPlain is s without its colours, for a tab drawn in one.
-func ansiPlain(s string) string { return ansi.Strip(s) }
+// summaryBar is the page's top line: the machine's load and what can go
+// without losing anything, at the right.
+func (m *Model) summaryBar(w int) string {
+	running := 0
+	for _, p := range m.projects() {
+		for _, a := range p.agents {
+			if a.Live() || a.Busy() {
+				running++
+			}
+		}
+	}
+	return spread("", m.projectsSummary(running), w)
+}
 
 // projectsSummary is the machine's load and how much can go without
 // losing anything.
@@ -832,7 +839,7 @@ func (m *Model) systemRows(w int) []workRow {
 
 func (m *Model) projectsBody() []string {
 	w := m.w - 4
-	out := []string{m.tabBar(w), ""}
+	out := []string{m.summaryBar(w), ""}
 	tab := m.projTab()
 	lw := min(max(w*2/5, 64), 84)
 	rw := w - lw - 1
@@ -898,7 +905,7 @@ func (m *Model) projectsHint() string {
 		r = rows[i]
 	}
 	w := m.w - 4
-	tabs := []string{"1–4", "tabs"}
+	tabs := []string{"[ ]", "pages"}
 	switch {
 	case r.proc != nil:
 		k := []string{"↑↓", "move", "x", "end", "!", "SIGKILL tree"}
@@ -915,7 +922,7 @@ func (m *Model) projectsHint() string {
 	case r.temp != nil:
 		return keysFit(w, append([]string{"↑↓", "move", "x", "delete it…", "X", "every finished agent's…"}, append(tabs, "esc", "back")...)...)
 	case r.proj != nil:
-		return keysFit(w, append([]string{"↑↓", "move", "enter", "into it", "c", "clean up"}, append(tabs, "[ ]", "pages", "esc", "back")...)...)
+		return keysFit(w, append([]string{"↑↓", "move", "enter", "into it", "c", "clean up"}, append(tabs, "esc", "back")...)...)
 	case r.a != nil:
 		k := []string{"↑↓", "move", "enter", "open", "ctrl+y", "its PR", "alt+g", "keep going"}
 		if r.a.Temp >= tempShown && r.a.PID == 0 {
@@ -942,17 +949,11 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			}
 		}
 	}
-	setTab := func(t int) {
-		m.work.projTab, m.work.projIn = (t+ptCount)%ptCount, false
-		m.work.projPos, m.work.projSel = 0, ""
-	}
 	switch s {
-	case "1", "2", "3", "4":
-		setTab(int(s[0] - '1'))
 	case "tab":
-		setTab(m.projTab() + 1)
+		m.setProjPage(m.projTab() + 1)
 	case "shift+tab":
-		setTab(m.projTab() - 1)
+		m.setProjPage(m.projTab() - 1)
 	case "esc", "q", "left":
 		if m.work.projIn {
 			m.work.projIn = false

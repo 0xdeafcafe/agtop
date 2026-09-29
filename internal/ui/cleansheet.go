@@ -197,5 +197,5 @@ func (m *Model) nudgeClean() {
 		return
 	}
 	c.nudged = time.Now()
-	m.flash(fmt.Sprintf("%s could go without losing anything: %d worktrees merged and clean, %d things in /tmp · Agents › Projects, c cleans up", disk(size), n, c.tmp.StaleItems), false)
+	m.flash(fmt.Sprintf("%s could go without losing anything: %d worktrees merged and clean, %d things in /tmp · Projects, c cleans up", disk(size), n, c.tmp.StaleItems), false)
 }

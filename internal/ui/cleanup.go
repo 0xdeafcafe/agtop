@@ -259,7 +259,7 @@ func (m *Model) onTidied(msg tidiedMsg) {
 	case msg.freed >= tempShown:
 		m.flash("cleaned up "+disk(msg.freed)+" of done agents' temp work", false)
 	case len(notes) > 0:
-		m.flash(strings.Join(notes, " · ")+" · Agents › Projects has it", true)
+		m.flash(strings.Join(notes, " · ")+" · Projects has it", true)
 	}
 	if msg.failed != nil {
 		m.flash("cleaning up: "+msg.failed.Error(), true)

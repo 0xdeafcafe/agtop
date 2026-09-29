@@ -84,7 +84,10 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	// but a question being asked.
 	if d := m.placeStep(s); d != 0 {
 		m.setView(m.view + d)
-		return tea.Batch(m.loadPreview(), m.effOpen())
+		if m.hosted != "" && m.view == placeProjects {
+			m.setView(m.view + d) // hosted is one session: no other projects to go to
+		}
+		return tea.Batch(m.loadPreview(), m.effOpen(), m.projectsOpen())
 	}
 	if s == "alt+w" && (m.dialog == nil || m.dialog.asking == "") {
 		// Which profile, or which provider, new sessions run.
@@ -184,7 +187,15 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.setEffPage(m.eff.page + d)
 		return m.effOpen()
 	}
-	if (s == "[" || s == "]") && (m.mode == modeProjects || m.mode == modeWall) {
+	if (s == "[" || s == "]") && m.mode == modeProjects {
+		d := 1
+		if s == "[" {
+			d = -1
+		}
+		m.setProjPage(m.projTab() + d)
+		return nil
+	}
+	if (s == "[" || s == "]") && m.mode == modeWall {
 		d := 1
 		if s == "[" {
 			d = -1
@@ -453,7 +464,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.switchFocus()
 		}
 	case "[", "]":
-		// [ ] step through Agents' own pages, Projects and Wall, as they
+		// [ ] step through Agents' own pages, the list and the Wall, as they
 		// do everywhere else there are pages; { into a live session
 		// first (paneKey has its own [ ] for the views inside it) to
 		// cycle what its preview shows without leaving the list.

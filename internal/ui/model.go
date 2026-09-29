@@ -223,7 +223,7 @@ type Model struct {
 	measuring bool            // temp work is being measured in the background
 	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
 	eff       effState        // the Efficiency place
-	work      workState       // the Agents place's Projects and Wall pages
+	work      workState       // the Projects place and the Agents place's Wall
 	wall      wallState       // the Wall page
 	reaper    fleet.Reaper    // ends what agents leave running when they stop
 	squeezing bool            // transcripts are being compressed in the background
@@ -1359,11 +1359,12 @@ func (m *Model) pointerShape(want string) tea.Cmd {
 
 // viewNames are the places at the top: ctrl+\ moves between them, and tab
 // moves within one (the list and its Session, or a place's pages).
-var viewNames = []string{"Agents", "Efficiency", "Settings"}
+var viewNames = []string{"Agents", "Projects", "Efficiency", "Settings"}
 
 // The places, in viewNames' order.
 const (
 	placeAgents = iota
+	placeProjects
 	placeEff
 	placeSettings
 )
@@ -1376,9 +1377,11 @@ func (m *Model) setView(v int) {
 	m.zen = false
 	switch m.view {
 	case placeAgents:
-		// esc from Projects or the Wall lands here,
-		// on the plain list, never back on the page it came from.
+		// esc from the Wall lands here, on the plain list, never back on
+		// the page it came from.
 		m.work.page = agentsList
+	case placeProjects:
+		m.mode = modeProjects
 	case placeEff:
 		m.setEffPage(m.eff.page)
 	case placeSettings:

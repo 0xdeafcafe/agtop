@@ -66,13 +66,13 @@ func (m *Model) generalSections() []section {
 	active.unset = "30m"
 
 	cleanup := choiceSetting("Clean up done work after", cleanupValue(c.CleanupHours),
-		"What happens to an agent's worktree and temp work once you've marked it done (alt+d) and left it alone. Stopping an agent never removes anything. A worktree goes only if git says every change in it is committed and pushed; its branch stays. One that isn't is kept, and Agents › Projects says why on the worktree.",
+		"What happens to an agent's worktree and temp work once you've marked it done (alt+d) and left it alone. Stopping an agent never removes anything. A worktree goes only if git says every change in it is committed and pushed; its branch stays. One that isn't is kept, and Projects says why on the worktree.",
 		[][2]string{
 			{"", "done work that's committed and pushed goes 3 hours after it was last touched."},
 			{"1h", "done work that's committed and pushed goes an hour after it was last touched."},
 			{"12h", "done work that's committed and pushed goes 12 hours after it was last touched."},
 			{"24h", "done work that's committed and pushed goes a day after it was last touched."},
-			{"off", "nothing goes by itself; x on a worktree in Agents › Projects removes it."},
+			{"off", "nothing goes by itself; x on a worktree in Projects removes it."},
 		}, func(v string) {
 			switch v {
 			case "off":

@@ -148,7 +148,7 @@ func (m *Model) header() []string {
 	}
 	counts = append(counts, dim(fmt.Sprintf("%d finished", t.done)))
 	if mc := m.snap.Machine; mc.Orphans > 0 {
-		counts = append(counts, paint(cYellow, fmt.Sprintf("%d orphaned · %s", mc.Orphans, mem(mc.OrphanMem)))+dim(" · Agents › Projects to end"))
+		counts = append(counts, paint(cYellow, fmt.Sprintf("%d orphaned · %s", mc.Orphans, mem(mc.OrphanMem)))+dim(" · Projects to end"))
 	}
 	left1 := paint(cText+bold+italic, "rush") + "   " + strings.Join(counts, "   ")
 
@@ -226,6 +226,8 @@ func (m *Model) pages() string {
 		cur = m.dialog.page
 	case m.mode == modeEff:
 		names, cur = effPages, m.eff.page
+	case m.mode == modeProjects:
+		names, cur = m.projPageNames(), m.projTab()
 	case m.zen:
 		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
 	case m.hosted != "":

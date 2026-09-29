@@ -100,6 +100,7 @@ type cmdBar struct {
 // spot is somewhere the bar jumped from, for "Back".
 type spot struct {
 	view, effPage, settingsPage int
+	projPage                    int
 	agentsPage                  int
 	mode                        mode // which of Agents' pages
 	zen                         bool
@@ -649,24 +650,22 @@ func (m *Model) barPlaces(q string) []barItem {
 		m.setZen(!m.zen)
 		return nil
 	})
-	for i, p := range agentsPages {
-		if i == agentsList {
-			continue // the standalone "Agents" entry above already covers the list
-		}
+	add(paint(cSub, "◇"), "Agents › Wall", "every agent at once, streaming", "agents wall grid tiles all agents live stream dashboard", func(m *Model) tea.Cmd {
+		m.goView(placeAgents)
+		m.setAgentsPage(agentsWall)
+		return m.refreshFolders()
+	})
+	for i, p := range projPages {
 		what := []string{
-			"",
 			"each repository whole: branch, changes, worktrees, commits, PRs and its agents",
-			"every agent at once, streaming",
+			"every project's linked worktrees",
+			"/tmp and finished agents' temp work",
+			"processes no project owns",
 		}[i]
-		words := []string{
-			"",
-			"projects repositories repos folders git branches worktrees commits prs cleanup clean disk processes orphans machine",
-			"wall grid tiles all agents live stream dashboard",
-		}[i]
-		add(paint(cSub, "◇"), "Agents › "+p, what, "agents "+words, func(m *Model) tea.Cmd {
-			m.goView(placeAgents)
-			m.setAgentsPage(i)
-			return m.refreshFolders()
+		add(paint(cSub, "◇"), "Projects › "+p, what, "projects repositories repos folders git branches worktrees commits prs cleanup clean disk temporary processes orphans machine system "+p, func(m *Model) tea.Cmd {
+			m.goView(placeProjects)
+			m.setProjPage(i)
+			return m.projectsOpen()
 		})
 	}
 	for i, p := range effPages {
@@ -1030,7 +1029,7 @@ func (m *Model) applyJump() {
 
 // here is where the screen is now, to come back to.
 func (m *Model) here() *spot {
-	s := &spot{view: m.view, agentsPage: m.work.page, mode: m.mode, effPage: m.eff.page, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
+	s := &spot{view: m.view, agentsPage: m.work.page, mode: m.mode, effPage: m.eff.page, projPage: m.projTab(), settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
 	if a := m.agentByKey(m.sel); a != nil {
 		s.name = oneLine(a.DisplayName)
 	}
@@ -1046,12 +1045,11 @@ func (m *Model) here() *spot {
 func (s *spot) where() string {
 	switch s.view {
 	case placeAgents:
-		switch s.mode {
-		case modeProjects:
-			return "Agents › Projects"
-		case modeWall:
+		if s.mode == modeWall {
 			return "Agents › Wall"
 		}
+	case placeProjects:
+		return "Projects › " + projPages[s.projPage%len(projPages)]
 	case placeEff:
 		return "Efficiency › " + effPages[s.effPage%len(effPages)]
 	case placeSettings:
@@ -1079,12 +1077,13 @@ func (m *Model) goSpot(s *spot) tea.Cmd {
 		m.goView(placeSettings)
 		m.setSettingsPage(s.settingsPage)
 		return nil
+	case placeProjects:
+		m.goView(placeProjects)
+		m.setProjPage(s.projPage)
+		return m.projectsOpen()
 	}
 	m.goView(placeAgents)
 	switch s.mode {
-	case modeProjects:
-		m.setAgentsPage(agentsProjects)
-		return m.refreshFolders()
 	case modeWall:
 		m.setAgentsPage(agentsWall)
 		return m.refreshFolders()

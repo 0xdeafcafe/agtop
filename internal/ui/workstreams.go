@@ -12,31 +12,28 @@ import (
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
-// The Agents place's Projects and Wall pages: what is happening, over
-// time, read from the transcripts while one of them is open. Projects
+// The Projects place and the Agents place's Wall page: what is happening,
+// over time, read from the transcripts while one of them is open. Projects
 // (projects.go) shows each repository whole, its agents' sessions each at
 // the state workSession draws. Wall (wall.go) shows every agent at once.
 
 // workSince is how far back these pages look.
 const workSince = 24 * time.Hour
 
-// agentsPages are the Agents place's own pages: the plain list, each
-// project whole, and every agent at once on the Wall.
-var agentsPages = []string{"Agents", "Projects", "Wall"}
+// agentsPages are the Agents place's own pages: the plain list, and every
+// agent at once on the Wall.
+var agentsPages = []string{"Agents", "Wall"}
 
 const (
 	agentsList = iota
-	agentsProjects
 	agentsWall
 )
 
-// setAgentsPage shows one of the Agents place's pages; Projects and Wall
-// have a mode of their own, so rendering and keys dispatch on it.
+// setAgentsPage shows one of the Agents place's pages; the Wall has a mode
+// of its own, so rendering and keys dispatch on it.
 func (m *Model) setAgentsPage(p int) {
 	m.work.page = (p + len(agentsPages)) % len(agentsPages)
 	switch m.work.page {
-	case agentsProjects:
-		m.mode = modeProjects
 	case agentsWall:
 		m.mode = modeWall
 	default:
@@ -50,7 +47,7 @@ type workState struct {
 	// so new rows above it keep it picked.
 	projPos int
 	projSel string
-	// projTab is the Projects page's tab; projIn is set once enter has
+	// projTab is the Projects place's page; projIn is set once enter has
 	// gone into the picked project, inPos and inSel its row picked there.
 	projTab int
 	projIn  bool
