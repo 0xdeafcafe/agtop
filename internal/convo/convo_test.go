@@ -861,7 +861,7 @@ func TestShowDrawsAFigure(t *testing.T) {
 
 func TestPastesAndImagesFold(t *testing.T) {
 	in := "look at this:\n\n<pasted_content id=\"54b6\">\nline1\nline2\nline3\nline4\n</pasted_content id=\"54b6\">\n and fix it"
-	if got := FoldPastes(in); got != "look at this: [pasted text #1 · 4 lines: line1 line2 line3 line4] and fix it" {
+	if got := FoldPastes(in); got != "look at this: [pasted text #1 · 4 lines: line1 … line4] and fix it" {
 		t.Fatalf("FoldPastes = %q", got)
 	}
 	var got []string
@@ -875,7 +875,7 @@ func TestPastesAndImagesFold(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success"}, at(1))
 	s.Apply(host.Sent{Images: []string{"image", "image"}}, at(2))
 	out := plain(s.Render(Options{Width: 120, Now: at(3)}))
-	for _, want := range []string{"▤ pasted text #1 · 4 lines: line1 line2 line3 line4", "▣ shot.png", "▣ Image #1   ▣ Image #2"} {
+	for _, want := range []string{"▤ pasted text #1 · 4 lines: line1 … line4", "▣ shot.png", "▣ Image #1   ▣ Image #2"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

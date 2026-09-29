@@ -23,7 +23,7 @@ func PasteChip(n int, text string) string {
 		}
 		return r
 	}, strings.Join(strings.Fields(text), " ")))
-	const each = 24
+	const each = 8
 	preview := string(flat)
 	if len(flat) > 2*each+3 {
 		// Cut at a word, where that keeps at least half of each end.

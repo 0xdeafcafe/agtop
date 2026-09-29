@@ -4,11 +4,11 @@ import "testing"
 
 func TestPasteChip(t *testing.T) {
 	for _, c := range []struct{ text, want string }{
-		{"line1\nline2\nline3\nline4", "[pasted text #1 · 4 lines: line1 line2 line3 line4]"},
-		{"   \n\tfunc main() {\n\t\treturn [x]\n\t}\n", "[pasted text #1 · 4 lines: func main() { return x }]"},
-		{"package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(1) }\n", "[pasted text #1 · 5 lines: package main import … { fmt.Println(1) }]"},
+		{"line1\nline2\nline3\nline4", "[pasted text #1 · 4 lines: line1 … line4]"},
+		{"   \n\tfunc main() {\n\t\treturn [x]\n\t}\n", "[pasted text #1 · 4 lines: func … turn x }]"},
+		{"package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(1) }\n", "[pasted text #1 · 5 lines: package … tln(1) }]"},
 		{"╭─ rush ──╮\n│ ✓ ⌕ loaded SendMessage from the fleet, and a good deal more besides │\n│  it's all   confusing as hell right now │\n╰──╯",
-			"[pasted text #1 · 4 lines: ╭─ rush ──╮ │ ✓ ⌕ … hell right now │ ╰──╯]"},
+			"[pasted text #1 · 4 lines: ╭─ rush … │ ╰──╯]"},
 		{"\n\n", "[pasted text #1 · 1 line]"},
 	} {
 		got := PasteChip(1, c.text)

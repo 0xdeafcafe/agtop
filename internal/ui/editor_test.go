@@ -312,7 +312,7 @@ func TestLongPasteFolds(t *testing.T) {
 			if pane {
 				box, ps = m.host.input, &m.host.pastes
 			}
-			want := "[pasted text #1 · 3 lines: ╭─ rush ─╮ │ ✓ loaded │ ╰──────────╯]"
+			want := "[pasted text #1 · 3 lines: ╭─ rush … ───────╯]"
 			if string(box) != want || ps.expand(string(box), false) != text {
 				t.Errorf("%T in pane=%v: box %q", msg, pane, string(box))
 			}
