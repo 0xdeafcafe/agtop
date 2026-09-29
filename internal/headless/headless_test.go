@@ -3,12 +3,13 @@ package headless
 import (
 	"encoding/base64"
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Lines as Claude Code 2.1.280 writes them, trimmed of fields we ignore.
@@ -233,29 +234,6 @@ func TestDecodeMCPMessage(t *testing.T) {
 	m, ok := ev.(MCPRequest)
 	if !ok || m.ID != "r9" || m.Server != "rush" || !strings.Contains(string(m.Message), "tools/list") {
 		t.Fatalf("got %#v", ev)
-	}
-}
-
-func TestLineReader(t *testing.T) {
-	long := strings.Repeat("x", 3<<20)
-	l := NewLineReader(strings.NewReader("a\r\n\n" + long + "\nlast"))
-	var got []string
-	for {
-		line, ok := l.Next()
-		if !ok {
-			break
-		}
-		got = append(got, string(line))
-	}
-	if len(got) != 4 || got[0] != "a" || got[1] != "" || got[2] != long || got[3] != "last" || l.err != nil {
-		t.Fatalf("lines = %d, err %v", len(got), l.err)
-	}
-	if l.Next(); l.long != nil {
-		t.Error("a long line's buffer should go once it's handled")
-	}
-	l = NewLineReader(strings.NewReader(strings.Repeat("y", maxLine+10)))
-	if _, ok := l.Next(); ok || l.err == nil {
-		t.Error("a line over the limit should stop the reader with an error")
 	}
 }
 

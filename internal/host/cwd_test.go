@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	claudead "github.com/0xdeafcafe/rush/internal/adapters/claude"
 	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
@@ -15,7 +16,7 @@ import (
 func TestFollowCwd(t *testing.T) {
 	t.Setenv("RUSH_HOME", t.TempDir())
 	cfgDir, start, wt := t.TempDir(), t.TempDir(), t.TempDir()
-	s := &server{cfg: Config{ID: "cwd", Cwd: start, Account: agent.Profile{Dir: cfgDir}}, clients: map[*conn]struct{}{}}
+	s := &server{cfg: Config{ID: "cwd", Kind: string(claudead.Kind), Cwd: start, Account: agent.Profile{Dir: cfgDir}}, clients: map[*conn]struct{}{}}
 	s.info = Info{SessionID: "s1", Cwd: start, ClaudePID: 4242}
 	for _, d := range []string{filepath.Join(cfgDir, "sessions"), dir(s.cfg.ID)} {
 		if err := os.MkdirAll(d, 0o700); err != nil {

@@ -99,3 +99,10 @@ func Doing(k Kind, c *tool.Call) string {
 	}
 	return tool.Doing(*c)
 }
+
+// CwdReader is an agent whose session can move to another folder as it
+// runs, into a worktree, and says where: the session its process pid, of
+// profile p, runs, and the folder it works in now. It reads the disk.
+type CwdReader interface {
+	SessionCwd(p Profile, pid int) (sessionID, cwd string, ok bool)
+}

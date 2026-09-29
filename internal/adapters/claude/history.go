@@ -42,7 +42,7 @@ func (Adapter) History(s agent.Session, before time.Time) ([]event.Event, error)
 	var (
 		out []event.Event
 		n   headless.Neutral
-		r   = headless.NewLineReader(f)
+		r   = jsonx.NewLineReader(f)
 	)
 	for {
 		line, ok := r.Next()

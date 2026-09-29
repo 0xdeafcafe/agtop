@@ -1,8 +1,6 @@
 package headless
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/base64"
 	"encoding/json/jsontext"
 	"errors"
@@ -175,14 +173,10 @@ func (s *Session) signal() {
 	}
 }
 
-// maxLine is the longest output line taken; tool results and file reads
-// can make single lines very long.
-const maxLine = 64 << 20
-
 func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte), skip func([]byte) bool) {
 	defer close(s.done)
 	defer close(events)
-	lines := NewLineReader(r)
+	lines := jsonx.NewLineReader(r)
 	for {
 		line, ok := lines.Next()
 		if !ok {
@@ -224,54 +218,6 @@ func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte), skip 
 		}
 	}
 	s.err = err
-}
-
-// LineReader splits output into lines like bufio.Scanner, but a long line's
-// buffer goes once it has been handled: one 30 MB tool result mustn't keep
-// 32 MB for the rest of the session. Every session and every client of a
-// host has one, so what it keeps between lines is kept small too.
-type LineReader struct {
-	r    *bufio.Reader
-	long []byte
-	err  error // why reading stopped, other than the end of the output
-}
-
-// Err is why reading stopped, if it wasn't the end of the output.
-func (l *LineReader) Err() error { return l.err }
-
-// NewLineReader reads r a line at a time.
-func NewLineReader(r io.Reader) *LineReader {
-	return &LineReader{r: bufio.NewReaderSize(r, 64<<10)}
-}
-
-// Next returns the next line without its newline. It is only good until
-// the next call.
-func (l *LineReader) Next() ([]byte, bool) {
-	if cap(l.long) > 256<<10 {
-		l.long = nil
-	}
-	line, err := l.r.ReadSlice('\n')
-	if err == bufio.ErrBufferFull {
-		l.long = append(l.long[:0], line...)
-		for err == bufio.ErrBufferFull {
-			line, err = l.r.ReadSlice('\n')
-			l.long = append(l.long, line...)
-			if len(l.long) > maxLine {
-				l.err = bufio.ErrTooLong
-				return nil, false
-			}
-		}
-		line = l.long
-	}
-	if err != nil && err != io.EOF {
-		l.err = err
-		return nil, false
-	}
-	if len(line) == 0 && err == io.EOF {
-		return nil, false
-	}
-	line = bytes.TrimSuffix(line, []byte("\n"))
-	return bytes.TrimSuffix(line, []byte("\r")), true
 }
 
 // PID is Claude Code's process id.

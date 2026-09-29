@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -233,4 +234,18 @@ func (Adapter) Past(p agent.Profile) []agent.Session {
 	return next.sessions
 }
 
-var _ agent.Discoverer = Adapter{}
+// SessionCwd reads where the session pid runs works now, from the session
+// file Claude Code keeps for it: entering a worktree moves it.
+func (Adapter) SessionCwd(p agent.Profile, pid int) (sessionID, cwd string, ok bool) {
+	acct := claude.AccountOf(p)
+	if acct.ConfigDir == "" {
+		acct = claude.DefaultAccount()
+	}
+	ss, ok := claude.ReadSession(filepath.Join(acct.ConfigDir, "sessions", strconv.Itoa(pid)+".json"))
+	return ss.SessionID, ss.Cwd, ok
+}
+
+var (
+	_ agent.Discoverer = Adapter{}
+	_ agent.CwdReader  = Adapter{}
+)
