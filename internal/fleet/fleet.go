@@ -264,9 +264,13 @@ type Loader struct {
 	// moved are transcripts found away from where their session started,
 	// by session id: see transcriptOf.
 	moved map[string]string
-	hosts host.Lister
-	print map[int]printEntry
-	Temp  *TempSizes
+	// unfound are sessions whose transcript wasn't anywhere, and when it
+	// was last looked for: looking globs every project folder, too much
+	// for every reading.
+	unfound map[string]time.Time
+	hosts   host.Lister
+	print   map[int]printEntry
+	Temp    *TempSizes
 	// pastRows are past conversations' rows as last made, and spendVer
 	// counts each agent's spend updates, so an unchanged row is reused.
 	pastRows map[string]pastRow
@@ -516,7 +520,7 @@ func NewLoader(s *state.Store) *Loader {
 		store: s,
 		args:  map[int]argsEntry{}, git: map[string]gitInfo{}, roots: map[string]string{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
-		files: map[string]fileMemo{}, moved: map[string]string{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{},
+		files: map[string]fileMemo{}, moved: map[string]string{}, unfound: map[string]time.Time{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{},
 		Temp: NewTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"), links: loadLinks(),
 	}
 }
@@ -933,11 +937,22 @@ func (l *Loader) transcriptOf(acct claude.Account, cwd, sid string) string {
 			return p
 		}
 	}
+	home := acct.TranscriptPath(cwd, sid)
+	if _, err := os.Stat(home); err == nil {
+		delete(l.moved, sid)
+		delete(l.unfound, sid)
+		return home
+	}
+	if t, ok := l.unfound[sid]; ok && time.Since(t) < 10*time.Second {
+		return home
+	}
 	p := acct.FindTranscript(cwd, sid)
-	if p != acct.TranscriptPath(cwd, sid) {
+	if p != home {
 		l.moved[sid] = p
+		delete(l.unfound, sid)
 	} else {
 		delete(l.moved, sid)
+		l.unfound[sid] = time.Now()
 	}
 	return p
 }
