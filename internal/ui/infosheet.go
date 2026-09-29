@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"io/fs"
 	"slices"
 	"sort"
 	"strings"
@@ -32,7 +33,7 @@ type infoSheet struct {
 	cur    int // the Settings tab's row
 
 	shown    []int // the tabs the session's agent has
-	stats    claude.Stats
+	stats    agent.Stats
 	statsErr error
 	settings []settingsLink // the Settings tab's rows, read when it opens
 	// quota is the limits of an agent whose accounts aren't agtop's
@@ -57,6 +58,9 @@ var infoTabNeeds = [infoTabs]string{infoContext: "context", infoUsage: "usage", 
 
 // openInfo opens the sheet on one of its tabs, with the tabs the session's
 // agent has.
+// errNoStats is an agent that keeps no record of its use.
+var errNoStats = fmt.Errorf("no record kept: %w", fs.ErrNotExist)
+
 func (m *Model) openInfo(c *hostConn, tab int) {
 	k := &infoSheet{conn: c.key, tab: tab}
 	for t := range infoTabs {
@@ -69,7 +73,10 @@ func (m *Model) openInfo(c *hostConn, tab int) {
 	}
 	if a := m.agentByKey(c.key); a != nil {
 		if slices.Contains(k.shown, infoHistory) {
-			k.stats, k.statsErr = claude.LoadStats(claude.AccountOf(a.Acct))
+			k.statsErr = errNoStats
+			if sr, ok := agent.As[agent.StatsReader](sessionAgent(c)); ok {
+				k.stats, k.statsErr = sr.Stats(a.Acct)
+			}
 		}
 		if slices.Contains(k.shown, infoSettings) {
 			k.settings = m.settingsLinks(c, a)

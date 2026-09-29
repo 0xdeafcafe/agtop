@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
@@ -24,11 +24,15 @@ import (
 // new worktree) and a first message.
 type forkSheet struct {
 	conn, agent string
-	acct        claude.Account
-	sid, cwd    string
-	path        string // the conversation's transcript
-	turns       []forkTurn
-	repo        string // the git checkout, when there is one
+	prof        agent.Profile
+	kind        agent.Kind
+	// br copies the conversation for a fork of part of it, or into a
+	// worktree; nil forks only the whole of it, in the same folder.
+	br       agent.Brancher
+	sid, cwd string
+	path     string // the conversation's transcript
+	turns    []forkTurn
+	repo     string // the git checkout, when there is one
 
 	row          int
 	name, first  []rune
@@ -38,9 +42,11 @@ type forkSheet struct {
 	model        int
 	effort, perm int
 	worktree     bool
-	now          host.Info
-	was          host.Config
-	hosted       bool
+	// The agent's choices, "" (as now) first.
+	models, efforts, perms []string
+	now                    host.Info
+	was                    host.Config
+	hosted                 bool
 }
 
 type forkTurn struct {
@@ -61,11 +67,15 @@ const (
 	fkRows
 )
 
-var (
-	forkModels  = []string{"", "opus", "opus[1m]", "sonnet", "haiku", "fable"}
-	forkEfforts = []string{"", "low", "medium", "high", "xhigh", "max"}
-	forkPerms   = []string{"", "default", "acceptEdits", "plan", "auto", "bypassPermissions"}
-)
+// choiceIDs are the choices' ids, after "" for as now.
+func choiceIDs(cs []agent.Choice) []string {
+	out := make([]string, 0, len(cs)+1)
+	out = append(out, "")
+	for _, c := range cs {
+		out = append(out, c.ID)
+	}
+	return out
+}
 
 // openFork opens the /fork sheet for the agent, name prefilled from arg.
 func (m *Model) openFork(c *hostConn, a *fleet.Agent, name string) {
@@ -75,11 +85,18 @@ func (m *Model) openFork(c *hostConn, a *fleet.Agent, name string) {
 		return
 	}
 	cwd := firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
+	k := sessionAgent(c)
+	br, _ := agent.As[agent.Brancher](k)
+	ch, _ := agent.ChoicesOf(k)
 	f := &forkSheet{
-		conn: c.key, agent: a.DisplayName, acct: claude.AccountOf(a.Acct), sid: sid, cwd: cwd,
-		path: firstNonEmpty(c.path, a.TranscriptPath, claude.AccountOf(a.Acct).TranscriptPath(cwd, sid)),
+		conn: c.key, agent: a.DisplayName, prof: a.Acct, kind: k, br: br, sid: sid, cwd: cwd,
+		path: firstNonEmpty(c.path, a.TranscriptPath),
 		name: []rune(firstNonEmpty(name, a.DisplayName+" (fork)")),
 		now:  c.sess.Info, hosted: a.Agtop, repo: actions.RepoRoot(cwd),
+		models: choiceIDs(ch.Models), efforts: choiceIDs(ch.Efforts), perms: choiceIDs(ch.Modes),
+	}
+	if f.path == "" && br != nil {
+		f.path = br.TranscriptPath(a.Acct, cwd, sid)
 	}
 	f.namePos = len(f.name)
 	if a.Agtop {
@@ -91,6 +108,9 @@ func (m *Model) openFork(c *hostConn, a *fleet.Agent, name string) {
 	for i := len(c.sess.Turns) - 2; i >= 0; i-- {
 		t := c.sess.Turns[i]
 		f.turns = append(f.turns, forkTurn{n: t.N, prompt: t.Prompt, end: t.End})
+	}
+	if br == nil {
+		f.turns = f.turns[:1] // only the whole of it
 	}
 	m.sheet = f
 }
@@ -114,13 +134,13 @@ func (f *forkSheet) cycle(d int) {
 	case fkFrom:
 		f.upTo = step(f.upTo, len(f.turns))
 	case fkModel:
-		f.model = step(f.model, len(forkModels))
+		f.model = step(f.model, len(f.models))
 	case fkEffort:
-		f.effort = step(f.effort, len(forkEfforts))
+		f.effort = step(f.effort, len(f.efforts))
 	case fkPerm:
-		f.perm = step(f.perm, len(forkPerms))
+		f.perm = step(f.perm, len(f.perms))
 	case fkFolder:
-		if f.repo != "" {
+		if f.repo != "" && f.br != nil {
 			f.worktree = !f.worktree
 		}
 	}
@@ -179,7 +199,7 @@ func (f *forkSheet) body(m *Model, w, h int) []string {
 		if v == "" {
 			if now := f.current(what); now != "" {
 				if what == "model" {
-					now = claude.ModelName(now)
+					now = agent.ModelName(f.kind, now)
 				}
 				return "as now · " + now
 			}
@@ -202,11 +222,11 @@ func (f *forkSheet) body(m *Model, w, h int) []string {
 				val = fmt.Sprintf("up to turn %d · ", t.n) + faint(oneLine(t.prompt))
 			}
 		case fkModel:
-			label, val = "Model", choice(forkModels[f.model], "model")
+			label, val = "Model", choice(f.models[f.model], "model")
 		case fkEffort:
-			label, val = "Effort", choice(forkEfforts[f.effort], "effort")
+			label, val = "Effort", choice(f.efforts[f.effort], "effort")
 		case fkPerm:
-			label, val = "Permissions", choice(forkPerms[f.perm], "perm")
+			label, val = "Permissions", choice(f.perms[f.perm], "perm")
 		case fkFolder:
 			label = "Folder"
 			switch {
@@ -214,6 +234,8 @@ func (f *forkSheet) body(m *Model, w, h int) []string {
 				val = "a new worktree · " + tildify(filepath.Join(f.repo, ".claude", "worktrees", worktreeName(string(f.name))))
 			case f.repo == "":
 				val = "same folder · " + tildify(f.cwd) + faint(" (not a git repo, so no worktree)")
+			case f.br == nil:
+				val = "same folder · " + tildify(f.cwd)
 			default:
 				val = "same folder · " + tildify(f.cwd)
 			}
@@ -259,10 +281,10 @@ func (f *forkSheet) body(m *Model, w, h int) []string {
 // read at about a tenth of the price, or breaks it. Measured: another
 // model or effort re-reads it all; permissions (plan too) don't.
 func (f *forkSheet) firstNote() string {
-	if md := forkModels[f.model]; md != "" && !strings.Contains(strings.ToLower(f.current("model")), strings.TrimSuffix(md, "[1m]")) {
+	if md := f.models[f.model]; md != "" && !strings.Contains(strings.ToLower(f.current("model")), strings.TrimSuffix(md, "[1m]")) {
 		return paint(cYellow, "↳ breaks the cache: another model reads all it remembers at full price")
 	}
-	if e := forkEfforts[f.effort]; e != "" && !strings.EqualFold(e, f.current("effort")) {
+	if e := f.efforts[f.effort]; e != "" && !strings.EqualFold(e, f.current("effort")) {
 		return paint(cYellow, "↳ breaks the cache: another effort reads all it remembers at full price")
 	}
 	warm := f.now.CacheWarm
@@ -292,22 +314,24 @@ func worktreeName(name string) string {
 	return firstNonEmpty(s, "fork")
 }
 
-// start makes the fork. The whole conversation in the same folder is
-// Claude Code's own --fork-session; up to an earlier turn, or into a new
-// worktree, agtop copies the transcript (cut there) and resumes the copy.
+// start makes the fork. The whole conversation in the same folder is the
+// agent's own fork (Claude Code's --fork-session); up to an earlier turn,
+// or into a new worktree, the agent copies the transcript (cut there) and
+// the copy is resumed.
 func (f *forkSheet) start(m *Model) tea.Cmd {
-	d := m.store.Config.Dispatch
+	disp := m.store.Config.Dispatch
+	d := disp.StartFor(string(f.kind))
 	name := strings.TrimSpace(string(f.name))
 	if name == "" {
 		name = f.agent + " (fork)"
 	}
 	cfg := host.Config{
-		Account: f.acct.Profile(), Cwd: f.cwd, Name: name, Resume: true,
-		Model:          firstNonEmpty(forkModels[f.model], f.current("model"), d.Model),
-		Effort:         firstNonEmpty(forkEfforts[f.effort], f.current("effort"), d.Effort),
-		PermissionMode: firstNonEmpty(forkPerms[f.perm], f.current("perm"), d.Permission),
-		LimitMode:      firstNonEmpty(f.was.LimitMode, d.OnLimit), Flags: f.was.Flags,
-		Lean: d.Lean, IdleStop: host.Duration(d.Rest()),
+		Account: f.prof, Cwd: f.cwd, Name: name, Resume: true,
+		Model:          firstNonEmpty(f.models[f.model], f.current("model"), d.Model),
+		Effort:         firstNonEmpty(f.efforts[f.effort], f.current("effort"), d.Effort),
+		PermissionMode: firstNonEmpty(f.perms[f.perm], f.current("perm"), d.Mode),
+		LimitMode:      firstNonEmpty(f.was.LimitMode, disp.OnLimit), Flags: f.was.Flags,
+		Lean: disp.Lean, IdleStop: host.Duration(disp.Rest()),
 		Prompt: strings.TrimSpace(string(f.first)),
 	}
 	var cut *forkTurn
@@ -315,7 +339,7 @@ func (f *forkSheet) start(m *Model) tea.Cmd {
 	if f.upTo > 0 {
 		cut, next = &f.turns[f.upTo], f.turns[f.upTo-1].prompt
 	}
-	worktree, src, sid := f.worktree, f.path, f.sid
+	worktree, src, sid, br, prof := f.worktree, f.path, f.sid, f.br, f.prof
 	wtName := worktreeName(name)
 	m.sheet = nil
 	m.flash("forking "+f.agent+"…", false)
@@ -338,12 +362,9 @@ func (f *forkSheet) start(m *Model) tea.Cmd {
 				}
 			}
 			newID, _ := host.NewSessionID()
-			if err := claude.CopyTranscript(src, f.acct.TranscriptPath(cfg.Cwd, newID), sid, newID, upTo); err != nil {
+			if err := br.Branch(prof, src, cfg.Cwd, sid, newID, upTo); err != nil {
 				return doneMsg{err: fmt.Errorf("couldn't copy the conversation: %w", err)}
 			}
-			// Its file checkpoints too, so it can rewind; without them it
-			// still runs.
-			_ = f.acct.CopyCheckpoints(sid, newID)
 			cfg.SessionID = newID
 		}
 		started, err := host.Spawn(cfg)

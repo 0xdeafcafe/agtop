@@ -918,35 +918,35 @@ type hostConn struct {
 	verbose bool
 	scroll  int // rows up from the bottom; 0 follows the latest output
 
-	input     []rune
-	back      int
-	anchor    int      // selection start + 1; 0 when nothing is selected
-	images    []string // image files attached to the next message
-	box       box      // the message box as last drawn, and where
-	boxIdx    int
-	boxY      int
-	editQ     int                                         // queued message being edited in the box, +1; 0 when none
-	editWas   string                                      // its text before editing
-	editHeld  bool                                        // editing held the queue, to let go once it's saved
-	slashSel  int                                         // the slash-command picker's selection
-	sendRaw   bool                                        // send a / command agtop doesn't know as it is
-	asks      map[string]func(*Model, host.Reply) tea.Cmd // control requests out (askClaude)
-	askN      int
-	pastes    pastes // long pastes shown as chips
-	undo      undoStack
-	recall    recall // alt+p going back through the drafts
-	arts      []*artifact
-	marks     map[string]bool // files marked reviewed in the changes view
-	bodyBuf   []convo.Line    // the conversation\'s lines, reused frame to frame
-	artsKey   string
-	mem       []memFile // the memory view's files, and when they were read
-	memAt     time.Time
-	memInfo   *agent.Memory // the memory view's checks, read with its files
-	memTop    int               // the first of them in view
-	memEd     *docEditor        // the picked file, open in the editor below them
-	memEdit   bool              // the editor has the keys
-	local     []event.Command   // custom commands and skills on disk
-	skills    map[string]bool
+	input    []rune
+	back     int
+	anchor   int      // selection start + 1; 0 when nothing is selected
+	images   []string // image files attached to the next message
+	box      box      // the message box as last drawn, and where
+	boxIdx   int
+	boxY     int
+	editQ    int                                         // queued message being edited in the box, +1; 0 when none
+	editWas  string                                      // its text before editing
+	editHeld bool                                        // editing held the queue, to let go once it's saved
+	slashSel int                                         // the slash-command picker's selection
+	sendRaw  bool                                        // send a / command agtop doesn't know as it is
+	asks     map[string]func(*Model, host.Reply) tea.Cmd // control requests out (askClaude)
+	askN     int
+	pastes   pastes // long pastes shown as chips
+	undo     undoStack
+	recall   recall // alt+p going back through the drafts
+	arts     []*artifact
+	marks    map[string]bool // files marked reviewed in the changes view
+	bodyBuf  []convo.Line    // the conversation\'s lines, reused frame to frame
+	artsKey  string
+	mem      []memFile // the memory view's files, and when they were read
+	memAt    time.Time
+	memInfo  *agent.Memory   // the memory view's checks, read with its files
+	memTop   int             // the first of them in view
+	memEd    *docEditor      // the picked file, open in the editor below them
+	memEdit  bool            // the editor has the keys
+	local    []event.Command // custom commands and skills on disk
+	skills   map[string]bool
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
 	// waiting for an answer; only then do plain letters and digits answer.
 	cardFocus bool

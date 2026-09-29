@@ -111,6 +111,14 @@ func TestRewindAndForkFromHistory(t *testing.T) {
 	if !strings.Contains(ansi.Strip(strings.Join(f.body(m, 120, 40), "\n")), "added after the cache") {
 		t.Fatal("permissions don't break the cache")
 	}
+	// An agent that can't copy its conversation forks all of it, in the
+	// same folder, with none of Claude Code's models to pick.
+	c.kind = "uncopied"
+	m.openForkAt(c, a, selTurn(c))
+	if f, ok := m.sheet.(*forkSheet); !ok || len(f.turns) != 1 || f.upTo != 0 || len(f.models) != 1 {
+		t.Fatalf("fork of an agent without a copier: %+v", m.sheet)
+	}
+	c.kind = "claude"
 	m.sheet = nil
 	// Rewind to the last turn: there's nothing after it.
 	m.openRewindTo(c, a, c.sess.Turns[2])

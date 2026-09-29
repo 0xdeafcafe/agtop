@@ -73,14 +73,14 @@ func contextLines(c *hostConn, w int) []string {
 	return out
 }
 
-// historyLines is the History tab: Claude Code's own record of the
-// account's use (what its /stats shows), by day and by model, fitted to h.
+// historyLines is the History tab: the agent's own record of the
+// account's use (Claude Code's /stats), by day and by model, fitted to h.
 func (k *infoSheet) historyLines(a *fleet.Agent, w, h int) []string {
 	st := k.stats
 	if k.statsErr != nil {
-		why := "Claude Code hasn't kept a record for this account yet"
+		why := agentName(a.Kind) + " hasn't kept a record for this account yet"
 		if !errors.Is(k.statsErr, fs.ErrNotExist) {
-			why = "couldn't read stats-cache.json: " + k.statsErr.Error()
+			why = "couldn't read its record: " + k.statsErr.Error()
 		}
 		return []string{dim("  " + why)}
 	}
