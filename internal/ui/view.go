@@ -13,8 +13,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/cellw"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/0xdeafcafe/rush/internal/theme"
@@ -419,7 +419,7 @@ func (m *Model) activeUsage() string {
 			parts = append(parts, faint("↪ at "+pct(state.SwitchAt)+" ")+paint(l.colour(), l.glyph)+" "+paint(cText, next.name())+" "+meter+" "+paint(usageColor(n), pct(n)))
 		}
 		s := m.usageTag() + "  " + strings.Join(parts, "   ")
-		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > 3*claude.UsageEvery {
+		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > 3*usage.Every {
 			when := u.FetchedAt.Local().Format("15:04")
 			if m.snap.At.Sub(u.FetchedAt) > 20*time.Hour {
 				when = u.FetchedAt.Local().Format("Mon 15:04")
@@ -1625,7 +1625,7 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked 
 			return strings.Repeat(" ", wTok)
 		}
 		v := right1(tokens(a.Spend.Context), wTok)
-		win := claude.ContextWindow(a.Spend.Model)
+		win := agent.ContextWindow(agent.Kind(a.Kind), a.Spend.Model)
 		switch {
 		case win > 0 && float64(a.Spend.Context)/float64(win) >= 0.8:
 			return paint(cYellow, v)

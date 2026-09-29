@@ -37,6 +37,18 @@ type Attacher interface {
 	Attach(p Profile, id string) *exec.Cmd
 }
 
+// Pinner keeps sessions pinned in the agent's own list of them.
+type Pinner interface {
+	// TogglePin pins session id, or unpins it.
+	TogglePin(p Profile, id string) error
+}
+
+// SessionsViewer opens the agent's own list of its sessions in the
+// terminal. Making the command looks for its program: not on the UI.
+type SessionsViewer interface {
+	SessionsView(p Profile) *exec.Cmd
+}
+
 // Loginer signs p in, in the terminal.
 type Loginer interface {
 	Login(p Profile) *exec.Cmd
