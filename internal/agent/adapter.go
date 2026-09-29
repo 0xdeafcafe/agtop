@@ -188,10 +188,14 @@ type Session struct {
 	Model      string
 	Transcript string
 	PID        int
-	Todos      []Todo
-	Running    []Task
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// Headless is a one-shot run another program asked for (codex exec,
+	// claude -p): no one can reply to it, and one another agent's shell
+	// ran is listed with that agent.
+	Headless  bool
+	Todos     []Todo
+	Running   []Task
+	CreatedAt time.Time
+	UpdatedAt time.Time
 	// Remote is a session running on the agent's own servers, not this
 	// machine: Repo is the repository it works in, PRs what it opened.
 	Remote bool

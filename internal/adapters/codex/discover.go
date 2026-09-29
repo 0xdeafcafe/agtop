@@ -168,7 +168,7 @@ func readHead(path string, mod time.Time) (agent.Session, bool) {
 			if m.ID != "" {
 				s.ID = m.ID
 			}
-			s.Cwd = m.Cwd
+			s.Cwd, s.Headless = m.Cwd, m.exec()
 			if t := parseTime(m.Timestamp); !t.IsZero() {
 				s.CreatedAt = t
 			}

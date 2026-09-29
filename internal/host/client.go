@@ -321,6 +321,10 @@ type Client struct {
 // Dial connects to a running session.
 func Dial(id string) (*Client, error) { return dial(id, Proto) }
 
+// DialRaw connects as an agtop from before the hello: a Claude Code
+// session's lines come as Claude Code wrote them.
+func DialRaw(id string) (*Client, error) { return dial(id, 0) }
+
 // dial connects saying hello as a client of protocol proto; 0 says none,
 // as an agtop from before the hello.
 func dial(id string, proto int) (*Client, error) {

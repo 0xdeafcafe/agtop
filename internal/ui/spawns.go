@@ -10,6 +10,8 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // An agent a session ran from its shell (claude -p, codex exec) wrote a
@@ -43,6 +45,7 @@ type spawnRun struct {
 	looked time.Time // when it was last looked for, while not found
 	lost   bool      // looked for past its command's end, and not found
 	fresh  bool      // its session was just read again, to give its step
+	hosted string    // the agtop session it runs as, when agtop hosts it
 }
 
 // view is the spawned agent's conversation as a Tail, for the subagent
@@ -57,8 +60,9 @@ func (r *spawnRun) view() *convo.Tail {
 // spawnFoundMsg brings the sessions of spawned agents looked for in the
 // background, by the step that ran each; an empty path is one not found.
 type spawnFoundMsg struct {
-	key   string
-	found map[string]agent.Session
+	key    string
+	found  map[string]agent.Session
+	hosted map[string]string // the agtop sessions of those agtop hosts
 }
 
 // spawnWant is a spawned agent to look for.
@@ -126,14 +130,26 @@ func (m *Model) refreshSpawns() tea.Cmd {
 	}
 	own := c.path
 	return func() tea.Msg {
-		found := map[string]agent.Session{}
+		found, hosted := map[string]agent.Session{}, map[string]string{}
 		for _, w := range want {
 			if s, ok := findSpawn(w, mine, own, taken); ok {
 				found[w.step] = s
 				taken[s.Transcript] = true
 			}
 		}
-		return spawnFoundMsg{key: key, found: found}
+		// Run through agtop's stand-in, it's an agtop session: what you
+		// type while you watch it goes to it.
+		if len(found) > 0 {
+			infos := host.List()
+			for i := range infos {
+				for step := range found {
+					if infos[i].SessionID == found[step].ID && infos[i].Meta["spawnedBy"] != "" {
+						hosted[step] = infos[i].ID
+					}
+				}
+			}
+		}
+		return spawnFoundMsg{key: key, found: found, hosted: hosted}
 	}
 }
 
@@ -150,13 +166,17 @@ func (m *Model) onSpawnFound(msg spawnFoundMsg) {
 			continue
 		}
 		sp, _ := st.Spawn()
-		r.kind, r.prompt, r.path, r.born = s.Kind, sp.Prompt, s.Transcript, s.CreatedAt
+		r.kind, r.prompt, r.path, r.born, r.hosted = s.Kind, sp.Prompt, s.Transcript, s.CreatedAt, msg.hosted[id]
 		if agent.ReadsAsClaude(s.Kind) {
 			r.tail = convo.NewTail(s.Transcript)
 		} else {
 			r.hist = &history{kind: s.Kind, s: s}
 		}
 		c.paneKick = true // read it now, in the background
+		if m.loader != nil && len(s.ID) >= 8 && s.Profile.Name != "" {
+			// Its row is listed with this session's from now on.
+			m.loader.LinkSpawn(state.Key(s.Profile.Name, "i:"+s.ID[:8]), c.key)
+		}
 	}
 }
 
@@ -322,6 +342,18 @@ func (c *hostConn) spawnState(sa convo.Subagent) (status string, live bool) {
 		return "stopped", false
 	}
 	return "", false
+}
+
+// watchedHost is the agtop session of the spawned agent the pane shows,
+// when agtop hosts it: what you send goes to it rather than the session.
+func (m *Model) watchedHost(c *hostConn) string {
+	if !m.watchingSub(c) {
+		return ""
+	}
+	if r := c.spawnRunFor(c.subOpen); r != nil {
+		return r.hosted
+	}
+	return ""
 }
 
 // spawnRunFor is the spawned agent a subagent run id stands for, or nil.

@@ -54,7 +54,7 @@ func (s *server) start() error {
 		Profile: agent.Profile{Kind: a.Kind(), Name: s.cfg.Account.Name, Dir: s.cfg.Account.Dir},
 		Dir:     s.cfg.Cwd, SessionID: s.cfg.SessionID, Resume: s.began && s.cfg.SessionID != "", Fork: s.began && s.cfg.Fork,
 		Model: s.cfg.Model, Effort: s.cfg.Effort, Mode: s.cfg.PermissionMode,
-		Env: append([]string{"TMPDIR=" + tmp}, s.cfg.Env...), Flags: s.cfg.Flags, Binary: s.cfg.Binary,
+		Env: append(append([]string{"TMPDIR=" + tmp}, s.shimEnv()...), s.cfg.Env...), Flags: s.cfg.Flags, Binary: s.cfg.Binary,
 		TempDir: tmp, Lean: s.cfg.Lean, Tap: s.tap, Lightly: true,
 		// agtop's own tools only draw, so they never ask.
 		Tools: []agent.ToolServer{{Name: agtools.Server, Trusted: agtools.Names(), Handle: agtools.Handle}},

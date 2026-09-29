@@ -107,6 +107,12 @@ type sessionMeta struct {
 	AgentPath  string         `json:"agent_path"`
 }
 
+// exec is whether the thread is a codex exec run.
+func (m sessionMeta) exec() bool {
+	var src string
+	return jsonx.Unmarshal(m.Source, &src) == nil && src == "exec"
+}
+
 // subagent is whether the thread was started by another thread: a
 // spawned agent or Codex's guardian reviewer.
 func (m sessionMeta) subagent() bool {

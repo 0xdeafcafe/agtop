@@ -2,7 +2,10 @@ package fleet
 
 import (
 	"testing"
+	"time"
 
+	_ "github.com/0xdeafcafe/agtop/internal/adapters/codex"
+	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 )
 
@@ -27,9 +30,85 @@ func TestSpawnOf(t *testing.T) {
 	if got := spawnOf(tab, 20, parents); got != 0 {
 		t.Errorf("a terminal's claude -p taken for a spawn of %d", got)
 	}
-	host := &Agent{PID: 10}
-	countSpawns(tab, []*Agent{host}, []int{13})
+	host := &Agent{Key: "h", PID: 10}
+	l := &Loader{links: map[string]string{}}
+	l.foldSpawns(tab, []*Agent{host}, []spawn{{"c", 13}}, parents)
 	if host.Subs.Direct != 1 {
 		t.Errorf("host's subagents %+v", host.Subs)
+	}
+}
+
+// A codex exec a Claude Code session's shell ran is that session's while
+// it runs, though Codex says no process: found by when its process
+// started. Once finished it stays the session's.
+func TestSpawnedCodex(t *testing.T) {
+	at := time.Now().Add(-time.Minute)
+	tab := &proc.Table{Procs: map[int]*proc.Proc{
+		11: {PID: 11, PPID: 1, Comm: "claude", Start: at.Add(-time.Hour)},
+		12: {PID: 12, PPID: 11, Comm: "zsh", Start: at},
+		13: {PID: 13, PPID: 12, Comm: "codex", Start: at.Add(time.Second)},
+		20: {PID: 20, PPID: 1, Comm: "codex", Start: at.Add(-time.Hour)}, // codex in a terminal
+	}}
+	parent := &Agent{Key: "default/i:parent00", PID: 11, Kind: "claude", Interactive: true}
+	kid := &Agent{Key: "codex/i:kid00000", Kind: "codex", Interactive: true, Headless: true}
+	term := &Agent{Key: "codex/i:term0000", Kind: "codex", Interactive: true}
+	kid.CreatedAt, term.CreatedAt = at, at.Add(-time.Hour)
+	l := &Loader{links: map[string]string{}}
+	got := l.foldSpawns(tab, []*Agent{parent, kid, term}, nil, map[int]bool{11: true})
+	if len(got) != 2 || got[0] != parent || got[1] != term {
+		t.Fatalf("listed %v", keys(got))
+	}
+	if parent.Subs.Direct != 1 || parent.Subs.Spawned != 1 {
+		t.Errorf("parent's subagents %+v", parent.Subs)
+	}
+	if l.links[kid.Key] != parent.Key || !l.linksDirty {
+		t.Errorf("links %v", l.links)
+	}
+
+	// Finished: no process, a past row, folded by the link.
+	parent = &Agent{Key: "default/i:parent00", Kind: "claude", Past: true}
+	kid = &Agent{Key: "codex/i:kid00000", Kind: "codex", Past: true}
+	got = l.foldSpawns(&proc.Table{Procs: map[int]*proc.Proc{}}, []*Agent{parent, kid}, nil, map[int]bool{})
+	if len(got) != 1 || got[0] != parent || parent.Subs.Spawned != 1 || parent.Subs.Direct != 0 {
+		t.Errorf("listed %v, parent's subagents %+v", keys(got), parent.Subs)
+	}
+	// One whose session isn't listed stays a row of its own.
+	kid = &Agent{Key: "codex/i:kid00000", Kind: "codex", Past: true}
+	if got = l.foldSpawns(nil, []*Agent{kid}, nil, map[int]bool{}); len(got) != 1 {
+		t.Errorf("an orphan folded away: %v", keys(got))
+	}
+}
+
+func keys(as []*Agent) []string {
+	out := make([]string, 0, len(as))
+	for _, a := range as {
+		out = append(out, a.Key)
+	}
+	return out
+}
+
+// A run an agent's stand-in hosted is listed with the agtop session that
+// ran it, running or not; one another agent ran is found by its process.
+func TestHostedSpawns(t *testing.T) {
+	parent := &Agent{Key: "default/a:parent00", Agtop: true}
+	parent.ID = "parent00"
+	kid := &Agent{Key: "codex/a:kid00000", Agtop: true}
+	kid.ID = "kid00000"
+	orphan := &Agent{Key: "codex/a:orphan00", Agtop: true, PID: 40}
+	orphan.ID = "orphan00"
+	hosted := []host.Info{
+		{ID: "parent00"},
+		{ID: "kid00000", Meta: map[string]string{"spawnedBy": "parent00"}},
+		{ID: "orphan00", Meta: map[string]string{"spawnedBy": "shell"}},
+	}
+	l := &Loader{links: map[string]string{}}
+	agents := []*Agent{parent, kid, orphan}
+	spawned := l.hostedSpawns(hosted, agents, nil)
+	if len(spawned) != 1 || spawned[0] != (spawn{orphan.Key, 40}) {
+		t.Errorf("found by process %v", spawned)
+	}
+	got := l.foldSpawns(&proc.Table{Procs: map[int]*proc.Proc{}}, agents, spawned, map[int]bool{})
+	if len(got) != 2 || got[0] != parent || got[1] != orphan || parent.Subs.Spawned != 1 {
+		t.Errorf("listed %v, parent's subagents %+v", keys(got), parent.Subs)
 	}
 }

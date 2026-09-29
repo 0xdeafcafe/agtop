@@ -333,6 +333,9 @@ func Run(id string) error {
 	if os.Getenv("GOMEMLIMIT") == "" {
 		debug.SetMemoryLimit(48 << 20)
 	}
+	// Run from a session's shell, it finds the agents' own programs, not
+	// the stand-ins that ran it.
+	_ = os.Setenv("PATH", WithoutShims(os.Getenv("PATH")))
 	var cfg Config
 	b, err := os.ReadFile(filepath.Join(dir(id), "config.json"))
 	if err != nil {

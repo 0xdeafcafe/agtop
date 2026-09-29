@@ -53,7 +53,7 @@ func (Adapter) FindSpawn(profiles []agent.Profile, dir string, start time.Time, 
 				}
 				seen[path] = true
 				text, at := firstPrompt(path)
-				s := agent.Session{Kind: Kind, ID: strings.TrimSuffix(f.Name(), ".jsonl"), Name: text, Transcript: path, CreatedAt: at}
+				s := agent.Session{Kind: Kind, Profile: p, ID: strings.TrimSuffix(f.Name(), ".jsonl"), Name: text, Transcript: path, CreatedAt: at}
 				if !at.IsZero() && fits(s) {
 					return s, true
 				}

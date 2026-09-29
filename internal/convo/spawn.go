@@ -285,10 +285,13 @@ func spawnIn(c command, body []string, stdin string) (Spawn, bool) {
 	var loose []string // bare words after a flag agtop doesn't know, which may be its value
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		// The subcommand is the first bare word, past any global flags:
+		// codex --search exec.
+		first := !sub && !print && sp.Prompt == "" && sp.From == "" && len(loose) == 0
 		switch {
 		case spawnNot[a] && sp.Prompt == "" && !sub:
 			return Spawn{}, false
-		case spawnSub[a] && i == 0:
+		case spawnSub[a] && first:
 			sub = true
 		case spawnPrint[a]:
 			print = true
@@ -315,7 +318,7 @@ func spawnIn(c command, body []string, stdin string) (Spawn, bool) {
 			case eq:
 			case spawnValued[name]:
 				i++
-			case strings.HasPrefix(name, "--") && next != "" && !strings.HasPrefix(next, "-") && !quoted(next):
+			case strings.HasPrefix(name, "--") && next != "" && !strings.HasPrefix(next, "-") && !quoted(next) && (!first || !spawnSub[next]):
 				loose = append(loose, next)
 				i++
 			}

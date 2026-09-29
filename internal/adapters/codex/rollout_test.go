@@ -442,6 +442,9 @@ func TestPast(t *testing.T) {
 	if !reflect.DeepEqual(rows, want) {
 		t.Errorf("got  %+v\nwant %+v", rows, want)
 	}
+	if !got[1].Headless || got[2].Headless { // codex exec's, and a terminal's
+		t.Errorf("headless %v %v", got[1].Headless, got[2].Headless)
+	}
 	if got[1].CreatedAt != t0 {
 		t.Errorf("created %v, want the session_meta's %v", got[1].CreatedAt, t0)
 	}
