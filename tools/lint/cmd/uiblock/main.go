@@ -7,6 +7,9 @@
 //
 //	cd tools/lint && go run ./cmd/uiblock ../..
 //
+// A function marked //uiblock:nowait in its doc, saying why, is taken
+// at its word: the walk stops there.
+//
 // Each line is an agtop function that calls out to something that waits,
 // with the shortest path from the UI to it. It exits 1 when there's any.
 package main
@@ -14,6 +17,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"go/ast"
 	"os"
 	"sort"
 	"strings"
@@ -32,7 +36,7 @@ const mod = "github.com/0xdeafcafe/agtop"
 var harmless = map[string]bool{
 	"Getenv": true, "Setenv": true, "Unsetenv": true, "Environ": true, "Clearenv": true, "Getpid": true, "Getppid": true,
 	"Getuid": true, "Geteuid": true, "Getgid": true, "Getegid": true, "Getpagesize": true, "Exit": true, "runtimeSetenv": true,
-	"runtimeUnsetenv": true, "Kill": true,
+	"runtimeUnsetenv": true, "Kill": true, "Getwd": true, // the kernel's word, not the disk's
 }
 
 func waits(f *ssa.Function) bool {
@@ -83,6 +87,22 @@ func main() {
 			}
 		}
 	}
+	// A function whose doc says //uiblock:nowait (and why) never waits in
+	// the view, however it could elsewhere: a save handed to a writer, a
+	// look answered from what was found. The walk stops there.
+	nowait := map[*ssa.Function]bool{}
+	for f := range cg.Nodes {
+		if f == nil {
+			continue
+		}
+		if d, ok := f.Syntax().(*ast.FuncDecl); ok && d.Doc != nil {
+			for _, c := range d.Doc.List { // Text() drops directives
+				if strings.HasPrefix(c.Text, "//uiblock:nowait") {
+					nowait[f] = true
+				}
+			}
+		}
+	}
 	// Everything that can end up waiting, walking back from what waits.
 	blocks := map[*callgraph.Node]bool{}
 	var back []*callgraph.Node
@@ -96,7 +116,7 @@ func main() {
 		n := back[len(back)-1]
 		back = back[:len(back)-1]
 		for _, e := range n.In {
-			if _, isGo := e.Site.(*ssa.Go); isGo || blocks[e.Caller] || pure(e) {
+			if _, isGo := e.Site.(*ssa.Go); isGo || blocks[e.Caller] || pure(e) || nowait[e.Caller.Func] {
 				continue
 			}
 			blocks[e.Caller] = true
@@ -185,6 +205,13 @@ var pureStd = []string{"fmt", "errors", "strconv", "strings", "bytes", "unicode"
 	"unique", "iter", "hash", "crypto/", "container/", "cmp", "path", "vendor/", "mime", "net/url"}
 
 func pure(e *callgraph.Edge) bool {
+	// A call through a func value reaches, as VTA sees it, every func of
+	// its type that flows anywhere near: kept to the caller's own package,
+	// where the UI's closures (a picker's act, a sheet's apply) are made.
+	if c := e.Site.Common(); !c.IsInvoke() && c.StaticCallee() == nil && e.Caller.Func.Pkg != nil && e.Callee.Func.Pkg != nil &&
+		e.Caller.Func.Pkg != e.Callee.Func.Pkg && e.Callee.Func.Parent() != nil {
+		return true
+	}
 	if c := e.Site.Common(); c.IsInvoke() {
 		switch c.Method.Name() {
 		case "Error", "String", "GoString", "Format", "Unwrap", "Is", "As":
