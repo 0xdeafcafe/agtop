@@ -125,3 +125,14 @@ func TestConnControl(t *testing.T) {
 		t.Error("nothing reached the tap")
 	}
 }
+
+// Answers go into the question's own input: what else Claude put there
+// stays, and an answer's own keys win.
+func TestAnswersKeepTheQuestion(t *testing.T) {
+	got := string(over(jsontext.Value(`{"questions":[{"question":"Go?"}],"metadata":{"source":"x"},"answers":{}}`), jsontext.Value(`{"answers":{"Go?":"yes"}}`)))
+	for _, want := range []string{`"questions":[{"question":"Go?"}]`, `"metadata":{"source":"x"}`, `"answers":{"Go?":"yes"}`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%s is missing %s", got, want)
+		}
+	}
+}

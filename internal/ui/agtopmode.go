@@ -19,6 +19,8 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
@@ -1804,17 +1806,16 @@ func (m *Model) cardRows(a *fleet.Agent, c *hostConn, w, maxH int) []string {
 		cl(bar + "     " + dim("Continue by itself when the limit resets? Anything you send meanwhile waits in the queue."))
 		cl(bar + "   " + cardHint(c, paint(cText+bold, "y")+" "+paint(cSub, "continue at the reset")+"   "+paint(cText+bold, "n")+" "+paint(cSub, "wait for me")))
 	}
-	if p := s.Pending(); len(p) > 0 && p[0].Approval.Tool == "AskUserQuestion" {
+	if p := s.Pending(); len(p) > 0 && p[0].Approval.Question != nil { //nolint:nestif // the question card, else the approval card
 		if len(out) > 0 {
 			out = append(out, "")
 		}
-		out = append(out, m.questionCard(c, p[0].Approval, w, maxH)...)
+		out = append(out, m.questionCard(c, p[0].Approval.Question, w, maxH)...)
 	} else if len(p) > 0 {
 		if len(out) > 0 {
 			out = append(out, "")
 		}
 		st := p[0]
-		req := st.Approval
 		count := ""
 		if len(p) > 1 {
 			count = fmt.Sprintf("1 of %d", len(p))
@@ -1823,8 +1824,8 @@ func (m *Model) cardRows(a *fleet.Agent, c *hostConn, w, maxH int) []string {
 		if modal {
 			what = ""
 		}
-		cl(spread(bar+" "+what+paint(cText+bold, approvalTitle(req)), paint(cSub, count)+"  ", w))
-		for _, l := range approvalBody(req, a.Cwd, w-6) {
+		cl(spread(bar+" "+what+paint(cText+bold, approvalTitle(st)), paint(cSub, count)+"  ", w))
+		for _, l := range approvalBody(st, a.Cwd, w-6) {
 			cl(bar + "     " + l)
 		}
 		k := func(key, label string) string { return paint(cText+bold, key) + " " + paint(cSub, label) }
@@ -2099,24 +2100,23 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	return append(out, "  "+hint)
 }
 
-func approvalTitle(r *headless.PermissionRequest) string {
-	switch r.Tool {
-	case "Bash":
+func approvalTitle(st *convo.Step) string {
+	switch st.Call().Kind {
+	case tool.Shell:
 		return "run a command"
-	case "Edit", "Write", "MultiEdit", "NotebookEdit":
+	case tool.Edit, tool.Write, tool.Notebook:
 		return "change a file"
-	case "WebFetch", "WebSearch":
+	case tool.Fetch, tool.WebSearch:
 		return "go online"
-	case "AskUserQuestion":
+	case tool.Question:
 		return "answer a question"
 	}
-	return "use " + r.Tool
+	return "use " + st.Tool
 }
 
-func approvalBody(r *headless.PermissionRequest, cwd string, w int) []string {
-	in := map[string]any{}
-	_ = jsonUnmarshal(r.Input, &in)
-	str := func(k string) string { v, _ := in[k].(string); return v }
+func approvalBody(st *convo.Step, cwd string, w int) []string {
+	c := st.Call()
+	in := c.Input
 	rel := func(p string) string {
 		for _, base := range []string{cwd, "/private" + cwd} {
 			if base != "" && strings.HasPrefix(p, base+"/") {
@@ -2125,16 +2125,20 @@ func approvalBody(r *headless.PermissionRequest, cwd string, w int) []string {
 		}
 		return tildify(p)
 	}
+	path := in.Path
+	if c.Kind == tool.Search || c.Kind == tool.Glob {
+		path = "" // where it looks, not what it's about
+	}
 	var out []string
 	switch {
-	case str("command") != "":
-		lines := strings.Split(str("command"), "\n")
+	case in.Command != "":
+		lines := strings.Split(in.Command, "\n")
 		out = append(out, paint(cBright, "$ ")+paint(cText, ansi.Truncate(lines[0], w-4, "…")))
 		if len(lines) > 1 {
 			out = append(out, dim(fmt.Sprintf("  +%d more lines", len(lines)-1)))
 		}
-	case str("file_path") != "":
-		out = append(out, paint(cText, rel(str("file_path"))))
+	case path != "":
+		out = append(out, paint(cText, rel(path)))
 		// An edit shows what it changes, so you can judge it here.
 		add := func(prefix, col, text string, limit int) {
 			ls := strings.Split(strings.TrimRight(text, "\n"), "\n")
@@ -2146,19 +2150,22 @@ func approvalBody(r *headless.PermissionRequest, cwd string, w int) []string {
 				out = append(out, paint(col, prefix+" ")+paint(cText, ansi.Truncate(strings.ReplaceAll(l, "\t", "  "), w-4, "…")))
 			}
 		}
-		if old := str("old_string"); old != "" {
-			add("−", cRed, old, 4)
-			add("+", cGreen, str("new_string"), 4)
-		} else if c := str("content"); c != "" {
-			add("+", cGreen, c, 4)
+		if len(in.Edits) > 0 && in.Edits[0].Old != "" {
+			add("−", cRed, in.Edits[0].Old, 4)
+			add("+", cGreen, in.Edits[0].New, 4)
+		} else if in.Content != "" {
+			add("+", cGreen, in.Content, 4)
 		}
-	case str("url") != "":
-		out = append(out, paint(cText, str("url")))
-	case str("query") != "":
-		out = append(out, paint(cText, str("query")))
+	case in.URL != "":
+		out = append(out, paint(cText, in.URL))
+	case in.Query != "":
+		out = append(out, paint(cText, in.Query))
 	}
-	why := oneLine(ansi.Strip(firstNonEmpty(r.Reason, r.Description)))
-	if why != "" && !strings.Contains(strings.Join(out, " "), why) && !strings.HasSuffix(str("file_path"), why) {
+	why := ""
+	if st.Approval != nil {
+		why = oneLine(ansi.Strip(st.Approval.Reason))
+	}
+	if why != "" && !strings.Contains(strings.Join(out, " "), why) && !strings.HasSuffix(path, why) {
 		out = append(out, dim(ansi.Truncate(why, w, "…")))
 	}
 	return out
@@ -2631,7 +2638,7 @@ func hostCmd(f func() error) tea.Cmd {
 	}
 }
 
-func (m *Model) answerHost(c *hostConn, req *headless.PermissionRequest, allow, always bool) tea.Cmd {
+func (m *Model) answerHost(c *hostConn, req *convo.Asking, allow, always bool) tea.Cmd {
 	id := req.ID
 	if allow {
 		return hostCmd(func() error { return c.client.Allow(id, nil, always) })
@@ -3205,16 +3212,27 @@ func limitText(l *host.Limit) string {
 
 // --- Claude's questions (the AskUserQuestion tool) ---
 
-type question = headless.Question
-
-func isQuestion(p []*convo.Step) bool {
-	return len(p) > 0 && p[0].Approval != nil && p[0].Approval.Tool == "AskUserQuestion"
+// question is one question of those the agent asks.
+type question struct {
+	Question    string
+	Header      string
+	MultiSelect bool
+	Options     []event.Choice
 }
 
-func questions(req *headless.PermissionRequest) (title string, qs []question) { return req.Questions() }
+func isQuestion(p []*convo.Step) bool {
+	return len(p) > 0 && p[0].Approval != nil && p[0].Approval.Question != nil
+}
+
+func questions(req *event.Question) (title string, qs []question) {
+	for _, a := range req.Asks {
+		qs = append(qs, question{Question: a.Text, Header: a.Header, MultiSelect: a.Multi, Options: a.Options})
+	}
+	return req.Title, qs
+}
 
 // syncQuestion resets the answering state when a new question arrives.
-func (c *hostConn) syncQuestion(req *headless.PermissionRequest) {
+func (c *hostConn) syncQuestion(req *event.Question) {
 	if c.qFor != req.ID {
 		c.qFor, c.qIdx, c.qCursor, c.qPicks, c.qAnswer = req.ID, 0, 0, map[int]map[int]bool{}, map[string]string{}
 	}
@@ -3244,7 +3262,7 @@ func optionLabel(l string) (string, bool) {
 // Continue button under the options confirms), and ←→ move between questions; typed text and enter answer in
 // your own words. With several questions the last step is a review, where
 // enter sends. It reports whether it used the key.
-func (m *Model) questionKey(c *hostConn, req *headless.PermissionRequest, s string, empty bool) (tea.Cmd, bool) {
+func (m *Model) questionKey(c *hostConn, req *event.Question, s string, empty bool) (tea.Cmd, bool) { //nolint:gocognit,gocyclo // one case per key of the card
 	c.syncQuestion(req)
 	_, qs := questions(req)
 	if len(qs) == 0 {
@@ -3372,7 +3390,7 @@ func (m *Model) goQuestion(c *hostConn, qs []question, i int) {
 
 // answerQuestion records one answer, then moves to the next question still
 // unanswered. A lone question sends at once; several end on the review.
-func (m *Model) answerQuestion(c *hostConn, req *headless.PermissionRequest, qs []question, answer string) tea.Cmd {
+func (m *Model) answerQuestion(c *hostConn, req *event.Question, qs []question, answer string) tea.Cmd {
 	c.qAnswer[qs[c.qIdx].Question] = answer
 	if len(qs) == 1 {
 		return m.sendAnswers(c, req, qs)
@@ -3389,10 +3407,8 @@ func (m *Model) answerQuestion(c *hostConn, req *headless.PermissionRequest, qs 
 	return nil
 }
 
-// sendAnswers replies: Claude Code takes the answers as the tool's input,
-// keyed by question text, with the preview of each chosen option beside
-// it. Questions left unanswered go without one.
-func (m *Model) sendAnswers(c *hostConn, req *headless.PermissionRequest, qs []question) tea.Cmd {
+// sendAnswers replies with the answers keyed by question text.
+func (m *Model) sendAnswers(c *hostConn, req *event.Question, qs []question) tea.Cmd {
 	b := answerInput(req, qs, c.qAnswer)
 	id := req.ID
 	c.qFor = ""
@@ -3400,8 +3416,8 @@ func (m *Model) sendAnswers(c *hostConn, req *headless.PermissionRequest, qs []q
 }
 
 // answerInput is the tool input that answers req.
-func answerInput(req *headless.PermissionRequest, qs []question, answers map[string]string) jsontext.Value {
-	return req.AnswerInput(qs, answers)
+func answerInput(req *event.Question, _ []question, answers map[string]string) jsontext.Value {
+	return host.AnswerInput(req, answers)
 }
 
 // shownAnswer is an answer as the card shows it.
@@ -3472,7 +3488,7 @@ func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 			return done(m.answerHost(c, req, false, false))
 		}
 	case "question":
-		req := pending[0].Approval
+		req := pending[0].Approval.Question
 		if c.cardFocus && s == "s" {
 			id := req.ID
 			return done(hostCmd(func() error {

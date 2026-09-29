@@ -7,9 +7,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
 // The question card's grounds: the card itself, the option under the
@@ -44,7 +44,7 @@ func chip(s string) string { return qChip + qInk + bold + " " + s + " " + reset 
 // with their answer, so you can go back and change one) and a last step
 // lists your answers before they go. It keeps to maxH rows by shortening
 // the options not under the cursor first, then the question's lead-in.
-func (m *Model) questionCard(c *hostConn, req *headless.PermissionRequest, w, maxH int) []string {
+func (m *Model) questionCard(c *hostConn, req *event.Question, w, maxH int) []string {
 	c.syncQuestion(req)
 	title, qs := questions(req)
 	if len(qs) == 0 {

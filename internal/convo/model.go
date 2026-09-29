@@ -51,7 +51,7 @@ type Step struct {
 	Start    time.Time
 	End      time.Time
 	Children []*Step // a subagent's own steps
-	Approval *headless.PermissionRequest
+	Approval *Asking // what it waits on you for, while it does
 
 	// call is the step's call as agtop's own, read once as the step is
 	// made: the agent's own when it spoke agtop's events, else Claude
@@ -71,6 +71,16 @@ type Step struct {
 	spawn   *Spawn
 	spawnAt int
 	child   *Session
+}
+
+// Asking is what a step waits on you for: leave to run, or answers to
+// the questions it asks.
+type Asking struct {
+	ID       string
+	Reason   string          // why the agent asks, when it says
+	Path     string          // the file outside the workspace that made it ask, if one did
+	Always   bool            // it can be allowed for good
+	Question *event.Question // set when it asks you to choose
 }
 
 // flight is a light session's tool call waiting for its result.
@@ -252,6 +262,9 @@ type Session struct {
 
 	jobs []*Job // Claude Code's tasks, in the order they started
 
+	// nt reads Claude Code's own events as agtop's.
+	nt headless.Neutral
+
 	// TaskStatus is what Claude Code last said about each background task
 	// (completed, killed, …), keyed by task id: a subagent's agent id.
 	TaskStatus map[string]string
@@ -403,13 +416,8 @@ func (s *Session) Apply(ev any, now time.Time) {
 	case headless.Message:
 		s.message(ev, now)
 	case headless.PermissionRequest:
-		if st := s.byID[ev.ToolUseID]; st != nil {
-			req := ev
-			if !slices.Contains(s.asked, st) {
-				s.asked = append(s.asked, st)
-			}
-			st.Approval, st.Status = &req, Waiting
-			s.touchStep(st)
+		for _, e := range s.nt.Event(ev) {
+			s.applyNeutral(e, now)
 		}
 	case host.Answered:
 		s.settle(ev.ID)
@@ -463,6 +471,19 @@ func (s *Session) endTurn(t *Turn, now time.Time) {
 		}
 	}
 	t.touch()
+}
+
+// ask marks the step of call id as waiting on you.
+func (s *Session) ask(id string, a *Asking) {
+	st := s.byID[id]
+	if st == nil {
+		return
+	}
+	if !slices.Contains(s.asked, st) {
+		s.asked = append(s.asked, st)
+	}
+	st.Approval, st.Status = a, Waiting
+	s.touchStep(st)
 }
 
 func (s *Session) settle(requestID string) {

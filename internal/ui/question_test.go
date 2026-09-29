@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -19,13 +20,20 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
-func askReq() *headless.PermissionRequest {
+// asked is Claude's AskUserQuestion request as the question it asks.
+func asked(r headless.PermissionRequest) *event.Question {
+	var n headless.Neutral
+	q := n.Event(r)[0].(event.Question)
+	return &q
+}
+
+func askReq() *event.Question {
 	in := map[string]any{"questions": []map[string]any{
 		{"question": "Which rules first?", "header": "Lint", "options": []map[string]any{{"label": "no-floating-promises"}, {"label": "explicit return types"}}},
 		{"question": "Which packages?", "multiSelect": true, "options": []map[string]any{{"label": "mcp"}, {"label": "skills"}, {"label": "web"}}},
 	}}
 	b, _ := jsonx.Marshal(in)
-	return &headless.PermissionRequest{ID: "q1", Tool: "AskUserQuestion", Input: b}
+	return asked(headless.PermissionRequest{ID: "q1", Tool: "AskUserQuestion", Input: b})
 }
 
 func TestAnswerQuestions(t *testing.T) {
@@ -74,7 +82,7 @@ func TestAnswerQuestions(t *testing.T) {
 	// A lone question sends as soon as it's answered.
 	one, _ := jsonx.Marshal(map[string]any{"questions": []map[string]any{{"question": "Go?", "options": []map[string]any{{"label": "yes"}, {"label": "no"}}}}})
 	c1 := &hostConn{}
-	if cmd, _ := m.questionKey(c1, &headless.PermissionRequest{ID: "q2", Tool: "AskUserQuestion", Input: one}, "2", true); cmd == nil {
+	if cmd, _ := m.questionKey(c1, asked(headless.PermissionRequest{ID: "q2", Tool: "AskUserQuestion", Input: one}), "2", true); cmd == nil {
 		t.Fatal("a single question should reply on its answer")
 	}
 	// Typed text answers in your own words.
@@ -121,7 +129,7 @@ func TestMultiSelectContinue(t *testing.T) {
 	}
 }
 
-func mustQs(req *headless.PermissionRequest) []question {
+func mustQs(req *event.Question) []question {
 	_, qs := questions(req)
 	return qs
 }
@@ -459,7 +467,7 @@ func TestQuestionCardDraws(t *testing.T) {
 		{"question": "Theme?", "header": "Theme", "options": []map[string]any{{"label": "dark"}, {"label": "light"}}},
 	}}
 	b, _ := jsonx.Marshal(in)
-	req := &headless.PermissionRequest{ID: "q9", Tool: "AskUserQuestion", Input: b}
+	req := asked(headless.PermissionRequest{ID: "q9", Tool: "AskUserQuestion", Input: b})
 	m := &Model{}
 	c := &hostConn{cardFocus: true}
 	draw := func(w int) string {
@@ -527,7 +535,7 @@ func TestQuestionCardFolds(t *testing.T) {
 		{"label": "one", "description": long}, {"label": "two", "description": long}, {"label": "three", "description": long},
 	}}}}
 	b, _ := jsonx.Marshal(in)
-	req := &headless.PermissionRequest{ID: "q5", Tool: "AskUserQuestion", Input: b}
+	req := asked(headless.PermissionRequest{ID: "q5", Tool: "AskUserQuestion", Input: b})
 	m := &Model{}
 	c := &hostConn{cardFocus: true}
 	full := m.questionCard(c, req, 100, 0)
@@ -546,7 +554,7 @@ func TestAnswersCarryPreview(t *testing.T) {
 		{"question": "And?", "options": []map[string]any{{"label": "x"}}},
 	}}
 	b, _ := jsonx.Marshal(in)
-	req := &headless.PermissionRequest{ID: "q3", Tool: "AskUserQuestion", Input: b}
+	req := asked(headless.PermissionRequest{ID: "q3", Tool: "AskUserQuestion", Input: b})
 	_, qs := questions(req)
 	var got struct {
 		Questions   []any                        `json:"questions"`

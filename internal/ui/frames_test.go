@@ -80,8 +80,8 @@ func TestDumpFrames(t *testing.T) {
 		frame(name+" question", m)
 		m.host.cardFocus = true
 		frame(name+" question focused", m)
-		m.questionKey(m.host, m.host.sess.Pending()[0].Approval, "1", true) // on to the multi-select
-		m.questionKey(m.host, m.host.sess.Pending()[0].Approval, "2", true)
+		m.questionKey(m.host, m.host.sess.Pending()[0].Approval.Question, "1", true) // on to the multi-select
+		m.questionKey(m.host, m.host.sess.Pending()[0].Approval.Question, "2", true)
 		frame(name+" question multi", m)
 		m.host.qCursor = 4 // past the options and "Something else"
 		frame(name+" question continue", m)

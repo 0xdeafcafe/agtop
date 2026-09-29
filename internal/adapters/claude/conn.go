@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"errors"
+	"maps"
 	"mime"
 	"os"
 	"path/filepath"
@@ -369,10 +370,31 @@ func (c *conn) Allow(approvalID string, input jsontext.Value, always bool) error
 	if !ok {
 		return errNotAsked
 	}
-	if len(input) == 0 {
+	switch {
+	case len(input) == 0:
 		input = r.Input
+	case r.Tool == "AskUserQuestion":
+		input = over(r.Input, input)
 	}
 	return c.s.Allow(r, input, always)
+}
+
+// over is input with the keys of top written over it: answers go into
+// the question's own input, so whatever else Claude put there stays.
+func over(input, top jsontext.Value) jsontext.Value {
+	var base, add map[string]jsontext.Value
+	if jsonx.Unmarshal(input, &base) != nil || jsonx.Unmarshal(top, &add) != nil {
+		return top
+	}
+	if base == nil {
+		base = map[string]jsontext.Value{}
+	}
+	maps.Copy(base, add)
+	b, err := jsonx.Marshal(base)
+	if err != nil {
+		return top
+	}
+	return b
 }
 
 // Deny refuses a call, saying why when message is set; interrupt stops

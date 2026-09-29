@@ -24,7 +24,7 @@ func TestNeutralSession(t *testing.T) {
 	}, Tokens: &usage.TokenUsage{Input: 10, Output: 5}}, at(3))
 	s.Apply(event.Approval{ID: "a1", Call: tool.Call{ID: "c1", Kind: tool.Shell, Input: tool.Input{Command: "go build ./..."}},
 		Options: []event.Option{{ID: "yes", Kind: event.AllowOnce}, {ID: "always", Kind: event.AllowAlways}, {ID: "no", Kind: event.RejectOnce}}}, at(4))
-	if p := s.Pending(); len(p) != 1 || p[0].Approval.ID != "a1" || p[0].Tool != "Bash" || len(p[0].Approval.Suggestions) == 0 {
+	if p := s.Pending(); len(p) != 1 || p[0].Approval.ID != "a1" || p[0].Tool != "Bash" || !p[0].Approval.Always {
 		t.Fatalf("pending = %+v", p)
 	}
 	s.Apply(host.Answered{ID: "a1"}, at(5))
@@ -57,11 +57,11 @@ func TestNeutralQuestionAndInterrupt(t *testing.T) {
 	s.Apply(host.Sent{Text: "pick"}, at(0))
 	s.Apply(event.Question{ID: "q1", Asks: []event.Ask{{Text: "Which?", Options: []event.Choice{{Label: "A"}, {Label: "B"}}}}}, at(1))
 	p := s.Pending()
-	if len(p) != 1 || p[0].Approval.Tool != "AskUserQuestion" {
+	if len(p) != 1 || p[0].Tool != "AskUserQuestion" || p[0].Approval.Question == nil {
 		t.Fatalf("pending = %+v", p)
 	}
-	if _, qs := p[0].Approval.Questions(); len(qs) != 1 || len(qs[0].Options) != 2 {
-		t.Errorf("questions = %+v", qs)
+	if q := p[0].Approval.Question; len(q.Asks) != 1 || len(q.Asks[0].Options) != 2 {
+		t.Errorf("question = %+v", q)
 	}
 	s.Apply(event.TurnEnd{Reason: "interrupted"}, at(2))
 	if tr := s.Turns[0]; tr.Live || !tr.Stopped {

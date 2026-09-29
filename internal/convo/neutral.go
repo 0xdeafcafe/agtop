@@ -1,6 +1,7 @@
 package convo
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -45,8 +46,15 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 		return
 	case event.Approval:
 		s.ensureStep(e.Call, now)
+		always := slices.ContainsFunc(e.Options, func(o event.Option) bool { return o.Kind == event.AllowAlways })
+		s.ask(e.Call.ID, &Asking{ID: e.ID, Reason: e.Reason, Path: e.Path, Always: always})
+		return
 	case event.Question:
-		s.ensureStep(tool.Call{ID: headless.QuestionCall(e), Name: "AskUserQuestion", Kind: tool.Question}, now)
+		id := firstNonEmpty(e.CallID, e.ID)
+		s.ensureStep(tool.Call{ID: id, Name: "AskUserQuestion", Kind: tool.Question}, now)
+		q := e
+		s.ask(id, &Asking{ID: e.ID, Question: &q})
+		return
 	case event.TurnEnd:
 		if e.Reason == "interrupted" {
 			s.interrupted(now)
