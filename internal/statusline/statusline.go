@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -116,7 +118,7 @@ type extra struct {
 	custom    string
 	configDir string
 	branch    *string
-	usage     *claude.Usage
+	usage     *usage.Quota
 	acct      *string
 	now       time.Time
 	// own, when set, is your own command's output from elsewhere, rather
@@ -210,7 +212,7 @@ var Segments = []Segment{
 			return "", ""
 		}
 		var parts []string
-		for _, w := range u.Quota("").Windows {
+		for _, w := range u.Windows {
 			parts = append(parts, fmt.Sprintf("%s%s %.0f%%%s", level(w.Percent), w.Label, w.Percent, reset))
 		}
 		return strings.Join(parts, " "), ""
@@ -255,7 +257,7 @@ var Segments = []Segment{
 }
 
 // ModelName is how a model is shown: "Opus 5.5" for claude-opus-5-5[1m].
-func ModelName(s string) string { return claude.ModelName(s) }
+func ModelName(s string) string { return agent.ModelName(agent.Kind(state.LoginsKind), s) }
 
 // runCustom runs your own status line command with the session on stdin,
 // for at most two seconds.
@@ -410,19 +412,16 @@ func (x *extra) gitBranch(dir string) string {
 	return *x.branch
 }
 
-func (x *extra) planUsage() *claude.Usage {
+// planUsage is the limits of the account the folder is signed in to, as
+// agtop last read them.
+func (x *extra) planUsage() *usage.Quota {
 	if x.usage == nil {
-		all := claude.LoadFetchedUsage(filepath.Join(state.Dir(), "usage.json"))
-		f := all[x.configDir]
-		// Kept by the login the folder is signed in as, since agtop reads
-		// them per login.
-		if id := claude.SignedInAs(claude.Account{ConfigDir: x.configDir}); id != "" {
-			if g, ok := all[claude.Login{ID: id}.UsageKey()]; ok && g.Usage.FetchedAt.After(f.Usage.FetchedAt) {
-				f = g
-			}
+		var q usage.Quota
+		k := agent.Kind(state.LoginsKind)
+		if lq, ok := agent.As[agent.LastQuotaReader](k); ok {
+			q, _ = lq.LastQuota(agent.Profile{Kind: k, Dir: x.configDir})
 		}
-		u := f.Usage.Since(time.Now())
-		x.usage = &u
+		x.usage = &q
 	}
 	return x.usage
 }

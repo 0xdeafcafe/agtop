@@ -5,7 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // Metric is a figure the Timeline can draw.
@@ -330,15 +332,15 @@ func (s *Store) View(q Query) *View {
 	return v
 }
 
+// Agent is the agent whose sessions efficiency reads, and whose prices it
+// counts them at: Claude Code's transcripts are the only ones it reads.
+const Agent = agent.Kind(state.LoginsKind)
+
+// cacheReadPrice is dollars per million tokens read from the cache, at
+// the agent's own prices: its default model's when model has none.
 func cacheReadPrice(model string) float64 {
-	p, ok := claude.PriceFor(model)
-	if !ok {
-		p, _ = claude.PriceFor("claude-opus-5-5")
-	}
-	if p.CacheRead > 0 {
-		return p.CacheRead
-	}
-	return p.Input * 0.1
+	c, _ := agent.Price(Agent, model, usage.TokenUsage{CacheRead: 1e6})
+	return c
 }
 
 func quantile(xs []int64, q float64) int64 {

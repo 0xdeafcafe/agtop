@@ -42,14 +42,14 @@ type Agent struct {
 	CPU         float64
 	Procs       int
 	Spend       Spend
-	PRs         []claude.PR
+	PRs         []agent.PR
 	Interactive bool
 	// Headless is an interactive-kind session that is really `claude -p`
 	// driven by some other program: it can't be replied to at all.
 	Headless bool
 	PID      int  // root of the process tree
 	Checking bool // turn just ended; Claude Code has not classified it yet
-	Subs     claude.SubagentStats
+	Subs     agent.SubagentStats
 	// Subagents are Subs' own runs still working, for the Wall to give each
 	// its own tile rather than only the count.
 	Subagents []SubagentTile
@@ -153,7 +153,7 @@ func (a *Agent) Elapsed(now time.Time) time.Duration {
 
 type Spend struct {
 	Cost  float64
-	Usage claude.TokenUsage
+	Usage usage.TokenUsage
 	Model string
 	First time.Time
 	Last  time.Time
@@ -161,7 +161,7 @@ type Spend struct {
 	Dirs  []string // folders the agent worked in, subagents included
 	Today float64
 	Ready bool
-	Halt  *claude.Halt // the error its last turn ended on, if any
+	Halt  *agent.Halt // the error its last turn ended on, if any
 	// Progress is the last count it reported moving ("lint 11,065 →
 	// 9,052"), and when; Context is its newest message's context, and
 	// Compacts how often that was compacted.
@@ -347,7 +347,7 @@ func (l *Loader) syncUsage() {
 }
 
 type subsEntry struct {
-	st   claude.SubagentStats
+	st   agent.SubagentStats
 	at   time.Time
 	dir  time.Time // the subagents folder's time when counted
 	main int64     // the transcript's size when counted
@@ -362,12 +362,12 @@ type subsEntry struct {
 // session's process is known to have exited. It's counted again when a run
 // started (the folder changed), when the transcript grew (a run ended or
 // was woken), when some were working, or after 30s.
-func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) (claude.SubagentStats, []SubagentTile) {
+func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) (agent.SubagentStats, []SubagentTile) {
 	var dir time.Time
 	if st, err := os.Stat(filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")); err == nil {
 		dir = st.ModTime()
 	} else {
-		return claude.SubagentStats{}, nil
+		return agent.SubagentStats{}, nil
 	}
 	var main int64
 	if st, err := os.Stat(transcript); err == nil {
@@ -531,7 +531,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	l.syncUsage()
 	for _, acct := range []claude.Account{active} { // ~/.claude: every session runs there
 		roster := l.memo(acct.RosterPath(), func() any { return claude.ReadRoster(acct) }).(claude.Roster)
-		prs := l.memo(acct.PRCachePath(), func() any { return claude.ReadPRCache(acct) }).(map[string]claude.PR)
+		prs := l.memo(acct.PRCachePath(), func() any { return claude.ReadPRCache(acct) }).(map[string]agent.PR)
 		pins := l.memo(claude.PinsPath(acct), func() any {
 			pins := map[string]int{}
 			for i, id := range claude.ReadPins(acct) {
@@ -676,14 +676,8 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			}
 			_, a.Done = ov.Done[key]
 			a.Group = ov.Groups[key]
+			a.Repo, a.Branch = l.gitFor(ss.Cwd, now)
 			a.Spend = l.spend[key]
-			// ss.Cwd is only ever where the session started; a wandering
-			// one's transcript says where it last actually worked.
-			dir := ss.Cwd
-			if n := len(a.Spend.Dirs); n > 0 {
-				dir = a.Spend.Dirs[n-1]
-			}
-			a.Repo, a.Branch = l.gitFor(dir, now)
 			a.Subs, a.Subagents = l.subagents(key, j.TranscriptPath, false, now) // listed only while its process runs
 			l.sample(tab, a)
 			if a.Live() {

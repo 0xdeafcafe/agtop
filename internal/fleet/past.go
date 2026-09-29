@@ -114,7 +114,7 @@ type pastIn struct {
 	name, group, repo, branch string
 	done, recent              bool
 	spend                     int // l.spendVer's
-	subs                      claude.SubagentStats
+	subs                      agent.SubagentStats
 }
 
 type pastRow struct {
@@ -126,7 +126,7 @@ type pastRow struct {
 // start, so the folder is looked at again only as often as the listing,
 // and its transcript isn't read for which are working: only one still
 // writing is, its process gone or not.
-func (l *Loader) pastSubagents(key, transcript string, now time.Time) claude.SubagentStats {
+func (l *Loader) pastSubagents(key, transcript string, now time.Time) agent.SubagentStats {
 	if e, ok := l.subs[key]; ok && e.st.Direct+e.st.Nested == 0 && now.Sub(e.at) < pastEvery {
 		return e.st
 	}

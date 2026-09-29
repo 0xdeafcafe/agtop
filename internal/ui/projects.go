@@ -9,8 +9,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
@@ -185,8 +185,8 @@ func treeHead(t string, f fleet.Folder, agents int) string {
 
 // projectPRs are the pull requests a project's agents opened or pushed
 // to, each once, open ones first.
-func projectPRs(agents []*fleet.Agent) []claude.PR {
-	var out []claude.PR
+func projectPRs(agents []*fleet.Agent) []agent.PR {
+	var out []agent.PR
 	seen := map[string]bool{}
 	for _, a := range agents {
 		for _, pr := range a.PRs {
@@ -205,7 +205,7 @@ func projectPRs(agents []*fleet.Agent) []claude.PR {
 }
 
 // prLine is a pull request in a line: number, state, checks and title.
-func prLine(pr claude.PR, w int) string {
+func prLine(pr agent.PR, w int) string {
 	col := cGreen
 	switch {
 	case pr.State == "MERGED":

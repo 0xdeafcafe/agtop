@@ -21,6 +21,9 @@ func (Adapter) Branch(p agent.Profile, src, cwd, sid, newID string, upTo int64) 
 	return nil
 }
 
+// DefaultModel is the Opus a session runs when none is picked.
+func (Adapter) DefaultModel() string { return "claude-opus-5-5" }
+
 // ModelName is Claude's model id as people say it: "Opus 5.5".
 func (Adapter) ModelName(id string) string { return claude.ModelName(id) }
 

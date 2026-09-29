@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	_ "github.com/0xdeafcafe/agtop/internal/adapters/claude"
 )
 
 func TestRenderRealInput(t *testing.T) {

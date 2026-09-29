@@ -55,14 +55,9 @@ func (t *Totals) Context() int64 {
 	return u.Input + u.CacheRead + u.CacheWrite5m + u.CacheWrite1h
 }
 
-// Halt is a turn Claude Code ended on an error instead of an answer: the
-// API was out of reach, or a usage limit was hit. Nothing more happens
-// until someone says go on.
-type Halt struct {
-	Kind string    `json:"k"` // Claude Code's error: rate_limit, server_error, authentication_failed…
-	Text string    `json:"t"` // what it told the user, first line
-	At   time.Time `json:"a"`
-}
+// Halt is a turn Claude Code ended on an error instead of an answer; its
+// Kind is Claude Code's: rate_limit, server_error, authentication_failed…
+type Halt = agent.Halt
 
 func Day(t time.Time) string { return t.Local().Format("2006-01-02") }
 

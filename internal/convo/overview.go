@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
@@ -458,7 +459,7 @@ func (s *Session) Overview(o Options) []Line {
 		if at, isCold := s.CacheCold(o.Now); !at.IsZero() {
 			// What the next message costs to re-read the context: a cache
 			// read while it's warm, a full rewrite once it's cold.
-			price := func(u claude.TokenUsage) string {
+			price := func(u usage.TokenUsage) string {
 				if c := claude.Cost(model, u, false); c > 0 {
 					return " ≈ " + money(c)
 				}
@@ -468,7 +469,7 @@ func (s *Session) Overview(o Options) []Line {
 			if isCold {
 				add(label("now")+paint(cYellow, "cold")+dim(" since ")+text(at.Local().Format("15:04"))+dim(", "+dur(o.Now.Sub(at))+" ago"), "")
 				if n > 0 {
-					add(label("next message")+dim("rewrites ")+text(tokens(s.Context))+dim(price(claude.TokenUsage{CacheWrite1h: n})), "")
+					add(label("next message")+dim("rewrites ")+text(tokens(s.Context))+dim(price(usage.TokenUsage{CacheWrite1h: n})), "")
 				}
 			} else {
 				left := at.Sub(o.Now)
@@ -478,8 +479,8 @@ func (s *Session) Overview(o Options) []Line {
 				}
 				add(label("now")+paint(col, "warm")+dim(" till ")+text(at.Local().Format("15:04"))+dim(", ")+paint(col, dur(left))+dim(" left   ")+bar(float64(left)/float64(cacheHour), 12, col), "")
 				if n > 0 {
-					add(label("next message")+dim("reads ")+text(tokens(s.Context))+dim(price(claude.TokenUsage{CacheRead: n}))+
-						dim(" · after "+at.Local().Format("15:04")+" it rewrites it")+dim(price(claude.TokenUsage{CacheWrite1h: n})), "")
+					add(label("next message")+dim("reads ")+text(tokens(s.Context))+dim(price(usage.TokenUsage{CacheRead: n}))+
+						dim(" · after "+at.Local().Format("15:04")+" it rewrites it")+dim(price(usage.TokenUsage{CacheWrite1h: n})), "")
 				}
 			}
 		}

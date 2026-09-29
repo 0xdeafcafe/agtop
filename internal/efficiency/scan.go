@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
@@ -153,12 +154,12 @@ type File struct {
 
 	// The newest assistant message; its usage can still change while more
 	// of its blocks are appended, so it's added when the next one starts.
-	PendID    string            `json:"pi,omitempty"`
-	PendModel string            `json:"pm,omitempty"`
-	PendUse   claude.TokenUsage `json:"pu"`
-	PendThink int64             `json:"pt,omitzero"`
-	PendFast  bool              `json:"pf,omitzero"`
-	PendAt    time.Time         `json:"pa"`
+	PendID    string           `json:"pi,omitempty"`
+	PendModel string           `json:"pm,omitempty"`
+	PendUse   usage.TokenUsage `json:"pu"`
+	PendThink int64            `json:"pt,omitzero"`
+	PendFast  bool             `json:"pf,omitzero"`
+	PendAt    time.Time        `json:"pa"`
 	// Tool calls whose results haven't come back yet: id → class, with
 	// lookFlag for a shell command that searches or reads code.
 	Open map[string]uint8 `json:"op,omitempty"`
@@ -245,10 +246,10 @@ func (f *File) pendBucket() Bucket {
 		CR:    u.CacheRead,
 		CW:    u.CacheWrite5m + u.CacheWrite1h,
 		Think: f.PendThink,
-		CIn:   claude.Cost(model, claude.TokenUsage{Input: u.Input}, fast),
-		COut:  claude.Cost(model, claude.TokenUsage{Output: u.Output}, fast),
-		CCR:   claude.Cost(model, claude.TokenUsage{CacheRead: u.CacheRead}, fast),
-		CCW:   claude.Cost(model, claude.TokenUsage{CacheWrite5m: u.CacheWrite5m, CacheWrite1h: u.CacheWrite1h}, fast),
+		CIn:   claude.Cost(model, usage.TokenUsage{Input: u.Input}, fast),
+		COut:  claude.Cost(model, usage.TokenUsage{Output: u.Output}, fast),
+		CCR:   claude.Cost(model, usage.TokenUsage{CacheRead: u.CacheRead}, fast),
+		CCW:   claude.Cost(model, usage.TokenUsage{CacheWrite5m: u.CacheWrite5m, CacheWrite1h: u.CacheWrite1h}, fast),
 	}
 }
 
@@ -265,7 +266,7 @@ func (f *File) commit() {
 	}
 	f.PeakCtx = max(f.PeakCtx, ctx)
 	f.Model = f.PendModel
-	f.PendID, f.PendModel, f.PendUse, f.PendThink, f.PendFast = "", "", claude.TokenUsage{}, 0, false
+	f.PendID, f.PendModel, f.PendUse, f.PendThink, f.PendFast = "", "", usage.TokenUsage{}, 0, false
 }
 
 // Start is the context the session started with, and Peak the most it
@@ -504,7 +505,7 @@ func (f *File) assistant(l *rawLine, at time.Time) {
 		if m.ID != f.PendID {
 			f.commit()
 		}
-		tu := claude.TokenUsage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead}
+		tu := usage.TokenUsage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead}
 		if cb := u.CacheBreakup; cb != nil && cb.M5+cb.H1 > 0 {
 			tu.CacheWrite5m, tu.CacheWrite1h = cb.M5, cb.H1
 		} else {

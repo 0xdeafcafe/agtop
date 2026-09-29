@@ -117,6 +117,8 @@ var (
 	_ agent.Brancher          = Adapter{}
 	_ agent.ModelNamer        = Adapter{}
 	_ agent.StatsReader       = Adapter{}
+	_ agent.DefaultModeler    = Adapter{}
+	_ agent.LastQuotaReader   = Adapter{}
 )
 
 // Doing is a call in a few words, with words of its own for Claude Code's
