@@ -812,8 +812,12 @@ func (m *Model) systemRows(w int) []workRow {
 	}
 	var rows []workRow
 	if mc := m.snap.Machine; mc.Orphans > 0 {
+		fate := " · their sessions ended; they run until you end them · "
+		if !m.store.Config.KeepOrphans {
+			fate = " · their sessions ended; each is ended two minutes after · "
+		}
 		rows = append(rows, workRow{line: paint(cYellow+bold, fmt.Sprintf("%d orphaned", mc.Orphans)) + paint(cYellow, " · holding "+mem(mc.OrphanMem)) +
-			dim(" · their sessions ended; they run until you end them · ") + paint(cOrange, "x") + dim(" ends one, ") + paint(cOrange, "X") + dim(" all")}, workRow{})
+			dim(fate) + paint(cOrange, "x") + dim(" ends one, ") + paint(cOrange, "X") + dim(" all")}, workRow{})
 	}
 	rows = append(rows, workRow{line: thead("  PROCESS", labelW, "COMMAND", cmdW, right("CPU", cpuW), cpuW, right("MEM", memW), memW, right("PROCS", procW), procW)})
 	lastRole := fleet.Role(-1)

@@ -139,6 +139,9 @@ type Config struct {
 	// before its worktree (clean and pushed) and temp work are removed on
 	// their own; 0 is the default, and a negative number turns it off.
 	CleanupHours int `json:"cleanupHours,omitzero"`
+	// KeepOrphans leaves processes whose session ended running until you
+	// end them; unset, they're ended once they've been orphaned a while.
+	KeepOrphans bool `json:"keepOrphans,omitzero"`
 	// TrimRunningTmp lets a running rush session clear its own old tmp
 	// when the disk runs low: what's been untouched for three hours and is
 	// open in no process. Off unless set.

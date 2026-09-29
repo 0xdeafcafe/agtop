@@ -85,7 +85,14 @@ func (m *Model) generalSections() []section {
 		})
 	cleanup.unset = "3h"
 
-	secs = append(secs, section{title: "Idle and finished", rows: []setting{rest, hibernate, active, cleanup}})
+	orphans := choiceSetting("Orphaned processes", map[bool]string{true: "keep", false: "end"}[c.KeepOrphans],
+		"What happens to what a session was running once the session itself has ended: a dev server, a watcher, a test run left going. Projects › System lists them either way.",
+		[][2]string{
+			{"end", "they're ended two minutes after their session ended, gently and then firmly."},
+			{"keep", "they run until you end them, with x or X in Projects › System."},
+		}, func(v string) { c.KeepOrphans = v == "keep" })
+
+	secs = append(secs, section{title: "Idle and finished", rows: []setting{rest, hibernate, active, cleanup, orphans}})
 
 	notify := choiceSetting("Notify when an agent needs you", onOffWord(!c.Quiet),
 		"A macOS notification when an agent starts waiting on you (a question or a permission), not when you have already seen it.",

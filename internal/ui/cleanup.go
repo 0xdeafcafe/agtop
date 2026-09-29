@@ -34,6 +34,47 @@ type cleanup struct {
 	// left is what agents left running, found by reap, waiting for the
 	// next tick to be ended off the UI.
 	left []fleet.Leftover
+	// orphans are when each orphan (by pid and start) was first seen one:
+	// those orphaned for orphanGrace are ended, unless KeepOrphans.
+	orphans map[orphanID]time.Time
+}
+
+// orphanID is a process, by pid and when it started: a pid can be reused.
+type orphanID struct {
+	pid   int
+	start time.Time
+}
+
+// orphanGrace is how long a process whose session ended is left before
+// it's ended: long enough for a session being restarted to take it back.
+const orphanGrace = 2 * time.Minute
+
+// dueOrphans are the orphans that have been orphans for orphanGrace,
+// noting when each new one was first seen.
+func (m *Model) dueOrphans(now time.Time) []procRow {
+	c := &m.clean
+	if m.store.Config.KeepOrphans || m.hosted != "" {
+		return nil
+	}
+	seen := map[orphanID]time.Time{}
+	var due []procRow
+	for _, r := range m.snap.Machine.Rows {
+		if r.Role != fleet.RoleOrphan {
+			continue
+		}
+		id := orphanID{r.PID, r.Start}
+		first, ok := c.orphans[id]
+		if !ok {
+			first = now
+		}
+		seen[id] = first
+		if now.Sub(first) >= orphanGrace {
+			due = append(due, procRow{pid: r.PID, start: r.Start, mem: r.Mem, role: r.Role})
+			delete(seen, id) // ended now; if it's still there next time, it's tried again after the grace
+		}
+	}
+	c.orphans = seen
+	return due
 }
 
 type worktreesMsg struct {
@@ -128,10 +169,11 @@ func (m *Model) dueIn(keys []string, now time.Time) time.Duration {
 // tidy is the tick's clean-up: what agents left running, ended as soon as
 // it's found, and done work, looked at once a minute.
 func (m *Model) tidy() tea.Cmd {
-	if end := m.endLeftovers(); end != nil {
-		return tea.Batch(end, m.tidyDone())
+	cmds := []tea.Cmd{m.endLeftovers(), m.tidyDone()}
+	if due := m.dueOrphans(time.Now()); len(due) > 0 {
+		cmds = append(cmds, endOrphans(due))
 	}
-	return m.tidyDone()
+	return tea.Batch(cmds...)
 }
 
 // tidyDone is the automatic clean-up of done work: the worktrees and temp

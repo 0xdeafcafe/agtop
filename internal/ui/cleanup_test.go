@@ -105,3 +105,23 @@ func TestCleanSheet(t *testing.T) {
 		t.Fatalf("dirty ticked by hand should count as losing work: %d", losing)
 	}
 }
+
+// An orphan is ended once it has been one for orphanGrace, not before, and
+// never with KeepOrphans.
+func TestDueOrphans(t *testing.T) {
+	now := time.Now()
+	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{At: now}}
+	m.snap.Machine.Rows = []fleet.ProcRow{{PID: 7, Role: fleet.RoleOrphan, Start: now.Add(-time.Hour)}, {PID: 8, Role: fleet.RoleWorker}}
+	if due := m.dueOrphans(now); len(due) != 0 {
+		t.Fatalf("ended as soon as seen: %v", due)
+	}
+	if due := m.dueOrphans(now.Add(orphanGrace)); len(due) != 1 || due[0].pid != 7 {
+		t.Fatalf("after the grace: %v", due)
+	}
+	m.store.Config.KeepOrphans = true
+	m.clean.orphans = nil
+	m.dueOrphans(now)
+	if due := m.dueOrphans(now.Add(time.Hour)); len(due) != 0 {
+		t.Fatalf("kept orphans were ended: %v", due)
+	}
+}
