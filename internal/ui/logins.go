@@ -222,7 +222,7 @@ func (m *Model) autoSwitch() tea.Cmd {
 	if m.offline || m.switching || time.Since(m.switchedAt) < switchGap {
 		return nil
 	}
-	root := cfg.ActiveAccount()
+	root := claude.Active(cfg)
 	stopped := false
 	for _, a := range m.snap.Agents {
 		if a.Rush && a.Account == root.Name && strings.HasPrefix(a.Detail, "usage limit") && m.sessionProfile(a).Limit() != state.LimitWait {
@@ -272,9 +272,9 @@ func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 	}
 	m.switching = true
 	cfg := m.store.Config
-	root := cfg.ActiveAccount()
+	root := claude.Active(cfg)
 	return func() tea.Msg {
-		if err := state.UseLogin(root, to); err != nil {
+		if err := claude.UseLogin(root, to); err != nil {
 			return switchedMsg{to: to, err: err}
 		}
 		resumed, waiting := reloginHosts(root, cfg)
@@ -382,7 +382,7 @@ func (m *Model) addLogin(name string) tea.Cmd {
 			if err != nil {
 				return addedLoginMsg{name: name, err: err}
 			}
-			l, err := state.AdoptLogin(scratch)
+			l, err := claude.AdoptLogin(scratch)
 			return addedLoginMsg{name: name, l: l, err: err}
 		})()
 	}

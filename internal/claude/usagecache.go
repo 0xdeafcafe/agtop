@@ -5,12 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
-	"github.com/0xdeafcafe/rush/internal/netwatch"
 	"os"
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/netwatch"
 )
 
 // UsageEvery is how old rush's last reading of an account may get before

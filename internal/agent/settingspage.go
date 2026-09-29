@@ -51,6 +51,12 @@ type AgentDef struct {
 	Path string
 }
 
+// BuiltinDefNamer is an agent whose own agent, the one that runs when no
+// definition is picked, has a name among its definitions.
+type BuiltinDefNamer interface {
+	BuiltinDef() string
+}
+
 // Definer is an agent whose sessions can start as a definition of yours.
 type Definer interface {
 	// AgentDefs are p's definitions, the built-in one first, then those of

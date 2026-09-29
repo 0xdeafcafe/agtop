@@ -27,7 +27,7 @@ type Target struct {
 // Scanner owns the cost cache; only its goroutine touches it.
 type Scanner struct {
 	mu    sync.Mutex // held for a whole scan; the cache is only touched under it
-	cache *state.CostCache
+	cache *state.CostCache[claude.Totals]
 	sizes map[string]int64
 	seen  map[string]seenTarget
 	buf   []byte
@@ -82,7 +82,7 @@ func (s *Scanner) Run(targets []Target) map[string]Spend {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cache == nil {
-		s.cache = state.LoadCostCache()
+		s.cache = state.LoadCostCache[claude.Totals]()
 	}
 	out := map[string]Spend{}
 	today := claude.Day(time.Now())

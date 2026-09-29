@@ -560,7 +560,7 @@ func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
 			m.refresh()
 			m.dialog.cursor = max(0, m.dialog.cursor-1)
 			id := lv.ID
-			return func() tea.Msg { _ = state.ForgetLogin(id); return nil } // the keychain and its home
+			return func() tea.Msg { _ = claude.ForgetLogin(id); return nil } // the keychain and its home
 		})
 	}
 	return nil

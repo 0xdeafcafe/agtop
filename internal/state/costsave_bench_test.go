@@ -15,7 +15,7 @@ func BenchmarkCostCacheSave(b *testing.B) {
 	if err != nil {
 		b.Skip("no cost cache here")
 	}
-	c := &CostCache{}
+	c := &CostCache[map[string]any]{} // a transcript's totals, as JSON has them
 	if err := jsonx.Unmarshal(raw, c); err != nil {
 		b.Fatal(err)
 	}

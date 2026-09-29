@@ -3,29 +3,10 @@ package claude
 import (
 	"bytes"
 	"os"
-	"strings"
 	"testing"
-)
 
-// A sign-in with MCP servers' logins in it runs past what one of
-// security's prompt lines holds; it must still be saved whole.
-func TestKeychainWriteLong(t *testing.T) {
-	if os.Getenv("RUSH_KEYCHAIN_TEST") == "" {
-		t.Skip("writes to your login keychain; set RUSH_KEYCHAIN_TEST=1")
-	}
-	const svc = "rush-test"
-	defer keychainDelete(svc, "t")
-	for _, n := range []int{100, 2719, 6000} {
-		secret := []byte(`{"claudeAiOauth":{"refreshToken":"` + strings.Repeat("x", n) + `"}}`)
-		if err := keychainWrite(svc, "t", secret); err != nil {
-			t.Fatalf("%d bytes: %v", n, err)
-		}
-		got, err := keychainRead(svc, "t")
-		if err != nil || !bytes.Equal(got, secret) {
-			t.Fatalf("%d bytes: read back %d bytes, %v", n, len(got), err)
-		}
-	}
-}
+	"github.com/0xdeafcafe/rush/internal/keychain"
+)
 
 // Claude Code reads its sign-in under your user name. Another item under
 // the same service (an older tool's) mustn't catch what a switch writes.
@@ -35,16 +16,16 @@ func TestCredsGoToClaudeCodesItem(t *testing.T) {
 	}
 	a := Account{ConfigDir: t.TempDir()}
 	svc := a.keychainService()
-	defer keychainDelete(svc, "unknown")
-	defer keychainDelete(svc, keychainUser())
-	if err := keychainWrite(svc, "unknown", []byte(`{"claudeAiOauth":{"refreshToken":"stale"}}`)); err != nil {
+	defer keychain.Delete(svc, "unknown")
+	defer keychain.Delete(svc, keychain.User())
+	if err := keychain.Write(svc, "unknown", []byte(`{"claudeAiOauth":{"refreshToken":"stale"}}`)); err != nil {
 		t.Fatal(err)
 	}
 	want := []byte(`{"claudeAiOauth":{"refreshToken":"new"}}`)
 	if err := writeCreds(a, want); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := keychainRead(svc, keychainUser()); err != nil || !bytes.Equal(got, want) {
+	if got, err := keychain.Read(svc, keychain.User()); err != nil || !bytes.Equal(got, want) {
 		t.Fatalf("Claude Code's item: %s, %v", got, err)
 	}
 	if got, err := readCreds(a); err != nil || !bytes.Equal(got, want) {

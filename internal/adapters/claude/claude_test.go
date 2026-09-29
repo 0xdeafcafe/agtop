@@ -29,7 +29,7 @@ func TestRegistered(t *testing.T) {
 // ~/.claude.
 func TestProfiles(t *testing.T) {
 	a := Adapter{Config: func() state.Config {
-		return state.Config{Folders: []claude.Account{{Name: "work", ConfigDir: "/x/.claude-work"}}}
+		return state.Config{Folders: []state.Folder{{Name: "work", ConfigDir: "/x/.claude-work"}}}
 	}}
 	ps := a.Profiles()
 	if len(ps) != 1 || ps[0].Dir != claude.DefaultAccount().ConfigDir {

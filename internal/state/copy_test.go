@@ -2,8 +2,6 @@ package state
 
 import (
 	"testing"
-
-	"github.com/0xdeafcafe/rush/internal/claude"
 )
 
 // A copy has the config as it is now, shares none of it with the store,
@@ -11,7 +9,7 @@ import (
 func TestStoreCopyFollowsChanges(t *testing.T) {
 	s := &Store{}
 	s.Config.GroupBy = "status"
-	s.Config.Logins = []claude.Login{{ID: "a", Name: "a"}}
+	s.Config.Logins = []Login{{ID: "a", Name: "a"}}
 	one, two := s.Copy(), s.Copy()
 	if one.Config.GroupBy != "status" || len(two.Config.Logins) != 1 {
 		t.Fatalf("copies: %+v %+v", one.Config, two.Config)

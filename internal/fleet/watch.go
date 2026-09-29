@@ -107,7 +107,7 @@ func (l *Loader) read(snap *Snapshot, hosted []host.Info) {
 // folders sessions and jobs register in, the hosts' info, the settings it
 // reads, and each live agent's transcript and subagents.
 func (l *Loader) watchPaths(snap *Snapshot, hosted []host.Info) []string {
-	acct := l.store.Config.ActiveAccount()
+	acct := claude.Active(l.store.Config)
 	paths := []string{
 		acct.ConfigDir, filepath.Join(acct.ConfigDir, "sessions"), acct.JobsDir(), filepath.Dir(acct.RosterPath()),
 		acct.RosterPath(), acct.PRCachePath(), claude.PinsPath(acct), acct.StatePath(),

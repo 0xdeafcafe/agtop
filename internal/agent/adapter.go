@@ -50,6 +50,12 @@ type Adapter interface {
 	Profiles() []Profile
 }
 
+// Homer is an agent with a home of its own, where it keeps everything
+// when nothing says otherwise (~/.claude). Home reads nothing.
+type Homer interface {
+	Home() Profile
+}
+
 // Discoverer finds an agent's sessions outside rush: those running in a
 // terminal or its own daemon, and past ones with a transcript.
 type Discoverer interface {

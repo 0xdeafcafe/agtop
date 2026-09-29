@@ -439,7 +439,7 @@ func (m *Model) startMenuBar() tea.Cmd {
 func (m *Model) fetchUsage() tea.Cmd {
 	path := filepath.Join(state.Dir(), "usage.json")
 	offline := m.offline
-	acct := m.store.Config.ActiveAccount()
+	acct := claude.Active(m.store.Config)
 	return tea.Batch(append(m.fetchLoginUsage(), func() tea.Msg {
 		u := claude.RefreshUsage(path, acct, offline)
 		return usageMsg{key: claude.UsageKey(acct, u), u: u}

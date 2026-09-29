@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
@@ -48,7 +47,7 @@ type Config struct {
 	// are only read to take their sign-ins and past sessions in, once, and
 	// dropped after. ~/.claude's entry stays: its name is what its
 	// sessions, names and hosted agents are kept under.
-	Folders []claude.Account `json:"accounts,omitempty"`
+	Folders []Folder `json:"accounts,omitempty"`
 	// FoldersImported is set once the older folders' sign-ins were taken
 	// in as logins, so one you forget isn't taken in again.
 	FoldersImported bool `json:"foldersImported,omitzero"`
@@ -57,7 +56,7 @@ type Config struct {
 	Active string `json:"active,omitempty"`
 	// Logins are the Claude accounts ~/.claude can be signed in as; their
 	// sign-ins are in the vault, not here.
-	Logins []claude.Login `json:"logins,omitempty"`
+	Logins []Login `json:"logins,omitempty"`
 	// SignIns are the accounts of agents other than Claude Code that rush
 	// keeps, several to an agent; their credentials are in the vault or
 	// the agent's own keeping, not here.
@@ -405,10 +404,11 @@ func (d Dispatch) Flags() []string {
 
 // OldFolders are the folders besides ~/.claude an older rush was given,
 // whose sign-ins and past sessions are still to be taken in.
-func (c Config) OldFolders() []claude.Account {
-	var out []claude.Account
+func (c Config) OldFolders() []Folder {
+	var out []Folder
+	root := home().ConfigDir
 	for _, a := range c.Folders {
-		if a.ConfigDir != "" && a.ConfigDir != claude.DefaultAccount().ConfigDir {
+		if a.ConfigDir != "" && a.ConfigDir != root {
 			out = append(out, a)
 		}
 	}
@@ -417,10 +417,11 @@ func (c Config) OldFolders() []claude.Account {
 
 // RootFolder is ~/.claude's entry in Folders, if it has one: what's kept
 // when the older folders are dropped.
-func (c Config) RootFolder() []claude.Account {
+func (c Config) RootFolder() []Folder {
+	root := home().ConfigDir
 	for _, a := range c.Folders {
-		if a.ConfigDir == claude.DefaultAccount().ConfigDir {
-			return []claude.Account{a}
+		if a.ConfigDir == root {
+			return []Folder{a}
 		}
 	}
 	return nil
@@ -428,8 +429,8 @@ func (c Config) RootFolder() []claude.Account {
 
 // ActiveAccount is where every session runs: ~/.claude, signed in as
 // whichever login is in use.
-func (c Config) ActiveAccount() claude.Account {
-	root := claude.DefaultAccount()
+func (c Config) ActiveAccount() Folder {
+	root := home()
 	for _, a := range c.Folders {
 		if a.ConfigDir == root.ConfigDir && a.Name != "" {
 			root.Name = a.Name
@@ -438,26 +439,23 @@ func (c Config) ActiveAccount() claude.Account {
 	return root
 }
 
-// Vault is where rush keeps the sign-ins of the logins not in use.
-func Vault() claude.Vault { return claude.Vault{Dir: filepath.Join(Dir(), "logins")} }
-
 // SwitchAt is how full, in percent, the login in use may get before rush
 // switches to another.
 const SwitchAt = 95.0
 
 // Login is the saved login with id.
-func (c Config) Login(id string) (claude.Login, bool) {
+func (c Config) Login(id string) (Login, bool) {
 	for _, l := range c.Logins {
 		if l.ID == id {
 			return l, true
 		}
 	}
-	return claude.Login{}, false
+	return Login{}, false
 }
 
 // NoteLogin records who a login is, adding it named after name (or its
 // email) when it's new; it reports whether anything changed.
-func (c *Config) NoteLogin(l claude.Login, name string) bool {
+func (c *Config) NoteLogin(l Login, name string) bool {
 	for i, old := range c.Logins {
 		if old.ID == l.ID {
 			if old.Email == l.Email && old.Org == l.Org && string(old.Profile) == string(l.Profile) {
@@ -734,10 +732,11 @@ func (s *Store) Reload(b []byte) error {
 // CostCache persists transcript totals so a restart does not rescan gigabytes.
 const costCacheVersion = 5 // 5: the folder each transcript last worked in, cd and writes included
 
-type CostCache struct {
+// T is what the scan keeps of one transcript.
+type CostCache[T any] struct {
 	mu      sync.Mutex
-	Version int                       `json:"version"`
-	Files   map[string]*claude.Totals `json:"files"`
+	Version int           `json:"version"`
+	Files   map[string]*T `json:"files"`
 	dirty   bool
 }
 
@@ -756,16 +755,16 @@ func cacheDir() string {
 // again, but is kept so a restart needn't.
 func CachePath(name string) string { return filepath.Join(cacheDir(), name) }
 
-func LoadCostCache() *CostCache {
-	c := &CostCache{Files: map[string]*claude.Totals{}}
+func LoadCostCache[T any]() *CostCache[T] {
+	c := &CostCache[T]{Files: map[string]*T{}}
 	readJSON(filepath.Join(cacheDir(), "costs.json"), c)
 	if c.Version != costCacheVersion {
 		c.Files, c.Version = nil, costCacheVersion
 	}
 	if c.Files == nil {
-		c.Files = map[string]*claude.Totals{}
+		c.Files = map[string]*T{}
 	}
-	// Transcripts Claude Code has since deleted (it keeps them 30 days by
+	// Transcripts their agent has since deleted (it keeps them 30 days by
 	// default) needn't be remembered.
 	for p := range c.Files {
 		if _, err := os.Stat(p); os.IsNotExist(err) {
@@ -776,24 +775,24 @@ func LoadCostCache() *CostCache {
 	return c
 }
 
-func (c *CostCache) Get(path string) *claude.Totals {
+func (c *CostCache[T]) Get(path string) *T {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	t := c.Files[path]
 	if t == nil {
-		t = &claude.Totals{}
+		t = new(T)
 		c.Files[path] = t
 	}
 	return t
 }
 
-func (c *CostCache) MarkDirty() {
+func (c *CostCache[T]) MarkDirty() {
 	c.mu.Lock()
 	c.dirty = true
 	c.mu.Unlock()
 }
 
-func (c *CostCache) Save() error {
+func (c *CostCache[T]) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.dirty {

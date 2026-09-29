@@ -53,7 +53,7 @@ func (Adapter) Level() agent.Level                        { return agent.LevelFu
 
 // Profiles is ~/.claude: every account is a sign-in swapped into it.
 func (a Adapter) Profiles() []agent.Profile {
-	return []agent.Profile{Profile(a.config().ActiveAccount())}
+	return []agent.Profile{a.config().ActiveAccount().Profile()}
 }
 
 func (a Adapter) config() state.Config {
@@ -67,15 +67,22 @@ func (a Adapter) config() state.Config {
 // of the login in use, ready, or ~/.claude when it can't be readied.
 func (a Adapter) runAs() claude.Account {
 	cfg := a.config()
-	acct := cfg.RunAccount()
+	acct := claude.RunAccount(cfg)
 	if acct.IsDefault() {
 		return acct
 	}
-	if err := claude.LinkHome(acct, cfg.ActiveAccount()); err != nil || !claude.HasHome(acct) {
-		return cfg.ActiveAccount()
+	if err := claude.LinkHome(acct, claude.Active(cfg)); err != nil || !claude.HasHome(acct) {
+		return claude.Active(cfg)
 	}
 	return acct
 }
+
+// Home is ~/.claude, where Claude Code keeps everything when
+// CLAUDE_CONFIG_DIR doesn't say otherwise.
+func (Adapter) Home() agent.Profile { return claude.DefaultAccount().Profile() }
+
+// BuiltinDef is Claude Code's own agent among the definitions.
+func (Adapter) BuiltinDef() string { return claude.DefaultAgent }
 
 // Profile is a Claude config folder as rush's own.
 func Profile(a claude.Account) agent.Profile {
@@ -135,6 +142,8 @@ var (
 	_ agent.DefaultModeler    = Adapter{}
 	_ agent.LastQuotaReader   = Adapter{}
 	_ agent.ContextWindower   = Adapter{}
+	_ agent.Homer             = Adapter{}
+	_ agent.BuiltinDefNamer   = Adapter{}
 )
 
 // Doing is a call in a few words, with words of its own for Claude Code's

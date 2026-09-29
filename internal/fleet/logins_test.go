@@ -154,7 +154,7 @@ func TestLoginInUseInItsHome(t *testing.T) {
 	cfg := state.Config{Logins: []claude.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}
 	l.SetFetched("login:a", claude.Usage{AccountID: "a", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 30}})
 	l.takeIn()
-	if err := state.SetClaudeUsing("a"); err != nil {
+	if err := claude.SetUsing("a"); err != nil {
 		t.Fatal(err)
 	}
 	root := AccountView{Usage: claude.Usage{AccountID: "b", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 80}}}
