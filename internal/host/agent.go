@@ -271,15 +271,18 @@ func (s *server) onMessage(conn agent.Conn, m event.Message) {
 			s.info.ContextTokens = int(t.Input + t.CacheRead + t.CacheWrite5m + t.CacheWrite1h)
 		}
 	}
+	if m.Parent != "" {
+		// A subagent in the background writes on after the turn that
+		// started it: that isn't the agent's turn, so what you send
+		// meanwhile goes now rather than into the queue.
+		return
+	}
 	if s.info.State == "idle" {
 		// It picked up on its own (a background task finished).
 		s.info.State = "working"
 		if s.idle != nil {
 			s.idle.Stop()
 		}
-	}
-	if m.Parent != "" {
-		return
 	}
 	for _, p := range m.Parts {
 		switch {
