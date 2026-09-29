@@ -46,7 +46,11 @@ type GitState struct {
 	Ahead    int  // commits not on the upstream yet
 	Behind   int  // commits on the upstream not here yet
 	Changed  int  // files with uncommitted changes, untracked ones included
-	Err      string
+	// Base is the branch a linked worktree's branch was made from, and
+	// how far it's gone from it: commits of its own, and the base's since.
+	Base                  string
+	BaseAhead, BaseBehind int
+	Err                   string
 }
 
 // CheckFolder asks git about root and the worktrees under it that agents
@@ -92,6 +96,8 @@ func CheckFolder(root string, trees []string, whole bool) Folder {
 		wg.Go(func() {
 			gate <- struct{}{}
 			states[i] = gitState(t)
+			rootDone.Wait() // the main checkout's branch stands in for an unknown base
+			states[i].base(t, f.Git.Branch)
 			<-gate
 		})
 	}
@@ -163,6 +169,45 @@ func gitState(dir string) GitState {
 		}
 	}
 	return s
+}
+
+// base finds the branch tree's was made from, as its reflog says
+// ("Created from main"), else the main checkout's branch, and counts
+// the commits between them.
+func (s *GitState) base(tree, fallback string) {
+	if s.Branch == "" || s.Branch == "detached" {
+		return
+	}
+	b := fallback
+	if log, err := git(tree, "reflog", "show", "--format=%gs", "refs/heads/"+s.Branch); err == nil {
+		lines := strings.Split(log, "\n")
+		if from, ok := strings.CutPrefix(lines[len(lines)-1], "branch: Created from "); ok && from != "HEAD" && !isHash(from) {
+			b = from
+		}
+	}
+	if b == "" || b == s.Branch {
+		return
+	}
+	s.Base = b
+	if n, err := git(tree, "rev-list", "--left-right", "--count", b+"...HEAD"); err == nil {
+		if behind, ahead, ok := strings.Cut(n, "\t"); ok {
+			s.BaseBehind, _ = strconv.Atoi(behind)
+			s.BaseAhead, _ = strconv.Atoi(ahead)
+		}
+	}
+}
+
+// isHash is whether s looks like a commit's hash rather than a branch.
+func isHash(s string) bool {
+	if len(s) < 7 {
+		return false
+	}
+	for _, r := range s {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return false
+		}
+	}
+	return true
 }
 
 // FolderWants is what CheckFolder should be asked for the agents given:

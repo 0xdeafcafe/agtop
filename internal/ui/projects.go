@@ -231,7 +231,7 @@ func (m *Model) worktreeRow(t string, f fleet.Folder, wt fleet.Worktree, agents,
 	var b strings.Builder
 	b.WriteString("  " + faint("⎇ ") + paint(cSub, filepath.Base(t)))
 	if st, ok := f.Trees[t]; ok {
-		b.WriteString("  " + gitBits(st))
+		b.WriteString("  " + gitBits(st) + baseShort(st))
 	}
 	if agents == 0 {
 		b.WriteString(dim(" · ") + faint("no agent"))

@@ -228,11 +228,31 @@ func gitShort(s fleet.GitState) string {
 	return b.String()
 }
 
+// baseShort is where a worktree's branch came from, and how far it's
+// gone from there: "from main ↑3 ↓1". With an upstream of its own, the
+// arrows are the upstream's, so only the name shows.
+func baseShort(s fleet.GitState) string {
+	if s.Base == "" {
+		return ""
+	}
+	out := faint(" from ") + dim(s.Base)
+	if s.Upstream {
+		return out
+	}
+	if s.BaseAhead > 0 {
+		out += " " + paint(cOrange, fmt.Sprintf("↑%d", s.BaseAhead))
+	}
+	if s.BaseBehind > 0 {
+		out += " " + paint(cYellow, fmt.Sprintf("↓%d", s.BaseBehind))
+	}
+	return out
+}
+
 // treeLine heads a linked worktree's rows under its project.
 func (m *Model) treeLine(l listLine, w int) string {
 	s := "     " + faint("⎇ ") + paint(cBlue, filepath.Base(l.root))
 	if st, ok := m.folders.byRoot[l.title].Trees[l.root]; ok {
-		s += "  " + gitShort(st)
+		s += "  " + gitShort(st) + baseShort(st)
 	} else if m.folders.byRoot[l.title].Root != "" || m.folders.looking > 0 {
 		s += "  " + faint("…")
 	}
