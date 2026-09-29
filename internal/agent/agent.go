@@ -49,6 +49,7 @@ type Preview struct {
 	Doing    string // the tool call in words: "running pnpm test"
 	At       time.Time
 	Model    string
+	Effort   string // how hard it was thinking, when the transcript says
 	LastUser string
 	Context  int64 // tokens the last request sent: how full the context window is
 	Recent   []Line

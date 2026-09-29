@@ -81,3 +81,31 @@ func TestSpawnFollowed(t *testing.T) {
 		t.Errorf("its rush session %q: what you type wouldn't reach it", r.hosted)
 	}
 }
+
+// A subagent run says what it runs on as far as its transcript has told:
+// the model it last asked over the one its meta named, its last turn's
+// effort, and a spawned agent's provider only where its type doesn't
+// name it already.
+func TestSubRunsOn(t *testing.T) {
+	c := &hostConn{kind: loginsKind, spawns: map[string]*spawnRun{"s1": {kind: "codex"}}}
+	s := convo.New()
+	s.Requests = []convo.Request{{Model: "claude-sonnet-5"}}
+	s.Turns = []*convo.Turn{{Effort: "medium"}, {}}
+	if got := c.subRunsOn(convo.Subagent{Type: "Explore", Model: "opus"}, s); got != "Sonnet 5 · medium effort" {
+		t.Errorf("read run: %q", got)
+	}
+	if got := c.subRunsOn(convo.Subagent{Type: "Explore", Model: "opus"}, convo.New()); got != "Opus" {
+		t.Errorf("unread run: %q", got)
+	}
+	if got := c.subRunsOn(convo.Subagent{Type: "Explore"}, convo.New()); got != "" {
+		t.Errorf("nothing known: %q", got)
+	}
+	cs := convo.New()
+	cs.Model, cs.Info.Effort = "gpt-5", "high"
+	if got := c.subRunsOn(convo.Subagent{ID: spawnPrefix + "s1", Type: "Codex"}, cs); got != "gpt-5 · high effort" {
+		t.Errorf("spawned Codex: %q", got)
+	}
+	if got := c.subRunsOn(convo.Subagent{ID: spawnPrefix + "s1", Type: "fixer"}, cs); got != "Codex · gpt-5 · high effort" {
+		t.Errorf("spawned Codex, named otherwise: %q", got)
+	}
+}

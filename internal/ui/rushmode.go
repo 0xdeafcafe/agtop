@@ -613,6 +613,9 @@ func (m *Model) subBanner(c *hostConn, w int) string {
 		state += dim(" " + dur(end.Sub(t.First).Round(time.Second)))
 	}
 	state += dim(fmt.Sprintf(" · %d steps", t.Totals(now).ToolCalls))
+	if on := c.subRunsOn(sa, t); on != "" {
+		state += dim(" · " + on)
+	}
 	back := "the list"
 	if c.subBack {
 		back = "the conversation"
@@ -801,10 +804,6 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		case r.status != "":
 			state = dim(r.status)
 		}
-		model := sa.Model
-		if n := len(r.t.Requests); n > 0 && r.t.Requests[n-1].Model != "" {
-			model = convo.PrettyModel(r.t.Requests[n-1].Model)
-		}
 		ref := "sub:" + sa.ID
 		left := "  " + mark + " " + paint(cBlue, "⇉") + " " + paint(cText+bold, sa.Type) + c.subWhere(sa.ID) + "  " + paint(cSub, oneLine(sa.Description))
 		right := state + "   " + dim(took) + "  "
@@ -817,8 +816,8 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 				facts = append(facts, money(c))
 			}
 		}
-		if model != "" {
-			facts = append(facts, model)
+		if on := c.subRunsOn(sa, r.t); on != "" {
+			facts = append(facts, on)
 		}
 		second := "      " + dim(strings.Join(facts, " · "))
 		if lw := r.t.LastWords(); lw != "" {
@@ -839,6 +838,31 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		}
 	}
 	return lines
+}
+
+// subRunsOn is what a subagent run runs on, as far as its transcript has
+// said: the provider when it isn't Claude Code (a spawned agent's own),
+// the model it last asked, the effort its last turn ran at.
+func (c *hostConn) subRunsOn(sa convo.Subagent, t *convo.Session) string {
+	k := c.kind
+	if id, ok := strings.CutPrefix(sa.ID, spawnPrefix); ok {
+		if r := c.spawns[id]; r != nil {
+			k = r.kind
+		}
+	}
+	model := firstNonEmpty(t.Model, sa.Model)
+	if n := len(t.Requests); n > 0 && t.Requests[n-1].Model != "" {
+		model = t.Requests[n-1].Model
+	}
+	effort := t.Info.Effort
+	for _, tn := range slices.Backward(t.Turns) {
+		if tn.Effort != "" {
+			effort = tn.Effort
+			break
+		}
+	}
+	// A spawned agent's type is its provider's name already.
+	return strings.TrimPrefix(runsOn(k, model, effort), sa.Type+" · ")
 }
 
 // dockRunsShown is how many running subagents the dock shows at once; ↑↓
@@ -916,6 +940,9 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 			facts = append(facts, fmt.Sprintf("%d steps", s.Totals(now).ToolCalls))
 			if !s.First.IsZero() {
 				facts = append(facts, dur(now.Sub(s.First).Round(time.Second)))
+			}
+			if on := c.subRunsOn(sa, s); on != "" {
+				facts = append(facts, on)
 			}
 		} else {
 			doing = dim("starting…")

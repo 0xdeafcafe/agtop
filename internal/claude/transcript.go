@@ -129,6 +129,7 @@ type line struct {
 	Type      string    `json:"type"`
 	Timestamp time.Time `json:"timestamp"`
 	Cwd       string    `json:"cwd"`
+	Effort    string    `json:"effort"`
 	APIError  bool      `json:"isApiErrorMessage"`
 	Error     string    `json:"error"`
 	Message   struct {
@@ -491,7 +492,7 @@ func ReadPreview(path string, window int64) Preview {
 			continue
 		}
 		if p.Model == "" {
-			p.Model = l.Message.Model
+			p.Model, p.Effort = l.Message.Model, l.Effort
 		}
 		if u := l.Message.Usage; u != nil && p.Context == 0 && l.Message.Model != "<synthetic>" {
 			p.Context = u.Input + u.CacheRead + u.CacheCreate

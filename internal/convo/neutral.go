@@ -18,6 +18,9 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 	case event.Init:
 		s.Model, s.Cwd = e.Model, e.Cwd
 		s.Version, s.MCP, s.NTools = e.Version, e.MCP, len(e.Tools)
+		if e.Effort != "" {
+			s.Info.Effort = e.Effort
+		}
 	case event.Limited:
 		s.Limit = "rejected"
 	case event.Context:

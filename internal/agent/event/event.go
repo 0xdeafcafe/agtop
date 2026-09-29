@@ -21,6 +21,7 @@ type Init struct {
 	Model     string
 	Cwd       string
 	Mode      string // its permission mode, in the agent's words
+	Effort    string // how hard it thinks, when the agent says
 	Version   string // the agent's
 	Tools     []string
 	Commands  []string // slash commands it takes, by name: Commands has more

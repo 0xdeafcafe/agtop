@@ -127,6 +127,7 @@ func (m sessionMeta) subagent() bool {
 type turnContext struct {
 	Model          string `json:"model"`
 	ApprovalPolicy string `json:"approval_policy"`
+	Effort         string `json:"effort"`
 }
 
 // rolloutTokens is a rollout's token usage, in snake case.
@@ -351,7 +352,7 @@ func (r *replay) line(l rolloutLine) {
 			r.model = c.Model
 		}
 		if !r.initModel {
-			r.init.Model, r.init.Mode, r.initModel = c.Model, c.ApprovalPolicy, true
+			r.init.Model, r.init.Mode, r.init.Effort, r.initModel = c.Model, c.ApprovalPolicy, c.Effort, true
 		}
 	case "compacted":
 		var c struct {

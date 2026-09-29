@@ -146,6 +146,22 @@ func (m *Model) usageTag() string {
 	return s
 }
 
+// runsOn is what an agent runs on, in startWith's words, each only when
+// known: its provider unless it's Claude Code, its model, its effort.
+func runsOn(k agent.Kind, model, effort string) string {
+	var words []string
+	if n := kindName(k); n != "" && !unmarked(k) {
+		words = append(words, n)
+	}
+	if model != "" && !strings.HasPrefix(model, "<") { // not <synthetic>
+		words = append(words, modelWord(string(k), model))
+	}
+	if effort != "" {
+		words = append(words, effort+" effort")
+	}
+	return strings.Join(words, " · ")
+}
+
 // startWith is what a new session in dir starts as: its agent, the model
 // and effort that agent's Settings page gives it (the agent's own default
 // when it gives none), and the profile when there's more than one or

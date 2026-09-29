@@ -428,10 +428,20 @@ func (m *Model) wallSubTile(it wallItem, w, h int, picked bool) []string {
 
 	typ := firstNonEmpty(sub.Type, "subagent")
 	name := oneLine(firstNonEmpty(sub.Description, typ))
-	roomName := w - 8
+	// The top edge carries, on the right, what it runs on, as an agent's
+	// tile does.
+	meta := runsOn(agent.Kind(a.Kind), p.Model, p.Effort)
+	roomName := w - 12 - cellw.String(meta)
+	if roomName < 8 {
+		meta, roomName = "", w-8
+	}
 	title := glyph + " " + paint(nameC, ansi.Truncate(name, max(roomName, 1), "…"))
-	fill := w - 2 - 1 - cellw.String(title) - 1
-	top := paint(edge, tl+hz) + " " + title + " " + paint(edge, strings.Repeat(hz, max(fill, 0))) + paint(edge, hz+tr)
+	right := ""
+	if meta != "" {
+		right = " " + dim(meta) + " "
+	}
+	fill := w - 2 - 1 - cellw.String(title) - 2 - cellw.String(right) - 1
+	top := paint(edge, tl+hz) + " " + title + " " + paint(edge, strings.Repeat(hz, max(fill, 0))) + right + paint(edge, hz+tr)
 	top = fit(top, w)
 
 	inner := make([]string, 0, h-2)
