@@ -2038,6 +2038,8 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	if c.editQ > 0 {
 		b.topL = paint(cOrange, fmt.Sprintf("editing queued message %d", c.editQ)) + dim(" · enter saves it back · esc cancels")
 	}
+	b.top = c.box.top
+	b = b.scrolled()
 	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
 	pairs := []string{"enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list"}

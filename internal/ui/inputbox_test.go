@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"math/rand"
 	"strings"
 	"testing"
@@ -177,4 +178,46 @@ func TestBoxStaysInItsEdge(t *testing.T) {
 			}
 		}
 	}
+}
+
+// The box scrolls like any text area: the cursor moves within the rows on
+// screen, and the rows only move when the cursor would leave them.
+func TestBoxScrollsOnlyToKeepTheCursorInView(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 12; i++ {
+		lines = append(lines, fmt.Sprintf("row%02d", i))
+	}
+	text := []rune(strings.Join(lines, "\n"))
+	b := box{w: 80, text: text, cursor: len(text), maxRows: 6}
+	row := func() int { // the cursor's line
+		return strings.Count(string(text[:b.cursor]), "\n")
+	}
+	move := func(d int) {
+		n := row() + d
+		b.cursor = strings.Index(string(text), lines[n])
+		b = b.scrolled()
+	}
+	want := func(step string, first int) {
+		t.Helper()
+		if start, end := b.window(b.segs()); start != first || end != first+6 {
+			t.Fatalf("%s: rows %d..%d on screen, want %d..%d", step, start, end, first, first+6)
+		}
+	}
+	b = b.scrolled()
+	want("typed", 6)
+	for i := 1; i <= 5; i++ {
+		move(-1)
+		want(fmt.Sprintf("up %d", i), 6)
+	}
+	move(-1)
+	want("up past the top row", 5)
+	for i := 1; i <= 5; i++ {
+		move(1)
+		want(fmt.Sprintf("down %d", i), 5)
+	}
+	move(1)
+	want("down past the bottom row", 6)
+	b.cursor = 0
+	b = b.scrolled()
+	want("to the start", 0)
 }
