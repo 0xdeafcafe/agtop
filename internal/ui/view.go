@@ -1981,14 +1981,8 @@ func (m *Model) promptLines(w int) []string {
 			pairs = append([]string{"#update", "new agtop"}, pairs...)
 		}
 		if m.hosted != "" {
-			// Hosted's list: no command bar, and the way back to the session.
-			var kept []string
-			for i := 0; i+1 < len(pairs); i += 2 {
-				if pairs[i] != "ctrl+k" {
-					kept = append(kept, pairs[i], pairs[i+1])
-				}
-			}
-			pairs = append([]string{"esc · ctrl+6", "hide Agents"}, kept...)
+			// Hosted's list: the way back to the session comes first.
+			pairs = append([]string{"esc · ctrl+6", "hide Agents"}, pairs...)
 		}
 		// With one side on screen, how to have both is kept in view.
 		l, p := m.widths()

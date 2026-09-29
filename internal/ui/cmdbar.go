@@ -434,7 +434,7 @@ func (m *Model) searchTranscripts() tea.Cmd {
 	}
 	sc := b.scope()
 	var agents []*fleet.Agent
-	for _, a := range m.snap.Agents {
+	for _, a := range m.allAgents() {
 		// Everywhere, the open chat's matches are under This session.
 		if a.TranscriptPath == "" || sc.kind == "" && m.host != nil && a.Key == m.host.key {
 			continue
@@ -780,7 +780,7 @@ func (m *Model) goView(v int) {
 // barAgents are the agents, those needing you first, then the latest.
 func (m *Model) barAgents(q, group string) []barItem {
 	now := m.snap.At
-	agents := append([]*fleet.Agent{}, m.snap.Agents...)
+	agents := append([]*fleet.Agent{}, m.allAgents()...)
 	sort.SliceStable(agents, func(i, j int) bool {
 		a, b := agents[i], agents[j]
 		if a.NeedsYou() != b.NeedsYou() {
@@ -838,6 +838,7 @@ func (m *Model) goAgent(a *fleet.Agent) tea.Cmd {
 	if m.zen {
 		m.setZen(false)
 	}
+	m.hostedShow(a.Key)
 	m.sel = a.Key
 	return m.focusPane(a)
 }
@@ -918,7 +919,7 @@ func (m *Model) barTranscripts(words []string) []barItem {
 // goFound opens the agent a transcript match is in and, once its pane has
 // the conversation, opens the match there.
 func (m *Model) goFound(f barFound, h convo.Hit, q string) tea.Cmd {
-	a := m.agentByKey(f.key)
+	a := m.anyAgent(f.key)
 	if a == nil {
 		m.flash(f.name+" isn't in the list any more", true)
 		return nil
@@ -1052,10 +1053,11 @@ func (m *Model) goSpot(s *spot) tea.Cmd {
 	if s.zen != m.zen {
 		m.setZen(s.zen)
 	}
-	a := m.agentByKey(s.key)
+	a := m.anyAgent(s.key)
 	if a == nil || s.zen {
 		return nil
 	}
+	m.hostedShow(a.Key)
 	m.sel = a.Key
 	if s.ref == "" {
 		if c := m.host; c != nil && c.key == a.Key {

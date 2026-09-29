@@ -79,7 +79,7 @@ func TestHostedShowsOneSession(t *testing.T) {
 
 	c := &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 	m.host = c
-	for _, k := range []string{"tab", "ctrl+n", "ctrl+z", "left", "ctrl+k"} {
+	for _, k := range []string{"tab", "ctrl+n", "ctrl+z", "left"} {
 		hostedPress(m, k)
 		if m.sel != m.hostedKey || m.view != placeAgents || m.zen || m.mode != modeList || !m.paneFocus || !m.full || m.bar != nil {
 			t.Fatalf("after %s: sel %q view %d zen %v mode %d focus %v bar %v", k, m.sel, m.view, m.zen, m.mode, m.paneFocus, m.bar != nil)
@@ -213,6 +213,53 @@ func TestHostedListToggle(t *testing.T) {
 	hostedPress(m, "esc")
 	if m.hostedList || m.sel != m.hostedKey {
 		t.Fatalf("esc from the list: list %v sel %q", m.hostedList, m.sel)
+	}
+}
+
+// ctrl+k works in hosted, over every agent: going to another one shows the
+// list beside it, as ctrl+6 does, and ctrl+6 is the way back.
+func TestHostedCommandBar(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	writeSession(t, "aaaa1111", "the hosted session")
+	writeSession(t, "bbbb2222", "another session")
+	m := NewHosted(state.Load(), "test", "aaaa1111")
+	m.Frame(200, 45)
+	m.host = &hostConn{key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
+	m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	if m.bar == nil {
+		t.Fatal("ctrl+k didn't open the bar in hosted")
+	}
+	typeBar(m, "another session")
+	var other *barItem
+	for i, it := range m.bar.items {
+		if it.section == "Agents" && it.title == "another session" {
+			other = &m.bar.items[i]
+			m.bar.cursor = i
+		}
+	}
+	if other == nil {
+		t.Fatalf("the bar doesn't offer the other agent: %+v", m.bar.items)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.bar != nil || !m.hostedList || m.sel != m.keyOf(sid("bbbb2222")) {
+		t.Fatalf("going to it: bar %v list %v sel %q", m.bar != nil, m.hostedList, m.sel)
+	}
+	if out := m.Frame(200, 45); !strings.Contains(out, "another session") {
+		t.Fatalf("not shown:\n%s", out)
+	}
+	hostedPress(m, "ctrl+6")
+	if m.hostedList || m.sel != m.hostedKey || len(m.snap.Agents) != 1 {
+		t.Fatalf("back: list %v sel %q", m.hostedList, m.sel)
+	}
+	// A place from the bar opens as in hosted's own places.
+	m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	typeBar(m, "clean")
+	if len(m.bar.items) == 0 || m.bar.items[0].title != "Machine › Cleanup" {
+		t.Fatalf("clean in the bar: %+v", m.bar.items)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.view != placeMachine || m.mode != modeCleanup {
+		t.Fatalf("clean from the bar: view %d mode %d", m.view, m.mode)
 	}
 }
 

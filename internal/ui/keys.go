@@ -38,9 +38,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if cmd, ok := m.hostedKeyGuard(s); ok {
 		return cmd
 	}
-	if m.hosted != "" {
-		// No command bar: it reaches every agent and place.
-	} else if cmd, ok := m.barToggle(s); ok {
+	if cmd, ok := m.barToggle(s); ok {
 		return cmd
 	}
 	if m.bar != nil && s != "ctrl+q" {

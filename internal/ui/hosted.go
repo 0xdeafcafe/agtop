@@ -58,6 +58,40 @@ func (m *Model) hostedAlone() bool { return m.hosted != "" && !m.hostedList }
 // keyboard protocol.
 func listToggleKey(s string) bool { return s == "ctrl+6" || s == "ctrl+^" || s == "ctrl+shift+6" }
 
+// allAgents is every agent, hosted's hidden ones included: what the
+// command bar searches and goes to.
+func (m *Model) allAgents() []*fleet.Agent {
+	if m.hosted != "" && m.fleetAgents != nil {
+		return m.fleetAgents
+	}
+	return m.snap.Agents
+}
+
+// anyAgent is an agent by key among allAgents.
+func (m *Model) anyAgent(key string) *fleet.Agent {
+	for _, a := range m.allAgents() {
+		if a.Key == key {
+			return a
+		}
+	}
+	return nil
+}
+
+// hostedShow is hosted going to another agent than its own, from the
+// command bar: the list comes beside it, as ctrl+6 shows it, and ctrl+6
+// or esc from the list is the way back.
+func (m *Model) hostedShow(key string) {
+	if m.hosted == "" || m.hostedList || key == m.hostedKey {
+		return
+	}
+	m.hostedList = true
+	m.full, m.preview = false, true
+	s := *m.snap
+	s.Agents = m.fleetAgents
+	m.snap = m.hostedSnap(&s)
+	m.rebuild()
+}
+
 // toggleList shows or hides Agents beside the open Session. In hosted the
 // list comes with every agent, to pick and answer, and the plugin
 // group-by modes; hidden again, the view is back on hosted's own session
@@ -124,8 +158,8 @@ func (m *Model) pinHosted() {
 // to the next place, and ctrl+6 shows or hides Agents beside the session.
 // It says whether it took the key.
 func (m *Model) hostedKeyGuard(s string) (tea.Cmd, bool) {
-	if m.hosted == "" {
-		return nil, false
+	if m.hosted == "" || m.bar != nil {
+		return nil, false // the command bar has the keys it needs
 	}
 	if m.hostedList {
 		switch {
@@ -137,7 +171,7 @@ func (m *Model) hostedKeyGuard(s string) (tea.Cmd, bool) {
 		return nil, false
 	}
 	switch s {
-	case "ctrl+q", "ctrl+\\":
+	case "ctrl+q", "ctrl+\\", "ctrl+k", "super+k":
 		return nil, false
 	case "ctrl+z", "ctrl+n":
 		return nil, true
