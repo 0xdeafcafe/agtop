@@ -32,17 +32,18 @@ func (m *Model) measureTemp() tea.Cmd {
 		return nil
 	}
 	m.measuring = true
-	keys := make([]string, len(due))
-	dirs := make([][]fleet.TempDir, len(due))
+	// Copies, for the command: where their temp work is is worked out
+	// there too (it asks the system for the user's id).
+	agents := make([]fleet.Agent, len(due))
 	for i, a := range due {
-		keys[i], dirs[i] = a.Key, a.TempDirs()
+		agents[i] = *a
 	}
 	return func() tea.Msg {
-		out := make(tempMsg, len(keys))
-		for i, k := range keys {
+		out := make(tempMsg, len(agents))
+		for i := range agents {
 			at := time.Now() // before the walk: anything written during it is measured next time
-			n := fleet.DiskUsage(dirs[i])
-			out[k] = fleet.TempSize{Bytes: n, At: at, Took: time.Since(at)}
+			n := fleet.DiskUsage(agents[i].TempDirs())
+			out[agents[i].Key] = fleet.TempSize{Bytes: n, At: at, Took: time.Since(at)}
 		}
 		return out
 	}

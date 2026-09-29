@@ -26,6 +26,9 @@ type cleanup struct {
 	// kept are done worktrees the tidy-up found unsafe, and when: it says
 	// so once and looks again only after an hour.
 	kept map[string]time.Time
+	// left is what agents left running, found by reap, waiting for the
+	// next tick to be ended off the UI.
+	left []fleet.Leftover
 }
 
 type worktreesMsg struct {
@@ -104,11 +107,20 @@ func (m *Model) dueIn(keys []string, now time.Time) time.Duration {
 	return due
 }
 
-// tidy is the automatic clean-up, looked at once a minute: the worktrees
-// and temp work of agents done and untouched for long enough. A worktree
-// goes only if git says every change is committed and pushed; one that
-// isn't is kept, and said once.
+// tidy is the tick's clean-up: what agents left running, ended as soon as
+// it's found, and done work, looked at once a minute.
 func (m *Model) tidy() tea.Cmd {
+	if end := m.endLeftovers(); end != nil {
+		return tea.Batch(end, m.tidyDone())
+	}
+	return m.tidyDone()
+}
+
+// tidyDone is the automatic clean-up of done work: the worktrees and temp
+// work of agents done and untouched for long enough. A worktree goes only
+// if git says every change is committed and pushed; one that isn't is
+// kept, and said once.
+func (m *Model) tidyDone() tea.Cmd {
 	c := &m.clean
 	if m.tick%60 != 30 || c.checking || m.store.Config.CleanupAfter() == 0 {
 		return nil
@@ -537,25 +549,41 @@ func (m *Model) onRemoved(msg removedMsg) {
 	m.flash("removed "+name+" · freed "+disk(msg.freed), false)
 }
 
-// reap ends what agents left running when they stopped: a dev server, a
-// watcher, a shell still in a loop. It says what it ended.
+// reap finds what agents left running when they stopped: a dev server, a
+// watcher, a shell still in a loop. It only reads the process table it was
+// given; endLeftovers, on the next tick, ends them off the UI.
 func (m *Model) reap() {
-	left := m.reaper.Watch(m.snap.Table, m.snap.Agents)
+	if left := m.reaper.Scan(m.snap.Table, m.snap.Agents); len(left) > 0 {
+		m.clean.left = append(m.clean.left, left...)
+	}
+}
+
+// endLeftovers ends what reap found, in the background, and says what it
+// ended.
+func (m *Model) endLeftovers() tea.Cmd {
+	left := m.clean.left
 	if len(left) == 0 {
-		return
+		return nil
 	}
-	n := 0
-	for _, l := range left {
-		n += max(1, l.Procs)
-		go l.End(3 * time.Second)
+	m.clean.left = nil
+	return func() tea.Msg {
+		n := 0
+		for i := range left {
+			left[i].Describe() // before it's ended, while it's there to ask
+			n += max(1, left[i].Procs)
+			go left[i].End(3 * time.Second)
+		}
+		l := left[0]
+		what := trimCmd(orphanWhat(l.Cmd), 60)
+		text := fmt.Sprintf("ended what %s left running: %s", oneLine(l.Agent), what)
+		if n > 1 {
+			text += fmt.Sprintf(" (%d processes)", n)
+		}
+		return sheetMsg{apply: func(m *Model) tea.Cmd {
+			m.flash(text, false)
+			return nil
+		}}
 	}
-	l := left[0]
-	what := trimCmd(orphanWhat(l.Cmd), 60)
-	msg := fmt.Sprintf("ended what %s left running: %s", oneLine(l.Agent), what)
-	if n > 1 {
-		msg += fmt.Sprintf(" (%d processes)", n)
-	}
-	m.flash(msg, false)
 }
 
 // orphanWhat is the command a Bash-tool shell was running, without Claude

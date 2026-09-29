@@ -28,6 +28,9 @@ type seenProc struct {
 	ownerStart time.Time
 }
 
+// ourPID is agtop's own process, asked once: Scan runs on the UI.
+var ourPID = os.Getpid()
+
 // Leftover is a process an agent left behind, with everything under it.
 type Leftover struct {
 	PID   int
@@ -41,6 +44,19 @@ type Leftover struct {
 // those noted before that have since been orphaned: alive, the same
 // process, no longer under any agent, and adopted by launchd.
 func (r *Reaper) Watch(tab *proc.Table, agents []*Agent) []Leftover {
+	out := r.Scan(tab, agents)
+	for i := range out {
+		out[i].Describe()
+	}
+	return out
+}
+
+// Describe fills in the leftover's command line, which asks the system.
+func (l *Leftover) Describe() { l.Cmd = proc.CommandLine(l.PID) }
+
+// Scan is Watch without the command lines: it only reads tab, so it never
+// waits. Describe fills each in.
+func (r *Reaper) Scan(tab *proc.Table, agents []*Agent) []Leftover {
 	if tab == nil {
 		return nil
 	}
@@ -48,7 +64,7 @@ func (r *Reaper) Watch(tab *proc.Table, agents []*Agent) []Leftover {
 		r.seen = map[int]seenProc{}
 	}
 	under := map[int]bool{}
-	self := os.Getpid()
+	self := ourPID
 	for _, a := range agents {
 		if a.PID == 0 || a.PID == self {
 			continue
@@ -87,7 +103,7 @@ func (r *Reaper) Watch(tab *proc.Table, agents []*Agent) []Leftover {
 			// Adopted by launchd, so the top of what was left: ending it
 			// ends what's under it too.
 			delete(r.seen, pid)
-			out = append(out, Leftover{PID: pid, Start: s.start, Agent: s.agent, Cmd: proc.CommandLine(pid), Procs: len(tab.Descendants(pid))})
+			out = append(out, Leftover{PID: pid, Start: s.start, Agent: s.agent, Procs: len(tab.Descendants(pid))})
 		}
 	}
 	return out
