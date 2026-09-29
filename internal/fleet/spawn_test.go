@@ -1,6 +1,8 @@
 package fleet
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -84,4 +86,82 @@ func keys(as []*Agent) []string {
 		out = append(out, a.Key)
 	}
 	return out
+}
+
+// A finished codex exec never seen running is found by its prompt in the
+// transcript of the session working when it began, written just before,
+// and folded from then on; one no session asked is looked for once.
+func TestSpawnAskedBy(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Now().Add(-time.Hour).UTC()
+	prompt := "Make version 2 of the macOS app icon for a developer tool"
+	line := func(ts time.Time, text string) string {
+		return `{"type":"assistant","timestamp":"` + ts.Format(time.RFC3339Nano) + `","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"codex exec \"` + text + `\""}}]}}` + "\n"
+	}
+	parent := filepath.Join(dir, "parent.jsonl")
+	later := filepath.Join(dir, "later.jsonl") // says it after the run began
+	os.WriteFile(parent, []byte(line(at.Add(-2*time.Second), prompt)), 0o600)
+	os.WriteFile(later, []byte(line(at.Add(time.Minute), prompt)), 0o600)
+	mk := func(key, path string) *Agent {
+		a := &Agent{Key: key, Kind: "claude", Past: true}
+		a.TranscriptPath, a.CreatedAt, a.UpdatedAt = path, at.Add(-time.Hour), at.Add(time.Hour)
+		return a
+	}
+	kid := &Agent{Key: "codex/i:kid00000", Kind: "codex", Past: true, Headless: true}
+	kid.Name, kid.CreatedAt, kid.UpdatedAt = prompt+" called RUSH…", at, at.Add(time.Minute)
+	lone := &Agent{Key: "codex/i:lone0000", Kind: "codex", Past: true, Headless: true}
+	lone.Name, lone.CreatedAt = "Something nobody here ever asked for", at
+	l := &Loader{links: map[string]string{}}
+	// Another run of the same prompt holds it too, and ran nothing.
+	retry := mk("codex/i:retry000", parent)
+	retry.Name, retry.Kind, retry.Headless = kid.Name[:30]+" something else", "codex", true
+	rows := func() []*Agent {
+		return []*Agent{retry, mk("default/i:later000", later), mk("default/i:parent00", parent), kid, lone}
+	}
+	l.foldSpawns(nil, rows(), nil, map[int]bool{})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		l.takeIn()
+		if _, ok := l.links[lone.Key]; ok && l.links[kid.Key] != "" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if l.links[kid.Key] != "default/i:parent00" {
+		t.Fatalf("links %v", l.links)
+	}
+	if p, ok := l.links[lone.Key]; !ok || p != "" {
+		t.Errorf("the lone run's %q %v", p, ok)
+	}
+	got := l.foldSpawns(nil, rows(), nil, map[int]bool{})
+	if len(got) != 4 || got[2].Subs.Spawned != 1 {
+		t.Errorf("listed %v", keys(got))
+	}
+}
+
+// A run in a worktree of its own says which; one in its session's
+// checkout says nothing.
+func TestSubWorktree(t *testing.T) {
+	dir := t.TempDir()
+	repo, wt, gd := filepath.Join(dir, "repo"), filepath.Join(dir, "repo", ".claude", "worktrees", "agent-1"), filepath.Join(dir, "gd")
+	os.MkdirAll(filepath.Join(repo, ".git"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o600)
+	os.MkdirAll(wt, 0o755)
+	os.MkdirAll(gd, 0o755)
+	os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+gd+"\n"), 0o600)
+	os.WriteFile(filepath.Join(gd, "HEAD"), []byte("ref: refs/heads/worktree-agent-1\n"), 0o600)
+	run := func(name, cwd string) string {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte(`{"type":"user","cwd":"`+cwd+`"}`+"\n"), 0o600)
+		return p
+	}
+	if got, ok := SubWorktree(run("a.jsonl", wt), repo); !ok || got != "worktree-agent-1" {
+		t.Errorf("worktree run: %q %v", got, ok)
+	}
+	if got, ok := SubWorktree(run("b.jsonl", filepath.Join(repo, "sub")), repo); !ok || got != "" {
+		t.Errorf("same checkout: %q %v", got, ok)
+	}
+	if _, ok := SubWorktree(filepath.Join(dir, "none.jsonl"), repo); ok {
+		t.Error("no transcript told")
+	}
 }

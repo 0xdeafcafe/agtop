@@ -157,6 +157,20 @@ func TestSubagentHover(t *testing.T) {
 			t.Errorf("row of %q hovered=%v: %q", l.Ref, hovered, ansi.Strip(l.Text))
 		}
 	}
+	// A run in a worktree of its own says which; the others say nothing.
+	c.subWT = map[string]string{"a1": "worktree-agent-1"}
+	said := false
+	for _, l := range m.subagentList(c, o) {
+		if has := strings.Contains(ansi.Strip(l.Text), "⎇ worktree-agent-1"); has && l.Ref != "sub:a1" {
+			t.Errorf("row of %q says a1's worktree: %q", l.Ref, ansi.Strip(l.Text))
+		} else if has {
+			said = true
+		}
+	}
+	if !said {
+		t.Error("a1's worktree missing")
+	}
+	c.subWT = nil
 
 	c.paneW = 160
 	if r := m.subHoverAt(100, 5); r != "" {

@@ -119,6 +119,17 @@ func (m *Model) refreshSubs() tea.Cmd {
 	}
 	c.paneReading = true
 	msg := paneMsg{key: c.key, path: c.path, hist: hist}
+	// Which checkout each run worked in, for those not known yet.
+	var wtFor []convo.Subagent
+	cwd := ""
+	if c.sess != nil {
+		cwd = firstNonEmpty(c.sess.Info.Cwd, c.sess.Cwd)
+	}
+	for _, sa := range c.subs {
+		if _, ok := c.subWT[sa.ID]; !ok && sa.Path != "" {
+			wtFor = append(wtFor, sa)
+		}
+	}
 	reader, list, gone := c.subReader, &c.subList, m.sessionGone(c)
 	return func() tea.Msg {
 		if msg.path != "" {
@@ -139,6 +150,14 @@ func (m *Model) refreshSubs() tea.Cmd {
 		for i, t := range tails {
 			f, err := t.Fetch()
 			msg.got[i] = fetched{t: t, f: f, err: err}
+		}
+		for _, sa := range wtFor {
+			if wt, ok := fleet.SubWorktree(sa.Path, cwd); ok {
+				if msg.wt == nil {
+					msg.wt = map[string]string{}
+				}
+				msg.wt[sa.ID] = wt
+			}
 		}
 		for _, sh := range spawnHists {
 			if h := sh.r.hist; sh.first || h.stat() {
@@ -162,6 +181,7 @@ type paneMsg struct {
 	got      []fetched
 	// spawnHists are another agent's sessions the shell ran, read again.
 	spawnHists []spawnHist
+	wt         map[string]string // runs' checkouts: c.subWT's
 }
 
 type spawnHist struct {
@@ -183,6 +203,12 @@ func (m *Model) onPane(msg paneMsg) tea.Cmd {
 		return nil
 	}
 	c.paneReading = false
+	for id, wt := range msg.wt {
+		if c.subWT == nil {
+			c.subWT = map[string]string{}
+		}
+		c.subWT[id] = wt
+	}
 	grew := map[*convo.Tail]bool{}
 	for _, g := range msg.got {
 		if g.err == nil && g.t.Take(g.f) {
@@ -574,7 +600,7 @@ func (m *Model) subBanner(c *hostConn, w int) string {
 	if c.subBack {
 		back = "the conversation"
 	}
-	left := paint(cBlue, "▍") + paint(cBlue+bold, "⇉ WATCHING SUBAGENT  ") + paint(cBright+bold, sa.Type) + "  " +
+	left := paint(cBlue, "▍") + paint(cBlue+bold, "⇉ WATCHING SUBAGENT  ") + paint(cBright+bold, sa.Type) + c.subWhere(sa.ID) + "  " +
 		paint(cSub, oneLine(sa.Description)) + "   " + state
 	right := paint(cText, "esc") + dim(" back to "+back) + " "
 	if c.subHover == "subback" {
@@ -582,7 +608,7 @@ func (m *Model) subBanner(c *hostConn, w int) string {
 	}
 	// The right side stays; the description gives way.
 	if lw := w - cellw.String(right) - 2; cellw.String(left) > lw {
-		left = ansi.Truncate(paint(cBlue, "▍")+paint(cBlue+bold, "⇉ WATCHING SUBAGENT  ")+paint(cBright+bold, sa.Type)+"  "+state+"  "+paint(cSub, oneLine(sa.Description)), max(10, lw), "…")
+		left = ansi.Truncate(paint(cBlue, "▍")+paint(cBlue+bold, "⇉ WATCHING SUBAGENT  ")+paint(cBright+bold, sa.Type)+c.subWhere(sa.ID)+"  "+state+"  "+paint(cSub, oneLine(sa.Description)), max(10, lw), "…")
 	}
 	return onBg(bgSub, spread(left, right, w), w)
 }
@@ -759,7 +785,7 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 			model = convo.PrettyModel(r.t.Requests[n-1].Model)
 		}
 		ref := "sub:" + sa.ID
-		left := "  " + mark + " " + paint(cBlue, "⇉") + " " + paint(cText+bold, sa.Type) + "  " + paint(cSub, oneLine(sa.Description))
+		left := "  " + mark + " " + paint(cBlue, "⇉") + " " + paint(cText+bold, sa.Type) + c.subWhere(sa.ID) + "  " + paint(cSub, oneLine(sa.Description))
 		right := state + "   " + dim(took) + "  "
 		top := spread(left, right, w)
 		tot := r.t.Totals(now)
@@ -873,8 +899,9 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 			doing = dim("starting…")
 		}
 		right := dim(strings.Join(facts, " · ")) + "  "
-		top := spread("  "+paint(cOrange, spinner[(m.tick+i)%len(spinner)])+" "+paint(cText+bold, sa.Type)+
-			"  "+paint(cSub, ansi.Truncate(oneLine(sa.Description), max(12, w-cellw.String(ansi.Strip(right))-cellw.String(sa.Type)-10), "…")), right, w)
+		where := c.subWhere(sa.ID)
+		top := spread("  "+paint(cOrange, spinner[(m.tick+i)%len(spinner)])+" "+paint(cText+bold, sa.Type)+where+
+			"  "+paint(cSub, ansi.Truncate(oneLine(sa.Description), max(12, w-cellw.String(ansi.Strip(right))-cellw.String(sa.Type)-cellw.String(ansi.Strip(where))-10), "…")), right, w)
 		// Hung off its spinner, so each run reads as one block.
 		act := ansi.Truncate("  "+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+doing+trail, w-2, "…")
 		if c.sel == "run:"+sa.ID {
@@ -1006,6 +1033,7 @@ type hostConn struct {
 	subs       []convo.Subagent
 	subTail    *convo.Tail
 	subTails   map[string]*convo.Tail // every run, followed for its row's numbers only
+	subWT      map[string]string      // each run's checkout, when not the session's, once known
 	subBack    bool                   // the open run was picked in the dock: ← goes back there
 	subPeek    *convo.Tail            // the run picked in the list, in full, shown beside it
 	subPeekID  string
@@ -3605,4 +3633,13 @@ func (m *Model) stopSub(c *hostConn, sa convo.Subagent, live bool) tea.Cmd {
 	m.flash("stopping "+sa.Type+" · the turn carries on", false)
 	cl, id := c.client, sa.ID
 	return hostCmd(func() error { return cl.StopTask(id) })
+}
+
+// subWhere is the checkout a run worked in, when it isn't the session's:
+// a worktree of its own, most often.
+func (c *hostConn) subWhere(id string) string {
+	if wt := c.subWT[id]; wt != "" {
+		return "  " + faint("⎇ ") + dim(wt)
+	}
+	return ""
 }

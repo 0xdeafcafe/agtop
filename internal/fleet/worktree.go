@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,7 +11,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Worktree is a linked git worktree an agent works in, and whether it can
@@ -281,4 +285,51 @@ func linkedWorktree(w Worktree) error {
 		return fmt.Errorf("%s doesn't belong to %s as a worktree; it's never removed", path, repo)
 	}
 	return nil
+}
+
+// cwds are transcripts' folders as their heads say: one never changes.
+var cwds sync.Map
+
+var cwdMark = []byte(`"cwd":"`)
+
+// TranscriptCwd is the folder a transcript's head says its agent ran in:
+// Claude Code's lines and Codex's session_meta both say.
+func TranscriptCwd(path string) string {
+	if v, ok := cwds.Load(path); ok {
+		return v.(string)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	b := make([]byte, 64<<10)
+	n, _ := f.Read(b)
+	b = b[:n]
+	i := bytes.Index(b, cwdMark)
+	if i < 0 {
+		return ""
+	}
+	j := bytes.IndexByte(b[i+len(cwdMark):], '"')
+	var cwd string
+	if j < 0 || jsonx.Unmarshal(b[i+len(cwdMark)-1:i+len(cwdMark)+j+1], &cwd) != nil || cwd == "" {
+		return ""
+	}
+	cwds.Store(path, cwd)
+	return cwd
+}
+
+// SubWorktree is the checkout a subagent's transcript says it worked in,
+// by its branch (or folder), when that isn't its session's, whose folder
+// is cwd: "" when it's the same. ok is false while that can't be told.
+func SubWorktree(transcript, cwd string) (label string, ok bool) {
+	sub := TranscriptCwd(transcript)
+	if sub == "" || cwd == "" {
+		return "", false
+	}
+	repo, branch := gitAt(sub)
+	if own, _ := gitAt(cwd); repo == "" || repo == own {
+		return "", true
+	}
+	return firstNonEmpty(branch, filepath.Base(repo)), true
 }

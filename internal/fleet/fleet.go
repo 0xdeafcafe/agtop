@@ -3,6 +3,8 @@
 package fleet
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -269,6 +271,7 @@ type Loader struct {
 	// nothing else says so once it has finished.
 	links      map[string]string
 	linksDirty bool
+	asked      map[string]bool // headless runs looked for in transcripts
 }
 
 // printEntry remembers whether a pid runs claude -p, by its start time.
@@ -332,7 +335,7 @@ func (l *Loader) LinkSpawn(child, parent string) {
 }
 
 func (l *Loader) link(child, parent string) {
-	if child != parent && l.links[child] != parent {
+	if old, ok := l.links[child]; child != parent && (!ok || old != parent) {
 		if l.links == nil {
 			l.links = map[string]string{}
 		}
@@ -424,6 +427,7 @@ func (l *Loader) subagents(key, transcript string, gone bool, now time.Time) (ag
 type SubagentTile struct {
 	ID, Type, Description string
 	Path                  string // its own transcript
+	Worktree              string // its checkout, when not its session's
 }
 
 // subagentTiles are the runs a SubagentRuns calls still working, as tiles:
@@ -436,7 +440,9 @@ func subagentTiles(transcript string, runs []claude.SubagentRun) []SubagentTile 
 	dir := filepath.Join(strings.TrimSuffix(transcript, ".jsonl"), "subagents")
 	out := make([]SubagentTile, 0, len(runs))
 	for _, r := range runs {
-		out = append(out, SubagentTile{ID: r.ID, Type: r.Type, Description: r.Description, Path: filepath.Join(dir, "agent-"+r.ID+".jsonl")})
+		t := SubagentTile{ID: r.ID, Type: r.Type, Description: r.Description, Path: filepath.Join(dir, "agent-"+r.ID+".jsonl")}
+		t.Worktree, _ = SubWorktree(t.Path, TranscriptCwd(transcript))
+		out = append(out, t)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -973,8 +979,14 @@ func (l *Loader) gitFor(dir string, now time.Time) (string, string) {
 	if g, ok := l.git[dir]; ok && now.Sub(g.at) < 30*time.Second {
 		return g.repo, g.branch
 	}
-	var g gitInfo
-	g.at = now
+	g := gitInfo{at: now}
+	g.repo, g.branch = gitAt(dir)
+	l.git[dir] = g
+	return g.repo, g.branch
+}
+
+// gitAt is the checkout dir is in, and its branch, read directly.
+func gitAt(dir string) (repo, branch string) {
 	for d := dir; d != "/" && d != "."; d = filepath.Dir(d) {
 		p := filepath.Join(d, ".git")
 		st, err := os.Stat(p)
@@ -990,18 +1002,17 @@ func (l *Loader) gitFor(dir string, now time.Time) (string, string) {
 			}
 			gitDir = s
 		}
-		g.repo = d
+		repo = d
 		if b, err := os.ReadFile(filepath.Join(gitDir, "HEAD")); err == nil {
 			h := strings.TrimSpace(string(b))
-			g.branch = strings.TrimPrefix(h, "ref: refs/heads/")
-			if len(g.branch) == 40 {
-				g.branch = g.branch[:8]
+			branch = strings.TrimPrefix(h, "ref: refs/heads/")
+			if len(branch) == 40 {
+				branch = branch[:8]
 			}
 		}
 		break
 	}
-	l.git[dir] = g
-	return g.repo, g.branch
+	return repo, branch
 }
 
 func (l *Loader) cmdline(p *proc.Proc) string {
@@ -1252,30 +1263,149 @@ func (l *Loader) foldSpawns(tab *proc.Table, agents []*Agent, spawned []spawn, p
 			spawned = append(spawned, spawn{a.Key, pid})
 		}
 	}
-	gone := map[string]bool{}
+	l.lookForAskers(agents)
+	gone := map[string]*Agent{} // by key, the session each ran under
 	for _, sp := range spawned {
 		if p := ranBy(tab, sp.pid, byPID); p != nil {
 			p.Subs.Direct++
 			p.Subs.Spawned++
-			gone[sp.key] = true
+			gone[sp.key] = p
 			l.link(sp.key, p.Key)
 		}
 	}
 	out := agents[:0]
 	for _, a := range agents {
-		if gone[a.Key] {
+		if p := gone[a.Key]; p != nil {
+			p.addSpend(a)
 			continue
 		}
 		// ponytail: one level only; a spawn's own spawns fold into it, and
 		// out of sight once it has folded too.
 		// One running was found by its process above: this one has ended.
-		if p := byKey[l.links[a.Key]]; p != nil && p != a && !gone[p.Key] {
+		if p := byKey[l.links[a.Key]]; p != nil && p != a && gone[p.Key] == nil {
 			p.Subs.Spawned++
+			p.addSpend(a)
 			continue
 		}
 		out = append(out, a)
 	}
 	return out
+}
+
+// addSpend counts what a run it folds in cost with its own.
+func (a *Agent) addSpend(run *Agent) {
+	a.Spend.Cost += run.Spend.Cost
+	a.Spend.Today += run.Spend.Today
+}
+
+// askFor is how far back a finished headless run is looked for in the
+// sessions that may have run it, and askedBefore how long before it began
+// its command may have been written.
+const (
+	askFor      = 30 * 24 * time.Hour
+	askedBefore = 10 * time.Minute
+)
+
+// asking is a headless run not seen running, and the sessions that may
+// have run it: those working when it began, less other runs like it.
+type asking struct {
+	key, needle string
+	from, to    time.Time
+	keys, paths []string
+}
+
+// lookForAskers looks, in the background, for the sessions that ran the
+// headless runs not seen running, by their prompts in those sessions'
+// transcripts shortly before they began: each is linked (LinkSpawn) when
+// found, and folded by the next load. Each run is looked for once.
+// ponytail: matches the prompt's opening words, so a prompt fed from a
+// file isn't found; the UI links those when their session is opened.
+func (l *Loader) lookForAskers(agents []*Agent) {
+	if l.asked == nil {
+		l.asked = map[string]bool{}
+	}
+	var want []asking
+	for _, a := range agents {
+		needle := promptNeedle(a.Name)
+		if !a.Headless || a.Remote || l.asked[a.Key] || needle == "" ||
+			a.CreatedAt.IsZero() || time.Since(a.CreatedAt) > askFor {
+			continue
+		}
+		if _, ok := l.links[a.Key]; ok {
+			continue // linked, or looked for before
+		}
+		l.asked[a.Key] = true
+		w := asking{key: a.Key, needle: needle, from: a.CreatedAt.Add(-askedBefore), to: a.CreatedAt.Add(5 * time.Second)}
+		for _, p := range agents {
+			path := firstNonEmpty(p.TranscriptPath, p.History)
+			if p != a && (!p.Headless || p.Kind != a.Kind) && !strings.HasPrefix(p.Name, needle) && path != "" && !p.CreatedAt.After(w.to) && !p.UpdatedAt.Before(w.from) {
+				w.keys, w.paths = append(w.keys, p.Key), append(w.paths, path)
+			}
+		}
+		want = append(want, w)
+	}
+	if len(want) == 0 {
+		return
+	}
+	go func() {
+		for i := range want {
+			w := &want[i]
+			parent := "" // none: not looked for again
+			for j, path := range w.paths {
+				if wrote(path, []byte(w.needle), w.from, w.to) {
+					parent = w.keys[j]
+					break
+				}
+			}
+			l.LinkSpawn(w.key, parent)
+		}
+	}()
+}
+
+// promptNeedle is the opening of a prompt as a transcript would hold it,
+// up to anything JSON would escape; empty when that's too short to tell by.
+func promptNeedle(prompt string) string {
+	n := strings.IndexAny(prompt, `"\<>&…`)
+	if n < 0 {
+		n = len(prompt)
+	}
+	n = min(n, 48)
+	if n < 20 {
+		return ""
+	}
+	return prompt[:n]
+}
+
+var tsMark = []byte(`"timestamp":"`)
+
+// wrote is whether a transcript has a line holding needle stamped between
+// from and to.
+func wrote(path string, needle []byte, from, to time.Time) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
+	for sc.Scan() {
+		b := sc.Bytes()
+		if !bytes.Contains(b, needle) {
+			continue
+		}
+		_, rest, ok := bytes.Cut(b, tsMark)
+		if !ok {
+			continue
+		}
+		ts, _, ok := bytes.Cut(rest, []byte(`"`))
+		if !ok {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339Nano, string(ts)); err == nil && !t.Before(from) && !t.After(to) {
+			return true
+		}
+	}
+	return false
 }
 
 // ranBy is the agent whose process is nearest above pid's, or nil.
