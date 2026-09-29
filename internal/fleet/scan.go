@@ -1,186 +1,38 @@
 package fleet
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
-
-	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // Target is one agent's transcript as the scanner needs it.
-type Target struct {
-	Key  string
-	Path string
-	// Live is an agent that may be writing: its subagents' transcripts are
-	// checked every run. Others are only looked at when their own
-	// transcript or subagents folder changes.
-	Live bool
-	// Past is a conversation nothing has open: its row is read again only
-	// every pastEvery, and so are its files.
-	Past bool
-}
+type Target = agent.SpendTarget
 
-// Scanner owns the cost cache; only its goroutine touches it.
-type Scanner struct {
-	mu    sync.Mutex // held for a whole scan; the cache is only touched under it
-	cache *state.CostCache[claude.Totals]
-	sizes map[string]int64
-	seen  map[string]seenTarget
-	buf   []byte
-	saved time.Time
-	day   string
-}
-
-// seenTarget is how a target's files stood at its last scan.
-type seenTarget struct {
-	main   int64     // its transcript's size
-	subDir time.Time // its subagents folder's time, which changes as runs start
-	subs   []string  // the subagents' transcripts
-	at     time.Time // when they were looked at
-}
+// Scanner prices agents' transcripts. Every rush session writes the
+// logins agent's, so it's that agent's scanner that reads them.
+type Scanner struct{ s agent.SpendScanner }
 
 // NewScanner reads nothing: its cost cache is read as it first runs, off
 // the UI goroutine.
 func NewScanner() *Scanner {
-	return &Scanner{sizes: map[string]int64{}, seen: map[string]seenTarget{}, buf: make([]byte, 0, 64<<10)}
-}
-
-// files lists a target's transcripts, and reports false when nothing about
-// a target that isn't live has changed since the last scan.
-func (s *Scanner) files(t Target) ([]string, bool) {
-	if prev, ok := s.seen[t.Path]; ok && t.Past && !t.Live && time.Since(prev.at) < pastEvery {
-		return nil, false
+	if r, ok := agent.As[agent.SpendReader](agent.Kind(state.LoginsKind)); ok {
+		return &Scanner{r.SpendScanner()}
 	}
-	var main int64
-	if st, err := os.Stat(t.Path); err == nil {
-		main = st.Size()
-	}
-	var subDir time.Time
-	if st, err := os.Stat(filepath.Join(strings.TrimSuffix(t.Path, ".jsonl"), "subagents")); err == nil {
-		subDir = st.ModTime()
-	}
-	prev, ok := s.seen[t.Path]
-	if ok && !t.Live && prev.main == main && prev.subDir.Equal(subDir) {
-		prev.at = time.Now()
-		s.seen[t.Path] = prev
-		return nil, false
-	}
-	subs := prev.subs
-	if !ok || !prev.subDir.Equal(subDir) {
-		subs = claude.SubagentTranscripts(t.Path)
-	}
-	s.seen[t.Path] = seenTarget{main: main, subDir: subDir, subs: subs, at: time.Now()}
-	return append([]string{t.Path}, subs...), true
+	return &Scanner{}
 }
 
 // Run scans every target whose files grew and returns the new totals.
 func (s *Scanner) Run(targets []Target) map[string]Spend {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.cache == nil {
-		s.cache = state.LoadCostCache[claude.Totals]()
+	if s.s == nil {
+		return map[string]Spend{}
 	}
-	out := map[string]Spend{}
-	today := claude.Day(time.Now())
-	if today != s.day {
-		// A new day: today's spend starts again, so everything is summed afresh.
-		s.day, s.sizes, s.seen = today, map[string]int64{}, map[string]seenTarget{}
-	}
-	for _, t := range targets {
-		files, maybe := s.files(t)
-		if !maybe {
-			continue
-		}
-		changed := false
-		sizes := make([]int64, len(files))
-		for i, f := range files {
-			sizes[i] = -1
-			st, err := os.Stat(f)
-			if err != nil {
-				continue
-			}
-			sizes[i] = st.Size()
-			if s.sizes[f] != st.Size() {
-				changed = true
-			}
-		}
-		if !changed && len(s.sizes) > 0 {
-			if _, ok := s.sizes[t.Path]; ok {
-				continue
-			}
-		}
-		var sp Spend
-		for i, f := range files {
-			tot := s.cache.Get(f)
-			// Of a session's many subagent transcripts, most haven't grown
-			// since they were last read: their totals stand without opening
-			// them again.
-			if sizes[i] < 0 || tot.Size != sizes[i] {
-				before := tot.Offset
-				s.buf, _ = claude.Scan(f, tot, s.buf)
-				if tot.Offset != before {
-					s.cache.MarkDirty()
-				}
-			}
-			s.sizes[f] = tot.Size
-			c, u := tot.Spend()
-			sp.Cost += c
-			sp.Usage.Add(u)
-			sp.Today += tot.DaySpend(today)
-			if f == t.Path {
-				sp.Model = tot.LastModel
-				sp.First, sp.Last = tot.First, tot.Last
-				if tot.Halt != nil {
-					h := *tot.Halt
-					sp.Halt = &h
-				}
-				sp.Progress, sp.ProgressAt = tot.Progress, tot.ProgressAt
-				sp.Context, sp.Compacts = tot.Context(), tot.Compacts
-				sp.Dir = tot.Dir
-			}
-			if tot.Last.After(sp.Last) {
-				sp.Last = tot.Last
-			}
-			for _, p := range tot.PRs {
-				addUnique(&sp.PRs, p)
-			}
-			for _, d := range tot.Dirs {
-				addUnique(&sp.Dirs, d)
-			}
-		}
-		if cap(s.buf) > 8<<20 {
-			s.buf = make([]byte, 0, 64<<10)
-		}
-		sp.Ready = true
-		out[t.Key] = sp
-	}
-	if time.Since(s.saved) > 30*time.Second {
-		_ = s.cache.Save()
-		s.saved = time.Now()
-	}
-	return out
+	return s.s.Run(targets)
 }
 
 // Flush saves the cost cache unless a scan is mid-way; the cache also saves
 // itself every 30s, so skipping one save loses nothing.
 func (s *Scanner) Flush() {
-	if s.mu.TryLock() {
-		if s.cache != nil {
-			_ = s.cache.Save()
-		}
-		s.mu.Unlock()
+	if s.s != nil {
+		s.s.Flush()
 	}
-}
-
-func addUnique(list *[]string, v string) {
-	for _, x := range *list {
-		if x == v {
-			return
-		}
-	}
-	*list = append(*list, v)
 }
