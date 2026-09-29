@@ -1595,9 +1595,23 @@ func (m *Model) focused() *fleet.Agent {
 	return nil
 }
 
-// activeSection holds every open agent that doesn't need you: its turn is
-// yours, it's working, or it sits idle, each row coloured by which.
+// activeSection holds every agent in play: one that needs you or waits on
+// you, one whose turn is yours, one working, and one idle or stopped within
+// activeFor, each row coloured by which.
 const activeSection = "Active"
+
+// activeFor is how long a stopped agent stays in Active before Today has
+// it: Settings › General, 30 minutes unless set.
+func (m *Model) activeFor() time.Duration {
+	switch n := m.store.Config.ActiveMinutes; {
+	case n < 0:
+		return 0
+	case n == 0:
+		return 30 * time.Minute
+	default:
+		return time.Duration(n) * time.Minute
+	}
+}
 
 // rebuild groups the agents for the current group-by mode. What needs the
 // user comes first; anything finished more than a day ago goes to Earlier.
@@ -1643,11 +1657,11 @@ func (m *Model) rebuild() {
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
 		case a.NeedsYou():
-			add("Needs you", 0, a)
+			add(activeSection, 1, a)
 		case a.Halted() && !a.Seen:
-			add("Needs you", 0, a) // it stopped on an error and won't go on by itself
+			add(activeSection, 1, a) // it stopped on an error and won't go on by itself
 		case a.Waiting() || a.Halted():
-			add("Waiting on you", 4, a)
+			add(activeSection, 1, a)
 		case folderKey(a) == scratchSection:
 			add("Scratch", 10, a) // temp-folder runs finish on their own, not on your turn; folded
 		case a.YourTurn(now):
@@ -1660,6 +1674,8 @@ func (m *Model) rebuild() {
 			add(activeSection, 1, a)
 		case a.PID != 0:
 			add(activeSection, 1, a) // your turn, working and idle share one list, a project's rows together
+		case !a.Done && a.Age(now) < m.activeFor():
+			add(activeSection, 1, a) // stopped a moment ago: it stays in play a while before Today has it
 		case !fresh:
 			add("Earlier", 9, a)
 		case a.Done:

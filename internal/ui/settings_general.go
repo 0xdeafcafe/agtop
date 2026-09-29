@@ -45,6 +45,26 @@ func (m *Model) generalSections() []section {
 			fmt.Sscanf(v, "%dm", &c.Hibernate.AfterMinutes)
 		})
 
+	active := choiceSetting("Keep stopped agents in Active for", activeValue(c.ActiveMinutes),
+		"An agent whose process has stopped (rested, hibernated or closed) stays in Active with the rest of what's in play for this long, then moves to Today.",
+		[][2]string{
+			{"", "it moves to Today half an hour after it was last active."},
+			{"10m", "it moves to Today 10 minutes after it was last active."},
+			{"60m", "it moves to Today an hour after it was last active."},
+			{"120m", "it moves to Today two hours after it was last active."},
+			{"off", "it moves to Today as soon as its process stops."},
+		}, func(v string) {
+			switch v {
+			case "off":
+				c.ActiveMinutes = -1
+			case "":
+				c.ActiveMinutes = 0
+			default:
+				fmt.Sscanf(v, "%dm", &c.ActiveMinutes)
+			}
+		})
+	active.unset = "30m"
+
 	cleanup := choiceSetting("Clean up done work after", cleanupValue(c.CleanupHours),
 		"What happens to an agent's worktree and temp work once you've marked it done (alt+d) and left it alone. Stopping an agent never removes anything. A worktree goes only if git says every change in it is committed and pushed; its branch stays. One that isn't is kept, and Agents › Projects says why on the worktree.",
 		[][2]string{
@@ -65,7 +85,7 @@ func (m *Model) generalSections() []section {
 		})
 	cleanup.unset = "3h"
 
-	secs = append(secs, section{title: "Idle and finished", rows: []setting{rest, hibernate, cleanup}})
+	secs = append(secs, section{title: "Idle and finished", rows: []setting{rest, hibernate, active, cleanup}})
 
 	notify := choiceSetting("Notify when an agent needs you", onOffWord(!c.Quiet),
 		"A macOS notification when an agent starts waiting on you (a question or a permission), not when you have already seen it.",
@@ -115,4 +135,15 @@ func cleanupValue(h int) string {
 		return fmt.Sprintf("%dh", h)
 	}
 	return ""
+}
+
+// activeValue is ActiveMinutes as its choice says it.
+func activeValue(n int) string {
+	switch {
+	case n < 0:
+		return "off"
+	case n == 0:
+		return ""
+	}
+	return fmt.Sprintf("%dm", n)
 }

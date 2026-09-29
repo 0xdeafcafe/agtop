@@ -132,6 +132,9 @@ type Config struct {
 	Hibernate struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`
+	// ActiveMinutes is how long a stopped agent stays in the list's Active
+	// section before Today has it; 0 is the default (30), negative off.
+	ActiveMinutes int `json:"activeMinutes,omitzero"`
 	// CleanupHours is how long an agent must have been done and untouched
 	// before its worktree (clean and pushed) and temp work are removed on
 	// their own; 0 is the default, and a negative number turns it off.
