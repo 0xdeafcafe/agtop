@@ -307,8 +307,11 @@ type server struct {
 	// stopping is closed once an agent being stopped has gone; a new one
 	// waits for it, so two never run the same conversation.
 	stopping chan struct{}
-	quit     chan struct{}
-	stopOnce sync.Once
+	// quietWait is set while an idle agent due to move to another account
+	// is being watched for its own work to end: one watch at a time.
+	quietWait bool
+	quit      chan struct{}
+	stopOnce  sync.Once
 	// broker reaches the approved plugins' MCP servers.
 	broker plugin.Broker
 }
@@ -881,26 +884,11 @@ func (s *server) relogin(conn agent.Conn) {
 		switch {
 		case s.info.State != "idle":
 			// onTurnEnd comes back here.
-		case s.stillWorking() || runsShells(pidOf(conn)):
-			if len(s.info.Queue) > 0 && !s.info.QueueHeld {
-				s.sendQueue()
-				return
-			}
-			time.AfterFunc(quietCheck, func() {
-				s.mu.Lock()
-				if s.conn != conn || !s.info.Relogin {
-					s.mu.Unlock()
-					return
-				}
-				s.relogin(conn)
-			})
-		default:
-			s.detach()
-			s.retire(conn)
-			if len(s.info.Queue) > 0 && !s.info.QueueHeld {
-				s.sendQueue()
-				return
-			}
+		case !s.quietWait:
+			// Whether it has shells running is read from the process
+			// table, which isn't done holding mu.
+			s.quietWait = true
+			go s.reloginWhenQuiet(conn)
 		}
 		s.publish()
 		return
@@ -919,6 +907,40 @@ func (s *server) relogin(conn agent.Conn) {
 	} else {
 		_ = s.sendLocked("continue")
 	}
+}
+
+// reloginWhenQuiet rests an idle agent due to move to another account once
+// it has no work of its own running, looking again every quietCheck. What's
+// queued isn't held for that work: it goes to the old one. Called without
+// mu.
+func (s *server) reloginWhenQuiet(conn agent.Conn) {
+	s.mu.Lock()
+	busy := s.stillWorking()
+	s.mu.Unlock()
+	busy = busy || runsShells(pidOf(conn))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn != conn || !s.info.Relogin || s.info.State != "idle" {
+		s.quietWait = false // gone, or in a turn: its end comes back to relogin
+		return
+	}
+	if busy {
+		if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+			s.quietWait = false
+			s.sendQueue()
+			return
+		}
+		time.AfterFunc(quietCheck, func() { s.reloginWhenQuiet(conn) })
+		return
+	}
+	s.quietWait = false
+	s.detach()
+	s.retire(conn)
+	if len(s.info.Queue) > 0 && !s.info.QueueHeld {
+		s.sendQueue()
+		return
+	}
+	s.publish()
 }
 
 // quietCheck is how often an idle agent waiting to start again on another
