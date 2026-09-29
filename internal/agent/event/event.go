@@ -170,6 +170,7 @@ type Status struct {
 type TurnEnd struct {
 	Reason   string // done, interrupted, max_turns, error, ...
 	Err      string // what went wrong, if something did
+	Text     string // the turn's last words, as the agent sums it up
 	Cost     float64
 	Tokens   usage.TokenUsage
 	Duration time.Duration
@@ -247,6 +248,18 @@ type TaskDone struct {
 	Summary    string
 }
 
+// Background is every task now running beside the turn, each time the
+// list changes.
+type Background struct{ Tasks []BackgroundTask }
+
+// BackgroundTask is one task of a Background list.
+type BackgroundTask struct {
+	ID    string
+	Kind  TaskKind
+	Type  string // the agent's own word for it: local_bash, local_agent, ...
+	Label string
+}
+
 // Plan is the agent's whole plan or todo list, each time it changes.
 type Plan struct{ Todos []tool.TodoItem }
 
@@ -279,4 +292,5 @@ func (TaskUpdated) event()       {}
 func (TaskProgress) event()      {}
 func (TaskDone) event()          {}
 func (Plan) event()              {}
+func (Background) event()        {}
 func (Other) event()             {}

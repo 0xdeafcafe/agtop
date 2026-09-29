@@ -67,3 +67,33 @@ func TestNeutralQuestionsAndLimits(t *testing.T) {
 		t.Errorf("Limited = %+v", l)
 	}
 }
+
+// Claude Code's tasks and its background list read as agtop's own, and
+// back again as they were.
+func TestNeutralTasks(t *testing.T) {
+	var n Neutral
+	st := neutral(t, &n, `{"type":"system","subtype":"task_started","task_id":"b1","tool_use_id":"tu1","task_type":"local_bash","description":"npm test","is_backgrounded":true}`)[0].(event.TaskStarted)
+	if st.ID != "b1" || st.CallID != "tu1" || st.Kind != event.ShellTask || st.Label != "npm test" || !st.Background {
+		t.Errorf("TaskStarted = %+v", st)
+	}
+	bg := neutral(t, &n, `{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1","task_type":"local_bash","description":"npm test"}]}`)[0].(event.Background)
+	if len(bg.Tasks) != 1 || bg.Tasks[0].Kind != event.ShellTask || bg.Tasks[0].Type != "local_bash" || bg.Tasks[0].Label != "npm test" {
+		t.Errorf("Background = %+v", bg)
+	}
+	back := FromNeutral(bg)[0].(BackgroundTasks)
+	if len(back.Tasks) != 1 || back.Tasks[0] != (BackgroundTask{ID: "b1", Type: "local_bash", Description: "npm test"}) {
+		t.Errorf("back = %+v", back)
+	}
+	none := neutral(t, &n, `{"type":"system","subtype":"background_tasks_changed","tasks":[]}`)[0].(event.Background)
+	if none.Tasks == nil || len(none.Tasks) != 0 {
+		t.Errorf("an emptied list = %+v", none)
+	}
+	d := neutral(t, &n, `{"type":"system","subtype":"task_notification","task_id":"b1","tool_use_id":"tu1","status":"completed","output_file":"/t/b1.out"}`)[0].(event.TaskDone)
+	if d.ID != "b1" || d.Status != "completed" || d.OutputFile != "/t/b1.out" {
+		t.Errorf("TaskDone = %+v", d)
+	}
+	end := neutral(t, &n, `{"type":"result","subtype":"success","result":"All green.","total_cost_usd":0.5}`)[0].(event.TurnEnd)
+	if end.Text != "All green." || end.Err != "" || FromNeutral(end)[0].(Result).Text != "All green." {
+		t.Errorf("TurnEnd = %+v", end)
+	}
+}

@@ -72,8 +72,25 @@ func (n *Neutral) Event(ev Event) []event.Event {
 			Duration: time.Duration(e.DurationMS) * time.Millisecond, Turns: e.NumTurns}
 		if e.IsError {
 			end.Err = e.Text
+		} else {
+			end.Text = e.Text
 		}
 		return []event.Event{end}
+	case TaskStarted:
+		return []event.Event{event.TaskStarted{ID: e.ID, CallID: e.ToolUseID, Kind: taskKind(e.Type), Label: firstOf(e.Description, e.Workflow),
+			Agent: e.SubagentType, Background: e.Backgrounded}}
+	case TaskUpdated:
+		return []event.Event{event.TaskUpdated{ID: e.ID, Status: e.Status, Label: e.Description, Background: e.Backgrounded, Err: e.Error}}
+	case TaskProgress:
+		return []event.Event{event.TaskProgress{ID: e.ID, Summary: firstOf(e.Summary, e.Description), LastTool: e.LastTool, Tokens: e.Tokens, ToolUses: e.ToolUses}}
+	case TaskDone:
+		return []event.Event{event.TaskDone{ID: e.ID, CallID: e.ToolUseID, Status: e.Status, OutputFile: e.OutputFile, Summary: e.Summary}}
+	case BackgroundTasks:
+		out := event.Background{Tasks: []event.BackgroundTask{}}
+		for _, t := range e.Tasks {
+			out.Tasks = append(out.Tasks, event.BackgroundTask{ID: t.ID, Kind: taskKind(t.Type), Type: t.Type, Label: t.Description})
+		}
+		return []event.Event{out}
 	case RateLimit:
 		var out []event.Event
 		if u, ok := claude.LiveUsage(e.Raw, time.Now()); ok {
@@ -142,6 +159,21 @@ func question(r PermissionRequest) event.Question {
 		out.Asks = append(out.Asks, a)
 	}
 	return out
+}
+
+// taskKind is what a task of Claude Code's type is.
+func taskKind(t string) event.TaskKind {
+	switch t {
+	case "local_bash":
+		return event.ShellTask
+	case "local_agent":
+		return event.SubagentTask
+	case "monitor_mcp":
+		return event.MonitorTask
+	case "local_workflow":
+		return event.WorkflowTask
+	}
+	return event.OtherTask
 }
 
 func partKind(t string) event.PartKind {

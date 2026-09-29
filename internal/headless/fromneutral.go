@@ -55,7 +55,7 @@ func FromNeutral(ev event.Event) []Event {
 	case event.Denied:
 		return []Event{PermissionDenied{Tool: e.Tool, ToolUseID: e.CallID, Reason: e.Reason}}
 	case event.TurnEnd:
-		r := Result{Subtype: "success", CostUSD: e.Cost, DurationMS: int(e.Duration / time.Millisecond), NumTurns: e.Turns, Usage: claudeUsage(e.Tokens)}
+		r := Result{Subtype: "success", Text: e.Text, CostUSD: e.Cost, DurationMS: int(e.Duration / time.Millisecond), NumTurns: e.Turns, Usage: claudeUsage(e.Tokens)}
 		if e.Reason != "done" && e.Reason != "interrupted" {
 			r.Subtype, r.IsError, r.Text = "error_"+strings.ReplaceAll(e.Reason, " ", "_"), true, e.Err
 		}
@@ -73,6 +73,16 @@ func FromNeutral(ev event.Event) []Event {
 		return []Event{TaskProgress{ID: e.ID, Summary: e.Summary, LastTool: e.LastTool, Tokens: e.Tokens, ToolUses: e.ToolUses}}
 	case event.TaskDone:
 		return []Event{TaskDone{ID: e.ID, ToolUseID: e.CallID, Status: e.Status, OutputFile: e.OutputFile, Summary: e.Summary}}
+	case event.Background:
+		out := BackgroundTasks{Tasks: []BackgroundTask{}}
+		for _, t := range e.Tasks {
+			typ := t.Type
+			if typ == "" {
+				typ = taskType(t.Kind)
+			}
+			out.Tasks = append(out.Tasks, BackgroundTask{ID: t.ID, Type: typ, Description: t.Label})
+		}
+		return []Event{out}
 	}
 	return nil
 }
