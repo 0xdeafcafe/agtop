@@ -758,6 +758,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		c := *a
 		snap.Agents[i] = &c
 	}
+	spawned = l.hostedSpawns(hosted, snap.Agents, spawned)
 	snap.Agents = l.foldSpawns(tab, snap.Agents, spawned, parents)
 	if len(snap.Accounts) > 0 {
 		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
@@ -1276,6 +1277,32 @@ func (l *Loader) foldSpawns(tab *proc.Table, agents []*Agent, spawned []spawn, p
 		out = append(out, a)
 	}
 	return out
+}
+
+// hostedSpawns links the agtop sessions an agent's shell ran (agtop spawn,
+// through its stand-in on PATH) to the session that ran them, when that's
+// an agtop session too; one run by another is found by its process, while
+// it runs.
+func (l *Loader) hostedSpawns(hosted []host.Info, agents []*Agent, spawned []spawn) []spawn {
+	byID := map[string]*Agent{}
+	for _, a := range agents {
+		if a.Agtop {
+			byID[a.ID] = a
+		}
+	}
+	for i := range hosted {
+		by, ok := hosted[i].Meta["spawnedBy"]
+		a := byID[hosted[i].ID]
+		if !ok || a == nil {
+			continue
+		}
+		if p := byID[by]; p != nil {
+			l.link(a.Key, p.Key)
+		} else if a.PID != 0 {
+			spawned = append(spawned, spawn{a.Key, a.PID})
+		}
+	}
+	return spawned
 }
 
 // ranBy is the agent whose process is nearest above pid's, or nil.

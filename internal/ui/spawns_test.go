@@ -36,6 +36,12 @@ func TestSpawnFollowed(t *testing.T) {
 		`{"type":"user","timestamp":"` + ts + `","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"r1","content":"…"}]}}`,
 	}, "\n")+"\n"), 0o644)
 
+	// Run through agtop's stand-in, it's an agtop session too.
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	os.MkdirAll(filepath.Join(host.Root(), "kidhost1"), 0o755)
+	os.WriteFile(filepath.Join(host.Root(), "kidhost1", "info.json"),
+		[]byte(`{"id":"kidhost1","sessionId":"kid","state":"stopped","meta":{"spawnedBy":"k"}}`), 0o644)
+
 	s := convo.New()
 	s.Info.Cwd = cwd
 	s.Apply(host.Sent{Text: "ask claude"}, now.Add(-time.Second))
@@ -70,5 +76,8 @@ func TestSpawnFollowed(t *testing.T) {
 	m.openSub(c, c.subs[0].ID)
 	if c.subTail == nil || len(c.subTail.Sess.Turns) == 0 {
 		t.Fatal("opening it shows nothing")
+	}
+	if r.hosted != "kidhost1" {
+		t.Errorf("its agtop session %q: what you type wouldn't reach it", r.hosted)
 	}
 }

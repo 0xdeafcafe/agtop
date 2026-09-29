@@ -577,6 +577,9 @@ func (m *Model) subBanner(c *hostConn, w int) string {
 	left := paint(cBlue, "▍") + paint(cBlue+bold, "⇉ WATCHING SUBAGENT  ") + paint(cBright+bold, sa.Type) + "  " +
 		paint(cSub, oneLine(sa.Description)) + "   " + state
 	right := paint(cText, "esc") + dim(" back to "+back) + " "
+	if m.watchedHost(c) != "" {
+		right = dim("what you send goes to it · ") + right
+	}
 	if c.subHover == "subback" {
 		right = paint(cBright+bold, "esc") + paint(cText, " back to "+back) + " " // a click goes back too
 	}
@@ -2680,6 +2683,10 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 			return err
 		})
 	}
+	if id := m.watchedHost(c); id != "" && text != "" {
+		c.input, c.back = c.input[:0], 0
+		return sendHostedID(id, "the spawned agent", text)
+	}
 	if isHashCmd(text) {
 		c.input, c.back = c.input[:0], 0
 		return m.command(m.agentByKey(c.key), text)
@@ -3067,8 +3074,10 @@ func sessionName(text string) string {
 
 // sendHosted sends a message to an agtop-mode agent from the main prompt,
 // through its host.
-func sendHosted(a *fleet.Agent, text string) tea.Cmd {
-	id := a.ID
+func sendHosted(a *fleet.Agent, text string) tea.Cmd { return sendHostedID(a.ID, a.DisplayName, text) }
+
+// sendHostedID sends to the agtop session id, called name.
+func sendHostedID(id, name, text string) tea.Cmd {
 	return func() tea.Msg {
 		c, err := host.Dial(id)
 		if err != nil {
@@ -3078,7 +3087,7 @@ func sendHosted(a *fleet.Agent, text string) tea.Cmd {
 		if err := c.Send(text); err != nil {
 			return doneMsg{err: err}
 		}
-		return doneMsg{text: "sent to " + a.DisplayName}
+		return doneMsg{text: "sent to " + name}
 	}
 }
 

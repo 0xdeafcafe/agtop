@@ -5,6 +5,7 @@ import (
 	"time"
 
 	_ "github.com/0xdeafcafe/agtop/internal/adapters/codex"
+	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 )
 
@@ -84,4 +85,30 @@ func keys(as []*Agent) []string {
 		out = append(out, a.Key)
 	}
 	return out
+}
+
+// A run an agent's stand-in hosted is listed with the agtop session that
+// ran it, running or not; one another agent ran is found by its process.
+func TestHostedSpawns(t *testing.T) {
+	parent := &Agent{Key: "default/a:parent00", Agtop: true}
+	parent.ID = "parent00"
+	kid := &Agent{Key: "codex/a:kid00000", Agtop: true}
+	kid.ID = "kid00000"
+	orphan := &Agent{Key: "codex/a:orphan00", Agtop: true, PID: 40}
+	orphan.ID = "orphan00"
+	hosted := []host.Info{
+		{ID: "parent00"},
+		{ID: "kid00000", Meta: map[string]string{"spawnedBy": "parent00"}},
+		{ID: "orphan00", Meta: map[string]string{"spawnedBy": "shell"}},
+	}
+	l := &Loader{links: map[string]string{}}
+	agents := []*Agent{parent, kid, orphan}
+	spawned := l.hostedSpawns(hosted, agents, nil)
+	if len(spawned) != 1 || spawned[0] != (spawn{orphan.Key, 40}) {
+		t.Errorf("found by process %v", spawned)
+	}
+	got := l.foldSpawns(&proc.Table{Procs: map[int]*proc.Proc{}}, agents, spawned, map[int]bool{})
+	if len(got) != 2 || got[0] != parent || got[1] != orphan || parent.Subs.Spawned != 1 {
+		t.Errorf("listed %v, parent's subagents %+v", keys(got), parent.Subs)
+	}
 }
