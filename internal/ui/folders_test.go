@@ -52,7 +52,7 @@ func TestProjectSplit(t *testing.T) {
 		}
 		return strings.Join(got, " ")
 	}
-	want := "§Working ▪app on-main ⎇" + wt + " in-tree §Today ▪app done-here ▪scratch scratchy ▪zed zed §Earlier"
+	want := "§Working ▪app on-main ⎇" + wt + " in-tree §Today ▪app done-here ▪zed zed §Earlier §Scratch"
 	if s := lines(); s != want {
 		t.Fatalf("split:\n got %s\nwant %s", s, want)
 	}
@@ -73,7 +73,7 @@ func TestProjectSplit(t *testing.T) {
 	}
 
 	st.Config.SplitBy = "none"
-	if s, want := lines(), "§Working in-tree on-main §Today done-here scratchy zed §Earlier"; s != want {
+	if s, want := lines(), "§Working in-tree on-main §Today done-here zed §Earlier §Scratch"; s != want {
 		t.Fatalf("unsplit:\n got %s\nwant %s", s, want)
 	}
 }

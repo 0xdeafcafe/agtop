@@ -1514,7 +1514,7 @@ func (m *Model) folded(title string) bool {
 	if v, ok := m.store.Config.Folds[title]; ok {
 		return v
 	}
-	return title == "Earlier" || title == otherSection && m.activeSidebar() != nil
+	return title == "Earlier" || title == "Scratch" || title == otherSection && m.activeSidebar() != nil
 }
 
 func (m *Model) toggleFold(title string) {
@@ -1594,6 +1594,8 @@ func (m *Model) rebuild() {
 			add("Waiting on you", 4, a)
 		case a.YourTurn(now):
 			add("Your turn", 1, a) // finished without asking; often wants "keep going"
+		case folderKey(a) == scratchSection:
+			add("Scratch", 10, a) // temp-folder runs, mostly background; folded
 		case a.Checking || a.JustFinished(now):
 			add("Working", 3, a)
 		case a.Pinned:
