@@ -23,45 +23,24 @@ type clkState struct {
 	md   mood
 	tick int   // seconds
 	fx   clkFX // what he's reacting to, drawn at its own quicker pace
-	mark bool  // he's the "ag" monogram for now
 	rich bool  // today's spend is high: now and then a coin drops off him
 }
 
-// clanker draws the header: the RUSH bottle, solid in one colour, which now
-// and then fades into the wordmark and back, a light passing over whichever
-// it is. It never moves; what changes is its colour, its cap, and what
+// clanker draws the header: the RUSH bottle, a light passing over it now
+// and then. It never moves; what changes is its colours, its cap, and what
 // drifts off it.
 func clanker(s clkState) []string {
 	var g clkGrid
-	switch s.fx.kind {
-	case fxMorphIn:
-		n := fxLen[fxMorphIn] - clkShine
-		if s.fx.frame < n {
-			g.crossfade(s, false, s.fx.frame, n)
-			return g.lines()
-		}
-		g.mark(s)
-		g.shimmer(s.fx.frame-n, clkShine, cText, .7)
-		return g.lines()
-	case fxMorphOut:
-		g.crossfade(s, true, s.fx.frame, fxLen[fxMorphOut])
-		return g.lines()
-	}
-	if s.mark && s.fx.kind == fxNone && (s.md == moodIdle || s.md == moodWorking) {
-		g.mark(s)
-		return g.lines()
-	}
 	g.sprite(s)
 	return g.lines()
 }
 
 const (
-	clkCycle = 45 // seconds from one turn into the monogram to the next
-	clkShown = 4  // seconds the monogram stays
+	clkCycle = 45 // seconds between the idle bottle's shimmers
 	clkShine = 14 // frames a light takes to pass over him
-	clkW     = 15 // every frame's width, so the header's text never moves
+	clkW     = 9  // every frame's width, so the header's text never moves
 	clkH     = 5
-	clkX     = 2 // where he stands; the two columns either side are for what drifts off him
+	clkX     = 1 // where it stands; the column either side is for what drifts off it
 	clkBodyW = 6
 	clkFace  = clkLabel // the label, all a narrow header has room for
 	clkLabel = 3        // the row the label's text is on
@@ -99,12 +78,6 @@ var (
 		{"dAAAad", "dAAAad"},
 		{},
 		{"dAAAad", "dDDDDd"},
-	}
-	// clkAG is the wordmark, the whole frame wide.
-	clkAG = []string{
-		"█▀█ █ █ █▀▀ █ █",
-		"██▀ █ █ ▀▀█ █▀█",
-		"█ █ █▄█ ▄▄█ █ █",
 	}
 )
 
@@ -172,7 +145,7 @@ func (g *clkGrid) lines() []string {
 // shimmer passes a band of light over his body, low left to high right;
 // f of n is how far across it is.
 func (g *clkGrid) shimmer(f, n int, tint string, strength float64) {
-	p := -3 + 19*float64(f)/float64(max(1, n-1))
+	p := clkBand(f, n)
 	for y := range g.r {
 		for x := range g.r[y] {
 			if !g.body[y][x] {
@@ -282,6 +255,11 @@ func (g *clkGrid) sprite(s clkState) {
 	}
 	g.bottle(clkX, f, clkLabelBG(md))
 	g.on = true
+	band := -99.0 // where the shimmer's colour is, off the bottle when there's none
+	if fx.kind == fxShimmer {
+		band = clkBand(fx.frame, clkShine)
+	}
+	g.mono(band, md == moodNeedsYou)
 	if md == moodSleepy {
 		g.tint(cFaint, .5)
 	}
@@ -298,6 +276,57 @@ func (g *clkGrid) sprite(s clkState) {
 	if s.rich && tick%30 < 3 {
 		g.dot(1+tick%30, clkW-1, []rune("$¢.")[tick%30], clkMix(cYellow, cFaint, float64(tick%30)*.3))
 	}
+}
+
+// clkBand is where a band of light passing over the bottle is, f of n
+// frames in: low left to high right, starting and ending off it.
+func clkBand(f, n int) float64 {
+	return -3 + float64(clkW+6)*float64(f)/float64(max(1, n-1))
+}
+
+// mono greys the bottle but within reach of band, where its own colours
+// show through; needing you, the label stays orange.
+func (g *clkGrid) mono(band float64, keepLabel bool) {
+	for y := range g.r {
+		for x := range g.r[y] {
+			if !g.body[y][x] {
+				continue
+			}
+			k := 1.0
+			if d := math.Abs(float64(x) + float64(y)*0.7 - band); d < 2.5 {
+				k = d / 2.5
+			}
+			g.c[y][x] = clkMix(g.c[y][x], clkGrey(g.c[y][x]), k) + boldOf(g.c[y][x])
+			if g.bg[y][x] != "" && (!keepLabel || y != clkLabel) {
+				g.bg[y][x] = clkMix(g.bg[y][x], clkGrey(g.bg[y][x]), k)
+			}
+		}
+	}
+}
+
+// boldOf is bold when c is, which clkMix drops.
+func boldOf(c string) string {
+	if strings.HasSuffix(c, bold) {
+		return bold
+	}
+	return ""
+}
+
+// clkGrey is a colour's grey: its lightness, pushed apart so the black
+// cap, the glass and the white label stay distinct.
+func clkGrey(c string) string {
+	var r, g, b int
+	if _, err := fmt.Sscanf(strings.TrimSuffix(c, bold), "\x1b[38;2;%d;%d;%dm", &r, &g, &b); err != nil {
+		return c
+	}
+	l := (.3*float64(r) + .59*float64(g) + .11*float64(b)) / 255
+	l = min(1, max(0, (l-.5)*1.6+.5))
+	v := int(math.Round(20 + l*225))
+	out := rgb(v, v, v)
+	if strings.HasSuffix(c, bold) {
+		out += bold
+	}
+	return out
 }
 
 // tint mixes the bottle's colours k of the way to c.
@@ -330,56 +359,6 @@ func (g *clkGrid) drops(tick int, look []rune, paints []string, every int) {
 		c := clkMix(paints[h/11%len(paints)], cFaint, .3+.4*float64(age))
 		g.dot(2+age, x, look[age], c)
 	}
-}
-
-// mark is the wordmark in the bottle's colour, or every other time the
-// bottle with its name beside it.
-func (g *clkGrid) mark(s clkState) {
-	if s.tick/clkCycle%2 == 1 {
-		g.bottle(0, clkCapped, clkLabelBG(s.md))
-		g.put(2, 8, "rush", cText+bold, true)
-		return
-	}
-	for y, l := range clkAG {
-		g.put(y, 0, l, clkBody(s.md), true)
-	}
-}
-
-// crossfade turns him into the monogram (or back): he dims almost to
-// nothing, and the other brightens up out of it; f of n frames in.
-func (g *clkGrid) crossfade(s clkState, back bool, f, n int) {
-	s.fx = clkFX{}
-	half := n / 2
-	showMark := f >= half
-	if back {
-		showMark = !showMark
-	}
-	if showMark {
-		g.mark(s)
-	} else {
-		g.sprite(s)
-	}
-	t := float64(half-1-f) / float64(half-1) // 1 → 0 over the first half
-	if f >= half {
-		t = float64(f-half) / float64(n-half-1) // 0 → 1 over the second
-	}
-	for y := range g.r {
-		for x := range g.r[y] {
-			if g.r[y][x] != 0 && g.c[y][x] != "" {
-				g.c[y][x] = clkMix(cFaint, g.c[y][x], .15+.85*t)
-			}
-			if g.bg[y][x] != "" {
-				g.bg[y][x] = clkMix(cFaint, g.bg[y][x], .15+.85*t)
-			}
-		}
-	}
-}
-
-func clkBody(md mood) string {
-	if md == moodIdle || md == moodSleepy {
-		return cDim
-	}
-	return cOrange
 }
 
 func clkPaints() []string { return []string{cOrange, cYellow, cBlue, cGreen} }
@@ -423,8 +402,6 @@ type fxKind int
 const (
 	fxNone     fxKind = iota
 	fxShimmer         // a light passes over him, now and then
-	fxMorphIn         // he fades into the monogram
-	fxMorphOut        // and back
 	fxDone            // an agent finished: a glint and a drop
 	fxAnswered        // one you kept waiting moved on: he greens, confetti
 	fxAsk             // one started waiting on you: streaks fly off him
@@ -440,8 +417,8 @@ type clkFX struct {
 const fxEvery = 70 * time.Millisecond
 
 var fxLen = map[fxKind]int{
-	fxShimmer: clkShine, fxMorphIn: 12 + clkShine, fxMorphOut: 12,
-	fxDone: 14, fxAnswered: 22, fxAsk: 18, fxError: 16,
+	fxShimmer: clkShine,
+	fxDone:    14, fxAnswered: 22, fxAsk: 18, fxError: 16,
 }
 
 type fxTickMsg struct{}
@@ -470,8 +447,7 @@ func (fx clkFX) draw(g *clkGrid) {
 	f := fx.frame
 	l, r := clkX-1, clkX+clkBodyW // the columns just off each side of him
 	switch fx.kind {
-	case fxShimmer:
-		g.shimmer(f, clkShine, cText, .6)
+	case fxShimmer: // sprite lets the bottle's colour through where it passes
 	case fxAsk:
 		// Streaks out from him, a tip with a short tail, fading as they
 		// go; then a yellow light passes over him.
@@ -538,9 +514,6 @@ func (m *Model) react(k fxKind) {
 	if k < m.fx.kind {
 		return
 	}
-	if k != fxMorphIn {
-		m.clkMark = false
-	}
 	m.fx = clkFX{kind: k}
 	if !m.fxOn {
 		m.fxOn, m.fxKick = true, true
@@ -551,36 +524,22 @@ func (m *Model) react(k fxKind) {
 func (m *Model) onFXTick() tea.Cmd {
 	m.fx.frame++
 	if m.fx.frame >= fxLen[m.fx.kind] {
-		if m.fx.kind == fxMorphIn {
-			m.clkMark, m.clkMarkAt = true, m.tick
-		}
 		m.fx, m.fxOn = clkFX{}, false
 		return nil
 	}
 	return fxTick()
 }
 
-// clkBeat is clanker's second: now and then a light passes over him, and
-// every clkCycle seconds he turns into the monogram for a while.
+// clkBeat is clanker's second: now and then a light passes over it.
 func (m *Model) clkBeat(md mood) {
 	if m.fx.kind != fxNone || m.zen {
 		return
 	}
-	if md != moodIdle && md != moodWorking {
-		m.clkMark = false
-		return
-	}
-	switch {
-	case m.clkMark && m.tick-m.clkMarkAt >= clkShown:
-		m.react(fxMorphOut)
-	case m.clkMark:
-	case m.tick%clkCycle == 0:
-		m.react(fxMorphIn)
-	case md == moodWorking && m.tick%clkCycle%15 == 8, md == moodIdle && m.tick%clkCycle == 25:
+	if md == moodWorking && m.tick%15 == 8 || md == moodIdle && m.tick%clkCycle == 25 {
 		m.react(fxShimmer)
 	}
 }
 
 func (m *Model) clkState(md mood, t tally) clkState {
-	return clkState{md: md, tick: m.tick, fx: m.fx, mark: m.clkMark, rich: t.today >= 500}
+	return clkState{md: md, tick: m.tick, fx: m.fx, rich: t.today >= 500}
 }

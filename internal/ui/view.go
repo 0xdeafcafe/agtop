@@ -150,7 +150,7 @@ func (m *Model) header() []string {
 	if mc := m.snap.Machine; mc.Orphans > 0 {
 		counts = append(counts, paint(cYellow, fmt.Sprintf("%d orphaned · %s", mc.Orphans, mem(mc.OrphanMem)))+dim(" · Agents › Projects to end"))
 	}
-	left1 := paint(cText+bold, "rush") + "   " + strings.Join(counts, "   ")
+	left1 := paint(cText+bold+italic, "rush") + "   " + strings.Join(counts, "   ")
 
 	// Which provider, account and profile new sessions start on: beside
 	// the usage it reads when the top bar shows usage, here when it doesn't.
@@ -160,7 +160,7 @@ func (m *Model) header() []string {
 		left2 = dim(tildify(m.launchDir))
 	}
 	if m.w < narrowHead {
-		// Only his face fits, so it's always him, never the monogram.
+		// Only the label fits.
 		var g clkGrid
 		g.sprite(m.clkState(md, t))
 		return m.narrowHeader(g.lines(), counts, acct)
@@ -188,7 +188,7 @@ func (m *Model) header() []string {
 	for i, r := range robot {
 		out[i] = "  " + r
 	}
-	// Text sits level with the cap's foot and the shoulders; the tabs on the base.
+	// The text sits in the middle of the bottle's height, the tabs under it.
 	out[1] = line(robot[1], left1, right1)
 	out[2] = line(robot[2], left2, right2)
 	// < > (or , .) go between the places; in a Session's box they're
@@ -197,9 +197,8 @@ func (m *Model) header() []string {
 	if m.hosted != "" || m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil {
 		places = "ctrl+\\"
 	}
-	last := len(robot) - 1 // the tabs sit on the bottle's base, just over the pages row
-	strip := "  " + robot[last] + "   " + strings.Join(m.tabs(), " ")
-	out[last] = withTabHint(strip, places, "places", "", m.w)
+	strip := "  " + robot[3] + "   " + strings.Join(m.tabs(), " ")
+	out[3] = withTabHint(strip, places, "places", "", m.w)
 	return out
 }
 

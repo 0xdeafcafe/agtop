@@ -218,8 +218,6 @@ type Model struct {
 	fx        clkFX           // what clanker is reacting to
 	fxOn      bool            // his reaction is ticking
 	fxKick    bool            // a reaction started this update; its ticking needs starting
-	clkMark   bool            // clanker is the monogram for now
-	clkMarkAt int             // the tick he turned into it
 	measuring bool            // temp work is being measured in the background
 	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
 	eff       effState        // the Efficiency place

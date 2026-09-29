@@ -14,7 +14,7 @@ func TestClankerShape(t *testing.T) {
 	for md := moodIdle; md <= moodSleepy; md++ {
 		for tick := 0; tick < 90; tick++ {
 			fx := clkFX{kind: fxKind(tick % 8), frame: tick % 16}
-			lines := clanker(clkState{md: md, tick: tick, fx: fx, mark: tick%3 == 0, rich: true})
+			lines := clanker(clkState{md: md, tick: tick, fx: fx, rich: true})
 			if len(lines) < 3 || len(lines) > clkH {
 				t.Fatalf("mood %d tick %d: %d lines", md, tick, len(lines))
 			}
@@ -36,27 +36,48 @@ func TestClankerSheet(t *testing.T) {
 	if out == "" {
 		t.Skip("set CLK_SHEET to a file path to render the contact sheet")
 	}
-	names := []string{"idle", "working", "needs you", "sleepy"}
+	type strip struct {
+		name   string
+		frames []clkState
+	}
+	strips := make([]strip, 0, 9)
+	for md, name := range []string{"idle", "working", "needs you", "sleepy"} {
+		st := strip{name: name}
+		for tick := range 6 {
+			st.frames = append(st.frames, clkState{md: mood(md), tick: tick})
+		}
+		strips = append(strips, st)
+	}
+	for _, r := range []struct {
+		name string
+		kind fxKind
+		md   mood
+	}{{"shimmer", fxShimmer, moodIdle}, {"asked", fxAsk, moodNeedsYou}, {"answered", fxAnswered, moodWorking},
+		{"finished", fxDone, moodIdle}, {"error", fxError, moodIdle}} {
+		st := strip{name: r.name}
+		for f := 0; f < fxLen[r.kind]; f += max(1, fxLen[r.kind]/6) {
+			st.frames = append(st.frames, clkState{md: r.md, tick: 1, fx: clkFX{kind: r.kind, frame: f}})
+		}
+		strips = append(strips, st)
+	}
 	var sb strings.Builder
-	{
-		for md := moodIdle; md <= moodSleepy; md++ {
-			frames := make([][]string, 6)
-			for tick := range frames {
-				frames[tick] = clanker(clkState{md: md, tick: tick})
+	for _, st := range strips {
+		frames := make([][]string, len(st.frames))
+		for i, s := range st.frames {
+			frames[i] = clanker(s)
+		}
+		for row := range frames[0] {
+			label := "          "
+			if row == 2 {
+				label = fit(dim(st.name), 10)
 			}
-			for row := range frames[0] {
-				label := "          "
-				if row == 1 {
-					label = fit(dim(names[md]), 10)
-				}
-				sb.WriteString(label)
-				for _, f := range frames {
-					sb.WriteString(f[row] + "   ")
-				}
-				sb.WriteString("\n")
+			sb.WriteString(label)
+			for _, f := range frames {
+				sb.WriteString(f[row] + "   ")
 			}
 			sb.WriteString("\n")
 		}
+		sb.WriteString("\n")
 	}
 	if err := os.WriteFile(out, []byte(sb.String()), 0o644); err != nil {
 		t.Fatal(err)
@@ -109,7 +130,7 @@ func clkPlay(draw func(lines []string, say string, at time.Duration)) {
 			m.onFXTick()
 			next = now + fxEvery
 		}
-		draw(clanker(clkState{md: md, tick: m.tick, fx: m.fx, mark: m.clkMark, rich: true}), say, now)
+		draw(clanker(clkState{md: md, tick: m.tick, fx: m.fx, rich: true}), say, now)
 		time.Sleep(10 * time.Millisecond)
 	}
 }
