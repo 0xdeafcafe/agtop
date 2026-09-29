@@ -10,6 +10,7 @@ import (
 	"io"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/pgguard"
 )
 
 // Options says which conversation to run and where.
@@ -89,6 +91,21 @@ type Session struct {
 	done    chan struct{}
 	err     error
 	stderr  tail
+	guard   *pgguard.Guard
+}
+
+// RunsSession says whether args are a headless Claude Code on sessionID, as
+// Start runs it.
+func RunsSession(args []string, sessionID string) bool {
+	if !slices.Contains(args, "-p") || !slices.Contains(args, "stream-json") {
+		return false
+	}
+	for i := 0; i+1 < len(args); i++ {
+		if (args[i] == "--resume" || args[i] == "--session-id") && args[i+1] == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 // Start launches Claude Code for o.
@@ -118,6 +135,7 @@ func Start(o Options) (*Session, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	s.guard = pgguard.Watch(cmd.Process.Pid)
 	go s.read(stdout, events, o.Tap, o.Skip)
 	go s.writer()
 	return s, nil
@@ -196,6 +214,7 @@ func (s *Session) read(r io.Reader, events chan<- Event, tap func([]byte), skip 
 		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
 	}
 	err := s.cmd.Wait()
+	s.guard.Release()
 	if lines.Err() != nil {
 		err = fmt.Errorf("reading Claude Code's output: %w", lines.Err())
 	}

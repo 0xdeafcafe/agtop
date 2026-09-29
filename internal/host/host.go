@@ -327,6 +327,7 @@ func Run(id string) error {
 	if cfg.IdleStop == 0 {
 		cfg.IdleStop = Duration(DefaultIdleStop)
 	}
+	endStrays(cfg.Kind, cfg.SessionID)
 	sock := SockPath(id)
 	_ = os.Remove(sock)
 	ln, err := net.Listen("unix", sock)

@@ -17,6 +17,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/0xdeafcafe/agtop/internal/pgguard"
 )
 
 // message is one line of the app-server protocol. It is JSON-RPC 2.0
@@ -53,8 +54,9 @@ type client struct {
 	pending map[int64]chan message
 	err     error
 
-	done chan struct{}
-	cmd  *exec.Cmd
+	done  chan struct{}
+	cmd   *exec.Cmd
+	guard *pgguard.Guard
 }
 
 func newClient(r io.Reader, w io.WriteCloser, handle func(*client, message)) *client {
@@ -92,7 +94,7 @@ func spawn(binary, home string, env, flags []string, handle func(*client, messag
 		return nil, err
 	}
 	c := newClient(out, in, handle)
-	c.cmd = cmd
+	c.cmd, c.guard = cmd, pgguard.Watch(cmd.Process.Pid)
 	return c, nil
 }
 
@@ -248,7 +250,7 @@ func (c *client) close() error {
 	}
 	pid := c.cmd.Process.Pid
 	exited := make(chan struct{})
-	go func() { _ = c.cmd.Wait(); close(exited) }()
+	go func() { _ = c.cmd.Wait(); c.guard.Release(); close(exited) }()
 	select {
 	case <-exited:
 		return nil

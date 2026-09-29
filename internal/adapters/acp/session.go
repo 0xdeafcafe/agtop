@@ -24,6 +24,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
+	"github.com/0xdeafcafe/agtop/internal/pgguard"
 )
 
 // Options is how to run an ACP agent and which session to open.
@@ -111,9 +112,11 @@ func Start(ctx context.Context, o Options) (*Session, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	guard := pgguard.Watch(cmd.Process.Pid)
 	go func() {
 		s.rpc.read(stdout)
 		_ = cmd.Wait()
+		guard.Release()
 		s.ended()
 	}()
 	if err := s.begin(ctx); err != nil {

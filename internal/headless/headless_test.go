@@ -290,3 +290,21 @@ func TestContentPlacesImagesAtTheirMarkers(t *testing.T) {
 		t.Fatalf("unknown marker: %s", got)
 	}
 }
+
+func TestRunsSession(t *testing.T) {
+	sid := "8c76706f-1c00-4aed-9c6d-7509f3033943"
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"claude", "-p", "--input-format", "stream-json", "--resume", sid}, true},
+		{[]string{"claude", "-p", "--input-format", "stream-json", "--session-id", sid}, true},
+		{[]string{"claude", "--resume", sid}, false},
+		{[]string{"claude", "-p", "--input-format", "stream-json", "--resume", "other"}, false},
+		{[]string{"vim", sid}, false},
+	} {
+		if got := RunsSession(c.args, sid); got != c.want {
+			t.Errorf("%v: %v", c.args, got)
+		}
+	}
+}

@@ -432,3 +432,8 @@ func (c *conn) Err() error                     { return c.s.Err() }
 func (c *conn) Taps() bool                     { return c.taps }
 func (c *conn) PID() int                       { return c.s.PID() }
 func (c *conn) Close() error                   { return c.s.Stop(3 * time.Second) }
+
+// RunsSession: its sessions are headless Claude Codes.
+func (Adapter) RunsSession(args []string, sessionID string) bool {
+	return headless.RunsSession(args, sessionID)
+}

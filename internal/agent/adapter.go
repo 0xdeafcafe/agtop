@@ -62,6 +62,13 @@ type Driver interface {
 	Start(ctx context.Context, o StartOptions) (Conn, error)
 }
 
+// Orphans is a Driver that knows its own sessions' processes by their
+// command line. A host that starts a session ends any process still running
+// it for a host that's gone, so two never write one transcript.
+type Orphans interface {
+	RunsSession(args []string, sessionID string) bool
+}
+
 // StartOptions is how a Driver starts or resumes a session.
 type StartOptions struct {
 	Profile   Profile
