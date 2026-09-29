@@ -610,6 +610,10 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 	if k == "" {
 		return nil
 	}
+	if k == advisorKey {
+		m.openAdvisorAbout()
+		return nil
+	}
 	double := k == m.sel && time.Since(m.lastClick) < 400*time.Millisecond
 	m.sel, m.lastClick = k, time.Now()
 	if strings.HasPrefix(k, "§") {

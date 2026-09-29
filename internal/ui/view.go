@@ -1208,7 +1208,11 @@ func (m *Model) listLines(w, h int) []string {
 			key := sectionKey(l.title)
 			emit(m.sectionLine(l, w), key, key == m.sel)
 		case lineProject:
-			emit(m.projectLine(l, w), "", false)
+			key := ""
+			if l.root == rushSection {
+				key = advisorKey // a click says what it is
+			}
+			emit(m.projectLine(l, w), key, false)
 		case lineTree:
 			emit(m.treeLine(l, w), "", false)
 		case lineBlank:

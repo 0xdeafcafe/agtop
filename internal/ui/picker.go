@@ -17,6 +17,7 @@ import (
 type picker struct {
 	title  string
 	note   string // after the title, dimmed
+	about  string // under the title, wrapped: what it's about
 	prs    []agent.PR
 	dirs   []string
 	query  []rune // narrows dirs, or is a folder of its own
@@ -250,6 +251,12 @@ func (m *Model) pickerBody(w int) []string {
 		title += dim(" · " + p.note)
 	}
 	out := []string{title, ""}
+	if p.about != "" {
+		for _, l := range wrap(p.about, w) {
+			out = append(out, dim(l))
+		}
+		out = append(out, "")
+	}
 	if p.dirs != nil {
 		out = append(out, dim("Folder ❯ ")+string(p.query)+paint(cOrange, "▏"), "")
 		shown := p.shownDirs()
