@@ -121,3 +121,39 @@ func TestTailSharedFileKeepsComing(t *testing.T) {
 		t.Error("no time for when it last changed")
 	}
 }
+
+// In the background view the pointer lights a task's rows, and one click
+// opens its output, another closes it.
+func TestBackgroundHoverClick(t *testing.T) {
+	s := convo.New()
+	now := time.Now()
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 1, State: "working"}}, now)
+	s.Apply(headless.TaskStarted{ID: "b2", ToolUseID: "t2", Type: "local_bash", Description: "npm run dev", Backgrounded: true}, now)
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}}
+	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
+	for i, v := range m.views(c) {
+		if v == "background" {
+			c.view = i
+		}
+	}
+	c.rowRefs = []string{"", "", "", "job:b2", "job:b2"}
+	if _, cmd := m.subMouseMove(50, 3); cmd != nil || c.subHover != "job:b2" {
+		t.Fatalf("hover: %q", c.subHover)
+	}
+	lines := m.jobLines(c, convo.Options{Width: 80, Open: c.open})
+	lit := false
+	for _, l := range lines {
+		lit = lit || l.Ref == "job:b2" && strings.Contains(l.Text, hoverBG)
+	}
+	if !lit {
+		t.Fatal("the task under the pointer isn't lit")
+	}
+	m.clickRow(c, 4)
+	if c.sel != "job:b2" || !c.open["job:b2"] {
+		t.Fatalf("one click opens it: sel=%q open=%v", c.sel, c.open)
+	}
+	m.clickRow(c, 3)
+	if c.open["job:b2"] {
+		t.Fatal("a second click closes it")
+	}
+}

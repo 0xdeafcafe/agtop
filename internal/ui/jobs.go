@@ -182,7 +182,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 	if len(run) > 0 {
 		head = paint(cOrange, fmt.Sprintf("%d running", len(run))) + dim(" · ") + head
 	}
-	how := "enter shows output · x stops · b backgrounds"
+	how := "enter or click shows output · x stops · b backgrounds"
 	lines := []convo.Line{{Text: fit("  "+head+dim(" · "+how), w)}, {Text: ""}}
 	if len(run)+len(done) == 0 {
 		return append(lines, convo.Line{Text: dim("  nothing running · shells, monitors and workflows Claude starts show here")})
@@ -190,9 +190,12 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 	now := time.Now()
 	emit := func(ref string, rows []string, pick bool) {
 		for _, r := range rows {
-			if pick && ref == o.Selected {
+			switch {
+			case pick && ref == o.Selected:
 				r = picked1(r, w, o.Focused)
-			} else {
+			case pick && ref == c.subHover:
+				r = hoverLine(r, w)
+			default:
 				r = fit(r, w)
 			}
 			lines = append(lines, convo.Line{Text: r, Ref: ref})

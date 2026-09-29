@@ -679,14 +679,21 @@ type subHoverMsg struct{}
 func (m *Model) subHoverAt(x, y int) string {
 	c := m.host
 	if c == nil || m.mode != modeList || m.dialog != nil || m.picker != nil || m.zen || m.embedded ||
-		c.txt.drag || (m.listW > 0 && x <= m.listW+1) || m.viewName(c) != "subagents" {
+		c.txt.drag || (m.listW > 0 && x <= m.listW+1) {
 		return ""
 	}
+	view := m.viewName(c)
 	i := y - m.paneTop
-	if i < 0 || i >= len(c.rowRefs) {
+	if view != "subagents" && view != "background" || i < 0 || i >= len(c.rowRefs) {
 		return ""
 	}
 	r := c.rowRefs[i]
+	if view == "background" {
+		if strings.HasPrefix(r, "job:") {
+			return r // a task's rows, to open with a click
+		}
+		return ""
+	}
 	// Wide, a run's conversation sits beside the list on its rows; only
 	// the list itself is the run's.
 	if strings.HasPrefix(r, "sub:") && c.subOpen == "" && c.paneW >= 150 && x-m.paneX() >= min(72, c.paneW*2/5) {
@@ -1156,7 +1163,7 @@ type hostConn struct {
 	subList     convo.Subagents       // finds the runs, reading each one's meta once
 	subRuns     agent.SubagentRuns    // which runs the transcripts say are still working: subReader's, as last read; see runs
 	subSel      string                // selection inside the opened subagent
-	subHover    string                // the run under the pointer, or "subback" for the banner
+	subHover    string                // the run or task under the pointer, or "subback" for the banner
 	runPick     int                   // where the pick last was among the dock's running subagents
 	taskDir     string                // the session's tasks folder, once found
 	taskDirAt   time.Time             // when it was last looked for
@@ -3183,7 +3190,10 @@ func (m *Model) clickRow(c *hostConn, y int) {
 		m.closeSub(c)
 		return
 	}
-	if ref == c.sel {
+	if ref == c.sel || strings.HasPrefix(ref, "job:") {
+		// A task opens or closes on the first click: its rows are one
+		// thing, with nothing to pick in it first.
+		c.sel = ref
 		if id, ok := strings.CutPrefix(ref, "sub:"); ok {
 			m.openSub(c, id)
 			return
