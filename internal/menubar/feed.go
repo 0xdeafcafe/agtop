@@ -12,16 +12,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/state"
@@ -138,8 +139,16 @@ type Op struct {
 type pending struct {
 	sig  string // Needs when it was read; a change means ask again
 	host string
-	req  *headless.PermissionRequest
+	req  *asking
 	info host.Info
+}
+
+// asking is what a session waits on you for: leave for a call, or the
+// answers to a question.
+type asking struct {
+	ID     string
+	Reason string          // why it asks, when it says
+	Q      *event.Question // set when it's a question
 }
 
 // Feed writes the menu's state to out as it changes, every couple of
@@ -329,17 +338,17 @@ func answerable(w *Waiting, a *fleet.Agent, asked map[string]*pending) {
 	case p.info.Limit != nil && p.info.Limit.Ask:
 		w.Kind = "limit"
 	case p.req == nil:
-	case p.req.Tool == "AskUserQuestion":
-		_, qs := p.req.Questions()
+	case p.req.Q != nil:
+		qs := p.req.Q.Asks
 		w.Req = p.req.ID
 		if len(qs) == 0 {
 			return
 		}
 		q := qs[0]
-		w.Header, w.Text = q.Header, strings.TrimSpace(q.Question)
+		w.Header, w.Text = q.Header, strings.TrimSpace(q.Text)
 		// One single-choice question can be answered from a notification;
 		// several, or ticking many, need agtop.
-		if len(qs) == 1 && !q.MultiSelect && len(q.Options) > 0 {
+		if len(qs) == 1 && !q.Multi && len(q.Options) > 0 {
 			w.Kind = "question"
 			for _, o := range q.Options {
 				w.Options = append(w.Options, o.Label)
@@ -347,20 +356,18 @@ func answerable(w *Waiting, a *fleet.Agent, asked map[string]*pending) {
 		}
 	default:
 		w.Kind, w.Req = "permission", p.req.ID
-		w.Text = strings.TrimSpace(p.req.Description)
+		w.Text = strings.TrimSpace(p.req.Reason)
 	}
 }
 
-// waitingOn reads the request a session's host is waiting on from its
-// replay: the last one not yet settled, and its info, which comes last.
-func waitingOn(id string) (*headless.PermissionRequest, host.Info) {
+func waitingOn(id string) (*asking, host.Info) {
 	c, err := host.Dial(id)
 	if err != nil {
 		return nil, host.Info{}
 	}
 	defer c.Close()
-	open := map[string]*headless.PermissionRequest{}
-	var order []string
+	w := waits{open: map[string]*asking{}}
+	var d host.Decoder
 	timeout := time.After(2 * time.Second)
 	for {
 		select {
@@ -371,30 +378,49 @@ func waitingOn(id string) (*headless.PermissionRequest, host.Info) {
 			if skipped(l) {
 				continue
 			}
-			ev, err := host.Decode(l)
-			if err != nil {
-				continue
-			}
-			switch ev := ev.(type) {
-			case headless.PermissionRequest:
-				open[ev.ID] = &ev
-				order = append(order, ev.ID)
-			case headless.PermissionCancelled:
-				delete(open, ev.ID)
-			case host.Answered:
-				delete(open, ev.ID)
-			case host.InfoEvent:
-				for i := len(order) - 1; i >= 0; i-- {
-					if r := open[order[i]]; r != nil {
-						return r, ev.Info
-					}
+			evs, _ := d.Decode(l)
+			for _, ev := range evs {
+				if info, ok := ev.(host.InfoEvent); ok {
+					return w.last(), info.Info
 				}
-				return nil, ev.Info
+				w.take(ev)
 			}
 		case <-timeout:
 			return nil, host.Info{}
 		}
 	}
+}
+
+// waits are what a replay asked and hasn't yet settled, in order.
+type waits struct {
+	open  map[string]*asking
+	order []string
+}
+
+func (w *waits) take(ev any) {
+	switch ev := ev.(type) {
+	case event.Approval:
+		w.open[ev.ID] = &asking{ID: ev.ID, Reason: ev.Reason}
+		w.order = append(w.order, ev.ID)
+	case event.Question:
+		q := ev
+		w.open[ev.ID] = &asking{ID: ev.ID, Q: &q}
+		w.order = append(w.order, ev.ID)
+	case event.ApprovalCancelled:
+		delete(w.open, ev.ID)
+	case host.Answered:
+		delete(w.open, ev.ID)
+	}
+}
+
+// last is the latest still waiting, or nil.
+func (w *waits) last() *asking {
+	for _, id := range slices.Backward(w.order) {
+		if r := w.open[id]; r != nil {
+			return r
+		}
+	}
+	return nil
 }
 
 // skipped is a replay line of Claude Code's that can't be a permission
@@ -429,11 +455,11 @@ func do(o Op, p *pending) error {
 	}
 	switch o.Op {
 	case "answer":
-		_, qs := p.req.Questions()
-		if len(qs) == 0 {
+		q := p.req.Q
+		if q == nil || len(q.Asks) == 0 {
 			return errGone
 		}
-		return c.Allow(p.req.ID, p.req.AnswerInput(qs, map[string]string{qs[0].Question: o.Answer}), false)
+		return c.Allow(p.req.ID, host.AnswerInput(q, map[string]string{q.Asks[0].Text: o.Answer}), false)
 	case "allow":
 		return c.Allow(p.req.ID, nil, false)
 	case "deny":

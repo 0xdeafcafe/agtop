@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
-	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
@@ -497,41 +497,39 @@ func (r *runner) subscribe(id string) error {
 		// from now on is news.
 		live := false
 		var last Session
+		var d host.Decoder
+		kind := agent.KindOf("")
 		for line := range c.Lines {
-			ev, err := host.Decode(line)
+			evs, err := d.Decode(line)
 			if err != nil {
 				continue
 			}
-			switch ev := ev.(type) {
-			case host.InfoEvent:
-				live = true
-				s := sessionOf(ev.Info)
-				if s.State != last.State || s.Detail != last.Detail || s.Needs != last.Needs {
-					emit(map[string]any{"type": "info", "state": s.State, "detail": s.Detail, "needs": s.Needs, "costUsd": s.CostUSD})
-				}
-				last = s
-			case host.Sent:
-				if live {
-					emit(map[string]any{"type": "sent", "text": ev.Text})
-				}
-			case headless.Message:
-				if !live || ev.Role != "assistant" || ev.ParentToolUseID != "" {
-					continue
-				}
-				for _, b := range ev.Blocks {
-					switch b.Type {
-					case "text":
-						if strings.TrimSpace(b.Text) != "" {
-							emit(map[string]any{"type": "text", "text": b.Text})
-						}
-					case "tool_use":
-						emit(map[string]any{"type": "tool", "name": b.Name, "doing": claude.Doing(b.Name, b.Input)})
+			for _, ev := range evs {
+				switch ev := ev.(type) {
+				case host.InfoEvent:
+					live, kind = true, agent.KindOf(ev.Info.Kind)
+					s := sessionOf(ev.Info)
+					if s.State != last.State || s.Detail != last.Detail || s.Needs != last.Needs {
+						emit(map[string]any{"type": "info", "state": s.State, "detail": s.Detail, "needs": s.Needs, "costUsd": s.CostUSD})
 					}
-				}
-			case headless.Result:
-				if live {
-					emit(map[string]any{"type": "result", "text": ev.Text, "isError": ev.IsError,
-						"costUsd": ev.CostUSD, "turns": ev.NumTurns})
+					last = s
+				case host.Sent:
+					if live {
+						emit(map[string]any{"type": "sent", "text": ev.Text})
+					}
+				case event.Message:
+					if live && ev.Role == "assistant" && ev.Parent == "" {
+						said(&ev, kind, emit)
+					}
+				case event.TurnEnd:
+					if live {
+						failed, text := ev.Err != "" || ev.Reason != "done" && ev.Reason != "interrupted", ev.Text
+						if ev.Err != "" {
+							text = ev.Err
+						}
+						emit(map[string]any{"type": "result", "text": text, "isError": failed,
+							"costUsd": ev.Cost, "turns": ev.Turns})
+					}
 				}
 			}
 		}
@@ -545,6 +543,19 @@ func (r *runner) subscribe(id string) error {
 		r.mu.Unlock()
 	}()
 	return nil
+}
+
+// said tells of what the main agent said: its words, and each tool call
+// in a few words, as agent k puts it.
+func said(m *event.Message, k agent.Kind, emit func(map[string]any)) {
+	for _, p := range m.Parts {
+		switch {
+		case p.Kind == event.Text && strings.TrimSpace(p.Text) != "":
+			emit(map[string]any{"type": "text", "text": p.Text})
+		case p.Kind == event.ToolCall && p.Call != nil:
+			emit(map[string]any{"type": "tool", "name": p.Call.Name, "doing": agent.Doing(k, p.Call)})
+		}
+	}
 }
 
 // sub is one followed session.
