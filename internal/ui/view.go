@@ -388,6 +388,11 @@ func (m *Model) activeUsage() string {
 			continue
 		}
 		u := av.Quota
+		for _, l := range m.snap.Logins {
+			if l.Current {
+				u = l.Quota // the login sessions run as, in its home or ~/.claude
+			}
+		}
 		if q, ok := m.startQuota(); ok {
 			u = q // new sessions run another agent: its account's
 		}

@@ -97,6 +97,7 @@ func TestFreshestSkipsOtherAccountsReading(t *testing.T) {
 }
 
 func TestLoginsUseOwnReadingAfterSwitch(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
 	l := NewLoader(&state.Store{})
 	now := time.Now()
 	cfg := state.Config{Logins: []claude.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}
@@ -141,5 +142,27 @@ func TestPutBackNeedsTwoLooks(t *testing.T) {
 	}
 	if putBack("x", "z") {
 		t.Fatal("another mismatch starts over")
+	}
+}
+
+// The login in use in its home is the current one, whatever ~/.claude is
+// signed in as, and ~/.claude's reading stays with ~/.claude's login.
+func TestLoginInUseInItsHome(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	l := NewLoader(&state.Store{})
+	now := time.Now()
+	cfg := state.Config{Logins: []claude.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}
+	l.SetFetched("login:a", claude.Usage{AccountID: "a", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 30}})
+	l.takeIn()
+	if err := state.SetClaudeUsing("a"); err != nil {
+		t.Fatal(err)
+	}
+	root := AccountView{Usage: claude.Usage{AccountID: "b", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 80}}}
+	got := l.logins(cfg, root, now)
+	if !got[0].Current || got[0].Usage.FiveHour.Percent != 30 {
+		t.Fatalf("a: current %v at %.0f%%, want current at its own 30%%", got[0].Current, got[0].Usage.FiveHour.Percent)
+	}
+	if got[1].Current || got[1].Usage.FiveHour.Percent != 80 {
+		t.Fatalf("b: current %v at %.0f%%, want not current at ~/.claude's 80%%", got[1].Current, got[1].Usage.FiveHour.Percent)
 	}
 }

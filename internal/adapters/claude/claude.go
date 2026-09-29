@@ -63,6 +63,20 @@ func (a Adapter) config() state.Config {
 	return state.Load().Config
 }
 
+// runAs is the folder a session started for ~/.claude runs in: the home
+// of the login in use, ready, or ~/.claude when it can't be readied.
+func (a Adapter) runAs() claude.Account {
+	cfg := a.config()
+	acct := cfg.RunAccount()
+	if acct.IsDefault() {
+		return acct
+	}
+	if err := claude.LinkHome(acct, cfg.ActiveAccount()); err != nil || !claude.HasHome(acct) {
+		return cfg.ActiveAccount()
+	}
+	return acct
+}
+
 // Profile is a Claude config folder as agtop's own.
 func Profile(a claude.Account) agent.Profile {
 	return a.Profile()

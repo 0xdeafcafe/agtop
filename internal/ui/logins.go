@@ -263,7 +263,8 @@ func (m *Model) autoSwitch() tea.Cmd {
 	return m.switchLogin(to.Login, why)
 }
 
-// switchLogin signs ~/.claude in as to. Idle agtop sessions rest so their
+// switchLogin makes to the login new sessions run as, in its home.
+// ~/.claude stays signed in as it is. Idle agtop sessions rest so their
 // next message starts on it, and those a limit stopped carry on now.
 func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 	if m.switching {
@@ -273,7 +274,7 @@ func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 	cfg := m.store.Config
 	root := cfg.ActiveAccount()
 	return func() tea.Msg {
-		if err := state.Vault().Use(root, to); err != nil {
+		if err := state.UseLogin(root, to); err != nil {
 			return switchedMsg{to: to, err: err}
 		}
 		resumed, waiting := reloginHosts(root, cfg)
@@ -367,7 +368,7 @@ func (m *Model) addLogin(name string) tea.Cmd {
 		if err != nil {
 			return addedLoginMsg{name: name, err: err}
 		}
-		l, err := state.Vault().Adopt(scratch)
+		l, err := state.AdoptLogin(scratch)
 		return addedLoginMsg{name: name, l: l, err: err}
 	})
 }

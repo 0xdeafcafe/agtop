@@ -552,7 +552,7 @@ func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
 				}
 			}
 			m.store.Config.Logins = keep
-			_ = state.Vault().Forget(lv.ID)
+			_ = state.ForgetLogin(lv.ID) // the keychain and its home
 			_ = m.store.SaveConfig()
 			m.refresh()
 			m.dialog.cursor = max(0, m.dialog.cursor-1)

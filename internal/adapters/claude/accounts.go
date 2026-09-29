@@ -43,9 +43,10 @@ func (a Adapter) login(acct agent.Account) (claude.Login, bool) {
 	return claude.Login{}, false
 }
 
-// Current is the login p is signed in as.
+// Current is the login p's sessions run as: the one in use, in its home,
+// or the one p is signed in as.
 func (a Adapter) Current(p agent.Profile) (agent.Account, error) {
-	id := claude.SignedInAs(Account(p))
+	id := claude.SignedInAs(a.runAs())
 	if id == "" {
 		return agent.Account{}, claude.ErrNotSignedIn
 	}
@@ -63,7 +64,7 @@ func (a Adapter) Switch(p agent.Profile, acct agent.Account) error {
 	if !ok {
 		return errors.New("agtop has no sign-in for " + acct.Name)
 	}
-	return state.Vault().Use(Account(p), l)
+	return state.UseLogin(Account(p), l)
 }
 
 // SignIn is Claude Code's own sign-in, in a folder of its own: done keeps
@@ -76,7 +77,7 @@ func (Adapter) SignIn(p agent.Profile) (*exec.Cmd, func() (agent.Account, error)
 	c := exec.Command("claude", "auth", "login")
 	c.Env = scratch.Env()
 	done := func() (agent.Account, error) {
-		l, err := state.Vault().Adopt(scratch)
+		l, err := state.AdoptLogin(scratch)
 		if err != nil {
 			return agent.Account{}, err
 		}
@@ -108,7 +109,7 @@ func firstOf(vs ...string) string {
 
 // Forget drops agtop's copy of a's sign-in.
 func (Adapter) Forget(a agent.Account) error {
-	return state.Vault().Forget(a.ID)
+	return state.ForgetLogin(a.ID)
 }
 
 // Quota asks Anthropic for acct's limits with the sign-in agtop keeps

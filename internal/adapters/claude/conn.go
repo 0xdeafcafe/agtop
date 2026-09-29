@@ -24,11 +24,14 @@ import (
 )
 
 // Start runs claude -p for agtop to draw.
-func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, error) { //nolint:gocritic // agent.Driver's signature
-
-	acct := Account(o.Profile)
+func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, error) { //nolint:gocritic // agent.Driver's signature
+	acct, root := Account(o.Profile), false
+	if acct.IsDefault() {
+		// ~/.claude runs as the login in use, in its home.
+		acct, root = a.runAs(), true
+	}
 	c := &conn{events: make(chan event.Event, 64), asks: map[string]headless.PermissionRequest{},
-		waits: map[string]chan headless.ControlReply{}, acct: acct, tools: slices.Clone(o.Tools),
+		waits: map[string]chan headless.ControlReply{}, acct: acct, root: root, tools: slices.Clone(o.Tools),
 		done: make(chan struct{}), taps: o.Tap != nil}
 	ho := headless.Options{Account: acct, Dir: o.Dir, Model: o.Model, Effort: o.Effort,
 		PermissionMode: o.Mode, Binary: o.Binary}
@@ -108,6 +111,9 @@ type conn struct {
 	tools  []agent.ToolServer
 	initID string
 	acct   claude.Account
+	// root is whether it was started for ~/.claude and runs in the
+	// home of the login in use then.
+	root bool
 	// login is the account it started signed in as: its plan usage
 	// readings are that login's.
 	login string
@@ -270,8 +276,11 @@ func (c *conn) shareUsage(ev headless.RateLimit) {
 func (c *conn) KeepsQuota() {}
 
 // Stale is whether the folder is signed in as another login than the one
-// it started on.
+// it started on, or another login is in use since it started.
 func (c *conn) Stale() bool {
+	if c.root && (Adapter{}).runAs().ConfigDir != c.acct.ConfigDir {
+		return true
+	}
 	return c.login != "" && claude.SignedInAs(c.acct) != c.login
 }
 

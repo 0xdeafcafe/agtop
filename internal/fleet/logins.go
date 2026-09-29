@@ -17,25 +17,30 @@ type LoginView struct {
 	Usage claude.Usage // who it is, and its plan
 	// Quota is the plan's limits, as Usage read them.
 	Quota   usage.Quota
-	Current bool // the one ~/.claude is signed in as
+	Current bool // the one new sessions run as
 }
 
 // logins is every saved login with its usage; root is ~/.claude, whose
-// saved reading belongs to the login in use.
+// saved reading belongs to the login it's signed in as. The one in use is
+// the one agtop runs sessions as, in its home, or else ~/.claude's.
 func (l *Loader) logins(cfg state.Config, root AccountView, now time.Time) []LoginView {
 	var out []LoginView
+	using := cfg.RunAccount()
 	for _, lg := range cfg.Logins {
 		v := LoginView{Login: lg, Current: lg.ID != "" && lg.ID == root.Usage.AccountID}
+		if !using.IsDefault() {
+			v.Current = using.ConfigDir == state.ClaudeHome(lg.ID).ConfigDir
+		}
 		f, ok := l.fetched[lg.UsageKey()]
 		switch {
-		case v.Current && root.Usage.AccountID == lg.ID && (!ok || root.Usage.FetchedAt.After(f.FetchedAt)):
+		case root.Usage.AccountID == lg.ID && (!ok || root.Usage.FetchedAt.After(f.FetchedAt)):
 			v.Usage = root.Usage
 			v.Usage.Problem = f.Problem
 		default:
 			v.Usage = f
 		}
 		v.Usage.Email, v.Usage.Org = lg.Email, lg.Org
-		if v.Current {
+		if root.Usage.AccountID == lg.ID {
 			v.Usage.Plan, v.Usage.Role, v.Usage.Billing, v.Usage.OrgType, v.Usage.Extra = root.Usage.Plan, root.Usage.Role, root.Usage.Billing, root.Usage.OrgType, root.Usage.Extra
 		}
 		v.Usage = v.Usage.Since(now)
@@ -80,6 +85,13 @@ func FindLogins(cfg state.Config) (found []Found, restored *Restored, imported b
 		found = append(found, Found{Login: lg})
 	}
 	failed = err
+	// A home's sign-in is the newest of its login's: the vault keeps a
+	// copy, in case the home goes.
+	for _, l := range cfg.Logins {
+		if h := state.ClaudeHome(l.ID); claude.HasHome(h) {
+			_, _, _, _ = v.Keep(h)
+		}
+	}
 	if ok && err == nil && owner != "" && putBack(owner, lg.ID) {
 		restored = &Restored{Was: owner, Now: lg.ID, Err: v.Use(root, lg)}
 		if restored.Err != nil {
@@ -138,12 +150,16 @@ func putBack(was, now string) bool {
 }
 
 // RefreshLogin is a login's plan usage, shared through path like every
-// account's. The login in use is asked with ~/.claude's own sign-in, the
-// freshest; the others with the one the vault kept.
+// account's. It's asked with the login's freshest sign-in: ~/.claude's
+// when it's signed in as it, its home's when it has one, else the one the
+// vault kept.
 func RefreshLogin(path string, cfg state.Config, lg claude.Login, offline bool) claude.Usage {
 	root := cfg.ActiveAccount()
 	if claude.SignedInAs(root) == lg.ID {
 		return claude.RefreshUsage(path, root, offline)
+	}
+	if h := state.ClaudeHome(lg.ID); claude.HasHome(h) {
+		return claude.RefreshUsage(path, h, offline)
 	}
 	return claude.RefreshUsageFor(path, lg.UsageKey(), offline, func(ctx context.Context) (claude.Usage, error) {
 		cred, err := state.Vault().Get(lg.ID)
