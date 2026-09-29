@@ -6,7 +6,9 @@ import (
 	"encoding/json/jsontext"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/agtools"
+	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/0xdeafcafe/rush/internal/netproof"
 	"github.com/0xdeafcafe/rush/internal/plugin"
@@ -97,6 +100,43 @@ func (s *server) start() error {
 	s.info.Error = ""
 	go s.watchAgent(conn)
 	return nil
+}
+
+// cwdEvery is how often, at most, the host looks at where the agent works.
+const cwdEvery = 5 * time.Second
+
+// followCwd looks at the folder Claude Code says it works in, as its
+// session file has it, at most every cwdEvery unless now. Entering a
+// worktree moves it, and its transcript with it: the list then shows where
+// it is, and a restart resumes it there. Called with mu held; the file is
+// read off it.
+func (s *server) followCwd(now bool) {
+	if s.info.ClaudePID == 0 || !now && time.Since(s.cwdAt) < cwdEvery {
+		return
+	}
+	s.cwdAt = time.Now()
+	acct := claude.AccountOf(s.cfg.Account)
+	if acct.ConfigDir == "" {
+		acct = claude.DefaultAccount()
+	}
+	path := filepath.Join(acct.ConfigDir, "sessions", strconv.Itoa(s.info.ClaudePID)+".json")
+	go func() {
+		ss, ok := claude.ReadSession(path)
+		if !ok || ss.Cwd == "" {
+			return
+		}
+		if st, err := os.Stat(ss.Cwd); err != nil || !st.IsDir() {
+			return
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if ss.SessionID != s.info.SessionID || ss.Cwd == s.cfg.Cwd {
+			return
+		}
+		s.cfg.Cwd, s.info.Cwd = ss.Cwd, ss.Cwd
+		s.saveConfig()
+		s.publish()
+	}()
 }
 
 // pidOf is the agent's process, or 0 when it has none of its own.
@@ -269,6 +309,7 @@ func (s *server) onMessage(conn agent.Conn, m event.Message) {
 	if m.Role != "assistant" {
 		return
 	}
+	s.followCwd(false)
 	if m.Tokens != nil {
 		s.info.CacheWarm = time.Now().Add(cacheLife)
 		go netproof.Answer(s.target(), time.Now())
@@ -307,6 +348,7 @@ func (s *server) onMessage(conn agent.Conn, m event.Message) {
 // an error, else rest or the queue. Called with mu held.
 func (s *server) onTurnEnd(conn agent.Conn, e event.TurnEnd) {
 	s.began = true
+	s.followCwd(true)
 	s.info.CostUSD += TurnCost(&s.spent, e.Cost)
 	s.askContext()
 	if s.stalled(e) {
