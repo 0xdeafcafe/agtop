@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Job is one of Claude Code's tasks: a Bash command, a monitor, a
@@ -150,6 +152,7 @@ func (s *Session) applyJob(ev event.Event, now time.Time) {
 		j.ToolUseID, j.Type, j.Background = ev.CallID, taskType(ev.Kind), ev.Background
 		j.Label = firstNonEmpty(ev.Label, j.Label)
 		j.Agent = firstNonEmpty(ev.Agent, j.Agent)
+		s.jobCalls(now)
 	case event.TaskUpdated:
 		j := s.job(ev.ID, now)
 		if ev.Background != nil {
@@ -187,6 +190,7 @@ func (s *Session) applyJob(ev event.Event, now time.Time) {
 		s.TaskStatus[ev.ID] = firstNonEmpty(j.Status, "completed")
 		s.noteWake(j, now)
 	case event.Background:
+		defer s.jobCalls(now)
 		list := make([]event.BackgroundTask, 0, len(ev.Tasks))
 		for _, t := range ev.Tasks {
 			if t.Kind != event.OtherTask {
@@ -253,6 +257,50 @@ func (s *Session) syncJobs(info host.Info, now time.Time) {
 		}
 	}
 	s.backgroundNow(list, now)
+	s.jobCalls(now)
+}
+
+// jobCalls stands a call in for each shell task whose own isn't in the
+// conversation, a subagent's or one from before a replay reaches, when
+// what it's called is its command (as it is when it was given no
+// description): so it's drawn, timed and its files found as any other.
+func (s *Session) jobCalls(now time.Time) {
+	for _, j := range s.jobs {
+		if j.Type != "local_bash" || s.byID[j.ToolUseID] != nil || !looksLikeCommand(j.Label) {
+			continue
+		}
+		// Under its call's id when it has one, so the call itself, should
+		// it come after all, takes its place.
+		if j.ToolUseID == "" {
+			j.ToolUseID = "job:" + j.ID
+		}
+		in, _ := jsonx.Marshal(map[string]string{"command": j.Label})
+		st := &Step{ID: j.ToolUseID, Tool: "Bash", Kind: tool.Shell, Input: in, Status: OK, Start: firstTime(j.Start, now), Exit: -1}
+		st.read()
+		s.byID[st.ID] = st
+	}
+}
+
+// looksLikeCommand is whether a task's name is a shell command and not a
+// description of one: a description is words, a command has a shell's
+// punctuation, a path or a flag in it.
+// ponytail: a guess; a one-word command with no flags (make) reads as words.
+func looksLikeCommand(s string) bool {
+	for _, mark := range []string{"&&", "||", ";", "|", ">", "$(", "/", " -", "=", "\n"} {
+		if strings.Contains(s, mark) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstTime(ts ...time.Time) time.Time {
+	for _, t := range ts {
+		if !t.IsZero() {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 // wakeWindow is how soon after a task ends or fires a turn with no message

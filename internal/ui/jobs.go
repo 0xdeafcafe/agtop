@@ -288,6 +288,22 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				}
 				rows = append(rows, "      "+faint(none))
 			}
+			if c.open[ref] {
+				// Opened: every other file its command writes, too.
+				for _, f := range c.jobWrites(j) {
+					if f == from {
+						continue
+					}
+					more := c.tailOf(f, j.Running(), jobFileLines)
+					if len(more) == 0 {
+						continue
+					}
+					rows = append(rows, "      "+faint("from "+tildify(f)))
+					for _, l := range more {
+						rows = append(rows, ansi.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
+					}
+				}
+			}
 			if key.w != 0 {
 				if c.jobRows == nil {
 					c.jobRows = map[string]jobRowsMemo{}
@@ -533,6 +549,10 @@ func (e *jobTailed) poll() {
 	}
 	e.final = r.final && e.size >= 0
 }
+
+// jobFileLines is how much of each further file an opened task writes is
+// shown.
+const jobFileLines = 10
 
 // jobTailMost is the most of a task's output shown: an opened one's.
 const jobTailMost = 30

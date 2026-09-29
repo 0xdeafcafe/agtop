@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -181,5 +182,27 @@ func TestWatchShellsLoop(t *testing.T) {
 	}
 	if got := st.runningPart(); !strings.HasSuffix(got, "sleep 10 · run 2") {
 		t.Errorf("runningPart = %q", got)
+	}
+}
+
+// A shell task whose call isn't in the conversation (a subagent's) is
+// drawn from its name when that's its command, and not when it's words.
+func TestJobCallStandsIn(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.backgroundNow([]event.BackgroundTask{
+		{ID: "b1", Type: "local_bash", Label: "cd /x; until grep -q exit= run.out; do sleep 10; done; cat run.out > /tmp/r.txt"},
+		{ID: "b2", Type: "local_bash", Label: "visualdiff check: live flow failures"},
+	}, now)
+	s.jobCalls(now)
+	b1, b2 := s.Job("b1"), s.Job("b2")
+	if s.JobCommand(b1) == "" || s.byID[b1.ToolUseID] == nil {
+		t.Errorf("a command's task should have a call standing in: %+v", b1)
+	}
+	if w := s.JobWrites(b1); len(w) != 1 || w[0] != "/tmp/r.txt" {
+		t.Errorf("its files = %v", w)
+	}
+	if s.JobCommand(b2) != "" {
+		t.Errorf("a description isn't a command: %q", s.JobCommand(b2))
 	}
 }
