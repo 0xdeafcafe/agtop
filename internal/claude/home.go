@@ -1,10 +1,13 @@
 package claude
 
 import (
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // A login's home is a config folder of its own that agtop keeps for it,
@@ -56,7 +59,41 @@ func LinkHome(home, root Account) error {
 			return err
 		}
 	}
-	return nil
+	return syncState(home, root)
+}
+
+// sharedState are the parts of ~/.claude.json a home keeps up with: the
+// rest (who it's signed in as, its usage) is the home's own.
+var sharedState = []string{"mcpServers"}
+
+// syncState copies sharedState from root's state file into the home's,
+// once the home has one.
+func syncState(home, root Account) error {
+	b, err := os.ReadFile(home.StatePath())
+	if err != nil {
+		return nil //nolint:nilerr // not seeded yet: SeedHome copies it whole
+	}
+	var own, theirs map[string]jsontext.Value
+	if jsonx.Unmarshal(b, &own) != nil {
+		return nil
+	}
+	if rb, err := os.ReadFile(root.StatePath()); err != nil || jsonx.Unmarshal(rb, &theirs) != nil {
+		return nil //nolint:nilerr // nothing of root's to keep up with
+	}
+	changed := false
+	for _, k := range sharedState {
+		if v, ok := theirs[k]; ok && string(own[k]) != string(v) {
+			own[k], changed = v, true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	out, err := jsonx.MarshalIndent(own)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(home.StatePath(), out, 0o600)
 }
 
 // SeedHome gives a home l's sign-in, when it has none that's l's yet,

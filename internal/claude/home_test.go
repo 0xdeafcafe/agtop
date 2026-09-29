@@ -3,6 +3,7 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -53,6 +54,14 @@ func TestLinkHome(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root.ConfigDir, "projects", "t.jsonl")); err != nil {
 		t.Error("a transcript written in the home isn't in ~/.claude")
 	}
+	// Its state file keeps up with ~/.claude's MCP servers, and keeps
+	// who it's signed in as.
+	if err := os.WriteFile(home.StatePath(), []byte(`{"oauthAccount":{"accountUuid":"me"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root.StatePath(), []byte(`{"oauthAccount":{"accountUuid":"other"},"mcpServers":{"x":{}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	// Linking again, once ~/.claude has something new, adds it.
 	if err := os.WriteFile(filepath.Join(root.ConfigDir, "keybindings.json"), nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -62,5 +71,8 @@ func TestLinkHome(t *testing.T) {
 	}
 	if _, err := os.Readlink(filepath.Join(home.ConfigDir, "keybindings.json")); err != nil {
 		t.Error("what ~/.claude gains isn't linked the next time")
+	}
+	if b, _ := os.ReadFile(home.StatePath()); !strings.Contains(string(b), `"x"`) || SignedInAs(home) != "me" {
+		t.Errorf("the home's state file should have ~/.claude's MCP servers and still be me: %s", b)
 	}
 }

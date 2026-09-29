@@ -20,6 +20,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/netwatch"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // The models each pass runs on, and what each may spend.
@@ -246,7 +247,11 @@ func run(ctx context.Context, acct claude.Account, c call, out any) (float64, er
 	}
 	cmd := exec.CommandContext(ctx, prog, args...)
 	cmd.Dir = Dir()
-	cmd.Env = append(acct.Env(), "AGTOP_ADVISOR=1")
+	as := acct
+	if h := state.Load().Config.RunAccount(); acct.IsDefault() && claude.HasHome(h) {
+		as = h // the login in use, in its home
+	}
+	cmd.Env = append(as.Env(), "AGTOP_ADVISOR=1")
 	// Its own process group, so stopping it takes whatever it started too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
