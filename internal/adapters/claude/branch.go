@@ -17,8 +17,7 @@ func (Adapter) Branch(p agent.Profile, src, cwd, sid, newID string, upTo int64) 
 	if err := claude.CopyTranscript(src, acct.TranscriptPath(cwd, newID), sid, newID, upTo); err != nil {
 		return err
 	}
-	_ = acct.CopyCheckpoints(sid, newID)
-	return nil
+	return acct.CopyCheckpoints(sid, newID)
 }
 
 // DefaultModel is the Opus a session runs when none is picked.

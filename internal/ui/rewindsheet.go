@@ -10,10 +10,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/agtop/internal/claude"
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
@@ -27,7 +26,7 @@ import (
 // back, and a note of what was learned can come back with you.
 type rewindSheet struct {
 	agentKey, id, agent string
-	acct                claude.Account
+	acct                agent.Profile
 	sid, cwd, path      string
 	model               string
 
@@ -42,7 +41,7 @@ type rewindSheet struct {
 
 type filesPreview struct {
 	loading bool
-	r       headless.FileRewind
+	r       agent.FileRewind
 	err     error
 }
 
@@ -80,7 +79,7 @@ func (m *Model) openRewindAt(c *hostConn, a *fleet.Agent, n int, prompt string) 
 		return nil
 	}
 	f := &rewindSheet{
-		agentKey: c.key, id: a.ID, agent: a.DisplayName, acct: claude.AccountOf(a.Acct),
+		agentKey: c.key, id: a.ID, agent: a.DisplayName, acct: a.Acct,
 		sid:  firstNonEmpty(c.sess.Info.SessionID, a.SessionID),
 		cwd:  firstNonEmpty(c.sess.Info.Cwd, a.Cwd),
 		path: c.path, model: c.sess.Info.Model,
@@ -91,6 +90,7 @@ func (m *Model) openRewindAt(c *hostConn, a *fleet.Agent, n int, prompt string) 
 		branches []host.Branch // newest first, those whose transcript is still there
 	}
 	path, id, acct, cwd := f.path, f.id, f.acct, f.cwd
+	br, _ := agent.As[agent.Brancher](acct.Kind)
 	return sheetDo(func() (found, error) {
 		starts, err := convo.TurnStarts(path)
 		if err != nil {
@@ -99,7 +99,7 @@ func (m *Model) openRewindAt(c *hostConn, a *fleet.Agent, n int, prompt string) 
 		cfg, _ := host.ReadConfig(id)
 		v := found{starts: starts}
 		for i := len(cfg.Branches) - 1; i >= 0; i-- {
-			if b := cfg.Branches[i]; statOK(acct.TranscriptPath(cwd, b.SessionID)) {
+			if b := cfg.Branches[i]; br != nil && statOK(br.TranscriptPath(acct, cwd, b.SessionID)) {
 				v.branches = append(v.branches, b)
 			}
 		}
@@ -149,8 +149,15 @@ func (f *rewindSheet) branch() *host.Branch {
 	return nil
 }
 
-func (f *rewindSheet) opts() headless.Options {
-	return headless.Options{Account: f.acct, Dir: f.cwd, Resume: f.sid, Model: f.model}
+// rewinder is the agent's Rewinder and Brancher: /rewind is offered only
+// to agents that have both (FeatureRewind).
+func (f *rewindSheet) rewinder() (agent.Rewinder, agent.Brancher, error) {
+	rw, ok := agent.As[agent.Rewinder](f.acct.Kind)
+	br, ok2 := agent.As[agent.Brancher](f.acct.Kind)
+	if !ok || !ok2 {
+		return nil, nil, errors.New(f.agent + " can't rewind")
+	}
+	return rw, br, nil
 }
 
 // preview asks, once per message, what putting the files back would do.
@@ -159,12 +166,16 @@ func (f *rewindSheet) preview() tea.Cmd {
 	if !f.putBack || t == nil || t.UUID == "" || f.previews[t.UUID] != nil {
 		return nil
 	}
-	uuid, o := t.UUID, f.opts()
+	rw, _, err := f.rewinder()
+	if err != nil {
+		return nil
+	}
+	uuid, acct, cwd, sid, model := t.UUID, f.acct, f.cwd, f.sid, f.model
 	p := &filesPreview{loading: true}
 	f.previews[uuid] = p
-	return sheetDo(func() (headless.FileRewind, error) {
-		return headless.RewindFiles(o, uuid, true)
-	}, func(_ *Model, r headless.FileRewind, err error) tea.Cmd {
+	return sheetDo(func() (agent.FileRewind, error) {
+		return rw.RewindFiles(acct, cwd, sid, model, uuid, true)
+	}, func(_ *Model, r agent.FileRewind, err error) tea.Cmd {
 		p.loading, p.r, p.err = false, r, err
 		return nil
 	})
@@ -356,7 +367,12 @@ func (f *rewindSheet) start(m *Model) tea.Cmd {
 	}
 	turn, putBack, recap := *t, f.putBack, f.recap
 	left.From = turn.N
-	o, src, sid, acct, cwd := f.opts(), f.path, f.sid, f.acct, f.cwd
+	rw, br, err := f.rewinder()
+	if err != nil {
+		m.flash(err.Error(), true)
+		return nil
+	}
+	src, sid, acct, cwd, model := f.path, f.sid, f.acct, f.cwd, f.model
 	if recap {
 		m.flash("asking "+agent+" what it learned, then rewinding…", false)
 	} else {
@@ -365,14 +381,14 @@ func (f *rewindSheet) start(m *Model) tea.Cmd {
 	return func() tea.Msg {
 		draft := turn.Prompt
 		if recap {
-			note, err := headless.Recap(o, turn.Prompt)
+			note, err := rw.Recap(acct, cwd, sid, model, turn.Prompt)
 			if err != nil {
 				return doneMsg{err: err}
 			}
 			draft = "I tried this before and rewound. What we learned:\n\n" + note + "\n\n" + turn.Prompt
 		}
 		if putBack {
-			if _, err := headless.RewindFiles(o, turn.UUID, false); err != nil {
+			if _, err := rw.RewindFiles(acct, cwd, sid, model, turn.UUID, false); err != nil {
 				return doneMsg{err: fmt.Errorf("couldn't put the code back: %w", err)}
 			}
 		}
@@ -380,12 +396,10 @@ func (f *rewindSheet) start(m *Model) tea.Cmd {
 		newID, _ := host.NewSessionID()
 		resume := turn.Offset > 0 && turn.N > 1
 		if resume {
-			if err := claude.CopyTranscript(src, acct.TranscriptPath(cwd, newID), sid, newID, turn.Offset); err != nil {
+			// With its file checkpoints, so the copy can put files back to
+			// its earlier turns too.
+			if err := br.Branch(acct, src, cwd, sid, newID, turn.Offset); err != nil {
 				return doneMsg{err: fmt.Errorf("couldn't copy the conversation: %w", err)}
-			}
-			// So the copy can put files back to its earlier turns too.
-			if err := acct.CopyCheckpoints(sid, newID); err != nil {
-				return doneMsg{err: fmt.Errorf("couldn't copy the file checkpoints: %w", err)}
 			}
 		}
 		restarted, err := rewindHost(id, newID, resume, left)
