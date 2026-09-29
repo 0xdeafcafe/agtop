@@ -249,6 +249,9 @@ func writeProfile(statePath string, prof jsontext.Value) error {
 // login keychain on macOS, in .credentials.json elsewhere.
 func readCreds(a Account) ([]byte, error) {
 	if runtime.GOOS == "darwin" {
+		if cred, err := keychainRead(a.keychainService(), keychainUser()); err == nil {
+			return cred, nil
+		}
 		return keychainRead(a.keychainService(), "")
 	}
 	return os.ReadFile(filepath.Join(a.ConfigDir, ".credentials.json"))
@@ -256,14 +259,14 @@ func readCreds(a Account) ([]byte, error) {
 
 func writeCreds(a Account, cred []byte) error {
 	if runtime.GOOS == "darwin" {
-		return keychainWrite(a.keychainService(), keychainAccount(a.keychainService()), cred)
+		return keychainWrite(a.keychainService(), keychainUser(), cred)
 	}
 	return writeFileAtomic(filepath.Join(a.ConfigDir, ".credentials.json"), cred, 0o600)
 }
 
 func deleteCreds(a Account) error {
 	if runtime.GOOS == "darwin" {
-		return keychainDelete(a.keychainService(), "")
+		return keychainDelete(a.keychainService(), keychainUser())
 	}
 	return os.Remove(filepath.Join(a.ConfigDir, ".credentials.json"))
 }
@@ -312,22 +315,18 @@ func keychainDelete(service, account string) error {
 	return exec.Command("/usr/bin/security", args...).Run()
 }
 
-// keychainAccount is the account name Claude Code's item is stored under,
-// so writing replaces it instead of adding a second; Claude Code uses
-// yours.
-func keychainAccount(service string) string {
-	out, _ := exec.Command("/usr/bin/security", "find-generic-password", "-s", service).Output()
-	for _, l := range strings.Split(string(out), "\n") {
-		if _, v, ok := strings.Cut(strings.TrimSpace(l), `"acct"<blob>=`); ok {
-			if v = strings.Trim(v, `"`); v != "" && v != "<NULL>" {
-				return v
-			}
-		}
+// keychainUser is the account name Claude Code reads and writes its
+// sign-in under: your user name. Another item under the same service (an
+// older tool's) is never read by Claude Code, so a switch written there
+// would leave it on the old sign-in.
+func keychainUser() string {
+	if u := os.Getenv("USER"); u != "" {
+		return u
 	}
 	if u, err := osuser.Current(); err == nil {
 		return u.Username
 	}
-	return os.Getenv("USER")
+	return ""
 }
 
 func writeFileAtomic(path string, b []byte, mode os.FileMode) error {
