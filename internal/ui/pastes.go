@@ -77,13 +77,14 @@ func (p *pastes) lastIn(buf []rune) int {
 	return 0
 }
 
-// dropChip deletes a whole chip when backspace lands on its end.
+// dropChip deletes a whole chip or image marker when backspace lands on
+// its end.
 func dropChip(buf []rune, pos int) ([]rune, int, bool) {
 	if pos == 0 || buf[pos-1] != ']' {
 		return buf, pos, false
 	}
 	before := string(buf[:pos])
-	loc := pasteRe.FindAllStringIndex(before, -1)
+	loc := chipRe.FindAllStringIndex(before, -1)
 	if len(loc) == 0 || loc[len(loc)-1][1] != len(before) {
 		return buf, pos, false
 	}
