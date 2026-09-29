@@ -41,7 +41,6 @@ type pluginSheet struct {
 	busy    string // what's running now
 	err     string
 	done    string
-	armed   string // an id x was pressed on once
 	changed bool
 }
 
@@ -115,7 +114,7 @@ func (p *pluginSheet) run(what, dir string, c agent.PluginChange) tea.Cmd {
 	if p.busy != "" {
 		return nil
 	}
-	p.busy, p.err, p.done, p.armed = what, "", "", ""
+	p.busy, p.err, p.done = what, "", ""
 	plug, acct := p.plug, p.acct
 	return sheetDo(func() (struct{}, error) { return struct{}{}, plug.ChangePlugins(acct, dir, c) },
 		func(m *Model, _ struct{}, err error) tea.Cmd {
@@ -183,15 +182,13 @@ func (p *pluginSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 		if s == "[" {
 			d = 2
 		}
-		p.tab, p.armed = (p.tab+d)%3, ""
+		p.tab = (p.tab + d) % 3
 		return p.askCost()
 	case "up":
 		*cur = roundMove(*cur, -1, p.size())
-		p.armed = ""
 		return p.askCost()
 	case "down":
 		*cur = roundMove(*cur, 1, p.size())
-		p.armed = ""
 		return p.askCost()
 	case "pgup":
 		*cur = max(0, *cur-10)
@@ -216,11 +213,10 @@ func (p *pluginSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 		case "u":
 			return p.run("updating "+pl.Name+"…", dir, agent.PluginChange{Op: agent.PluginUpdate, ID: pl.ID, Scope: scope})
 		case "x", "delete", "backspace":
-			if p.armed != pl.ID {
-				p.armed = pl.ID
-				return nil
-			}
-			return p.run("removing "+pl.Name+"…", dir, agent.PluginChange{Op: agent.PluginRemove, ID: pl.ID, Scope: scope})
+			m.confirm = &confirmation{question: "Remove the " + pl.Name + " plugin?", detail: pl.ID, onYes: func() tea.Cmd {
+				return p.run("removing "+pl.Name+"…", dir, agent.PluginChange{Op: agent.PluginRemove, ID: pl.ID, Scope: scope})
+			}}
+			return nil
 		}
 	case plDiscover:
 		list := p.shown()
@@ -252,11 +248,10 @@ func (p *pluginSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 		case "u", "enter":
 			return p.run("updating "+mk.Name+"…", p.cwd, agent.PluginChange{Op: agent.MarketUpdate, ID: mk.Name})
 		case "x", "delete", "backspace":
-			if p.armed != mk.Name {
-				p.armed = mk.Name
-				return nil
-			}
-			return p.run("removing "+mk.Name+"…", p.cwd, agent.PluginChange{Op: agent.MarketRemove, ID: mk.Name})
+			m.confirm = &confirmation{question: "Remove the " + mk.Name + " marketplace?", detail: mk.Where(), onYes: func() tea.Cmd {
+				return p.run("removing "+mk.Name+"…", p.cwd, agent.PluginChange{Op: agent.MarketRemove, ID: mk.Name})
+			}}
+			return nil
 		}
 	}
 	return nil
@@ -319,9 +314,6 @@ func (p *pluginSheet) installedRows(w, h int) []string {
 			scope += " · " + tildify(pl.ProjectPath)
 		}
 		line := mark + " " + paint(col+bold, fit(pl.Name, 24)) + " " + dim(fit(pl.Version, 9)) + " " + dim(fit(pl.Marketplace, 24)) + " " + faint(ansi.Truncate(scope, max(0, w-66), "…"))
-		if p.armed == pl.ID {
-			line = paint(cRed, "x again removes "+pl.Name)
-		}
 		out = append(out, sheetRow(line, i == cur, w))
 	}
 	return out
@@ -360,9 +352,6 @@ func (p *pluginSheet) marketRows(w, h int) []string {
 	for i := from; i < to; i++ {
 		mk := p.markets[i]
 		line := paint(cText+bold, fit(mk.Name, 28)) + " " + dim(fit(fmt.Sprintf("%d plugins", counts[mk.Name]), 12)) + " " + faint(ansi.Truncate(mk.Where(), max(0, w-46), "…"))
-		if p.armed == mk.Name {
-			line = paint(cRed, "x again removes the "+mk.Name+" marketplace")
-		}
 		out = append(out, sheetRow(line, i == cur, w))
 	}
 	return out

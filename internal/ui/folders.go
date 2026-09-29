@@ -2,10 +2,8 @@ package ui
 
 import (
 	"fmt"
-	"maps"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -16,9 +14,9 @@ import (
 
 // Split by project, each section of the list has its agents together by
 // the repository they work in, a linked worktree's under the repository it
-// came from, each headed by what git says of it. The Overview's Projects
-// page shows the same repositories whole. Git is asked in the background,
-// every folderEvery at most.
+// came from, each headed by what git says of it. The Agents place's
+// Projects page shows the same repositories whole. Git is asked in the
+// background, every folderEvery at most.
 const folderEvery = 15 * time.Second
 
 // splitProjects is whether the list's sections are split by project.
@@ -40,23 +38,28 @@ func (m *Model) toggleSplit() {
 // folderCache is what git last said of each folder in the list.
 type folderCache struct {
 	byRoot  map[string]fleet.Folder
-	looking bool
+	looking int // projects git is still being asked about
 	asked   time.Time
 }
 
-type foldersMsg map[string]fleet.Folder
+// foldersMsg is one project as git said it: each project's answer shows
+// as soon as it's in, not once the slowest repository's is.
+type foldersMsg fleet.Folder
 
 // scratchSection holds agents working in temp folders, which are no one's
 // project; noFolder those whose folder isn't known.
 const (
 	scratchSection = "scratch"
 	noFolder       = "No folder"
+	agtopSection   = "agtop's own"
 )
 
 // folderKey is the folder an agent's row sits under: its repository's
 // main checkout, or where it works when that isn't a repository.
 func folderKey(a *fleet.Agent) string {
 	switch {
+	case a.Advisor:
+		return agtopSection
 	case a.Root != "":
 		return a.Root
 	case strings.Contains(a.Cwd, "/var/folders/") || strings.HasPrefix(a.Cwd, "/tmp/"):
@@ -88,7 +91,7 @@ func folderTitles(keys map[string]bool) map[string]string {
 				continue
 			}
 			switch {
-			case k == scratchSection || k == noFolder:
+			case k == scratchSection || k == noFolder || k == agtopSection:
 				out[k] = k
 			case !filepath.IsAbs(k):
 				out[k] = tildify(k)
@@ -179,11 +182,11 @@ func (m *Model) rootIsRepo(root string) bool {
 }
 
 // projectLine heads a project's rows inside a section, as a quiet rule
-// under the section's so it reads as a heading, not a row: its name, and
-// the first time it shows, what git says of it in short.
+// under the section's so it reads as a heading, not a row: its name and
+// what git says of it in short, under every section it heads.
 func (m *Model) projectLine(l listLine, w int) string {
 	s := "   " + paint(cBlue, l.title)
-	if g := m.folderShort(l.root); g != "" && !l.again {
+	if g := m.folderShort(l.root); g != "" {
 		s += "  " + g
 	}
 	return s + " " + faint(strings.Repeat("┄", max(0, w-cellw.String(s)-3)))
@@ -230,8 +233,13 @@ func (m *Model) treeLine(l listLine, w int) string {
 	s := "     " + faint("⎇ ") + paint(cBlue, filepath.Base(l.root))
 	if st, ok := m.folders.byRoot[l.title].Trees[l.root]; ok {
 		s += "  " + gitShort(st)
+	} else if m.folders.byRoot[l.title].Root != "" || m.folders.looking > 0 {
+		s += "  " + faint("…")
 	}
-	return fit(s, w)
+	if cellw.String(s)+2 > w {
+		return fit(s, w)
+	}
+	return s + " " + faint(strings.Repeat("┄", max(0, w-cellw.String(s)-3)))
 }
 
 // refreshFolders asks git about the projects on screen, in the
@@ -239,11 +247,11 @@ func (m *Model) treeLine(l listLine, w int) string {
 // agent in the last day on the Projects page, which wants each whole. It
 // asks every folderEvery, and at once when a project has no answer yet.
 func (m *Model) refreshFolders() tea.Cmd {
-	if m.folders.looking {
+	if m.folders.looking > 0 {
 		return nil
 	}
 	var listed []*fleet.Agent
-	whole := m.mode == modeWork && m.work.page == workProjects
+	whole := m.mode == modeProjects
 	switch {
 	case whole:
 		listed = m.workAgents()
@@ -276,33 +284,27 @@ func (m *Model) refreshFolders() tea.Cmd {
 	if !stale {
 		return nil
 	}
-	m.folders.looking, m.folders.asked = true, time.Now()
-	return func() tea.Msg {
-		out := make(foldersMsg, len(wants))
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-		gate := make(chan struct{}, 4) // a few gits at once, not one per repo
-		for root, trees := range wants {
-			wg.Go(func() {
-				gate <- struct{}{}
-				f := fleet.CheckFolder(root, trees, whole)
-				<-gate
-				mu.Lock()
-				out[root] = f
-				mu.Unlock()
-			})
-		}
-		wg.Wait()
-		return out
+	m.folders.looking, m.folders.asked = len(wants), time.Now()
+	cmds := make([]tea.Cmd, 0, len(wants))
+	for root, trees := range wants {
+		cmds = append(cmds, func() tea.Msg {
+			folderGate <- struct{}{}
+			defer func() { <-folderGate }()
+			return foldersMsg(fleet.CheckFolder(root, trees, whole))
+		})
 	}
+	return tea.Batch(cmds...)
 }
 
-// onFolders keeps what git said; what it wasn't asked this time (the list
-// asks less than the Projects page) is kept from before.
+// folderGate lets a few projects ask git at once, not one per repository.
+var folderGate = make(chan struct{}, 4)
+
+// onFolders keeps what git said of one project; the others keep what it
+// said before until theirs is in.
 func (m *Model) onFolders(msg foldersMsg) {
-	m.folders.looking = false
+	m.folders.looking = max(0, m.folders.looking-1)
 	if m.folders.byRoot == nil {
 		m.folders.byRoot = map[string]fleet.Folder{}
 	}
-	maps.Copy(m.folders.byRoot, msg)
+	m.folders.byRoot[msg.Root] = fleet.Folder(msg)
 }

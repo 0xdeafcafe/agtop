@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -393,14 +392,10 @@ func (m *Model) envSection(k agent.Kind, page agent.SettingsPage, s *settingsfil
 			key: func(k string) (tea.Cmd, bool) {
 				switch k {
 				case "x", "delete", "backspace":
-					if key := "env:" + v; m.armed != key || time.Since(m.armedAt) > 5*time.Second {
-						m.armed, m.armedAt = key, time.Now()
-						m.flash("press "+k+" again to remove "+v, false)
-						return nil, true
-					}
-					m.armed = ""
-					setEnv(v, "")
-					m.flash("removed "+v, false)
+					m.confirm = &confirmation{question: "Remove " + v + "?", detail: "from this account's " + file, onYes: func() tea.Cmd {
+						m.flash("removed "+v, false)
+						return setEnv(v, "")
+					}}
 					return nil, true
 				}
 				return m.openSettingsKey(k)

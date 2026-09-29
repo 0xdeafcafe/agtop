@@ -505,6 +505,12 @@ func (d *drawer) open() {
 	if ask == "" {
 		ask = unasked(t)
 	}
+	// A command of more than a line is drawn under the header as a shell
+	// step's is: kept as written, highlighted, a long heredoc folded.
+	multi := strings.Contains(t.Command, "\n")
+	if multi {
+		ask = ""
+	}
 	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
 	style, label := func(s string) string { return styledAsk(s, cText+bold) }, dim("you")
 	if t.From != "" {
@@ -542,6 +548,9 @@ func (d *drawer) open() {
 			rows, label, imgs = imageChips(imgs, rowW), dim("you"), nil
 		}
 	}
+	if multi {
+		rows = []string{""}
+	}
 	for i, r := range rows {
 		if i == 0 {
 			d.add(d.ref, band, d.spine()+" "+faint("▾")+" "+d.mark()+" "+label+"  "+r, right)
@@ -552,6 +561,9 @@ func (d *drawer) open() {
 	}
 	for _, r := range imageChips(imgs, min(d.cw-11, capProse)) {
 		d.add(d.ref, band, d.spine()+"          "+r, "")
+	}
+	if multi {
+		d.shellBody(&Step{}, t.Command, 11)
 	}
 	d.blank()
 
@@ -1189,8 +1201,15 @@ func (d *drawer) code(lines []string, tag, pad string) {
 		lg = langFor(f[0]) // ```go title="x.go"
 	}
 	isDiff := tag == "diff" || tag == "patch"
+	var ud *udiff
+	if isDiff {
+		ud = parseDiff(lines, func(int) bool { return true })
+	}
 	var st hlState
-	for _, l := range lines {
+	for i, l := range lines {
+		if ud != nil && ud.line(d, pad+" ", w, nil, lines, i) {
+			continue
+		}
 		l = expandTabs(l)
 		switch {
 		case isDiff && strings.HasPrefix(l, "+") && !strings.HasPrefix(l, "+++"):
@@ -1401,7 +1420,8 @@ func styledAsk(s, base string) string {
 		case strings.HasPrefix(m, "[Pasted"), strings.HasPrefix(m, "[#"):
 			return reset + paint(cBlue, "▤ ") + paint(cText, strings.Trim(m, "[]")) + base
 		case strings.HasPrefix(m, "http"):
-			return reset + link(m) + base
+			u := trimURL(m)
+			return reset + link(u) + base + m[len(u):]
 		}
 		return reset + paint(cWhite+bold, m) + base
 	})
@@ -1409,6 +1429,11 @@ func styledAsk(s, base string) string {
 }
 
 var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[image: [^\]]+\]|\[(?:Pasted text )?#\d+ [^\]\n]*lines?[^\]\n]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*(?:$|[\s.,;:!?)])|@[\w./-]+`)
+
+var linkRe = regexp.MustCompile(`https?://[^\s)>\]]+`)
+
+// URLIn is the first link in s, whoever's it is; "" when there's none.
+func URLIn(s string) string { return strings.TrimRight(linkRe.FindString(s), ".,;:!?'\"") }
 
 var pastedRe = regexp.MustCompile(`(?s)\s*<pasted_content id="[^"]*">\n?(.*?)\n?</pasted_content(?: id="[^"]*")?>\s*`)
 
@@ -1609,6 +1634,7 @@ func links(s, base string) string {
 		for end < len(s) && !urlStop(s[end]) {
 			end++
 		}
+		end = j + len(trimURL(s[j:end]))
 		if end == j {
 			p = i + 1
 			continue
@@ -1624,6 +1650,12 @@ func links(s, base string) string {
 	}
 	b.WriteString(s[last:])
 	return b.String()
+}
+
+// trimURL drops the punctuation that ends the sentence a URL closes, so
+// "see https://x.dev." links https://x.dev.
+func trimURL(u string) string {
+	return strings.TrimRight(u, ".:;!?")
 }
 
 func urlStop(c byte) bool {
@@ -1965,6 +1997,10 @@ func (d *drawer) label(st *Step) string {
 		t := in.str("title")
 		if t == "" {
 			t = filepath.Base(in.str("file_path"))
+		}
+		// Where it was published, so the link isn't lost in the output.
+		if u := URLIn(st.Output); u != "" {
+			return g + " " + lbl(t) + "  " + faint(u)
 		}
 		return g + " " + lbl(t)
 	}
@@ -2600,37 +2636,21 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		}
 		spanOf = append(spanOf, j)
 	}
-	// A diff's lines are coloured by what they do, and its code in the
-	// language of the file it's in.
-	var diffLg *lang
+	// A diff is drawn as an edit is: each file's header, and its lines
+	// numbered and highlighted in the file's language.
+	var ud *udiff
+	if !failed && len(spanOf) > 0 {
+		ud = parseDiff(lines, func(i int) bool { return i < len(spanOf) && d.spans[spanOf[i]].diff })
+	}
 	diffLine := func(i int, l string) bool {
-		if failed || i >= len(spanOf) || !d.spans[spanOf[i]].diff {
+		if ud == nil || i >= len(spanOf) || !d.spans[spanOf[i]].diff {
 			return false
 		}
-		if i == 0 || spanOf[i-1] != spanOf[i] {
-			diffLg = d.spans[spanOf[i]].lg
+		if ud.line(d, pad+edge, w, d.spans[spanOf[i]].lg, lines, i) {
+			return true
 		}
-		switch {
-		case strings.HasPrefix(l, "+++ "):
-			if p := strings.TrimPrefix(strings.Fields(l[4:] + " ")[0], "b/"); langFor(p) != nil {
-				diffLg = langFor(p)
-			}
-			d.resetHL()
-			put(b, "", faint(l))
-		case strings.HasPrefix(l, "diff ") || strings.HasPrefix(l, "index ") || strings.HasPrefix(l, "--- "):
-			put(b, "", faint(l))
-		case strings.HasPrefix(l, "@@"):
-			d.resetHL()
-			put(b, "", paint(cBlue, l))
-		case strings.HasPrefix(l, "+"):
-			put(bgAdd, plusSign(), highlight(diffLg, &d.hs, l[1:], cOut, nil))
-		case strings.HasPrefix(l, "-"):
-			put(bgDel, minusSign(), highlight(diffLg, &d.hs, l[1:], cOut, nil))
-		case d.spans[spanOf[i]].git != "":
-			put(b, "", d.gitLine(d.spans[spanOf[i]].git, l))
-		default:
-			put(b, "", highlight(diffLg, &d.hs, l, cOut, nil))
-		}
+		// A commit's header and message, as git log shows them.
+		put(b, "", d.gitLine("log", l))
 		return true
 	}
 	// code is how long line i's prefix is, the path in it and the language
@@ -2725,6 +2745,21 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	more := func(n int) {
 		d.resetHL() // what follows the gap doesn't go on from what came before it
 		put(b, "", folded(n))
+	}
+	if !d.o.Verbose && ud != nil && ud.whole {
+		// A diff reads from the top, as far as an edit shows.
+		rows := 0
+		for i, l := range lines {
+			if rows >= 40 {
+				more(len(lines) - i)
+				return
+			}
+			if ud.drawn(i) {
+				rows++
+			}
+			emit(i, l)
+		}
+		return
 	}
 	if !d.o.Verbose && len(lines) > 8 {
 		// The top and the end, where results and errors land; a failure

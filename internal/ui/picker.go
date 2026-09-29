@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -12,29 +13,145 @@ import (
 )
 
 // picker is a small dropdown: one of an agent's pull requests, the folder
-// a new session starts in, or what to do with a link.
+// a new session starts in or an agent works in, or what to do with a link.
 type picker struct {
 	title  string
+	note   string // after the title, dimmed
 	prs    []agent.PR
 	dirs   []string
+	query  []rune // narrows dirs, or is a folder of its own
+	moving string // the agent a folder is chosen for; "" is new sessions
 	acts   []linkAct
 	cursor int
 }
 
-// openDirPicker lists the folders a new session can start in.
+// openDirPicker is ctrl+l with nothing to move: the folder new sessions
+// start in.
 func (m *Model) openDirPicker() {
-	dirs := m.startDirs()
-	if len(dirs) == 0 {
-		m.flash("no folders to choose from yet", true)
-		return
+	dirs := m.folderChoices()
+	cur := 0
+	for i, d := range dirs {
+		if d == m.startDir() {
+			cur = i
+		}
 	}
-	n := len(dirs)
-	m.picker = &picker{title: "Start new sessions in", dirs: dirs, cursor: ((m.dirIdx % n) + n) % n}
+	m.picker = &picker{title: "Start new sessions in", dirs: dirs, cursor: cur}
+}
+
+// openMovePicker is ctrl+l on an agent: the same folders, and the one
+// chosen is where it's told to work from now on.
+func (m *Model) openMovePicker(a *fleet.Agent) {
+	m.picker = &picker{
+		title: "Move " + oneLine(a.DisplayName) + " to", note: "now in " + tildify(agentDir(a)),
+		dirs: m.folderChoices(), moving: a.Key,
+	}
+}
+
+// agentDir is where an agent works now, as far as its transcript says.
+func agentDir(a *fleet.Agent) string {
+	if a.Spend.Dir != "" {
+		return a.Spend.Dir
+	}
+	return a.Cwd
+}
+
+// folderChoices are the folders worth offering: where new sessions have
+// started, then every folder an agent ran in, their repositories, and
+// those repositories' Claude worktrees.
+func (m *Model) folderChoices() []string {
+	out := m.startDirs()
+	seen := map[string]bool{}
+	for _, d := range out {
+		seen[d] = true
+	}
+	var rest []string
+	add := func(p string) {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			rest = append(rest, p)
+		}
+	}
+	for _, a := range m.snap.Agents {
+		add(a.Repo)
+		for _, wt := range m.worktreesOf(a.Repo) {
+			add(wt)
+		}
+		add(agentDir(a))
+	}
+	sort.Strings(rest)
+	return append(out, rest...)
+}
+
+// shownDirs are the folders the typed text matches, the typed text first
+// when it's a path.
+func (p *picker) shownDirs() []string {
+	q := strings.TrimSpace(string(p.query))
+	if q == "" {
+		return p.dirs
+	}
+	var out []string
+	typed := ""
+	if strings.HasPrefix(q, "/") || strings.HasPrefix(q, "~") {
+		typed = expand(q)
+		out = append(out, typed)
+	}
+	lq := strings.ToLower(q)
+	for _, d := range p.dirs {
+		if d != typed && strings.Contains(strings.ToLower(tildify(d)), lq) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// setStartDir makes dir where new sessions start, kept first in the list
+// when it wasn't in it.
+func (m *Model) setStartDir(dir string) {
+	for {
+		for i, d := range m.startDirs() {
+			if d == dir {
+				m.dirIdx = i
+				return
+			}
+		}
+		if m.pickedDir == dir {
+			return
+		}
+		m.pickedDir = dir
+	}
+}
+
+// moveTo tells an agent to work in another folder from now on, rather than
+// stopping it to relaunch there; its row follows once it cd's there or
+// writes a file there.
+func (m *Model) moveTo(a *fleet.Agent, dir string) tea.Cmd {
+	switch {
+	case a == nil:
+		return nil
+	case a.Interactive:
+		m.flash(a.DisplayName+" is open in another terminal · tell it there", true)
+		return nil
+	}
+	text := moveNote(dir, agentDir(a))
+	return m.replyTo(a, text, text)
+}
+
+// moveNote asks an agent to carry on in dir. Its shell can go back to
+// where it started between commands, so each one cd's first; the leading
+// cd is also what tells agtop where it works now.
+func moveNote(dir, from string) string {
+	cd := dir
+	if strings.ContainsAny(dir, " '\"$`") {
+		cd = "'" + strings.ReplaceAll(dir, "'", `'\''`) + "'"
+	}
+	return fmt.Sprintf("Please move over to %s and work there from now on (you were in %s). "+
+		"Start by running `cd %s`. Your shell may go back to the old folder between commands, so begin each Bash command with `cd %s && ` "+
+		"and use absolute paths under %s. Paths from earlier in this conversation point at the old folder.", dir, from, cd, cd, dir)
 }
 
 func (p *picker) size() int {
 	if p.dirs != nil {
-		return len(p.dirs)
+		return len(p.shownDirs())
 	}
 	if p.acts != nil {
 		return len(p.acts)
@@ -65,8 +182,11 @@ func browse(url string) tea.Cmd {
 	}
 }
 
-func (m *Model) pickerKey(s string) tea.Cmd {
+func (m *Model) pickerKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	p := m.picker
+	if p.dirs != nil {
+		return m.dirPickerKey(k, s)
+	}
 	switch s {
 	case "esc", "q", "ctrl+y", "ctrl+l":
 		m.picker = nil
@@ -75,12 +195,6 @@ func (m *Model) pickerKey(s string) tea.Cmd {
 	case "down", "j", "tab":
 		p.cursor = roundMove(p.cursor, 1, p.size())
 	case "enter":
-		if p.dirs != nil {
-			m.dirIdx = p.cursor
-			m.picker = nil
-			m.flash("new sessions start in "+tildify(p.dirs[p.cursor]), false)
-			return nil
-		}
 		if p.acts != nil {
 			m.picker = nil
 			return p.acts[p.cursor].do(m)
@@ -92,12 +206,60 @@ func (m *Model) pickerKey(s string) tea.Cmd {
 	return nil
 }
 
+// dirPickerKey is a folder picker's keys: what's typed narrows the list,
+// or is a path of its own.
+func (m *Model) dirPickerKey(k tea.KeyPressMsg, s string) tea.Cmd {
+	p := m.picker
+	switch s {
+	case "esc", "ctrl+l":
+		m.picker = nil
+	case "up", "shift+tab":
+		p.cursor = roundMove(p.cursor, -1, p.size())
+	case "down", "tab":
+		p.cursor = roundMove(p.cursor, 1, p.size())
+	case "backspace", "ctrl+h":
+		if len(p.query) > 0 {
+			p.query, p.cursor = p.query[:len(p.query)-1], 0
+		}
+	case "ctrl+u", "super+backspace":
+		p.query, p.cursor = p.query[:0], 0
+	case "enter":
+		shown := p.shownDirs()
+		if len(shown) == 0 {
+			return nil
+		}
+		dir := shown[min(p.cursor, len(shown)-1)]
+		m.picker = nil
+		if p.moving != "" {
+			return m.moveTo(m.agentByKey(p.moving), dir)
+		}
+		m.setStartDir(dir)
+		m.flash("new sessions start in "+tildify(dir), false)
+	default:
+		if k.Text != "" && k.Mod&^tea.ModShift == 0 {
+			p.query, p.cursor = append(p.query, []rune(k.Text)...), 0
+		}
+	}
+	return nil
+}
+
 func (m *Model) pickerBody(w int) []string {
 	p := m.picker
-	out := []string{paint(cText+bold, p.title), ""}
+	title := paint(cText+bold, p.title)
+	if p.note != "" {
+		title += dim(" · " + p.note)
+	}
+	out := []string{title, ""}
 	if p.dirs != nil {
-		for i, d := range p.dirs {
-			line := paint(cText, tildify(d))
+		out = append(out, dim("Folder ❯ ")+string(p.query)+paint(cOrange, "▏"), "")
+		shown := p.shownDirs()
+		if len(shown) == 0 {
+			out = append(out, faint(" no folder matches · type a path"))
+		}
+		room := max(4, m.h-14)
+		top := max(0, min(p.cursor-room+1, len(shown)-room))
+		for i := top; i < len(shown) && i < top+room; i++ {
+			line := paint(cText, tildify(shown[i]))
 			if i == p.cursor {
 				line = highlight(paint(cOrange, "▍")+line, w)
 			} else {
@@ -105,7 +267,11 @@ func (m *Model) pickerBody(w int) []string {
 			}
 			out = append(out, line)
 		}
-		return append(out, "", keys("↑↓", "choose", "enter", "start new sessions here", "esc", "close"))
+		do := "start new sessions here"
+		if p.moving != "" {
+			do = "tell it to work here"
+		}
+		return append(out, "", keys("type", "filter or a path", "↑↓", "choose", "enter", do, "esc", "close"))
 	}
 	if p.acts != nil {
 		for i, a := range p.acts {

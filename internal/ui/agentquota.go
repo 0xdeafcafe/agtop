@@ -172,3 +172,31 @@ func (m *Model) spillTo() {
 }
 
 func pct(p float64) string { return fmt.Sprintf("%.0f%%", p) }
+
+// nearSwitch is how full, in percent, the account in use gets before the
+// header says which one agtop switches to next.
+const nearSwitch = state.SwitchAt - 15
+
+// upcoming is the account new sessions move on to once the one in use,
+// used percent full, is nearly out: the other with the most room, as long
+// as it isn't nearly out itself. Nothing while there's room still, or when
+// the default profile waits at a limit.
+func (m *Model) upcoming(used float64) (acctRow, bool) {
+	if used < nearSwitch || used >= 100 || m.store.Config.Default().Limit() == state.LimitWait {
+		return acctRow{}, false
+	}
+	var best acctRow
+	ok := false
+	rows := accountsOf(m.accountRows(), agent.Kind(m.startKind()))
+	for i := range rows {
+		r := &rows[i]
+		u := r.q.Used("")
+		if r.current || len(r.q.Windows) == 0 || time.Since(r.q.FetchedAt) >= time.Hour || u >= state.SwitchAt {
+			continue
+		}
+		if !ok || u < best.q.Used("") {
+			best, ok = *r, true
+		}
+	}
+	return best, ok
+}

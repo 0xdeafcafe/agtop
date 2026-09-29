@@ -16,6 +16,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
+	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/theme"
 )
 
@@ -140,7 +141,7 @@ func (m *Model) header() []string {
 	}
 	counts = append(counts, dim(fmt.Sprintf("%d finished", t.done)))
 	if mc := m.snap.Machine; mc.Orphans > 0 {
-		counts = append(counts, paint(cYellow, fmt.Sprintf("%d orphaned · %s", mc.Orphans, mem(mc.OrphanMem)))+dim(" · Machine › Processes to end"))
+		counts = append(counts, paint(cYellow, fmt.Sprintf("%d orphaned · %s", mc.Orphans, mem(mc.OrphanMem)))+dim(" · Agents › Projects to end"))
 	}
 	left1 := paint(cText+bold, "agtop") + "   " + strings.Join(counts, "   ")
 
@@ -216,16 +217,14 @@ func (m *Model) pages() string {
 			names = append(names, p.name)
 		}
 		cur = m.dialog.page
-	case m.mode == modeProcs || m.mode == modeCleanup:
-		names, cur = machinePages, m.machinePage
 	case m.mode == modeEff:
 		names, cur = effPages, m.eff.page
-	case m.mode == modeWall || m.mode == modeWork:
-		names, cur = workPages, m.work.page
 	case m.zen:
 		return "   " + paint(cYellow, "zen") + faint(" ctrl+z")
 	case m.hosted != "":
 		return "" // no zen in hosted
+	case m.mode == modeWall || m.view == placeAgents:
+		names, cur = agentsPages, m.work.page
 	default:
 		return faint("   ctrl+z zen")
 	}
@@ -379,7 +378,8 @@ func usageMeter(label string, pct float64, resets time.Time, window time.Duratio
 }
 
 // activeUsage is the current account's plan usage, with when each window
-// resets, quiet unless it is high. It doesn't say whose: the header does,
+// resets, quiet unless it is high, and near a switch the account agtop
+// moves on to next with its usage. It doesn't say whose: the header does,
 // beside it.
 func (m *Model) activeUsage() string {
 	for _, av := range m.snap.Accounts {
@@ -402,6 +402,15 @@ func (m *Model) activeUsage() string {
 		if len(parts) == 0 {
 			return ""
 		}
+		if next, ok := m.upcoming(u.Used("")); ok {
+			// Where sessions go at the switch: glyph, name, and a short
+			// bar of its tightest window, in the meters' own style.
+			n := next.q.Used("")
+			l := lookOf(next.kind)
+			fill := min(5, max(0, int(n/20+0.5)))
+			meter := paint(usageColor(n), strings.Repeat("━", fill)) + faint(strings.Repeat("─", 5-fill))
+			parts = append(parts, faint("↪ at "+pct(state.SwitchAt)+" ")+paint(l.colour(), l.glyph)+" "+paint(cText, next.name())+" "+meter+" "+paint(usageColor(n), pct(n)))
+		}
 		s := m.usageTag() + "  " + strings.Join(parts, "   ")
 		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > 3*claude.UsageEvery {
 			when := u.FetchedAt.Local().Format("15:04")
@@ -422,8 +431,11 @@ func (m *Model) render() string {
 	if m.bar != nil {
 		return m.overlayBar(m.renderScreen())
 	}
-	if m.confirm != nil && m.confirm.modal {
+	if m.confirm != nil {
 		return m.confirmModal(m.renderScreen())
+	}
+	if m.dialog != nil && m.keysTaking() != nil {
+		return m.keysModal(m.renderScreen())
 	}
 	return m.renderScreen()
 }
@@ -432,22 +444,10 @@ func (m *Model) renderScreen() string {
 	switch m.mode {
 	case modeHelp:
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 50))
-	case modeProcs:
-		if m.snap.Machine.Orphans > 0 {
-			return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "X", "end all orphans", "x", "end / SIGTERM", "!", "SIGKILL tree", "enter", "go to the agent", "[ ]", "Cleanup", "esc", "back"))
-		}
-		return m.frame(m.procBody(), keysFit(m.w-4, "↑↓", "move", "enter", "go to the agent", "ctrl+x", "SIGTERM", "!", "SIGKILL tree", "[ ]", "Cleanup", "esc", "back"))
-	case modeCleanup:
-		return m.frame(m.cleanupBody(), keysFit(m.w-4, "↑↓", "move", "x", "remove", "A", "remove all that's safe", "r", "check again", "[ ]", "Processes", "esc", "back"))
-	case modeCwd:
-		return m.frame(m.cwdBody(), keysFit(m.w-4, "enter", "apply", "tab", "move / add", "↑↓", "pick", "esc", "cancel"))
 	case modeEff:
 		return m.frame(m.effBody(), m.effHint())
-	case modeWork:
-		if m.work.page == workProjects {
-			return m.frame(m.projectsBody(), m.projectsHint())
-		}
-		return m.frame(m.workBody(), m.workHint())
+	case modeProjects:
+		return m.frame(m.projectsBody(), m.projectsHint())
 	case modeWall:
 		return m.frame(m.wallBody(m.w-4, m.wallH()), m.wallHint())
 	}
@@ -486,9 +486,7 @@ func (m *Model) frame(body []string, hint string) string {
 	}
 	b.WriteString(faint(strings.Repeat("─", m.w)))
 	b.WriteByte('\n')
-	if d := m.dialog; d != nil && d.confirm != "" {
-		hint = paint(cText+bold, d.confirm) + "   " + paint(cOrange, "y") + dim(" yes   ") + paint(cOrange, "n") + dim(" no")
-	} else if d != nil && d.asking != "" {
+	if d := m.dialog; d != nil && d.asking != "" {
 		hint = paint(cOrange, d.asking+" ❯ ") + paint(cText, string(d.input)) + paint(cOrange, "▏")
 	}
 	b.WriteString(m.statusOr(hint))
@@ -506,9 +504,6 @@ func (m *Model) frameCursor(body []string) int {
 }
 
 func (m *Model) statusOr(hint string) string {
-	if m.confirm != nil && !m.confirm.modal {
-		return m.confirmLine(m.w)
-	}
 	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
 		c := cSub
 		if m.statusErr {
@@ -517,21 +512,6 @@ func (m *Model) statusOr(hint string) string {
 		return fit("  "+paint(c, m.status), m.w)
 	}
 	return fit("  "+hint, m.w)
-}
-
-// confirmLine is the question being asked and its keys, in w cells. The
-// keys are what it waits on, so when it's tight the detail goes first,
-// then the keys come before the question.
-func (m *Model) confirmLine(w int) string {
-	c := m.confirm
-	keys := "   " + c.keys()
-	q := paint(cText+bold, c.question)
-	for _, s := range []string{"  " + q + "  " + dim(c.detail) + keys, "  " + q + keys} {
-		if cellw.String(s) <= w {
-			return fit(s, w)
-		}
-	}
-	return fit(" "+keys[1:]+"   "+q, w)
 }
 
 // keys are the keys a confirmation waits on, and what each does.
@@ -558,11 +538,17 @@ func (m *Model) confirmModal(base string) string {
 		}
 	}
 	body = append(body, "", c.keys())
+	return m.modalOver(base, body, bw, cYellow)
+}
+
+// modalOver draws body in a box bw wide, edged in col, centred over base
+// faded out.
+func (m *Model) modalOver(base string, body []string, bw int, col string) string {
 	lines := strings.Split(base, "\n")
 	for y := range lines {
 		lines[y] = faint(ansi.Strip(fit(lines[y], m.w)))
 	}
-	box := edgedBox(body, bw, cYellow)
+	box := edgedBox(body, bw, col)
 	return strings.Join(pasteAt(lines, box, max(1, (len(lines)-len(box))/2), (m.w-bw)/2), "\n")
 }
 
@@ -576,6 +562,24 @@ func keysFit(w int, pairs ...string) string {
 		pairs = append(pairs[:len(pairs)-4], pairs[len(pairs)-2:]...)
 	}
 	return keys(pairs...)
+}
+
+// needingYou counts the agents waiting on you, which ctrl+n steps through.
+func (m *Model) needingYou() int {
+	n := 0
+	for _, a := range m.order {
+		if a.NeedsYou() {
+			n++
+		}
+	}
+	return n
+}
+
+func needsLabel(n int) string {
+	if n == 1 {
+		return "1 needs you"
+	}
+	return fmt.Sprintf("%d need you", n)
 }
 
 // keys renders "key label" pairs with the key brighter than its label.
@@ -1152,15 +1156,19 @@ func (m *Model) claudeStrip(w int) string {
 	case !live:
 		right = dim("not running · enter resumes it")
 	}
-	left = withTabHint(left, "[ ]", "views", "", w-cellw.String(right+" ")-2)
+	left = withTabHint(left, "v", "views", "", w-cellw.String(right+" ")-2)
 	return onBg(bgChrome, spread(left, right+" ", w), w)
 }
+
+// rowInset is each step a row sits in under a project, then a worktree.
+const rowInset = 2
 
 // Column widths on the right of a row.
 const (
 	wAct  = 10
 	wCPU  = 6
 	wRAM  = 7
+	wTok  = 7
 	wCost = 8
 	wAge  = 5
 )
@@ -1198,9 +1206,10 @@ func (m *Model) listLines(w, h int) []string {
 			emit("", "", false)
 		case lineAgent:
 			sel := l.agent.Key == m.sel
-			emit(m.agentLine(l.agent, w, sel, nameCol, two), l.agent.Key, sel)
+			rw, pad := w-l.inset, strings.Repeat(" ", l.inset)
+			emit(pad+m.agentLine(l.agent, rw, sel, nameCol-len(pad), two), l.agent.Key, sel)
 			if two {
-				emit(m.agentSub(l.agent, w), l.agent.Key, sel)
+				emit(pad+m.agentSub(l.agent, rw), l.agent.Key, sel)
 				cont[len(cont)-1] = true
 			}
 		}
@@ -1209,6 +1218,12 @@ func (m *Model) listLines(w, h int) []string {
 		msg := "  No agents yet. Describe a task below to start one."
 		if !m.fleetRead {
 			msg = "  Reading your agents…"
+		}
+		if f := m.listFilter; f != nil && len(f.query) > 0 {
+			msg = fmt.Sprintf("  No agents match %q.", string(f.query))
+			if f.search != nil && !f.done {
+				msg = fmt.Sprintf("  No agents match %q yet — still searching…", string(f.query))
+			}
 		}
 		all = append(all, "", dim(msg))
 		keys = append(keys, "", "")
@@ -1378,11 +1393,15 @@ func ctxBar(pct float64) string {
 // columnHeader names the list's columns; it stays put while the list scrolls.
 // colWidths are the list's right-hand columns at width w. A narrow list
 // drops the least useful first, so names keep their room: RUNNING and CPU
-// under 96 columns, RAM under 64, cost under 44 (the pane header has it).
-func colWidths(w int) (act, cpu, ram, cost int) {
-	act, cpu, ram, cost = wAct, wCPU, wRAM, wCost
+// under 96 columns, TOKENS under 76, RAM under 64, cost under 44 (the pane
+// header has it).
+func colWidths(w int) (act, cpu, ram, tok, cost int) {
+	act, cpu, ram, tok, cost = wAct, wCPU, wRAM, wTok, wCost
 	if w < 96 {
 		act, cpu = 0, 0
+	}
+	if w < 76 {
+		tok = 0
 	}
 	if w < 64 {
 		ram = 0
@@ -1394,7 +1413,10 @@ func colWidths(w int) (act, cpu, ram, cost int) {
 }
 
 func (m *Model) columnHeader(w int) string {
-	wAct, wCPU, wRAM, wCost := colWidths(w)
+	if f := m.listFilter; f != nil {
+		return m.listFilterHeader(f, w)
+	}
+	wAct, wCPU, wRAM, wTok, wCost := colWidths(w)
 	nameCol := m.nameColumn(w)
 	sortBy := m.store.Config.SortBy
 	if sortBy == "" {
@@ -1429,14 +1451,43 @@ func (m *Model) columnHeader(w int) string {
 	if sortBy == "recent" {
 		left += paint(cSub+bold, " · by recent activity")
 	}
-	rightW := wAct + wCPU + wRAM + wCost + wAge + 3
+	rightW := wAct + wCPU + wRAM + wTok + wCost + wAge + 3
 	left = m.listToggles(left, w-rightW)
-	cols := dim(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("COST", "cost", wCost) + col("TIME", "time", wAge+2) + " "
+	cols := dim(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("TOKENS", "tokens", wTok) + col("COST", "cost", wCost) + col("TIME", "time", wAge+2) + " "
 	gap := w - cellw.String(left) - rightW
 	if gap < 1 {
 		return fit(left, w)
 	}
 	return left + strings.Repeat(" ", gap) + cols
+}
+
+// listFilterHeader is the column header while the Agents view's filter
+// (alt+f) is open: what's typed, how many agents match, and whether their
+// transcripts are still being searched.
+func (m *Model) listFilterHeader(f *listFilterState, w int) string {
+	label := "  ⌕ filter"
+	if len(f.query) > 0 {
+		label = "  ⌕ filter: " + string(f.query)
+	}
+	n := 0
+	for _, l := range m.lines {
+		if l.kind == lineAgent {
+			n++
+		}
+	}
+	meta := fmt.Sprintf("%d agent", n)
+	if n != 1 {
+		meta += "s"
+	}
+	if len(f.query) > 0 && f.search != nil && !f.done {
+		meta += " · searching…"
+	}
+	left := paint(cSub+bold, fit(label, max(0, w-cellw.String(meta)-4)))
+	gap := w - cellw.String(left) - cellw.String(meta) - 1
+	if gap < 1 {
+		return fit(left, w)
+	}
+	return left + strings.Repeat(" ", gap) + dim(meta) + " "
 }
 
 // listToggles adds to the column header how the list is arranged, each
@@ -1474,16 +1525,17 @@ type headHit struct {
 // headerColumn maps a click on the column header to the sort it selects.
 func (m *Model) headerColumn(x int) string {
 	w := m.listW
-	wAct, wCPU, wRAM, wCost := colWidths(w)
+	wAct, wCPU, wRAM, wTok, wCost := colWidths(w)
 	edges := []struct {
 		from int
 		mode string
 	}{
 		{w - 1 - (wAge + 2), "time"},
 		{w - 1 - (wAge + 2) - wCost, "cost"},
-		{w - 1 - (wAge + 2) - wCost - wRAM, "ram"},
-		{w - 1 - (wAge + 2) - wCost - wRAM - wCPU, "cpu"},
-		{w - 1 - (wAge + 2) - wCost - wRAM - wCPU - wAct, ""},
+		{w - 1 - (wAge + 2) - wCost - wTok, "tokens"},
+		{w - 1 - (wAge + 2) - wCost - wTok - wRAM, "ram"},
+		{w - 1 - (wAge + 2) - wCost - wTok - wRAM - wCPU, "cpu"},
+		{w - 1 - (wAge + 2) - wCost - wTok - wRAM - wCPU - wAct, ""},
 	}
 	for _, e := range edges {
 		if x >= e.from {
@@ -1512,8 +1564,8 @@ func (m *Model) nameColumn(w int) int {
 	}
 	if w < 96 {
 		// A narrow list is mostly names: give them what the columns leave.
-		act, cpu, ram, cost := colWidths(w)
-		return max(12, min(widest, w-6-act-cpu-ram-cost-wAge-3))
+		act, cpu, ram, tok, cost := colWidths(w)
+		return max(12, min(widest, w-6-act-cpu-ram-tok-cost-wAge-3))
 	}
 	return max(20, min(widest, (w-30)*2/5))
 }
@@ -1521,15 +1573,18 @@ func (m *Model) nameColumn(w int) int {
 // stacked is when the list is too narrow for a readable summary beside each
 // name: rows take two lines then, the summary hung under the name.
 func stacked(w, nameCol int) bool {
-	act, cpu, ram, cost := colWidths(w)
-	return w-3-(act+cpu+ram+cost+wAge+3)-nameCol-2 < 20
+	act, cpu, ram, tok, cost := colWidths(w)
+	return w-3-(act+cpu+ram+tok+cost+wAge+3)-nameCol-2 < 20
 }
 
 // agentSub is a stacked row's second line: its summary, or where it works
 // when it has nothing to say, hung from the name above so the two read as one.
 func (m *Model) agentSub(a *fleet.Agent, w int) string {
-	summary, col, justDone := m.rowSummary(a)
 	room := w - 6
+	if snip, ok := m.filterSnippet(a, room); ok {
+		return "   " + faint("╰ ") + snip
+	}
+	summary, col, justDone := m.rowSummary(a)
 	text := paint(col, fit(summary, room))
 	switch {
 	case justDone:
@@ -1543,7 +1598,7 @@ func (m *Model) agentSub(a *fleet.Agent, w int) string {
 // agentLine is the first line of a row: marker, name, badges, figures, and
 // the summary too unless the row is stacked.
 func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked bool) string {
-	wAct, wCPU, wRAM, wCost := colWidths(w)
+	wAct, wCPU, wRAM, wTok, wCost := colWidths(w)
 	now := m.snap.At
 	live := a.Live()
 	marker := " "
@@ -1607,18 +1662,33 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked 
 			return faint(v)
 		}
 	}
+	tokCell := func(active bool) string {
+		if a.Spend.Context <= 0 {
+			return strings.Repeat(" ", wTok)
+		}
+		v := right1(tokens(a.Spend.Context), wTok)
+		win := claude.ContextWindow(a.Spend.Model)
+		switch {
+		case win > 0 && float64(a.Spend.Context)/float64(win) >= 0.8:
+			return paint(cYellow, v)
+		case active:
+			return dim(v)
+		default:
+			return faint(v)
+		}
+	}
 	var right string
 	switch {
 	case live || busy:
-		right = act + cpuCell() + ramCell(true) + costCell(a.Spend.Cost, wCost)
+		right = act + cpuCell() + ramCell(true) + tokCell(true) + costCell(a.Spend.Cost, wCost)
 	case resident:
-		right = act + faint(right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)) + ramCell(false) + faint(right1(moneyShort(a.Spend.Cost), wCost))
+		right = act + faint(right1(fmt.Sprintf("%.0f%%", a.CPU), wCPU)) + ramCell(false) + tokCell(false) + faint(right1(moneyShort(a.Spend.Cost), wCost))
 	default:
 		cost := moneyShort(a.Spend.Cost)
 		if cost == "–" {
 			cost = ""
 		}
-		right = act + blanks(wCPU+wRAM) + faint(right1(cost, wCost))
+		right = act + blanks(wCPU+wRAM) + tokCell(false) + faint(right1(cost, wCost))
 	}
 	if live {
 		right += dim(right1(dur(a.Elapsed(now)), wAge+2)) + " "
@@ -1650,10 +1720,12 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked 
 	if badges != "" {
 		left += " " + badges
 	}
-	if summary != "" && !stacked {
+	if (summary != "" || m.hasFilterMatch(a)) && !stacked {
 		left = fit(left, nameCol)
 		if sw := room - nameCol - 2; sw > 8 {
-			if justDone {
+			if snip, ok := m.filterSnippet(a, sw); ok {
+				left += "  " + snip
+			} else if justDone {
 				left += "  " + paint(cGreen, "just finished") + faint(" · ") + paint(sumColor, fit(summary, sw-16))
 			} else {
 				left += "  " + paint(sumColor, fit(summary, sw))
@@ -1697,7 +1769,7 @@ func (m *Model) rowSummary(a *fleet.Agent) (summary, sumColor string, justDone b
 		if p := m.previews[a.Key].p; summary == "" && p.Doing != "" {
 			summary = oneLine(p.Doing)
 		}
-		if summary == "" && a.Interactive {
+		if summary == "" && a.Interactive && !a.Headless {
 			summary = "working in a terminal"
 		}
 		if summary == "" {
@@ -1967,7 +2039,19 @@ func (m *Model) promptLines(w int) []string {
 	out = append(out, b.lines()...)
 	// One row of keys for what you can do right now; ? has the rest.
 	var hint string
+	needs := m.needingYou()
 	switch {
+	case m.sessionFocused():
+		// The keys are the Session's: only what reaches back here.
+		var pairs []string
+		if needs > 0 {
+			pairs = append(pairs, "ctrl+n", needsLabel(needs))
+		}
+		back := "esc · ←"
+		if m.embedded {
+			back = "ctrl+]"
+		}
+		hint = keysFit(w-4, append(pairs, back, "back to Agents")...)
 	case m.inKind == inReply:
 		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", keySaveDraft, "keep as draft", "?", "guide")
 	case m.inKind != inPrompt:
@@ -1984,18 +2068,27 @@ func (m *Model) promptLines(w int) []string {
 		if from := m.agentByKey(m.peekFrom); from != nil {
 			back = "back to " + oneLine(from.DisplayName)
 		}
-		hint = keysFit(w-4, "↑↓", "pick", "enter · tab", "open it", "esc", back, "shift+← · #view split", "side by side", "?", "guide")
+		hint = keysFit(w-4, "↑↓", "pick", "enter · { }", "open it", "esc", back, "shift+← · #view split", "side by side", "?", "guide")
 	default:
+		// Most useful first: keysFit drops from the end, bar ? guide.
+		open, rename := "enter · { }", "ctrl+r"
+		if m.store.Config.EnterOn != "open" {
+			open, rename = "⌘↓ · { }", "enter"
+		}
 		var pairs []string
 		switch {
-		case a != nil && a.Agtop && m.store.Config.EnterOn == "open":
-			pairs = []string{"enter · tab", "talk to it", "ctrl+r", "rename", "ctrl+k", "go anywhere", "ctrl+n", "next needing you"}
-		case a != nil && m.store.Config.EnterOn == "open":
-			pairs = []string{"enter · tab", "open", "ctrl+r", "rename", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you"}
-		case a != nil && a.Agtop:
-			pairs = []string{"enter", "rename", "⌘↓ · tab", "talk to it", "ctrl+k", "go anywhere", "ctrl+n", "next needing you", "tab", "its Session"}
+		case a == nil:
+		case a.Agtop:
+			pairs = append(pairs, open, "talk to it")
 		default:
-			pairs = []string{"enter", "rename", "⌘↓ · tab", "open", "ctrl+k", "go anywhere", "ctrl+o", "reply", "ctrl+n", "next needing you", "tab", "its Session"}
+			pairs = append(pairs, open, "open", "ctrl+o", "reply")
+		}
+		if needs > 0 {
+			pairs = append(pairs, "ctrl+n", needsLabel(needs))
+		}
+		pairs = append(pairs, "ctrl+k", "go anywhere")
+		if a != nil {
+			pairs = append(pairs, rename, "rename")
 		}
 		if a != nil && (a.Halted() || a.YourTurn(m.snap.At)) {
 			pairs = append([]string{"alt+g", a.ContinueText()}, pairs...)
@@ -2024,11 +2117,8 @@ func (m *Model) promptLines(w int) []string {
 		}
 		hint = keysFit(w-4, append(pairs, "?", "guide")...)
 	}
-	if (m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6) || m.confirm != nil && !m.confirm.modal {
+	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
 		hint = strings.TrimRight(m.statusOr(""), " ") // it pads to the screen, not this box
-		if m.confirm != nil && !m.confirm.modal {
-			hint = m.confirmLine(w)
-		}
 	} else {
 		hint = "  " + hint
 	}
@@ -2220,91 +2310,6 @@ func nonEmpty(xs ...string) []string {
 	return out
 }
 
-func (m *Model) procBody() []string {
-	rows := m.procRows()
-	cur := m.procIndex(rows)
-	// Past this the eye can't follow a row from its name to its numbers.
-	w := min(m.w-4, 170)
-	mc := m.snap.Machine
-	// Every row ends in the same three columns; the rest is the left.
-	const cpuW, memW, procW = 9, 8, 8
-	left := max(20, w-2-cpuW-memW-procW)
-	cols := func(r procRow, procs bool) string {
-		p := ""
-		if procs && r.n > 1 {
-			p = fmt.Sprintf("%d", r.n)
-		}
-		return cpuColor(r.cpu, right(fmt.Sprintf("%.1f%%", r.cpu), cpuW)) + memColor(r.mem, right(mem(r.mem), memW)) + dim(right(p, procW))
-	}
-	var procs int
-	for _, r := range rows {
-		if r.heading || r.other {
-			procs += r.n
-		}
-	}
-	out := []string{
-		paint(cText+bold, "Processes") + dim(fmt.Sprintf("  ·  %s ram · %.0f%% cpu · %d processes", mem(mc.TotalMem), mc.TotalCPU, procs)),
-		"",
-		"  " + faint(fit("agent", left-2)+right("cpu", cpuW)+right("mem", memW)+right("procs", procW)),
-	}
-	nameW := min(48, left*3/5)
-	lastRole, other, wasBusy := fleet.Role(-1), false, false
-	for i, r := range rows {
-		var line string
-		switch {
-		case r.heading:
-			// A busy agent stands apart with what it runs; the idle ones
-			// sit together as a table.
-			if r.busy || wasBusy {
-				out = append(out, "")
-			}
-			wasBusy = r.busy
-			name := paint(cText, fit(r.label, nameW))
-			if r.busy {
-				name = paint(cText+bold, fit(r.label, nameW))
-			}
-			line = "  " + name + "  " + faint(fit(r.cmd, left-nameW-4)) + cols(r, true)
-		case r.other && r.role == fleet.RoleOrphan:
-			if lastRole != fleet.RoleOrphan {
-				lastRole = fleet.RoleOrphan
-				head := paint(cYellow+bold, fmt.Sprintf("%d orphaned", mc.Orphans)) + paint(cYellow, fmt.Sprintf(" · holding %s", mem(mc.OrphanMem)))
-				out = append(out, "", head+" "+faint(strings.Repeat("─", max(0, w-2-cellw.String(head)-1))),
-					dim("  The sessions that started these have ended; they'll run until you end them. ")+paint(cOrange, "x")+dim(" ends one, ")+paint(cOrange, "X")+dim(" ends them all."))
-			}
-			lbl := fit(r.label+" · "+age(m.snap.At.Sub(r.start))+" old", 30)
-			line = "  " + paint(cYellow, lbl) + paint(cText, fit(trimCmd(r.cmd, left-32), left-32)) + cols(r, true)
-		case r.other:
-			if !other {
-				other = true
-				out = append(out, "", "", rule("Not agents", "", w-2))
-			}
-			if r.role != lastRole {
-				lastRole = r.role
-				out = append(out, dim("  "+roleName(r.role)))
-			}
-			line = "    " + paint(cSub, fit(r.label, 30)) + faint(fit(trimCmd(r.cmd, left-34), left-34)) + cols(r, true)
-		case r.role == fleet.RoleOrphan:
-			line = "  " + strings.Repeat(" ", 30) + faint("└ "+fit(trimCmd(r.cmd, left-34), left-34)) + cols(r, false)
-		default:
-			tree := strings.Repeat("  ", min(r.depth, 8))
-			pid := faint(right(fmt.Sprintf("%d", r.pid), 7))
-			c := paint(cSub, r.cmd)
-			if r.cpu >= 1 || r.mem >= 256<<20 {
-				c = paint(cText, r.cmd)
-			}
-			line = "  " + pid + "  " + faint(tree) + fit(c, left-11-len(tree)) + cols(r, false)
-		}
-		if i == cur {
-			line = highlight(paint(cOrange, "▍")+line[1:], w)
-		}
-		out = append(out, line)
-	}
-	if len(rows) == 0 {
-		out = append(out, dim("No Claude processes are running."))
-	}
-	return out
-}
-
 func roleName(r fleet.Role) string {
 	switch r {
 	case fleet.RoleDaemon:
@@ -2320,38 +2325,6 @@ func roleName(r fleet.Role) string {
 	default:
 		return "Other Claude Code"
 	}
-}
-
-func (m *Model) cwdBody() []string {
-	var name, from string
-	for _, a := range m.snap.Agents {
-		if a.Key == m.cwdFor {
-			name, from = a.DisplayName, tildify(a.Cwd)
-		}
-	}
-	out := []string{paint(cText+bold, "Change repo") + dim(" · "+name+" · now in "+from), ""}
-	out = append(out, "  "+dim("Folder ❯ ")+string(m.input)+paint(cOrange, "▏"), "")
-	for i, c := range m.cwdChoices() {
-		if i >= max(4, m.h-20) {
-			break
-		}
-		cur := "    "
-		if i == m.cwdCursor {
-			cur = paint(cOrange, "  › ")
-		}
-		out = append(out, cur+tildify(c))
-	}
-	mv, ad := "( )", "( )"
-	if m.cwdMove {
-		mv = "(•)"
-	} else {
-		ad = "(•)"
-	}
-	out = append(out, "",
-		"  "+dim("Mode   ")+paint(cOrange, mv)+" Move: relaunch this conversation there  "+dim("stops it, resumes it in the new folder, tells Claude"),
-		"         "+paint(cOrange, ad)+" Add: also allow this folder             "+dim("keeps the working folder, adds this one"),
-		"", dim("  enter apply · tab mode · ↑↓ pick · esc cancel"))
-	return out
 }
 
 // helpPages are the guide's tabs: a key and what it does.
@@ -2371,7 +2344,7 @@ var helpPages = []struct {
 	}},
 	{"▤ Agents", [][2]string{
 		{"↑↓", "pick one"},
-		{"⌘↓ · tab", "open its Session"},
+		{"⌘↓ · { }", "open its Session"},
 		{"enter", "rename or open it, as you chose"},
 		{"ctrl+r", "rename it · tab the next"},
 		{"ctrl+n", "next one needing you"},
@@ -2385,7 +2358,7 @@ var helpPages = []struct {
 		{"< > · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
 		{"[ ]", "a Session's views, with nothing typed"},
 		{"[ ]", "a place's pages, or a sheet's tabs"},
-		{"tab", "in Agents, between the list and the Session"},
+		{"{ }", "in Agents, between the list and the Session"},
 		{"shift+← →", "resize · past the end, one side alone"},
 		{"ctrl+6", "hide or show Agents beside a Session"},
 		{"#tips", "Getting started again"},

@@ -24,8 +24,8 @@ type fake struct {
 	out io.Writer
 }
 
-// line is the next line agtop sends, answering the rate-limit read a new
-// thread makes on its own with an error.
+// line is the next line agtop sends, answering the account and rate-limit
+// reads a new thread makes on its own with an error.
 func (f *fake) line() []byte {
 	f.t.Helper()
 	for f.in.Scan() {
@@ -33,7 +33,7 @@ func (f *fake) line() []byte {
 		if err := jsonx.Unmarshal(f.in.Bytes(), &m); err != nil {
 			f.t.Fatalf("bad line %q: %v", f.in.Text(), err)
 		}
-		if m.Method == "account/rateLimits/read" {
+		if m.Method == "account/rateLimits/read" || m.Method == "account/read" {
 			f.write(map[string]any{"id": m.ID, "error": map[string]any{"code": -32000, "message": "not signed in"}})
 			continue
 		}
@@ -492,6 +492,39 @@ func TestQuotaFrom(t *testing.T) {
 				t.Errorf("windows = %#v\nwant %#v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBilling(t *testing.T) {
+	full, part := &rateLimitWindow{UsedPercent: 100}, &rateLimitWindow{UsedPercent: 40}
+	credits := &struct {
+		HasCredits bool `json:"hasCredits"`
+		Unlimited  bool `json:"unlimited"`
+	}{HasCredits: true}
+	for name, tt := range map[string]struct {
+		snap rateLimitSnapshot
+		want usage.Billing
+		ok   bool
+	}{
+		"within the plan":      {rateLimitSnapshot{Primary: part, Credits: credits}, usage.Plan, true},
+		"spent, credits pay":   {rateLimitSnapshot{Primary: part, Secondary: full, Credits: credits}, usage.Overage, true},
+		"spent, no credits":    {rateLimitSnapshot{Primary: full}, usage.Plan, true},
+		"reached, credits pay": {rateLimitSnapshot{ReachedType: "rate_limit_reached", Credits: credits}, usage.Overage, true},
+		"usage-based plan":     {rateLimitSnapshot{Primary: part, PlanType: "enterprise_cbp_usage_based"}, usage.Metered, true},
+		"says nothing":         {rateLimitSnapshot{LimitID: "codex"}, "", false},
+	} {
+		if got, ok := tt.snap.billing(); got != tt.want || ok != tt.ok {
+			t.Errorf("%s: billing = %q, %v", name, got, ok)
+		}
+	}
+	var a accountResponse
+	_ = jsonx.Unmarshal([]byte(`{"account":{"type":"apiKey"}}`), &a)
+	if b, _ := accountBilling(a); b != usage.Metered {
+		t.Errorf("api key = %q", b)
+	}
+	_ = jsonx.Unmarshal([]byte(`{"account":{"type":"chatgpt","planType":"pro"}}`), &a)
+	if b, _ := accountBilling(a); b != usage.Plan {
+		t.Errorf("chatgpt = %q", b)
 	}
 }
 

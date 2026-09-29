@@ -63,8 +63,11 @@ func (m *Model) keyMap() *keymap.Map {
 }
 
 // keyContexts is where a key lands now, beyond Global: nothing more while
-// a sheet, the command bar, a question or another place has the keys.
+// a sheet, the command bar or a question has the keys.
 func (m *Model) keyContexts() []keymap.Context {
+	if m.onPages() {
+		return []keymap.Context{keymap.Pages}
+	}
 	if m.bar != nil || m.confirm != nil || m.sheet != nil || m.picker != nil || m.dialog != nil ||
 		m.embedded || m.mode != modeList || m.editingDoc() {
 		return nil
@@ -73,6 +76,24 @@ func (m *Model) keyContexts() []keymap.Context {
 		return []keymap.Context{keymap.Session}
 	}
 	return []keymap.Context{keymap.List}
+}
+
+// onPages is whether a place's pages have the keys: Efficiency, Settings,
+// Projects or the Wall, with nothing over them and nothing being typed.
+func (m *Model) onPages() bool {
+	if m.bar != nil || m.confirm != nil || m.sheet != nil || m.picker != nil || m.embedded || m.editingDoc() {
+		return false
+	}
+	if d := m.dialog; d != nil {
+		return m.view == placeSettings && d.asking == ""
+	}
+	switch m.mode {
+	case modeEff:
+		return !m.eff.typing() && m.eff.plan == nil
+	case modeProjects, modeWall:
+		return true
+	}
+	return false
 }
 
 // remapKey turns the key pressed into the one agtop's handling expects, by

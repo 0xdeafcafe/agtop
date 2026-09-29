@@ -98,13 +98,14 @@ type cmdBar struct {
 
 // spot is somewhere the bar jumped from, for "Back".
 type spot struct {
-	view, effPage, machinePage, settingsPage int
-	workPage                                 int
-	zen                                      bool
-	key, name                                string
-	settingsName                             string // the Settings page's
-	paneView                                 int
-	ref                                      string
+	view, effPage, settingsPage int
+	agentsPage                  int
+	mode                        mode // which of Agents' pages
+	zen                         bool
+	key, name                   string
+	settingsName                string // the Settings page's
+	paneView                    int
+	ref                         string
 }
 
 // barJump is a jump into an agent's conversation waiting for it to open:
@@ -400,11 +401,22 @@ type barSearch struct {
 
 func (s *barSearch) cancel() { s.once.Do(func() { close(s.stop) }) }
 
+// wait reads the next batch of matches, or the search's end, as a
+// barFoundMsg for the command bar.
 func (s *barSearch) wait() tea.Cmd {
+	return s.waitAs(func(found []barFound, done bool) tea.Msg {
+		return barFoundMsg{gen: s.gen, found: found, done: done}
+	})
+}
+
+// waitAs is wait, but for a caller other than the command bar: mk wraps the
+// batch (or the search's end) in that caller's own message type, so its
+// results don't cross with the bar's.
+func (s *barSearch) waitAs(mk func(found []barFound, done bool) tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		f, ok := <-s.ch
 		if !ok {
-			return barFoundMsg{gen: s.gen, done: true}
+			return mk(nil, true)
 		}
 		batch := []barFound{f}
 		soon := time.After(60 * time.Millisecond)
@@ -412,53 +424,34 @@ func (s *barSearch) wait() tea.Cmd {
 			select {
 			case f, ok := <-s.ch:
 				if !ok {
-					return barFoundMsg{gen: s.gen, found: batch, done: true}
+					return mk(batch, true)
 				}
 				batch = append(batch, f)
 			case <-soon:
-				return barFoundMsg{gen: s.gen, found: batch}
+				return mk(batch, false)
 			}
 		}
 	}
 }
 
-// searchTranscripts starts reading every agent's transcript for the query,
-// the most recently active first, leaving out the one open in the pane (its
-// matches are already under This session). in:<name> narrows the agents.
-func (m *Model) searchTranscripts() tea.Cmd {
-	b := m.bar
-	q, in := splitIn(string(b.query))
+// searchAgentTranscripts reads agents' transcripts for q on a few
+// goroutines, in the order given, handing back what they find in batches
+// through the barSearch returned, so a thousand files cost a handful of
+// redraws.
+func searchAgentTranscripts(gen int, agents []*fleet.Agent, q string) *barSearch {
 	type job struct {
 		rank      int
 		key, name string
 		path      string
 	}
-	sc := b.scope()
-	var agents []*fleet.Agent
-	for _, a := range m.allAgents() {
-		// Everywhere, the open chat's matches are under This session.
-		if a.TranscriptPath == "" || sc.kind == "" && m.host != nil && a.Key == m.host.key {
-			continue
-		}
-		if sc.kind == "group" && m.groupOf[a.Key] != sc.group {
-			continue
-		}
-		if in != "" && !strings.Contains(strings.ToLower(a.DisplayName), in) {
-			continue
-		}
-		agents = append(agents, a)
-	}
-	now := m.snap.At
-	sort.SliceStable(agents, func(i, j int) bool { return agents[i].Age(now) < agents[j].Age(now) })
 	jobs := make([]job, len(agents))
 	for i, a := range agents {
 		jobs[i] = job{i, a.Key, oneLine(a.DisplayName), a.TranscriptPath}
 	}
-	s := &barSearch{gen: b.gen, ch: make(chan barFound, 16), stop: make(chan struct{})}
-	b.search, b.toSearch = s, len(jobs)
+	s := &barSearch{gen: gen, ch: make(chan barFound, 16), stop: make(chan struct{})}
 	if len(jobs) == 0 {
-		b.done = true
-		return nil
+		close(s.ch)
+		return s
 	}
 	feed := make(chan job)
 	go func() {
@@ -489,7 +482,39 @@ func (m *Model) searchTranscripts() tea.Cmd {
 		wg.Wait()
 		close(s.ch)
 	}()
-	return s.wait()
+	return s
+}
+
+// searchTranscripts starts reading every agent's transcript for the query,
+// the most recently active first, leaving out the one open in the pane (its
+// matches are already under This session). in:<name> narrows the agents.
+func (m *Model) searchTranscripts() tea.Cmd {
+	b := m.bar
+	q, in := splitIn(string(b.query))
+	sc := b.scope()
+	var agents []*fleet.Agent
+	for _, a := range m.snap.Agents {
+		// Everywhere, the open chat's matches are under This session.
+		if a.TranscriptPath == "" || sc.kind == "" && m.host != nil && a.Key == m.host.key {
+			continue
+		}
+		if sc.kind == "group" && m.groupOf[a.Key] != sc.group {
+			continue
+		}
+		if in != "" && !strings.Contains(strings.ToLower(a.DisplayName), in) {
+			continue
+		}
+		agents = append(agents, a)
+	}
+	now := m.snap.At
+	sort.SliceStable(agents, func(i, j int) bool { return agents[i].Age(now) < agents[j].Age(now) })
+	b.toSearch = len(agents)
+	if len(agents) == 0 {
+		b.done = true
+		return nil
+	}
+	b.search = searchAgentTranscripts(b.gen, agents, q)
+	return b.search.wait()
 }
 
 // splitIn takes in:<name> out of a query.
@@ -623,20 +648,23 @@ func (m *Model) barPlaces(q string) []barItem {
 		m.setZen(!m.zen)
 		return nil
 	})
-	for i, p := range workPages {
+	for i, p := range agentsPages {
+		if i == agentsList {
+			continue // the standalone "Agents" entry above already covers the list
+		}
 		what := []string{
-			"what's happening now, and what happened: tasks ticked, subagents' reports",
+			"",
 			"each repository whole: branch, changes, worktrees, commits, PRs and its agents",
 			"every agent at once, streaming",
 		}[i]
 		words := []string{
-			"now workstreams timeline history happened subagents tasks",
-			"projects repositories repos folders git branches worktrees commits prs",
+			"",
+			"projects repositories repos folders git branches worktrees commits prs cleanup clean disk processes orphans machine",
 			"wall grid tiles all agents live stream dashboard",
 		}[i]
-		add(paint(cSub, "◇"), "Overview › "+p, what, "overview "+words, func(m *Model) tea.Cmd {
-			m.goView(placeWork)
-			m.setWorkPage(i)
+		add(paint(cSub, "◇"), "Agents › "+p, what, "agents "+words, func(m *Model) tea.Cmd {
+			m.goView(placeAgents)
+			m.setAgentsPage(i)
 			return m.refreshFolders()
 		})
 	}
@@ -644,13 +672,6 @@ func (m *Model) barPlaces(q string) []barItem {
 		add(paint(cSub, "◇"), "Efficiency › "+p, "", "efficiency tokens savers usage cost "+p, func(m *Model) tea.Cmd {
 			m.goView(placeEff)
 			m.setEffPage(i)
-			return nil
-		})
-	}
-	for i, p := range machinePages {
-		add(paint(cSub, "◇"), "Machine › "+p, "", "machine "+p, func(m *Model) tea.Cmd {
-			m.goView(placeMachine)
-			m.setMachinePage(i)
 			return nil
 		})
 	}
@@ -995,7 +1016,7 @@ func (m *Model) applyJump() {
 
 // here is where the screen is now, to come back to.
 func (m *Model) here() *spot {
-	s := &spot{view: m.view, workPage: m.work.page, effPage: m.eff.page, machinePage: m.machinePage, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
+	s := &spot{view: m.view, agentsPage: m.work.page, mode: m.mode, effPage: m.eff.page, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
 	if a := m.agentByKey(m.sel); a != nil {
 		s.name = oneLine(a.DisplayName)
 	}
@@ -1010,12 +1031,15 @@ func (m *Model) here() *spot {
 
 func (s *spot) where() string {
 	switch s.view {
-	case placeWork:
-		return "Overview › " + workPages[s.workPage%len(workPages)]
+	case placeAgents:
+		switch s.mode {
+		case modeProjects:
+			return "Agents › Projects"
+		case modeWall:
+			return "Agents › Wall"
+		}
 	case placeEff:
 		return "Efficiency › " + effPages[s.effPage%len(effPages)]
-	case placeMachine:
-		return "Machine › " + machinePages[s.machinePage%len(machinePages)]
 	case placeSettings:
 		return "Settings › " + s.settingsName
 	}
@@ -1033,17 +1057,9 @@ func (s *spot) where() string {
 func (m *Model) goSpot(s *spot) tea.Cmd {
 	m.barBack = m.here()
 	switch s.view {
-	case placeWork:
-		m.goView(placeWork)
-		m.setWorkPage(s.workPage)
-		return nil
 	case placeEff:
 		m.goView(placeEff)
 		m.setEffPage(s.effPage)
-		return nil
-	case placeMachine:
-		m.goView(placeMachine)
-		m.setMachinePage(s.machinePage)
 		return nil
 	case placeSettings:
 		m.goView(placeSettings)
@@ -1051,6 +1067,16 @@ func (m *Model) goSpot(s *spot) tea.Cmd {
 		return nil
 	}
 	m.goView(placeAgents)
+	switch s.mode {
+	case modeProjects:
+		m.setAgentsPage(agentsProjects)
+		return m.refreshFolders()
+	case modeWall:
+		m.setAgentsPage(agentsWall)
+		return m.refreshFolders()
+	default:
+		m.setAgentsPage(agentsList)
+	}
 	if s.zen != m.zen {
 		m.setZen(s.zen)
 	}
@@ -1483,4 +1509,19 @@ type barGlintMsg int
 // glintTick moves the glint along while a search runs.
 func glintTick(gen int) tea.Cmd {
 	return tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg { return barGlintMsg(gen) })
+}
+
+// sendNowKey is the key a Session's hints name for sending now: yours if
+// you moved it, else ctrl+enter where the terminal tells it apart and
+// ctrl+s where it can't (or, as macOS's Terminal, keeps it for itself).
+func (m *Model) sendNowKey() string {
+	if m.keyMap().Changed("session.send") {
+		if ks := m.keyMap().Keys("session.send"); len(ks) > 0 {
+			return ks[0].String()
+		}
+	}
+	if m.keysDisambiguated {
+		return "ctrl+enter"
+	}
+	return "ctrl+s"
 }

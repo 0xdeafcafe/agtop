@@ -76,11 +76,12 @@ func TestPluginSheet(t *testing.T) {
 			t.Errorf("installed tab missing %q:\n%s", want, text())
 		}
 	}
-	// x once arms, it doesn't remove.
+	// x asks in a dialog first; it doesn't remove.
 	p.key(m, tea.KeyPressMsg{}, "x")
-	if p.armed != "lw@m" || p.busy != "" || !strings.Contains(text(), "x again removes lw") {
-		t.Fatalf("x should ask first: armed=%q busy=%q", p.armed, p.busy)
+	if m.confirm == nil || p.busy != "" || !strings.Contains(m.confirm.question, "lw") {
+		t.Fatalf("x should ask first: confirm=%v busy=%q", m.confirm, p.busy)
 	}
+	m.confirm = nil
 	p.key(m, tea.KeyPressMsg{}, "]")
 	for _, r := range "tes" {
 		p.key(m, tea.KeyPressMsg{Text: string(r)}, string(r))
@@ -186,7 +187,7 @@ func TestStatusSheetDrag(t *testing.T) {
 		m.Update(tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
 	}
 	drag("Spend today", "CPU")
-	if got := st.bars.Top.Lines; !slices.Equal(got[0], []string{"usage"}) || !slices.Equal(got[1], []string{"ram", "cpu", "today", "net", "disk", "battery", "tmp"}) {
+	if got := st.bars.Top.Lines; !slices.Equal(got[0], []string{"usage"}) || !slices.Equal(got[1], []string{"ram", "tokens", "cpu", "today", "net", "disk", "battery", "tmp"}) {
 		t.Fatalf("onto CPU: %v", got)
 	}
 	drag("Clock", "Line 2")
@@ -249,10 +250,10 @@ func TestPermSheet(t *testing.T) {
 	}
 	p.cur[0] = 0
 	p.key(m, tea.KeyPressMsg{}, "x")
-	if len(p.rules[0]) != 2 {
-		t.Fatal("the first x only asks")
+	if len(p.rules[0]) != 2 || m.confirm == nil {
+		t.Fatal("x only asks")
 	}
-	p.key(m, tea.KeyPressMsg{}, "x")
+	m.confirmKey("y")
 	b, _ := os.ReadFile(user)
 	if strings.Contains(string(b), `"Read"`) || !strings.Contains(string(b), `"model": "opus"`) || !strings.Contains(string(b), "auto") {
 		t.Fatalf("took out:\n%s", b)

@@ -25,7 +25,7 @@ func TestZenHidesTheUI(t *testing.T) {
 	if rows := strings.Count(frame, "\n") + 1; rows != m.h {
 		t.Fatalf("zen should fill the screen exactly, got %d rows of %d", rows, m.h)
 	}
-	for _, ui := range []string{"Machine", "Settings", "ctrl+n", "find in chat", "back to the list", "views"} {
+	for _, ui := range []string{"Settings", "ctrl+n", "find in chat", "back to the list", "views"} {
 		if strings.Contains(frame, ui) {
 			t.Errorf("zen should hide %q:\n%s", ui, frame)
 		}
@@ -41,7 +41,7 @@ func TestZenHidesTheUI(t *testing.T) {
 		a.State, a.Needs = "done", ""
 	}
 	frame = ansi.Strip(m.listView())
-	if !strings.Contains(frame, "nothing needs you") || !strings.Contains(frame, "ctrl+z leave zen") || strings.Contains(frame, "Machine") {
+	if !strings.Contains(frame, "nothing needs you") || !strings.Contains(frame, "ctrl+z leave zen") {
 		t.Fatalf("zen with nothing waiting should only say so:\n%s", frame)
 	}
 }
@@ -89,7 +89,7 @@ func TestZenShowsAQuestion(t *testing.T) {
 	m.setZen(true)
 	m.host = &hostConn{kind: "claude", key: m.selected().Key, client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	m.confirm = &confirmation{question: "Stop the agent?"}
-	frame := ansi.Strip(m.listView())
+	frame := ansi.Strip(m.render())
 	if n := strings.Count(frame, "Stop the agent?"); n != 1 {
 		t.Fatalf("the question is on screen %d times:\n%s", n, frame)
 	}

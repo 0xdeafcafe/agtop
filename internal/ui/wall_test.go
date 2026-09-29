@@ -44,8 +44,8 @@ func wallModel(n, w, h int) *Model {
 		}}
 	}
 	m.snap = &fleet.Snapshot{At: now, Agents: agents}
-	m.setView(placeWork)
-	m.setWorkPage(workWall)
+	m.setView(placeAgents)
+	m.setAgentsPage(agentsWall)
 	return m
 }
 

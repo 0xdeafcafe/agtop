@@ -12,7 +12,8 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
-// [ and ] go through Settings' pages, round the ends; tab doesn't.
+// [ and ] go through Settings' pages, round the ends, as tab and
+// shift+tab do.
 func TestSettingsPagesBrackets(t *testing.T) {
 	m, _ := benchModel(140, 50)
 	m.setView(placeSettings)
@@ -29,8 +30,12 @@ func TestSettingsPagesBrackets(t *testing.T) {
 	}
 	m.setSettingsPage(pageGeneral)
 	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.dialog == nil || m.dialog.page != pageGeneral+1 {
+		t.Fatal("tab didn't go to Settings' next page")
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.dialog == nil || m.dialog.page != pageGeneral {
-		t.Fatal("tab changed Settings' page")
+		t.Fatal("shift+tab didn't go back a page")
 	}
 	if !strings.Contains(ansi.Strip(m.pages()), "[ ]") {
 		t.Fatalf("the page strip doesn't say [ ]: %q", ansi.Strip(m.pages()))
@@ -143,14 +148,17 @@ func TestSettingsProfiles(t *testing.T) {
 	if p, _ = m.editing(); len(p.Providers) == n {
 		t.Fatalf("enter on an agent didn't add or drop it: %v", p.Providers)
 	}
+	if body := ansi.Strip(strings.Join(m.dialogBody(130), "\n")); !strings.Contains(body, "When the first is out") {
+		t.Fatalf("with two providers, no choice of what to do when the first is out:\n%s", body)
+	}
 	rows := flat(m.profilesForm())
 	for i, r := range rows {
 		if r.label == "When a limit stops a session" {
 			m.dialog.cursor = i
 		}
-	if body := ansi.Strip(strings.Join(m.dialogBody(130), "\n")); !strings.Contains(body, "When the first is out") {
-		t.Fatalf("with two providers, no choice of what to do when the first is out:\n%s", body)
-	}
+		if body := ansi.Strip(strings.Join(m.dialogBody(130), "\n")); !strings.Contains(body, "When the first is out") {
+			t.Fatalf("with two providers, no choice of what to do when the first is out:\n%s", body)
+		}
 	}
 	press("right")
 	if p, _ = m.editing(); p.Limit() != state.LimitHandoff {
@@ -207,5 +215,23 @@ func TestAgentFileSections(t *testing.T) {
 	}
 	if secs := m.fileSections("nosuch"); secs != nil {
 		t.Fatalf("an unknown agent has sections: %+v", secs)
+	}
+}
+
+// tab turns the page in Efficiency and on Agents' Projects and Wall, where
+// there's no list and Session to go between.
+func TestTabTurnsPages(t *testing.T) {
+	m, _ := benchModel(140, 50)
+	m.setView(placeEff)
+	p := m.eff.page
+	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.eff.page == p {
+		t.Fatal("tab didn't turn Efficiency's page")
+	}
+	m.setView(placeAgents)
+	m.setAgentsPage(agentsProjects)
+	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.work.page != agentsWall {
+		t.Fatalf("tab on Projects went to page %d, not the Wall", m.work.page)
 	}
 }

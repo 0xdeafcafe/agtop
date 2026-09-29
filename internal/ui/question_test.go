@@ -685,31 +685,24 @@ func TestQueueKeys(t *testing.T) {
 	if c.sel != "" || string(c.input) != "w" {
 		t.Fatalf("typing: sel %q input %q", c.sel, string(c.input))
 	}
-	// ctrl+s sends the queue, held or not, with what's typed last.
+	// ctrl+enter sends the queue, held or not, with what's typed last.
+	if key("ctrl+enter") == nil || items() != "" {
+		t.Fatalf("ctrl+enter left %s", items())
+	}
+	if key("ctrl+enter") != nil {
+		t.Fatal("nothing to send")
+	}
+	// ctrl+s is the same, for Terminal.app, which keeps ctrl+enter.
+	m.queueLocal("k", "e")
 	if key("ctrl+s") == nil || items() != "" {
 		t.Fatalf("ctrl+s left %s", items())
 	}
-	if key("ctrl+s") != nil {
-		t.Fatal("nothing to send")
-	}
 }
 
-func TestQueueViewKeepsLines(t *testing.T) {
+func TestQueueHintNoAlt(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}}
 	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
-	m.queueLocal("k", "fix the tests\n\n\n- first\n- second")
-	var out string
-	for _, l := range m.queueLines(c, convo.Options{Width: 80}) {
-		out += ansi.Strip(l.Text) + "\n"
-	}
-	for _, want := range []string{" 1  fix the tests", "5 lines", "\n       - first", "\n       - second"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("queue view missing %q:\n%s", want, out)
-		}
-	}
-	if strings.Contains(out, "\n\n\n") {
-		t.Errorf("blank lines should squeeze to one:\n%s", out)
-	}
+	m.queueLocal("k", "fix the tests")
 	if h := ansi.Strip(queueHint(m.queueOf(c), 200)); strings.Contains(h, "alt") {
 		t.Errorf("the queue's keys shouldn't need alt: %s", h)
 	}
@@ -790,19 +783,38 @@ func TestCardFocusCarriesOn(t *testing.T) {
 	}
 }
 
-// A modal confirmation, like sending to a cold cache, asks in a box over
-// the screen, not on the bottom line.
+// A confirmation, like sending to a cold cache, asks in a box over the
+// screen, not on the bottom line.
 func TestConfirmModal(t *testing.T) {
 	m := &Model{w: 100, h: 20, snap: &fleet.Snapshot{}}
-	m.confirm = &confirmation{modal: true, question: "Send to a cold cache?", detail: "its prompt cache expired 9m ago"}
+	m.confirm = &confirmation{question: "Send to a cold cache?", detail: "its prompt cache expired 9m ago"}
 	if strings.Contains(ansi.Strip(m.statusOr("hint")), "cold cache") {
-		t.Error("a modal confirmation shouldn't also ask on the bottom line")
+		t.Error("a confirmation shouldn't also ask on the bottom line")
 	}
 	out := ansi.Strip(m.confirmModal(strings.Repeat("behind\n", 19) + "behind"))
 	for _, w := range []string{"╭", "Send to a cold cache?", "expired 9m ago", "y yes", "n cancel", "behind"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("modal missing %q:\n%s", w, out)
 		}
+	}
+}
+
+// A question that comes while you're typing takes the box to itself: what
+// you'd typed is set aside, and back once the question's answered.
+func TestQuestionHoldsTheBox(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	c := m.host
+	c.input, c.back = []rune("and also the tests"), 3
+	ask(m)
+	m.holdForQuestion(c)
+	if len(c.input) != 0 || c.qHeld == nil {
+		t.Fatalf("while asking, the box is empty: %q", string(c.input))
+	}
+	m.holdForQuestion(c) // a second pass with the question still up keeps it held
+	c.sess.Apply(event.ApprovalCancelled{ID: "q1"}, time.Now())
+	m.holdForQuestion(c)
+	if string(c.input) != "and also the tests" || c.back != 3 || c.qHeld != nil {
+		t.Fatalf("answered, the box is back: %q back=%d", string(c.input), c.back)
 	}
 }
 

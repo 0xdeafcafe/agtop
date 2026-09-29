@@ -691,7 +691,7 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 			if paneW == 0 {
 				dropped = m.barDropped(barAgent) // no pane behind: the preview's
 			}
-			well = append(well, "", faint("  ⏺ the conversation goes on here…"))
+			well = append(well, faint("  ⏺ the conversation goes on here…"))
 		}
 		out = append(out, dim(where))
 		out = append(out, cutout(well, cw)...)

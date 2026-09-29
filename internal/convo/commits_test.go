@@ -105,3 +105,70 @@ func TestCommitShellMessage(t *testing.T) {
 		}
 	}
 }
+
+// mergeNow is the merge card a drawer shows for st once git has answered.
+func mergeNow(t *testing.T, dir string, st *Step) card {
+	t.Helper()
+	s := &Session{}
+	s.Info.Cwd = dir
+	d := &drawer{s: s}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if g, ok := d.gitMerge(st); ok {
+			cs := withMerge(cardsOf(st), &g)
+			for i := range cs {
+				if cs[i].kind == "merge" {
+					return cs[i]
+				}
+			}
+		}
+	}
+	t.Fatal("git never answered")
+	return card{}
+}
+
+func TestGitMerge(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	sh(t, dir, "git init -q -b main && git commit -q --allow-empty -m init && git checkout -q -b feat && "+
+		"for i in 1 2 3 4 5 6; do git commit -q --allow-empty -m \"feat: $i\"; done && "+
+		"git checkout -q main && git commit -q --allow-empty -m 'main moved' && git checkout -q -b ff feat~4")
+
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+	start := time.Now()
+	out := sh(t, dir, "git checkout -q main && git merge --no-edit feat")
+	st := bashStep("git merge --no-edit feat", out, "", OK)
+	st.Start, st.End = start, time.Now()
+	c := mergeNow(t, dir, st)
+	if c.made == "" || c.into != "main" || c.cameN != 6 || len(c.came) != 5 || c.came[0].subject != "feat: 6" || c.was.subject != "main moved" || c.forked {
+		t.Errorf("merge commit: got %+v", c)
+	}
+
+	d := &drawer{s: New(), t: &Turn{}, o: Options{Width: 120, Open: map[string]bool{}}, cw: 120}
+	d.card(c, 2)
+	got := make([]string, 0, len(d.lines))
+	for _, l := range d.lines {
+		got = append(got, strings.TrimRight(stripANSI(l.Text), " "))
+	}
+	drawn := strings.Join(got, "\n")
+	for _, want := range []string{"⇣ merged feat ─", "│ ●─╮ " + c.made[:7] + "  merge commit", "│ │ ● " + c.came[0].sha[:7] + "  feat: 6", "│ │ ┊ +2 more", "│ ● │ ", "into main ─╯"} {
+		if !strings.Contains(drawn, want) {
+			t.Errorf("drawn merge lacks %q:\n%s", want, drawn)
+		}
+	}
+	if strings.Contains(drawn, "· merge commit") {
+		t.Errorf("the graph says it's a merge commit; the head needn't:\n%s", drawn)
+	}
+
+	// A fast-forward is one lane, from where the branch was.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+	start = time.Now()
+	out = sh(t, dir, "git checkout -q ff && git merge feat~2")
+	st = bashStep("git merge feat~2", out, "", OK)
+	st.Start, st.End = start, time.Now()
+	c = mergeNow(t, dir, st)
+	if c.made != "" || c.cameN != 2 || c.came[0].subject != "feat: 4" || c.was.subject != "feat: 2" || c.into != "ff" {
+		t.Errorf("fast-forward: got %+v", c)
+	}
+}

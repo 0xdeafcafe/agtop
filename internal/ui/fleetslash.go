@@ -28,7 +28,7 @@ var fleetCommands = []event.Command{
 	{Name: "kill", Description: "kill the agent and everything it started"},
 	{Name: "restart", Description: "restart the agent's Claude Code on the account in use, resuming the conversation; text is sent first (#rs)", ArgumentHint: "[message]"},
 	{Name: "clean", Description: "delete the agent's temp work; all does every finished agent", ArgumentHint: "[all]"},
-	{Name: "cd", Description: "restart the agent in another folder", ArgumentHint: "<path>"},
+	{Name: "cd", Description: "tell the agent to work in another folder from now on", ArgumentHint: "[path]"},
 	{Name: "add-dir", Description: "restart the agent with another folder added", ArgumentHint: "<path>"},
 	{Name: "rename", Description: "rename the agent, or type the new name", ArgumentHint: "[name]"},
 	{Name: "group", Description: "put the agent in a group; empty clears it", ArgumentHint: "[name]"},

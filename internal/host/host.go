@@ -124,6 +124,9 @@ type Info struct {
 	Effort         string  `json:"effort,omitempty"`
 	PermissionMode string  `json:"permissionMode,omitempty"`
 	CostUSD        float64 `json:"costUsd,omitzero"`
+	// Billing is how its requests are paid for: plan, overage or metered
+	// (usage.Billing); empty until the agent says.
+	Billing string `json:"billing,omitempty"`
 	// Queue holds messages sent while the agent was busy; the host sends
 	// the first when the turn ends.
 	Queue []string `json:"queue,omitempty"`
@@ -1261,6 +1264,10 @@ func (s *server) do(o op) error {
 		s.publish()
 	case "model":
 		s.cfg.Model = o.Model
+		if o.Model != "" {
+			s.info.Model = o.Model
+			s.publish()
+		}
 	case "effort":
 		// Effort is fixed for an agent's process, so it takes hold the next
 		// time one starts: right away when idle, else after this turn.

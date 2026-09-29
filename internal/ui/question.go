@@ -10,6 +10,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // The question card's grounds: the card itself, the option under the
@@ -405,4 +406,41 @@ func escWord(c *hostConn) string {
 		return "later"
 	}
 	return "type instead"
+}
+
+// heldBox is the message box set aside while Claude's questions wait.
+type heldBox struct {
+	input    []rune
+	back     int
+	undo     undoStack
+	editQ    int
+	editWas  string
+	editHeld bool
+}
+
+// holdForQuestion keeps the box to the question while one waits: whatever
+// was being typed when it came is set aside (and kept as a draft), so the
+// box answers the question and nothing else, and it comes back once the
+// question is answered, for the conversation to go on in the order Claude
+// expects. Anything typed meanwhile and not sent stays, after it.
+func (m *Model) holdForQuestion(c *hostConn) {
+	asking := isQuestion(c.sess.Pending())
+	switch {
+	case asking && c.qHeld == nil && len(c.input) > 0:
+		m.keepDraft(c, state.KindDraft)
+		c.qHeld = &heldBox{input: c.input, back: c.back, undo: c.undo, editQ: c.editQ, editWas: c.editWas, editHeld: c.editHeld}
+		c.input, c.back, c.anchor, c.undo = nil, 0, 0, undoStack{}
+		c.editQ, c.editWas, c.editHeld = 0, "", false
+		c.slashSel = 0
+	case !asking && c.qHeld != nil && c.editQ == 0:
+		h := c.qHeld
+		c.qHeld = nil
+		typed := c.input
+		c.input, c.back, c.anchor, c.undo = h.input, h.back, 0, h.undo
+		c.editQ, c.editWas, c.editHeld = h.editQ, h.editWas, h.editHeld
+		if len(typed) > 0 {
+			c.input = append(append(c.input, '\n'), typed...)
+			c.back = 0
+		}
+	}
 }

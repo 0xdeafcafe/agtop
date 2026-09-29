@@ -10,7 +10,7 @@ import (
 var (
 	boldRe = regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	codeRe = regexp.MustCompile("`([^`]+)`")
-	urlRe  = regexp.MustCompile(`https?://[^\s)>\]"'` + "`" + `]+`)
+	urlRe  = regexp.MustCompile(`https?://[^\s)>\]"'` + "`" + `]*[^\s)>\]"'` + "`" + `.:;!?]`)
 	ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 )
 
@@ -26,7 +26,7 @@ func TestInlineMatchesRegexp(t *testing.T) {
 		return urlRe.ReplaceAllStringFunc(s, func(u string) string { return reset + link(u) + base })
 	}
 	pieces := []string{"**", "*", "`", "a", "bc", " ", "\n", "\t", "\v", "http", "https", "://", "s", ":", "/", "x.com", ")", ">", "]", "\"", "'",
-		"\x1b[1m", "\x1b[0m", "\x1b[38;2;1;2;3m", "\x1b", "[", "m", ";", "9", "é", "中", "\xff", "__"}
+		".", "!", "?", "\x1b[1m", "\x1b[0m", "\x1b[38;2;1;2;3m", "\x1b", "[", "m", ";", "9", "é", "中", "\xff", "__"}
 	r := rand.New(rand.NewSource(2))
 	for n := 0; n < 300000; n++ {
 		s := ""
@@ -56,5 +56,24 @@ func TestShortcutsMatch(t *testing.T) {
 		if got, want := oneLine(s), strings.Join(strings.Fields(s), " "); got != want {
 			t.Fatalf("oneLine %q: %q want %q", s, got, want)
 		}
+	}
+}
+
+// A URL that ends a sentence links without the full stop after it.
+func TestLinkLeavesSentencePunctuation(t *testing.T) {
+	for _, s := range []string{"see https://x.dev/a.", "see https://x.dev/a!", "(https://x.dev/a)"} {
+		got := inline(s, cSub)
+		if !strings.Contains(got, "\x1b]8;;https://x.dev/a\x1b\\") {
+			t.Errorf("inline %q links the wrong target: %q", s, got)
+		}
+	}
+	if got := Inline("go to https://x.dev.", cSub); !strings.HasSuffix(ansiRe.ReplaceAllString(got, ""), "\x1b]8;;\x1b\\.") {
+		t.Errorf("full stop not left after the link: %q", got)
+	}
+}
+
+func TestURLIn(t *testing.T) {
+	if got := URLIn("Published x.html at https://example.com/a/b1. (Version 2)"); got != "https://example.com/a/b1" {
+		t.Fatalf("URLIn = %q", got)
 	}
 }

@@ -150,6 +150,9 @@ type Turn struct {
 	// Cause is what woke it when no message did: the background task that
 	// had just finished, or the monitor that had just fired.
 	Cause string
+	// Command is the command of the shell task that woke it, when it runs
+	// over a line; drawn as a command, not as a message.
+	Command string
 	// Streamed counts what Claude has written this turn as it streams
 	// (text, thinking and tool input), for a live token estimate; Thinking
 	// is when the thinking now under way began.
@@ -324,6 +327,10 @@ func (s *Session) turnFor(now time.Time) *Turn {
 	t := &Turn{N: len(s.Turns) + 1, Live: true, Start: now, steps: map[string]*Step{}}
 	if j := s.woke; j != nil && now.Sub(s.wokeAt) < wakeWindow {
 		t.From, t.Cause = s.wakeFrom(j), firstNonEmpty(j.Label, j.Summary, s.JobCommand(j), j.ID)
+		// A shell task's description is its command, heredoc and all.
+		if k := s.JobKind(j); (k == "shell" || k == "monitor") && strings.Contains(strings.TrimSpace(t.Cause), "\n") {
+			t.Command, t.Cause = strings.TrimSpace(t.Cause), firstLine(t.Cause)
+		}
 	}
 	s.woke = nil
 	s.Turns = append(s.Turns, t)
@@ -353,6 +360,11 @@ func (s *Session) Apply(ev any, now time.Time) {
 		s.streaming, s.woke = nil, nil
 		s.Turns = append(s.Turns, &Turn{N: len(s.Turns) + 1, Prompt: ev.Text, Start: now, Live: true, steps: map[string]*Step{}, Effort: s.Info.Effort, Images: ev.Images})
 	case host.InfoEvent:
+		// A model switched mid-session comes only as the host's info: the
+		// agent's init said the one it started on.
+		if md := ev.Info.Model; md != "" && md != s.Info.Model {
+			s.Model = md
+		}
 		s.Info = ev.Info
 		s.syncJobs(ev.Info, now)
 		// The host went idle with a turn still open: the agent died

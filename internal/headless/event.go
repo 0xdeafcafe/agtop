@@ -23,6 +23,9 @@ type Init struct {
 	Tools          []string
 	SlashCommands  []string
 	MCPServers     []MCPServer
+	// APIKeySource is where its API key comes from: "none" when it runs on
+	// a Claude sign-in instead.
+	APIKeySource string
 }
 
 // MCPServer is one MCP server as Claude Code last saw it: connected,
@@ -140,7 +143,10 @@ type Result struct {
 // RateLimit carries the account's usage windows.
 type RateLimit struct {
 	Status string
-	Raw    jsontext.Value
+	// Overage is whether the request was paid for as extra usage: the
+	// plan's allowance is spent.
+	Overage bool
+	Raw     jsontext.Value
 }
 
 // ControlReply answers a control request the host sent.
@@ -314,10 +320,11 @@ func decodeLine(line []byte) (Event, error) {
 		}
 		_ = jsonx.Unmarshal(line, &r)
 		var s struct {
-			Status string `json:"status"`
+			Status  string `json:"status"`
+			Overage bool   `json:"isUsingOverage"`
 		}
 		_ = jsonx.Unmarshal(r.Info, &s)
-		return RateLimit{Status: s.Status, Raw: r.Info}, nil
+		return RateLimit{Status: s.Status, Overage: s.Overage, Raw: r.Info}, nil
 	}
 	return other, nil
 }
@@ -334,6 +341,7 @@ func decodeSystem(subtype string, line []byte, other Other) (Event, error) {
 			Tools          []string    `json:"tools"`
 			SlashCommands  []string    `json:"slash_commands"`
 			MCPServers     []MCPServer `json:"mcp_servers"`
+			APIKeySource   string      `json:"apiKeySource"`
 		}
 		if err := jsonx.Unmarshal(line, &r); err != nil {
 			return nil, err

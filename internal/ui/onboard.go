@@ -17,7 +17,7 @@ import (
 // steps are Getting started: each is ticked off when you do it.
 var steps = []struct{ id, what, key string }{
 	{"start", "Start an agent", "enter"},
-	{"session", "Open its Session", "tab"},
+	{"session", "Open its Session", "{ }"},
 	{"hash", "Run a command", "#"},
 	{"next", "Jump to who needs you", "ctrl+n"},
 	{"rename", "Rename an agent", "ctrl+r"},

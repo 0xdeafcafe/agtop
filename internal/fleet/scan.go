@@ -140,6 +140,7 @@ func (s *Scanner) Run(targets []Target) map[string]Spend {
 				}
 				sp.Progress, sp.ProgressAt = tot.Progress, tot.ProgressAt
 				sp.Context, sp.Compacts = tot.Context(), tot.Compacts
+				sp.Dir = tot.Dir
 			}
 			if tot.Last.After(sp.Last) {
 				sp.Last = tot.Last

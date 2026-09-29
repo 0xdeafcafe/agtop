@@ -2,11 +2,13 @@ package convo
 
 import (
 	"encoding/json/jsontext"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // Claude Code's own lines, from a real session: a foreground command
@@ -162,6 +164,30 @@ func TestWokenByABackgroundTask(t *testing.T) {
 	tn := s.Turns[len(s.Turns)-1]
 	if len(s.Turns) != 2 || tn.From != "background shell · completed" || tn.Cause != "go test ./..." {
 		t.Fatalf("turn %d: from %q, cause %q", len(s.Turns), tn.From, tn.Cause)
+	}
+}
+
+// A woken turn's heredoc command is drawn as a shell step's is: indented
+// as written and highlighted, not flattened into a message.
+func TestWokenByAHeredoc(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.Apply(host.Sent{Text: "go"}, now)
+	cmd := "python3 - <<'EOF'\nif x:\n    print(1)\nEOF"
+	desc, _ := jsonx.Marshal(cmd)
+	ev, _ := headless.Decode([]byte(`{"type":"system","subtype":"task_started","task_id":"b1","tool_use_id":"toolu_09","description":` + string(desc) + `,"is_backgrounded":true,"task_type":"local_bash"}`))
+	s.Apply(ev, now)
+	s.Apply(headless.Result{Subtype: "success"}, now)
+	ev, _ = headless.Decode([]byte(`{"type":"system","subtype":"task_notification","task_id":"b1","tool_use_id":"toolu_09","status":"completed"}`))
+	s.Apply(ev, now.Add(time.Minute))
+	s.Apply(headless.Delta{Text: "done"}, now.Add(time.Minute+time.Second))
+	tn := s.Turns[len(s.Turns)-1]
+	if tn.Command != cmd || tn.Cause != "python3 - <<'EOF'" {
+		t.Fatalf("command %q, cause %q", tn.Command, tn.Cause)
+	}
+	out := plain(s.Render(Options{Width: 100, Now: now.Add(2 * time.Minute)}))
+	if !strings.Contains(out, "    print(1)") {
+		t.Fatalf("heredoc body lost its indent:\n%s", out)
 	}
 }
 

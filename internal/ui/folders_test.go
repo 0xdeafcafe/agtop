@@ -43,7 +43,7 @@ func TestProjectSplit(t *testing.T) {
 			case lineSection:
 				got = append(got, "§"+l.title)
 			case lineProject:
-				got = append(got, "▪"+l.title+map[bool]string{true: "(again)"}[l.again])
+				got = append(got, "▪"+l.title)
 			case lineTree:
 				got = append(got, "⎇"+l.root)
 			case lineAgent:
@@ -52,7 +52,7 @@ func TestProjectSplit(t *testing.T) {
 		}
 		return strings.Join(got, " ")
 	}
-	want := "§Working ▪app on-main ⎇" + wt + " in-tree §Today ▪app(again) done-here ▪scratch scratchy ▪zed zed §Earlier"
+	want := "§Working ▪app on-main ⎇" + wt + " in-tree §Today ▪app done-here ▪scratch scratchy ▪zed zed §Earlier"
 	if s := lines(); s != want {
 		t.Fatalf("split:\n got %s\nwant %s", s, want)
 	}
@@ -63,13 +63,13 @@ func TestProjectSplit(t *testing.T) {
 		Trees: map[string]fleet.GitState{wt: {Branch: "fix", Changed: 1}},
 	}}
 	out := ansi.Strip(strings.Join(m.listLines(140, 40), "\n"))
-	for _, s := range []string{"app  main ↑2 ±4  ⎇3 ┄", "⎇ fix  fix ±1", "   app ┄"} {
+	for _, s := range []string{"app  main ↑2 ±4  ⎇3 ┄", "⎇ fix  fix ±1"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("list lacks %q:\n%s", s, out)
 		}
 	}
-	if strings.Count(out, "main ↑2") != 1 {
-		t.Errorf("git said more than once:\n%s", out)
+	if strings.Count(out, "main ↑2") != 2 {
+		t.Errorf("git should head the project in both its sections:\n%s", out)
 	}
 
 	st.Config.SplitBy = "none"

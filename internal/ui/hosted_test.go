@@ -68,7 +68,7 @@ func TestHostedShowsOneSession(t *testing.T) {
 		}
 	}
 	// The header is agtop's, counting every agent, not only this one.
-	for _, want := range []string{"agtop", "finished", "Agents", "Efficiency", "Machine", "Settings", "ctrl+\\"} {
+	for _, want := range []string{"agtop", "finished", "Agents", "Efficiency", "Settings", "ctrl+\\"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hosted frame lacks %q:\n%s", want, out)
 		}
@@ -79,7 +79,7 @@ func TestHostedShowsOneSession(t *testing.T) {
 
 	c := &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 	m.host = c
-	for _, k := range []string{"tab", "ctrl+n", "ctrl+z", "left"} {
+	for _, k := range []string{"tab", "{", "}", "ctrl+n", "ctrl+z", "left", "ctrl+k"} {
 		hostedPress(m, k)
 		if m.sel != m.hostedKey || m.view != placeAgents || m.zen || m.mode != modeList || !m.paneFocus || !m.full || m.bar != nil {
 			t.Fatalf("after %s: sel %q view %d zen %v mode %d focus %v bar %v", k, m.sel, m.view, m.zen, m.mode, m.paneFocus, m.bar != nil)
@@ -133,7 +133,7 @@ func TestHostedShowsOneSession(t *testing.T) {
 func TestHostedEscWhileOpening(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
-	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
+	m := NewHosted(state.Load(), "test", "aaaa1111")
 	if cmd := m.key(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil && isQuit(cmd) {
 		t.Fatal("esc while opening quit hosted")
 	}
@@ -149,17 +149,11 @@ func TestHostedPlaces(t *testing.T) {
 	m.Frame(160, 45)
 	m.host = &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 
-	want := []int{placeWork, placeEff, placeMachine, placeSettings, placeAgents}
+	want := []int{placeEff, placeSettings, placeAgents}
 	for i, place := range want {
 		hostedPress(m, "ctrl+\\")
 		if m.view != place {
 			t.Fatalf("ctrl+\\ %d: view %d, want %d", i+1, m.view, place)
-		}
-		if place == placeMachine {
-			hostedPress(m, "]") // Processes to Cleanup, as usual
-			if m.mode != modeCleanup {
-				t.Fatalf("] in Machine: mode %d", m.mode)
-			}
 		}
 	}
 	if m.sel != m.hostedKey || !m.paneFocus || !m.full || m.mode != modeList {
@@ -250,53 +244,6 @@ func TestHostedListToggle(t *testing.T) {
 	}
 }
 
-// ctrl+k works in hosted, over every agent: going to another one shows the
-// list beside it, as ctrl+6 does, and ctrl+6 is the way back.
-func TestHostedCommandBar(t *testing.T) {
-	t.Setenv("AGTOP_HOME", t.TempDir())
-	writeSession(t, "aaaa1111", "the hosted session")
-	writeSession(t, "bbbb2222", "another session")
-	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
-	m.Frame(200, 45)
-	m.host = &hostConn{key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
-	m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
-	if m.bar == nil {
-		t.Fatal("ctrl+k didn't open the bar in hosted")
-	}
-	typeBar(m, "another session")
-	var other *barItem
-	for i, it := range m.bar.items {
-		if it.section == "Agents" && it.title == "another session" {
-			other = &m.bar.items[i]
-			m.bar.cursor = i
-		}
-	}
-	if other == nil {
-		t.Fatalf("the bar doesn't offer the other agent: %+v", m.bar.items)
-	}
-	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.bar != nil || !m.hostedList || m.sel != m.keyOf(sid("bbbb2222")) {
-		t.Fatalf("going to it: bar %v list %v sel %q", m.bar != nil, m.hostedList, m.sel)
-	}
-	if out := m.Frame(200, 45); !strings.Contains(out, "another session") {
-		t.Fatalf("not shown:\n%s", out)
-	}
-	hostedPress(m, "ctrl+6")
-	if m.hostedList || m.sel != m.hostedKey || len(m.snap.Agents) != 1 {
-		t.Fatalf("back: list %v sel %q", m.hostedList, m.sel)
-	}
-	// A place from the bar opens as in hosted's own places.
-	m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
-	typeBar(m, "clean")
-	if len(m.bar.items) == 0 || m.bar.items[0].title != "Machine › Cleanup" {
-		t.Fatalf("clean in the bar: %+v", m.bar.items)
-	}
-	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.view != placeMachine || m.mode != modeCleanup {
-		t.Fatalf("clean from the bar: view %d mode %d", m.view, m.mode)
-	}
-}
-
 // Outside hosted, ctrl+6 hides the list beside an open Session, and shows
 // it again.
 func TestListToggle(t *testing.T) {
@@ -335,7 +282,7 @@ func TestPlacesMoveOutsideHosted(t *testing.T) {
 func TestHostedShowsAQuestion(t *testing.T) {
 	t.Setenv("AGTOP_HOME", t.TempDir())
 	writeSession(t, "aaaa1111", "the hosted session")
-	m := loaded(NewHosted(state.Load(), "test", "aaaa1111"))
+	m := NewHosted(state.Load(), "test", "aaaa1111")
 	m.host = &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 	m.confirm = &confirmation{question: "Send to a cold cache?"}
 	if out := ansi.Strip(m.Frame(160, 45)); !strings.Contains(out, "Send to a cold cache?") {
@@ -356,4 +303,28 @@ func isQuit(cmd tea.Cmd) bool {
 		}
 	}
 	return false
+}
+
+// esc on a running turn asks first; ! stops it and stops asking.
+func TestEscAsksBeforeStoppingTheTurn(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	m, _ := benchModel(160, 40)
+	c := &hostConn{kind: "claude", key: m.snap.Agents[0].Key, client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
+	c.sess.Turns = append(c.sess.Turns, &convo.Turn{Live: true})
+	if !canInterrupt(c) {
+		t.Skip("claude can't be interrupted here")
+	}
+	m.askStopTurn(c)
+	if m.confirm == nil || m.confirm.onBang == nil {
+		t.Fatalf("esc on a running turn should ask first")
+	}
+	m.confirm.onBang()
+	if !m.store.Config.StopTurnUnasked || canInterrupt(c) {
+		t.Fatalf("! should stop the turn and stop asking")
+	}
+	m.confirm, c.stopArmed = nil, time.Time{}
+	m.askStopTurn(c)
+	if m.confirm != nil || canInterrupt(c) {
+		t.Fatalf("with asking off, esc should stop the turn straight away")
+	}
 }

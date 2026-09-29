@@ -24,72 +24,9 @@ import (
 
 // The queue's keys never need alt, which a Mac's option key doesn't send
 // unless the terminal is told to. ↑ from the empty box picks the last
-// queued message, in the dock or here; a picked message takes plain keys
-// (anything else goes back to typing), and ctrl+s always sends everything
-// waiting, now.
-
-// queueLines lists the messages waiting for the agent, each as you wrote
-// it, line breaks kept; a picked one shows whole.
-func (m *Model) queueLines(c *hostConn, o convo.Options) []convo.Line {
-	w := o.Width
-	q := m.queueOf(c)
-	var out []convo.Line
-	line := func(text, ref string) { out = append(out, convo.Line{Text: fit(text, w), Ref: ref}) }
-	line("  "+paint(cSub+bold, fmt.Sprintf("Queue  %d", len(q.items)))+"   "+queueHow(q), "")
-	line("  "+faint(strings.Repeat("─", max(0, w-4))), "")
-	if len(q.items) == 0 {
-		line("", "")
-		line("    "+dim("Nothing queued. Messages you send while the agent works wait here."), "")
-		return out
-	}
-	i, picked := queueSel(c, len(q.items))
-	for j, item := range q.items {
-		ref := fmt.Sprintf("q:%d", j)
-		sel := picked && j == i
-		rows := queueRows(item, max(20, w-12))
-		limit := 4
-		if sel {
-			limit = 30
-		}
-		if len(rows) > limit {
-			more := len(rows) - limit + 1
-			rows = append(rows[:limit-1], dim(fmt.Sprintf("… %d more lines", more)))
-		}
-		if j > 0 {
-			line("", "")
-		}
-		for k, r := range rows {
-			lead := "   " + paint(cSub+bold, fmt.Sprintf("%2d", j+1)) + "  "
-			if k > 0 {
-				lead = "       "
-			}
-			text := lead + paint(cText, r)
-			if k == 0 {
-				text = spread(text, dim(queueSize(item))+"  ", w-1)
-			}
-			if sel {
-				text = picked1(text, w, o.Focused)
-			}
-			line(text, ref)
-		}
-	}
-	return out
-}
-
-// queueHow says when the queue goes.
-func queueHow(q queued) string {
-	how := "goes as one message when this turn ends"
-	switch {
-	case q.local:
-		how = "goes as one message once idle, or within 15s while it works"
-	case q.separate:
-		how = "goes one message per turn"
-	}
-	if q.held {
-		return paint(cYellow, "held") + dim(" · h on a picked message lets it go")
-	}
-	return dim(how)
-}
+// queued message in the dock; a picked message takes plain keys
+// (anything else goes back to typing), and ctrl+enter always sends
+// everything waiting, now.
 
 // queueHint is the keys for a picked queued message.
 func queueHint(q queued, w int) string {
@@ -117,35 +54,7 @@ func picked1(text string, w int, focused bool) string {
 	return selBG + strings.ReplaceAll(bar+fit(text, w-1)[1:], reset, reset+selBG) + reset
 }
 
-// queueRows is a queued message wrapped to w, its line breaks kept and
-// blank lines between paragraphs squeezed to one.
-func queueRows(item string, w int) []string {
-	var rows []string
-	blank := false
-	for _, l := range strings.Split(strings.TrimSpace(shortImages(item)), "\n") {
-		l = strings.TrimRight(l, " \t")
-		if l == "" {
-			if !blank {
-				rows = append(rows, "")
-			}
-			blank = true
-			continue
-		}
-		blank = false
-		rows = append(rows, wrap(l, w)...)
-	}
-	return rows
-}
-
-// queueSize says how long a queued message is, when that isn't obvious.
-func queueSize(item string) string {
-	if n := strings.Count(strings.TrimSpace(item), "\n") + 1; n > 1 {
-		return fmt.Sprintf("%d lines", n)
-	}
-	return ""
-}
-
-// queueSel is the queued message picked, in the dock or the queue view.
+// queueSel is the queued message picked in the dock.
 func queueSel(c *hostConn, n int) (int, bool) {
 	var i int
 	if _, err := fmt.Sscanf(c.sel, "q:%d", &i); err != nil || i < 0 || i >= n {
@@ -397,7 +306,7 @@ var agtopCommands = []event.Command{
 	{Name: "tasks", Description: "what's running: shells, monitors and subagents, to stop or background"},
 	{Name: "copy", Description: "copy Claude's last answer; /copy 2 the one before", ArgumentHint: "[n]"},
 	{Name: "rename", Description: "rename the agent, or type the new name", ArgumentHint: "[name]"},
-	{Name: "cd", Description: "move the agent to another folder, conversation intact", ArgumentHint: "[path]"},
+	{Name: "cd", Description: "tell the agent to work in another folder from now on", ArgumentHint: "[path]"},
 	{Name: "add-dir", Description: "give the agent another folder to work in (it restarts, conversation intact)", ArgumentHint: "<path>"},
 	{Name: "stop", Description: "stop the agent; its conversation stays, and a message wakes it"},
 	{Name: "background", Description: "leave it running in the background and go back to Agents"},
@@ -920,7 +829,7 @@ func (m *Model) runAgtopCommand(c *hostConn, text string) (tea.Cmd, bool) {
 			return nil, true
 		}
 		if arg == "" {
-			m.openCwd(a)
+			m.openMovePicker(a)
 			return nil, true
 		}
 		return m.command(a, "#cd "+arg), true

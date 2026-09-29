@@ -167,10 +167,16 @@ func (c *Conn) begin(rpc *client, o agent.StartOptions) error {
 }
 
 // readQuota reads the account's limits once, which also tells later
-// live readings whose account they are.
+// live readings whose account they are, and how the account pays.
 func (c *Conn) readQuota() {
 	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
 	defer cancel()
+	var acct accountResponse
+	if c.rpc.call(ctx, "account/read", map[string]any{}, &acct) == nil {
+		if b, ok := accountBilling(acct); ok {
+			c.emit(event.Billing{Billing: b})
+		}
+	}
 	q, err := readQuota(ctx, c.rpc)
 	if err != nil {
 		return

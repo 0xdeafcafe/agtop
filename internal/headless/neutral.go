@@ -31,6 +31,10 @@ func (n *Neutral) Event(ev Event) []event.Event {
 		for _, s := range e.MCPServers {
 			out.MCP = append(out.MCP, event.MCPServer(s))
 		}
+		if e.APIKeySource != "" && e.APIKeySource != "none" {
+			// A sign-in's is told by its first request: plan or extra usage.
+			return []event.Event{out, event.Billing{Billing: usage.Metered}}
+		}
 		return []event.Event{out}
 	case MessageStart:
 		return []event.Event{event.MessageStart{ID: e.MessageID, Model: e.Model}}
@@ -98,6 +102,11 @@ func (n *Neutral) Event(ev Event) []event.Event {
 			q := u.Quota("")
 			q.Source = usage.Live
 			out = append(out, event.Quota{Quota: q})
+		}
+		if e.Overage {
+			out = append(out, event.Billing{Billing: usage.Overage})
+		} else {
+			out = append(out, event.Billing{Billing: usage.Plan})
 		}
 		if e.Status == "rejected" {
 			var r struct {

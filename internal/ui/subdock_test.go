@@ -190,7 +190,7 @@ func TestSubagentHover(t *testing.T) {
 	}
 }
 
-// Filling the screen, the Session's header needs no SESSION label, says how
+// The Session's header has no SESSION label; filling the screen, it says how
 // to get back to the list, and ends where the conversation does.
 func TestPaneHeaderAlone(t *testing.T) {
 	m, _ := benchModel(150, 30)
@@ -213,7 +213,7 @@ func TestPaneHeaderAlone(t *testing.T) {
 	if m.listW == 0 {
 		t.Fatal("no split at 150")
 	}
-	if head := ansi.Strip(strings.Join(m.paneHeader(a, m.host, 100), "\n")); !strings.Contains(head, "SESSION") || strings.Contains(head, "esc back") {
+	if head := ansi.Strip(strings.Join(m.paneHeader(a, m.host, 100), "\n")); strings.Contains(head, "SESSION") || strings.Contains(head, "esc back") {
 		t.Errorf("beside the list:\n%s", head)
 	}
 }

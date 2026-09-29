@@ -269,3 +269,23 @@ func TestAccountsLesserAgent(t *testing.T) {
 		t.Fatal("no hint in Accounts")
 	}
 }
+
+// Near a switch, the header names the account agtop moves on to next.
+func TestUpcomingAccountInHeader(t *testing.T) {
+	m, _ := accountsModel(t)
+	if _, ok := m.upcoming(40); ok {
+		t.Fatal("upcoming shown with room left")
+	}
+	m.snap.Logins[0].Quota.Windows[0].Percent = 85
+	if next, ok := m.upcoming(85); !ok || next.name() != "home" {
+		t.Fatalf("upcoming = %q, %v", next.name(), ok)
+	}
+	m.snap.Accounts = []fleet.AccountView{{Current: true}}
+	if !strings.Contains(ansi.Strip(m.activeUsage()), "home ━──── 10%") {
+		t.Fatalf("header: %q", ansi.Strip(m.activeUsage()))
+	}
+	m.snap.Logins[1].Quota.Windows[0].Percent = 96
+	if _, ok := m.upcoming(85); ok {
+		t.Fatal("upcoming shown with nowhere to go")
+	}
+}

@@ -25,6 +25,7 @@ func TestRoundTrip(t *testing.T) {
 		TurnEnd{Reason: "done", Duration: time.Second},
 		Quota{usage.Quota{Windows: []usage.Window{{ID: "five_hour", Percent: 12, ResetsAt: at}}}},
 		Limited{Window: "five_hour", ResetsAt: at},
+		Billing{Billing: usage.Overage},
 		Plan{Todos: []tool.TodoItem{{Label: "x", Status: "pending"}}},
 		Other{Adapter: "codex", Type: "x", Raw: []byte(`{"a":1}`)},
 	} {
@@ -43,7 +44,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestEveryEventHasAName(t *testing.T) {
-	if len(names) != 24 {
+	if len(names) != 25 {
 		t.Errorf("%d events have names; one added to event.go needs one in codec.go", len(names))
 	}
 }

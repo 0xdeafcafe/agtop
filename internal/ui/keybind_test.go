@@ -30,7 +30,7 @@ func TestRemapInSession(t *testing.T) {
 	m, _ := benchModel(200, 50)
 	c := m.host
 	if !m.paneFocus {
-		pressKeys(m, "tab")
+		pressKeys(m, "}")
 	}
 	m.setKeys(keymap.File{Bindings: map[string][]string{"session.verbose": {"ctrl+x v"}}})
 	was := c.verbose
@@ -54,10 +54,40 @@ func TestRemapInSession(t *testing.T) {
 	}
 }
 
+// tab, { and } go between the list and the Session; { and } only with
+// nothing typed, and are text when something is.
+func TestBracesSwitchFocus(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	if !m.paneFocus {
+		pressKeys(m, "}")
+	}
+	if !m.paneFocus {
+		t.Fatal("} should go into the Session")
+	}
+	pressKeys(m, "tab")
+	if m.paneFocus {
+		t.Fatal("tab should leave the Session")
+	}
+	pressKeys(m, "tab")
+	if !m.paneFocus {
+		t.Fatal("tab should go back into the Session")
+	}
+	m.host.input = nil
+	pressKeys(m, "a", "{")
+	if got := string(m.host.input); !m.paneFocus || got != "a{" {
+		t.Fatalf("typed, { is text: focus %v, box %q", m.paneFocus, got)
+	}
+	m.host.input = nil
+	pressKeys(m, "{")
+	if m.paneFocus {
+		t.Fatal("{ with nothing typed should go back to Agents")
+	}
+}
+
 func TestChordRunsCommand(t *testing.T) {
 	m, _ := benchModel(200, 50)
 	if m.paneFocus {
-		pressKeys(m, "tab")
+		pressKeys(m, "{")
 	}
 	m.setKeys(keymap.File{Bindings: map[string][]string{"command:help": {"ctrl+g h"}}})
 	pressKeys(m, "ctrl+g", "h")
@@ -72,10 +102,14 @@ func TestKeysPageTakesKeys(t *testing.T) {
 	m.setView(placeSettings)
 	m.setSettingsPage(pageKeys)
 	m.showKey("list.pr")
-	pressKeys(m, "enter", "ctrl+x", "p", "enter")
+	pressKeys(m, "enter")
+	if out := m.render(); !strings.Contains(out, "New keys for") || !strings.Contains(out, "╭") {
+		t.Fatalf("taking keys should ask in a box:\n%s", out)
+	}
+	pressKeys(m, "ctrl+x", "p", "enter")
 	if got := m.keyMap().KeyText("list.pr"); got != "ctrl+x p" {
 		// ctrl+x is list.stop's: it asks first.
-		if m.dialog.confirm == "" {
+		if m.confirm == nil {
 			t.Fatalf("list.pr has %q and nothing asked", got)
 		}
 		pressKeys(m, "y")

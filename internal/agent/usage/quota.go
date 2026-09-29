@@ -51,6 +51,20 @@ const (
 	Live                  // reported by a session as it ran
 )
 
+// Billing is how what a session spends is paid for.
+type Billing string
+
+const (
+	// Plan is out of a subscription's allowance: its windows fill, and
+	// nothing more is charged.
+	Plan Billing = "plan"
+	// Overage is past the allowance and paid for by use: Claude's extra
+	// usage, Codex's credits.
+	Overage Billing = "overage"
+	// Metered is an API key: every token is paid for.
+	Metered Billing = "metered"
+)
+
 // Quota is an account's limits as last read. An account belongs to one
 // provider, but any number of agents and sessions can spend it.
 type Quota struct {

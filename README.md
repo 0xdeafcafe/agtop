@@ -69,13 +69,13 @@ The list is every agent you have, with what it's doing right now: "running pnpm 
 - **Needs you** comes first: an agent whose turn died says why, with a ✗ ("session limit · resets 5am"), and one with a question waits there too. One that finished without asking waits in **Your turn**. `alt+g` tells either to go on. A turn that died on the network or a flaky API ("Connection dropped", "Response stalled mid-stream") is told to continue by itself once the API can be reached.
 - **Cost, tokens and time** for each agent, estimated from its transcript at list prices (subagents included), and today's spend per account.
 - **CPU and RAM** for everything an agent started, not just the agent itself.
-- **Preview** (`tab`): the agent's own screen, live, or what it's doing, its last message and its process tree. Type to reply without opening it.
+- **Preview** (`{` or `}`): the agent's own screen, live, or what it's doing, its last message and its process tree. Type to reply without opening it.
 - **Open** (`enter`) connects to the running session through the daemon, like the native view. `ctrl+]` comes back.
 - **Agents that run agents**: when a session runs `claude -p`, `codex exec` or another agent's program from its shell, the row reads as that agent, with what it was asked and its latest steps. It's listed with the session's subagents rather than as a stray row of its own.
 - **Done** (`alt+d`) moves an agent out of the way and stops its process if it's idle. A message resumes it. Nothing is merged or deleted.
 - **Cold cache warning**: sending to a session idle past its prompt cache's hour asks first, since it re-reads the whole context uncached.
 - **Groups** (`ctrl+s`) by status, agent or your own (`ctrl+e`), and **split by project** on top (`ctrl+p`, on by default): inside each section, agents sit together under a line per repository with its branch, commits ahead or behind, uncommitted changes and worktree count; agents in a linked worktree sit under the repository it came from, headed by the worktree's own branch and changes. The top of the list shows both and a click changes either. Pins (`ctrl+t`) are shared with the native view.
-- **Change repo** (`ctrl+l`) moves a conversation to another folder or worktree.
+- **Move** (`ctrl+l`) tells the agent to work in another folder or worktree from now on, without stopping it; its row follows it there. With a new session half typed, the same dialog picks where it starts.
 - **Drafts**: `alt+s` keeps what you've typed and clears the box for the next thing; `alt+p` brings the latest back, and again for older ones. `#drafts` has them, with what you sent and what you cleared.
 
 ## Providers
@@ -170,7 +170,7 @@ An agent run in agtop mode (headless, hosted by agtop) opens in a Session beside
       <b>Subagents</b>. Every run, with its steps, tokens, cost and last words, working for as long as it is, and the selected run's conversation beside it. <code>enter</code> watches one.
     </td>
     <td valign="top">
-      <b>Queue</b>. Messages sent while the agent works wait here. <code>enter</code> edits one, <code>shift+↑↓</code> merges it into the one above or below, <code>[</code> <code>]</code> move it, <code>s</code> sends it now, <code>ctrl+s</code> sends everything. Several go as one message, each numbered, so the agent reads them as separate requests.<br><br>
+      <b>Queue</b>. Messages sent while the agent works wait here. <code>enter</code> edits one, <code>shift+↑↓</code> merges it into the one above or below, <code>[</code> <code>]</code> move it, <code>s</code> sends it now, <code>ctrl+enter</code> sends everything. Several go as one message, each numbered, so the agent reads them as separate requests.<br><br>
       Claude's questions arrive as one form, with a preview beside each option. Long pastes stay a chip: click one, or press space with the pointer on it, to open it in place; <code>ctrl+g</code> opens one in <code>$EDITOR</code>.
     </td>
   </tr>
@@ -317,12 +317,13 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `↑` `↓` `⌘↓` | move, open the agent (or `→`) |
 | `enter` | rename or open it, as you chose in Settings |
 | type, `enter` | start a session, or reply to the agent in the preview |
-| `tab` | the list ⇄ the agent's Session |
+| `tab` · `{` `}` | the list ⇄ the agent's Session |
 | `ctrl+k` | go anywhere, search everything |
 | `ctrl+f` | find, starting where you are |
 | `ctrl+v` | paste an image; in a Session's box it goes in the text as `[Image #1]`, deleted as one |
 | `<` `>` · `ctrl+\` | Agents · Overview · Efficiency · Machine · Settings; in a Session's box `,` `.` `<` `>` are typed, so `ctrl+\` |
 | `[` `]` | the next page, everywhere there are pages: a Session's views (with nothing typed), Efficiency, Machine, Settings, and the tabs of a sheet |
+| `tab` `shift+tab` | the next page too, where there's no list and Session to go between: Efficiency, Settings, Projects, Wall |
 | `ctrl+r` `ctrl+t` `ctrl+e` | rename, pin, set group |
 | `ctrl+s` | group by status, agent, your groups |
 | `ctrl+p` | split each section by project, or not |
@@ -331,7 +332,7 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `alt+s` `alt+p` | keep a draft, bring one back |
 | `alt+d` | done |
 | `ctrl+x` | stop; twice on a stopped agent deletes it |
-| `ctrl+l` | change repo |
+| `ctrl+l` | move the agent, or pick a new session's folder |
 | `ctrl+z` | Zen |
 | `alt+w` | the default profile |
 | `#` | agtop's commands |

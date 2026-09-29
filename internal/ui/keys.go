@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -37,7 +36,9 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	if cmd, ok := m.hostedKeyGuard(s); ok {
 		return cmd
 	}
-	if cmd, ok := m.barToggle(s); ok {
+	if m.hosted != "" {
+		// No command bar: it reaches every agent and place.
+	} else if cmd, ok := m.barToggle(s); ok {
 		return cmd
 	}
 	if m.bar != nil && s != "ctrl+q" {
@@ -76,7 +77,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.paneFocus = true
 	}
 	if m.picker != nil {
-		return m.pickerKey(s)
+		return m.pickerKey(k, s)
 	}
 	// , and . (or < and >) with nothing typed go to the previous and next
 	// place (ctrl+\
@@ -86,12 +87,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.setView(m.view + d)
 		return tea.Batch(m.loadPreview(), m.effOpen())
 	}
-	if s == "alt+w" && m.mode != modeCwd && (m.dialog == nil || m.dialog.asking == "") {
+	if s == "alt+w" && (m.dialog == nil || m.dialog.asking == "") {
 		// Which profile, or which provider, new sessions run.
 		m.openProfilePicker()
 		return nil
 	}
-	if s == "ctrl+z" && m.mode != modeCwd && (m.dialog == nil || m.dialog.asking == "") {
+	if s == "ctrl+z" && (m.dialog == nil || m.dialog.asking == "") {
 		m.setZen(!m.zen)
 		return m.loadPreview()
 	}
@@ -132,10 +133,10 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.quitKey()
 	}
 	// On a Claude Code agent's screen, typing goes into it: ← moves its
-	// cursor rather than leaving. tab, [ ] and ctrl+] stay agtop's.
+	// cursor rather than leaving. tab, { } [ ] and ctrl+] stay agtop's.
 	if !m.zen && m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && m.viewName(m.host) == "screen" && m.canEmbed() {
 		switch s {
-		case "tab", "shift+tab", "[", "]", "ctrl+]":
+		case "tab", "{", "}", "shift+tab", "[", "]", "ctrl+]":
 		default:
 			m.embedded = true
 			return m.embedKey(k)
@@ -163,6 +164,16 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		}
 		return m.switchFocus()
 	}
+	// Where there's no list and Session to go between, tab and shift+tab
+	// turn the page, as ] and [ do.
+	if m.onPages() {
+		switch s {
+		case "tab":
+			s = "]"
+		case "shift+tab":
+			s = "["
+		}
+	}
 	// [ and ] go through a place's pages, as everywhere with pages: in
 	// Efficiency unless a note is being written or an install waits on an
 	// answer.
@@ -174,21 +185,13 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.setEffPage(m.eff.page + d)
 		return m.effOpen()
 	}
-	if (s == "[" || s == "]") && (m.mode == modeWork || m.mode == modeWall) {
+	if (s == "[" || s == "]") && (m.mode == modeProjects || m.mode == modeWall) {
 		d := 1
 		if s == "[" {
 			d = -1
 		}
-		m.setWorkPage(m.work.page + d)
+		m.setAgentsPage(m.work.page + d)
 		return m.refreshFolders()
-	}
-	if (s == "[" || s == "]") && (m.mode == modeProcs || m.mode == modeCleanup) {
-		d := 1
-		if s == "[" {
-			d = -1
-		}
-		m.setMachinePage(m.machinePage + d)
-		return nil
 	}
 	if m.dialog != nil {
 		return m.dialogKey(k, s)
@@ -206,48 +209,14 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.mode = modeList
 		}
 		return nil
-	case modeProcs:
-		return m.procKey(s)
-	case modeCleanup:
-		return m.cleanupKey(s)
 	case modeEff:
 		return m.effKey(k, s)
-	case modeWork:
-		if m.work.page == workProjects {
-			return m.projectsKey(s)
-		}
-		return m.workKey(s)
+	case modeProjects:
+		return m.projectsKey(s)
 	case modeWall:
 		return m.wallKey(s)
-	case modeCwd:
-		return m.cwdKey(k, s)
 	}
 	return m.listKey(k, s)
-}
-
-func (m *Model) editKey(k tea.KeyPressMsg, s string) bool {
-	switch s {
-	case "backspace", "ctrl+h":
-		if len(m.input) > 0 {
-			m.input = m.input[:len(m.input)-1]
-		}
-	case "ctrl+u", "super+backspace":
-		m.input = m.input[:0]
-	case "ctrl+w", "alt+backspace":
-		t := strings.TrimRight(string(m.input), " ")
-		if i := strings.LastIndexByte(t, ' '); i >= 0 {
-			m.input = []rune(t[:i+1])
-		} else {
-			m.input = m.input[:0]
-		}
-	default:
-		if k.Text != "" && k.Mod&^tea.ModShift == 0 {
-			m.input = append(m.input, []rune(k.Text)...)
-			return true
-		}
-		return false
-	}
-	return true
 }
 
 // placeStep is which way a key moves between places: -1 for , and <, +1
@@ -256,7 +225,7 @@ func (m *Model) editKey(k tea.KeyPressMsg, s string) bool {
 // keys, so they can always be typed there.
 func (m *Model) placeStep(s string) int {
 	d := map[string]int{",": -1, "<": -1, ".": 1, ">": 1, "ctrl+\\": 1}[s]
-	if d == 0 || m.mode == modeCwd || m.dialog != nil && m.dialog.asking != "" || m.mode == modeEff && m.eff.typing() {
+	if d == 0 || m.dialog != nil && m.dialog.asking != "" || m.mode == modeEff && m.eff.typing() {
 		return 0
 	}
 	if s == "ctrl+\\" || m.mode != modeList || m.dialog != nil {
@@ -273,7 +242,7 @@ func (m *Model) placeStep(s string) int {
 	return d
 }
 
-// switchFocus is tab in Agents: from the list into the selected agent's
+// switchFocus is tab, { or } in Agents: from the list into the selected agent's
 // Session, and back.
 func (m *Model) switchFocus() tea.Cmd {
 	if m.paneFocus && m.host != nil {
@@ -296,6 +265,11 @@ func (m *Model) switchFocus() tea.Cmd {
 }
 
 func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
+	if m.listFilter != nil {
+		if cmd, used := m.listFilterKey(k, s); used {
+			return cmd
+		}
+	}
 	a := m.selected()
 	empty := len(m.input) == 0
 	if (s == "backspace" || s == "ctrl+h") && empty && len(m.images) > 0 {
@@ -379,8 +353,6 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.openPeeked()
 		case m.preview:
 			m.leaveChat()
-		case m.armed != "":
-			m.armed = ""
 		case time.Since(m.quitArmed) < 2*time.Second:
 			return m.quit()
 		default:
@@ -398,7 +370,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.openPeeked()
 		}
 		// Enter on an agent renames it, as in the Finder, or opens it, as
-		// you chose the first time; ⌘↓, → and tab always open it.
+		// you chose the first time; ⌘↓, →, tab and { } always open it.
 		if empty && a != nil && m.inKind == inPrompt {
 			switch m.store.Config.EnterOn {
 			case "open":
@@ -443,14 +415,15 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	case "ctrl+l":
-		// Drafting a new session, or nothing selected: choose where it
-		// starts. Otherwise: move the selected agent.
+		// The same folder dialog either way. Drafting a new session, or
+		// nothing selected: where it starts. Otherwise: where the selected
+		// agent works.
 		drafting := !empty && m.inKind == inPrompt && !isHashCmd(string(m.input))
 		if drafting || a == nil {
 			m.openDirPicker()
 			return nil
 		}
-		m.openCwd(a)
+		m.openMovePicker(a)
 		return nil
 	case "ctrl+y":
 		return m.openPR(a)
@@ -478,17 +451,30 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "alt+g":
 		// Go on: what "keep going" in its message box would do.
 		return m.keepGoing(a)
+	case "{", "}":
+		// With nothing typed, into the Session, as tab does.
+		if empty {
+			return m.switchFocus()
+		}
 	case "[", "]":
-		if empty && a != nil {
-			if c := m.host; c != nil && c.key == a.Key {
-				n, d := len(m.views(c)), 1
-				if s == "[" {
-					d = -1
-				}
-				c.view, c.scroll = (c.view%n+d+n)%n, 0
-			} else {
-				m.claudeView = 1 - m.claudeView
+		// [ ] step through Agents' own pages, Projects and Wall, as they
+		// do everywhere else there are pages; { into a live session
+		// first (paneKey has its own [ ] for the views inside it) to
+		// cycle what its preview shows without leaving the list.
+		if empty {
+			d := 1
+			if s == "[" {
+				d = -1
 			}
+			m.setAgentsPage(m.work.page + d)
+			return m.refreshFolders()
+		}
+	case "v":
+		// A Claude Code agent's Session, previewed without tabbing in:
+		// v swaps its live screen for its summary, since [ ] now steps
+		// through Agents' own pages instead.
+		if empty && a != nil {
+			m.claudeView = 1 - m.claudeView
 			m.preview = true
 			return nil
 		}
@@ -504,6 +490,11 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		if empty {
 			m.mode = modeHelp
 			m.didStep("keys")
+			return nil
+		}
+	case "alt+f":
+		if empty && m.view == placeAgents {
+			m.startListFilter()
 			return nil
 		}
 	}
@@ -565,7 +556,7 @@ func (m *Model) renameStep(d int) tea.Cmd {
 		if strings.HasPrefix(items[j], "§") {
 			continue
 		}
-		m.sel, m.armed = items[j], ""
+		m.sel = items[j]
 		if a := m.selected(); a != nil {
 			m.startRename(a)
 		}
@@ -661,13 +652,14 @@ func (m *Model) stopOrRemove(a *fleet.Agent) tea.Cmd {
 		m.flash("stopping "+a.DisplayName+"…", false)
 		return cmdErr("stopped "+a.DisplayName, func() error { return stopOutside(a) })
 	}
-	if m.armed == a.Key && time.Since(m.armedAt) < 5*time.Second {
-		m.armed = ""
-		m.flash("deleting "+a.DisplayName+"…", false)
-		return cmdErr("deleted "+a.DisplayName, func() error { return removeOutside(a) })
+	m.confirm = &confirmation{
+		question: "Delete " + a.DisplayName + "?",
+		detail:   "and its worktree, when that's safe",
+		onYes: func() tea.Cmd {
+			m.flash("deleting "+a.DisplayName+"…", false)
+			return cmdErr("deleted "+a.DisplayName, func() error { return removeOutside(a) })
+		},
 	}
-	m.armed, m.armedAt = a.Key, time.Now()
-	m.flash("ctrl+x again within 5s to delete "+a.DisplayName+" (and its worktree, when that's safe)", false)
 	return nil
 }
 
@@ -888,10 +880,10 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	case "cd":
 		if need() {
 			if expand(arg) == "" {
-				m.flash("which folder? /cd <path>", true)
+				m.openMovePicker(a)
 				return nil
 			}
-			return m.relaunch(a, expand(arg), nil, a.Acct)
+			return m.moveTo(a, expand(arg))
 		}
 	case "add-dir":
 		if need() {
@@ -1140,204 +1132,6 @@ func (m *Model) askKillTree(a *fleet.Agent) {
 	}
 }
 
-// procRows are the rows the process screen shows, in order: orphans, then
-// every agent busiest first with what it is running under it, then the
-// Claude processes that belong to no agent.
-func (m *Model) procRows() []procRow {
-	tab := m.snap.Table
-	if tab == nil {
-		return nil
-	}
-	var out []procRow
-	// Orphans first: nothing else will ever stop them, so they wait on you.
-	// Under each, the few processes holding most of its memory.
-	for _, r := range m.snap.Machine.Rows {
-		if r.Role != fleet.RoleOrphan {
-			continue
-		}
-		out = append(out, procRow{pid: r.PID, label: r.Label, cmd: r.Cmd, mem: r.Mem, cpu: r.CPU, n: r.Procs, start: r.Start, role: r.Role, other: true})
-		kids := tab.Tree(r.PID)[1:]
-		sort.SliceStable(kids, func(i, j int) bool { return kids[i].Footprint > kids[j].Footprint })
-		for _, n := range kids[:min(3, len(kids))] {
-			if n.Footprint >= 32<<20 {
-				out = append(out, procRow{pid: n.PID, depth: 1, cmd: m.shortCmd(n.PID, n.Comm), mem: n.Footprint, cpu: n.CPU, n: 1, start: n.Start, role: fleet.RoleOrphan})
-			}
-		}
-	}
-	type agentRows struct {
-		a     *fleet.Agent
-		tools []procRow
-	}
-	var agents []agentRows
-	for _, a := range m.snap.Agents {
-		if a.PID == 0 || tab.Procs[a.PID] == nil {
-			continue
-		}
-		agents = append(agents, agentRows{a, m.toolRows(a)})
-	}
-	// Agents running something come first, busiest first; the idle rest
-	// keep still, alphabetically, so the list doesn't shuffle under you.
-	busy := func(x agentRows) bool { return len(x.tools) > 0 || x.a.CPU >= 5 }
-	sort.SliceStable(agents, func(i, j int) bool {
-		if bi, bj := busy(agents[i]), busy(agents[j]); bi != bj {
-			return bi
-		} else if bi && agents[i].a.CPU != agents[j].a.CPU {
-			return agents[i].a.CPU > agents[j].a.CPU
-		}
-		return strings.ToLower(agents[i].a.DisplayName) < strings.ToLower(agents[j].a.DisplayName)
-	})
-	for _, x := range agents {
-		a := x.a
-		out = append(out, procRow{pid: a.PID, label: oneLine(a.DisplayName), cmd: m.context(a), mem: a.Mem, cpu: a.CPU,
-			n: a.Procs, start: tab.Procs[a.PID].Start, key: a.Key, heading: true, busy: busy(x)})
-		out = append(out, x.tools...)
-	}
-	for _, r := range m.snap.Machine.Rows {
-		if r.Role == fleet.RoleWorker || r.Role == fleet.RoleOrphan {
-			continue
-		}
-		out = append(out, procRow{pid: r.PID, label: r.Label, cmd: r.Cmd, mem: r.Mem, cpu: r.CPU, n: r.Procs, start: r.Start, role: r.Role, other: true})
-	}
-	return out
-}
-
-// toolRows are what an agent is running: its process tree without the
-// agent's own processes (agtop's host, Claude Code, its pty host), which its
-// heading row stands for, and with each Bash-tool shell shown as the command
-// it was asked to run rather than the snapshot-sourcing wrapper around it.
-func (m *Model) toolRows(a *fleet.Agent) []procRow {
-	tab := m.snap.Table
-	var out []procRow
-	depth := map[int]int{}    // the depth a process's children are drawn at
-	shown := map[int]string{} // what a drawn process was drawn as
-	for _, n := range tab.Tree(a.PID) {
-		d := depth[n.PPID]
-		if n.PID == a.PID {
-			d = 0
-		}
-		depth[n.PID] = d
-		if own(n.Comm) {
-			continue
-		}
-		cmd := m.shortCmd(n.PID, n.Comm)
-		if full, _ := m.procLine(n.PID, n.Start); strings.Contains(full, "eval '") {
-			if c := fleet.ShellCmd(full); c != full {
-				cmd = "$ " + trimCmd(oneLine(c), 200)
-			}
-		}
-		// A shell's only job is often the one thing it was asked to run.
-		if p, ok := shown[n.PPID]; ok && (p == cmd || p == "$ "+cmd) {
-			shown[n.PID] = cmd
-			continue
-		}
-		shown[n.PID] = cmd
-		depth[n.PID] = d + 1
-		out = append(out, procRow{pid: n.PID, depth: d, cmd: cmd, mem: n.Footprint, cpu: n.CPU, n: 1, start: n.Start, key: a.Key})
-	}
-	return out
-}
-
-// own reports whether a process is part of the agent itself rather than
-// something it runs.
-func own(comm string) bool {
-	return filepath.Base(comm) == "agtop" || agent.IsProgram(comm)
-}
-
-// procIndex is where the cursor is: on the process it was on, wherever the
-// list has moved it.
-func (m *Model) procIndex(rows []procRow) int {
-	if m.procPID != 0 {
-		for i, r := range rows {
-			if r.pid == m.procPID {
-				return i
-			}
-		}
-	}
-	return max(0, min(m.procCursor, len(rows)-1))
-}
-
-type procRow struct {
-	pid, depth, n int
-	label, cmd    string
-	mem           uint64
-	cpu           float64
-	start         time.Time
-	role          fleet.Role
-	key           string
-	heading       bool // an agent's own row above its tree
-	busy          bool // a heading whose agent is running something
-	other         bool // a Claude process that belongs to no agent
-}
-
-func (m *Model) procKey(s string) tea.Cmd {
-	rows := m.procRows()
-	m.procCursor = m.procIndex(rows)
-	defer func() {
-		if m.procCursor < len(rows) {
-			m.procPID = rows[m.procCursor].pid
-		}
-	}()
-	switch s {
-	case "esc", "q", "ctrl+p", "left":
-		m.setView(placeAgents)
-	case "up", "k":
-		m.procCursor = roundMove(m.procCursor, -1, len(rows))
-	case "down", "j":
-		m.procCursor = roundMove(m.procCursor, 1, len(rows))
-	case "enter":
-		if m.procCursor < len(rows) && rows[m.procCursor].key != "" {
-			m.sel = rows[m.procCursor].key
-			m.setView(placeAgents)
-		}
-	case "X":
-		if mc := m.snap.Machine; mc.Orphans > 0 {
-			var ends []procRow
-			for _, r := range rows {
-				if r.role == fleet.RoleOrphan && r.other {
-					ends = append(ends, r)
-				}
-			}
-			m.confirm = &confirmation{
-				question: fmt.Sprintf("End all %d orphaned process trees and free about %s?", len(ends), mem(mc.OrphanMem)),
-				detail:   "SIGTERM, then SIGKILL after 3s",
-				onYes:    func() tea.Cmd { return endOrphans(ends) },
-			}
-		}
-	case "ctrl+x", "x":
-		if m.procCursor < len(rows) && rows[m.procCursor].role == fleet.RoleOrphan && rows[m.procCursor].other {
-			r := rows[m.procCursor]
-			m.confirm = &confirmation{
-				question: fmt.Sprintf("End %s and everything under it, freeing about %s?", trimCmd(r.cmd, 40), mem(r.mem)),
-				detail:   "SIGTERM, then SIGKILL after 3s",
-				onYes:    func() tea.Cmd { return endOrphans([]procRow{r}) },
-				bangText: "SIGKILL it now",
-				onBang:   killTree(r.pid, r.start),
-			}
-		} else if m.procCursor < len(rows) {
-			r := rows[m.procCursor]
-			m.confirm = &confirmation{
-				question: fmt.Sprintf("Send SIGTERM to %d?", r.pid),
-				detail:   trimCmd(r.cmd, 80),
-				onYes: func() tea.Cmd {
-					return cmdErr(fmt.Sprintf("sent SIGTERM to %d", r.pid), func() error { return actions.Terminate(r.pid) })
-				},
-				bangText: "SIGKILL it and everything under it",
-				onBang:   killTree(r.pid, r.start),
-			}
-		}
-	case "!":
-		if m.procCursor < len(rows) {
-			r := rows[m.procCursor]
-			m.confirm = &confirmation{
-				question: fmt.Sprintf("SIGKILL %d and everything under it?", r.pid),
-				detail:   trimCmd(r.cmd, 80),
-				onYes:    killTree(r.pid, r.start),
-			}
-		}
-	}
-	return nil
-}
-
 // endOrphans ends each orphaned tree, gently then firmly, and says what it
 // freed.
 func endOrphans(rows []procRow) tea.Cmd {
@@ -1377,77 +1171,4 @@ func trimCmd(s string, n int) string {
 	home, _ := os.UserHomeDir()
 	s = strings.ReplaceAll(s, home, "~")
 	return ansi.Truncate(s, n, "…")
-}
-
-func (m *Model) openCwd(a *fleet.Agent) {
-	m.mode, m.cwdFor, m.cwdCursor, m.cwdMove = modeCwd, a.Key, -1, true
-	m.input = []rune(tildify(a.Cwd))
-}
-
-// cwdChoices are the folders worth offering: every folder an agent ran in,
-// their repositories, and those repositories' Claude worktrees.
-func (m *Model) cwdChoices() []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(p string) {
-		if p != "" && !seen[p] {
-			seen[p] = true
-			out = append(out, p)
-		}
-	}
-	for _, a := range m.snap.Agents {
-		add(a.Repo)
-		for _, wt := range m.worktreesOf(a.Repo) {
-			add(wt)
-		}
-		add(a.Cwd)
-	}
-	q := strings.ToLower(strings.TrimSpace(string(m.input)))
-	q = strings.TrimPrefix(q, "~")
-	var hits []string
-	for _, p := range out {
-		if q == "" || strings.Contains(strings.ToLower(p), q) {
-			hits = append(hits, p)
-		}
-	}
-	sort.Strings(hits)
-	return hits
-}
-
-func (m *Model) cwdKey(k tea.KeyPressMsg, s string) tea.Cmd {
-	choices := m.cwdChoices()
-	switch s {
-	case "esc":
-		m.mode, m.input = modeList, m.input[:0]
-	case "tab":
-		m.cwdMove = !m.cwdMove
-	case "up", "down":
-		// -1 is the typed path, before the first choice.
-		d := map[string]int{"up": -1, "down": 1}[s]
-		m.cwdCursor = roundMove(m.cwdCursor+1, d, len(choices)+1) - 1
-	case "enter":
-		target := expand(string(m.input))
-		if m.cwdCursor >= 0 && m.cwdCursor < len(choices) {
-			target = choices[m.cwdCursor]
-		}
-		var a *fleet.Agent
-		for _, x := range m.snap.Agents {
-			if x.Key == m.cwdFor {
-				a = x
-			}
-		}
-		m.mode, m.input = modeList, m.input[:0]
-		if a == nil {
-			return nil
-		}
-		if m.cwdMove {
-			return m.relaunch(a, target, nil, a.Acct)
-		}
-		return m.relaunch(a, "", []string{target}, a.Acct)
-	default:
-		if m.editKey(k, s) {
-			m.cwdCursor = -1
-		}
-	}
-	return nil
 }

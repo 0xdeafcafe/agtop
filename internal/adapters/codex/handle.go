@@ -130,7 +130,11 @@ func (c *Conn) notification(m message) []event.Event {
 		c.mu.Lock()
 		q.Account = c.account
 		c.mu.Unlock()
-		return []event.Event{event.Quota{Quota: q}}
+		out := []event.Event{event.Quota{Quota: q}}
+		if b, ok := p.RateLimits.billing(); ok {
+			out = append(out, event.Billing{Billing: b})
+		}
+		return out
 	case "serverRequest/resolved":
 		id := idString(p.RequestID)
 		c.mu.Lock()

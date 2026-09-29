@@ -132,3 +132,31 @@ func TestScanCountsCompactions(t *testing.T) {
 		t.Fatalf("compacts %d, context %d", tot.Compacts, tot.Context())
 	}
 }
+
+func TestDirFollowsCdAndWritesUntilCwdMoves(t *testing.T) {
+	line := func(cwd, content string) string {
+		return `{"type":"assistant","cwd":"` + cwd + `","message":{"id":"x","content":[` + content + `]}}`
+	}
+	bash := func(cmd string) string {
+		return `{"type":"tool_use","name":"Bash","input":{"command":"` + cmd + `"}}`
+	}
+	var tt Totals
+	step := func(l, want string) {
+		t.Helper()
+		consume(&tt, []byte(l))
+		if tt.Dir != want {
+			t.Fatalf("Dir = %q, want %q", tt.Dir, want)
+		}
+	}
+	step(line("/r/main", `{"type":"text","text":"hi"}`), "/r/main")
+	step(line("/r/main", bash("cd /r/pr6900 && git status")), "/r/pr6900")
+	step(line("/r/main", bash("ls")), "/r/pr6900")
+	step(line("/r/main", bash("cd /tmp/x && ls")), "/r/pr6900")
+	step(line("/r/main", `{"type":"tool_use","name":"Write","input":{"file_path":"/Users/me/.claude/projects/p/memory/m.md"}}`), "/r/pr6900")
+	step(line("/r/main", `{"type":"tool_use","name":"Edit","input":{"file_path":"/r/wt/a/b.go"}}`), "/r/wt/a")
+	step(line("/r/other", `{"type":"text","text":"moved"}`), "/r/other")
+	step(line("/r/other", bash(`cd \"/r/q q\"; make`)), "/r/q q")
+	// EnterWorktree: the move is known before the next reply.
+	step(`{"type":"relocated","sessionId":"s","relocatedCwd":"/r/.claude/worktrees/w"}`, "/r/.claude/worktrees/w")
+	step(line("/r/.claude/worktrees/w", `{"type":"text","text":"in"}`), "/r/.claude/worktrees/w")
+}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
@@ -76,6 +77,18 @@ var topSegs = []barSeg{
 	{"ram", "Memory", "what agents and their processes hold", func(x *barCtx) string {
 		return dim(mem(x.m.snap.Machine.TotalMem) + " ram")
 	}},
+	{"tokens", "Tokens", "context tokens held by every agent still working", func(x *barCtx) string {
+		var n int64
+		for _, a := range x.m.snap.Agents {
+			if a.Live() {
+				n += a.Spend.Context
+			}
+		}
+		if n == 0 {
+			return ""
+		}
+		return dim(tokens(n) + " tokens")
+	}},
 	{"cpu", "CPU", "what agents and their processes use", func(x *barCtx) string {
 		return dim(fmt.Sprintf("%.0f%% cpu", x.m.snap.Machine.TotalCPU))
 	}},
@@ -140,6 +153,15 @@ var agentSegs = []barSeg{
 	{"cost", "Cost", "what the agent has cost so far", func(x *barCtx) string {
 		if c := x.c.sess.Info.CostUSD; c > 0 {
 			return paint(cText+bold, money(c))
+		}
+		return ""
+	}},
+	{"billing", "Billing", "how it's paid for, when not out of a plan: extra usage in yellow, an API key in orange", func(x *barCtx) string {
+		switch usage.Billing(x.c.sess.Info.Billing) {
+		case usage.Overage:
+			return paint(cYellow, "extra usage")
+		case usage.Metered:
+			return paint(cOrange, "API billed")
 		}
 		return ""
 	}},

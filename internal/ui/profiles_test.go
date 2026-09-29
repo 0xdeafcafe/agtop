@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -106,7 +107,7 @@ func TestProfilePicker(t *testing.T) {
 		for i, a := range m.picker.acts {
 			if strings.Contains(ansi.Strip(a.label), label) {
 				m.picker.cursor = i
-				m.pickerKey("enter")
+				m.pickerKey(tea.KeyPressMsg{}, "enter")
 				return
 			}
 		}

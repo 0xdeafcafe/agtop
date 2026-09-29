@@ -48,6 +48,11 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 				if fm, ok := msg.(foldersMsg); ok {
 					m.onFolders(fm) // what git says, for the Projects page
 				}
+				if bm, ok := msg.(tea.BatchMsg); ok {
+					for _, c := range bm {
+						m.drain(c) // what git says, a project at a time
+					}
+				}
 			}
 		}
 	}
@@ -82,6 +87,10 @@ func (m *Model) drain(cmd tea.Cmd) {
 		m.onHostLines(msg)
 	case foldersMsg:
 		m.onFolders(msg)
+	case tea.BatchMsg:
+		for _, c := range msg {
+			m.drain(c)
+		}
 	case paneMsg:
 		m.drain(m.onPane(msg))
 	case applyMsg:

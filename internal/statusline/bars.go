@@ -25,18 +25,25 @@ const BarLines = 2
 // DefaultTop and DefaultAgent are what agtop showed before they could be
 // changed.
 func DefaultTop() Layout {
-	return Layout{Lines: [][]string{{"today", "usage"}, {"ram", "cpu", "net", "disk", "battery", "tmp"}}, Sep: " · "}
+	return Layout{Lines: [][]string{{"today", "usage"}, {"ram", "tokens", "cpu", "net", "disk", "battery", "tmp"}}, Sep: " · "}
 }
 
-// oldTops are the top bar's defaults before disk and battery, and before
-// the network; one saved unchanged from either gets what came since.
+// oldTops are the top bar's defaults before disk and battery, before the
+// network, and before tokens; one saved unchanged from any of those gets
+// what came since.
 var oldTops = [][][]string{
 	{{"today", "usage"}, {"ram", "cpu", "tmp"}},
 	{{"today", "usage"}, {"ram", "cpu", "disk", "battery", "tmp"}},
+	{{"today", "usage"}, {"ram", "cpu", "net", "disk", "battery", "tmp"}},
+}
+
+// oldAgents are the agent bar's defaults before billing.
+var oldAgents = [][][]string{
+	{{"context", "cost"}, {"folder", "branch", "model", "effort", "mode", "tmp"}},
 }
 
 func DefaultAgent() Layout {
-	return Layout{Lines: [][]string{{"context", "cost"}, {"folder", "branch", "model", "effort", "mode", "tmp"}}, Sep: " · "}
+	return Layout{Lines: [][]string{{"context", "cost", "billing"}, {"folder", "branch", "model", "effort", "mode", "tmp"}}, Sep: " · "}
 }
 
 // BarsPath is where they're kept.
@@ -56,7 +63,7 @@ func LoadBars() Bars {
 	if got.Top.Lines != nil && !(slices.ContainsFunc(oldTops, func(o [][]string) bool { return reflect.DeepEqual(got.Top.Lines, o) }) && got.Top.Sep == b.Top.Sep) {
 		b.Top = got.Top
 	}
-	if got.Agent.Lines != nil {
+	if got.Agent.Lines != nil && !(slices.ContainsFunc(oldAgents, func(o [][]string) bool { return reflect.DeepEqual(got.Agent.Lines, o) }) && got.Agent.Sep == b.Agent.Sep) {
 		b.Agent = got.Agent
 	}
 	return b

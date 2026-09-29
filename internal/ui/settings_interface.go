@@ -54,6 +54,7 @@ func (m *Model) interfaceSections() []section {
 			{"cost", "most expensive first."},
 			{"cpu", "busiest first, by CPU across everything the agent started."},
 			{"ram", "heaviest first, by memory across everything the agent started."},
+			{"tokens", "biggest context first, by its newest message's tokens."},
 			{"time", "longest-running first."},
 		}, func(v string) { c.SortBy = v })
 
@@ -110,9 +111,16 @@ func (m *Model) interfaceSections() []section {
 			c.CopyOnSelect = &on
 		})
 
+	escStop := choiceSetting("esc on a running turn", map[bool]string{true: "stops it", false: "asks first"}[c.StopTurnUnasked],
+		"What esc does in a conversation while the agent is working on a message.",
+		[][2]string{
+			{"asks first", "asks whether to stop the message: y stops it, ! stops it and stops asking."},
+			{"stops it", "stops the message straight away."},
+		}, func(v string) { c.StopTurnUnasked = v == "stops it" })
+
 	return []section{
 		{title: "Look", rows: []setting{view, theme, colours, spaces}},
 		{title: "Agents list", rows: []setting{group, split, sortBy, enter, search}},
-		{title: "Message box", rows: []setting{command, copying}},
+		{title: "Message box", rows: []setting{command, copying, escStop}},
 	}
 }

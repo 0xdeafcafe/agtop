@@ -39,12 +39,9 @@ type mode int
 
 const (
 	modeList mode = iota
-	modeProcs
-	modeCleanup
-	modeCwd
 	modeHelp
 	modeEff
-	modeWork
+	modeProjects
 	modeWall
 )
 
@@ -59,10 +56,8 @@ const (
 
 var groupModes = []string{"status", "agent", "group"}
 
+// confirmation is a question asked in a box over the screen.
 type confirmation struct {
-	// modal asks in a box over the screen rather than on the bottom line:
-	// for a question that stops something you just did, like a send.
-	modal    bool
 	question string
 	detail   string
 	onYes    func() tea.Cmd
@@ -160,12 +155,12 @@ type Model struct {
 	host        *hostConn
 	hostOpening string
 	dirIdx      int
+	pickedDir   string // a folder typed for new sessions, offered first
 	dirs        startDirsMemo
 
 	status    string
 	statusErr bool
 	statusAt  time.Time
-	armed     string
 	quitArmed time.Time
 	confirm   *confirmation
 	chipHot   chipHover
@@ -207,20 +202,12 @@ type Model struct {
 	// installs it.
 	newer        update.Info
 	updating     bool
-	armedAt      time.Time
 	attached     string
 	view         int
-	machinePage  int  // the Machine place's page: Processes or Cleanup
 	settingsPage int  // the Settings place's page: a tab of the dialog
 	helpPage     int  // the guide's tab: helpPages
 	onboard      bool // teaching: Getting started and tips
 	cardShown    bool // Getting started was under the list last frame
-
-	procCursor int
-	procPID    int // the process the cursor is on, followed as the list reorders
-	cwdMove    bool
-	cwdCursor  int
-	cwdFor     string
 
 	lastState map[string]string
 	lastErr   map[string]bool // agents last seen with an error, so one starting is noticed
@@ -232,14 +219,17 @@ type Model struct {
 	measuring bool            // temp work is being measured in the background
 	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
 	eff       effState        // the Efficiency place
-	work      workState       // the Overview place
-	wall      wallState       // the Wall place
+	work      workState       // the Agents place's Projects and Wall pages
+	wall      wallState       // the Wall page
 	reaper    fleet.Reaper    // ends what agents leave running when they stop
 	squeezing bool            // transcripts are being compressed in the background
 
 	bar     *cmdBar  // the command bar, while it's open
 	barBack *spot    // where the bar last jumped from
 	jump    *barJump // a jump into a conversation that's still opening
+	// listFilter narrows the Agents view to what's typed after alt+f: nil
+	// when it's closed. See listfilter.go.
+	listFilter *listFilterState
 	// groupOf is the list section each agent is in, folded or not.
 	groupOf map[string]string
 	folders folderCache // what git says of the folders in the list
@@ -256,7 +246,6 @@ type Model struct {
 	snapWanted, snapLoading bool
 	fleetRead               bool                            // a reading has landed: before it, the list says it's reading
 	procWords               known[procKey, string]          // processes' words, as shortCmd draws them
-	procLines               known[procKey, string]          // processes' whole command lines: see procLine
 	pickTrees               known[string, []string]         // repositories' worktrees, for the folder picker
 	localCmds               known[cmdsKey, []agent.Command] // commands and skills on disk: see commandsOf
 	paths                   known[string, pathFact]         // what's at paths typed, pasted or dropped: see lookPath
@@ -305,8 +294,9 @@ type listLine struct {
 	// root is a project line's folder, or a tree line's worktree; a tree
 	// line's title is its project's folder.
 	root string
-	// again is a project line for a project an earlier section headed.
-	again bool
+	// inset is how far an agent row sits in, to line up under its
+	// project's heading, or deeper under its worktree's.
+	inset int
 }
 
 func sectionKey(title string) string { return "§" + title }
@@ -320,7 +310,7 @@ func newModel(store *state.Store, version string, skipPast bool) *Model {
 	m := &Model{
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
-		lastState: map[string]string{}, cwdMove: true,
+		lastState:  map[string]string{},
 		hibernated: map[string]bool{},
 	}
 	// Each second's refresh reads only what changed on disk; everything
@@ -465,7 +455,7 @@ func (m *Model) scan() tea.Cmd {
 // startDirs are the folders a new session can start in: where agtop was
 // opened, then folders with agents running, then recent ones.
 func (m *Model) startDirs() []string {
-	k := dirsKey{m.launchDir, dirsPrint(m.snap)}
+	k := dirsKey{m.pickedDir, m.launchDir, dirsPrint(m.snap)}
 	if !m.dirs.ok || m.dirs.key != k {
 		m.dirs = startDirsMemo{k, m.readStartDirs(), true}
 	}
@@ -480,8 +470,8 @@ type startDirsMemo struct {
 }
 
 type dirsKey struct {
-	launchDir string
-	agents    uint64 // dirsPrint of the agents it was worked out from
+	picked, launchDir string
+	agents            uint64 // dirsPrint of the agents it was worked out from
 }
 
 // dirsPrint fingerprints what startDirs reads of the agents, without
@@ -513,6 +503,7 @@ func (m *Model) readStartDirs() []string {
 			out = append(out, d)
 		}
 	}
+	add(m.pickedDir)
 	add(m.launchDir)
 	agents := append([]*fleet.Agent(nil), m.snap.Agents...)
 	sort.SliceStable(agents, func(i, j int) bool {
@@ -601,7 +592,7 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 		return nil
 	}
 	double := k == m.sel && time.Since(m.lastClick) < 400*time.Millisecond
-	m.sel, m.lastClick, m.armed = k, time.Now(), ""
+	m.sel, m.lastClick = k, time.Now()
 	if strings.HasPrefix(k, "§") {
 		m.toggleFold(strings.TrimPrefix(k, "§"))
 		return nil
@@ -715,6 +706,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, ok := m.barMsg(msg); ok {
+		return m, cmd
+	}
+	if cmd, ok := m.listFilterMsg(msg); ok {
 		return m, cmd
 	}
 	switch msg := msg.(type) {
@@ -845,8 +839,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if c := m.wallTick(); c != nil {
 			cmds = append(cmds, c) // and the Wall's tiles
 		}
-		if m.mode == modeCleanup && time.Since(m.clean.checked) > 2*time.Minute {
-			cmds = append(cmds, m.scanWorktrees()) // looked at when the view opens, and every 2 minutes while it's open
+		if m.mode == modeProjects && time.Since(m.clean.checked) > 2*time.Minute {
+			cmds = append(cmds, m.scanWorktrees()) // looked at when Projects opens, and every 2 minutes while it's open
 		}
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan())
@@ -1075,6 +1069,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.host.memEd.insertText(msg.Content)
 			return m, nil
 		}
+		if p := m.picker; p != nil && p.dirs != nil {
+			p.query, p.cursor = append(p.query, []rune(oneLine(msg.Content))...), 0
+			return m, nil
+		}
 		// A paste with no text is what some terminals send when the
 		// clipboard holds only an image: read the image itself.
 		if strings.TrimSpace(msg.Content) == "" {
@@ -1137,6 +1135,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case interceptedMsg:
 		return m, m.onIntercepted(msg)
 	case tea.MouseMotionMsg:
+		wasOver := m.ptrSeen && m.ptrX > m.listW+1
 		m.ptrX, m.ptrY, m.ptrSeen = msg.X, msg.Y, true
 		// An open sheet has the mouse, as it has the keys.
 		if m.sheet != nil {
@@ -1158,7 +1157,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dragTextSel(c, msg.X, msg.Y)
 				return m, nil
 			}
-			m.endTextSel(c)
+			if cmd := m.endTextSel(c); cmd != nil {
+				return m, cmd
+			}
 		}
 		if m.boxDrag != 0 {
 			if msg.Button == tea.MouseLeft {
@@ -1179,6 +1180,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		hover := m.hover
 		changed := on != m.divHover
 		changed = m.hoverChip(msg.X, msg.Y) || changed
+		// The pointer coming onto the Session gives it the keys, once as it
+		// crosses: tab back to Agents holds while the pointer stays put.
+		if focused := m.paneFocus; !wasOver && msg.Button == tea.MouseNone && msg.X > m.listW+1 {
+			m.focusAt(msg.X, msg.Y)
+			changed = changed || m.paneFocus != focused
+		}
 		m.divHover = on
 		cmd := m.mouseMove(msg.X, msg.Y)
 		subChanged, subCmd := m.subMouseMove(msg.X, msg.Y)
@@ -1197,11 +1204,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.sheet != nil {
 			return m, tea.Batch(m.sheetMouse(mouseRelease, msg.X, msg.Y), m.pointerShape("default"))
 		}
+		var cmd tea.Cmd
 		if t := m.btwDragging(); t != nil {
 			m.endBtwDrag(t)
 		}
 		if c := m.host; c != nil && c.txt.drag {
-			m.endTextSel(c)
+			cmd = m.endTextSel(c)
 		}
 		if m.boxDrag != 0 {
 			m.endBoxDrag()
@@ -1210,7 +1218,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dragging = false
 			_ = m.store.SaveConfig()
 		}
-		return m, nil
+		return m, cmd
 	case tea.MouseClickMsg:
 		m.ptrX, m.ptrY, m.ptrSeen = msg.X, msg.Y, true
 		if m.sheet != nil {
@@ -1299,20 +1307,14 @@ func (m *Model) pointerShape(want string) tea.Cmd {
 
 // viewNames are the places at the top: ctrl+\ moves between them, and tab
 // moves within one (the list and its Session, or a place's pages).
-var viewNames = []string{"Agents", "Overview", "Efficiency", "Machine", "Settings"}
+var viewNames = []string{"Agents", "Efficiency", "Settings"}
 
 // The places, in viewNames' order.
 const (
 	placeAgents = iota
-	placeWork
 	placeEff
-	placeMachine
 	placeSettings
 )
-
-// machinePages are the pages of the Machine place; Settings' are
-// settingsPages.
-var machinePages = []string{"Processes", "Cleanup"}
 
 // setView switches the whole screen to a place, on the page it was last on.
 func (m *Model) setView(v int) {
@@ -1321,24 +1323,14 @@ func (m *Model) setView(v int) {
 	m.input, m.inKind = m.input[:0], inPrompt
 	m.zen = false
 	switch m.view {
-	case placeWork:
-		m.setWorkPage(m.work.page)
+	case placeAgents:
+		// esc from Projects or the Wall lands here,
+		// on the plain list, never back on the page it came from.
+		m.work.page = agentsList
 	case placeEff:
 		m.setEffPage(m.eff.page)
-	case placeMachine:
-		m.setMachinePage(m.machinePage)
 	case placeSettings:
 		m.openDialog(m.settingsPage)
-	}
-}
-
-// setMachinePage shows Processes (0) or Cleanup (1).
-func (m *Model) setMachinePage(p int) {
-	m.machinePage = (p + len(machinePages)) % len(machinePages)
-	if m.machinePage == 0 {
-		m.mode, m.procCursor, m.procPID = modeProcs, 0, 0
-	} else {
-		m.mode = modeCleanup
 	}
 }
 
@@ -1391,7 +1383,7 @@ func (m *Model) focusAt(x, y int) {
 }
 
 func (m *Model) acceptsText() bool {
-	return m.confirm == nil && m.sheet == nil && (m.dialog == nil || m.dialog.asking != "") && (m.mode == modeList || m.mode == modeCwd)
+	return m.confirm == nil && m.sheet == nil && (m.dialog == nil || m.dialog.asking != "") && m.mode == modeList
 }
 
 // notify posts a notification when an agent starts waiting on the user,
@@ -1500,7 +1492,7 @@ func (m *Model) move(d int) {
 		m.shown = m.sel
 	}
 	m.sel = items[i]
-	m.armed, m.hover = "", ""
+	m.hover = ""
 }
 
 // items are the rows ↑↓ stop on, in display order: the agents and every
@@ -1580,6 +1572,9 @@ func (m *Model) rebuild() {
 	for _, a := range m.snap.Agents {
 		if m.zen && !a.NeedsYou() && !a.Waiting() {
 			continue // Zen's list is only the agents waiting on you
+		}
+		if f := m.listFilter; f != nil && len(f.query) > 0 && !m.listFilterMatch(a) {
+			continue // alt+f: only what's typed matches, by name or what was said
 		}
 		if sb != nil {
 			// The plugin's sections replace agtop's; each row still shows
@@ -1671,7 +1666,6 @@ func (m *Model) rebuild() {
 	}
 	m.order = m.order[:0]
 	m.lines = m.lines[:0]
-	shown := map[string]bool{} // projects already headed, split by project
 	clear(m.groupOf)
 	if m.groupOf == nil {
 		m.groupOf = map[string]string{}
@@ -1720,17 +1714,21 @@ func (m *Model) rebuild() {
 			if split {
 				if p := folderKey(a); p != project {
 					project, tree = p, ""
-					// What git says is said once, where the project first
-					// shows; further down it's only named.
-					m.lines = append(m.lines, listLine{kind: lineProject, title: titles[p], root: p, again: shown[p]})
-					shown[p] = true
+					m.lines = append(m.lines, listLine{kind: lineProject, title: titles[p], root: p})
 				}
 				if t := treeOf(a); t != tree {
 					tree = t
 					m.lines = append(m.lines, listLine{kind: lineTree, title: project, root: t})
 				}
 			}
-			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a})
+			inset := 0
+			if split {
+				inset = rowInset
+				if tree != "" {
+					inset = 2 * rowInset
+				}
+			}
+			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a, inset: inset})
 		}
 		m.lines = append(m.lines, listLine{kind: lineBlank})
 	}
@@ -1756,7 +1754,7 @@ func (m *Model) rebuild() {
 	}
 }
 
-var sortModes = []string{"name", "recent", "cost", "cpu", "ram", "time"}
+var sortModes = []string{"name", "recent", "cost", "cpu", "ram", "tokens", "time"}
 
 // sortLess orders rows inside a section. By name a row keeps its place while
 // its agent works; the number columns sort biggest first.
@@ -1778,6 +1776,8 @@ func (m *Model) sortLess(a, b *fleet.Agent) bool {
 		x, y = a.CPU, b.CPU
 	case "ram":
 		x, y = float64(a.Mem), float64(b.Mem)
+	case "tokens":
+		x, y = float64(a.Spend.Context), float64(b.Spend.Context)
 	case "time":
 		x, y = float64(a.Elapsed(now)), float64(b.Elapsed(now))
 	default:

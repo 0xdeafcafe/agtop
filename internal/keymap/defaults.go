@@ -42,10 +42,14 @@ var Defaults = []Action{
 	{ID: "list.help", Context: List, Title: "the keys, with nothing typed", Keys: []string{"?"}},
 	{ID: "list.editor", Context: List, Title: "write what's typed in your editor", Keys: []string{"ctrl+g"}},
 	{ID: "list.image", Context: List, Title: "paste an image", Keys: []string{"ctrl+v"}},
-	{ID: "list.focus", Context: List, Title: "into the Session, and back", Keys: []string{"tab"}},
+	{ID: "list.focus", Context: List, Title: "into the Session, and back", Keys: []string{"tab", "{", "}"}},
+	{ID: "list.filter", Context: List, Title: "filter agents by name or what's said", Keys: []string{"alt+f"}},
 	{ID: "list.toggle", Context: List, Title: "Agents beside the Session", Keys: []string{"ctrl+6", "ctrl+^", "ctrl+shift+6"}},
 
-	{ID: "session.send", Context: Session, Title: "send now, the queue first", Keys: []string{"ctrl+s"}},
+	{ID: "page.prev", Context: Pages, Title: "the page before", Keys: []string{"[", "shift+tab"}},
+	{ID: "page.next", Context: Pages, Title: "the next page", Keys: []string{"]", "tab"}},
+
+	{ID: "session.send", Context: Session, Title: "send now, the queue first", Keys: []string{"ctrl+enter", "ctrl+s"}},
 	{ID: "session.enter", Context: Session, Title: "send, or open what's picked", Keys: []string{"enter"}},
 	{ID: "session.right", Context: Session, Title: "open what's picked", Keys: []string{"right"}},
 	{ID: "session.back", Context: Session, Title: "back: off a row, out of a subagent, to Agents", Keys: []string{"left"}},
@@ -77,7 +81,7 @@ var Defaults = []Action{
 	{ID: "session.split.more", Context: Session, Title: "more of the screen for the list", Keys: []string{"shift+right", "alt+right"}},
 	{ID: "session.editor", Context: Session, Title: "write what's typed in your editor", Keys: []string{"ctrl+g"}},
 	{ID: "session.image", Context: Session, Title: "paste an image", Keys: []string{"ctrl+v"}},
-	{ID: "session.focus", Context: Session, Title: "back to Agents, and in again", Keys: []string{"tab"}},
+	{ID: "session.focus", Context: Session, Title: "back to Agents, and in again", Keys: []string{"tab", "{", "}"}},
 	{ID: "session.list", Context: Session, Title: "Agents beside the Session", Keys: []string{"ctrl+6", "ctrl+^", "ctrl+shift+6"}},
 }
 

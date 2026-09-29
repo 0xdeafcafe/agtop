@@ -99,9 +99,6 @@ type dialog struct {
 	asking   string // what the input line is for; empty when not typing
 	onAnswer func(string) tea.Cmd
 
-	confirm string
-	onYes   func() tea.Cmd
-
 	agents   []agent.AgentDef   // the signed-in agent's definitions
 	settings *settingsfile.File // the agent showing's own settings file
 }
@@ -142,24 +139,11 @@ func (m *Model) ask(what, prefill string, answer func(string) tea.Cmd) {
 
 // confirmThen asks a yes or no question before doing yes.
 func (m *Model) confirmThen(q string, yes func() tea.Cmd) {
-	m.dialog.confirm, m.dialog.onYes = q, yes
+	m.confirm = &confirmation{question: q, onYes: yes}
 }
 
 func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	d := m.dialog
-	if d.confirm != "" {
-		switch s {
-		case "y", "enter":
-			f := d.onYes
-			d.confirm, d.onYes = "", nil
-			if f != nil {
-				return f()
-			}
-		case "n", "esc":
-			d.confirm, d.onYes = "", nil
-		}
-		return nil
-	}
 	if d.asking != "" {
 		switch s {
 		case "esc":

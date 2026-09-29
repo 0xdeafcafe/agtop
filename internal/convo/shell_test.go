@@ -183,7 +183,7 @@ func TestHeredocChainWithDiff(t *testing.T) {
 		got = append(got, l.Text)
 	}
 	all := strings.Join(got, "\n")
-	for _, want := range []string{hlKw + "if", hlKw + "var", hlKw + "return", hlKw + "break", plusSign(), minusSign(), paint(cBlue, "@@ -1,2 +1,3 @@")} {
+	for _, want := range []string{hlKw + "if", hlKw + "var", hlKw + "return", hlKw + "break", plusSign(), minusSign(), paint(cText+bold, "fleetslash.go")} {
 		if !strings.Contains(all, want) {
 			t.Errorf("output should have %q:\n%q", want, all)
 		}

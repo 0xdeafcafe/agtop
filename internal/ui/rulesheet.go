@@ -64,7 +64,6 @@ type permSheet struct {
 	// and loaded says the first read has landed.
 	read   *pending[permRead]
 	loaded bool
-	armed  string
 	err    string
 }
 
@@ -195,15 +194,13 @@ func (p *permSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 	case "esc", "ctrl+c", "q":
 		m.sheet = nil
 	case "]", "right":
-		p.tab, p.armed = (p.tab+1)%3, ""
+		p.tab = (p.tab + 1) % 3
 	case "[", "left":
-		p.tab, p.armed = (p.tab+2)%3, ""
+		p.tab = (p.tab + 2) % 3
 	case "up", "k":
 		*cur = roundMove(*cur, -1, len(list))
-		p.armed = ""
 	case "down", "j":
 		*cur = roundMove(*cur, 1, len(list))
-		p.armed = ""
 	case "a", "+", "enter":
 		p.adding, p.err = true, ""
 	case "x", "delete", "backspace":
@@ -211,13 +208,9 @@ func (p *permSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 		r := list[*cur]
-		id := r.file.path + "\x00" + r.text
-		if p.armed != id {
-			p.armed = id
-			return nil
-		}
-		p.armed = ""
-		return p.change(r.file, func(l []string) []string { return slices.DeleteFunc(l, func(x string) bool { return x == r.text }) })
+		m.confirm = &confirmation{question: "Take out " + r.text + "?", detail: "from " + r.file.label, onYes: func() tea.Cmd {
+			return p.change(r.file, func(l []string) []string { return slices.DeleteFunc(l, func(x string) bool { return x == r.text }) })
+		}}
 	case "ctrl+e", "e":
 		if len(list) > 0 {
 			return editFile(list[*cur].file.path)
@@ -247,9 +240,6 @@ func (p *permSheet) body(m *Model, w, h int) []string {
 	var rows []string
 	for i, r := range list {
 		line := paint(cText, fit(r.text, max(20, w-28))) + "  " + dim(r.file.label)
-		if p.armed == r.file.path+"\x00"+r.text {
-			line = paint(cRed, "x again takes out "+ansi.Truncate(r.text, w-30, "…"))
-		}
 		rows = append(rows, sheetRow(line, i == cur, w))
 	}
 	if len(rows) == 0 {

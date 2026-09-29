@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/advisor"
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/claude"
@@ -49,6 +50,8 @@ type Agent struct {
 	// Headless is an interactive-kind session that is really `claude -p`
 	// driven by some other program: it can't be replied to at all.
 	Headless bool
+	// Advisor is agtop's own advisor at work (its `claude -p`), not yours.
+	Advisor  bool
 	PID      int  // root of the process tree
 	Checking bool // turn just ended; Claude Code has not classified it yet
 	Subs     agent.SubagentStats
@@ -161,6 +164,7 @@ type Spend struct {
 	Last  time.Time
 	PRs   []string
 	Dirs  []string // folders the agent worked in, subagents included
+	Dir   string   // where its own transcript (not a subagent's) last worked
 	Today float64
 	Ready bool
 	Halt  *agent.Halt // the error its last turn ended on, if any
@@ -716,13 +720,26 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 				}
 			}
 			a := &Agent{Job: j, Key: key, Acct: acct.Profile(), Kind: string(acct.Profile().Kind), DisplayName: ss.Name, Interactive: true, Headless: headless, PID: ss.PID}
+			if ss.Cwd == advisor.Dir() {
+				a.Advisor, a.DisplayName, a.Detail = true, "✦ advisor", "looking over your sessions for savings"
+				if tab != nil && tab.Procs[ss.PID] != nil && strings.Contains(l.cmdline(tab.Procs[ss.PID]), "--model opus") {
+					a.Detail = "checking a saving it found"
+				}
+			}
 			if n := ov.Names[key]; n != "" {
 				a.DisplayName = n
 			}
 			_, a.Done = ov.Done[key]
 			a.Group = ov.Groups[key]
-			a.Repo, a.Branch = l.gitFor(ss.Cwd, now)
 			a.Spend = l.spend[key]
+			// ss.Cwd is only ever where the session started; its own
+			// transcript's cwd (never a subagent's) says where it last
+			// actually worked.
+			dir := ss.Cwd
+			if a.Spend.Dir != "" {
+				dir = a.Spend.Dir
+			}
+			a.Repo, a.Branch = l.gitFor(dir, now)
 			a.Subs, a.Subagents = l.subagents(key, j.TranscriptPath, false, now) // listed only while its process runs
 			l.sample(tab, a)
 			if a.Live() {
@@ -846,6 +863,9 @@ func (l *Loader) hostedAgent(acct claude.Account, info host.Info, tab *proc.Tabl
 		a.Seen = true
 	}
 	a.Spend = l.spend[a.Key]
+	if a.Spend.Dir != "" {
+		a.Repo, a.Branch = l.gitFor(a.Spend.Dir, now) // info.Cwd is only where it started
+	}
 	if a.Job.TranscriptPath != "" {
 		// Its host says whether Claude Code runs: when neither runs, nor
 		// does anything Claude Code started.

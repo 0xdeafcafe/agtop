@@ -42,6 +42,16 @@ type card struct {
 	how       string
 	conflicts []string
 
+	// A merge git could show: the commit it made (none for a fast-forward),
+	// the branch it went into, where that was, the newest few commits it
+	// brought in and how many in all, and whether they grew from where it
+	// was.
+	made, into string
+	was        gitLine
+	came       []gitLine
+	cameN      int
+	forked     bool
+
 	// Work set aside or thrown away (what says which, subject how much),
 	// and how to get it back, when git can.
 	what string
@@ -119,6 +129,9 @@ func (c card) verb() string {
 	}
 	return "git commit"
 }
+
+// gitLine is a commit as git log --oneline has it.
+type gitLine struct{ sha, subject string }
 
 // failure is a test that failed and what it said, or a package that
 // didn't build and why.
@@ -1007,6 +1020,9 @@ func (d *drawer) stepCards(st *Step) []card {
 		if cs, ok := d.gitCommits(st); ok {
 			v = withCommits(v, cs)
 		}
+		if g, ok := d.gitMerge(st); ok {
+			v = withMerge(v, &g)
+		}
 	}
 	if s.cards != nil {
 		s.cards[k] = v
@@ -1142,7 +1158,8 @@ func (d *drawer) card(c card, indent int) {
 		case c.branch != "":
 			headL += " " + paint(cBlue, c.branch)
 		}
-		if c.how != "" && c.how != "rebased" {
+		// The graph shows a merge commit for itself.
+		if c.how != "" && c.how != "rebased" && c.made == "" {
 			headL += faint(" · ") + dim(c.how)
 		}
 		if c.files > 0 {
@@ -1154,6 +1171,12 @@ func (d *drawer) card(c card, indent int) {
 		rows = append(rows, listRows(c.conflicts, paint(cYellow, "conflict")+"  ")...)
 		if len(c.conflicts) > 0 {
 			foot = dim(plural(len(c.conflicts), "file") + " to resolve")
+		}
+		if len(c.came) > 0 {
+			rows = append(rows, mergeRows(&c, mark)...)
+			if c.into != "" {
+				foot = dim("into ") + paint(cBlue, c.into)
+			}
 		}
 	case "discard":
 		what := c.what
@@ -1187,6 +1210,46 @@ func (d *drawer) card(c card, indent int) {
 		}
 	}
 	d.box("", indent, headL, headR, rows, foot, room, frame)
+}
+
+// mergeRows is a merge as git log --graph draws it, newest first: the merge
+// commit, the commits it brought in on a lane of their own, and where the
+// branch was. A fast-forward is one lane.
+func mergeRows(c *card, mark string) []string {
+	lane := ""
+	if c.made != "" {
+		lane = faint("│") + " "
+	}
+	line := func(g, sha, subject string, dimmed bool) string {
+		s := text(oneLine(subject))
+		if dimmed {
+			s = dim(oneLine(subject))
+		}
+		return g + " " + paint(cYellow, shortSHA(sha)) + "  " + s
+	}
+	var rows []string
+	if c.made != "" {
+		rows = append(rows, line(paint(mark, "●")+faint("─╮"), c.made, "merge commit", true))
+	}
+	for _, g := range c.came[:min(len(c.came), 4)] {
+		rows = append(rows, line(lane+paint(cGreen, "●"), g.sha, g.subject, false))
+	}
+	if more := c.cameN - min(len(c.came), 4); more > 0 {
+		rows = append(rows, lane+faint("┊")+" "+dim(fmt.Sprintf("+%d more", more)))
+	}
+	if c.was.sha == "" {
+		return rows
+	}
+	switch {
+	case c.made == "":
+		rows = append(rows, line(faint("○"), c.was.sha, c.was.subject, true))
+	case c.forked:
+		rows = append(rows, line(faint("●─╯"), c.was.sha, c.was.subject, true))
+	default:
+		// The brought-in lane goes on down, past where the branch was.
+		rows = append(rows, line(faint("● │"), c.was.sha, c.was.subject, true))
+	}
+	return rows
 }
 
 // failRows is each failure's name, and under it what it said: the first

@@ -12,17 +12,17 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
-// The Cleanup view: agents' worktrees and temp work, what can go without
-// losing anything, and what goes by itself. Stopping an agent never removes
-// anything; done work that is committed and pushed goes once it has been
-// left alone for a while (Settings › Claude › Clean up done work after).
+// Clean-up: agents' worktrees and temp work, what can go without losing
+// anything, and what goes by itself. Projects shows it on each worktree and
+// agent. Stopping an agent never removes anything; done work that is
+// committed and pushed goes once it has been left alone for a while
+// (Settings › Claude › Clean up done work after).
 
-// cleanup is what the Cleanup view and the automatic tidy-up know.
+// cleanup is what Projects and the automatic tidy-up know of worktrees.
 type cleanup struct {
 	wts      []fleet.Worktree
 	checking bool      // worktrees are being looked at in the background
 	checked  time.Time // when they last were, fully
-	cursor   int
 	// kept are done worktrees the tidy-up found unsafe, and when: it says
 	// so once and looks again only after an hour.
 	kept map[string]time.Time
@@ -62,7 +62,7 @@ func (m *Model) agentCopies() []*fleet.Agent {
 }
 
 // scanWorktrees finds every agent's worktree and checks each with git (in
-// the background: a big checkout takes seconds), for the Cleanup view.
+// the background: a big checkout takes seconds), for Projects.
 func (m *Model) scanWorktrees() tea.Cmd {
 	c := &m.clean
 	if c.checking {
@@ -237,7 +237,7 @@ func (m *Model) onTidied(msg tidiedMsg) {
 	case msg.freed >= tempShown:
 		m.flash("cleaned up "+disk(msg.freed)+" of done agents' temp work", false)
 	case len(notes) > 0:
-		m.flash(strings.Join(notes, " · ")+" · the Cleanup view has it", true)
+		m.flash(strings.Join(notes, " · ")+" · Agents › Projects has it", true)
 	}
 	if msg.failed != nil {
 		m.flash("cleaning up: "+msg.failed.Error(), true)
@@ -255,8 +255,8 @@ func (m *Model) onCleanedQuiet(sizes tempMsg) {
 	m.rebuild()
 }
 
-// cleanRow is one line of the Cleanup view: a worktree, or an agent's temp
-// work.
+// cleanRow is something clean-up could remove: a worktree, or an agent's
+// temp work.
 type cleanRow struct {
 	wt    *fleet.Worktree
 	agent *fleet.Agent // temp work
@@ -286,176 +286,6 @@ func (m *Model) running(keys []string) *fleet.Agent {
 		if a := m.agentByKey(k); a != nil && a.PID != 0 {
 			return a
 		}
-	}
-	return nil
-}
-
-func (m *Model) agentNames(keys []string) string {
-	var out []string
-	for _, k := range keys {
-		if a := m.agentByKey(k); a != nil {
-			out = append(out, oneLine(a.DisplayName))
-		}
-	}
-	if len(out) > 2 {
-		return out[0] + ", " + out[1] + fmt.Sprintf(" +%d", len(out)-2)
-	}
-	return strings.Join(out, ", ")
-}
-
-func (m *Model) cleanupBody() []string {
-	c := &m.clean
-	now := time.Now()
-	w := m.w - 4
-	rows := m.cleanRows()
-	c.cursor = min(max(c.cursor, 0), max(len(rows)-1, 0))
-	var wtTotal, tempTotal, safe int64
-	for _, r := range rows {
-		switch {
-		case r.wt != nil:
-			wtTotal += r.wt.Size
-			if r.wt.Safe() && m.running(r.wt.Agents) == nil {
-				safe += r.wt.Size
-			}
-		case r.agent != nil:
-			tempTotal += r.agent.Temp
-			if r.agent.PID == 0 {
-				safe += r.agent.Temp
-			}
-		}
-	}
-	title := paint(cText+bold, "Cleanup") + dim(fmt.Sprintf("  ·  %s in worktrees · %s of temp work · %s can go without losing anything", disk(wtTotal), disk(tempTotal), disk(safe)))
-	rule := "Stopping an agent never removes anything. Done work goes by itself once it's committed, pushed and untouched for "
-	if after := m.store.Config.CleanupAfter(); after > 0 {
-		rule += dur(after) + " (Settings › Claude)."
-	} else {
-		rule = "Automatic clean-up is off (Settings › Claude); nothing goes unless you remove it here."
-	}
-	out := []string{title, dim(rule), ""}
-	switch {
-	case c.checking && c.checked.IsZero():
-		out = append(out, paint(cOrange, spinner[m.tick%len(spinner)])+dim(" looking at every agent's worktrees with git…"), "")
-	case c.checking:
-		out = append(out, paint(cOrange, spinner[m.tick%len(spinner)])+dim(" checking again…"), "")
-	}
-	section := ""
-	for i, r := range rows {
-		s := "Worktrees"
-		if r.agent != nil {
-			s = "Temp work"
-		}
-		if s != section {
-			section = s
-			if i > 0 {
-				out = append(out, "")
-			}
-			out = append(out, dim(s))
-		}
-		var line string
-		if r.wt != nil {
-			line = m.worktreeLine(*r.wt, w, now)
-		} else {
-			line = m.tempLine(r.agent, w, now)
-		}
-		if i == c.cursor {
-			line = highlight(paint(cOrange, "▍")+line[1:], w)
-		}
-		out = append(out, line)
-	}
-	if len(rows) == 0 && !c.checking {
-		out = append(out, dim("Nothing to clean: no agent worktrees, and no temp work over a megabyte."))
-	}
-	return out
-}
-
-func (m *Model) worktreeLine(wt fleet.Worktree, w int, now time.Time) string {
-	name := filepath.Base(wt.Path)
-	where := filepath.Base(wt.Repo)
-	if wt.Branch != "" {
-		where += " · " + wt.Branch
-	}
-	size := dim(right("…", 7))
-	if wt.Size > 0 {
-		size = right(disk(wt.Size), 7)
-		if wt.Size >= 1<<30 {
-			size = paint(cYellow, size)
-		}
-	}
-	who := dim("no agent")
-	if len(wt.Agents) > 0 {
-		who = paint(cSub, m.agentNames(wt.Agents))
-	}
-	var mark, status string
-	run := m.running(wt.Agents)
-	switch {
-	case wt.Checked.IsZero():
-		mark, status = faint("·"), dim("not looked at yet")
-	case wt.Err != "":
-		mark, status = paint(cRed, "!"), paint(cRed, wt.Err)
-	case !wt.Safe():
-		mark, status = paint(cYellow, "✗"), paint(cYellow, "would lose "+wt.Losses())
-	case run != nil:
-		mark, status = paint(cGreen, "✓"), dim("clean and pushed · "+oneLine(run.DisplayName)+" is still running in it")
-	default:
-		mark = paint(cGreen, "✓")
-		switch due := m.dueIn(wt.Agents, now); {
-		case due == 0:
-			status = paint(cGreen, "clean and pushed · goes at the next tidy-up")
-		case due > 0:
-			status = paint(cGreen, "clean and pushed") + dim(" · goes in "+dur(due.Round(time.Minute)))
-		case len(wt.Agents) == 0:
-			status = paint(cGreen, "clean and pushed") + dim(" · x removes it")
-		default:
-			status = paint(cGreen, "clean and pushed") + dim(" · goes once its agents are done (alt+d)")
-		}
-	}
-	left := " " + mark + " " + paint(cText, fit(name, 28)) + " " + size + "  " + dim(fit(where, 42)) + " " + fit(who, 30)
-	return fit(left+"  "+status, w)
-}
-
-func (m *Model) tempLine(a *fleet.Agent, w int, now time.Time) string {
-	size := right(disk(a.Temp), 7)
-	if a.Temp >= 1<<30 {
-		size = paint(cYellow, size)
-	}
-	var status string
-	switch due := m.dueIn([]string{a.Key}, now); {
-	case a.PID != 0:
-		status = dim("running · its temp work may be in use")
-	case due == 0:
-		status = paint(cGreen, "done · goes at the next tidy-up")
-	case due > 0:
-		status = dim("done · goes in " + dur(due.Round(time.Minute)))
-	default:
-		status = dim("stopped " + age(a.Age(now)) + " ago · x removes it · alt+d marks it done")
-	}
-	left := " " + paint(cSub, "▤") + " " + paint(cText, fit(oneLine(a.DisplayName), 28)) + " " + size + "  " + dim(fit("scratch folders", 42)) + " " + fit("", 30)
-	return fit(left+"  "+status, w)
-}
-
-func (m *Model) cleanupKey(s string) tea.Cmd {
-	c := &m.clean
-	rows := m.cleanRows()
-	switch s {
-	case "esc", "left", "q":
-		m.setView(placeAgents)
-	case "up", "k":
-		c.cursor = roundMove(c.cursor, -1, len(rows))
-	case "down", "j":
-		c.cursor = roundMove(c.cursor, 1, len(rows))
-	case "r":
-		return m.scanWorktrees()
-	case "x", "enter", "backspace", "delete":
-		if c.cursor < len(rows) {
-			r := rows[c.cursor]
-			if r.agent != nil {
-				m.askClean(r.agent)
-				return nil
-			}
-			m.askRemoveWorktree(*r.wt)
-		}
-	case "A":
-		m.askCleanSafe(rows)
 	}
 	return nil
 }

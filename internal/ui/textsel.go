@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/charmbracelet/x/ansi"
@@ -89,21 +91,28 @@ func (m *Model) dragTextSel(c *hostConn, x, y int) {
 
 // endTextSel finishes a drag: what it covered goes to the clipboard, or,
 // with CopyOnSelect off, stays selected for cmd+c or ctrl+c. A press that
-// never moved is a click on the row.
-func (m *Model) endTextSel(c *hostConn) {
+// never moved is a click: on a link it opens it, anywhere else
+// it's a click on the row.
+func (m *Model) endTextSel(c *hostConn) tea.Cmd {
 	c.txt.drag = false
 	if !c.txt.moved {
-		y := c.txt.pressY
+		y, at := c.txt.pressY, c.txt.a
 		c.txt = textSel{}
+		if at.row < len(c.shown) {
+			if u := linkAt(c.shown[at.row].Text, at.col); u != "" {
+				return browse(u)
+			}
+		}
 		m.clickRow(c, y)
-		return
+		return nil
 	}
 	if !m.store.Config.CopiesOnSelect() {
-		return
+		return nil // it stays selected, for cmd+c or ctrl+c
 	}
 	if t := selectedText(c.shown, c.txt.a, c.txt.b, c.paneW); t != "" {
 		m.copyText(t)
 	}
+	return nil
 }
 
 // span orders a selection's ends.

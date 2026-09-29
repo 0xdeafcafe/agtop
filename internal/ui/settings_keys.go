@@ -214,29 +214,8 @@ func (m *Model) keysBody(w int) []string {
 		cur = rows[d.cursor]
 	}
 	label := func(s string) string { return "    " + dim(fit(s, 12)) }
-	text := func(s string) []string {
-		var l []string
-		for _, t := range wrap(s, w-6) {
-			l = append(l, "     "+dim(t))
-		}
-		return l
-	}
 	out = append(out, "")
-	if kp := m.keysTaking(); kp != nil {
-		verb := "New keys for "
-		if kp.adding {
-			verb = "Another key for "
-		}
-		pressed := faint("…")
-		if len(kp.pressed) > 0 {
-			pressed = keycap(kp.pressed.String(), true)
-		}
-		out = append(out, rule(verb+cur.Title, "", w), "", label("Pressed")+pressed, "")
-		out = append(out, text("Press the key, or up to three for a chord (ctrl+x then p, say). enter keeps them; esc leaves it as it was.")...)
-		if cur.Context != keymap.Global {
-			out = append(out, text("A key that types a character, p say, can't be one on its own here: start a chord with it instead.")...)
-		}
-	} else if cur.ID != "" {
+	if cur.ID != "" {
 		out = append(out, rule(cur.Title, "", w), "", label("Keys")+keyCaps(km.Keys(cur.ID), ""))
 		if km.Changed(cur.ID) {
 			def := faint("none")
@@ -253,10 +232,35 @@ func (m *Model) keysBody(w int) []string {
 			label("Name")+" "+faint(cur.ID+", as keybindings.json calls it"))
 	}
 	keys := append([]string{"enter", "new keys", "a", "add a key", "x", "no key", "r", "agtop's", "1-" + strconv.Itoa(len(ctxs)) + " ← →", "where"}, pagesKeys...)
-	if m.keysTaking() != nil {
-		keys = []string{"keys", "press them", "enter", "keep", "esc", "cancel"}
-	}
 	return append(out, "", keysFit(w, keys...))
+}
+
+// keysModal asks for the keys being taken in a box over base.
+func (m *Model) keysModal(base string) string {
+	kp := m.keysTaking()
+	a, _ := m.keyMap().Action(kp.taking)
+	bw := min(m.w-4, 64)
+	verb := "New keys for "
+	if kp.adding {
+		verb = "Another key for "
+	}
+	pressed := faint("…")
+	if len(kp.pressed) > 0 {
+		pressed = keycap(kp.pressed.String(), true)
+	}
+	body := []string{paint(cText+bold, verb+a.Title), faint(a.ID), "",
+		dim(fit("Now", 10)) + keyCaps(m.keyMap().Keys(a.ID), ""),
+		dim(fit("Pressed", 10)) + pressed, ""}
+	for _, l := range wrap("Press the key, or up to three for a chord (ctrl+x then p, say).", bw-4) {
+		body = append(body, dim(l))
+	}
+	if a.Context != keymap.Global {
+		for _, l := range wrap("A key that types a character, p say, can't be one on its own here: start a chord with it instead.", bw-4) {
+			body = append(body, dim(l))
+		}
+	}
+	body = append(body, "", keys("enter", "keep", "esc", "cancel"))
+	return m.modalOver(base, body, bw, cOrange)
 }
 
 // keysTaking is the keys being taken, if they are.

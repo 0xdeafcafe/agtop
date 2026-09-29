@@ -31,6 +31,12 @@ type Totals struct {
 	// Dirs are the folders the session worked in (the line's cwd), which
 	// says which worktrees are its; capped so a wandering one stays small.
 	Dirs []string `json:"w,omitempty"`
+	// Dir is where the session works now: its newest cwd, or where it last
+	// cd'd or wrote a file, since Claude Code's cwd never follows it into a
+	// checkout outside the one it started in.
+	Dir string `json:"cw,omitempty"`
+	// Cwd is the newest line's cwd, so only a real move of it overrides Dir.
+	Cwd string `json:"cc,omitempty"`
 	// pending is the newest assistant message; its usage can still change
 	// while more content blocks of the same message are appended.
 	PendingID    string     `json:"pi,omitempty"`
@@ -142,6 +148,7 @@ type line struct {
 var (
 	assistantMarker = []byte(`"type":"assistant"`)
 	compactMarker   = []byte(`"compact_boundary"`)
+	relocatedMarker = []byte(`"type":"relocated"`)
 	arrowMarkers    = [][]byte{[]byte("→"), []byte("->")}
 	// progressPair is a count going somewhere: "11,065 → 9,052", "22->18".
 	progressPair = regexp.MustCompile(`((?:\d[\d,.]*)?\dk?)\**\s?(?:→|->)\s?\**~?((?:\d[\d,.]*)?\dk?)`)
@@ -204,6 +211,17 @@ func consume(t *Totals, b []byte) {
 		t.Compacts++
 		return
 	}
+	// Entering or leaving a worktree moves the transcript and says where:
+	// the session works there from now on, before its next reply says so.
+	if bytes.Contains(b, relocatedMarker) {
+		var r struct {
+			Cwd string `json:"relocatedCwd"`
+		}
+		if jsonx.Unmarshal(b, &r) == nil && r.Cwd != "" {
+			t.Cwd, t.Dir = r.Cwd, r.Cwd
+		}
+		return
+	}
 	if !bytes.Contains(b, assistantMarker) {
 		return
 	}
@@ -211,8 +229,21 @@ func consume(t *Totals, b []byte) {
 	if jsonx.Unmarshal(b, &l) != nil || l.Type != "assistant" {
 		return
 	}
-	if l.Cwd != "" && len(t.Dirs) < 64 && (len(t.Dirs) == 0 || t.Dirs[len(t.Dirs)-1] != l.Cwd) {
-		addUnique(&t.Dirs, l.Cwd)
+	if l.Cwd != "" {
+		if l.Cwd != t.Cwd {
+			t.Cwd, t.Dir = l.Cwd, l.Cwd
+		}
+		if len(t.Dirs) < 64 && (len(t.Dirs) == 0 || t.Dirs[len(t.Dirs)-1] != l.Cwd) {
+			addUnique(&t.Dirs, l.Cwd)
+		}
+	}
+	if bytes.Contains(b, toolUseMarker) {
+		if d := workedIn(l.Message.Content); d != "" {
+			t.Dir = d
+			if len(t.Dirs) < 64 {
+				addUnique(&t.Dirs, d)
+			}
+		}
 	}
 	if !l.Timestamp.IsZero() {
 		if t.First.IsZero() {
@@ -297,6 +328,78 @@ func progressIn(content jsontext.Value) string {
 		}
 	}
 	return best
+}
+
+var toolUseMarker = []byte(`"type":"tool_use"`)
+
+// workedIn is the folder a message's tool calls last worked in: a Bash
+// command's leading `cd /abs`, or the folder of a file it wrote.
+func workedIn(content jsontext.Value) string {
+	var blocks []struct {
+		Type  string `json:"type"`
+		Name  string `json:"name"`
+		Input struct {
+			Command      string `json:"command"`
+			FilePath     string `json:"file_path"`
+			NotebookPath string `json:"notebook_path"`
+		} `json:"input"`
+	}
+	if jsonx.Unmarshal(content, &blocks) != nil {
+		return ""
+	}
+	dir := ""
+	for _, b := range blocks {
+		if b.Type != "tool_use" {
+			continue
+		}
+		var d string
+		switch b.Name {
+		case "Bash":
+			d = cdTarget(b.Input.Command)
+		case "Edit", "Write", "MultiEdit":
+			d = filepath.Dir(b.Input.FilePath)
+		case "NotebookEdit":
+			d = filepath.Dir(b.Input.NotebookPath)
+		}
+		if workFolder(d) {
+			dir = d
+		}
+	}
+	return dir
+}
+
+// cdTarget is the folder a command starts by cd'ing into, if it does.
+func cdTarget(cmd string) string {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(cmd), "cd ")
+	if !ok {
+		return ""
+	}
+	rest = strings.TrimSpace(rest)
+	if rest != "" && (rest[0] == '"' || rest[0] == '\'') {
+		if end := strings.IndexByte(rest[1:], rest[0]); end >= 0 {
+			return rest[1 : end+1]
+		}
+		return ""
+	}
+	if i := strings.IndexAny(rest, " \t\n;&|)"); i >= 0 {
+		rest = rest[:i]
+	}
+	return rest
+}
+
+// workFolder is a folder that says where a session works: absolute, and
+// not scratch space or Claude Code's own (memory, plans), which any
+// session writes to wherever it works.
+func workFolder(d string) bool {
+	if !filepath.IsAbs(d) {
+		return false
+	}
+	for _, p := range []string{"/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/"} {
+		if strings.HasPrefix(d+"/", p) {
+			return false
+		}
+	}
+	return !strings.Contains(d+"/", "/.claude/") || strings.Contains(d, "/.claude/worktrees/")
 }
 
 // firstText is the first line of a message's first text block.

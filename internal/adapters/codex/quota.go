@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -26,6 +27,11 @@ type rateLimitSnapshot struct {
 	Primary         *rateLimitWindow `json:"primary"`
 	Secondary       *rateLimitWindow `json:"secondary"`
 	PlanType        string           `json:"planType"`
+	Credits         *struct {
+		HasCredits bool `json:"hasCredits"`
+		Unlimited  bool `json:"unlimited"`
+	} `json:"credits"`
+	ReachedType string `json:"rateLimitReachedType"`
 }
 
 // rateLimitsResponse is account/rateLimits/read's answer.
@@ -42,6 +48,43 @@ type accountResponse struct {
 		Email    string `json:"email"`
 		PlanType string `json:"planType"`
 	} `json:"account"`
+}
+
+// billing is how a snapshot says the account pays: past a limit with
+// credits on hand, they pay; otherwise the plan does. ok is false when the
+// snapshot doesn't say, as a partial update may not.
+func (s rateLimitSnapshot) billing() (b usage.Billing, ok bool) {
+	if s.Primary == nil && s.Secondary == nil && s.Credits == nil {
+		return "", false
+	}
+	if strings.HasSuffix(s.PlanType, "_usage_based") {
+		return usage.Metered, true
+	}
+	spent := s.ReachedType != ""
+	for _, w := range []*rateLimitWindow{s.Primary, s.Secondary} {
+		spent = spent || w != nil && w.UsedPercent >= 100
+	}
+	if spent && s.Credits != nil && (s.Credits.HasCredits || s.Credits.Unlimited) {
+		return usage.Overage, true
+	}
+	return usage.Plan, true
+}
+
+// accountBilling is how an account/read answer pays: an API key by the
+// token, a ChatGPT sign-in out of its plan.
+func accountBilling(a accountResponse) (usage.Billing, bool) {
+	if a.Account == nil {
+		return "", false
+	}
+	switch {
+	case a.Account.Type == "apiKey":
+		return usage.Metered, true
+	case strings.HasSuffix(a.Account.PlanType, "_usage_based"):
+		return usage.Metered, true
+	case a.Account.Type == "chatgpt":
+		return usage.Plan, true
+	}
+	return "", false
 }
 
 // mainLimit is the limit Codex's own snapshot reports on: its windows are

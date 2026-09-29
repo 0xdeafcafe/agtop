@@ -6,6 +6,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
+	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 )
 
 func neutral(t *testing.T, n *Neutral, line string) []event.Event {
@@ -57,14 +58,35 @@ func TestNeutralQuestionsAndLimits(t *testing.T) {
 	}
 	limit := `{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"five_hour","resetsAt":1790000000,"unifiedWindows":{"five_hour":{"utilization":1,"resetsAt":1790000000}}}}`
 	evs := neutral(t, &n, limit)
-	if len(evs) != 2 {
+	if len(evs) != 3 {
 		t.Fatalf("rate limit = %+v", evs)
 	}
 	if q := evs[0].(event.Quota); q.Used("") != 100 {
 		t.Errorf("Quota = %+v", q)
 	}
-	if l := evs[1].(event.Limited); l.Window != "five_hour" || l.ResetsAt.Unix() != 1790000000 {
+	if b := evs[1].(event.Billing); b.Billing != usage.Plan {
+		t.Errorf("Billing = %+v", b)
+	}
+	if l := evs[2].(event.Limited); l.Window != "five_hour" || l.ResetsAt.Unix() != 1790000000 {
 		t.Errorf("Limited = %+v", l)
+	}
+}
+
+// A sign-in's session is billed by what its requests say; an API key's
+// from the start.
+func TestNeutralBilling(t *testing.T) {
+	var n Neutral
+	over := `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","isUsingOverage":true,"unifiedWindows":{"five_hour":{"utilization":1,"resetsAt":1790000000}}}}`
+	if evs := neutral(t, &n, over); len(evs) != 2 || evs[1].(event.Billing).Billing != usage.Overage {
+		t.Errorf("overage = %+v", evs)
+	}
+	for src, want := range map[string]int{"none": 1, "ANTHROPIC_API_KEY": 2} {
+		evs := neutral(t, &n, `{"type":"system","subtype":"init","session_id":"s","apiKeySource":"`+src+`"}`)
+		if len(evs) != want {
+			t.Errorf("%s: %+v", src, evs)
+		} else if want == 2 && evs[1].(event.Billing).Billing != usage.Metered {
+			t.Errorf("%s: billing = %+v", src, evs[1])
+		}
 	}
 }
 

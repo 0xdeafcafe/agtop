@@ -71,7 +71,7 @@ func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, 
 		_, done := ov.Done[key]
 		in := pastIn{acct: acct, path: f.path, c: f.c, mod: f.mod, name: ov.Names[key], done: done, group: ov.Groups[key],
 			spend: l.spendVer[key], recent: now.Sub(f.mod) < 24*time.Hour}
-		in.repo, in.branch = l.gitFor(f.c.Cwd, now)
+		in.repo, in.branch = l.gitFor(firstNonEmpty(l.spend[key].Dir, f.c.Cwd), now)
 		if in.recent {
 			in.subs = l.pastSubagents(key, f.path, now)
 		}

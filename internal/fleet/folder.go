@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -53,7 +54,9 @@ type GitState struct {
 // commits too. It runs git several times and can take seconds on a big
 // checkout: never on the UI's goroutine.
 func CheckFolder(root string, trees []string, whole bool) Folder {
-	f := Folder{Root: root, Git: gitState(root), Whole: whole, Checked: time.Now()}
+	f := Folder{Root: root, Whole: whole, Checked: time.Now()}
+	var rootDone sync.WaitGroup
+	rootDone.Go(func() { f.Git = gitState(root) })
 	if list, err := git(root, "worktree", "list", "--porcelain"); err == nil {
 		for l := range strings.SplitSeq(list, "\n") {
 			if p, ok := strings.CutPrefix(l, "worktree "); ok && p != root {
@@ -80,12 +83,26 @@ func CheckFolder(root string, trees []string, whole bool) Folder {
 			}
 		}
 	}
-	for _, t := range trees {
+	// Each checkout's status takes a second or more on a big repository:
+	// they're asked at once rather than one after another.
+	states := make([]GitState, len(trees))
+	var wg sync.WaitGroup
+	gate := make(chan struct{}, 6) // the Projects page asks of every worktree
+	for i, t := range trees {
+		wg.Go(func() {
+			gate <- struct{}{}
+			states[i] = gitState(t)
+			<-gate
+		})
+	}
+	wg.Wait()
+	for i, t := range trees {
 		if f.Trees == nil {
 			f.Trees = map[string]GitState{}
 		}
-		f.Trees[t] = gitState(t)
+		f.Trees[t] = states[i]
 	}
+	rootDone.Wait()
 	return f
 }
 

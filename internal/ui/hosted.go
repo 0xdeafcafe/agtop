@@ -176,6 +176,37 @@ func (m *Model) pinHosted() {
 	}
 }
 
+// canInterrupt is whether c has a turn running that can be stopped, and
+// wasn't just asked to stop.
+func canInterrupt(c *hostConn) bool {
+	return c != nil && c.client != nil && c.sess.Live() != nil && time.Since(c.stopArmed) > 2*time.Second && agent.Supports(sessionAgent(c), agent.FeatureInterrupt)
+}
+
+// askStopTurn is esc on a running turn: it asks first, unless you said not
+// to ask again (Settings › Interface turns the question back on).
+func (m *Model) askStopTurn(c *hostConn) tea.Cmd {
+	stop := func() tea.Cmd {
+		c.stopArmed = time.Now()
+		m.flash("stopping the turn", false)
+		return hostCmd(func() error { return c.client.Interrupt() })
+	}
+	if m.store.Config.StopTurnUnasked {
+		return stop()
+	}
+	m.confirm = &confirmation{
+		question: "Stop the current message?",
+		detail:   "interrupts the turn · the session keeps running",
+		onYes:    stop,
+		onBang: func() tea.Cmd {
+			m.store.Config.StopTurnUnasked = true
+			_ = m.store.SaveConfig()
+			return stop()
+		},
+		bangText: "yes, and don't ask again",
+	}
+	return nil
+}
+
 // hostedAwayKey is a key in hosted while the message box doesn't have the
 // keys: esc stops the turn if one is running and does nothing else, enter
 // or → give the box the keys back, and any other key goes back to the box
@@ -183,11 +214,8 @@ func (m *Model) pinHosted() {
 func (m *Model) hostedAwayKey(s string) (tea.Cmd, bool) {
 	switch s {
 	case "esc":
-		c := m.host
-		if c.client != nil && c.sess.Live() != nil && time.Since(c.stopArmed) > 2*time.Second && agent.Supports(sessionAgent(c), agent.FeatureInterrupt) {
-			c.stopArmed = time.Now()
-			m.flash("stopping the turn", false)
-			return hostCmd(func() error { return c.client.Interrupt() }), true
+		if canInterrupt(m.host) {
+			return m.askStopTurn(m.host), true
 		}
 		return nil, true
 	case "enter", "right":
@@ -199,13 +227,13 @@ func (m *Model) hostedAwayKey(s string) (tea.Cmd, bool) {
 }
 
 // hostedKeyGuard drops the keys that would leave the one session in hosted:
-// zen, the command bar, tab between list and Session, ctrl+n to the next
+// zen, the command bar, { } between list and Session, ctrl+n to the next
 // agent, and , . < > between places, which stay text. ctrl+\ still goes
 // to the next place, and ctrl+6 shows or hides Agents beside the session.
 // It says whether it took the key.
 func (m *Model) hostedKeyGuard(s string) (tea.Cmd, bool) {
-	if m.hosted == "" || m.bar != nil {
-		return nil, false // the command bar has the keys it needs
+	if m.hosted == "" {
+		return nil, false
 	}
 	if m.hostedList {
 		switch {
@@ -217,7 +245,7 @@ func (m *Model) hostedKeyGuard(s string) (tea.Cmd, bool) {
 		return nil, false
 	}
 	switch s {
-	case "ctrl+q", "ctrl+\\", "ctrl+k", "super+k":
+	case "ctrl+q", "ctrl+\\":
 		return nil, false
 	case "ctrl+z", "ctrl+n":
 		return nil, true
@@ -234,6 +262,9 @@ func (m *Model) hostedKeyGuard(s string) (tea.Cmd, bool) {
 	}
 	if m.hostedAway && !m.paneFocus && m.picker == nil && m.confirm == nil && m.sheet == nil && m.dialog == nil {
 		return m.hostedAwayKey(s)
+	}
+	if (s == "{" || s == "}") && len(m.host.input) == 0 {
+		return nil, true
 	}
 	if s == "tab" {
 		if c := m.host; c != nil {

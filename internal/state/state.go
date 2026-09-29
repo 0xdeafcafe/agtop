@@ -136,6 +136,8 @@ type Config struct {
 	// EnterSendsCommand has enter send a message that ends in a /command
 	// typed in full, rather than completing it first.
 	EnterSendsCommand bool `json:"enterSendsCommand,omitzero"`
+	// StopTurnUnasked has esc stop a running turn without asking first.
+	StopTurnUnasked bool `json:"stopTurnUnasked,omitzero"`
 	// MenuBar keeps agtop's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitzero"`
@@ -662,7 +664,7 @@ func writeBytes(path string, b []byte) error {
 }
 
 // CostCache persists transcript totals so a restart does not rescan gigabytes.
-const costCacheVersion = 3 // 3: the folders each transcript worked in
+const costCacheVersion = 5 // 5: the folder each transcript last worked in, cd and writes included
 
 type CostCache struct {
 	mu      sync.Mutex

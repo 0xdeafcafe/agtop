@@ -459,6 +459,7 @@ func usageLines(m *Model, c *hostConn, a *fleet.Agent, other *usage.Quota, w int
 		cost += dim(fmt.Sprintf(" · %d turns · %s working", t.Turns, dur(t.Working)))
 	}
 	out = append(out, infoRow("cost", cost, w))
+	out = append(out, billedRow(usage.Billing(s.Info.Billing), w)...)
 	if t.Requests > 0 {
 		out = append(out, infoRow("requests", paint(cText, fmt.Sprint(t.Requests))+dim(fmt.Sprintf(" · %d tool calls", t.ToolCalls)), w))
 		read := t.In + t.CacheRead + t.CacheOut
@@ -612,4 +613,21 @@ func (k *claudeSheet) body(m *Model, w, h int) []string {
 		out = append(out, "  "+paint(cSub, l))
 	}
 	return append(out, "", keysFit(w, "enter", "open Claude Code", "esc", "cancel"))
+}
+
+// billedRow says how an agent's requests are paid for; none until the
+// agent has said.
+func billedRow(b usage.Billing, w int) []string {
+	var v string
+	switch b {
+	case usage.Plan:
+		v = paint(cText, "plan") + dim(" · out of the allowance")
+	case usage.Overage:
+		v = paint(cYellow, "extra usage") + dim(" · the allowance is spent: each request is paid for")
+	case usage.Metered:
+		v = paint(cOrange, "API key") + dim(" · every token is paid for")
+	default:
+		return nil
+	}
+	return []string{infoRow("billed", v, w)}
 }

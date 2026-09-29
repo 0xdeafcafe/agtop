@@ -26,10 +26,7 @@ type artifact struct {
 	At       time.Time
 }
 
-var (
-	artifactURL = regexp.MustCompile(`https://claude\.ai/(?:code/)?artifact/[A-Za-z0-9-]+`)
-	artifactVer = regexp.MustCompile(`\(Version (\d+)\)`)
-)
+var artifactVer = regexp.MustCompile(`\(Version (\d+)\)`)
 
 // artifacts lists what the session published, newest first, one row per
 // page however many versions it went through.
@@ -52,7 +49,7 @@ func artifacts(s *convo.Session) []*artifact {
 			if in.Action != "" && in.Action != "publish" {
 				continue
 			}
-			url := artifactURL.FindString(st.Output)
+			url := convo.URLIn(st.Output)
 			if url == "" {
 				url = in.URL
 			}

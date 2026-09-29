@@ -33,12 +33,15 @@ const (
 	List Context = "list"
 	// Session is an agent's Session, its conversation and message box.
 	Session Context = "session"
+	// Pages is a place's pages where there's no list and Session to go
+	// between: Efficiency, Settings, Projects and the Wall.
+	Pages Context = "pages"
 	// Any is for commands: they run the same from the list or a Session.
 	Any Context = "any"
 )
 
 // Contexts in the order Settings shows them.
-var Contexts = []Context{Global, List, Session, Any}
+var Contexts = []Context{Global, List, Session, Pages, Any}
 
 // Title is how Settings names a context.
 func (c Context) Title() string {
@@ -49,6 +52,8 @@ func (c Context) Title() string {
 		return "Agents and the Prompt"
 	case Session:
 		return "A Session"
+	case Pages:
+		return "Pages: Efficiency, Settings, Projects, Wall"
 	case Any:
 		return "Commands"
 	}

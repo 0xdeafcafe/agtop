@@ -13,7 +13,7 @@ type viewSheet struct{ cur int }
 var viewChoices = []struct{ key, what, about string }{
 	{"split", "Side by side", "Agents, and the picked agent's Session beside them"},
 	{"agent", "The Session alone", "one agent with the whole screen · esc for Agents"},
-	{"list", "Agents alone", "every agent at a glance · tab opens one"},
+	{"list", "Agents alone", "every agent at a glance · { } opens one"},
 }
 
 func (m *Model) askView() {

@@ -113,3 +113,22 @@ func TestNeutralPromptsStartTurns(t *testing.T) {
 		t.Fatalf("turns = %+v", s.Turns)
 	}
 }
+
+// A model switched mid-session is the one the session runs, though the
+// agent's init named another.
+func TestModelSwitch(t *testing.T) {
+	s := New()
+	s.Apply(event.Init{Model: "claude-opus-5-5[1m]"}, at(0))
+	s.Apply(host.InfoEvent{Info: host.Info{Model: "claude-opus-5-5[1m]"}}, at(1))
+	if s.Model != "claude-opus-5-5[1m]" {
+		t.Fatalf("model = %q", s.Model)
+	}
+	s.Apply(host.InfoEvent{Info: host.Info{Model: "sonnet"}}, at(2))
+	if s.Model != "sonnet" {
+		t.Fatalf("after switch, model = %q", s.Model)
+	}
+	s.Apply(host.InfoEvent{Info: host.Info{Model: "sonnet", State: "idle"}}, at(3))
+	if s.Model != "sonnet" {
+		t.Fatalf("model = %q", s.Model)
+	}
+}

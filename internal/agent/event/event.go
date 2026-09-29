@@ -191,6 +191,10 @@ type Compacted struct {
 // Quota is a fresh reading of the account's limits.
 type Quota struct{ usage.Quota }
 
+// Billing is how the session's requests are paid for, once the agent says
+// or it changes: an allowance runs out into extra usage.
+type Billing struct{ Billing usage.Billing }
+
 // Limited says a limit stopped the session until ResetsAt.
 type Limited struct {
 	Window   string // the window's ID, if known
@@ -301,6 +305,7 @@ func (TurnEnd) event()           {}
 func (Compacted) event()         {}
 func (Quota) event()             {}
 func (Limited) event()           {}
+func (Billing) event()           {}
 func (Context) event()           {}
 func (TaskStarted) event()       {}
 func (TaskUpdated) event()       {}

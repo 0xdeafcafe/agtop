@@ -31,13 +31,14 @@ func TestBarOpensAndGoes(t *testing.T) {
 	if !strings.Contains(m.View().Content, "❯") {
 		t.Fatal("the bar isn't drawn")
 	}
+	// Clean-up lives on Projects now, so "clean" finds Projects.
 	typeBar(m, "clean")
-	if it := m.bar.items[0]; it.title != "Machine › Cleanup" {
+	if it := m.bar.items[0]; it.title != "Agents › Projects" {
 		t.Fatalf("top match for clean: %q", it.title)
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.bar != nil || m.view != placeMachine || m.mode != modeCleanup {
-		t.Fatalf("enter didn't go to Cleanup: view %d mode %d", m.view, m.mode)
+	if m.bar != nil || m.view != placeAgents || m.mode != modeProjects {
+		t.Fatalf("enter didn't go to Projects: view %d mode %d", m.view, m.mode)
 	}
 	// Back returns to the agent it came from.
 	m.Update(ctrlK())
@@ -210,10 +211,10 @@ func TestFuzzy(t *testing.T) {
 		q, s string
 		ok   bool
 	}{
-		{"mc", "Machine › Cleanup", true},
+		{"pc", "Agents › Projects › Cleanup", true},
 		{"setacc", "Settings › Accounts", true},
 		{"zz", "Settings › Accounts", false},
-		{"clean", "Machine › Cleanup", true},
+		{"clean", "Agents › Projects › Cleanup", true},
 	}
 	for _, c := range cases {
 		if _, _, ok := fuzzy(c.q, c.s); ok != c.ok {
@@ -221,7 +222,7 @@ func TestFuzzy(t *testing.T) {
 		}
 	}
 	// A word start beats the middle of a word.
-	a, _, _ := fuzzy("proc", "Machine › Processes")
+	a, _, _ := fuzzy("proc", "Agents › Projects › Processes")
 	b, _, _ := fuzzy("proc", "reprocess")
 	if a <= b {
 		t.Errorf("word start %d should beat mid-word %d", a, b)
@@ -311,12 +312,12 @@ func TestBarFindInGroup(t *testing.T) {
 	if len(m.bar.items) == 0 {
 		t.Fatal("the group's agents aren't listed")
 	}
-	// In Machine it finds among Machine's pages.
+	// In Efficiency it finds among Efficiency's pages.
 	m.closeBar()
-	m.setView(placeMachine)
+	m.setView(placeEff)
 	m.Update(ctrlF())
-	if sc := m.bar.scope(); sc.kind != "place" || len(m.bar.items) != len(machinePages) {
-		t.Fatalf("ctrl+f in Machine: %+v %d rows", sc, len(m.bar.items))
+	if sc := m.bar.scope(); sc.kind != "place" || len(m.bar.items) != len(effPages) {
+		t.Fatalf("ctrl+f in Efficiency: %+v %d rows", sc, len(m.bar.items))
 	}
 }
 
@@ -409,13 +410,13 @@ func TestBarCommands(t *testing.T) {
 
 	// A command needing an argument goes into the Prompt to type it; one
 	// that doesn't runs at once, the way typing it would.
-	for _, it := range m.barCommands("cd") {
-		if it.title == "#cd" {
+	for _, it := range m.barCommands("add-dir") {
+		if it.title == "#add-dir" {
 			it.run(m)
 		}
 	}
-	if string(m.input) != "#cd " || m.inKind != inPrompt {
-		t.Fatalf("#cd should wait in the Prompt for its path: %q", string(m.input))
+	if string(m.input) != "#add-dir " || m.inKind != inPrompt {
+		t.Fatalf("#add-dir should wait in the Prompt for its path: %q", string(m.input))
 	}
 	m.input, m.inKind = m.input[:0], inPrompt
 	for _, it := range m.barCommands("help") {

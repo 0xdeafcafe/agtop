@@ -14,7 +14,8 @@ import (
 )
 
 // #mackeys: Terminal.app keeps ⌘ for its own menus, so ⌘← and the like
-// never reach agtop there. Opted into, Hammerspoon sends them on as the
+// never reach agtop there, and without "Use Option as Meta key" ⌥⌫ arrives
+// as a plain backspace. Opted into, Hammerspoon sends them on as the
 // ctrl keys agtop and the shell understand, and only while Terminal.app is
 // in front.
 
@@ -29,7 +30,8 @@ const hsRequire = `require("agtop") -- agtop's ⌘ keys for Terminal.app; #macke
 // hsScript is ~/.hammerspoon/agtop.lua.
 const hsScript = `-- Written by agtop (#mackeys); #mackeys off removes it, and agtop
 -- overwrites any change. Terminal.app keeps ⌘ for its menus, so while it is
--- in front these ⌘ keys are sent as the ctrl keys a terminal understands.
+-- in front these ⌘ keys (and ⌥⌫) are sent as the ctrl keys a terminal
+-- understands.
 local M = {}
 
 local remap = {
@@ -39,6 +41,7 @@ local remap = {
   { { "cmd" }, "forwarddelete", { "ctrl" }, "k" }, -- clear to line end (fn+⌘⌫)
   { { "cmd" }, "z", { "ctrl" }, "-" },             -- undo
   { { "cmd", "shift" }, "z", { "ctrl" }, "y" },    -- redo
+  { { "alt" }, "delete", { "ctrl" }, "w" },        -- delete the word before
 }
 
 local codes = hs.keycodes.map
@@ -111,7 +114,7 @@ func (m *Model) macKeysCommand(arg string) tea.Cmd {
 			if err := macKeysInstall(); err != nil {
 				return doneMsg{err: err}
 			}
-			return doneMsg{text: "⌘ keys on in Terminal.app: ⌘← → line ends · ⌘⌫ ⌘⌦ clear to them · ⌘Z undo · allow Hammerspoon in Accessibility if macOS asks"}
+			return doneMsg{text: "⌘ keys on in Terminal.app: ⌘← → line ends · ⌘⌫ ⌘⌦ clear to them · ⌥⌫ a word · ⌘Z undo · allow Hammerspoon in Accessibility if macOS asks"}
 		}
 		// Whether Hammerspoon is there is looked at off the UI goroutine;
 		// a brew install says so first, as it takes a while.
@@ -207,7 +210,12 @@ func restartHammerspoon(start bool) error {
 	if !running && !start {
 		return nil
 	}
-	if out, err := exec.Command("open", "-g", "-a", "Hammerspoon").CombinedOutput(); err != nil {
+	// By its path: just installed, macOS may not know the name yet.
+	app := hammerspoonApp()
+	if app == "" {
+		app = "/Applications/Hammerspoon.app"
+	}
+	if out, err := exec.Command("open", "-g", app).CombinedOutput(); err != nil {
 		return fmt.Errorf("opening Hammerspoon: %s", lastLine(string(out), err))
 	}
 	return nil

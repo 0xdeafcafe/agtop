@@ -67,7 +67,7 @@ func (s *server) start() error {
 	// Approved plugins add subagents and prompt text, and their tools, which
 	// ask like any other.
 	pc := plugin.ForSession()
-	o.Agents, o.Prompt = pc.Agents, pc.Prompt
+	o.Agents, o.Prompt = pc.Agents, strings.TrimSpace(tasksPrompt+"\n\n"+pc.Prompt)
 	for _, srv := range pc.Servers {
 		name, ok := plugin.NameOf(srv)
 		if !ok {
@@ -202,6 +202,11 @@ func (s *server) onAgentEvent(conn agent.Conn, ev event.Event) {
 	case event.Limited:
 		s.limited = &e
 		return
+	case event.Billing:
+		if s.info.Billing == string(usage.Metered) || s.info.Billing == string(e.Billing) {
+			return // an API key's session stays metered
+		}
+		s.info.Billing = string(e.Billing)
 	case event.Quota:
 		if _, own := conn.(agent.QuotaKeeper); !own {
 			// Every agtop shows it at once.
@@ -445,3 +450,7 @@ func needsQuestion(q event.Question) string {
 	}
 	return "has a question"
 }
+
+// tasksPrompt asks the agent to keep its task list, which agtop draws as
+// the session's tasks view; agents skip it unless told they're watched.
+const tasksPrompt = `You are running inside agtop, which shows your task list (todo list or plan) to the user live. For any work with more than two steps, write the steps to your task list before starting, keep exactly one in progress, and mark each done as you finish it.`
