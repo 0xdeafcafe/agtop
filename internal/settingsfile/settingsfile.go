@@ -218,6 +218,15 @@ func (s *File) SetEnv(name, value string) error {
 	return s.Set("env."+name, value)
 }
 
+// Detach hands the changes made here so far to a File of their own, to be
+// saved on another goroutine while this one is still read and changed: s
+// keeps showing them, and a save of it later won't write them again.
+func (s *File) Detach() *File {
+	d := &File{Path: s.Path, raw: newObject(), changes: s.changes}
+	s.changes = nil
+	return d
+}
+
 // Save applies the changes made here to the file as it is now, indented
 // two spaces, as agents write theirs.
 func (s *File) Save() error {

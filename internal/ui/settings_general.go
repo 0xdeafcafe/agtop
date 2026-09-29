@@ -77,7 +77,8 @@ func (m *Model) generalSections() []section {
 	menu.run = func(v string) tea.Cmd {
 		c.MenuBar, c.MenuBarAsked = v == "on", true
 		if !c.MenuBar {
-			menubar.Stop()
+			// It reads its lock file and runs pkill: off the UI.
+			return func() tea.Msg { menubar.Stop(); return nil }
 		}
 		return m.startMenuBar()
 	}

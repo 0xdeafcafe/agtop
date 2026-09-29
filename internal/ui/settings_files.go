@@ -32,24 +32,53 @@ func (m *Model) agentProfile(k agent.Kind) (agent.Profile, bool) {
 }
 
 // agentDefs are the definitions k's sessions can start as, from its own
-// folder and every repository an agent has worked in.
+// folder and every repository an agent has worked in. They're read off
+// the UI: none until they're in.
 func (m *Model) agentDefs(k agent.Kind) []agent.AgentDef {
-	def, ok := agent.As[agent.Definer](k)
+	key, ok := m.defsKey(k)
 	if !ok {
 		return nil
 	}
+	defs, _ := agentDefsRead.get(key)
+	return defs
+}
+
+// defsAt is what agentDefs are read for: the agent, its profile, and the
+// folders looked in, joined.
+type defsAt struct {
+	kind  agent.Kind
+	prof  agent.Profile
+	roots string
+}
+
+func (m *Model) defsKey(k agent.Kind) (defsAt, bool) {
+	if _, ok := agent.As[agent.Definer](k); !ok {
+		return defsAt{}, false
+	}
 	p, _ := m.agentProfile(k)
-	roots := []string{m.launchDir}
+	roots := make([]string, 0, len(m.snap.Agents)+1)
+	roots = append(roots, m.launchDir)
 	for _, a := range m.snap.Agents {
 		roots = append(roots, a.Repo)
 	}
-	return def.AgentDefs(p, roots)
+	return defsAt{k, p, strings.Join(roots, "\x00")}, true
+}
+
+var agentDefsRead = newMemo(0, func(k defsAt) []agent.AgentDef {
+	def, _ := agent.As[agent.Definer](k.kind)
+	return def.AgentDefs(k.prof, strings.Split(k.roots, "\x00"))
+})
+
+// defsChanged has k's definitions read again.
+func (m *Model) defsChanged(k agent.Kind) {
+	if key, ok := m.defsKey(k); ok {
+		agentDefsRead.stale(key)
+	}
 }
 
 // definitionsSection lists the definitions k's new sessions can start as,
 // the one they do marked; none if k has none.
 func (m *Model) definitionsSection(k agent.Kind) (section, bool) {
-	d := m.dialog
 	def, ok := agent.As[agent.Definer](k)
 	if !ok {
 		return section{}, false
@@ -59,22 +88,24 @@ func (m *Model) definitionsSection(k agent.Kind) (section, bool) {
 		m.ask("new agent name", "", func(v string) tea.Cmd {
 			name := strings.ToLower(strings.Join(strings.Fields(v), "-"))
 			p, _ := m.agentProfile(k)
-			path, err := def.NewAgentDef(p, name)
-			if err != nil {
-				m.flash("couldn't make "+name+": "+err.Error(), true)
-				return nil
-			}
-			return editFile(path)
+			return sheetDo(func() (string, error) { return def.NewAgentDef(p, name) }, func(m *Model, path string, err error) tea.Cmd {
+				if err != nil {
+					m.flash("couldn't make "+name+": "+err.Error(), true)
+					return nil
+				}
+				m.defsChanged(k)
+				return editFile(path)
+			})
 		})
 	}
-	for _, a := range d.agents {
-		sec.rows = append(sec.rows, m.definitionRow(a, newAgent))
+	for _, a := range m.agentDefs(k) {
+		sec.rows = append(sec.rows, m.definitionRow(k, a, newAgent))
 	}
 	return sec, true
 }
 
 // definitionRow is one definition: enter starts new sessions as it.
-func (m *Model) definitionRow(a agent.AgentDef, newAgent func()) setting {
+func (m *Model) definitionRow(k agent.Kind, a agent.AgentDef, newAgent func()) setting {
 	d := m.dialog
 	cfg := &m.store.Config
 	used := a.Name == cfg.Dispatch.Agent || cfg.Dispatch.Agent == "" && a.Path == ""
@@ -110,10 +141,17 @@ func (m *Model) definitionRow(a agent.AgentDef, newAgent func()) setting {
 			case "x", "d":
 				if a.Path != "" {
 					m.confirmThen("Delete the agent "+a.Name+" ("+tildify(a.Path)+")?", func() tea.Cmd {
-						_ = os.Remove(a.Path)
-						m.loadDialog()
-						d.cursor = max(0, d.cursor-1)
-						return nil
+						path := a.Path
+						return sheetDo(func() (struct{}, error) { return struct{}{}, os.Remove(path) }, func(m *Model, _ struct{}, err error) tea.Cmd {
+							if err != nil {
+								m.flash("couldn't delete "+a.Name+": "+err.Error(), true)
+								return nil
+							}
+							m.defsChanged(k)
+							m.loadDialog()
+							d.cursor = max(0, d.cursor-1)
+							return nil
+						})
 					})
 				}
 			default:
@@ -158,34 +196,87 @@ func (m *Model) fileSections(k agent.Kind) []section {
 	return secs
 }
 
-// agentSettings is k's own settings file, read once for the page.
+// agentSettings is k's own settings file, read once for the page, off
+// the UI: nil until it's in.
 func (m *Model) agentSettings(k agent.Kind) *settingsfile.File {
 	d := m.dialog
 	p, _ := m.agentProfile(k)
-	files := settingsFiles(k, p, "")
+	files, _ := settingsFilesRead.get(filesAt{k, p})
 	if len(files) == 0 {
 		return nil
 	}
 	path := files[0].path
-	if d.settings == nil || d.settings.Path != path {
-		s, err := settingsfile.Load(path)
-		if err != nil {
-			m.flash("couldn't read "+tildify(path)+": "+err.Error(), true)
-			s, _ = settingsfile.Load(filepath.Join(filepath.Dir(path), ".agtop-unreadable", filepath.Base(path)))
-		}
-		d.settings = s
+	if d.settings != nil && agentSettingsFor.d == d && agentSettingsFor.path == path {
+		return d.settings
 	}
+	r, ok := settingsRead.get(path)
+	if !ok {
+		return nil
+	}
+	settingsRead.forget(path) // read afresh when the page next opens
+	if r.err != nil {
+		m.flash("couldn't read "+tildify(path)+": "+r.err.Error(), true)
+	}
+	d.settings = r.file
+	agentSettingsFor.d, agentSettingsFor.path = d, path
 	return d.settings
 }
 
-// saveSettings writes the settings file, saying so when it can't.
-func (m *Model) saveSettings(s *settingsfile.File) bool {
-	if err := s.Save(); err != nil {
-		m.flash("couldn't save "+filepath.Base(s.Path)+": "+err.Error(), true)
-		return false
-	}
-	return true
+// agentSettingsFor is the dialog and path d.settings was read for.
+var agentSettingsFor struct {
+	d    *dialog
+	path string
 }
+
+type filesAt struct {
+	kind agent.Kind
+	prof agent.Profile
+}
+
+// settingsFilesRead is where each agent's settings files are: finding the
+// project's looks for its repository on disk.
+var settingsFilesRead = newMemo(0, func(k filesAt) []settingsFile { return settingsFiles(k.kind, k.prof, "") })
+
+type settingsLoad struct {
+	file *settingsfile.File
+	err  error
+}
+
+var settingsRead = newMemo(0, func(path string) settingsLoad {
+	s, err := settingsfile.Load(path)
+	if err != nil {
+		s, _ = settingsfile.Load(filepath.Join(filepath.Dir(path), ".agtop-unreadable", filepath.Base(path)))
+	}
+	return settingsLoad{s, err}
+})
+
+// saveSettings writes the changes made to the settings file off the UI,
+// one save after another; the Cmd it hands back says how it went, and
+// said when it worked. The file is written whether or not the Cmd runs.
+func (m *Model) saveSettings(s *settingsfile.File, said string) tea.Cmd {
+	d := s.Detach()
+	prev := lastSettingsSave
+	p := goPending(func() error {
+		if prev != nil {
+			<-prev.done
+		}
+		return d.Save()
+	})
+	lastSettingsSave = p
+	return p.then(func(m *Model) tea.Cmd {
+		err, _ := p.take()
+		switch {
+		case err != nil:
+			m.flash("couldn't save "+filepath.Base(d.Path)+": "+err.Error(), true)
+		case said != "":
+			m.flash(said, false)
+		}
+		return nil
+	})
+}
+
+// lastSettingsSave is the save last started, for the next to wait on.
+var lastSettingsSave *pending[error]
 
 // openSettingsKey is e on any settings file or env row.
 func (m *Model) openSettingsKey(s string) (tea.Cmd, bool) {
@@ -202,9 +293,15 @@ func (m *Model) settingsFileSection(page agent.SettingsPage, s *settingsfile.Fil
 		return setting{label: r.Label, what: r.What + " (" + file + " " + r.Key + ")", choices: choices, unset: "not set",
 			means: map[string]string{"": unsetNote}, key: m.openSettingsKey, keys: []string{"e", "open " + file}}
 	}
-	save := func(key string, v any) {
+	save := func(key string, v any) tea.Cmd {
 		_ = s.Set(key, v)
-		m.saveSettings(s)
+		return m.saveSettings(s, "")
+	}
+	// Each row's change is run, for its Cmd to say if the save failed;
+	// set does the same, for what calls it that way.
+	both := func(st *setting, run func(string) tea.Cmd) {
+		st.run = run
+		st.set = func(v string) { _ = run(v) }
 	}
 	rows := make([]setting, 0, len(page.Rows))
 	for _, r := range page.Rows {
@@ -218,36 +315,33 @@ func (m *Model) settingsFileSection(page agent.SettingsPage, s *settingsfile.Fil
 			if s.Get(key, &b) {
 				st.value = onOffWord(b != invert)
 			}
-			st.set = func(v string) {
+			both(&st, func(v string) tea.Cmd {
 				if v == "" {
-					save(key, nil)
-				} else {
-					save(key, (v == "on") != invert)
+					return save(key, nil)
 				}
-			}
+				return save(key, (v == "on") != invert)
+			})
 		case agent.SettingInt:
 			st = row(r, append([]string{""}, r.Choices...)...)
 			var n int
 			if s.Get(key, &n) {
 				st.value = strconv.Itoa(n)
 			}
-			st.set = func(v string) {
+			both(&st, func(v string) tea.Cmd {
 				if n, err := strconv.Atoi(v); err == nil {
-					save(key, n)
-				} else {
-					save(key, nil)
+					return save(key, n)
 				}
-			}
+				return save(key, nil)
+			})
 		default:
 			st = row(r, append([]string{""}, r.Choices...)...)
 			st.value = s.String(key)
-			st.set = func(v string) {
+			both(&st, func(v string) tea.Cmd {
 				if v == "" {
-					save(key, nil)
-				} else {
-					save(key, v)
+					return save(key, nil)
 				}
-			}
+				return save(key, v)
+			})
 		}
 		rows = append(rows, st)
 	}
@@ -260,7 +354,7 @@ func (m *Model) envSection(k agent.Kind, page agent.SettingsPage, s *settingsfil
 	env := map[string]string{}
 	s.Get(page.EnvKey, &env)
 	sec := section{title: "Environment", advanced: true, note: "every session on this account starts with these, subagents included"}
-	setEnv := func(v, value string) {
+	setEnv := func(v, value string) tea.Cmd {
 		var err error
 		if value == "" {
 			err = s.Set(page.EnvKey+"."+v, nil)
@@ -269,11 +363,9 @@ func (m *Model) envSection(k agent.Kind, page agent.SettingsPage, s *settingsfil
 		}
 		if err != nil {
 			m.flash("couldn't set "+v+": "+err.Error(), true)
-			return
+			return nil
 		}
-		if m.saveSettings(s) {
-			m.flash("saved to "+tildify(s.Path), false)
-		}
+		return m.saveSettings(s, "saved to "+tildify(s.Path))
 	}
 	known := map[string]bool{}
 	for _, e := range page.Env {
@@ -282,7 +374,8 @@ func (m *Model) envSection(k agent.Kind, page agent.SettingsPage, s *settingsfil
 		maps.Copy(means, e.Means)
 		sec.rows = append(sec.rows, setting{label: e.Label, value: env[e.Name], choices: append([]string{""}, e.Choices...), unset: "not set",
 			what: e.What + " (env " + e.Name + ").", means: means,
-			set: func(v string) { setEnv(e.Name, v) }, key: m.openSettingsKey, keys: []string{"e", "open " + file}})
+			set: func(v string) { setEnv(e.Name, v) }, run: func(v string) tea.Cmd { return setEnv(e.Name, v) },
+			key: m.openSettingsKey, keys: []string{"e", "open " + file}})
 	}
 	var extra []string
 	for v := range env {
@@ -296,6 +389,7 @@ func (m *Model) envSection(k agent.Kind, page agent.SettingsPage, s *settingsfil
 		sec.rows = append(sec.rows, setting{label: v, value: value, typed: true,
 			what: "An environment variable in this account's " + file + " env block. Every " + name + " session on the account starts with it.",
 			set:  func(x string) { setEnv(v, x) },
+			run:  func(x string) tea.Cmd { return setEnv(v, x) },
 			key: func(k string) (tea.Cmd, bool) {
 				switch k {
 				case "x", "delete", "backspace":
@@ -322,8 +416,7 @@ func (m *Model) envSection(k agent.Kind, page agent.SettingsPage, s *settingsfil
 				m.flash("type it as NAME=value", true)
 				return nil
 			}
-			setEnv(v, strings.TrimSpace(value))
-			return nil
+			return setEnv(v, strings.TrimSpace(value))
 		})
 	}
 	sec.rows = append(sec.rows, setting{label: "+ add a variable",
