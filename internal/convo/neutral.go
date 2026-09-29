@@ -19,7 +19,7 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 	case event.CallUpdated:
 		if st := s.byID[e.Call.ID]; st != nil {
 			st.Tool, st.Input = headless.ClaudeTool(e.Call)
-			st.Kind = e.Call.Kind
+			st.setCall(&e.Call)
 			s.touchStep(st)
 		}
 		return
@@ -32,12 +32,13 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 		for _, h := range headless.FromNeutral(ev) {
 			s.Apply(h, now)
 		}
-		// Each call keeps the kind its agent gave it: some have no Claude
-		// tool (a delete, a move).
+		// Each call keeps the one its agent made, in agtop's own words:
+		// some have no Claude tool (a delete, a move), and the rest lose
+		// what Claude's input has no key for.
 		for _, p := range e.Parts {
 			if p.Call != nil {
 				if st := s.byID[p.Call.ID]; st != nil {
-					st.Kind = p.Call.Kind
+					st.setCall(p.Call)
 				}
 			}
 		}
@@ -76,7 +77,7 @@ func (s *Session) ensureStep(c tool.Call, now time.Time) {
 	name, input := headless.ClaudeTool(c)
 	s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: c.ID, Name: name, Input: input}}}, now)
 	if st := s.byID[c.ID]; st != nil {
-		st.Kind = c.Kind
+		st.setCall(&c)
 	}
 }
 

@@ -86,6 +86,23 @@ func TestNeutralKindsWithoutAClaudeTool(t *testing.T) {
 	}
 }
 
+// A step keeps the call its agent made, with what Claude's input has no
+// key for: a move's destination.
+func TestNeutralStepKeepsItsCall(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "rename"}, at(0))
+	s.Apply(event.Message{Role: "assistant", Parts: []event.Part{
+		{Kind: event.ToolCall, Call: &tool.Call{ID: "m1", Name: "move", Kind: tool.Move, Input: tool.Input{Path: "/w/a.go", To: "/w/b.go"}}},
+	}}, at(1))
+	st := s.Step("m1")
+	if st == nil {
+		t.Fatal("no step for the move")
+	}
+	if c := st.Call(); c.Name != "move" || c.Kind != tool.Move || c.Input.To != "/w/b.go" || st.in().Path != "/w/a.go" {
+		t.Fatalf("call = %+v: want the agent's own", c)
+	}
+}
+
 // A history's prompts are your messages: each starts a turn.
 func TestNeutralPromptsStartTurns(t *testing.T) {
 	s := New()

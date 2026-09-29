@@ -400,6 +400,7 @@ func (s *Session) shellStart(cmd string, at time.Time) {
 	id := fmt.Sprintf("you-%d", t.N)
 	in, _ := jsonx.Marshal(map[string]string{"command": cmd, "description": "you ran"})
 	st := &Step{ID: id, Tool: "Bash", Kind: tool.Shell, Input: in, Start: at, Exit: -1, turn: t}
+	st.read()
 	s.byID[id] = st
 	t.steps[id] = st
 	s.stepVer++

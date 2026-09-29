@@ -53,6 +53,10 @@ type Step struct {
 	Children []*Step // a subagent's own steps
 	Approval *headless.PermissionRequest
 
+	// call is the step's call as agtop's own, read once as the step is
+	// made: the agent's own when it spoke agtop's events, else Claude
+	// Code's words read.
+	call   *tool.Call
 	parent *Step
 	turn   *Turn // the turn whose steps hold it
 	// A Bash chain's commands as seen running (chainrun.go), and the
@@ -549,6 +553,7 @@ func (s *Session) message(m headless.Message, now time.Time) {
 					continue
 				}
 				st := &Step{ID: b.ID, Tool: b.Name, Kind: claude.KindOf(b.Name), Input: b.Input, Start: now, Exit: -1, parent: parent, turn: t}
+				st.read()
 				s.byID[b.ID] = st
 				if t != nil {
 					t.steps[b.ID] = st
@@ -915,10 +920,29 @@ func slimResult(k tool.Kind, raw jsontext.Value) jsontext.Value {
 	return b
 }
 
-// Call is the step's call as agtop's own: its input read from Claude Code's
-// words, which a step keeps whichever agent made it, and the kind its agent
-// gave it.
+// Call is the step's call as agtop's own: the one its agent made, or its
+// input read from Claude Code's words, with the kind its agent gave it.
 func (st *Step) Call() tool.Call {
+	if st.call != nil {
+		return *st.call
+	}
+	return st.readCall()
+}
+
+// read reads the step's call once, as it's made, so drawing it each
+// frame doesn't decode its input again.
+func (st *Step) read() {
+	c := st.readCall()
+	st.call = &c
+}
+
+// setCall keeps a copy of the call its agent made, in agtop's own words.
+func (st *Step) setCall(c *tool.Call) {
+	cp := *c
+	st.Kind, st.call = cp.Kind, &cp
+}
+
+func (st *Step) readCall() tool.Call {
 	c := claude.Call(st.ID, st.Tool, st.Input)
 	c.Kind = st.kind()
 	return c
@@ -926,7 +950,13 @@ func (st *Step) Call() tool.Call {
 
 // in is what the step's call works on, as agtop's own: the path, command,
 // pattern and the rest, whichever agent's words its input is in.
-func (st *Step) in() tool.Input { return st.Call().Input }
+func (st *Step) in() *tool.Input {
+	if st.call == nil {
+		c := st.readCall()
+		return &c.Input
+	}
+	return &st.call.Input
+}
 
 // kind is what the step's call does: the kind its agent gave it, or else
 // what Claude Code's tool of its name does.
