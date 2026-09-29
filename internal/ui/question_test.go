@@ -837,6 +837,31 @@ func TestQuestionKeepsTypedAnswer(t *testing.T) {
 	}
 }
 
+// A question that goes with an answer half-written, and another that
+// comes after it, leave the answer in the box: it isn't set aside as a
+// draft, and the message held before comes back once the box is empty.
+func TestQuestionNextKeepsHalfAnswer(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	c := m.host
+	c.input = []rune("my message")
+	ask(m)
+	m.holdForQuestion(c)
+	c.input = []rune("half an ans")
+	c.sess.Apply(event.ApprovalCancelled{ID: "q1"}, time.Now())
+	m.holdForQuestion(c)
+	ask(m)
+	m.holdForQuestion(c)
+	if string(c.input) != "half an ans" {
+		t.Fatalf("the half-written answer went: %q", string(c.input))
+	}
+	c.sess.Apply(event.ApprovalCancelled{ID: "q1"}, time.Now())
+	c.input = nil
+	m.holdForQuestion(c)
+	if string(c.input) != "my message" {
+		t.Fatalf("the held message is back once the box is empty: %q", string(c.input))
+	}
+}
+
 func qsOf(req *event.Question) []question {
 	_, qs := questions(req)
 	return qs
