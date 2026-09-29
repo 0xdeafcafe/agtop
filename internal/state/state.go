@@ -115,8 +115,12 @@ type Config struct {
 	ChatFull bool `json:"chatFull,omitzero"`
 	// EnterOn is what enter does on an agent in the list: "rename" it, as
 	// in the Finder, or "open" it. Empty asks, the first time.
-	EnterOn   string `json:"enterOn,omitempty"`
-	SortBy    string `json:"sortBy,omitempty"`
+	EnterOn string `json:"enterOn,omitempty"`
+	SortBy  string `json:"sortBy,omitempty"`
+	// StackAt is the share of the screen, in percent, at or under which
+	// the list's rows take two lines; 0 is the default, negative only
+	// when too narrow for one. See StackPercent.
+	StackAt   int `json:"stackAt,omitzero"`
 	Hibernate struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`
@@ -772,3 +776,14 @@ func (c *CostCache) Save() error {
 // WriteJSON writes v to path as indented JSON, all at once: a reader sees
 // the old file or the new one, never half of either.
 func WriteJSON(path string, v any) error { return writeJSON(path, v) }
+
+// StackPercent is StackAt with its default: 42, and 0 when turned off.
+func (c *Config) StackPercent() int {
+	switch {
+	case c.StackAt < 0:
+		return 0
+	case c.StackAt == 0:
+		return 42
+	}
+	return c.StackAt
+}

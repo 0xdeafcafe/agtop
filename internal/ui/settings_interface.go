@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
@@ -57,6 +59,32 @@ func (m *Model) interfaceSections() []section {
 			{"tokens", "biggest context first, by its newest message's tokens."},
 			{"time", "longest-running first."},
 		}, func(v string) { c.SortBy = v })
+	stackAt := ""
+	switch {
+	case c.StackAt < 0:
+		stackAt = "narrow only"
+	case c.StackAt > 0:
+		stackAt = fmt.Sprintf("%d%%", c.StackAt)
+	}
+	stack := choiceSetting("Two-line rows", stackAt,
+		"When each agent's row takes two lines, its name and figures above and its latest words under them.",
+		[][2]string{
+			{"", "when the list has 42% of the screen or less, or is too narrow for words beside the name."},
+			{"30%", "when the list has 30% of the screen or less, or is too narrow for words beside the name."},
+			{"50%", "when the list has half the screen or less, or is too narrow for words beside the name."},
+			{"60%", "when the list has 60% of the screen or less, or is too narrow for words beside the name."},
+			{"narrow only", "only when the list is too narrow for words beside the name."},
+		}, func(v string) {
+			switch v {
+			case "":
+				c.StackAt = 0
+			case "narrow only":
+				c.StackAt = -1
+			default:
+				fmt.Sscanf(v, "%d%%", &c.StackAt)
+			}
+		})
+	stack.unset = "42%"
 
 	theme := choiceSetting("Theme", c.Theme,
 		"What rush's colours are made for. Its text and panels are shades between your terminal's background and text colour, so they follow its theme; its orange, green and red stay, made as easy to read on your background as on rush's own.",
@@ -120,7 +148,7 @@ func (m *Model) interfaceSections() []section {
 
 	return []section{
 		{title: "Look", rows: []setting{view, theme, colours, spaces}},
-		{title: "Agents list", rows: []setting{group, split, sortBy, enter, search}},
+		{title: "Agents list", rows: []setting{group, split, sortBy, stack, enter, search}},
 		{title: "Message box", rows: []setting{command, copying, escStop}},
 	}
 }

@@ -1184,7 +1184,7 @@ const (
 
 func (m *Model) listLines(w, h int) []string {
 	nameCol := m.nameColumn(w)
-	two := stacked(w, nameCol)
+	two := m.stacked(w, nameCol)
 	var all, keys []string
 	var cont []bool // a stacked row's second line, which the list never starts on
 	selTop, selBottom := -1, -1
@@ -1454,7 +1454,7 @@ func (m *Model) columnHeader(w int) string {
 	} else {
 		left = dim(left)
 	}
-	if !stacked(w, nameCol) {
+	if !m.stacked(w, nameCol) {
 		left += dim("LATEST")
 	}
 	if sortBy == "recent" {
@@ -1580,8 +1580,12 @@ func (m *Model) nameColumn(w int) int {
 }
 
 // stacked is when the list is too narrow for a readable summary beside each
-// name: rows take two lines then, the summary hung under the name.
-func stacked(w, nameCol int) bool {
+// name, or takes no more of the screen than Config.StackAt: rows take two
+// lines then, the summary hung under the name.
+func (m *Model) stacked(w, nameCol int) bool {
+	if at := m.store.Config.StackPercent(); at > 0 && w*100 <= m.w*at {
+		return true
+	}
 	act, cpu, ram, tok, cost := colWidths(w)
 	return w-3-(act+cpu+ram+tok+cost+wAge+3)-nameCol-2 < 20
 }
