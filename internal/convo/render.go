@@ -2836,10 +2836,18 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			emit(i, l)
 		}
 		mid := lines[3 : len(lines)-5]
+		// A part's heading stays between its folds only when there are a
+		// couple: many parts would read as a column of folds and nothing else.
+		heads := 0
+		for _, l := range mid {
+			if d.marks[strings.TrimSpace(l)] {
+				heads++
+			}
+		}
 		cut := 0
 		kept := 0
 		for i, l := range mid {
-			if failed && kept < 3 && errRe.MatchString(l) || d.marks[strings.TrimSpace(l)] {
+			if failed && kept < 3 && errRe.MatchString(l) || heads <= 2 && d.marks[strings.TrimSpace(l)] {
 				if cut > 0 {
 					more(cut)
 					cut = 0
