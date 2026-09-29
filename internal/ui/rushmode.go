@@ -3173,8 +3173,9 @@ func (m *Model) canResume(a *fleet.Agent) bool {
 }
 
 // startHosted starts a new rush-mode session: rush's own host running
-// Claude Code headless, with the model, effort and mode from Settings.
-func (m *Model) startHosted(text, dir string) tea.Cmd {
+// Claude Code headless, with the model, effort and mode from Settings,
+// then whatever with changes.
+func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cmd {
 	d := m.store.Config.Dispatch
 	images := m.images
 	if rest, imgs := extractImages(text, m.lookPath); imgs != nil {
@@ -3203,6 +3204,9 @@ func (m *Model) startHosted(text, dir string) tea.Cmd {
 		// Dispatch's own settings are this agent's, and its account the one
 		// switched in.
 		cfg.Account, cfg.LimitMode, cfg.Lean = m.store.Config.ActiveAccount().Profile(), d.OnLimit, d.Lean
+	}
+	for _, f := range with {
+		f(&cfg)
 	}
 	if err := cfg.UseAgent(kind); err != nil {
 		m.flash(err.Error(), true)

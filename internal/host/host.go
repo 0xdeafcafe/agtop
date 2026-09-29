@@ -92,6 +92,8 @@ type Config struct {
 	// Profile is the profile the session was started under: which
 	// providers it may move to, and what it does at a usage limit.
 	Profile string `json:"profile,omitempty"`
+	// SystemPrompt is added to the agent's system prompt, after rush's own.
+	SystemPrompt string `json:"systemPrompt,omitempty"`
 }
 
 // Branch is a path of the conversation that /rewind left: its own

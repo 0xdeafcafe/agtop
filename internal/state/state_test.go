@@ -78,3 +78,28 @@ func TestMigrateAccounts(t *testing.T) {
 		t.Fatalf("forgot the wrong one: %+v", s.Config.SignIns)
 	}
 }
+
+func TestConfigOnDiskSeesOnlyOthersChanges(t *testing.T) {
+	t.Setenv("RUSH_HOME", t.TempDir())
+	s := Load()
+	s.Config.DockLines = 4
+	if err := writeJSON(filepath.Join(Dir(), "config.json"), s.Config); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ConfigOnDisk(); ok {
+		t.Fatal("rush's own save showed as a change")
+	}
+	if err := os.WriteFile(filepath.Join(Dir(), "config.json"), []byte(`{"dockLines": 9}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b, ok := ConfigOnDisk()
+	if !ok {
+		t.Fatal("an outside edit didn't show")
+	}
+	if err := s.Reload(b); err != nil || s.Config.DockLines != 9 {
+		t.Fatalf("reload: %v, dock %d", err, s.Config.DockLines)
+	}
+	if _, ok := ConfigOnDisk(); ok {
+		t.Fatal("a reloaded config showed again")
+	}
+}

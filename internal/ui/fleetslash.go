@@ -53,6 +53,7 @@ var fleetCommands = []event.Command{
 	{Name: "dock", Description: "how many lines the agent's card under the list shows", ArgumentHint: "<lines>"},
 	{Name: "native", Description: "open Claude Code's own agents view"},
 	{Name: "drafts", Description: "your drafts, what you sent and what you cleared, to put back in the box (ctrl+r in a Session · alt+s keeps one · alt+p brings it back)"},
+	{Name: "ask", Description: "ask rush about itself, or have it change a setting for you: an agent in rush's own folder, with its guide", ArgumentHint: "[question]"},
 	{Name: "help", Description: "a short guide to rush"},
 	{Name: "update", Description: "install the newest rush, with go install; reopen rush to use it"},
 	{Name: "tips", Description: "Getting started and tips from the top; off puts them away", ArgumentHint: "[off]"},

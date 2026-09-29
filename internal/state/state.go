@@ -639,6 +639,7 @@ func loadJSON(path string, v any) {
 		return
 	}
 	if jsonx.Valid(b) {
+		noteConfig(path, b)
 		_ = jsonx.Unmarshal(b, v)
 		_ = os.WriteFile(path+".bak", b, 0o600)
 		return
@@ -676,7 +677,58 @@ func writeBytes(path string, b []byte) error {
 		_ = os.Remove(f.Name())
 		return err
 	}
-	return os.Rename(f.Name(), path)
+	if err := os.Rename(f.Name(), path); err != nil {
+		return err
+	}
+	noteConfig(path, b)
+	return nil
+}
+
+// seenConfig is config.json as this rush last read or wrote it, so a
+// change made by anything else shows.
+var seenConfig struct {
+	sync.Mutex
+	b []byte
+}
+
+func noteConfig(path string, b []byte) {
+	if path != filepath.Join(Dir(), "config.json") {
+		return
+	}
+	seenConfig.Lock()
+	seenConfig.b = b
+	seenConfig.Unlock()
+}
+
+// ConfigOnDisk is config.json when something other than this rush has
+// changed it since it last read or wrote it, for Reload. It reads the
+// file, so it's for off the UI's goroutine.
+//
+// ponytail: an outside edit landing while a write-behind save is queued
+// is lost to that save; a merge would need a base to diff against.
+func ConfigOnDisk() ([]byte, bool) {
+	b, err := os.ReadFile(filepath.Join(Dir(), "config.json"))
+	if err != nil || !jsonx.Valid(b) {
+		return nil, false
+	}
+	seenConfig.Lock()
+	defer seenConfig.Unlock()
+	return b, !bytes.Equal(b, seenConfig.b)
+}
+
+// Reload takes config b, as ConfigOnDisk read it, in place of s's own.
+func (s *Store) Reload(b []byte) error {
+	var c Config
+	if err := jsonx.Unmarshal(b, &c); err != nil {
+		return err
+	}
+	c.migrate()
+	env := applyEnv(&c, lookupEnv)
+	s.mu.Lock()
+	s.Config, s.env = c, env
+	s.mu.Unlock()
+	noteConfig(filepath.Join(Dir(), "config.json"), b)
+	return nil
 }
 
 // CostCache persists transcript totals so a restart does not rescan gigabytes.

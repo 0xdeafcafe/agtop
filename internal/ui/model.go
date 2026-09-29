@@ -871,7 +871,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.scanWorktrees()) // looked at when Projects opens, and every 2 minutes while it's open
 		}
 		if m.tick%3 == 0 {
-			cmds = append(cmds, m.scan())
+			cmds = append(cmds, m.scan(), reloadConfig)
 		}
 		if m.tick%60 == 0 && m.hosted == "" {
 			cmds = append(cmds, m.fetchUsage(), m.findLogins(), m.fetchQuotas())
@@ -885,6 +885,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case onlineMsg:
 		return m, m.onOnline(msg)
+	case configMsg:
+		m.onConfig(msg)
+		return m, nil
 	case effLoadedMsg:
 		m.onEffLoaded(msg)
 		return m, nil

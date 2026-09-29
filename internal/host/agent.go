@@ -70,7 +70,7 @@ func (s *server) start() error {
 	// Approved plugins add subagents and prompt text, and their tools, which
 	// ask like any other.
 	pc := plugin.ForSession()
-	o.Agents, o.Prompt = pc.Agents, strings.TrimSpace(tasksPrompt+"\n\n"+pc.Prompt)
+	o.Agents, o.Prompt = pc.Agents, strings.TrimSpace(tasksPrompt+"\n\n"+pc.Prompt+"\n\n"+s.cfg.SystemPrompt)
 	for _, srv := range pc.Servers {
 		name, ok := plugin.NameOf(srv)
 		if !ok {
