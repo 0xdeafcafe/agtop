@@ -16,7 +16,6 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/advisor"
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/daemon"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/menubar"
@@ -78,8 +77,11 @@ func main() {
 			if len(args) < 2 {
 				exitIf(errors.New("usage: rush attach <id>"))
 			}
-			s := &daemon.Session{Client: daemon.Client{Account: state.Load().Config.ActiveAccount()}, Short: args[1]}
-			exitIf(s.Run())
+			j, ok := agent.As[agent.Joiner](agent.Kind(state.LoginsKind))
+			if !ok {
+				exitIf(fmt.Errorf("no agent here opens a session's own screen"))
+			}
+			exitIf(j.Join(state.Load().Config.ActiveAccount().Profile(), args[1]).Run())
 			return
 		case "host":
 			// rush host run <id>: the detached process a rush-mode session
