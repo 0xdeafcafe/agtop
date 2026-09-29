@@ -15,6 +15,23 @@ type Provided interface {
 	Provider() string
 }
 
+// Made is an agent that names the company behind the models it runs,
+// when that isn't its own name: Claude Code's are Anthropic's.
+type Made interface {
+	Maker() string
+}
+
+// ProviderName is provider p by the company behind its models, else
+// empty: the caller names it as the agent.
+func ProviderName(p string) string {
+	if a, ok := Get(Kind(p)); ok {
+		if m, ok := a.(Made); ok {
+			return m.Maker()
+		}
+	}
+	return ""
+}
+
 // ProviderOf is the provider agent k runs: a Rider's Provider, else k.
 func ProviderOf(k Kind) string {
 	if a, ok := Get(k); ok {

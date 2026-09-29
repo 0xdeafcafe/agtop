@@ -23,6 +23,9 @@ type Adapter struct{}
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Codex" }
 
+// Maker is OpenAI, whose models Codex runs.
+func (Adapter) Maker() string { return "OpenAI" }
+
 // Program is codex.
 func (Adapter) Program() (string, []string) { return "codex", []string{".codex/bin"} }
 

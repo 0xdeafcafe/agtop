@@ -36,6 +36,9 @@ var cli = acp.Agent{ID: Kind, Title: "Copilot", Command: "copilot", Args: []stri
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Copilot" }
 
+// Maker is GitHub, whose service Copilot's models come through.
+func (Adapter) Maker() string { return "GitHub" }
+
 // Program is the Copilot CLI: what runs its sessions here. Its coding
 // agent's sessions on GitHub need only gh, and are listed without it.
 func (Adapter) Program() (string, []string) { return "copilot", []string{".copilot/bin"} }

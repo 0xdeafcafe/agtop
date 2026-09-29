@@ -93,17 +93,31 @@ func (m *Model) showProfile(name string) bool {
 	return name != "" && (len(cfg.Profiles) > 0 || !strings.EqualFold(name, cfg.Default().Name))
 }
 
+// providerName is provider p by the company behind its models, or its
+// agent's short name when the adapter doesn't say.
+func providerName(p string) string {
+	if n := agent.ProviderName(p); n != "" {
+		return n
+	}
+	return kindName(agent.Kind(p))
+}
+
 // sessionTag is what a session's header says it runs on: the provider's
-// glyph and name, the account it's signed in as, and its profile when
-// there's more than one.
+// glyph and the harness running it, the account it's signed in as, the
+// provider when it isn't the harness's own name, and its profile when
+// there's more than one and it isn't just the provider's own.
 func (m *Model) sessionTag(a *fleet.Agent) string {
 	k := agent.Kind(a.Kind)
-	// Ollama in Pi says so, not Ollama-pi.
-	parts := []string{providerTag(agent.Kind(agent.ProviderOf(k))) + dim(runsInWords(k))}
+	prov := agent.ProviderOf(k)
+	harness := agentName(string(agent.HarnessOf(k)))
+	parts := []string{paint(lookOf(k).colour(), lookOf(k).glyph+" "+harness)}
 	if acct := m.accountOf(k); acct != "" {
 		parts = append(parts, dim(acct))
 	}
-	if p := m.sessionProfile(a).Name; m.showProfile(p) {
+	if n := providerName(prov); n != harness {
+		parts = append(parts, dim(n))
+	}
+	if p := m.sessionProfile(a).Name; m.showProfile(p) && !strings.EqualFold(p, prov) {
 		parts = append(parts, faint(p))
 	}
 	return strings.Join(parts, faint(" · "))

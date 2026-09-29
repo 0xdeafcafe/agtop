@@ -24,6 +24,9 @@ type Adapter struct {
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "Claude Code" }
 
+// Maker is Anthropic, whose models Claude Code runs.
+func (Adapter) Maker() string { return "Anthropic" }
+
 // ClaudeTranscripts: its transcripts are Claude Code's own.
 func (Adapter) ClaudeTranscripts() {}
 
