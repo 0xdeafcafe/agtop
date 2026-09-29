@@ -109,7 +109,7 @@ func (m *Model) headH() int {
 	if m.w < narrowHead {
 		return 3
 	}
-	return 4
+	return clkH
 }
 
 // topH is the rows above the body: the header and the row under it. Zen
@@ -188,7 +188,7 @@ func (m *Model) header() []string {
 	for i, r := range robot {
 		out[i] = "  " + r
 	}
-	// Text sits level with the head and face; the view strip on the legs.
+	// Text sits level with the cap's foot and the shoulders; the tabs on the base.
 	out[1] = line(robot[1], left1, right1)
 	out[2] = line(robot[2], left2, right2)
 	// < > (or , .) go between the places; in a Session's box they're
@@ -197,8 +197,9 @@ func (m *Model) header() []string {
 	if m.hosted != "" || m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil {
 		places = "ctrl+\\"
 	}
-	strip := "  " + robot[3] + "   " + strings.Join(m.tabs(), " ")
-	out[3] = withTabHint(strip, places, "places", "", m.w)
+	last := len(robot) - 1 // the tabs sit on the bottle's base, just over the pages row
+	strip := "  " + robot[last] + "   " + strings.Join(m.tabs(), " ")
+	out[last] = withTabHint(strip, places, "places", "", m.w)
 	return out
 }
 

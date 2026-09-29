@@ -60,27 +60,45 @@ const (
 	clkShown = 4  // seconds the monogram stays
 	clkShine = 14 // frames a light takes to pass over him
 	clkW     = 15 // every frame's width, so the header's text never moves
-	clkH     = 4
+	clkH     = 5
 	clkX     = 2 // where he stands; the two columns either side are for what drifts off him
-	clkBodyW = 11
-	clkFace  = 1 // the bottle's shoulders, all a narrow header has room for
+	clkBodyW = 6
+	clkFace  = clkLabel // the label, all a narrow header has room for
+	clkLabel = 3        // the row the label's text is on
 )
 
-// The bottle is 11×8 pixels, two to a row: ▀ is a top pixel, ▄ a bottom
-// one, its label the band across it. clkCrab has its cap on, clkArms has it
-// popped off.
+// The bottle is 6×8 pixels, two to a cell, drawn ▀ in the top one's
+// colour on the bottom one's, with its label a row of text between:
+//
+//	██████   cap
+//	▀████▀   cap over neck
+//	██████   shoulders
+//	 RUSH    label
+//	██████   body
+//
+// Each string is a row of pixels, a letter to a colour (clkInk); "." is
+// none. clkCapped has its cap on, clkPopped has it lifted off to the side.
 var (
-	clkCrab = []string{
-		"   █▀█▀█   ",
-		"   ▄███▄   ",
-		"  █▀▀▀▀▀█  ",
-		"  ▀█████▀  ",
+	clkCapped = [clkH][2]string{
+		{"GKGKGK", "KGKGKG"},
+		{"kkkkkk", ".dAAa."},
+		{"dAAAad", "dAAAad"},
+		{},
+		{"dAAAad", "dDDDDd"},
 	}
-	clkArms = []string{
-		"     ▄██▀  ",
-		"   ▄███▄   ",
-		"  █▀▀▀▀▀█  ",
-		"  ▀█████▀  ",
+	clkPopped = [clkH][2]string{
+		{".GKGKG", ".kkkkk"},
+		{"......", ".dAAa."},
+		{"dAAAad", "dAAAad"},
+		{},
+		{"dAAAad", "dDDDDd"},
+	}
+	clkOpen = [clkH][2]string{
+		{"......", "......"},
+		{"......", ".dAAa."},
+		{"dAAAad", "dAAAad"},
+		{},
+		{"dAAAad", "dDDDDd"},
 	}
 	// clkAG is the wordmark, the whole frame wide.
 	clkAG = []string{
@@ -172,46 +190,86 @@ func (g *clkGrid) shimmer(f, n int, tint string, strength float64) {
 	}
 }
 
-// clkEye is how his eyes look: open (a hole in him), shut (filled in), or
-// lit in a colour for a moment.
-type clkEye struct {
-	shut  bool
-	winkL bool // only the left one shut
-	lit   string
+// clkInk is a pixel's colour: the cap's black and its ridges, the glass's
+// amber, its shine and its shadow.
+func clkInk(r byte) string {
+	switch r {
+	case 'K':
+		return rgb(30, 30, 32)
+	case 'G':
+		return rgb(84, 84, 88)
+	case 'k':
+		return rgb(52, 52, 56)
+	case 'A':
+		return rgb(158, 76, 14)
+	case 'a':
+		return rgb(212, 128, 44)
+	case 'd':
+		return rgb(104, 46, 8)
+	case 'D':
+		return rgb(84, 38, 6)
+	}
+	return ""
+}
+
+// clkLabelBG is the label's yellow; needing you, it's orange.
+func clkLabelBG(md mood) string {
+	if md == moodNeedsYou {
+		return cOrange
+	}
+	return rgb(250, 214, 30)
+}
+
+// bottle draws one of the bottle's frames at x, its label in bg.
+func (g *clkGrid) bottle(x int, f [clkH][2]string, bg string) {
+	ink := rgb(214, 28, 24) + bold // red on the yellow, dark on orange
+	if bg == cOrange {
+		ink = rgb(40, 16, 4) + bold
+	}
+	for y, row := range f {
+		if y == clkLabel {
+			for i, r := range " RUSH " {
+				g.r[y][x+i], g.c[y][x+i], g.bg[y][x+i], g.body[y][x+i] = r, ink, bg, true
+			}
+			continue
+		}
+		for i := range row[0] {
+			top, bot := clkInk(row[0][i]), clkInk(row[1][i])
+			cx := x + i
+			switch {
+			case top != "" && bot != "":
+				g.r[y][cx], g.c[y][cx], g.bg[y][cx] = '▀', top, bot
+			case top != "":
+				g.r[y][cx], g.c[y][cx] = '▀', top
+			case bot != "":
+				g.r[y][cx], g.c[y][cx] = '▄', bot
+			default:
+				continue
+			}
+			g.body[y][cx] = true
+		}
+	}
 }
 
 // sprite is the bottle. Working, its cap pops off and back every other
-// second and a pale drop drifts off it; needing you, its cap is off and its
-// ! glows and fades; asleep, z's drift up.
+// second and a pale drop drifts off it; needing you, its cap is off, its
+// label orange and a ! glows over it; asleep, it's dim and z's drift up.
 func (g *clkGrid) sprite(s clkState) {
 	md, tick, fx := s.md, s.tick, s.fx
-	b := clkBody(md)
-	pose := clkCrab
-	var eye clkEye
+	f := clkCapped
 	switch md {
-	case moodIdle:
-		switch {
-		case tick%9 == 4:
-			eye.shut = true
-		case tick%37 == 20:
-			eye.winkL = true
-		}
 	case moodWorking:
 		if tick/2%2 == 1 {
-			pose = clkArms
-		}
-		if tick%11 == 6 {
-			eye.shut = true
+			f = clkPopped
 		}
 	case moodNeedsYou:
-		b, pose = cYellow, clkArms
-		c := clkMix(cYellow, cFaint, .55)
+		f = clkOpen
+		c := clkMix(cOrange, cFaint, .55)
 		if tick%2 == 0 {
-			c = cYellow
+			c = cOrange
 		}
-		g.put(0, clkX+clkBodyW+1, "!", c, false)
+		g.put(0, clkX+clkBodyW/2-1, "!", c, false)
 	case moodSleepy:
-		eye.shut = true
 		switch tick % 3 {
 		case 0:
 			g.put(1, clkX+clkBodyW+1, "z", cFaint, false)
@@ -222,11 +280,14 @@ func (g *clkGrid) sprite(s clkState) {
 			g.put(0, clkX+clkBodyW, "Z", cDim, false)
 		}
 	}
-	b, _ = fx.dress(b, eye)
-	for y, l := range pose {
-		g.put(y, clkX, l, b, true)
-	}
+	g.bottle(clkX, f, clkLabelBG(md))
 	g.on = true
+	if md == moodSleepy {
+		g.tint(cFaint, .5)
+	}
+	if tint, k := fx.tint(); k > 0 {
+		g.tint(tint, k)
+	}
 	if fx.kind != fxNone {
 		fx.draw(g)
 		return
@@ -236,6 +297,21 @@ func (g *clkGrid) sprite(s clkState) {
 	}
 	if s.rich && tick%30 < 3 {
 		g.dot(1+tick%30, clkW-1, []rune("$¢.")[tick%30], clkMix(cYellow, cFaint, float64(tick%30)*.3))
+	}
+}
+
+// tint mixes the bottle's colours k of the way to c.
+func (g *clkGrid) tint(c string, k float64) {
+	for y := range g.r {
+		for x := range g.r[y] {
+			if !g.body[y][x] {
+				continue
+			}
+			g.c[y][x] = clkMix(g.c[y][x], c, k)
+			if g.bg[y][x] != "" {
+				g.bg[y][x] = clkMix(g.bg[y][x], c, k)
+			}
+		}
 	}
 }
 
@@ -260,10 +336,8 @@ func (g *clkGrid) drops(tick int, look []rune, paints []string, every int) {
 // bottle with its name beside it.
 func (g *clkGrid) mark(s clkState) {
 	if s.tick/clkCycle%2 == 1 {
-		for y, l := range clkCrab {
-			g.put(y, 0, strings.TrimRight(l, " "), clkBody(s.md), true)
-		}
-		g.put(1, 10, "RUSH", clkBody(s.md)+bold, true)
+		g.bottle(0, clkCapped, clkLabelBG(s.md))
+		g.put(2, 8, "rush", cText+bold, true)
 		return
 	}
 	for y, l := range clkAG {
@@ -376,32 +450,19 @@ func fxTick() tea.Cmd {
 	return tea.Tick(fxEvery, func(time.Time) tea.Msg { return fxTickMsg{} })
 }
 
-// dress is how a reaction colours him: a tint that eases back, and his
-// eyes lit for a moment in its colour.
-func (fx clkFX) dress(b string, eye clkEye) (string, clkEye) {
+// tint is the colour a reaction washes the bottle in, and how far, easing
+// back as it goes.
+func (fx clkFX) tint() (string, float64) {
 	f := float64(fx.frame)
 	switch fx.kind {
 	case fxAsk:
-		b = clkMix(cText, cYellow, f/6)
-		if f < 10 {
-			eye = clkEye{lit: cText}
-		}
+		return cYellow, .5 * max(0, 1-f/10)
 	case fxAnswered:
-		b = clkMix(cGreen, b, (f-4)/14)
-		if f < 12 {
-			eye = clkEye{lit: clkMix(cGreen, cText, .4)}
-		}
-	case fxDone:
-		if f < 6 {
-			eye = clkEye{lit: clkMix(cText, b, f/6)}
-		}
+		return cGreen, .5 * max(0, 1-f/14)
 	case fxError:
-		b = clkMix(cRed, b, (f-6)/10)
-		if f < 10 {
-			eye = clkEye{lit: clkMix(cRed, cText, .25)}
-		}
+		return cRed, .6 * max(0, 1-f/12)
 	}
-	return b, eye
+	return "", 0
 }
 
 // draw is what comes off him.

@@ -15,7 +15,7 @@ func TestClankerShape(t *testing.T) {
 		for tick := 0; tick < 90; tick++ {
 			fx := clkFX{kind: fxKind(tick % 8), frame: tick % 16}
 			lines := clanker(clkState{md: md, tick: tick, fx: fx, mark: tick%3 == 0, rich: true})
-			if len(lines) < 3 || len(lines) > 4 {
+			if len(lines) < 3 || len(lines) > clkH {
 				t.Fatalf("mood %d tick %d: %d lines", md, tick, len(lines))
 			}
 			w := ansi.StringWidth(lines[0])
