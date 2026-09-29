@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a1740"/>
+      <stop offset="1" stop-color="#0b0710"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.5">
+      <stop offset="0" stop-color="#ff2d6f" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ff2d6f" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2a1204"/>
+      <stop offset="0.25" stop-color="#7a3a0e"/>
+      <stop offset="0.5" stop-color="#9a4c14"/>
+      <stop offset="0.8" stop-color="#5a2808"/>
+      <stop offset="1" stop-color="#1e0c02"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#050505"/>
+      <stop offset="0.35" stop-color="#3a3a3a"/>
+      <stop offset="0.55" stop-color="#1a1a1a"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+    <linearGradient id="wrap" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000" stop-opacity="0.55"/>
+      <stop offset="0.18" stop-color="#000" stop-opacity="0.1"/>
+      <stop offset="0.42" stop-color="#fff" stop-opacity="0.18"/>
+      <stop offset="0.6" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.85" stop-color="#000" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.6"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="shadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#000" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="body">
+      <path d="M372 372 Q372 330 420 322 L604 322 Q652 330 652 372 L652 822 Q652 852 622 852 L402 852 Q372 852 372 822 Z"/>
+    </clipPath>
+    <clipPath id="squircle"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#glow)"/>
+    <!-- floor shadow -->
+    <ellipse cx="512" cy="858" rx="210" ry="28" fill="url(#shadow)"/>
+
+    <!-- neck + cap -->
+    <rect x="440" y="286" width="144" height="46" fill="url(#glass)"/>
+    <rect x="422" y="176" width="180" height="120" rx="14" fill="url(#cap)"/>
+    <g stroke="#000" stroke-opacity="0.6" stroke-width="5">
+      <line x1="440" y1="184" x2="440" y2="290"/><line x1="462" y1="184" x2="462" y2="290"/>
+      <line x1="484" y1="184" x2="484" y2="290"/><line x1="506" y1="184" x2="506" y2="290"/>
+      <line x1="528" y1="184" x2="528" y2="290"/><line x1="550" y1="184" x2="550" y2="290"/>
+      <line x1="572" y1="184" x2="572" y2="290"/><line x1="594" y1="184" x2="594" y2="290"/>
+    </g>
+    <rect x="422" y="176" width="180" height="10" rx="5" fill="#555"/>
+
+    <!-- body -->
+    <g clip-path="url(#body)">
+      <rect x="372" y="322" width="280" height="530" fill="url(#glass)"/>
+      <!-- label -->
+      <rect x="372" y="430" width="280" height="340" fill="#ffd400"/>
+      <rect x="372" y="430" width="280" height="22" fill="#e10a17"/>
+      <rect x="372" y="748" width="280" height="22" fill="#e10a17"/>
+      <text x="514" y="590" text-anchor="middle" font-family="Futura, 'Helvetica Neue', Arial" font-weight="900" font-style="italic" font-size="124" fill="#e10a17" stroke="#000" stroke-width="9" paint-order="stroke" transform="skewX(-8) translate(80 0)" letter-spacing="-4">RUSH</text>
+      <text x="512" y="660" text-anchor="middle" font-family="'Helvetica Neue', Arial" font-weight="800" font-size="27" fill="#111" letter-spacing="2">REPO ODOURISER</text>
+      <rect x="412" y="678" width="200" height="3" fill="#111"/>
+      <text x="512" y="712" text-anchor="middle" font-family="'Helvetica Neue', Arial" font-weight="600" font-size="15.5" fill="#111" letter-spacing="1">NOT FOR AGENT CONSUMPTION</text>
+      <text x="512" y="734" text-anchor="middle" font-family="'Helvetica Neue', Arial" font-weight="500" font-size="13" fill="#111" letter-spacing="1">40 MB · KEEP AWAY FROM PROD</text>
+      <!-- cylinder shading + highlights -->
+      <rect x="372" y="322" width="280" height="530" fill="url(#wrap)"/>
+      <rect x="418" y="340" width="26" height="496" rx="13" fill="url(#shine)" opacity="0.75"/>
+      <rect x="600" y="360" width="10" height="460" rx="5" fill="url(#shine)" opacity="0.35"/>
+    </g>
+  </g>
+  <!-- icon rim -->
+  <rect x="100.5" y="100.5" width="823" height="823" rx="185" fill="none" stroke="#fff" stroke-opacity="0.08" stroke-width="2"/>
+</svg>
