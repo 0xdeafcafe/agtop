@@ -167,8 +167,21 @@ func TestPluginsInTheScreen(t *testing.T) {
 	}
 	m.setView(placeSettings)
 	m.setSettingsPage(pagePlugins)
+	<-m.dialog.pluginsRead.done
+	if body := strings.Join(m.dialogBody(160), "\n"); !strings.Contains(body, "haven") || strings.Contains(body, "Show log errors") {
+		t.Fatalf("Plugins should list plugins, not their settings:\n%s", body)
+	}
+	for i, r := range flat(m.pluginSections()) {
+		if r.label == "haven" {
+			m.dialog.cursor = i
+		}
+	}
+	m.dialogKey(tea.KeyPressMsg{}, "enter")
 	if body := strings.Join(m.dialogBody(160), "\n"); !strings.Contains(body, "Show log errors") || !strings.Contains(body, "alt+o") {
 		t.Fatalf("Plugins page:\n%s", body)
+	}
+	if m.dialogKey(tea.KeyPressMsg{}, "esc"); m.dialog == nil || m.dialog.plugin != "" || m.view != placeSettings {
+		t.Fatal("esc on an open plugin goes back to the list")
 	}
 }
 

@@ -60,6 +60,9 @@ func (m *Model) setBundled(name string, on bool) tea.Cmd {
 		if off != nil {
 			m.bundledOff = off
 		}
+		if d := m.dialog; d != nil && d.page == pagePlugins {
+			d.pluginsRead = goPending(readPlugins)
+		}
 		if err != nil {
 			m.flash(name+": "+err.Error(), true)
 		}

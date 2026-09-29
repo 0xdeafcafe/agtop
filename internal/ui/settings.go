@@ -60,7 +60,7 @@ func (m *Model) settingsPages() []page {
 		agentsPage,
 		{name: "General", form: (*Model).generalSections},
 		{name: "Keys", body: (*Model).keysBody, key: (*Model).keysKey, rows: (*Model).keysLen},
-		{name: "Plugins", form: (*Model).pluginSections},
+		pluginsPage(),
 	}
 }
 
@@ -88,6 +88,10 @@ type dialog struct {
 	advanced bool   // Agents shows the agent's advanced sections
 	keyCtx   int    // which of keymap.Contexts Keys shows
 
+	plugin      string // the plugin Plugins has open; empty lists them
+	plugins     []pluginRow
+	pluginsRead *pending[[]pluginRow] // plugins, being read off the UI
+
 	// practice is a key sequence pressed on Keys, not the page's own, to
 	// try out: it jumps to and lights the chip it's bound to, so a key
 	// can be practiced without changing anything. practiceAt is when the
@@ -113,6 +117,9 @@ func (m *Model) loadDialog() {
 	d.agents = m.agentDefs(loginsKind)
 	if d.page == pageAccounts || d.page == pageOverview {
 		agent.Recheck() // an agent installed since shows at once
+	}
+	if d.page == pagePlugins {
+		d.pluginsRead = goPending(readPlugins)
 	}
 }
 

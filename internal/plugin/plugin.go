@@ -23,6 +23,7 @@
 package plugin
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/jsontext"
@@ -216,10 +217,37 @@ func (r Requires) validate() error {
 	return nil
 }
 
+// osNames are runtime.GOOS values as people say them.
+var osNames = map[string]string{"darwin": "macOS", "linux": "Linux", "windows": "Windows", "freebsd": "FreeBSD"}
+
+func osWords(os []string) string {
+	ws := make([]string, len(os))
+	for i, o := range os {
+		ws[i] = cmp.Or(osNames[o], o)
+	}
+	return strings.Join(ws, " or ")
+}
+
+// Needs is r in words, "" when it asks for nothing: "macOS or Linux,
+// git on PATH".
+func (r Requires) Needs() string {
+	var needs []string
+	if len(r.OS) > 0 {
+		needs = append(needs, osWords(r.OS))
+	}
+	if len(r.Arch) > 0 {
+		needs = append(needs, strings.Join(r.Arch, " or "))
+	}
+	for _, b := range r.Bin {
+		needs = append(needs, b+" on PATH")
+	}
+	return strings.Join(needs, ", ")
+}
+
 // Unmet is why m.Requires isn't met here, "" when it is.
 func (m Manifest) Unmet() string {
 	if os := m.Requires.OS; len(os) > 0 && !slices.Contains(os, runtime.GOOS) {
-		return "needs " + strings.Join(os, " or ")
+		return "needs " + osWords(os)
 	}
 	if arch := m.Requires.Arch; len(arch) > 0 && !slices.Contains(arch, runtime.GOARCH) {
 		return "needs " + strings.Join(arch, " or ") + " (this is " + runtime.GOARCH + ")"
