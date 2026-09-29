@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
@@ -1316,7 +1317,7 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 
 	var cells []string
 	if p.Context > 0 {
-		win := claude.ContextWindow(p.Model)
+		win := agent.ContextWindow(agent.Kind(a.Kind), p.Model)
 		pct := float64(p.Context) / float64(win) * 100
 		cells = append(cells, dim("context ")+ctxBar(pct)+" "+paint(cText, fmt.Sprintf("%.0f%%", pct))+dim(" of "+tokens(win)))
 	}
@@ -2107,7 +2108,7 @@ func (m *Model) previewLines(w, h int) []string {
 	u := a.Spend.Usage
 	tail = append(tail, "", section("Numbers"))
 	if p.Context > 0 {
-		win := claude.ContextWindow(p.Model)
+		win := agent.ContextWindow(agent.Kind(a.Kind), p.Model)
 		pct := float64(p.Context) / float64(win) * 100
 		tail = append(tail, dim(fit("context", 10))+ctxBar(pct)+" "+paint(cText, fmt.Sprintf("%.0f%%", pct))+dim(fmt.Sprintf("  %s of %s tokens", tokens(p.Context), tokens(win))))
 	}

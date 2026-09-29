@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
@@ -215,7 +216,7 @@ func (s *Session) Overview(o Options) []Line {
 	ctx, ctxLabel := "—", "context"
 	ctxCol := cText
 	if s.Context > 0 && model != "" {
-		win := claude.ContextWindow(model)
+		win := agent.ContextWindow(agent.Kind(s.Info.Kind), model)
 		pct := float64(s.Context) / float64(win)
 		ctx, ctxLabel = fmt.Sprintf("%.0f%%", pct*100), "context of "+tokens(int(win))
 		switch {

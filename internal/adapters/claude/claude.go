@@ -119,6 +119,7 @@ var (
 	_ agent.StatsReader       = Adapter{}
 	_ agent.DefaultModeler    = Adapter{}
 	_ agent.LastQuotaReader   = Adapter{}
+	_ agent.ContextWindower   = Adapter{}
 )
 
 // Doing is a call in a few words, with words of its own for Claude Code's

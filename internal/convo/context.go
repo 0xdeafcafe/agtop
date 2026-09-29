@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/agent/usage"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 )
 
 // --- what fills the context window ---
@@ -224,5 +224,5 @@ func (s *Session) ContextWindow() int {
 	if s.Window > 0 {
 		return s.Window
 	}
-	return int(claude.ContextWindow(firstNonEmpty(s.Model, s.Info.Model)))
+	return int(agent.ContextWindow(agent.Kind(s.Info.Kind), firstNonEmpty(s.Model, s.Info.Model)))
 }

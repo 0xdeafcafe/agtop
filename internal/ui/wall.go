@@ -318,7 +318,7 @@ func (m *Model) wallAgentTile(a *fleet.Agent, w, h int, picked bool) []string {
 	}
 	ctx := ""
 	if p.Context > 0 {
-		pct := float64(p.Context) / float64(claude.ContextWindow(p.Model)) * 100
+		pct := float64(p.Context) / float64(agent.ContextWindow(agent.Kind(a.Kind), p.Model)) * 100
 		ctx = ctxBar(pct) + " " + dim(fmt.Sprintf("%2.0f%%", pct))
 	}
 	inner = append(inner, wallSpread(loc, ctx, iw))

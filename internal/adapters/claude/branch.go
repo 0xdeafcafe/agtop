@@ -24,6 +24,9 @@ func (Adapter) Branch(p agent.Profile, src, cwd, sid, newID string, upTo int64) 
 // DefaultModel is the Opus a session runs when none is picked.
 func (Adapter) DefaultModel() string { return "claude-opus-5-5" }
 
+// ContextWindow is the model's: everything current but Haiku has 1M.
+func (Adapter) ContextWindow(model string) int64 { return claude.ContextWindow(model) }
+
 // ModelName is Claude's model id as people say it: "Opus 5.5".
 func (Adapter) ModelName(id string) string { return claude.ModelName(id) }
 
