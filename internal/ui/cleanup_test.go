@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
@@ -50,5 +52,56 @@ func TestCleanupDue(t *testing.T) {
 	st.Config.CleanupHours = -1
 	if d := m.dueIn([]string{"old"}, now); d >= 0 {
 		t.Errorf("off: %v", d)
+	}
+}
+
+// Clean up ticks only what's safe; a ticks all that's safe, then none; one
+// with an agent running in it can't be ticked.
+func TestCleanSheet(t *testing.T) {
+	now := time.Now()
+	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{At: now, Agents: []*fleet.Agent{{Key: "run", PID: 7}}}}
+	m.clean.checked = now
+	m.clean.wts = []fleet.Worktree{
+		{Path: "/r/.claude/worktrees/safe", Repo: "/r", Checked: now, Size: 10},
+		{Path: "/r/.claude/worktrees/dirty", Repo: "/r", Checked: now, Changed: 2},
+		{Path: "/r/.claude/worktrees/busy", Repo: "/r", Checked: now, Agents: []string{"run"}},
+	}
+	m.clean.tmp = fleet.Scratch{StaleItems: 3, Stale: 5}
+	m.openCleanSheet()
+	s, _ := m.sheet.(*cleanSheet)
+	if s == nil {
+		t.Fatal("no sheet")
+	}
+	on := func() (out []string) {
+		for _, it := range s.items {
+			if it.on {
+				name := "/tmp"
+				if it.wt != nil {
+					name = it.wt.Path[len("/r/.claude/worktrees/"):]
+				}
+				out = append(out, name)
+			}
+		}
+		return out
+	}
+	if got := on(); len(got) != 2 || got[0] != "safe" || got[1] != "/tmp" {
+		t.Fatalf("ticked %v", got)
+	}
+	if n, losing, size := s.ticked(m); n != 2 || losing != 0 || size != 15 {
+		t.Fatalf("ticked %d, losing %d, %d", n, losing, size)
+	}
+	s.key(m, tea.KeyPressMsg{}, "a")
+	if got := on(); len(got) != 0 {
+		t.Fatalf("a with all safe ticked should untick: %v", got)
+	}
+	for i, it := range s.items {
+		s.cur = i
+		s.key(m, tea.KeyPressMsg{}, "space")
+		if it.busy != "" && s.items[i].on {
+			t.Fatal("ticked one an agent runs in")
+		}
+	}
+	if _, losing, _ := s.ticked(m); losing != 1 {
+		t.Fatalf("dirty ticked by hand should count as losing work: %d", losing)
 	}
 }

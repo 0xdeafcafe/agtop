@@ -26,6 +26,11 @@ type cleanup struct {
 	// kept are done worktrees the tidy-up found unsafe, and when: it says
 	// so once and looks again only after an hour.
 	kept map[string]time.Time
+	// tmp is what's yours in /tmp, looked at every few minutes at most:
+	// walking it takes seconds.
+	tmp fleet.Scratch
+	// nudged is when rush last said there's a lot to clean up.
+	nudged time.Time
 	// left is what agents left running, found by reap, waiting for the
 	// next tick to be ended off the UI.
 	left []fleet.Leftover
@@ -33,7 +38,14 @@ type cleanup struct {
 
 type worktreesMsg struct {
 	wts  []fleet.Worktree
-	full bool // every worktree checked and measured, for the view
+	full bool           // every worktree checked and measured, for the view
+	tmp  *fleet.Scratch // /tmp, when it was due a look
+}
+
+type scratchClearedMsg struct {
+	freed int64
+	n     int
+	err   error
 }
 
 type tidiedMsg struct {
@@ -70,12 +82,18 @@ func (m *Model) scanWorktrees() tea.Cmd {
 	}
 	c.checking = true
 	agents := m.agentCopies()
+	tmpDue := time.Since(c.tmp.Checked) > 10*time.Minute
 	return func() tea.Msg {
-		wts := fleet.FindWorktrees(agents)
-		for i := range wts {
-			wts[i].Check()
+		msg := worktreesMsg{full: true}
+		if tmpDue {
+			s := fleet.FindScratch()
+			msg.tmp = &s
 		}
-		return worktreesMsg{wts: wts, full: true}
+		msg.wts = fleet.FindWorktrees(agents)
+		for i := range msg.wts {
+			msg.wts[i].Check()
+		}
+		return msg
 	}
 }
 
@@ -178,8 +196,12 @@ func (m *Model) tidyDone() tea.Cmd {
 func (m *Model) onWorktrees(msg worktreesMsg) {
 	c := &m.clean
 	c.checking = false
+	if msg.tmp != nil {
+		c.tmp = *msg.tmp
+	}
 	if msg.full {
 		c.wts, c.checked = msg.wts, time.Now()
+		m.nudgeClean()
 		return
 	}
 	c.wts = mergeChecks(msg.wts, c.wts)
@@ -321,38 +343,40 @@ func (m *Model) askRemoveWorktree(wt fleet.Worktree) {
 	}
 }
 
-// askCleanSafe asks before removing everything that can go without losing
-// anything: clean, pushed worktrees nothing runs in, and stopped agents'
-// temp work.
-func (m *Model) askCleanSafe(rows []cleanRow) {
-	var wts []fleet.Worktree
-	var temp []*fleet.Agent
-	var total int64
-	for _, r := range rows {
-		switch {
-		case r.wt != nil && r.wt.Safe() && m.running(r.wt.Agents) == nil:
-			wts = append(wts, *r.wt)
-			total += r.wt.Size
-		case r.agent != nil && r.agent.PID == 0:
-			temp = append(temp, r.agent)
-			total += r.agent.Temp
-		}
-	}
-	if len(wts)+len(temp) == 0 {
-		m.flash("nothing can go without losing work · x on a row removes it anyway, after saying what's lost", false)
+// askClearScratch asks before clearing what's yours in /tmp that nothing
+// has touched for a day.
+func (m *Model) askClearScratch() {
+	s := m.clean.tmp
+	if s.StaleItems == 0 {
+		m.flash("everything of yours in /tmp was touched in the last day; it stays", false)
 		return
 	}
 	m.confirm = &confirmation{
-		question: fmt.Sprintf("Remove %s: %d worktrees and %d agents' temp work?", disk(total), len(wts), len(temp)),
-		detail:   "only what's committed and pushed, or scratch · branches and conversations stay",
-		onYes: func() tea.Cmd {
-			cmds := []tea.Cmd{m.cleanTemp(temp)}
-			for _, w := range wts {
-				cmds = append(cmds, m.removeWorktree(w, false))
-			}
-			return tea.Batch(cmds...)
-		},
+		question: fmt.Sprintf("Delete %d things in /tmp, freeing %s?", s.StaleItems, disk(s.Stale)),
+		detail:   "only yours, and only what nothing has touched for a day · each is looked at again first",
+		onYes:    m.clearScratch,
 	}
+}
+
+func (m *Model) clearScratch() tea.Cmd {
+	m.flash("clearing /tmp…", false)
+	return func() tea.Msg {
+		freed, n, err := fleet.ClearScratch()
+		return scratchClearedMsg{freed: freed, n: n, err: err}
+	}
+}
+
+func (m *Model) onScratchCleared(msg scratchClearedMsg) tea.Cmd {
+	s := &m.clean.tmp
+	s.Items, s.StaleItems, s.Size, s.Stale = s.Items-msg.n, s.StaleItems-msg.n, s.Size-msg.freed, s.Stale-msg.freed
+	s.Checked = time.Now().Add(-time.Hour) // and look again at what's left
+	text := fmt.Sprintf("cleared %d things in /tmp · freed %s", msg.n, disk(msg.freed))
+	if msg.err != nil {
+		m.flash(text+" · "+msg.err.Error(), true)
+	} else {
+		m.flash(text, false)
+	}
+	return m.scanWorktrees()
 }
 
 func (m *Model) removeWorktree(wt fleet.Worktree, force bool) tea.Cmd {

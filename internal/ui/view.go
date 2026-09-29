@@ -454,6 +454,9 @@ func (m *Model) renderScreen() string {
 	case modeEff:
 		return m.frame(m.effBody(), m.effHint())
 	case modeProjects:
+		if m.sheet != nil {
+			return m.sheetView(m.frame(m.projectsBody(), m.projectsHint()))
+		}
 		return m.frame(m.projectsBody(), m.projectsHint())
 	case modeWall:
 		return m.frame(m.wallBody(m.w-4, m.wallH()), m.wallHint())

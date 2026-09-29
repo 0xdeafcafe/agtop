@@ -166,7 +166,23 @@ func (m *Model) projectRows() []workRow {
 		}
 		text("")
 	}
+	rows = append(rows, m.scratchRows(w)...)
 	return append(rows, m.systemRows(w, now)...)
+}
+
+// scratchRows are what's yours in /tmp: what agents wrote there and left.
+func (m *Model) scratchRows(w int) []workRow {
+	s := m.clean.tmp
+	if s.Checked.IsZero() || s.Items == 0 {
+		return nil
+	}
+	line := "  " + paint(cSub, "/tmp") + dim(fmt.Sprintf("  %d of yours · %s", s.Items, disk(s.Size)))
+	if s.StaleItems > 0 {
+		line += "   " + paint(cGreen, "✓ "+disk(s.Stale)) + paint(cGreen, fmt.Sprintf(" in %d untouched for a day", s.StaleItems)) + dim(" · x clears them")
+	} else {
+		line += dim("   all touched in the last day")
+	}
+	return []workRow{{line: rule("Scratch", "what agents left in /tmp", w)}, {id: "t", tmp: true, line: fit(line, w)}, {line: ""}}
 }
 
 // projectHead is what heads a project: its name and what its agents are
@@ -248,18 +264,20 @@ func (m *Model) worktreeRow(t string, f fleet.Folder, wt fleet.Worktree, agents,
 	case !wt.Safe():
 		mark, status = paint(cYellow, "✗"), paint(cYellow, "would lose "+wt.Losses())
 	case m.running(wt.Agents) != nil:
-		mark, status = paint(cGreen, "✓"), dim("clean and pushed")
+		mark, status = paint(cGreen, "✓"), dim("safe to remove")
+	case !wt.Pushed():
+		mark, status = paint(cGreen, "✓"), paint(cGreen, "safe to remove")+dim(" · in main, not pushed · x removes it")
 	default:
 		mark = paint(cGreen, "✓")
 		switch due := m.dueIn(wt.Agents, now); {
 		case due == 0:
-			status = paint(cGreen, "clean and pushed · goes at the next tidy-up")
+			status = paint(cGreen, "safe to remove · goes at the next tidy-up")
 		case due > 0:
-			status = paint(cGreen, "clean and pushed") + dim(" · goes in "+dur(due.Round(time.Minute)))
+			status = paint(cGreen, "safe to remove") + dim(" · goes in "+dur(due.Round(time.Minute)))
 		case agents == 0:
-			status = paint(cGreen, "clean and pushed") + dim(" · x removes it")
+			status = paint(cGreen, "safe to remove") + dim(" · x removes it")
 		default:
-			status = paint(cGreen, "clean and pushed") + dim(" · goes once its agents are done")
+			status = paint(cGreen, "safe to remove") + dim(" · goes once its agents are done")
 		}
 	}
 	return fit(b.String()+"   "+mark+" "+status, w)
@@ -444,12 +462,13 @@ func (m *Model) projectsSummary(w int) string {
 			safe += r.agent.Temp
 		}
 	}
+	safe += m.clean.tmp.Stale
 	s := dim(fmt.Sprintf("%s ram · %.0f%% cpu", mem(mc.TotalMem), mc.TotalCPU))
 	switch {
 	case m.clean.checking && m.clean.checked.IsZero():
 		s += dim(" · ") + paint(cOrange, spinner[m.tick%len(spinner)]) + dim(" looking at worktrees with git…")
 	case safe > 0:
-		s += dim(" · ") + paint(cGreen, disk(safe)) + dim(" can go without losing anything (A)")
+		s += dim(" · ") + paint(cGreen, disk(safe)) + dim(" can go without losing anything (c cleans up)")
 	}
 	return fit(s, w)
 }
@@ -485,9 +504,11 @@ func (m *Model) projectsHint() string {
 		}
 		return keysFit(w, append(k, "esc", "back")...)
 	case r.wt != nil:
-		return keysFit(w, "↑↓", "move", "x", "remove", "A", "remove all that's safe", "r", "check again", "←", "the project", "esc", "back")
+		return keysFit(w, "↑↓", "move", "x", "remove", "c", "clean up", "r", "check again", "←", "the project", "esc", "back")
+	case r.tmp:
+		return keysFit(w, "↑↓", "move", "x", "clear untouched", "c", "clean up", "r", "look again", "esc", "back")
 	case r.proj != nil:
-		return keysFit(w, "↑↓", "move", "enter", "into it", "A", "remove all that's safe", "[ ]", "pages", "esc", "back")
+		return keysFit(w, "↑↓", "move", "enter", "into it", "c", "clean up", "[ ]", "pages", "esc", "back")
 	}
 	k := []string{"↑↓", "move", "enter", "open", "ctrl+y", "its PR", "alt+g", "keep going"}
 	if r.a != nil && r.a.Temp >= tempShown && r.a.PID == 0 {
@@ -558,6 +579,8 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			return m.focusPane(r.a)
 		case r.wt != nil:
 			m.askRemoveWorktree(*r.wt)
+		case r.tmp:
+			m.askClearScratch()
 		}
 	case "ctrl+y":
 		return m.openPR(r.a)
@@ -569,6 +592,8 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			m.askRemoveWorktree(*r.wt)
 		case r.proc != nil:
 			m.endProc(*r.proc)
+		case r.tmp:
+			m.askClearScratch()
 		case r.a != nil && r.a.Temp >= tempShown:
 			m.askClean(r.a)
 		}
@@ -594,9 +619,10 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 				onYes:    func() tea.Cmd { return endOrphans(ends) },
 			}
 		}
-	case "A":
-		m.askCleanSafe(m.cleanRows())
+	case "A", "c":
+		return m.openCleanSheet()
 	case "r":
+		m.clean.tmp.Checked = time.Now().Add(-time.Hour) // /tmp too, not only when it's due
 		return m.scanWorktrees()
 	}
 	return nil

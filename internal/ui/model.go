@@ -777,6 +777,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case removedMsg:
 		m.onRemoved(msg)
 		return m, nil
+	case scratchClearedMsg:
+		return m, m.onScratchCleared(msg)
 	case squeezedMsg:
 		m.onSqueezed(msg)
 		return m, nil
@@ -873,6 +875,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeProjects && time.Since(m.clean.checked) > 2*time.Minute {
 			cmds = append(cmds, m.scanWorktrees()) // looked at when Projects opens, and every 2 minutes while it's open
+		} else if m.hosted == "" && m.tick > 120 && time.Since(m.clean.checked) > 6*time.Hour {
+			cmds = append(cmds, m.scanWorktrees()) // and every 6 hours anyway, to say when there's a lot to clean up
 		}
 		if m.tick%3 == 0 {
 			cmds = append(cmds, m.scan(), reloadConfig)

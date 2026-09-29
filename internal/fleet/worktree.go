@@ -27,18 +27,26 @@ type Worktree struct {
 	Claude bool     // under a repo's .claude/worktrees: made for an agent
 	Size   int64
 
-	Changed  int  // files with uncommitted changes, untracked ones included
-	Unpushed int  // commits on no remote
-	NoRemote bool // the repo has no remote at all
-	Locked   bool
-	Err      string
-	Checked  time.Time
+	Changed   int  // files with uncommitted changes, untracked ones included
+	Unpushed  int  // commits on no remote and not in main
+	OffRemote int  // commits on no remote, main or not
+	NoRemote  bool // the repo has no remote at all
+	Locked    bool
+	Err       string
+	Checked   time.Time
 }
 
-// Safe is a worktree whose every change is committed and on a remote:
-// removing it loses nothing but files git ignores (builds, dependencies).
+// Safe is a worktree whose every change is committed, and on a remote or
+// in the main checkout's branch: removing it loses nothing but files git
+// ignores (builds, dependencies).
 func (w Worktree) Safe() bool {
-	return w.Err == "" && !w.Checked.IsZero() && w.Changed == 0 && w.Unpushed == 0 && !w.NoRemote && !w.Locked
+	return w.Err == "" && !w.Checked.IsZero() && w.Changed == 0 && w.Unpushed == 0 && !w.Locked
+}
+
+// Pushed is Safe with every commit on a remote: what the automatic
+// tidy-up asks for. Work only in a local main goes only when you say so.
+func (w Worktree) Pushed() bool {
+	return w.Safe() && w.OffRemote == 0 && !w.NoRemote
 }
 
 // Losses says what removing it would throw away, for a confirmation.
@@ -47,10 +55,8 @@ func (w Worktree) Losses() string {
 	if w.Changed > 0 {
 		out = append(out, plural(w.Changed, "file")+" with uncommitted changes")
 	}
-	if w.NoRemote {
-		out = append(out, "every commit (the repo has no remote)")
-	} else if w.Unpushed > 0 {
-		out = append(out, plural(w.Unpushed, "commit")+" not pushed")
+	if w.Unpushed > 0 {
+		out = append(out, plural(w.Unpushed, "commit")+" not pushed or in main")
 	}
 	if w.Locked {
 		out = append(out, "a lock someone put on it")
@@ -165,16 +171,51 @@ func (w *Worktree) checkGit() bool {
 	}
 	remotes, _ := git(w.Path, "remote")
 	w.NoRemote = strings.TrimSpace(remotes) == ""
-	w.Unpushed = 0
-	if !w.NoRemote {
-		n, err := git(w.Path, "rev-list", "--count", "HEAD", "--not", "--remotes")
-		if err != nil {
-			w.Err = "couldn't compare with the remote"
-			return false
-		}
-		w.Unpushed, _ = strconv.Atoi(n)
+	n, off, err := unkept(w.Path, w.Repo, w.NoRemote)
+	if err != nil {
+		w.Err = "couldn't compare with the remote"
+		return false
 	}
+	w.Unpushed, w.OffRemote = n, off
 	return true
+}
+
+// unkept counts the worktree's commits that are nowhere else: on no remote,
+// and not in the main checkout's branch, as themselves or cherry-picked.
+// Work an agent's branch handed back to main is kept there, pushed or not.
+// off is those on no remote, in main or not.
+func unkept(path, repo string, noRemote bool) (n, off int, err error) {
+	args := []string{"rev-list", "HEAD"}
+	if !noRemote {
+		args = append(args, "--not", "--remotes")
+	}
+	out, err := git(path, args...)
+	if err != nil || out == "" {
+		return 0, 0, err
+	}
+	shas := strings.Fields(out)
+	base, err := git(repo, "rev-parse", "HEAD")
+	if err != nil {
+		return len(shas), len(shas), nil
+	}
+	// git cherry marks with + what base has no equivalent of, and doesn't
+	// list what base already contains.
+	cherry, err := git(path, "cherry", base, "HEAD")
+	if err != nil {
+		return len(shas), len(shas), nil
+	}
+	unique := map[string]bool{}
+	for _, l := range strings.Split(cherry, "\n") {
+		if sha, ok := strings.CutPrefix(l, "+ "); ok {
+			unique[sha] = true
+		}
+	}
+	for _, s := range shas {
+		if unique[s] {
+			n++
+		}
+	}
+	return n, len(shas), nil
 }
 
 // RemoveWorktree removes a worktree through git, which also forgets it in
@@ -185,11 +226,14 @@ func RemoveWorktree(w Worktree, force bool) error {
 	return err
 }
 
-// TidyWorktree is RemoveWorktree unforced, for clean-up: it says how much
-// disk went, measured only once git has said the worktree is safe to go,
-// since walking a big checkout takes seconds.
+// TidyWorktree is RemoveWorktree for the automatic clean-up: only a
+// worktree whose every commit is pushed goes. It says how much disk went,
+// measured only once git has said the worktree is safe to go, since walking
+// a big checkout takes seconds.
 func TidyWorktree(w Worktree) (int64, error) { return removeWorktree(w, false, true) }
 
+// removeWorktree removes w; measure is the automatic clean-up, which asks
+// for Pushed rather than Safe.
 func removeWorktree(w Worktree, force, measure bool) (int64, error) {
 	if err := linkedWorktree(w); err != nil {
 		return 0, err
@@ -199,6 +243,9 @@ func removeWorktree(w Worktree, force, measure bool) (int64, error) {
 		c.checkGit()
 		if !c.Safe() {
 			return 0, fmt.Errorf("%s isn't safe to remove: %s", filepath.Base(w.Path), firstNonEmpty(c.Losses(), c.Err))
+		}
+		if measure && !c.Pushed() {
+			return 0, fmt.Errorf("%s isn't safe to remove: %s", filepath.Base(w.Path), "its commits are only in a local main")
 		}
 	}
 	var size int64

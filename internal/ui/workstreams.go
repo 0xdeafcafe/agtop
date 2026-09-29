@@ -148,11 +148,12 @@ type workRow struct {
 	a     *fleet.Agent
 	wt    *fleet.Worktree
 	proc  *procRow
+	tmp   bool   // the Scratch row
 	owner string // the project an agent or worktree row is inside
 }
 
 func (r workRow) pickable() bool {
-	return r.id != "" && (r.proj != nil || r.a != nil || r.wt != nil || r.proc != nil)
+	return r.id != "" && (r.proj != nil || r.a != nil || r.wt != nil || r.proc != nil || r.tmp)
 }
 
 // workSession is a session in Projects: its state, then how far through

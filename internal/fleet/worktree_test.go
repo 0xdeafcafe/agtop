@@ -18,7 +18,8 @@ func run(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// A worktree goes only when every change in it is committed and pushed.
+// A worktree goes only when every change in it is committed, and pushed or
+// in main.
 func TestWorktreeSafety(t *testing.T) {
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	remote, repo := filepath.Join(root, "remote.git"), filepath.Join(root, "repo")
@@ -55,12 +56,21 @@ func TestWorktreeSafety(t *testing.T) {
 	run(t, wt, "add", ".")
 	run(t, wt, "commit", "-qm", "b")
 	w := find()
-	if w.Safe() || w.Unpushed != 1 || w.Losses() != "1 commit not pushed" {
+	if w.Safe() || w.Unpushed != 1 || w.Losses() != "1 commit not pushed or in main" {
 		t.Fatalf("unpushed: %+v %q", w, w.Losses())
 	}
 	if err := RemoveWorktree(w, false); err == nil {
 		t.Fatal("removed a worktree with an unpushed commit")
 	}
+	// Cherry-picked into main, not pushed: main keeps it, so it's safe.
+	run(t, repo, "cherry-pick", "feature")
+	if w = find(); !w.Safe() || w.Pushed() {
+		t.Fatalf("in main: %+v %q", w, w.Losses())
+	}
+	if _, err := TidyWorktree(w); err == nil {
+		t.Fatal("the tidy-up removed work only in a local main")
+	}
+	run(t, repo, "reset", "-q", "--hard", "HEAD~1")
 	// Pushed, and an ignored build folder: safe, and it goes.
 	run(t, wt, "push", "-q", "origin", "feature")
 	_ = os.WriteFile(filepath.Join(wt, ".gitignore"), []byte("dist/\n.gitignore\n"), 0o644)
@@ -99,7 +109,7 @@ func TestWorktreeForce(t *testing.T) {
 	}
 	ws[0].Check()
 	if ws[0].Safe() || !ws[0].NoRemote {
-		t.Fatalf("no remote should never be safe: %+v", ws[0])
+		t.Fatalf("uncommitted with no remote isn't safe: %+v", ws[0])
 	}
 	// Never the repository itself, nor a folder holding it, even forced.
 	for _, bad := range []Worktree{{Path: repo, Repo: repo}, {Path: root, Repo: repo}, {Path: wt, Repo: root}} {
