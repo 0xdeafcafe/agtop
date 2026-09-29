@@ -1,10 +1,12 @@
 package claude
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -122,6 +124,35 @@ func readJob(acct claude.Account, id, dir string) (claude.Job, bool) {
 	return j, true
 }
 
+// codenames is each live session's name for the others (agtop-8a, as
+// ListAgents lists it) by session id, kept apart from found so the UI can
+// read it without waiting on a listing. A session that ended keeps its
+// name: messages sent to it earlier still name it.
+var codenames atomic.Pointer[map[string]string]
+
+// Codenames is what codenames holds. Don't change it.
+func (Adapter) Codenames() map[string]string { return knownCodenames() }
+
+func knownCodenames() map[string]string {
+	if p := codenames.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// noteCodename keeps s's name in codenames, copying the map only when it
+// changes. Called with found held, so only one writer runs at a time.
+func noteCodename(s claude.Session) {
+	cur := knownCodenames()
+	if s.Name == "" || cur[s.SessionID] == s.Name {
+		return
+	}
+	next := make(map[string]string, len(cur)+1)
+	maps.Copy(next, cur)
+	next[s.SessionID] = s.Name
+	codenames.Store(&next)
+}
+
 // readSessions is acct's session files whose process is alive, parsing
 // only the files that changed. Called with found held.
 func readSessions(acct claude.Account) []claude.Session {
@@ -146,6 +177,9 @@ func readSessions(acct claude.Account) []claude.Session {
 			r = sessionRead{mod: mod, size: size}
 			r.s, r.ok = claude.ReadSession(path)
 			found.sessions[path] = r
+			if r.ok {
+				noteCodename(r.s)
+			}
 		}
 		if r.ok && claude.Alive(r.s.PID) {
 			out = append(out, r.s)

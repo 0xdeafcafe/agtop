@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"github.com/0xdeafcafe/agtop/internal/agent/tool"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
+	"github.com/charmbracelet/x/ansi"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -60,6 +63,35 @@ func (d *drawer) recipient(st *Step) string {
 }
 
 var hexID = regexp.MustCompile(`^a?[0-9a-f]{12,}$`)
+
+// peers is each session's name as agtop lists it, by the codename other
+// sessions know it by (agtop-8a, as ListAgents gives it).
+var peers atomic.Pointer[map[string]string]
+
+// SetPeers is who each codename is, as the list names them now. What was
+// drawn before they changed is drawn again.
+func SetPeers(names map[string]string) {
+	if old := peers.Load(); old != nil && maps.Equal(*old, names) {
+		return
+	}
+	peers.Store(&names)
+	lookupsGen.Add(1)
+}
+
+// sentTo is who a message went to, a session named as the list names it
+// with its codename after.
+// ponytail: a one-line label is memoized by step alone, so a session
+// renamed after it was drawn keeps its old name in that row; stepKey would
+// need a peers generation to follow it.
+func (d *drawer) sentTo(st *Step) string {
+	to := d.stepMemo(st, 'r', d.recipient)
+	if p := peers.Load(); p != nil {
+		if n := oneLine((*p)[to]); n != "" && n != to {
+			return ansi.Truncate(n, 32, "…") + " (" + to + ")"
+		}
+	}
+	return to
+}
 
 // delivery is how a message went, for the card's bottom edge.
 func delivery(st *Step) string {
@@ -135,7 +167,7 @@ func (d *drawer) message(st *Step, ref string, indent int) {
 	}
 	switch st.Tool {
 	case "SendMessage":
-		headL += paint(mark, "→") + " " + dim("to ") + text(d.stepMemo(st, 'r', d.recipient))
+		headL += paint(mark, "→") + " " + dim("to ") + text(d.sentTo(st))
 	case "SubagentHandback":
 		headL += paint(mark, "↩") + " " + dim("reported back")
 	case "PushNotification":
@@ -180,7 +212,7 @@ func (d *drawer) toolLabel(st *Step, lbl func(string) string) (string, bool) {
 	switch st.Tool {
 	case "SendMessage":
 		body, gist := messageText(in)
-		return g("→") + lbl("to "+d.stepMemo(st, 'r', d.recipient)) + "  " + faint(firstNonEmpty(gist, oneLine(body))), true
+		return g("→") + lbl("to "+d.sentTo(st)) + "  " + faint(firstNonEmpty(gist, oneLine(body))), true
 	case "SubagentHandback":
 		body, _ := messageText(in)
 		return g("↩") + lbl("reported back") + "  " + faint(oneLine(body)), true

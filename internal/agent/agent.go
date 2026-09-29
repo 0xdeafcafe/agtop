@@ -82,3 +82,9 @@ type Command struct {
 	Source       string // yours, project, the agent's cloud, or the plugin's name
 	Size         int64  // of the file: roughly what using it adds
 }
+
+// Codenamer is an agent whose sessions have names for each other, the
+// ones their messages to one another use ("agtop-8a"), by session id.
+type Codenamer interface {
+	Codenames() map[string]string
+}

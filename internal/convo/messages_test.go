@@ -67,3 +67,32 @@ func TestMessageCard(t *testing.T) {
 		t.Errorf("opened message:\n%s", got)
 	}
 }
+
+// A message to another session names it as the list does, its codename
+// after; one to a name no session has reads as it was sent.
+func TestMessageToSession(t *testing.T) {
+	SetPeers(map[string]string{"agtop-8a": "Settings plugins refactor"})
+	t.Cleanup(func() { SetPeers(nil) })
+	s := New()
+	s.Info.Cwd = "/work"
+	for i, e := range []any{
+		host.Sent{Text: "go"},
+		toolUse("m1", "SendMessage", map[string]any{"to": "agtop-8a", "message": "Rebased, over to you."}),
+		toolResult("m1", "", false, map[string]any{"success": true}),
+		toolUse("m2", "SendMessage", map[string]any{"to": "main", "message": "Done."}),
+		toolResult("m2", "", false, map[string]any{"success": true}),
+		headless.Result{Subtype: "success"},
+	} {
+		s.Apply(e, at(i))
+	}
+	got := plain(s.Render(Options{Width: 100, Now: at(20)}))
+	for _, w := range []string{"→ to Settings plugins refactor (agtop-8a) ─", "→ to main ─"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in\n%s", w, got)
+		}
+	}
+	// The one-line form, too narrow for the card, says the same.
+	if got := plain(s.Render(Options{Width: 24, Now: at(20)})); !strings.Contains(got, "to Settings") {
+		t.Errorf("narrow:\n%s", got)
+	}
+}

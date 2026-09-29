@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"maps"
 	"strings"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
@@ -68,6 +71,7 @@ func (m *Model) loadSidebars() {
 // where you renamed one in agtop, and gives back the names it took over
 // from an arrangement no longer in use.
 func (m *Model) nameAgents(sb *plugin.Sidebar) {
+	defer m.namePeers()
 	for a, name := range m.renamed {
 		a.DisplayName = name
 	}
@@ -86,6 +90,27 @@ func (m *Model) nameAgents(sb *plugin.Sidebar) {
 		m.renamed[a] = a.DisplayName
 		a.DisplayName = p.Name
 	}
+}
+
+// namePeers tells the conversation view which session each codename is,
+// so a message sent to another session names it as the list does. A
+// codename used again goes to the session that has it now.
+func (m *Model) namePeers() {
+	codes := map[string]string{}
+	for _, ad := range agent.All() {
+		if cn, ok := ad.(agent.Codenamer); ok {
+			maps.Copy(codes, cn.Codenames())
+		}
+	}
+	names := make(map[string]string, len(codes))
+	for _, a := range m.snap.Agents {
+		c := codes[a.SessionID]
+		if _, ok := names[c]; c == "" || ok && a.PID == 0 {
+			continue
+		}
+		names[c] = a.DisplayName
+	}
+	convo.SetPeers(names)
 }
 
 // sidebarPlace is the section an agent goes in under the arrangement, how
