@@ -264,14 +264,10 @@ func TestTypedImages(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "shot one.png")
 	_ = os.WriteFile(p, []byte("x"), 0o644)
-	in, imgs := pullImages([]rune("look "+strings.ReplaceAll(p, " ", `\ `)+" "), nil, statLook)
-	if len(imgs) != 1 || string(in) != "look " {
-		t.Fatalf("pullImages = %q %v", string(in), imgs)
-	}
 	if got := shortImages("see [image: " + p + "] ok"); got != "see ▣ shot one.png ok" {
 		t.Fatalf("shortImages = %q", got)
 	}
-	// Typed into the new-session box, the path becomes a chip at the space.
+	// Typed into the new-session box, the path becomes its marker at the space.
 	m, _ := benchModel(120, 40)
 	m.paneFocus = false
 	for _, r := range "look " + strings.ReplaceAll(p, " ", `\ `) {
@@ -279,8 +275,12 @@ func TestTypedImages(t *testing.T) {
 	}
 	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	m.drain(cmd) // whether it's a file is read off the UI goroutine
-	if string(m.input) != "look " || len(m.images) != 1 {
-		t.Fatalf("typed path: input %q images %v", string(m.input), m.images)
+	if string(m.input) != "look [Image #1] " || m.imgs.Path[1] != p {
+		t.Fatalf("typed path: input %q images %v", string(m.input), m.imgs.Path)
+	}
+	// Sent to Claude Code, the marker is the file's path.
+	if got := m.imgs.paths("look [Image #1] [Image #9]"); got != "look [image: "+p+"] [Image #9]" {
+		t.Fatalf("paths = %q", got)
 	}
 }
 

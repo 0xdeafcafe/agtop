@@ -110,8 +110,8 @@ func TestLayoutHeights(t *testing.T) {
 	for _, w := range []int{0, 10, 40, 120} {
 		for _, in := range []string{"", "short", "/s", "/sort ", strings.Repeat("a long message that wraps ", 40)} {
 			for _, focus := range []bool{false, true} {
-				for _, imgs := range [][]string{nil, {"/tmp/a.png"}} {
-					m.input, m.paneFocus, m.images = []rune(in), focus, imgs
+				for _, imgs := range []map[int]string{nil, {1: "/tmp/a.png"}} {
+					m.input, m.paneFocus, m.imgs = []rune(in+"[Image #1]"), focus, imageRefs{N: len(imgs), Path: imgs}
 					if got, want := m.promptH(w), len(m.promptLines(w)); got != want {
 						t.Fatalf("w=%d input=%d focus=%v images=%d: promptH %d, drawn %d", w, len(in), focus, len(imgs), got, want)
 					}

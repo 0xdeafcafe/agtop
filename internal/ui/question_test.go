@@ -4,7 +4,6 @@ import (
 	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -725,20 +724,6 @@ func TestUpFromTheBox(t *testing.T) {
 	key("up")
 	if c.sel != "q:0" {
 		t.Fatalf("↑: on %q, want q:0", c.sel)
-	}
-}
-
-// The picked attachment stays in view however many there are.
-func TestChipsKeepPickInView(t *testing.T) {
-	var imgs []string
-	for i := range 12 {
-		imgs = append(imgs, "/tmp/screenshot-"+strconv.Itoa(i)+".png")
-	}
-	for _, pick := range []int{0, 5, 11} {
-		l := ansi.Strip(chips(imgs, 90, pick, true))
-		if !strings.Contains(l, "▍▣ ") {
-			t.Errorf("pick %d not in view: %s", pick, l)
-		}
 	}
 }
 

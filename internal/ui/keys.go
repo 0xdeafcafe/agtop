@@ -271,18 +271,11 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	a := m.selected()
 	empty := len(m.input) == 0
-	if (s == "backspace" || s == "ctrl+h") && empty && len(m.images) > 0 {
-		m.images = m.images[:len(m.images)-1]
-		return nil
-	}
 	if s == "ctrl+v" && m.acceptsText() && m.dialog == nil {
 		return pasteClipImage()
 	}
 	if cmd, used := m.fleetSlashKey(s); used {
 		return cmd
-	}
-	if s == "enter" && empty && len(m.images) > 0 && m.inKind == inPrompt {
-		return m.startHosted("", m.startDir())
 	}
 	switch s {
 	case "up":
@@ -519,9 +512,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if s == "space" && (m.inKind == inPrompt || m.inKind == inReply) && m.anchor == 0 {
 		// A path to an image, typed or dropped in as keys, becomes an
 		// attachment once it's done.
-		if in, imgs := pullImages(m.input, m.images, m.lookPath); len(imgs) > len(m.images) {
-			m.input, m.images = in, imgs
-			m.setCursor(len(in))
+		if t, ok := m.imgs.inline(string(m.input), m.lookPath); ok {
+			m.input = []rune(t)
+			m.setCursor(len(m.input))
 		}
 	}
 	if string(m.input) != before {
@@ -680,8 +673,8 @@ func (m *Model) replyTo(a *fleet.Agent, text, tagged string) tea.Cmd {
 	if a.Rush {
 		return sendHosted(a, tagged)
 	}
-	text = withImages(text, m.images)
-	m.images = nil
+	text = m.imgs.paths(text)
+	m.imgs = imageRefs{}
 	if a.Past {
 		return m.moveToRushWith(a, text)
 	}

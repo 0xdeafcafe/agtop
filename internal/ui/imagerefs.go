@@ -79,6 +79,21 @@ func (r *imageRefs) resolve(text string) (string, []string) {
 	return out, images
 }
 
+// paths is text with each marker whose image is this box's as the file's
+// path, [image: /a.png], which Claude Code opens itself.
+func (r imageRefs) paths(text string) string {
+	if len(r.Path) == 0 {
+		return text
+	}
+	return imageMarkerRe.ReplaceAllStringFunc(text, func(mk string) string {
+		id, _ := strconv.Atoi(imageMarkerRe.FindStringSubmatch(mk)[1])
+		if p, ok := r.Path[id]; ok {
+			return "[image: " + p + "]"
+		}
+		return mk
+	})
+}
+
 // clone is a copy that doesn't share the map.
 func (r imageRefs) clone() imageRefs {
 	c := imageRefs{N: r.N}

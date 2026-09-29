@@ -61,9 +61,10 @@ func TestDumpFrames(t *testing.T) {
 		frame(name+" command", m)
 		m.input = []rune(strings.Repeat("a long message that wraps ", 30))
 		frame(name+" long input", m)
-		m.images = []string{"/tmp/shot.png"}
+		m.input = []rune("look at [Image #1]")
+		m.imgs = imageRefs{N: 1, Path: map[int]string{1: "/tmp/shot.png"}}
 		frame(name+" images", m)
-		m.paneFocus, m.images = true, nil
+		m.paneFocus, m.imgs = true, imageRefs{}
 		m.host.input = nil
 		frame(name+" empty box", m)
 		m.host.sel = "t300"

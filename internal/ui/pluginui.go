@@ -2,7 +2,6 @@ package ui
 
 import (
 	"maps"
-	"slices"
 	"strings"
 	"time"
 
@@ -377,14 +376,7 @@ func (m *Model) boxState() (*plugin.Box, string, bool) {
 		c := m.host
 		return &plugin.Box{Text: string(c.input), Cursor: max(0, len(c.input)-c.back), Pastes: maps.Clone(c.pastes.text), Images: maps.Clone(c.imgs.Path)}, who, true
 	}
-	b := &plugin.Box{Text: string(m.input), Cursor: max(0, len(m.input)-m.back), Pastes: maps.Clone(m.pastes.text)}
-	for i, p := range m.images {
-		if b.Images == nil {
-			b.Images = map[int]string{}
-		}
-		b.Images[i+1] = p
-	}
-	return b, "", true
+	return &plugin.Box{Text: string(m.input), Cursor: max(0, len(m.input)-m.back), Pastes: maps.Clone(m.pastes.text), Images: maps.Clone(m.imgs.Path)}, "", true
 }
 
 // setBox is a plugin setting a message box: a session's, when it's the one
@@ -427,9 +419,9 @@ func (m *Model) setBox(d plugin.UIDo) {
 	for n := range b.Pastes {
 		m.pastes.n = max(m.pastes.n, n)
 	}
-	m.images = nil
-	for _, n := range slices.Sorted(maps.Keys(b.Images)) {
-		m.images = append(m.images, b.Images[n])
+	m.imgs = imageRefs{Path: maps.Clone(b.Images)}
+	for n := range b.Images {
+		m.imgs.N = max(m.imgs.N, n)
 	}
 }
 

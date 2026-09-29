@@ -139,9 +139,9 @@ type Model struct {
 	// paneFocus sends keys to a rush-mode session's pane instead of the
 	// list and its prompt.
 	paneFocus bool
-	dragging  bool     // resizing the list by its edge
-	boxDrag   int      // selecting by dragging in an input box: 1 the Session's, 2 the prompt's
-	images    []string // image files attached to the prompt's next message
+	dragging  bool      // resizing the list by its edge
+	boxDrag   int       // selecting by dragging in an input box: 1 the Session's, 2 the prompt's
+	imgs      imageRefs // images in the Prompt, each [Image #N] in its text
 	// claudeView is a Claude Code agent's Session view: 0 its live screen,
 	// 1 the summary.
 	claudeView int
@@ -1114,18 +1114,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, pasteClipImage()
 		}
 		// Image files dropped onto the terminal arrive as a paste of their
-		// paths. In a Session's box each becomes [Image #N] where it was
-		// dropped; in the Prompt, an attachment.
+		// paths. In either box each becomes [Image #N] where it was dropped.
 		if c := m.host; c != nil && m.paneFocus && m.dialog == nil {
 			if t, ok := c.imgs.inline(msg.Content, m.lookPath); ok {
 				msg.Content = t
 			}
-		} else if rest, imgs := extractImages(msg.Content, m.lookPath); imgs != nil && m.dialog == nil {
-			m.attachImages(imgs)
-			if rest == "" {
-				return m, nil
+		} else if m.dialog == nil {
+			if t, ok := m.imgs.inline(msg.Content, m.lookPath); ok {
+				msg.Content = t
 			}
-			msg.Content = rest // the words around them go in as text
 		}
 		// A paste goes into whichever box has focus, at its cursor, newlines
 		// kept so a pasted log or snippet arrives whole.

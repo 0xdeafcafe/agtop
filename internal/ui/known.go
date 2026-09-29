@@ -220,9 +220,9 @@ func (m *Model) statPaste(msg tea.PasteMsg) tea.Cmd {
 // found: as a space or enter after them would have.
 func (m *Model) pathsLanded() tea.Cmd {
 	if m.inKind == inPrompt || m.inKind == inReply {
-		if in, imgs := pullImages(m.input, m.images, m.lookPath); len(imgs) > len(m.images) {
-			m.input, m.images = in, imgs
-			m.setCursor(len(in))
+		if t, ok := m.imgs.inline(string(m.input), m.lookPath); ok {
+			m.input = []rune(t)
+			m.setCursor(len(m.input))
 		}
 	}
 	if c := m.host; c != nil {

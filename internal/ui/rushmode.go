@@ -3197,12 +3197,11 @@ func (m *Model) canResume(a *fleet.Agent) bool {
 // then whatever with changes.
 func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cmd {
 	d := m.store.Config.Dispatch
-	images := m.images
+	text, images := m.imgs.resolve(text)
 	if rest, imgs := extractImages(text, m.lookPath); imgs != nil {
 		images, text = append(images, imgs...), rest
 	}
-	m.images = nil
-	name := sessionName(convo.FoldPastes(text))
+	name := sessionName(strings.TrimSpace(imageMarkerRe.ReplaceAllString(convo.FoldPastes(text), "")))
 	if name == "" && len(images) > 0 {
 		name = "about " + filepath.Base(images[0])
 	}
@@ -3211,10 +3210,10 @@ func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cm
 	}
 	kind, profile := m.startKindIn(dir), m.startProfile(dir).Name
 	if why := agent.Unreadable(agent.Kind(kind), d.StartFor(kind).Model, images); why != "" {
-		m.images = images
 		m.flash(why, true)
 		return nil
 	}
+	m.imgs = imageRefs{}
 	m.accts.profile = "" // a profile picked with #profile is for one session
 	// Each agent starts with what its own Settings page says.
 	st := d.StartFor(kind)

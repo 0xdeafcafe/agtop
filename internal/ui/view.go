@@ -1918,7 +1918,7 @@ func (m *Model) promptBoxAt(w int) box {
 	} else if m.chipHot.box == 2 {
 		b.hot = m.chipHot.at
 	}
-	return b
+	return b.named(m.imgs)
 }
 
 // promptH is len(m.promptLines(w)), without drawing them.
@@ -1927,9 +1927,6 @@ func (m *Model) promptH(w int) int {
 		return 0
 	}
 	n := 2 + m.promptBoxAt(w).rows() + 1
-	if len(m.images) > 0 && w > 0 {
-		n++ // the chips
-	}
 	if cmds, _ := m.promptPicker(); len(cmds) > 0 && !m.pickerOverCard() {
 		n += min(len(cmds), 6) + 1 // the picker
 	}
@@ -2003,9 +2000,6 @@ func (m *Model) promptLines(w int) []string {
 	var out []string
 	if !m.pickerOverCard() {
 		out = m.fleetSlashLines(w)
-	}
-	if l := chips(m.images, w, -1, false); l != "" {
-		out = append(out, l)
 	}
 	m.promptBox, m.promptBoxIdx = b, len(out)
 	out = append(out, b.lines()...)

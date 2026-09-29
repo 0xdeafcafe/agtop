@@ -96,27 +96,31 @@ func clipImage() (string, error) {
 	return out, nil
 }
 
-// attachImages adds image files to whichever box has focus: in a
-// Session's box as [Image #N] at the cursor, in the Prompt as chips.
+// attachImages adds image files to whichever box has focus, each as
+// [Image #N] at the cursor.
 func (m *Model) attachImages(imgs []string) {
 	if c := m.host; c != nil && m.paneFocus {
-		// Each goes in the text as its marker, at the cursor.
-		var marks []string
-		for _, p := range imgs {
-			marks = append(marks, c.imgs.add(p))
-		}
-		pos := max(0, len(c.input)-c.back)
 		c.undo.save(c.input, c.back, false)
-		ins := strings.Join(marks, " ")
-		if pos > 0 && c.input[pos-1] != ' ' && c.input[pos-1] != '\n' {
-			ins = " " + ins
-		}
-		if pos < len(c.input) && c.input[pos] != ' ' {
-			ins += " "
-		}
-		c.input = insert(c.input, pos, []rune(ins))
+		c.input = withMarks(c.input, max(0, len(c.input)-c.back), &c.imgs, imgs)
 		return
 	}
-	m.images = append(m.images, imgs...)
-	m.flash(fmt.Sprintf("attached %d image(s)", len(imgs)), false)
+	m.undo.save(m.input, m.back, false)
+	m.input = withMarks(m.input, m.cursorPos(), &m.imgs, imgs)
+}
+
+// withMarks is buf with a marker for each image put in at pos, spaced off
+// the words either side.
+func withMarks(buf []rune, pos int, r *imageRefs, imgs []string) []rune {
+	marks := make([]string, 0, len(imgs))
+	for _, p := range imgs {
+		marks = append(marks, r.add(p))
+	}
+	ins := strings.Join(marks, " ")
+	if pos > 0 && buf[pos-1] != ' ' && buf[pos-1] != '\n' {
+		ins = " " + ins
+	}
+	if pos < len(buf) && buf[pos] != ' ' {
+		ins += " "
+	}
+	return insert(buf, pos, []rune(ins))
 }
