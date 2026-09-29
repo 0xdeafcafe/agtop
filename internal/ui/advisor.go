@@ -27,21 +27,32 @@ type advRanMsg struct {
 	rec   *advisor.Record // as saved, when a pass ran
 	fresh []advisor.Finding
 	err   error
+	// seen is the record as read when no pass ran, and off says the
+	// advisor was turned off in another agtop.
+	seen *advisor.Record
+	off  bool
 }
 
 // advCheck is how often the tick asks whether a pass is due; the question
 // itself costs a scan of new transcript lines.
 const advCheck = 10 * time.Minute
 
+// noRecord stands in for the record until it's been read. Nothing may
+// change it.
+var noRecord = &advisor.Record{}
+
+// advRecord is the record as last read, from memory: it's read in the
+// background, with the Efficiency place's figures and on each tick's look.
 func (m *Model) advRecord() *advisor.Record {
-	a := &m.eff.adv
-	if a.rec == nil {
-		a.rec = advisor.Load()
+	if rec := m.eff.adv.rec; rec != nil {
+		return rec
 	}
-	return a.rec
+	return noRecord
 }
 
-// advTick starts a pass when the advisor is on and one may be due.
+// advTick starts a pass when the advisor is on and one may be due. Whether
+// one is, and whether another agtop turned the advisor off, is asked off
+// the UI, in the pass's own command.
 func (m *Model) advTick() tea.Cmd {
 	if !m.store.Config.Advisor || m.hosted != "" || m.offline {
 		return nil
@@ -54,24 +65,20 @@ func (m *Model) advTick() tea.Cmd {
 		return nil
 	}
 	a.checked = time.Now()
-	if !advisor.Enabled() {
-		// Turned off in another agtop: don't run, and don't write it back
-		// on when this one saves its config.
-		m.store.Config.Advisor = false
-		return nil
+	if rec := a.rec; rec != nil && !rec.LastRun.IsZero() && time.Since(rec.LastRun) < advisor.Gap {
+		return nil // the pass's command reads it again, for another agtop's
 	}
-	// Read again: another agtop may have run one since.
-	a.rec = advisor.Load()
-	if !a.rec.LastRun.IsZero() && time.Since(a.rec.LastRun) < advisor.Gap {
-		return nil
-	}
-	cmd, _ := m.advRun(false)
+	cmd, _ := m.advPass(false, true)
 	return cmd
 }
 
 // advRun runs a pass: when it's due, or regardless when force is set. It
 // says why not when it can't start one.
-func (m *Model) advRun(force bool) (tea.Cmd, string) {
+func (m *Model) advRun(force bool) (tea.Cmd, string) { return m.advPass(force, false) }
+
+// advPass is advRun; a pass the tick starts first asks whether another
+// agtop turned the advisor off.
+func (m *Model) advPass(force, tick bool) (tea.Cmd, string) {
 	a := &m.eff.adv
 	if a.running {
 		return nil, "the advisor is already looking"
@@ -95,58 +102,78 @@ func (m *Model) advRun(force bool) (tea.Cmd, string) {
 	store := m.eff.store
 	return func() tea.Msg {
 		defer cancel()
-		unlock, ok := advisor.Lock()
-		if !ok {
-			if force {
-				return advRanMsg{err: errors.New("another agtop is already looking")}
-			}
-			return advRanMsg{} // another agtop is running one
+		if tick && !advisor.Enabled() {
+			return advRanMsg{off: true}
 		}
-		defer unlock()
-		rec := advisor.Load()
-		if !force && (!rec.LastRun.IsZero() && time.Since(rec.LastRun) < advisor.Gap || !advisor.Active(acct, rec.LastRun)) {
-			return advRanMsg{}
-		}
-		if store == nil {
-			store = efficiency.Open()
-		}
-		store.Refresh([]claude.Account{acct})
-		now := time.Now()
-		week := efficiency.NewQuery(efficiency.Ranges[1], now)
-		week.Accounts = []string{acct.ConfigDir}
-		fresh := week
-		if rec.LastRun.After(fresh.From) {
-			fresh.From, fresh.Daily = rec.LastRun, false
-		}
-		if !force && !rec.Due(now, store.View(fresh).Total.Req) {
-			return advRanMsg{}
-		}
-		v := store.View(week)
-		if v.Total.Req == 0 {
-			return advRanMsg{err: errors.New("nothing to look at in the last week")}
-		}
-		if err := advisor.Begin(now); err != nil {
-			return advRanMsg{err: err}
-		}
-		found := efficiency.Observe(efficiency.LoadEnv(acct))
-		in := advisor.Input{View: v, Found: found, Findings: efficiency.Findings(v, found), Top: store.TopSessions(week, 8),
-			Known: rec.Known(), Settled: rec.Settled(), Pending: rec.Pending(),
-			Reserve: func() error { return advisor.Reserve(time.Now()) }}
-		res := advisor.Pass(ctx, acct, in, rec.ReviewsLeft(now))
-		// Merged into what's on disk now, under the lock: you may have put
-		// one away while it ran.
-		rec = advisor.Load()
-		got := rec.Merge(res)
-		if err := rec.Save(); err != nil && res.Err == nil {
-			res.Err = err
-		}
-		return advRanMsg{rec: rec, fresh: got, err: res.Err}
+		return advPassOff(ctx, force, acct, store)
 	}, ""
+}
+
+// advPassOff is a pass, off the UI: it takes the advisor's lock, and runs
+// only when one is due, or forced.
+func advPassOff(ctx context.Context, force bool, acct claude.Account, store *efficiency.Store) tea.Msg {
+	unlock, ok := advisor.Lock()
+	if !ok {
+		if force {
+			return advRanMsg{err: errors.New("another agtop is already looking")}
+		}
+		return advRanMsg{} // another agtop is running one
+	}
+	defer unlock()
+	rec := advisor.Load()
+	if !force && (!rec.LastRun.IsZero() && time.Since(rec.LastRun) < advisor.Gap || !advisor.Active(acct, rec.LastRun)) {
+		return advRanMsg{seen: rec}
+	}
+	if store == nil {
+		store = efficiency.Open()
+	}
+	store.Refresh([]claude.Account{acct})
+	now := time.Now()
+	week := efficiency.NewQuery(efficiency.Ranges[1], now)
+	week.Accounts = []string{acct.ConfigDir}
+	fresh := week
+	if rec.LastRun.After(fresh.From) {
+		fresh.From, fresh.Daily = rec.LastRun, false
+	}
+	if !force && !rec.Due(now, store.View(fresh).Total.Req) {
+		return advRanMsg{seen: rec}
+	}
+	v := store.View(week)
+	if v.Total.Req == 0 {
+		return advRanMsg{err: errors.New("nothing to look at in the last week")}
+	}
+	if err := advisor.Begin(now); err != nil {
+		return advRanMsg{err: err}
+	}
+	found := efficiency.Observe(efficiency.LoadEnv(acct))
+	in := advisor.Input{View: v, Found: found, Findings: efficiency.Findings(v, found), Top: store.TopSessions(week, 8),
+		Known: rec.Known(), Settled: rec.Settled(), Pending: rec.Pending(),
+		Reserve: func() error { return advisor.Reserve(time.Now()) }}
+	res := advisor.Pass(ctx, acct, in, rec.ReviewsLeft(now))
+	// Merged into what's on disk now, under the lock: you may have put
+	// one away while it ran.
+	rec = advisor.Load()
+	got := rec.Merge(res)
+	if err := rec.Save(); err != nil && res.Err == nil {
+		res.Err = err
+	}
+	return advRanMsg{rec: rec, fresh: got, err: res.Err}
 }
 
 func (m *Model) onAdvRan(msg advRanMsg) {
 	a := &m.eff.adv
 	a.running, a.cancel = false, nil
+	if msg.off {
+		// Turned off in another agtop: don't run, and don't write it back
+		// on when this one saves its config.
+		m.store.Config.Advisor = false
+		m.advRefresh()
+		return
+	}
+	if msg.seen != nil {
+		a.rec = msg.seen // another agtop may have run one
+		m.advRefresh()
+	}
 	if msg.rec == nil {
 		if msg.err != nil {
 			m.flash("advisor: "+msg.err.Error(), true)
@@ -209,19 +236,28 @@ func (m *Model) withAdvice(base []efficiency.Finding) []efficiency.Finding {
 	return append(out, rest...)
 }
 
-// advDismiss puts the chosen advisor finding away for good.
-func (m *Model) advDismiss() {
+// advDismiss puts the chosen advisor finding away for good: at once here,
+// and in the record on disk in the background.
+func (m *Model) advDismiss() tea.Cmd {
 	e := &m.eff
 	if e.finding >= len(e.findings) || e.findings[e.finding].Advice == "" {
-		return
+		return nil
 	}
-	rec := advisor.Load() // another agtop may have added to it
-	rec.Dismiss(e.findings[e.finding].Advice)
-	_ = rec.Save()
-	m.eff.adv.rec = rec
+	id := e.findings[e.finding].Advice
+	if rec := m.eff.adv.rec; rec != nil {
+		rec.Dismiss(id)
+	}
 	e.findings = m.withAdvice(e.base)
 	e.finding = min(e.finding, max(0, len(e.findings)-1))
 	m.flash("put away · the advisor won't raise it again", false)
+	return func() tea.Msg {
+		rec := advisor.Load() // another agtop may have added to it
+		rec.Dismiss(id)
+		if err := rec.Save(); err != nil {
+			return doneMsg{err: fmt.Errorf("advisor: %w", err)}
+		}
+		return nil
+	}
 }
 
 // advLine is the advisor's state, over the findings.
@@ -291,8 +327,13 @@ func (m *Model) advCommand(arg string) tea.Cmd {
 			m.flash("the advisor is off · #advisor on", false)
 			return nil
 		}
-		rec := m.advRecord()
-		m.flash(fmt.Sprintf("✦ advisor on · %d findings · it has cost %s · #advisor now · off", len(rec.Shown()), efficiency.Money(rec.Spent)), false)
+		// Read afresh, off the UI: another agtop may have run one.
+		return sheetDo(func() (*advisor.Record, error) { return advisor.Load(), nil }, func(m *Model, rec *advisor.Record, _ error) tea.Cmd {
+			m.eff.adv.rec = rec
+			m.advRefresh()
+			m.flash(fmt.Sprintf("✦ advisor on · %d findings · it has cost %s · #advisor now · off", len(rec.Shown()), efficiency.Money(rec.Spent)), false)
+			return nil
+		})
 	default:
 		m.flash("#advisor on, off or now", true)
 	}

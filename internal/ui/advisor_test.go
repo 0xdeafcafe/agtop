@@ -73,7 +73,11 @@ func TestAdvisorFindings(t *testing.T) {
 		t.Fatal("the choice moved when the findings were put in again")
 	}
 	m.eff.finding = 0
-	m.key(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	for _, msg := range flatten(m.key(tea.KeyPressMsg{Code: 'x', Text: "x"})) {
+		if msg != nil {
+			t.Fatalf("putting it away: %v", msg)
+		}
+	}
 	if len(m.eff.findings) != 2 || m.eff.findings[0].Advice == "b" {
 		t.Fatal("x doesn't put the advisor's finding away")
 	}

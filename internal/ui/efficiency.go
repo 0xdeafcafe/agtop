@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/advisor"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/efficiency"
@@ -55,11 +56,12 @@ type effState struct {
 
 	// An install or removal: its plan waits on y, then its output shows
 	// until esc.
-	plan    *efficiency.Plan
-	running bool
-	ran     bool
-	failed  bool
-	log     []string
+	plan     *efficiency.Plan
+	planning bool // plan is being worked out, off the UI: it looks at PATH and settings.json
+	running  bool
+	ran      bool
+	failed   bool
+	log      []string
 
 	cmp *efficiency.Compare
 
@@ -80,6 +82,7 @@ type effLoadedMsg struct {
 	gains   []efficiency.Gain
 	gainsAt time.Time
 	memory  []efficiency.Finding
+	adv     *advisor.Record // the advisor's, read with the figures
 }
 
 type effRanMsg struct {
@@ -149,6 +152,7 @@ func (m *Model) effLoad(scan bool) tea.Cmd {
 		msg := effLoadedMsg{store: store, view: store.View(q)}
 		msg.found = efficiency.Observe(efficiency.LoadEnv(active))
 		msg.events = efficiency.LoadEvents()
+		msg.adv = advisor.Load()
 		if memOK {
 			msg.memory = efficiency.MemoryFindings(memCfg, memDir)
 		}
@@ -168,6 +172,9 @@ func (m *Model) onEffLoaded(msg effLoadedMsg) {
 		e.gains, e.gainsAt = msg.gains, msg.gainsAt
 	}
 	e.base = append(efficiency.Findings(e.view, e.found), msg.memory...)
+	if msg.adv != nil && !e.adv.running {
+		e.adv.rec = msg.adv
+	}
 	m.advRefresh()
 	e.finding = min(e.finding, max(0, len(e.findings)-1))
 	if e.cursor >= len(e.view.Points) {
@@ -189,16 +196,26 @@ func (m *Model) effSavers() []*efficiency.Saver {
 	return out
 }
 
-// effPlan shows what installing (or removing) a saver would do.
-func (m *Model) effPlan(s *efficiency.Saver, remove bool) {
-	p := efficiency.NewPlan(efficiency.LoadEnv(m.store.Config.ActiveAccount()), s, remove)
+// effPlan shows what installing (or removing) a saver would do. It's
+// worked out in the background; until then the plan says so, and y waits.
+func (m *Model) effPlan(s *efficiency.Saver, remove bool) tea.Cmd {
 	e := &m.eff
-	e.plan, e.ran, e.failed, e.log = &p, false, false, nil
+	want := &efficiency.Plan{Saver: s, Remove: remove}
+	e.plan, e.planning, e.ran, e.failed, e.log = want, true, false, false, nil
+	acct := m.store.Config.ActiveAccount()
+	return sheetDo(func() (efficiency.Plan, error) {
+		return efficiency.NewPlan(efficiency.LoadEnv(acct), s, remove), nil
+	}, func(m *Model, p efficiency.Plan, _ error) tea.Cmd {
+		if e := &m.eff; e.plan == want { // not closed or swapped for another since
+			e.plan, e.planning = &p, false
+		}
+		return nil
+	})
 }
 
 func (m *Model) effRun() tea.Cmd {
 	e := &m.eff
-	if e.plan == nil || e.running || e.ran || e.plan.Blocked != "" {
+	if e.plan == nil || e.planning || e.running || e.ran || e.plan.Blocked != "" {
 		return nil
 	}
 	e.running = true
@@ -339,10 +356,13 @@ func (m *Model) effKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			if v := e.view; v != nil && e.cursor >= 0 && e.cursor < len(v.Points) {
 				at = v.Points[e.cursor].At
 			}
-			if err := efficiency.AddEvent(efficiency.Event{At: at, Kind: "note", Source: "you", Detail: text}); err != nil {
-				m.flash("note: "+err.Error(), true)
-			}
-			return m.effLoad(false)
+			ev := efficiency.Event{At: at, Kind: "note", Source: "you", Detail: text}
+			return sheetDo(func() (struct{}, error) { return struct{}{}, efficiency.AddEvent(ev) }, func(m *Model, _ struct{}, err error) tea.Cmd {
+				if err != nil {
+					m.flash("note: "+err.Error(), true)
+				}
+				return m.effLoad(false)
+			})
 		case "esc":
 			e.noting, e.note = false, nil
 		case "backspace", "ctrl+h":
@@ -365,7 +385,7 @@ func (m *Model) effKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			e.plan = nil
 		case "esc", "q", "n":
 			if !e.running {
-				e.plan, e.log = nil, nil
+				e.plan, e.planning, e.log = nil, false, nil
 			}
 		}
 		return nil
@@ -423,14 +443,14 @@ func (m *Model) effKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				m.flash(sv.Name+" is on · x removes it", false)
 				return nil
 			}
-			m.effPlan(sv, false)
+			return m.effPlan(sv, false)
 		case "x":
 			sv := list[e.saver]
 			if e.found[sv.ID].Status == efficiency.Off {
 				m.flash(sv.Name+" isn't set up", false)
 				return nil
 			}
-			m.effPlan(sv, true)
+			return m.effPlan(sv, true)
 		case "o":
 			if u := list[e.saver].URL; u != "" {
 				return browse(u)
@@ -445,13 +465,13 @@ func (m *Model) effKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		case "enter":
 			if e.finding < len(e.findings) {
 				if sv := efficiency.Find(e.findings[e.finding].Fix); sv != nil {
-					m.effPlan(sv, false)
+					return m.effPlan(sv, false)
 				} else if p := e.findings[e.finding].Open; p != "" {
 					return editFile(p)
 				}
 			}
 		case "x":
-			m.advDismiss()
+			return m.advDismiss()
 		}
 	}
 	return nil
@@ -566,6 +586,8 @@ func (m *Model) effHint() string {
 		return paint(cOrange, "note ❯ ") + paint(cText, string(e.note)) + paint(cOrange, "▏") + dim("   enter keep · esc cancel")
 	case e.plan != nil && e.running:
 		return paint(cOrange, spinner[m.tick%len(spinner)]) + dim(" running…")
+	case e.plan != nil && e.planning:
+		return keysFit(w, "esc", "cancel")
 	case e.plan != nil && e.ran:
 		return keysFit(w, "esc", "close")
 	case e.plan != nil && e.plan.Blocked != "":
@@ -1273,6 +1295,9 @@ func (m *Model) effPlanBody(w int) []string {
 		verb = "Remove "
 	}
 	out := []string{paint(cText+bold, verb+p.Saver.Name) + dim("   "+p.Saver.About), ""}
+	if e.planning {
+		return append(out, paint(cOrange, spinner[m.tick%len(spinner)])+dim(" working out what it would do…"))
+	}
 	if p.Blocked != "" {
 		out = append(out, paint(cYellow, "Can't here: ")+p.Blocked)
 		if p.Saver.URL != "" {
