@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
@@ -138,13 +140,29 @@ func ListJobIDs(a Account) []string {
 // ProjectSlug is how Claude Code names a folder's project directory: every
 // character but a letter or digit becomes a dash.
 func ProjectSlug(dir string) string {
-	b := []byte(dir)
+	b := []byte(realDir(dir))
 	for i, c := range b {
 		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
 			b[i] = '-'
 		}
 	}
 	return string(b)
+}
+
+// realDir is dir as Claude Code files it, by its real path: on a Mac
+// /tmp, /var and /etc are links into /private.
+// ponytail: only the system's own links, as it takes no disk reads; a
+// folder reached through a link of the user's own still files elsewhere.
+func realDir(dir string) string {
+	if runtime.GOOS != "darwin" {
+		return dir
+	}
+	for _, p := range []string{"/tmp", "/var", "/etc"} {
+		if dir == p || strings.HasPrefix(dir, p+"/") {
+			return "/private" + dir
+		}
+	}
+	return dir
 }
 
 type TimelineEntry struct {
