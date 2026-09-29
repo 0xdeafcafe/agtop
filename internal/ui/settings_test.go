@@ -2,6 +2,7 @@ package ui
 
 import (
 	"cmp"
+	"github.com/0xdeafcafe/rush/internal/convo"
 	"os"
 	"runtime"
 	"slices"
@@ -320,5 +321,29 @@ func TestSettingPreviewsTheList(t *testing.T) {
 	m.store.Config.StackAt = -1
 	if strings.Contains(shown(), "  ╰ ") {
 		t.Errorf("narrow only, on a wide list: second lines in the preview:\n%s", shown())
+	}
+}
+
+// Spaces and tabs in diffs shows a Session beside the list, its diff marked
+// or not as the setting says.
+func TestSpacesPreviewShowsASession(t *testing.T) {
+	m, _ := benchModel(200, 60)
+	m.store.Config.SetView("split")
+	m.setView(placeSettings)
+	m.setSettingsPage(pageGeneral)
+	for i, r := range flat(m.generalSections()) {
+		if r.label == "Spaces and tabs in diffs" {
+			m.dialog.cursor = i
+		}
+	}
+	shown := func() string { return ansi.Strip(strings.Join(m.dialogBody(190), "\n")) }
+	defer convo.SetShowWhitespace(false)
+	convo.SetShowWhitespace(true)
+	if s := shown(); !strings.Contains(s, "Session") || !strings.Contains(s, "→   →   err") {
+		t.Fatalf("shown: no marked Session in the preview:\n%s", s)
+	}
+	convo.SetShowWhitespace(false)
+	if s := shown(); strings.Contains(s, "→   →") || strings.Contains(s, "·send") {
+		t.Errorf("hidden: marks in the preview:\n%s", s)
 	}
 }

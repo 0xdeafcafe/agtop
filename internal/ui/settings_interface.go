@@ -153,17 +153,23 @@ func (m *Model) interfaceSections() []section {
 			{"stops it", "stops the message straight away."},
 		}, func(v string) { c.StopTurnUnasked = v == "stops it" })
 
-	// What changes the Agents list shows it, as it will look.
-	listPreview := func(w int) []string {
-		lines := m.listPreview(w-4, 8)
+	// What a setting changes, as it will look: the Agents list and, where
+	// there's room, a Session beside it, as the split layout sets them.
+	preview := func(w int) []string {
+		lines := m.listPreview(w-4, 9)
 		bw := 0
 		for _, l := range lines {
 			bw = max(bw, cellw.String(l))
 		}
-		return pbox(paint(cText+bold, "Agents"), dim("your own, as the list shows them"), lines, bw+4, false)
+		list := pbox(paint(cText+bold, "Agents"), dim("your own, as the list shows them"), lines, bw+4, false)
+		if sw := w - bw - 5; sw >= 40 {
+			sess := pbox(paint(cText+bold, "Session"), dim("an example"), sessionPreview(sw-4, len(lines)), sw, false)
+			return sideBySide(list, sess, bw+4)
+		}
+		return list
 	}
-	for _, st := range []*setting{&view, &theme, &colours, &group, &split, &sortBy, &stack} {
-		st.preview = listPreview
+	for _, st := range []*setting{&view, &theme, &colours, &spaces, &group, &split, &sortBy, &stack} {
+		st.preview = preview
 	}
 
 	return []section{
