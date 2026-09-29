@@ -16,7 +16,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
-	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // --- /status, /usage, /stats ---
@@ -158,7 +157,7 @@ func (m *Model) accountView(a *fleet.Agent) (fleet.AccountView, bool) {
 			return av, true
 		}
 	}
-	return fleet.AccountView{Folder: state.Folder{Name: a.Acct.Name, ConfigDir: a.Acct.Dir}}, false
+	return fleet.AccountView{Name: a.Acct.Name, ConfigDir: a.Acct.Dir}, false
 }
 
 // infoRow is a label and its value, lined up.

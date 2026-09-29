@@ -21,7 +21,7 @@ func HomeOf(id string) Account {
 
 // Active is ~/.claude, where every session runs, signed in as whichever
 // login is in use, named as cfg names it.
-func Active(cfg state.Config) Account {
+func Active(cfg state.Config) Account { //nolint:gocritic // Config goes by value, as everywhere in state
 	root := DefaultAccount()
 	for _, f := range cfg.Folders {
 		if f.ConfigDir == root.ConfigDir && f.Name != "" {
@@ -64,7 +64,7 @@ func SetUsing(id string) error {
 
 // RunAccount is the config folder new Claude Code sessions run in: the
 // home of the login in use, or ~/.claude. It reads the disk.
-func RunAccount(c state.Config) Account {
+func RunAccount(c state.Config) Account { //nolint:gocritic // Config goes by value, as everywhere in state
 	root := Active(c)
 	id := Using()
 	l, ok := c.Login(id)

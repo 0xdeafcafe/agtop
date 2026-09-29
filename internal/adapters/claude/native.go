@@ -27,7 +27,7 @@ func (Adapter) Call(id, name string, input jsontext.Value) tool.Call {
 	return claude.Call(id, name, input)
 }
 
-func (Adapter) Output(c tool.Call, text string, isError bool, result jsontext.Value) tool.Output {
+func (Adapter) Output(c tool.Call, text string, isError bool, result jsontext.Value) tool.Output { //nolint:gocritic // agent.Native's signature, a Call as convo keeps it
 	return claude.Output(c, text, isError, result)
 }
 

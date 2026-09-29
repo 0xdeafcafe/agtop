@@ -79,7 +79,7 @@ func main() {
 			}
 			j, ok := agent.As[agent.Joiner](agent.Kind(state.LoginsKind))
 			if !ok {
-				exitIf(fmt.Errorf("no agent here opens a session's own screen"))
+				exitIf(errors.New("no agent here opens a session's own screen"))
 			}
 			exitIf(j.Join(state.Load().Config.ActiveAccount().Profile(), args[1]).Run())
 			return

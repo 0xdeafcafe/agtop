@@ -311,7 +311,7 @@ func (m *Model) hasRoom() bool {
 // fresh one. A session whose profile waits at a limit is moved all the
 // same, but left to wait: one from homes on starts in the new home when
 // it next runs, and one from before is replaced without a continue.
-func reloginHosts(root string, cfg state.Config) (resumed, waiting int) {
+func reloginHosts(root string, cfg state.Config) (resumed, waiting int) { //nolint:gocritic // Config goes by value, as everywhere
 	for _, info := range host.List() {
 		if (info.Account != root && info.Account != "") || info.State == "stopped" {
 			continue

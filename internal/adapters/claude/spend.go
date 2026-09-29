@@ -67,7 +67,7 @@ func (s *scanner) files(t agent.SpendTarget) ([]string, bool) {
 }
 
 // Run scans every target whose files grew and returns the new totals.
-func (s *scanner) Run(targets []agent.SpendTarget) map[string]agent.Spend {
+func (s *scanner) Run(targets []agent.SpendTarget) map[string]agent.Spend { //nolint:gocognit // moved from fleet as it was
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cache == nil {

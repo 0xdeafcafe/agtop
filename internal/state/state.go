@@ -413,7 +413,7 @@ func (d Dispatch) Flags() []string {
 
 // OldFolders are the folders besides ~/.claude an older rush was given,
 // whose sign-ins and past sessions are still to be taken in.
-func (c Config) OldFolders() []Folder {
+func (c Config) OldFolders() []Folder { //nolint:gocritic // Config goes by value, as everywhere in state
 	var out []Folder
 	root := home().ConfigDir
 	for _, a := range c.Folders {
@@ -426,7 +426,7 @@ func (c Config) OldFolders() []Folder {
 
 // RootFolder is ~/.claude's entry in Folders, if it has one: what's kept
 // when the older folders are dropped.
-func (c Config) RootFolder() []Folder {
+func (c Config) RootFolder() []Folder { //nolint:gocritic // Config goes by value, as everywhere in state
 	root := home().ConfigDir
 	for _, a := range c.Folders {
 		if a.ConfigDir == root {
@@ -438,7 +438,7 @@ func (c Config) RootFolder() []Folder {
 
 // ActiveAccount is where every session runs: ~/.claude, signed in as
 // whichever login is in use.
-func (c Config) ActiveAccount() Folder {
+func (c Config) ActiveAccount() Folder { //nolint:gocritic // Config goes by value, as everywhere in state
 	root := home()
 	for _, a := range c.Folders {
 		if a.ConfigDir == root.ConfigDir && a.Name != "" {
@@ -453,7 +453,7 @@ func (c Config) ActiveAccount() Folder {
 const SwitchAt = 95.0
 
 // Login is the saved login with id.
-func (c Config) Login(id string) (Login, bool) {
+func (c Config) Login(id string) (Login, bool) { //nolint:gocritic // Config goes by value, as everywhere in state
 	for _, l := range c.Logins {
 		if l.ID == id {
 			return l, true
