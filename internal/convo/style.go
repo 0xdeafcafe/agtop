@@ -86,7 +86,9 @@ func SetColours(g theme.Ground, colorBlind bool) {
 		bgAddHi, bgDelHi = surface(0x22, 0x52, 0x2b), surface(0x62, 0x24, 0x1e)
 		bgErr = surface(0x2a, 0x17, 0x15)
 	}
-	spineLive, spineErr = paint(cOrange, "▏"), paint(cRed, "▏")
+	// The running turn's spine is grey: rush's orange beside red reads as
+	// broken, and the spinner already says it's working.
+	spineLive, spineErr = paint(cDim, "▏"), paint(cRed, "▏")
 
 	hlKw, hlStr = accent(theme.RGB{R: 204, G: 153, B: 205}), accent(theme.RGB{R: 163, G: 190, B: 140})
 	hlNum, hlFn = accent(theme.RGB{R: 222, G: 165, B: 132}), accent(theme.RGB{R: 137, G: 180, B: 222})
