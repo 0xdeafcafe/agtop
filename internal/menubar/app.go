@@ -22,10 +22,12 @@ import (
 //go:embed app.swift
 var source string
 
-// icons are clanker, drawn by the ui package's TestIcons: the app's icon,
-// which its notifications carry, and the menu bar's.
+// icons are the app's icon, which its notifications carry: the bottle on
+// its tile, and on a full square for macOS 26 on, which draws its own tile
+// (docs/brand/finish-icon.sh makes both). The menu bar's bottle is drawn
+// by app.swift.
 //
-//go:embed icons/clanker-*.png icons/*.icns
+//go:embed icons/*.icns
 var icons embed.FS
 
 // BundleID is the app's identity: macOS keeps its notification settings
