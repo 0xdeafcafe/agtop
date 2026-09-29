@@ -78,7 +78,7 @@ func (k *kit) manifest() plugin.Manifest {
 		Command:     []string{"rush"},
 		UI:          []string{plugin.UIEvents, plugin.UINotify},
 		Commands:    []plugin.CommandSpec{{Name: "clean", Description: "what " + k.name + " finds on disk and running, and cleaning it up"}},
-		Requires:    plugin.Requires{Bin: k.needs},
+		Requires:    plugin.Requires{OS: []string{"darwin", "linux"}, Bin: k.needs}, // proc reads processes only there
 		MemoryMB:    128,
 	}
 }
