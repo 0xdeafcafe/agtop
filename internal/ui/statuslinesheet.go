@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -49,6 +50,13 @@ type statusSheet struct {
 	// git, or your own command, each time.
 	rnd statusline.Renderer
 
+	// Claude Code's layout and settings.json are read off the UI: its tab
+	// says so until they're in. saving is the save being written.
+	read   *pending[statusRead]
+	loaded bool
+	saving *pending[error]
+	saved  func(m *Model) // what a save that worked does here
+
 	// For the mouse, as body last drew them: the tabs' row and where each
 	// tab ends, the list's first row and the first of its rows showing.
 	tabsY, listY, from int
@@ -83,7 +91,13 @@ func (st *statusSheet) tabNames() []string {
 	return names
 }
 
-func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
+// statusRead is what the sheet reads when it opens.
+type statusRead struct {
+	lay     statusline.Layout
+	current string
+}
+
+func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) tea.Cmd {
 	bars := m.bars
 	if bars.Top.Lines == nil {
 		bars.Top = statusline.DefaultTop()
@@ -92,16 +106,39 @@ func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 		bars.Agent = statusline.DefaultAgent()
 	}
 	k := sessionAgent(c)
-	st := &statusSheet{prof: a.Acct, kind: k, a: a, c: c, agentLay: statusline.Load().Clone(), in: previewInput(c, a),
+	st := &statusSheet{prof: a.Acct, kind: k, a: a, c: c, in: previewInput(c, a),
 		bars: statusline.Bars{Top: bars.Top.Clone(), Agent: bars.Agent.Clone()}}
 	if agent.Supports(k, agent.FeatureStatusLine) {
 		st.line, _ = agent.As[agent.StatusLiner](k)
 	}
-	if st.line != nil {
-		if cmd, err := st.line.StatusLine(a.Acct); err == nil {
-			st.current = cmd
+	line, prof := st.line, a.Acct
+	st.read = goPending(func() statusRead {
+		r := statusRead{lay: statusline.Load().Clone()}
+		if line != nil {
+			if cmd, err := line.StatusLine(prof); err == nil {
+				r.current = cmd
+			}
 		}
+		return r
+	})
+	for _, t := range []int{stAgent, stTop} {
+		st.tab = t
+		st.pad()
 	}
+	st.tab = stAgent
+	st.adopt()
+	m.sheet = st
+	return st.read.wait()
+}
+
+// adopt takes in Claude Code's layout and settings once they're read.
+func (st *statusSheet) adopt() {
+	r, ok := st.read.take()
+	if !ok {
+		return
+	}
+	st.read, st.loaded = nil, true
+	st.agentLay, st.current = r.lay, r.current
 	// Taken before your own line is folded in, so saving adopts it.
 	b, _ := jsonx.Marshal(trimmed(st.agentLay))
 	st.was = string(b)
@@ -113,17 +150,18 @@ func (m *Model) openStatusLine(c *hostConn, a *fleet.Agent) {
 			st.agentLay.Lines = append([][]string{{"custom"}}, st.agentLay.Lines...)
 		}
 	}
-	for t := range statusTabs {
-		st.tab = t
-		st.pad()
-	}
-	st.tab = stAgent
-	m.sheet = st
+	tab := st.tab
+	st.tab = stClaude
+	st.pad()
+	st.tab = tab
 }
+
+// waiting is whether the tab showing is Claude Code's, not read yet.
+func (st *statusSheet) waiting() bool { return st.tab == stClaude && !st.loaded }
 
 // openTopBar is #statusline from the list: the same sheet, on the top
 // bar, with the selected agent (if any) for the other tabs' previews.
-func (m *Model) openTopBar(a *fleet.Agent) {
+func (m *Model) openTopBar(a *fleet.Agent) tea.Cmd {
 	c := m.host
 	if a == nil {
 		a = &fleet.Agent{Acct: m.store.Config.ActiveAccount().Profile(), Kind: m.store.Config.DefaultAgent(), Cwd: m.launchDir}
@@ -131,10 +169,11 @@ func (m *Model) openTopBar(a *fleet.Agent) {
 	if c == nil || c.key != a.Key {
 		c = &hostConn{key: a.Key, kind: agent.Kind(a.Kind), sess: convo.New(), open: map[string]bool{}}
 	}
-	m.openStatusLine(c, a)
+	cmd := m.openStatusLine(c, a)
 	if st, ok := m.sheet.(*statusSheet); ok {
 		st.tab = stTop
 	}
+	return cmd
 }
 
 // width is the window's, on every tab, so the sheet doesn't change size
@@ -309,6 +348,10 @@ func (st *statusSheet) rows() []listRow {
 // line's heading it goes to the end of the line above or the start of the
 // one below, whichever it came from, and onto Not shown it's hidden.
 func (st *statusSheet) mouse(m *Model, ev mouseEv, x, y int) tea.Cmd {
+	st.adopt()
+	if st.saving != nil {
+		return nil
+	}
 	switch ev {
 	case mouseWheelUp:
 		return st.key(m, tea.KeyPressMsg{}, "up")
@@ -327,6 +370,9 @@ func (st *statusSheet) mouse(m *Model, ev mouseEv, x, y int) tea.Cmd {
 				break
 			}
 		}
+		return nil
+	}
+	if st.waiting() {
 		return nil
 	}
 	rows, slots := st.rows(), st.slots()
@@ -379,6 +425,10 @@ func (st *statusSheet) mouse(m *Model, ev mouseEv, x, y int) tea.Cmd {
 }
 
 func (st *statusSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
+	st.adopt()
+	if st.saving != nil {
+		return nil // until it's written
+	}
 	switch s {
 	case "esc", "ctrl+c", "q":
 		m.sheet = nil
@@ -391,6 +441,9 @@ func (st *statusSheet) key(m *Model, k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	case "enter", "ctrl+s":
 		return st.save(m)
+	}
+	if st.waiting() {
+		return nil
 	}
 	l := st.lay()
 	slots := st.slots()
@@ -478,33 +531,68 @@ func trimmed(l statusline.Layout) statusline.Layout {
 }
 
 // save keeps all three: agtop's own lines at once, and Claude Code's, in
-// settings.json too, only when it was changed.
+// settings.json too, only when it was changed. The files are written off
+// the UI; the sheet stays, saying so, until they are.
 func (st *statusSheet) save(m *Model) tea.Cmd {
 	bars := statusline.Bars{Top: trimmed(st.bars.Top), Agent: trimmed(st.bars.Agent)}
-	if err := statusline.SaveBars(bars); err != nil {
-		st.err = err.Error()
-		return nil
-	}
-	m.bars = bars
 	msg := "status lines saved"
 	l := trimmed(st.agentLay)
 	if !l.Shown("custom") {
 		l.Custom = "" // let go of it only when it's taken out
 	}
-	if b, _ := jsonx.Marshal(trimmed(st.agentLay)); st.line != nil && string(b) != st.was {
-		if err := statusline.Save(l); err != nil {
-			st.err = err.Error()
-			return nil
-		}
-		if err := st.line.SetStatusLine(st.prof, statusline.Command()); err != nil {
-			st.err = "couldn't turn it on for " + st.prof.Name + ": " + err.Error()
-			return nil
-		}
+	claude := false
+	if b, _ := jsonx.Marshal(trimmed(st.agentLay)); st.loaded && st.line != nil && string(b) != st.was {
+		claude = true
 		msg += " · " + agentName(string(st.kind)) + " sessions for " + st.prof.Name + " show theirs from their next redraw"
 	}
-	m.sheet = nil
-	m.flash(msg, false)
-	return nil
+	line, prof := st.line, st.prof
+	return st.write(m, func() error {
+		if err := statusline.SaveBars(bars); err != nil {
+			return err
+		}
+		if !claude {
+			return nil
+		}
+		if err := statusline.Save(l); err != nil {
+			return err
+		}
+		if err := line.SetStatusLine(prof, statusline.Command()); err != nil {
+			return fmt.Errorf("couldn't turn it on for %s: %w", prof.Name, err)
+		}
+		return nil
+	}, func(m *Model) {
+		m.bars = bars
+		m.flash(msg, false)
+	})
+}
+
+// write runs f off the UI, then, if it worked, closes the sheet and does
+// done; if not, the sheet stays open and says why.
+func (st *statusSheet) write(m *Model, f func() error, done func(m *Model)) tea.Cmd {
+	st.err, st.saved = "", done
+	st.saving = goPending(f)
+	st.landed(m) // at once, when it was written at once
+	return st.saving.then(func(m *Model) tea.Cmd {
+		st.landed(m)
+		return nil
+	})
+}
+
+// landed takes in a save once it's written.
+func (st *statusSheet) landed(m *Model) {
+	err, ok := st.saving.take()
+	if !ok {
+		return
+	}
+	st.saving = nil
+	if err != nil {
+		st.err = err.Error()
+		return
+	}
+	if m.sheet == st {
+		m.sheet = nil
+	}
+	st.saved(m)
 }
 
 func (st *statusSheet) turnOff(m *Model) tea.Cmd {
@@ -516,13 +604,10 @@ func (st *statusSheet) turnOff(m *Model) tea.Cmd {
 		st.err = "that status line is your own command, not agtop's: it's left alone"
 		return nil
 	}
-	if err := st.line.SetStatusLine(st.prof, ""); err != nil {
-		st.err = err.Error()
-		return nil
-	}
-	m.sheet = nil
-	m.flash("status line turned off for "+st.prof.Name, false)
-	return nil
+	line, prof := st.line, st.prof
+	return st.write(m, func() error { return line.SetStatusLine(prof, "") }, func(m *Model) {
+		m.flash("status line turned off for "+prof.Name, false)
+	})
 }
 
 // sample is one segment on its own, as the line would show it now.
@@ -539,6 +624,7 @@ func (st *statusSheet) sample(m *Model, id string) string {
 }
 
 func (st *statusSheet) body(m *Model, w, h int) []string {
+	st.adopt()
 	about := map[int]string{
 		stAgent:  "the top of an agent's Session: right of its name, and under it",
 		stTop:    "the top right of agtop, about every agent at once",
@@ -550,6 +636,9 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 	for _, n := range st.tabNames() {
 		end += ansi.StringWidth(n) + 5 // and the "  ·  " after it
 		st.tabEnds = append(st.tabEnds, end-2)
+	}
+	if st.waiting() {
+		return append(out, dim("  reading "+agentName(string(st.kind))+"'s settings…"), "", keysFit(w, "[ ]", "tab", "esc", "cancel"))
 	}
 	l := st.lay()
 
@@ -687,7 +776,10 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 	st.listY, st.from = len(out), from
 	out = append(out, list[from:to]...)
 	out = append(out, "")
-	if st.err != "" {
+	switch {
+	case st.saving != nil:
+		out = append(out, paint(cOrange, "  "+spinner[m.tick%len(spinner)])+dim(" saving…"))
+	case st.err != "":
 		out = append(out, paint(cRed, "  "+st.err))
 	}
 	sepName := strings.TrimSpace(l.Sep)

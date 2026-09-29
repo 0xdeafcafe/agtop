@@ -112,18 +112,16 @@ type Input struct {
 	raw []byte // as it came, for a command of your own
 }
 
-// extra is what the line looks up beyond the input, once per draw, or
-// once per Renderer's while.
+// extra is what the line knows beyond the input: found out before it's
+// drawn, so drawing never waits.
 type extra struct {
 	custom    string
 	configDir string
-	branch    *string
+	branch    string
 	usage     *usage.Quota
-	acct      *string
+	acct      string
 	now       time.Time
-	// own, when set, is your own command's output from elsewhere, rather
-	// than run on the spot.
-	own func(Input) string
+	own       string // your own command's output
 }
 
 const (
@@ -171,7 +169,7 @@ var Segments = []Segment{
 		return "", ""
 	}},
 	{"branch", "Git branch", "the branch checked out", func(in Input, x *extra) (string, string) {
-		if b := x.gitBranch(firstOf(in.Workspace.CurrentDir, in.Cwd)); b != "" {
+		if b := x.branch; b != "" {
 			return "⎇ " + b, green
 		}
 		return "", ""
@@ -207,7 +205,7 @@ var Segments = []Segment{
 		return fmt.Sprintf("%s+%d%s %s−%d", green, in.Cost.LinesAdded, reset, red, in.Cost.LinesRemoved), ""
 	}},
 	{"usage", "Plan usage", "the 5-hour and weekly limits, as agtop last read them", func(_ Input, x *extra) (string, string) {
-		u := x.planUsage()
+		u := x.usage
 		if u == nil {
 			return "", ""
 		}
@@ -218,11 +216,7 @@ var Segments = []Segment{
 		return strings.Join(parts, " "), ""
 	}},
 	{"account", "Account", "which Claude account this is", func(_ Input, x *extra) (string, string) {
-		if x.acct == nil {
-			n := accountName(x.configDir)
-			x.acct = &n
-		}
-		return *x.acct, grey
+		return x.acct, grey
 	}},
 	{"style", "Output style", "the output style, when it isn't the default", func(in Input, _ *extra) (string, string) {
 		if in.OutputStyle.Name == "" || in.OutputStyle.Name == "default" {
@@ -252,25 +246,18 @@ var Segments = []Segment{
 		return in.SessionID[:8], dim
 	}},
 	{"custom", "Your own line", "what your own status line command prints", func(in Input, x *extra) (string, string) {
-		return x.runCustom(in), ""
+		if x.custom == "" {
+			return "", ""
+		}
+		return x.own, ""
 	}},
 }
 
 // ModelName is how a model is shown: "Opus 5.5" for claude-opus-5-5[1m].
 func ModelName(s string) string { return agent.ModelName(agent.Kind(state.LoginsKind), s) }
 
-// runCustom runs your own status line command with the session on stdin,
+// runOwn runs your own status line command with the session on stdin,
 // for at most two seconds.
-func (x *extra) runCustom(in Input) string {
-	if x.custom == "" {
-		return ""
-	}
-	if x.own != nil {
-		return x.own(in)
-	}
-	return runOwn(x.custom, in)
-}
-
 func runOwn(cmd string, in Input) string {
 	raw := in.raw
 	if raw == nil {
@@ -299,41 +286,83 @@ func Find(id string) (Segment, bool) {
 
 // Render draws the lines: on each, the segments that have something to
 // say, joined. A segment that prints several lines (your own command)
-// adds the rest as lines of their own.
+// adds the rest as lines of their own. What's slow (the branch, plan
+// usage, the account's name, your own command) is found out first, for
+// the segments shown.
 func Render(in Input, l Layout, configDir string, now time.Time) string {
-	return render(in, l, &extra{configDir: configDir, now: now, custom: l.Custom})
+	x := &extra{configDir: configDir, now: now, custom: l.Custom}
+	if l.Shown("branch") {
+		x.branch = gitBranch(firstOf(in.Workspace.CurrentDir, in.Cwd))
+	}
+	if l.Shown("usage") {
+		x.usage = planUsage(configDir)
+	}
+	if l.Shown("account") {
+		x.acct = accountName(configDir)
+	}
+	if l.Custom != "" && l.Shown("custom") {
+		x.own = runOwn(l.Custom, in)
+	}
+	return render(in, l, x)
 }
 
 // Renderer draws lines over and over, as the /statusline preview does many
-// times a second: what's slow to find out (the branch, plan usage, the
-// account's name) it looks up once a second at most, and your own command
-// runs off to the side, its last output shown until the next is in.
+// times a second. It never waits: what's slow to find out (the branch,
+// plan usage, the account's name) it looks up off to the side, at most
+// once a second, and your own command runs off to the side too. Until
+// they're in, their segments show nothing, and then the last found.
 type Renderer struct {
-	x   *extra
-	key string
-	at  time.Time
-
-	mu      sync.Mutex
-	own     string
-	ownKey  string
-	ownAt   time.Time
-	running bool
+	mu                 sync.Mutex
+	facts              facts // what was last looked up, for factsDir and factsCwd
+	factsDir, factsCwd string
+	factsAt            time.Time
+	looking            bool
+	own, ownKey        string
+	ownAt              time.Time
+	running            bool
 }
 
-// Render is Render, with what's slow kept from one draw to the next.
+// facts are what's slow to find out: git's branch, the plan's usage and
+// the account's name.
+type facts struct {
+	branch string
+	usage  *usage.Quota
+	acct   string
+}
+
+// Render is Render, with what's slow looked up off to the side.
 func (r *Renderer) Render(in Input, l Layout, configDir string, now time.Time) string {
-	k := configDir + "\x00" + l.Custom + "\x00" + in.Cwd
-	if r.x == nil || r.key != k || now.Sub(r.at) > time.Second {
-		r.x, r.key, r.at = &extra{configDir: configDir, custom: l.Custom, own: r.ownLine}, k, now
+	r.mu.Lock()
+	if r.factsDir != configDir || r.factsCwd != in.Cwd {
+		r.facts, r.factsDir, r.factsCwd, r.factsAt = facts{}, configDir, in.Cwd, time.Time{}
 	}
-	r.x.now = now
-	return render(in, l, r.x)
+	if !r.looking && now.Sub(r.factsAt) > time.Second {
+		r.looking = true
+		go r.lookUp(configDir, in.Cwd, firstOf(in.Workspace.CurrentDir, in.Cwd))
+	}
+	f := r.facts
+	r.mu.Unlock()
+	x := extra{configDir: configDir, custom: l.Custom, now: now, branch: f.branch, usage: f.usage, acct: f.acct}
+	if l.Custom != "" {
+		x.own = r.ownLine(l.Custom, in)
+	}
+	return render(in, l, &x)
+}
+
+// lookUp finds the facts for configDir and cwd, off the UI.
+func (r *Renderer) lookUp(configDir, cwd, dir string) {
+	f := facts{branch: gitBranch(dir), usage: planUsage(configDir), acct: accountName(configDir)}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.looking = false
+	if r.factsDir == configDir && r.factsCwd == cwd {
+		r.facts, r.factsAt = f, time.Now()
+	}
 }
 
 // ownLine is your own command's last output, starting it again when that
 // is a couple of seconds old.
-func (r *Renderer) ownLine(in Input) string {
-	cmd := r.x.custom
+func (r *Renderer) ownLine(cmd string, in Input) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.ownKey != cmd {
@@ -399,31 +428,26 @@ var sgr = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 func stripSGR(s string) string { return sgr.ReplaceAllString(s, "") }
 
-func (x *extra) gitBranch(dir string) string {
-	if x.branch == nil {
-		b := ""
-		if dir != "" {
-			if out, err := exec.Command("git", "-C", dir, "branch", "--show-current").Output(); err == nil {
-				b = strings.TrimSpace(string(out))
-			}
-		}
-		x.branch = &b
+func gitBranch(dir string) string {
+	if dir == "" {
+		return ""
 	}
-	return *x.branch
+	out, err := exec.Command("git", "-C", dir, "branch", "--show-current").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // planUsage is the limits of the account the folder is signed in to, as
 // agtop last read them.
-func (x *extra) planUsage() *usage.Quota {
-	if x.usage == nil {
-		var q usage.Quota
-		k := agent.Kind(state.LoginsKind)
-		if lq, ok := agent.As[agent.LastQuotaReader](k); ok {
-			q, _ = lq.LastQuota(agent.Profile{Kind: k, Dir: x.configDir})
-		}
-		x.usage = &q
+func planUsage(configDir string) *usage.Quota {
+	var q usage.Quota
+	k := agent.Kind(state.LoginsKind)
+	if lq, ok := agent.As[agent.LastQuotaReader](k); ok {
+		q, _ = lq.LastQuota(agent.Profile{Kind: k, Dir: configDir})
 	}
-	return x.usage
+	return &q
 }
 
 // accountName is the login the config folder at dir is signed in as.
