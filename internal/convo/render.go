@@ -1425,7 +1425,7 @@ func styledAsk(s, base string) string {
 			return reset + paint(cBlue, "▣ ") + paint(cText, ImageLabel(strings.TrimSuffix(m[len("[image: "):], "]"))) + base
 		case strings.HasPrefix(m, "[Image"):
 			return reset + paint(cBlue, "▣ ") + paint(cText, strings.Trim(m, "[]")) + base
-		case strings.HasPrefix(m, "[Pasted"), strings.HasPrefix(m, "[#"):
+		case strings.HasPrefix(m, "[Pasted"), strings.HasPrefix(m, "[pasted"), strings.HasPrefix(m, "[#"):
 			return reset + paint(cBlue, "▤ ") + paint(cText, strings.Trim(m, "[]")) + base
 		case strings.HasPrefix(m, "http"):
 			u := trimURL(m)
@@ -1436,7 +1436,7 @@ func styledAsk(s, base string) string {
 	return paint(base, inline(s, base))
 }
 
-var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[image: [^\]]+\]|\[(?:Pasted text )?#\d+ [^\]\n]*lines?[^\]\n]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*(?:$|[\s.,;:!?)])|@[\w./-]+`)
+var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[image: [^\]]+\]|\[(?:[Pp]asted text )?#\d+ [^\]\n]*lines?[^\]\n]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*(?:$|[\s.,;:!?)])|@[\w./-]+`)
 
 var linkRe = regexp.MustCompile(`https?://[^\s)>\]]+`)
 

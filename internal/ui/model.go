@@ -743,6 +743,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Lines of text in one key press are a paste the terminal didn't
+	// bracket: taken as a paste, they fold into a chip like any other.
+	if k, ok := msg.(tea.KeyPressMsg); ok && len(k.Text) > 1 && strings.ContainsAny(k.Text, "\r\n") {
+		msg = tea.PasteMsg{Content: k.Text}
+	}
 	if cmd, ok := m.barMsg(msg); ok {
 		return m, cmd
 	}

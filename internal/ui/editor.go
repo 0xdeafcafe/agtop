@@ -84,9 +84,10 @@ func cut(buf []rune, from, to int) []rune {
 
 // cleanPaste makes pasted text safe to draw: tabs become spaces (a tab has
 // no fixed width, so it broke wrapping), CRLF becomes LF, and other control
-// characters are dropped.
+// characters are dropped. A lone CR is a line break too: Terminal.app and
+// others paste each newline as one.
 func cleanPaste(s string) string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
 	var b strings.Builder
 	col := 0
 	for _, r := range s {

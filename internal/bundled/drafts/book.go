@@ -251,7 +251,7 @@ func (b *Book) trim() {
 }
 
 // pasteRe is convo.PasteChipRe: a paste's chip, its number the first group.
-var pasteRe = regexp.MustCompile(`\[(?:Pasted text )?#(\d+) (?:\+\d+ lines|\d+ lines?(?:: [^\]\n]*)?)\]`)
+var pasteRe = regexp.MustCompile(`\[(?:[Pp]asted text )?#(\d+) (?:· )?(?:\+\d+ lines|\d+ lines?(?:: [^\]\n]*)?)\]`)
 
 // Plain is a box's text with its pastes put back, as it would be sent.
 func Plain(b plugin.Box) string {

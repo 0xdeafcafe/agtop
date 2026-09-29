@@ -191,8 +191,8 @@ func TestBoxClickMapsToText(t *testing.T) {
 }
 
 func TestCleanPaste(t *testing.T) {
-	in := "goroutine 1:\r\n\tmain.go:78 +0x5ec\n\x1b[1mab\tc"
-	want := "goroutine 1:\n    main.go:78 +0x5ec\n[1mab   c"
+	in := "goroutine 1:\r\n\tmain.go:78 +0x5ec\n\x1b[1mab\tc\rd"
+	want := "goroutine 1:\n    main.go:78 +0x5ec\n[1mab   c\nd"
 	if got := cleanPaste(in); got != want {
 		t.Fatalf("cleanPaste = %q, want %q", got, want)
 	}
@@ -235,7 +235,7 @@ func TestPasteChips(t *testing.T) {
 	var p pastes
 	long := "a\nb\nc\nd\ne"
 	chip := p.add(long)
-	if chip != "[#1 5 lines: a b c d e]" {
+	if chip != "[pasted text #1 · 5 lines: a b c d e]" {
 		t.Fatalf("chip = %q", chip)
 	}
 	draft := []rune("look at " + chip + " please")
@@ -252,7 +252,7 @@ func TestPasteChips(t *testing.T) {
 		t.Fatal("lastIn")
 	}
 	got := applyEdit(&p, draft, 1, "x\ny")
-	if string(got) != "look at [#1 2 lines: x y] please" || p.text[1] != "x\ny" {
+	if string(got) != "look at [pasted text #1 · 2 lines: x y] please" || p.text[1] != "x\ny" {
 		t.Fatalf("applyEdit = %q", string(got))
 	}
 	if !isLongPaste("one\ntwo") || isLongPaste("one line\n") || !isLongPaste(long) {
@@ -284,6 +284,42 @@ func TestTypedImages(t *testing.T) {
 	}
 }
 
+// A paste of more than one line folds into a chip in either box, however
+// its lines arrive: LF, the CR Terminal.app pastes, or text in one key
+// press from a terminal that didn't bracket the paste.
+func TestLongPasteFolds(t *testing.T) {
+	text := "╭─ rush ─╮\n│ ✓ loaded │\n╰──────────╯"
+	for _, msg := range []tea.Msg{
+		tea.PasteMsg{Content: text},
+		tea.PasteMsg{Content: strings.ReplaceAll(text, "\n", "\r")},
+		tea.KeyPressMsg{Code: tea.KeyExtended, Text: text},
+	} {
+		for _, pane := range []bool{false, true} {
+			m, _ := benchModel(120, 40)
+			m.paneFocus = pane
+			m.host.input = nil
+			// Whether it names files is asked of the disk first, and the
+			// paste comes back.
+			_, cmd := m.Update(msg)
+			for cmd != nil {
+				back := cmd()
+				if a, ok := back.(applyMsg); ok {
+					back = a.applyTo(m)()
+				}
+				_, cmd = m.Update(back)
+			}
+			box, ps := m.input, &m.pastes
+			if pane {
+				box, ps = m.host.input, &m.host.pastes
+			}
+			want := "[pasted text #1 · 3 lines: ╭─ rush ─╮ │ ✓ loaded │ ╰──────────╯]"
+			if string(box) != want || ps.expand(string(box), false) != text {
+				t.Errorf("%T in pane=%v: box %q", msg, pane, string(box))
+			}
+		}
+	}
+}
+
 func TestPasteTaggedRoundTrip(t *testing.T) {
 	var p pastes
 	long := "a\nb\nc\nd"
@@ -294,7 +330,7 @@ func TestPasteTaggedRoundTrip(t *testing.T) {
 	}
 	var q pastes
 	back := string(q.unfold(sent))
-	if back != "look at [#1 4 lines: a b c d] please" || q.expand(back, false) != "look at a\nb\nc\nd please" {
+	if back != "look at [pasted text #1 · 4 lines: a b c d] please" || q.expand(back, false) != "look at a\nb\nc\nd please" {
 		t.Fatalf("unfold = %q", back)
 	}
 }
