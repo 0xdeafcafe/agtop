@@ -25,8 +25,9 @@ const (
 	// shows of a session, never what was said.
 	UIEvents = "events"
 	// UIInput sees what you type in a message box (as it changes, and when
-	// it's sent or cleared) and may set it. It is what a drafts feature
-	// needs, and it is everything you type: approve it with care.
+	// it's sent or cleared), may set it, and may put a note on its edge.
+	// It is what a drafts feature needs, and it is everything you type:
+	// approve it with care.
 	UIInput = "input"
 	// UIIntercept is asked before a message you send goes, and may change
 	// it or hold it back, with a reason shown. It needs "input". It has
@@ -62,6 +63,7 @@ const (
 	MaxSectionLines    = 24  //
 	MaxLineLen         = 200 // characters
 	MaxStatusLen       = 24
+	MaxNoteLen         = 60 // on a message box's edge
 	MaxNotifyLen       = 200
 	MaxSessionsTracked = 2000
 )
@@ -229,6 +231,36 @@ type UIEvent struct {
 	Error *UIError `json:"error,omitempty"`
 	// Text is the message box, for input events, to plugins with "input".
 	Text string `json:"text,omitempty"`
+	// Box is the whole box, for input events: Text with where the cursor
+	// is and what its chips stand for.
+	Box *Box `json:"box,omitempty"`
+}
+
+// Box is a message box as a plugin with "input" sees it, and may set it.
+// Text is as the box shows it: a long paste as [Pasted text #N +L lines],
+// an image as [Image #N]. Setting a Box puts all of it back as it was.
+type Box struct {
+	Text   string         `json:"text"`
+	Cursor int            `json:"cursor"`           // in characters from the start
+	Pastes map[int]string `json:"pastes,omitempty"` // each paste chip's text, by N
+	// Images are each [Image #N]'s file. The Prompt, whose images are
+	// attachments rather than in its text, numbers them 1, 2, 3.
+	Images map[int]string `json:"images,omitempty"`
+}
+
+// Size is about how many bytes the box holds, to check against limits.
+func (b *Box) Size() int {
+	if b == nil {
+		return 0
+	}
+	n := len(b.Text)
+	for _, p := range b.Pastes {
+		n += len(p)
+	}
+	for _, p := range b.Images {
+		n += len(p)
+	}
+	return n
 }
 
 // UIError is why a session stopped.
@@ -251,7 +283,7 @@ func (e UIEvent) For(m *Manifest) (UIEvent, bool) {
 	if !m.CanUI(UIEvents) {
 		return UIEvent{}, false
 	}
-	e.Text = ""
+	e.Text, e.Box = "", nil
 	return e, true
 }
 
@@ -314,6 +346,15 @@ func CleanStatus(s Status) Status {
 	return s
 }
 
+// CleanNote makes a note on a message box's edge safe to draw.
+func CleanNote(s Status) Status {
+	s.Text = clip(printable(s.Text), MaxNoteLen)
+	if !slices.Contains(tones, s.Tone) {
+		s.Tone = ""
+	}
+	return s
+}
+
 // CleanNotice makes a notice safe to draw.
 func CleanNotice(s string) string { return clip(printable(s), MaxNotifyLen) }
 
@@ -352,6 +393,9 @@ type UIState struct {
 	Sections map[string][]UISection `json:"sections,omitempty"`
 	// Statuses are each session's row statuses, by agtop session id.
 	Statuses map[string][]UIStatus `json:"statuses,omitempty"`
+	// Notes are what plugins put on the edge of a message box: a
+	// session's, by agtop session id, or the Prompt's, by "".
+	Notes map[string][]UIStatus `json:"notes,omitempty"`
 }
 
 // UIPlugin is what the UI needs of a plugin taking part in its screen.
@@ -386,6 +430,11 @@ type UIDo struct {
 	Session string `json:"session,omitempty"`
 	Text    string `json:"text,omitempty"`
 	Tone    string `json:"tone,omitempty"`
+	// Box, for input.set, is the whole box to put back; If, when set, is
+	// the text the box must hold for it to be set at all, so what's typed
+	// meanwhile is never lost.
+	Box *Box    `json:"box,omitempty"`
+	If  *string `json:"if,omitempty"`
 }
 
 // Intercept is what a plugin is asked before a message goes.

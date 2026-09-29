@@ -101,13 +101,17 @@ Something happened in one of agtop's windows. Sent without waiting for the plugi
 | `turn.started` / `turn.ended` | `events` | |
 | `session.stopped` | `events` | `error: {kind, message, retrying}` when an error did it; `kind` is `limit`, `auth`, `offline`, `retryable`, `too-long` or `other`; `retrying` is agtop continuing the session itself (its own sessions, and others for a day, after `offline` or `retryable`), so a plugin needn't |
 | `network.down` / `network.up` | `events` | no `session` |
-| `input.changed` / `input.sent` / `input.cleared` | `input` | `text`, the message box |
+| `input.changed` / `input.sent` / `input.cleared` | `input` | `text`, the message box; `input.changed` also has `box`, the whole box (below) |
 
 `ui` names the agtop window. Only `input` events carry `text`; a `session` absent from one means the Prompt's box. `input.changed` with empty `text` is a box emptied by hand (`input.sent` and `input.cleared` say so themselves). A plugin that connects while the API is unreachable hears `network.down` at once.
 
 ### `ui.command` (request)
 
-`{"plugin": "…", "command": "summarize", "ui": "main", "session": {…}, "box": "a1b2c3d4"}`: the user ran one of its `commands`, on `session` if one was selected (as in `ui.event`, or absent). `box` is whose message box had the keys: a session's id, or `""` for the Prompt (where new sessions start). Answer `{}` within 10 seconds; the work may go on after.
+`{"plugin": "…", "command": "summarize", "ui": "main", "session": {…}, "box": "a1b2c3d4", "input": {…}}`: the user ran one of its `commands`, on `session` if one was selected (as in `ui.event`, or absent). `box` is whose message box had the keys: a session's id, or `""` for the Prompt (where new sessions start). `input`, to a plugin with `input` only, is that box as it was when the key was pressed, whole:
+
+`{"text": "see [Image #1] and [Pasted text #2 +4 lines]", "cursor": 3, "pastes": {"2": "…"}, "images": {"1": "/path/a.png"}}`
+
+`text` is as the box shows it, with a long paste as its chip and an image as its marker; `cursor` counts characters from the start; `pastes` and `images` are what each chip and marker stand for. The Prompt's images are attachments rather than markers in its text, numbered 1, 2, 3. Answer `{}` within 10 seconds; the work may go on after.
 
 ### `ui.intercept` (request) — needs `intercept`
 
@@ -253,6 +257,12 @@ Replaces the plugin's sections in that session's overview; `[]` removes them. `s
 ### `ui.input.set` — needs `ui` `input`
 
 `{"ui": "main", "session": "…", "text": "…"}`: sets that message box, at most 100 KB: the session's, or with `session` `""` the Prompt's. The window sets it only while that box is on its screen (a session's Session open, or the Prompt taking a new session), else it's dropped. Returns `{}`.
+
+With `"box": {…}` instead of `text`, it sets the whole box as `ui.command` shows one: chips, images (absolute paths) and cursor, at most 64 of each. With `"if": "…"`, the window sets it only while the box's `text` is exactly that, so nothing typed since the plugin looked is lost; `"if": ""` sets only an empty box. The set is one undo away.
+
+### `ui.box.note` — needs `ui` `input`
+
+`{"session": "…", "text": "stashed · alt+s brings it back", "tone": "dim"}`: a short note, at most 60 characters, on the bottom edge of that session's message box, or with `session` `""` the Prompt's; the tones are as for `ui.status.set`. Empty `text` takes it off. It goes when the plugin stops. Returns `{}`.
 
 ### `ui.send` — needs `ui` `send`
 

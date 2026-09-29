@@ -1907,6 +1907,9 @@ func (m *Model) promptLines(w int) []string {
 	// An empty box with nothing asked of it shows no cursor: the list has
 	// the keys until you type, rename, or reply.
 	b.idle = len(m.input) == 0 && m.inKind == inPrompt
+	if m.inKind == inPrompt {
+		b.footR = m.boxNote("")
+	}
 	switch {
 	case m.inKind == inRename && a != nil:
 		b.topL = dim("rename ") + paint(cText, oneLine(a.DisplayName)) + dim(" · enter saves")

@@ -46,6 +46,7 @@ type uiHub struct {
 	order    []string                    // sessions oldest first, to forget
 	sections map[string]map[string][]plugin.Section
 	statuses map[string]map[string]plugin.Status
+	notes    map[string]map[string]plugin.Status // by session, "" the Prompt
 	strikes  map[string]int
 	skipped  map[string]string
 	notices  map[string]*bucket
@@ -62,7 +63,7 @@ type uiConn struct {
 
 func newUIHub(b *broker) *uiHub {
 	return &uiHub{b: b, uis: map[*plugin.Conn]*uiConn{}, sessions: map[string]plugin.UISession{},
-		sections: map[string]map[string][]plugin.Section{}, statuses: map[string]map[string]plugin.Status{},
+		sections: map[string]map[string][]plugin.Section{}, statuses: map[string]map[string]plugin.Status{}, notes: map[string]map[string]plugin.Status{},
 		strikes: map[string]int{}, skipped: map[string]string{}, notices: map[string]*bucket{}, sends: map[string][]time.Time{}}
 }
 
@@ -216,6 +217,10 @@ func (h *uiHub) fromUI(ctx context.Context, conn *plugin.Conn, method string, pa
 			Command string            `json:"command"`
 			UI      string            `json:"ui"`
 			Session *plugin.UISession `json:"session,omitempty"`
+			// Box is whose message box has the keys: a session's id, or
+			// "" for the Prompt; Input is that box, for "input" only.
+			Box   string      `json:"box"`
+			Input *plugin.Box `json:"input,omitempty"`
 		}
 		if err := jsonx.Unmarshal(params, &p); err != nil {
 			return nil, badParams(err.Error())
@@ -230,6 +235,9 @@ func (h *uiHub) fromUI(ctx context.Context, conn *plugin.Conn, method string, pa
 		}
 		if !slices.ContainsFunc(m.Commands, func(c plugin.CommandSpec) bool { return c.Name == p.Command }) {
 			return nil, badParams(p.Plugin + " has no command " + p.Command)
+		}
+		if !m.CanUI(plugin.UIInput) {
+			p.Input = nil
 		}
 		ctx, cancel := context.WithTimeout(ctx, commandWait)
 		defer cancel()
@@ -371,6 +379,14 @@ func (h *uiHub) state() plugin.UIState {
 			}
 		}
 	}
+	if len(h.notes) > 0 {
+		st.Notes = map[string][]plugin.UIStatus{}
+		for sess, byPlugin := range h.notes {
+			for _, name := range sortedKeys(byPlugin) {
+				st.Notes[sess] = append(st.Notes[sess], plugin.UIStatus{Plugin: name, Status: byPlugin[name]})
+			}
+		}
+	}
 	return st
 }
 
@@ -506,6 +522,12 @@ func (h *uiHub) gone(name string) {
 			delete(h.statuses, sess)
 		}
 	}
+	for sess, byPlugin := range h.notes {
+		delete(byPlugin, name)
+		if len(byPlugin) == 0 {
+			delete(h.notes, sess)
+		}
+	}
 	delete(h.strikes, name)
 	delete(h.skipped, name)
 	h.mu.Unlock()
@@ -527,6 +549,8 @@ type uiParams struct {
 	Sections []plugin.Section `json:"sections"`
 	Text     string           `json:"text"`
 	Tone     string           `json:"tone"`
+	Box      *plugin.Box      `json:"box"`
+	If       *string          `json:"if"`
 }
 
 // uiNeeds is the capability each of a plugin's ui.* calls needs.
@@ -535,6 +559,7 @@ var uiNeeds = map[string]string{
 	"ui.status.set":   plugin.UIOverview,
 	"ui.notify":       plugin.UINotify,
 	"ui.input.set":    plugin.UIInput,
+	"ui.box.note":     plugin.UIInput,
 	"ui.send":         plugin.UISend,
 	"ui.settings.get": "",
 }
@@ -565,6 +590,8 @@ func (h *uiHub) fromPlugin(p *plugin.Plugin, method string, params jsontext.Valu
 		err = h.notice(p.Name, &in)
 	case "ui.input.set":
 		err = h.setInput(p.Name, &in)
+	case "ui.box.note":
+		err = h.setNote(p.Name, &in)
 	case "ui.send":
 		err = h.send(p, &in)
 	case "ui.settings.get":
@@ -679,7 +706,39 @@ func (h *uiHub) setInput(name string, in *uiParams) error {
 	if len(in.Text) > maxText || !utf8.ValidString(in.Text) {
 		return badParams("text is too long")
 	}
-	h.do(plugin.UIDo{Plugin: name, UI: in.UI, Kind: "input.set", Session: in.Session, Text: in.Text})
+	if b := in.Box; b != nil {
+		if b.Size() > 4*maxText || !utf8.ValidString(b.Text) || b.Cursor < 0 || len(b.Pastes) > maxChips || len(b.Images) > maxChips {
+			return badParams("box is too big")
+		}
+		for _, p := range b.Images {
+			if !filepath.IsAbs(p) {
+				return badParams("an image is a file's absolute path")
+			}
+		}
+	}
+	h.do(plugin.UIDo{Plugin: name, UI: in.UI, Kind: "input.set", Session: in.Session, Text: in.Text, Box: in.Box, If: in.If})
+	return nil
+}
+
+// maxChips is how many pastes or images a box set by a plugin may hold.
+const maxChips = 64
+
+// setNote replaces a plugin's note on the edge of a session's message box,
+// or the Prompt's for no session; no text removes it.
+func (h *uiHub) setNote(name string, in *uiParams) error {
+	if in.Session != "" {
+		if err := sessionKey(in.Session); err != nil {
+			return err
+		}
+	}
+	st := plugin.CleanNote(plugin.Status{Text: in.Text, Tone: in.Tone})
+	h.mu.Lock()
+	err := put(h.notes, in.Session, name, st, strings.TrimSpace(st.Text) == "")
+	h.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	h.changed()
 	return nil
 }
 

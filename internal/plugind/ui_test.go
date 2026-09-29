@@ -561,3 +561,54 @@ func limited(err error) bool {
 	var e *plugin.Error
 	return errors.As(err, &e) && e.Code == plugin.CodeLimited
 }
+
+// A plugin with "input" sets a box whole, only if it still holds what it
+// expects, and puts a note on its edge; a command shows the box only to a
+// plugin that may see it.
+func TestUIBoxWhole(t *testing.T) {
+	b := testBroker(t)
+	f := addPlugin(t, b, &plugin.Manifest{Name: "box", UI: []string{plugin.UIInput},
+		Commands: []plugin.CommandSpec{{Name: "go", Description: "Go."}}}, nil)
+	g := addPlugin(t, b, &plugin.Manifest{Name: "blind",
+		Commands: []plugin.CommandSpec{{Name: "go", Description: "Go."}}}, nil)
+	u := attachUI(t, b, "main")
+
+	was := "draft"
+	box := map[string]any{"text": "see [Image #1] [Pasted text #2 +4 lines]", "cursor": 3,
+		"pastes": map[string]string{"2": "a\nb\nc\nd"}, "images": map[string]string{"1": "/tmp/a.png"}}
+	if err := f.call("ui.input.set", map[string]any{"ui": "main", "session": "s1", "box": box, "if": was}, nil); err != nil {
+		t.Fatal(err)
+	}
+	d := u.waitDo(t)
+	if d.Kind != "input.set" || d.Box == nil || d.Box.Cursor != 3 || d.Box.Images[1] != "/tmp/a.png" || d.Box.Pastes[2] == "" || d.If == nil || *d.If != was {
+		t.Fatalf("do: %+v", d)
+	}
+	bad := map[string]any{"text": "x", "images": map[string]string{"1": "a.png"}}
+	if err := f.call("ui.input.set", map[string]any{"ui": "main", "session": "s1", "box": bad}, nil); err == nil {
+		t.Fatal("an image that isn't an absolute path was taken")
+	}
+
+	if err := f.call("ui.box.note", map[string]any{"session": "", "text": "stashed · alt+s brings it back", "tone": "warn"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	u.waitState(t, "the Prompt's note", func(st plugin.UIState) bool {
+		n := st.Notes[""]
+		return len(n) == 1 && n[0].Plugin == "box" && n[0].Tone == "warn"
+	})
+	if err := g.call("ui.box.note", map[string]any{"session": "s1", "text": "hi"}, nil); err == nil {
+		t.Fatal("a plugin without input put a note on a box")
+	}
+
+	in := map[string]any{"text": "secret", "cursor": 6}
+	for _, name := range []string{"box", "blind"} {
+		if err := u.call("ui.command", map[string]any{"plugin": name, "command": "go", "ui": "main", "box": "s1", "input": in}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := <-f.other; !strings.Contains(got, `"secret"`) {
+		t.Fatalf("the plugin with input wasn't shown the box: %s", got)
+	}
+	if got := <-g.other; strings.Contains(got, "secret") || !strings.Contains(got, `"box":"s1"`) {
+		t.Fatalf("the plugin without input: %s", got)
+	}
+}

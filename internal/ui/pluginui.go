@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -96,13 +98,7 @@ func (m *Model) pluginDo(d plugin.UIDo) tea.Cmd {
 		m.flash(who+": "+plugin.CleanNotice(d.Text), d.Tone == "bad")
 		return nil
 	case "input.set":
-		if c := m.host; c != nil && c.key == d.Session {
-			c.input, c.back, c.anchor = []rune(d.Text), 0, 0
-			return nil
-		}
-		if d.Session == "" && m.inKind == inPrompt {
-			m.input, m.back, m.anchor = []rune(d.Text), 0, 0
-		}
+		m.setBox(d)
 		return nil
 	case "send":
 		a := m.agentByKey(d.Session)
@@ -195,8 +191,8 @@ func (m *Model) runPluginCommand(id string, a *fleet.Agent) tea.Cmd {
 		return nil
 	}
 	m.flash(name+" "+cmd+"…", false)
-	_, box, _ := m.boxNow()
-	return m.hooks.Command(name, cmd, m.uiSession(a), box, func(err error) tea.Msg {
+	in, box, _ := m.boxState()
+	return m.hooks.Command(name, cmd, m.uiSession(a), box, in, func(err error) tea.Msg {
 		return sheetMsg{apply: func(m *Model) tea.Cmd {
 			if err != nil {
 				m.flash(name+" "+cmd+": "+err.Error(), true)
@@ -363,7 +359,85 @@ func (m *Model) emitInput() {
 	// Sent or cleared said so themselves, and left input empty: an empty
 	// box here was emptied by hand, and is said as one.
 	m.hookSeen.input, m.hookSeen.inputAt = text, who
-	m.hooks.Emit(plugin.UIEvent{Kind: plugin.EvInputChanged, Session: m.uiSession(m.agentByKey(who)), Text: text})
+	b, _, _ := m.boxState()
+	m.hooks.Emit(plugin.UIEvent{Kind: plugin.EvInputChanged, Session: m.uiSession(m.agentByKey(who)), Text: text, Box: b})
+}
+
+// boxState is the box keys go to, whole, and whose it is.
+func (m *Model) boxState() (*plugin.Box, string, bool) {
+	if _, who, ok := m.boxNow(); !ok {
+		return nil, "", false
+	} else if who != "" {
+		c := m.host
+		return &plugin.Box{Text: string(c.input), Cursor: max(0, len(c.input)-c.back), Pastes: maps.Clone(c.pastes.text), Images: maps.Clone(c.imgs.Path)}, who, true
+	}
+	b := &plugin.Box{Text: string(m.input), Cursor: max(0, len(m.input)-m.back), Pastes: maps.Clone(m.pastes.text)}
+	for i, p := range m.images {
+		if b.Images == nil {
+			b.Images = map[int]string{}
+		}
+		b.Images[i+1] = p
+	}
+	return b, "", true
+}
+
+// setBox is a plugin setting a message box: a session's, when it's the one
+// open, or the Prompt's, when it has the keys. With If, only a box still
+// holding that text is set, so nothing typed meanwhile is lost.
+func (m *Model) setBox(d plugin.UIDo) {
+	b := d.Box
+	if b == nil {
+		b = &plugin.Box{Text: d.Text}
+	}
+	text := []rune(b.Text)
+	back := len(text) - min(len(text), max(0, b.Cursor))
+	if d.Box == nil {
+		back = 0 // text alone: the cursor at its end, as before
+	}
+	if c := m.host; c != nil && c.key == d.Session && d.Session != "" {
+		if d.If != nil && string(c.input) != *d.If {
+			return
+		}
+		c.undo.save(c.input, c.back, false)
+		c.input, c.back, c.anchor = text, back, 0
+		c.pastes = pastes{text: maps.Clone(b.Pastes)}
+		c.imgs = imageRefs{Path: maps.Clone(b.Images)}
+		for n := range b.Pastes {
+			c.pastes.n = max(c.pastes.n, n)
+		}
+		for n := range b.Images {
+			c.imgs.N = max(c.imgs.N, n)
+		}
+		return
+	}
+	if d.Session != "" || m.inKind != inPrompt {
+		return
+	}
+	if d.If != nil && string(m.input) != *d.If {
+		return
+	}
+	m.input, m.back, m.anchor = text, back, 0
+	m.pastes = pastes{text: maps.Clone(b.Pastes)}
+	for n := range b.Pastes {
+		m.pastes.n = max(m.pastes.n, n)
+	}
+	m.images = nil
+	for _, n := range slices.Sorted(maps.Keys(b.Images)) {
+		m.images = append(m.images, b.Images[n])
+	}
+}
+
+// boxNote is what plugins put on the edge of a message box: a session's by
+// its agent, the Prompt's by "".
+func (m *Model) boxNote(key string) string {
+	if m.hooks == nil {
+		return ""
+	}
+	var parts []string
+	for _, n := range m.hooks.State().Notes[key] {
+		parts = append(parts, toned(firstNonEmpty(n.Tone, "dim"), n.Text))
+	}
+	return strings.Join(parts, dim(" · "))
 }
 
 // emitBox tells plugins with "input" that a box was sent or cleared.

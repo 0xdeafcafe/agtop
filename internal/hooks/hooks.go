@@ -172,12 +172,12 @@ func (c *Client) Next() tea.Cmd {
 // the message the UI gets.
 //
 // box is whose message box has the keys: a session's id, or "" for the
-// Prompt.
-func (c *Client) Command(name, command string, s *plugin.UISession, box string, done func(error) tea.Msg) tea.Cmd {
+// Prompt; input is that box, which only a plugin with "input" is shown.
+func (c *Client) Command(name, command string, s *plugin.UISession, box string, input *plugin.Box, done func(error) tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 		defer cancel()
-		err := c.call(ctx, "ui.command", map[string]any{"plugin": name, "command": command, "ui": c.id, "session": s, "box": box}, nil)
+		err := c.call(ctx, "ui.command", map[string]any{"plugin": name, "command": command, "ui": c.id, "session": s, "box": box, "input": input}, nil)
 		return done(err)
 	}
 }
