@@ -12,8 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
-	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
@@ -49,7 +50,7 @@ func History(path string, before time.Time) *Session {
 		return New()
 	}
 	if live := t.Sess.Live(); live != nil {
-		t.Sess.Apply(headless.Result{Subtype: "success"}, live.Start)
+		t.Sess.Apply(event.TurnEnd{Reason: "done"}, live.Start)
 	}
 	return t.Sess
 }
@@ -279,8 +280,11 @@ func (t *Tail) parse(b []byte) (p parsedLine, ok bool) {
 		}
 		fallthrough
 	case "assistant":
-		ev, err := headless.DecodeMessage(l.Type, l.Message, l.ToolUseResult)
-		p.ev, p.evFailed = ev, err != nil
+		p.evFailed = true
+		if n := native(); n != nil {
+			ev, err := n.Message(l.Type, l.Message, l.ToolUseResult)
+			p.ev, p.evFailed = ev, err != nil
+		}
 	}
 	// What's been decoded isn't kept twice.
 	l.Message, l.ToolUseResult, l.Content = nil, nil, nil
@@ -306,7 +310,7 @@ func (t *Tail) take(p *parsedLine) bool {
 	switch l.Type {
 	case "system":
 		if l.Subtype == "turn_duration" {
-			s.Apply(headless.Result{Subtype: "success"}, at)
+			s.Apply(event.TurnEnd{Reason: "done"}, at)
 			return true
 		}
 		if l.Subtype == "informational" || l.Subtype == "local_command" {
@@ -320,7 +324,7 @@ func (t *Tail) take(p *parsedLine) bool {
 		}
 		if l.Subtype == "compact_boundary" {
 			c := l.Compact
-			s.Apply(headless.Compact{Trigger: c.Trigger, PreTokens: c.PreTokens, PostTokens: c.PostTokens}, at)
+			s.Apply(event.Compacted{Trigger: c.Trigger, Before: c.PreTokens, After: c.PostTokens}, at)
 			return true
 		}
 		return false
@@ -347,7 +351,7 @@ func (t *Tail) take(p *parsedLine) bool {
 			}
 			// A new prompt closes a turn the transcript never marked done.
 			if live := s.Live(); live != nil && live.Prompt != "" {
-				s.Apply(headless.Result{Subtype: "success"}, at)
+				s.Apply(event.TurnEnd{Reason: "done"}, at)
 			}
 			from, text2, injected := Injected(text)
 			if injected {
@@ -372,11 +376,10 @@ func (t *Tail) take(p *parsedLine) bool {
 		if p.evFailed {
 			return false
 		}
-		if msg, ok := ev.(headless.Message); ok && l.Type == "assistant" {
+		if l.Type == "assistant" {
 			if live := s.Live(); live != nil && l.Effort != "" && live.Effort == "" {
 				live.Effort = l.Effort
 			}
-			_ = msg
 		}
 		s.Apply(ev, at)
 		return true
@@ -508,7 +511,7 @@ func (s *Session) shellResult(t *Turn, out shellOut, at time.Time) {
 		st.Status = Failed
 	}
 	st.readOutput(st.Status == Failed)
-	s.Apply(headless.Result{Subtype: "success"}, at)
+	s.Apply(event.TurnEnd{Reason: "done"}, at)
 }
 
 // Injected recognises text Claude Code puts in a user message that you
@@ -608,12 +611,20 @@ type lightLine struct {
 	IsMeta      bool      `json:"isMeta"`
 	Timestamp   time.Time `json:"timestamp"`
 	Message     struct {
-		ID      string          `json:"id"`
-		Role    string          `json:"role"`
-		Model   string          `json:"model"`
-		Usage   *headless.Usage `json:"usage"`
-		Content lightContent    `json:"content"`
+		ID      string       `json:"id"`
+		Role    string       `json:"role"`
+		Model   string       `json:"model"`
+		Usage   *lightUsage  `json:"usage"`
+		Content lightContent `json:"content"`
 	} `json:"message"`
+}
+
+// lightUsage is what a request used, as a transcript line says.
+type lightUsage struct {
+	Input      int64 `json:"input_tokens"`
+	Output     int64 `json:"output_tokens"`
+	CacheRead  int64 `json:"cache_read_input_tokens"`
+	CacheWrite int64 `json:"cache_creation_input_tokens"`
 }
 
 // lightContent is a message's content: a prompt as plain text, or blocks.
@@ -649,7 +660,7 @@ func (t *Tail) applyLight(b []byte) bool {
 	switch l.Type {
 	case "system":
 		if l.Subtype == "turn_duration" {
-			s.Apply(headless.Result{Subtype: "success"}, at)
+			s.Apply(event.TurnEnd{Reason: "done"}, at)
 			return true
 		}
 		return false
@@ -673,26 +684,41 @@ func (t *Tail) applyLight(b []byte) bool {
 		}
 		if prompt {
 			if live := s.Live(); live != nil && live.Prompt != "" {
-				s.Apply(headless.Result{Subtype: "success"}, at)
+				s.Apply(event.TurnEnd{Reason: "done"}, at)
 			}
 			s.Apply(host.Sent{Text: strings.Clone(firstLine(cleanPrompt(text)))}, at)
 			return true
 		}
 	}
-	m := headless.Message{Role: l.Type, ID: l.Message.ID, Model: l.Message.Model, Usage: l.Message.Usage}
+	m := event.Message{Role: l.Type, ID: l.Message.ID, Model: l.Message.Model, Injected: l.Type == "user"}
+	if u := l.Message.Usage; u != nil {
+		// The stream doesn't split cache writes by lifetime; they count as
+		// the hour Claude Code asks for.
+		m.Tokens = &usage.TokenUsage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite1h: u.CacheWrite}
+	}
+	if s.calls == nil {
+		s.calls = map[string]tool.Call{}
+	}
 	for _, bl := range c.blocks {
 		switch bl.Type {
 		case "text":
 			if l.Type == "assistant" && strings.TrimSpace(bl.Text) != "" {
-				m.Blocks = append(m.Blocks, headless.Block{Type: "text", Text: strings.Clone(firstPlain(bl.Text))})
+				m.Parts = append(m.Parts, event.Part{Kind: event.Text, Text: strings.Clone(firstPlain(bl.Text))})
 			}
 		case "tool_use":
-			m.Blocks = append(m.Blocks, headless.Block{Type: "tool_use", ID: bl.ID, Name: bl.Name, Input: bl.Input})
+			call := nativeCall(bl.ID, bl.Name, bl.Input)
+			s.calls[bl.ID] = call
+			m.Parts = append(m.Parts, event.Part{Kind: event.ToolCall, Call: &call})
 		case "tool_result":
-			m.Blocks = append(m.Blocks, headless.Block{Type: "tool_result", ToolUseID: bl.ToolUseID, IsError: bl.IsError})
+			call, ok := s.calls[bl.ToolUseID]
+			if !ok {
+				call = tool.Call{ID: bl.ToolUseID}
+			}
+			o := nativeOutput(call, "", bl.IsError, nil)
+			m.Parts = append(m.Parts, event.Part{Kind: event.ToolResult, Output: &o})
 		}
 	}
-	if len(m.Blocks) == 0 && m.Usage == nil {
+	if len(m.Parts) == 0 && m.Tokens == nil {
 		return false
 	}
 	s.Apply(m, at)

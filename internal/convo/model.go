@@ -20,8 +20,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/claude"
-	"github.com/0xdeafcafe/rush/internal/headless"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
@@ -279,8 +277,11 @@ type Session struct {
 
 	jobs []*Job // Claude Code's tasks, in the order they started
 
-	// nt reads Claude Code's own events as rush's.
-	nt headless.Neutral
+	// nt reads the native agent's own events (agent.Native), as a
+	// transcript or an older host has them, as rush's; started on first use.
+	nt agent.Neutral
+	// calls are a light session's tool calls, for how each came out.
+	calls map[string]tool.Call
 
 	// TaskStatus is what Claude Code last said about each background task
 	// (completed, killed, …), keyed by task id: a subagent's agent id.
@@ -402,13 +403,21 @@ func (s *Session) Apply(ev any, now time.Time) {
 		s.Usage = &u
 	case host.Answered:
 		s.settle(ev.ID)
-	case headless.Event:
-		// Claude Code's own, as a transcript or an older host has them.
-		for _, e := range s.nt.Event(ev) {
-			s.applyNeutral(e, now)
-		}
 	case event.Event:
 		s.applyNeutral(ev, now)
+	default:
+		// The native agent's own, as a transcript or an older host has them.
+		if s.nt == nil {
+			n, ok := agent.NativeAgent()
+			if !ok {
+				return
+			}
+			s.nt = n.Neutral()
+		}
+		evs, _ := s.nt.Event(ev)
+		for _, e := range evs {
+			s.applyNeutral(e, now)
+		}
 	}
 }
 
@@ -547,7 +556,7 @@ func (s *Session) call(c *tool.Call, parent *Step, t *Turn, sub bool, now time.T
 		if s.inFlight == nil {
 			s.inFlight = map[string]flight{}
 		}
-		s.inFlight[c.ID] = flight{name, now, claude.Doing(name, input)}
+		s.inFlight[c.ID] = flight{name, now, nativeDoing(name, input)}
 		return
 	}
 	st := &Step{ID: c.ID, Tool: name, Input: input, Start: now, Exit: -1, parent: parent, turn: t}
@@ -961,14 +970,14 @@ func (st *Step) setCall(c *tool.Call) {
 }
 
 func (st *Step) readCall() tool.Call {
-	c := claude.Call(st.ID, st.Tool, st.Input)
+	c := nativeCall(st.ID, st.Tool, st.Input)
 	c.Kind = st.kind()
 	return c
 }
 
 // readOutput reads how the step's call came out, once, as it comes back.
 func (st *Step) readOutput(isError bool) {
-	o := claude.Output(st.Call(), st.Output, isError, st.Result)
+	o := nativeOutput(st.Call(), st.Output, isError, st.Result)
 	st.output = &o
 }
 
@@ -976,7 +985,7 @@ func (st *Step) readOutput(isError bool) {
 // exit, the hunks it changed, the lines it read. Empty until it's back.
 func (st *Step) out() *tool.Output {
 	if st.output == nil {
-		o := claude.Output(st.Call(), st.Output, st.Status == Failed, st.Result)
+		o := nativeOutput(st.Call(), st.Output, st.Status == Failed, st.Result)
 		return &o
 	}
 	return st.output
@@ -993,12 +1002,12 @@ func (st *Step) in() *tool.Input {
 }
 
 // kind is what the step's call does: the kind its agent gave it, or else
-// what Claude Code's tool of its name does.
+// what the native agent's tool of its name does.
 func (st *Step) kind() tool.Kind {
 	if st.Kind != tool.Other {
 		return st.Kind
 	}
-	return claude.KindOf(st.Tool)
+	return kindOf(st.Tool)
 }
 
 // programWord is what the session's agent is called when its process
