@@ -1881,6 +1881,8 @@ func (m *Model) promptBoxAt(w int) box {
 		lead: paint(cOrange, "❯ "), maxRows: min(6, max(1, m.h-m.topH()-4-5)), top: m.promptTop}
 	if m.sessionFocused() {
 		b.text = nil
+	} else if m.chipHot.box == 2 {
+		b.hot = m.chipHot.at
 	}
 	return b
 }

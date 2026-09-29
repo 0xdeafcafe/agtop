@@ -171,7 +171,7 @@ An agent run in agtop mode (headless, hosted by agtop) opens in a Session beside
     </td>
     <td valign="top">
       <b>Queue</b>. Messages sent while the agent works wait here. <code>enter</code> edits one, <code>shift+↑↓</code> merges it into the one above or below, <code>[</code> <code>]</code> move it, <code>s</code> sends it now, <code>ctrl+s</code> sends everything. Several go as one message, each numbered, so the agent reads them as separate requests.<br><br>
-      Claude's questions arrive as one form, with a preview beside each option. Long pastes stay a chip; <code>ctrl+g</code> opens one in <code>$EDITOR</code>.
+      Claude's questions arrive as one form, with a preview beside each option. Long pastes stay a chip: click one, or press space with the pointer on it, to open it in place; <code>ctrl+g</code> opens one in <code>$EDITOR</code>.
     </td>
   </tr>
 </table>

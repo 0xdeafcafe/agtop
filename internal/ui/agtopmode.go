@@ -2044,6 +2044,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	b := box{w: w, focused: typing, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back), anchor: c.anchor - 1,
 		lead: paint(cOrange, "❯ "), holder: draftsHolder("a message for this agent", " · ctrl+r for past drafts"), maxRows: 6}
+	if m.chipHot.box == 1 {
+		b.hot = m.chipHot.at
+	}
 	if mode := s.Info.PermissionMode; mode != "" {
 		b.topR = paint(cOrange, mode)
 	}
@@ -2597,34 +2600,24 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 // clickBox places the cursor where a click lands inside either input box,
 // and gives that box the keys. It reports whether the click was in one.
 func (m *Model) clickBox(x, y int) bool {
-	if c := m.host; c != nil && len(c.box.text) >= 0 && c.box.w > 0 {
-		x0 := 2
-		if m.listW > 0 {
-			x0 = m.listW + 3
-		}
-		rows := len(c.box.lines()) - 2
-		if y > c.boxY && y <= c.boxY+rows && x >= x0 && x < x0+c.box.w {
-			m.paneFocus = true
-			pos := c.box.at(y-c.boxY-1, x-x0)
-			c.back, c.anchor = len(c.input)-pos, pos+1 // a drag from here selects
-			m.boxDrag = 1
-			return true
-		}
+	if h := m.chipUnder(x, y); h.box != 0 && m.openChip(h) {
+		return true
 	}
-	b := m.promptBox
-	if m.zenFull() || b.w == 0 {
-		return false
-	}
-	rows := len(b.lines()) - 2
-	if y > m.promptBoxY && y <= m.promptBoxY+rows && x < b.w {
+	which, pos := m.boxAt(x, y)
+	switch c := m.host; {
+	case which == 1 && c != nil:
+		m.paneFocus = true
+		c.back, c.anchor = len(c.input)-pos, pos+1 // a drag from here selects
+		m.boxDrag = 1
+	case which == 2:
 		m.paneFocus, m.embedded = false, false
-		pos := b.at(y-m.promptBoxY-1, x)
 		m.setCursor(pos)
 		m.anchor = pos + 1 // a drag from here selects
 		m.boxDrag = 2
-		return true
+	default:
+		return false
 	}
-	return false
+	return true
 }
 
 // dragBox moves the cursor of the box a drag started in to the text under

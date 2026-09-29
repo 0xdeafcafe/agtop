@@ -5,8 +5,10 @@ import (
 	"math/rand/v2"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -74,6 +76,120 @@ func (p *pastes) lastIn(buf []rune) int {
 		}
 	}
 	return 0
+}
+
+// chipAt is the span of the chip with the character at pos in it, and
+// whether it's a paste kept here, to open.
+func (p *pastes) chipAt(buf []rune, pos int) (seg, bool) {
+	s := string(buf)
+	if !strings.Contains(s, "[Pasted text #") {
+		return seg{}, false
+	}
+	for _, loc := range pasteRe.FindAllStringSubmatchIndex(s, -1) {
+		from := utf8.RuneCountInString(s[:loc[0]])
+		to := from + utf8.RuneCountInString(s[loc[0]:loc[1]])
+		if pos >= from && pos < to {
+			id, _ := strconv.Atoi(s[loc[2]:loc[3]])
+			_, ok := p.text[id]
+			return seg{from, to}, ok
+		}
+	}
+	return seg{}, false
+}
+
+// open puts the text of the chip at sp back in buf in its place, and
+// returns where the cursor goes: after it.
+func (p *pastes) open(buf []rune, sp seg) ([]rune, int, bool) {
+	if got, ok := p.chipAt(buf, sp.from); !ok || got != sp {
+		return buf, 0, false
+	}
+	id, _ := strconv.Atoi(pasteRe.FindStringSubmatch(string(buf[sp.from:sp.to]))[1])
+	t := []rune(p.text[id])
+	return slices.Concat(buf[:sp.from], t, buf[sp.to:]), sp.from + len(t), true
+}
+
+// chipHover is the paste chip under the pointer: in box 1, the Session's,
+// or 2, the Prompt; 0 for none. Space or a click opens it.
+type chipHover struct {
+	box int
+	at  seg
+}
+
+// boxAt is which input box has its text at screen x, y (1 the Session's,
+// 2 the Prompt, 0 neither), and the position in the text there.
+func (m *Model) boxAt(x, y int) (int, int) {
+	if c := m.host; c != nil && c.box.w > 0 {
+		x0 := 2
+		if m.listW > 0 {
+			x0 = m.listW + 3
+		}
+		if y > c.boxY && y <= c.boxY+c.box.rows() && x >= x0 && x < x0+c.box.w {
+			return 1, c.box.at(y-c.boxY-1, x-x0)
+		}
+	}
+	b := m.promptBox
+	if m.zenFull() || b.w == 0 {
+		return 0, 0
+	}
+	if y > m.promptBoxY && y <= m.promptBoxY+b.rows() && x < b.w {
+		return 2, b.at(y-m.promptBoxY-1, x)
+	}
+	return 0, 0
+}
+
+// chipUnder is the paste chip at screen x, y, if there's one to open.
+func (m *Model) chipUnder(x, y int) chipHover {
+	if m.mode != modeList {
+		return chipHover{} // the boxes aren't on screen
+	}
+	which, pos := m.boxAt(x, y)
+	var sp seg
+	ok := false
+	switch c := m.host; {
+	case which == 1 && c != nil:
+		sp, ok = c.pastes.chipAt(c.box.text, pos)
+	case which == 2:
+		sp, ok = m.pastes.chipAt(m.promptBox.text, pos)
+	}
+	if !ok {
+		return chipHover{}
+	}
+	return chipHover{which, sp}
+}
+
+// hoverChip lights the paste chip under the pointer, and reports whether
+// that changed what's lit.
+func (m *Model) hoverChip(x, y int) bool {
+	was := m.chipHot
+	m.chipHot = m.chipUnder(x, y)
+	return m.chipHot != was
+}
+
+// openChip puts a chip's pasted text back in its box, to read and edit in
+// place; undo folds it again.
+func (m *Model) openChip(h chipHover) bool {
+	m.chipHot = chipHover{}
+	switch c := m.host; {
+	case h.box == 1 && c != nil:
+		buf, pos, ok := c.pastes.open(c.input, h.at)
+		if !ok {
+			return false
+		}
+		c.undo.save(c.input, c.back, false)
+		c.input, c.back, c.anchor = buf, len(buf)-pos, 0
+		m.paneFocus = true
+	case h.box == 2:
+		buf, pos, ok := m.pastes.open(m.input, h.at)
+		if !ok {
+			return false
+		}
+		m.paneFocus, m.embedded = false, false
+		m.input, m.anchor = buf, 0
+		m.setCursor(pos)
+	default:
+		return false
+	}
+	return true
 }
 
 // dropChip deletes a whole chip or image marker when backspace lands on

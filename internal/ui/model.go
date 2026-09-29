@@ -168,6 +168,7 @@ type Model struct {
 	armed     string
 	quitArmed time.Time
 	confirm   *confirmation
+	chipHot   chipHover
 	dialog    *dialog
 	picker    *picker
 	sheet     sheet // /fork, /rewind, /plugins, /statusline, /skills: see sheet.go
@@ -1122,6 +1123,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.keysDisambiguated = msg.SupportsKeyDisambiguation()
 		return m, nil
 	case tea.KeyPressMsg:
+		if hot := m.chipHot; hot.box != 0 {
+			m.chipHot = chipHover{} // lit again only once the pointer moves
+			if msg.String() == "space" && m.dialog == nil && m.confirm == nil && m.openChip(hot) {
+				return m, nil
+			}
+		}
 		cmd := m.key(msg)
 		m.emitInput()
 		return m, cmd
@@ -1164,6 +1171,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		on := m.listW > 0 && m.mode == modeList && (msg.X == m.listW || msg.X == m.listW+1)
 		hover := m.hover
 		changed := on != m.divHover
+		changed = m.hoverChip(msg.X, msg.Y) || changed
 		m.divHover = on
 		cmd := m.mouseMove(msg.X, msg.Y)
 		subChanged, subCmd := m.subMouseMove(msg.X, msg.Y)
@@ -1174,8 +1182,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case on:
 			want = "ew-resize"
-		case m.host != nil && m.host.subHover != "":
-			want = "pointer" // a run to open, or the banner to go back
+		case m.host != nil && m.host.subHover != "", m.chipHot.box != 0:
+			want = "pointer" // a run or a paste to open, or the banner to go back
 		}
 		return m, tea.Batch(m.pointerShape(want), cmd, subCmd)
 	case tea.MouseReleaseMsg:

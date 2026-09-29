@@ -32,6 +32,7 @@ type box struct {
 	lead    string // before the text on its first line, e.g. ❯
 	maxRows int
 	top     int  // the first wrapped row shown last draw, kept while the cursor stays in view
+	hot     seg  // a paste chip lit, under the pointer
 	idle    bool // focused but not being typed in: the edge and fill stay, the cursor doesn't
 }
 
@@ -197,7 +198,7 @@ func (b box) content(w int) []string {
 		}
 		sb.WriteString(lead)
 		// The colour is set once per run rather than per character.
-		const plain, text, chip = 0, 1, 2
+		const plain, text, chip, lit = 0, 1, 2, 3
 		style := plain
 		for p := sg.from; p < sg.to; p++ {
 			switch {
@@ -211,13 +212,17 @@ func (b box) content(w int) []string {
 				sb.WriteString(reset + bgInput)
 				style = plain
 			case inChip != nil && inChip[p]:
-				if style != chip {
-					sb.WriteString(bgChip + cBlue)
-					style = chip
+				st, col := chip, cBlue
+				if p >= b.hot.from && p < b.hot.to {
+					st, col = lit, cOrange
+				}
+				if style != st {
+					sb.WriteString(bgChip + col)
+					style = st
 				}
 				sb.WriteRune(b.text[p])
 			default:
-				if style == chip {
+				if style == chip || style == lit {
 					sb.WriteString(reset + bgInput)
 				}
 				if style != text {
