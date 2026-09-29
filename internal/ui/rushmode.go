@@ -2219,6 +2219,14 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if selTurn(c) != nil {
 			hint = keysFit(w-4, "alt+r", "rewind to here", "alt+f", "fork from here", "enter · space", "open or close", "↑↓", "pick", "esc", "done picking")
 		}
+		// A running command picked in the conversation: x stops it.
+		if id := m.pickedShell(c); id != "" && strings.Contains(c.sel, ":s:") {
+			if rp, ok := c.sess.RunningPart(id); ok {
+				hint = keysFit(w-4, "x", "stop this command", "k", "kill "+firstWord(rp.Command)+" only", "b", "background", "enter", "open or close", "esc", "done picking")
+			} else {
+				hint = keysFit(w-4, "x", "stop this command", "b", "background", "enter", "open or close", "esc", "done picking")
+			}
+		}
 		if strings.HasPrefix(c.sel, "run:") {
 			hint = keysFit(w-4, "enter", "watch this subagent", "x", "stop it", "↑↓", "pick", "esc", "done picking")
 		}
