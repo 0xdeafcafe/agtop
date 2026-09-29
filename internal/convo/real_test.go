@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
@@ -64,9 +64,9 @@ func TestRealSession(t *testing.T) {
 			}
 			s.Apply(ev, time.Now())
 			switch ev := ev.(type) {
-			case headless.PermissionRequest:
+			case event.Approval:
 				_ = c.Allow(ev.ID, nil, false)
-			case headless.Result:
+			case event.TurnEnd:
 				done = true
 			}
 		case <-timeout:

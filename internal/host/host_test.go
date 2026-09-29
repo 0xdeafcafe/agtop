@@ -12,7 +12,6 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
@@ -111,7 +110,7 @@ func TestHostLifecycle(t *testing.T) {
 	}
 	defer c.Close()
 
-	ask := next(t, c, func(ev any) bool { _, ok := ev.(headless.PermissionRequest); return ok }).(headless.PermissionRequest)
+	ask := next(t, c, func(ev any) bool { _, ok := ev.(event.Approval); return ok }).(event.Approval)
 	if info := next(t, c, inState("blocked")).(InfoEvent).Info; info.Needs != "Bash echo hi" {
 		t.Errorf("while asking: %+v", info)
 	}
@@ -119,7 +118,7 @@ func TestHostLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	next(t, c, func(ev any) bool { a, ok := ev.(Answered); return ok && a.ID == "r1" })
-	res := next(t, c, func(ev any) bool { _, ok := ev.(headless.Result); return ok }).(headless.Result)
+	res := next(t, c, func(ev any) bool { _, ok := ev.(event.TurnEnd); return ok }).(event.TurnEnd)
 	if res.Text != "Said hi." {
 		t.Errorf("result: %+v", res)
 	}
@@ -145,7 +144,7 @@ func TestHostLifecycle(t *testing.T) {
 	}
 	c2.Close()
 	joined := strings.Join(replay, "\n")
-	if strings.Contains(joined, "stream_event") || !strings.Contains(joined, `"agtop_sent":true`) || !strings.Contains(joined, "Said hi.") {
+	if strings.Contains(joined, "stream_event") || strings.Contains(joined, `"t":"delta"`) || !strings.Contains(joined, `"agtop_sent":true`) || !strings.Contains(joined, "Said hi.") {
 		t.Errorf("replay:\n%s", joined)
 	}
 
@@ -153,7 +152,7 @@ func TestHostLifecycle(t *testing.T) {
 	if err := c.Send("again"); err != nil {
 		t.Fatal(err)
 	}
-	next(t, c, func(ev any) bool { _, ok := ev.(headless.PermissionRequest); return ok })
+	next(t, c, func(ev any) bool { _, ok := ev.(event.Approval); return ok })
 	args, _ := os.ReadFile(filepath.Join(filepath.Dir(bin), "args.log"))
 	launches := strings.Split(strings.TrimSpace(string(args)), "\n")
 	if len(launches) != 2 || !strings.Contains(launches[0], "--session-id "+cfg.SessionID) || !strings.Contains(launches[1], "--resume "+cfg.SessionID) {
@@ -198,7 +197,7 @@ func TestRealHost(t *testing.T) {
 	}
 	defer c.Close()
 	defer c.Stop()
-	wait := func() headless.Result {
+	wait := func() event.TurnEnd {
 		t.Helper()
 		timeout := time.After(90 * time.Second)
 		for {
@@ -208,9 +207,9 @@ func TestRealHost(t *testing.T) {
 					t.Fatal("connection closed")
 				}
 				switch ev, _ := Decode(line); ev := ev.(type) {
-				case headless.Result:
+				case event.TurnEnd:
 					return ev
-				case headless.PermissionRequest:
+				case event.Approval:
 					// No tools needed; refuse anything it tries.
 					_ = c.Deny(ev.ID, "No tools in this test; just answer.", false)
 				}
@@ -220,7 +219,7 @@ func TestRealHost(t *testing.T) {
 			}
 		}
 	}
-	if r := wait(); r.IsError {
+	if r := wait(); r.Err != "" {
 		t.Fatalf("first turn: %+v", r)
 	}
 	next(t, c, func(ev any) bool { i, ok := ev.(InfoEvent); return ok && i.Info.ClaudePID == 0 })
@@ -307,7 +306,7 @@ func TestRetryAndLimit(t *testing.T) {
 		t.Fatalf("retry: %+v", r)
 	}
 	next(t, c, func(ev any) bool { s, ok := ev.(Sent); return ok && s.Text == "continue" })
-	res := next(t, c, func(ev any) bool { _, ok := ev.(headless.Result); return ok }).(headless.Result)
+	res := next(t, c, func(ev any) bool { _, ok := ev.(event.TurnEnd); return ok }).(event.TurnEnd)
 	if res.Text != "Recovered." {
 		t.Fatalf("after retry: %+v", res)
 	}

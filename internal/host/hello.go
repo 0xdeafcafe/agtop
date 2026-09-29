@@ -51,20 +51,31 @@ type encoder struct {
 	buf bytes.Buffer
 }
 
-// isClaudeLine is a line as Claude Code wrote it, rather than the host.
+// isClaudeLine is a line as Claude Code wrote it, rather than the host,
+// told by how it starts: most are, deltas above all.
 func isClaudeLine(l []byte) bool {
 	return bytes.HasPrefix(l, []byte(`{"type":"`)) && !bytes.HasPrefix(l, []byte(`{"type":"agtop_`))
+}
+
+// claudeEvent is a line of Claude Code's as its event, and false for the
+// host's own lines. Claude doesn't always start with its type (a turn's
+// result may not), so a line that doesn't is taken apart to tell.
+func claudeEvent(l []byte) (headless.Event, bool) {
+	if isClaudeLine(l) {
+		ev, err := headless.Decode(l)
+		return ev, err == nil
+	}
+	ev, err := Decode(l)
+	h, ok := ev.(headless.Event)
+	return h, err == nil && ok
 }
 
 // encode writes line to w as this client reads it, each line ended with a
 // newline.
 func (e *encoder) encode(w io.Writer, line []byte) error {
-	if !isClaudeLine(line) {
-		return writeLine(w, line)
-	}
-	ev, err := headless.Decode(line)
-	if err != nil {
-		return writeLine(w, line) // it reads Claude Code's lines too
+	ev, ok := claudeEvent(line)
+	if !ok {
+		return writeLine(w, line) // the host's own, or one it can't read
 	}
 	for _, out := range e.n.Event(ev) {
 		b, err := eventLine(out)

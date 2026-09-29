@@ -178,9 +178,10 @@ type Task struct {
 // Proto is this build's host protocol: 1 adds rewind, 2 context usage and
 // control requests passed through (the ask op), 3 moving a running tool
 // to the background (the background op) and Info.Background, 4 other
-// agents' sessions as agtop's own events, 5 the client's hello (hello.go).
-// A client sends its build's in the hello.
-const Proto = 5
+// agents' sessions as agtop's own events, 5 the client's hello (hello.go),
+// 6 Claude Code's sessions as agtop's own events too, to a client that
+// says it reads them. A client sends its build's in the hello.
+const Proto = 6
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
