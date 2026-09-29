@@ -2101,8 +2101,20 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if start > 0 {
 			line(dim(fmt.Sprintf("  … %d before", start)))
 		}
+		var qi [][]string
+		if c.client != nil {
+			qi = c.sess.Info.QueueImages
+		}
 		for i := start; i < min(len(q), start+3); i++ {
-			row := "  " + paint(cQueue, fmt.Sprint(i+1)) + "  " + paint(cText, ansi.Truncate(shortImages(oneLine(q[i])), w-8, "…"))
+			// Its images, as chips after its text.
+			var pics strings.Builder
+			if i < len(qi) {
+				for _, p := range qi[i] {
+					pics.WriteString(" " + bgChip + cBlue + "▣ " + cText + convo.ImageLabel(p) + " " + reset)
+				}
+			}
+			text := ansi.Truncate(shortImages(oneLine(q[i])), max(10, w-8-ansi.StringWidth(pics.String())), "…")
+			row := ansi.Truncate("  "+paint(cQueue, strconv.Itoa(i+1))+"  "+paint(cText, text)+pics.String(), w, "…")
 			if picked && i == pick {
 				row = picked1(row, w, m.paneFocus)
 			}
@@ -2943,7 +2955,7 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	cl := c.client
 	switch {
 	case len(images) > 0:
-		return sendingVia(c.key, hostCmd(func() error { return cl.SendImages(text, images) }))
+		return sendingVia(c.key, hostCmd(func() error { return cl.SendImages(text, images, now) }))
 	case now:
 		return sendingVia(c.key, hostCmd(func() error { return cl.SendNow(text) }))
 	}

@@ -421,7 +421,7 @@ func sessionSend(args []string, stdin io.Reader, stdout io.Writer) error {
 	}
 	switch {
 	case len(images) > 0:
-		err = c.SendImages(text, images)
+		err = c.SendImages(text, images, now)
 	case now:
 		err = c.SendNow(text)
 	default:

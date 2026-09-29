@@ -128,10 +128,16 @@ func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
 // its place and text as you saw it.
 func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
 	items := slices.Clone(m.queueOf(c).items)
-	was := items[i]
+	// A rush session's queued images go wherever their message does.
+	qi := make([][]string, len(items))
+	if c.client != nil {
+		copy(qi, c.sess.Info.QueueImages)
+	}
+	was, im := items[i], qi[i]
 	switch op {
 	case "move":
 		items = slices.Insert(slices.Delete(items, i, i+1), to, was)
+		qi = slices.Insert(slices.Delete(qi, i, i+1), to, im)
 	case "merge":
 		if i+1 >= len(items) {
 			m.flash("nothing after it to merge with", true)
@@ -139,8 +145,11 @@ func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
 		}
 		items[i] += "\n\n" + items[i+1]
 		items = slices.Delete(items, i+1, i+2)
+		qi[i] = slices.Concat(im, qi[i+1])
+		qi = slices.Delete(qi, i+1, i+2)
 	case "send", "drop":
 		items = slices.Delete(items, i, i+1)
+		qi = slices.Delete(qi, i, i+1)
 		// The pick stays where it was, on the next message.
 		if len(items) == 0 {
 			c.sel = ""
@@ -158,7 +167,7 @@ func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
 		}
 		return nil
 	}
-	c.sess.Info.Queue = items
+	c.sess.Info.Queue, c.sess.Info.QueueImages = items, qi
 	cl := c.client
 	return hostCmd(func() error {
 		switch op {
@@ -208,21 +217,21 @@ func (m *Model) sendQueueNow(c *hostConn, extra string) tea.Cmd {
 		return m.sendLocal(c.key, a, q)
 	}
 	n := len(queued)
-	c.sess.Info.Queue = nil
+	c.sess.Info.Queue, c.sess.Info.QueueImages = nil, nil
 	cl := c.client
 	return hostCmd(func() error {
 		if n == 0 {
 			return cl.SendNow(extra)
 		}
-		// The rest dropped, all of it written into the first, what's in
-		// the box last, then sent.
-		for _, it := range queued[1:] {
-			if err := cl.RemoveQueued(1, it); err != nil {
+		// The rest merged into the first, so their images go too, then
+		// all of it written out, what's in the box last, and sent.
+		for k := 1; k < n; k++ {
+			if err := cl.MergeQueued(0, strings.Join(queued[:k], "\n\n")); err != nil {
 				return err
 			}
 		}
 		text := host.JoinQueue(items)
-		if err := cl.EditQueued(0, items[0], text); err != nil {
+		if err := cl.EditQueued(0, strings.Join(queued, "\n\n"), text); err != nil {
 			return err
 		}
 		return cl.SendQueued(0, text)
