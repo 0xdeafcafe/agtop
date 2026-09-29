@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -45,13 +46,18 @@ func EstTokens(n int64) int64 { return (n + 3) / 4 }
 // frontmatter, at any depth (a memory note keeps its type under metadata),
 // and "paths" when a rule has a paths: list.
 func FrontMatter(path string) map[string]string {
-	out := map[string]string{}
 	f, err := os.Open(path)
 	if err != nil {
-		return out
+		return map[string]string{}
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
+	return FrontMatterOf(f)
+}
+
+// FrontMatterOf is FrontMatter for text already read.
+func FrontMatterOf(r io.Reader) map[string]string {
+	out := map[string]string{}
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
 	block := "" // the key whose value is a block (| or >) on the lines below
 	for n := 0; sc.Scan() && n < 60; n++ {

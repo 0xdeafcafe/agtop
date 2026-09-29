@@ -1280,6 +1280,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.embedded = true
 			}
 			m.host.txt.on = false // a click elsewhere drops what was dragged over
+			if cmd, ok := m.clickCard(m.host, msg.X, msg.Y); ok {
+				return m, cmd
+			}
 			if m.clickBtw(m.host, msg.X, msg.Y) {
 				return m, nil
 			}

@@ -1084,6 +1084,13 @@ type hostConn struct {
 	cardAt, lastKeyAt    time.Time
 	cardTyping           bool
 	inModal              bool // the card is being drawn in its modal
+	// A memory card's buttons as last drawn, for clicks: from the card's
+	// top, which is cardTop rows into the dock, which starts at dockY.
+	btns           []cardBtn
+	cardTop, dockY int
+	peekOf         string  // the approval and note peek was read for
+	peek           memPeek // the memory card's note as it is on disk
+	editAfter      string  // the step whose note to open in the editor once written
 
 	// Answering Claude's questions, one at a time.
 	qFor      string
@@ -1497,6 +1504,9 @@ func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
 		}
 	}
 	m.holdForQuestion(c)
+	if c.editAfter != "" {
+		m.openWritten(c)
+	}
 	c.ready, c.flushed = true, time.Now()
 	if msg.closed {
 		opening := m.hostOpening
@@ -1761,6 +1771,7 @@ func (m *Model) rushPane(w, h int) []string {
 	}
 	m.btwOverlay(c, out, len(head), h-len(dock)-len(head), w)
 	c.boxY = m.paneTop + len(out) + c.boxIdx
+	c.dockY = m.paneTop + len(out)
 	return append(out, dock...)
 }
 
@@ -1971,6 +1982,14 @@ func (m *Model) cardRows(a *fleet.Agent, c *hostConn, w, maxH int) []string {
 			out = append(out, "")
 		}
 		st := p[0]
+		if memoryWrite(st) && !modal {
+			rows, btns := memoryCard(c, st, w, maxH)
+			for _, b := range btns {
+				b.y += len(out)
+				c.btns = append(c.btns, b)
+			}
+			return append(out, rows...)
+		}
 		count := ""
 		if len(p) > 1 {
 			count = fmt.Sprintf("1 of %d", len(p))
@@ -2003,6 +2022,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			c.cardFocus, c.cardAgain = true, ""
 		}
 	}
+	c.btns = nil
 	out := []string{onBg(bgChrome, "", w)} // a row of the dock's own ground
 	line := func(txt string) { out = append(out, onBg(bgChrome, txt, w)) }
 	// Each part of the dock (the task, a card, the subagents, the queue)
@@ -2022,6 +2042,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		if rows := m.cardRows(a, c, w, h*3/5); len(rows) > 0 {
 			block()
+			c.cardTop = len(out)
 			out = append(out, rows...)
 		}
 	}
@@ -3699,6 +3720,10 @@ func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 			return done(m.answerHost(c, req, true, true))
 		case s == "alt+n" || c.cardFocus && s == "n":
 			return done(m.answerHost(c, req, false, false))
+		case c.cardFocus && s == "e" && memoryWrite(pending[0]):
+			// Allowed, and opened in the memory view's editor once written.
+			c.editAfter = pending[0].ID
+			return done(m.answerHost(c, req, true, false))
 		}
 	case "question":
 		req := pending[0].Approval.Question
