@@ -676,8 +676,14 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			}
 			_, a.Done = ov.Done[key]
 			a.Group = ov.Groups[key]
-			a.Repo, a.Branch = l.gitFor(ss.Cwd, now)
 			a.Spend = l.spend[key]
+			// ss.Cwd is only ever where the session started; a wandering
+			// one's transcript says where it last actually worked.
+			dir := ss.Cwd
+			if n := len(a.Spend.Dirs); n > 0 {
+				dir = a.Spend.Dirs[n-1]
+			}
+			a.Repo, a.Branch = l.gitFor(dir, now)
 			a.Subs, a.Subagents = l.subagents(key, j.TranscriptPath, false, now) // listed only while its process runs
 			l.sample(tab, a)
 			if a.Live() {
