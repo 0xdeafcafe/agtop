@@ -345,7 +345,7 @@ var claudeScreens = []event.Command{
 	{Name: "hooks", Description: "the hooks that run around tools, prompts and sessions"},
 	{Name: "permissions", Description: "allow and deny rules for tools"},
 	{Name: "memory", Description: "memory, CLAUDE.md and the other files Claude reads (the memory view)"},
-	{Name: "config", Description: "Claude Code's settings (Settings › Claude)"},
+	{Name: "config", Description: "Claude Code's settings (Settings › Providers)"},
 	{Name: "statusline", Description: "build status lines: this header, rush's top bar, and Claude Code's"},
 }
 

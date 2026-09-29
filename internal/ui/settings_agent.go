@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 
@@ -12,156 +11,63 @@ import (
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// Agents is one installed agent at a time, picked with 1-9 from the row
-// of them at the top: who it is and where it lives, what its new
+// An installed agent's part of its provider's page: what its new
 // sessions start with (the same rows for every agent, their values its
 // adapter's Choices), then whatever sections the agent adds itself.
 
 // agentExtras are the sections an agent adds to its page, by kind.
 var agentExtras = map[agent.Kind]func(m *Model) []section{}
 
-var agentsPage = page{
-	name: "Agents",
-	keys: []string{"1-9", "agent"},
-	head: func(m *Model, w int) []string {
-		k := m.settingsAgent()
-		return append([]string{"", m.agentStrip(k, w)}, m.agentHead(k, w)...)
-	},
-	pre: func(m *Model, s string) (tea.Cmd, bool) {
-		d := m.dialog
-		if n := int(s[0] - '0'); len(s) == 1 && n >= 1 && n <= 9 {
-			if order := m.agentOrder(); n <= len(order) {
-				d.agent, d.cursor = order[n-1].Kind(), 0
-			}
-			return nil, true
+// agentSections are what agent k's new sessions start with, then its own
+// sections, the advanced ones folded under a line of their own.
+func (m *Model) agentSections(k agent.Kind) []section {
+	secs := []section{m.startSection(k)}
+	var advanced, extras []section
+	if extra := agentExtras[k]; extra != nil {
+		extras = extra(m)
+	}
+	extras = append(extras, m.fileSections(k)...)
+	for _, s := range extras {
+		if s.advanced {
+			advanced = append(advanced, s)
+		} else {
+			secs = append(secs, s)
 		}
-		return nil, false
-	},
-	form: func(m *Model) []section {
-		k := m.settingsAgent()
-		if k == "" {
-			return nil
-		}
-		secs := []section{m.startSection(k)}
-		var advanced []section
-		var extras []section
-		if extra := agentExtras[k]; extra != nil {
-			extras = extra(m)
-		}
-		extras = append(extras, m.fileSections(k)...)
-		for _, s := range extras {
-			if s.advanced {
-				advanced = append(advanced, s)
-			} else {
-				secs = append(secs, s)
-			}
-		}
-		if len(advanced) == 0 {
-			return secs
-		}
-		// The advanced sections fold under one line, open or shut.
-		var names []string
-		for _, s := range advanced {
-			names = append(names, s.title)
-		}
-		open := m.dialog.advanced
-		toggle := setting{
-			label: "Advanced",
-			line: func(int) string {
-				mark := "▸ "
-				if open {
-					mark = "▾ "
-				}
-				return dim(mark+"Advanced") + faint(" · "+strings.Join(names, ", "))
-			},
-			key: func(s string) (tea.Cmd, bool) {
-				if s == "enter" || s == "right" || s == "left" || s == "space" {
-					m.dialog.advanced = !m.dialog.advanced
-					return nil, true
-				}
-				return nil, false
-			},
-			keys: []string{"enter", "show or hide"},
-			about: func() (string, string, string) {
-				return "Advanced", "What " + agentName(string(k)) + " itself reads, beyond what rush starts it with: " + strings.Join(names, ", ") + ". Most people never need these.", ""
-			},
-		}
-		secs = append(secs, section{title: "", rows: []setting{toggle}})
-		if open {
-			secs = append(secs, advanced...)
-		}
+	}
+	if len(advanced) == 0 {
 		return secs
-	},
-}
-
-// settingsAgent is the agent Agents shows: the one picked, else the
-// first installed.
-func (m *Model) settingsAgent() agent.Kind {
-	order := m.agentOrder()
-	for _, a := range order {
-		if m.dialog != nil && a.Kind() == m.dialog.agent {
-			return a.Kind()
-		}
 	}
-	if len(order) == 0 {
-		return ""
+	var names []string
+	for _, s := range advanced {
+		names = append(names, s.title)
 	}
-	return order[0].Kind()
-}
-
-// agentStrip is the installed agents, numbered, the one showing bright.
-func (m *Model) agentStrip(cur agent.Kind, w int) string {
-	var out []string
-	for i, a := range m.agentOrder() {
-		n := faint(fmt.Sprintf("%d ", i+1))
-		name := dim(kindName(a.Kind()))
-		if a.Kind() == cur {
-			name = paint(cOrange, "▸") + paint(cText+bold, kindName(a.Kind()))
-		}
-		out = append(out, n+name)
-	}
-	if len(out) == 0 {
-		return dim("No coding agent is installed where rush looks.")
-	}
-	return strings.Join(out, faint("   "))
-}
-
-// agentHead is the agent's name, how far it's been tried, where it lives,
-// what it's doing now, what rush can do with it and what its models take.
-func (m *Model) agentHead(k agent.Kind, w int) []string {
-	if k == "" {
-		return nil
-	}
-	label := func(s string) string { return dim(fit(s, 10)) }
-	ad, _ := agent.Get(k)
-	name := glyph(k) + " " + paint(cText+bold, agentName(string(k))) + " " + levelChip(k) + faint(levelWords[agent.LevelOf(k)])
-	if string(k) == m.store.Config.DefaultAgent() {
-		name += paint(cOrange, "  ★ the default")
-	}
-	out := []string{"", name}
-	var where []string
-	if p, ok := m.profileOf(ad); ok {
-		where = append(where, tildify(p.Dir))
-	}
-	if path := agent.Path(k); path != "" {
-		where = append(where, "runs "+tildify(path))
-	}
-	if len(where) > 0 {
-		out = append(out, label("home")+faint(strings.Join(where, " · ")))
-	}
-	var live, total int
-	for _, a := range m.snap.Agents {
-		if a.Kind == string(k) {
-			total++
-			if a.Live() {
-				live++
+	open := m.dialog.advanced
+	toggle := setting{
+		label: "Advanced",
+		line: func(int) string {
+			mark := "▸ "
+			if open {
+				mark = "▾ "
 			}
-		}
+			return dim(mark+"Advanced") + faint(" · "+strings.Join(names, ", "))
+		},
+		key: func(s string) (tea.Cmd, bool) {
+			if s == "enter" || s == "right" || s == "left" || s == "space" {
+				m.dialog.advanced = !m.dialog.advanced
+				return nil, true
+			}
+			return nil, false
+		},
+		keys: []string{"enter", "show or hide"},
+		about: func() (string, string, string) {
+			return "Advanced", "What " + agentName(string(k)) + " itself reads, beyond what rush starts it with: " + strings.Join(names, ", ") + ". Most people never need these.", ""
+		},
 	}
-	out = append(out, label("sessions")+faint(fmt.Sprintf("%d running · %d in all", live, total))+faint("   ·   Accounts has its sign-ins"))
-	out = append(out, "", dim("what rush can do with it"))
-	out = append(out, m.featureGrid(k, w)...)
-	return append(out, modelTable(k, m.agentModels(k))...)
+	secs = append(secs, section{rows: []setting{toggle}})
+	if open {
+		secs = append(secs, advanced...)
+	}
+	return secs
 }
 
 // modelTable is what each of models takes, a row each: images and PDFs
@@ -195,7 +101,7 @@ func modelTable(k agent.Kind, models []agent.Choice) []string {
 	}
 	reader, reads := agent.As[agent.MediaReader](k)
 	windower, windows := agent.As[agent.ContextWindower](k)
-	out := []string{"", dim(fit("models", 2+width) + "  " + fit("images", 8) + fit("pdf", 5) + fit("context", 9) + "effort")}
+	out := []string{"", dim(fit(glyph(k)+" "+kindName(k), 2+width) + "  " + fit("images", 8) + fit("pdf", 5) + fit("context", 9) + "effort")}
 	for _, c := range models {
 		img, pdf := "?", "?"
 		if reads {

@@ -212,8 +212,8 @@ func TestFuzzy(t *testing.T) {
 		ok   bool
 	}{
 		{"pc", "Agents › Projects › Cleanup", true},
-		{"setacc", "Settings › Accounts", true},
-		{"zz", "Settings › Accounts", false},
+		{"setpro", "Settings › Providers", true},
+		{"zz", "Settings › Providers", false},
 		{"clean", "Agents › Projects › Cleanup", true},
 	}
 	for _, c := range cases {

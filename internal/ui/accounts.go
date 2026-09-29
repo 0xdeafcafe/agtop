@@ -11,18 +11,14 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/state"
-	"github.com/charmbracelet/x/ansi"
 )
 
-// Providers lists every installed agent (a provider: Claude Code, Codex,
-// Copilot…), in the default profile's order, each with the accounts it
-// can be signed in as, how far rush's support for it has been tried, and
-// what rush can do with it. Every agent runs from its own home
-// (~/.claude, ~/.codex…); an account is a sign-in rush puts in that home
-// when you switch to it.
+// Every installed agent (a provider: Claude Code, Codex, Copilot…) can
+// be signed in as one account at a time. Every agent runs from its own
+// home (~/.claude, ~/.codex…); an account is a sign-in rush puts in that
+// home when you switch to it. Settings › Providers shows them.
 
 // accountsState is what Accounts knows beyond the snapshot.
 type accountsState struct {
@@ -58,10 +54,10 @@ func (s *accountsState) ready() {
 	}
 }
 
-// acctMsg is a message Accounts handles.
+// acctMsg is a message about accounts.
 type acctMsg interface{ applyTo(m *Model) tea.Cmd }
 
-// acctRow is one line of Accounts: an agent, or one of its accounts.
+// acctRow is an agent, or one of its accounts.
 type acctRow struct {
 	kind    agent.Kind
 	head    bool             // the agent's own line
@@ -141,8 +137,7 @@ func signInAccount(s state.SignIn) agent.Account {
 	return agent.Account{Kind: agent.Kind(s.Kind), ID: s.ID, Key: acctKey(s.Kind, s.ID), Name: s.Name, Email: s.Email, Plan: s.Plan}
 }
 
-// accountRows are Accounts' lines: each installed agent, then its
-// accounts.
+// accountRows are each installed agent, then its accounts.
 func (m *Model) accountRows() []acctRow {
 	var out []acctRow
 	for _, ad := range m.agentOrder() {
@@ -208,7 +203,7 @@ func (m *Model) startKind() string { return m.startKindIn(m.startDir()) }
 
 // startKindIn is the agent a new session in dir runs.
 func (m *Model) startKindIn(dir string) string {
-	// A frame asks it for the top bar, and the accounts dialog for every
+	// A frame asks it for the top bar, and Providers for every
 	// row: nothing changes while one is drawn, so it's worked out once.
 	if mk := m.kindMemo; m.drawing && mk.ok && mk.dir == dir {
 		return mk.kind
@@ -452,60 +447,24 @@ func (m *Model) forgetAccount(r acctRow) {
 	})
 }
 
-// accountsKey handles a key in Accounts.
-func (m *Model) accountsKey(s string) tea.Cmd {
-	d := m.dialog
-	rows := m.accountRows()
-	if n := int(s[0] - '0'); len(s) == 1 && n >= 1 && n <= 9 {
-		// Straight to the nth agent.
-		for i, r := range rows {
-			if r.head {
-				if n--; n == 0 {
-					d.cursor = i
-				}
-			}
-		}
-		return nil
-	}
-	if d.cursor >= len(rows) {
-		return nil
-	}
-	r := rows[d.cursor]
+// signInKey handles a key on another agent's account.
+func (m *Model) signInKey(r acctRow, s string) tea.Cmd {
 	switch s {
-	case "o":
-		m.showAgentSettings(r.kind)
-		return nil
-	case "p":
-		m.setSettingsPage(pageProfiles)
-		return nil
-	case "a":
+	case "enter":
+		if r.current {
+			m.flash("already on "+r.name(), false)
+			return nil
+		}
+		return m.switchAccount(r.acct, "")
+	case "r":
+		m.ask("rename "+r.name(), r.name(), func(v string) tea.Cmd {
+			m.renameSignIn(string(r.kind), r.acct.ID, v)
+			return nil
+		})
+	case "l":
 		return m.addAccount(r.kind)
-	}
-	switch {
-	case r.head:
-		if s == "enter" && switches(r.kind) {
-			return m.addAccount(r.kind)
-		}
-	case r.login != nil:
-		return m.loginKey(*r.login, s)
-	default:
-		switch s {
-		case "enter":
-			if r.current {
-				m.flash("already on "+r.name(), false)
-				return nil
-			}
-			return m.switchAccount(r.acct, "")
-		case "r":
-			m.ask("rename "+r.name(), r.name(), func(v string) tea.Cmd {
-				m.renameSignIn(string(r.kind), r.acct.ID, v)
-				return nil
-			})
-		case "l":
-			return m.addAccount(r.kind)
-		case "d", "x":
-			m.forgetAccount(r)
-		}
+	case "d", "x":
+		m.forgetAccount(r)
 	}
 	return nil
 }
@@ -570,143 +529,6 @@ func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
 	return nil
 }
 
-// accountsBody draws Accounts at width w.
-func (m *Model) accountsBody(w int) []string {
-	d := m.dialog
-	cfg := m.store.Config
-	var out []string
-	row := func(i int, s string) string {
-		if i == d.cursor {
-			return highlight(paint(cOrange, "▍")+" "+s, w)
-		}
-		return "  " + s
-	}
-	def := cfg.Default()
-	line := dim("New sessions: ") + paint(cText, def.Name) + dim(" · ") + m.chain(def) + dim("   ·   at a limit: ") + paint(cText, limitWords(def.Limit())) + faint("   (p: Profiles changes it)")
-	if m.accts.spill != "" {
-		line += dim(" · for now ") + glyph(agent.Kind(m.accts.spill)) + " " + paint(cYellow, agentName(m.accts.spill)) + dim(": the first's accounts are all nearly out")
-	}
-	out = append(out, line, "")
-	// Name, email, plan, two limit windows, running: the email gives way
-	// first, then the second window.
-	cols := []int{28, 28, 12, 23, 23, 8}
-	if w < 124 {
-		cols[4] = 0
-	}
-	room := func() int { return w - 4 - cols[0] - cols[2] - cols[3] - cols[4] - cols[5] }
-	if room() < 14 {
-		cols[2] = 0
-	}
-	cols[1] = max(8, min(32, room()))
-	head := faint(fit("PROVIDER / ACCOUNT", cols[0]+2) + fit("EMAIL", cols[1]) + fit("PLAN", cols[2]) + fit("LIMITS", cols[3]+cols[4]) + right("RUNNING", cols[5]))
-	out = append(out, "  "+head)
-	rows := m.accountRows()
-	if len(rows) == 0 {
-		out = append(out, "", dim("  No coding agent is installed where rush looks: install Claude Code, Codex or another, and it shows here."))
-	}
-	defer func() {
-		if missing := m.notInstalled(); missing != "" {
-			out = append(out, "", faint("  Not installed here: ")+missing)
-		}
-	}()
-	n := 0
-	for i, r := range rows {
-		if r.head {
-			n++
-			if i > 0 {
-				out = append(out, "")
-			}
-		}
-		out = append(out, row(i, m.accountLine(r, n, cols)))
-	}
-	if d.cursor < len(rows) {
-		r := rows[d.cursor]
-		title := r.name()
-		if !r.head {
-			title = agentName(string(r.kind)) + " · " + r.name()
-		}
-		out = append(out, "", rule(title, "", w))
-		out = append(out, m.accountDetail(r, w)...)
-		keys := []string{}
-		switch {
-		case r.head:
-			if switches(r.kind) {
-				keys = append(keys, "a", "add account")
-			}
-		case r.login != nil:
-			keys = append(keys, "enter", "switch to", "a", "add account", "r", "rename", "l", "sign in again", "d", "forget")
-		default:
-			keys = append(keys, "enter", "switch to", "a", "add account", "r", "rename", "d", "forget")
-		}
-		keys = append(keys, "1-9", "agent", "o", "its settings", "p", "profiles")
-		out = append(out, "", keysFit(w, append(keys, pagesKeys...)...))
-	}
-	for i, l := range out {
-		if cellw.String(ansi.Strip(l)) > w {
-			out[i] = ansi.Truncate(l, w-1, "…")
-		}
-	}
-	return out
-}
-
-// accountLine is one row of Accounts.
-func (m *Model) accountLine(r acctRow, n int, cols []int) string {
-	cfg := m.store.Config
-	if r.head {
-		mark := faint(fmt.Sprintf("%d", n))
-		// Its glyph, its name, and how far its support has been tried.
-		name := glyph(r.kind) + " " + paint(cText+bold, fit(r.name(), cols[0]-11)) + " " + levelChip(r.kind)
-		if string(r.kind) == cfg.DefaultAgent() {
-			mark = paint(cOrange, "★")
-		}
-		live := 0
-		for _, a := range m.snap.Agents {
-			if a.Live() && a.Kind == string(r.kind) {
-				live++
-			}
-		}
-		running := faint(right("·", cols[5]))
-		if live > 0 {
-			running = paint(cSub, right(fmt.Sprint(live), cols[5]))
-		}
-		var note string
-		switch k := string(r.kind); {
-		case !agent.Runs(r.kind) && agent.Hint(r.kind) != "":
-			note = faint(fmt.Sprintf("%d accounts · without its CLI: sessions on GitHub only", len(cfg.SignInsOf(k))))
-		case k == m.startKind() && k != cfg.DefaultAgent():
-			note = paint(cYellow, "new sessions run it for now")
-		case r.kind == loginsKind && len(m.snap.Logins) == 0:
-			note = faint("no account kept yet · a adds one")
-		case r.kind != loginsKind && switches(r.kind) && len(cfg.SignInsOf(k)) == 0:
-			note = faint(firstNonEmpty(m.accts.why[k], "who it's signed in as isn't known yet"))
-		case !switches(r.kind):
-			// One sign-in, the agent's own: its limits are the agent's.
-			note = dim(fit(r.q.Email, cols[1])) + faint(fit(r.q.Plan, cols[2])) + m.limits(r, cols[3], cols[4])
-		default:
-			c := len(cfg.SignInsOf(k))
-			if r.kind == loginsKind {
-				c = len(m.snap.Logins)
-			}
-			note = faint(fmt.Sprintf("%d accounts", c))
-			if c == 1 {
-				note = faint("1 account · a adds another")
-			}
-		}
-		return mark + " " + name + fit(note, cols[1]+cols[2]+cols[3]+cols[4]) + running
-	}
-	mark := faint("○")
-	if r.current {
-		mark = paint(cOrange, "●")
-	}
-	plan := r.q.Plan
-	if r.login != nil {
-		plan = firstNonEmpty(r.login.Usage.Plan, plan)
-	}
-	plan = firstNonEmpty(plan, r.acct.Plan)
-	return "  " + mark + " " + paint(cText, fit(r.name(), cols[0]-2)) + dim(fit(r.email(), cols[1])) +
-		faint(fit(strings.ReplaceAll(plan, "_", " "), cols[2])) + m.limits(r, cols[3], cols[4]) + fit("", cols[5])
-}
-
 // kindName is an agent's name, short enough for a table.
 func kindName(k agent.Kind) string {
 	if ad, ok := agent.Get(k); ok && len(ad.Name()) <= 9 {
@@ -763,73 +585,6 @@ func (m *Model) limits(r acctRow, w1, w2 int) string {
 		out += fit(cell, cw)
 	}
 	return out
-}
-
-// accountDetail is everything known about the selected line.
-func (m *Model) accountDetail(r acctRow, w int) []string {
-	now := m.snap.At
-	label := func(k string) string { return dim(fit(k, 10)) }
-	var out []string
-	if r.head {
-		ad, _ := agent.Get(r.kind)
-		var where []string
-		if p, ok := m.profileOf(ad); ok {
-			where = append(where, tildify(p.Dir))
-		}
-		if path := agent.Path(r.kind); path != "" {
-			where = append(where, "runs "+tildify(path))
-		}
-		out = append(out, label("home")+faint(strings.Join(where, " · ")))
-		if hint := agent.Hint(r.kind); hint != "" && !agent.Runs(r.kind) {
-			out = append(out, label("can't run")+faint(hint))
-		}
-		if !switches(r.kind) {
-			out = append(out, label("accounts")+faint("it signs in through its own program; rush uses whichever account that is"))
-		}
-		var live, total int
-		var today float64
-		for _, ag := range m.snap.Agents {
-			if ag.Kind != string(r.kind) {
-				continue
-			}
-			total++
-			if ag.Live() {
-				live++
-			}
-			today += ag.Spend.Today
-		}
-		out = append(out, label("agents")+paint(cText, fmt.Sprintf("%d running · %d in total", live, total))+dim("  ·  today ")+paint(cText, money(today)))
-		return append(out, m.windowLines(r.q, now, label)...)
-	}
-	var who []string
-	seen := map[string]bool{}
-	add := func(vs ...string) {
-		for _, v := range vs {
-			if v = strings.ReplaceAll(v, "_", " "); v != "" && !seen[v] {
-				seen[v] = true
-				who = append(who, v)
-			}
-		}
-	}
-	if r.login != nil {
-		u := r.login.Usage
-		add(r.login.Email, u.Org, u.Role, u.Plan, u.Billing)
-		if u.Extra {
-			who = append(who, "extra usage on")
-		}
-	} else {
-		add(r.email(), firstNonEmpty(r.q.Plan, r.acct.Plan))
-	}
-	if len(who) == 0 {
-		who = append(who, "who it is isn't known yet")
-	}
-	out = append(out, label("who")+paint(cText, strings.Join(who, " · ")))
-	state := "kept by rush · enter switches to it"
-	if r.current {
-		state = "in use: new " + agentName(string(r.kind)) + " sessions run on it"
-	}
-	out = append(out, label("sign-in")+faint(state))
-	return append(out, m.windowLines(r.q, now, label)...)
 }
 
 // windowLines are a reading's windows, each with when it resets.

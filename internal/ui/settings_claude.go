@@ -1,6 +1,6 @@
 package ui
 
-// The signed-in agent's own sections of its page: how rush runs it, and
+// The signed-in agent's own sections of its provider's page: how rush runs it, and
 // the definitions its sessions can start as (--agent). What the agent
 // itself reads is its adapter's (settings_files.go).
 

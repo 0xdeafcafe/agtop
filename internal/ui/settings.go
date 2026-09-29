@@ -14,15 +14,16 @@ import (
 )
 
 // Settings is a place of pages, and [ and ] go between them, as in every
-// place with pages. Overview is what's happening; Profiles which agent new
-// sessions run, and what they do at a limit; Accounts the sign-ins of
-// each; Agents one installed agent at a time (1-9 picks it): what its new
-// sessions start with, then the sections the agent adds itself
-// (agentExtras); General the rest.
+// place with pages. Providers is each installed provider, your profiles
+// and the folders that pick them, a list with everything about the one
+// picked beside it: its account, limits, spend, where it runs, what it
+// does at a limit and what its new sessions start with. Capabilities
+// sets the providers side by side, feature by feature and model by
+// model. General is the rest.
 //
 // Most pages are forms: sections of settings, each of which says what it
-// does and what its values mean, drawn and driven here. Overview and
-// Providers draw themselves.
+// does and what its values mean, drawn and driven here. Providers and
+// Capabilities draw themselves, Providers with a form beside its list.
 
 // page is one page of Settings: a form, or one that draws itself.
 type page struct {
@@ -42,10 +43,8 @@ type page struct {
 
 // The pages, in order.
 const (
-	pageOverview = iota
-	pageProfiles
-	pageAccounts
-	pageAgents
+	pageProviders = iota
+	pageCapabilities
 	pageGeneral
 	pageKeys
 	pagePlugins
@@ -54,26 +53,20 @@ const (
 // settingsPages are Settings' pages.
 func (m *Model) settingsPages() []page {
 	return []page{
-		{name: "Overview", body: (*Model).overviewBody, key: (*Model).overviewKey, rows: (*Model).overviewLen},
-		profilesPage,
-		{name: "Accounts", body: (*Model).accountsBody, key: (*Model).accountsKey, rows: func(m *Model) int { return len(m.accountRows()) }},
-		agentsPage,
+		providersPage,
+		{name: "Capabilities", body: (*Model).capabilitiesBody, key: func(*Model, string) tea.Cmd { return nil }, rows: (*Model).capabilitiesLen},
 		{name: "General", form: (*Model).generalSections},
 		{name: "Keys", body: (*Model).keysBody, key: (*Model).keysKey, rows: (*Model).keysLen},
 		pluginsPage(),
 	}
 }
 
-// openAgentSettings shows agent k on Settings › Agents.
+// openAgentSettings shows agent k's provider on Settings › Providers,
+// open.
 func (m *Model) openAgentSettings(k agent.Kind) {
 	m.setView(placeSettings)
-	m.showAgentSettings(k)
-}
-
-// showAgentSettings goes to Agents, on agent k.
-func (m *Model) showAgentSettings(k agent.Kind) {
-	m.setSettingsPage(pageAgents)
-	m.dialog.agent = k
+	m.setSettingsPage(pageProviders)
+	m.openItem(provItem{provider: agent.ProviderOf(k)})
 }
 
 // dialog is Settings while it's open: the page, the cursor, and a value
@@ -81,11 +74,13 @@ func (m *Model) showAgentSettings(k agent.Kind) {
 type dialog struct {
 	page   int
 	cursor int
-	agent  agent.Kind // the one Agents shows
 
-	profile  string // the profile Profiles is editing; empty lists them
-	advanced bool   // Agents shows the agent's advanced sections
-	keyCtx   int    // which of keymap.Contexts Keys shows
+	// pick is the line of Providers' list shown beside it; inside is
+	// whether the cursor is in what it shows rather than in the list.
+	pick     int
+	inside   bool
+	advanced bool // a provider shows its agent's advanced sections
+	keyCtx   int  // which of keymap.Contexts Keys shows
 
 	plugin      string // the plugin Plugins has open; empty lists them
 	plugins     []pluginRow
@@ -114,7 +109,7 @@ func (m *Model) openDialog(p int) {
 func (m *Model) loadDialog() {
 	d := m.dialog
 	d.agents = m.agentDefs(loginsKind)
-	if d.page == pageAccounts || d.page == pageOverview {
+	if d.page == pageProviders || d.page == pageCapabilities {
 		agent.Recheck() // an agent installed since shows at once
 	}
 	if d.page == pagePlugins {
@@ -188,7 +183,7 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if p := m.curPage(); p.form == nil {
 		return p.key(m, s)
 	}
-	return m.formKey(s)
+	return m.formKey(m.curPage().form(m), s)
 }
 
 func (m *Model) dialogEdit(k tea.KeyPressMsg, s string) {
@@ -299,10 +294,10 @@ func cycle(s setting, dir int) tea.Cmd {
 	return nil
 }
 
-// formKey handles a key on a form page's highlighted row.
-func (m *Model) formKey(s string) tea.Cmd {
+// formKey handles a key on a form's highlighted row.
+func (m *Model) formKey(secs []section, s string) tea.Cmd {
 	d := m.dialog
-	rows := flat(m.curPage().form(m))
+	rows := flat(secs)
 	if d.cursor >= len(rows) {
 		return nil
 	}
@@ -339,7 +334,21 @@ func (m *Model) formKey(s string) tea.Cmd {
 // formBody draws a form's sections, About for the highlighted row, and
 // the keys.
 func (m *Model) formBody(secs []section, pageKeys []string, w int) []string {
-	d := m.dialog
+	cur := rowAt(secs, m.dialog.cursor)
+	out := append(m.formRows(secs, m.dialog.cursor, w), m.about(cur, w)...)
+	return append(out, "", m.formKeys(cur, pageKeys, w))
+}
+
+// rowAt is a form's row i, or none.
+func rowAt(secs []section, i int) setting {
+	if rows := flat(secs); i >= 0 && i < len(rows) {
+		return rows[i]
+	}
+	return setting{}
+}
+
+// formRows draws a form's sections, row cur highlighted.
+func (m *Model) formRows(secs []section, cur, w int) []string {
 	rows := flat(secs)
 	// One label and one value column for the page, so the › line up.
 	labelW, valueW := 0, 12
@@ -362,15 +371,15 @@ func (m *Model) formBody(secs []section, pageKeys []string, w int) []string {
 			out = append(out, title)
 		}
 		for _, st := range sec.rows {
-			out = append(out, m.settingRow(i == d.cursor, st, labelW, valueW, w))
+			out = append(out, m.settingRow(i == cur, st, labelW, valueW, w))
 			i++
 		}
 	}
-	var cur setting
-	if d.cursor < len(rows) {
-		cur = rows[d.cursor]
-	}
-	out = append(out, m.about(cur, w)...)
+	return out
+}
+
+// formKeys is the key line for row cur of a form.
+func (m *Model) formKeys(cur setting, pageKeys []string, w int) string {
 	keys := []string{}
 	if cur.line == nil && len(cur.choices) > 0 {
 		keys = append(keys, "←→", "change")
@@ -379,7 +388,7 @@ func (m *Model) formBody(secs []section, pageKeys []string, w int) []string {
 		keys = append(keys, "enter", "type it")
 	}
 	keys = append(keys, cur.keys...)
-	return append(out, "", keysFit(w, append(append(keys, pageKeys...), pagesKeys...)...))
+	return keysFit(w, append(append(keys, pageKeys...), pagesKeys...)...)
 }
 
 // settingRow is always one line, the highlighted one too, so moving the

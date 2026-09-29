@@ -96,7 +96,7 @@ rush runs any agent it has an adapter for, and shows only the ones you have inst
 | GLM | ZCode, Z.ai's own agent, through `zcode-acp-server` | preview |
 | Ollama | Claude Code on Ollama's Anthropic API, tuned per model | preview |
 
-Full is what I use every day, tested has been tried against the real program, and preview is built but not yet tried against it. Settings › Providers shows each one's level and what rush can do with it, feature by feature: ✓ it can, – it can't, ◌ planned.
+Full is what I use every day, tested has been tried against the real program, and preview is built but not yet tried against it. Settings › Capabilities sets them side by side: each one's level, what rush can do with it, feature by feature (✓ it can, – it can't, ◌ planned), and what each of its models takes.
 
 `#with codex` (or any of them) makes new sessions start with that agent; `#with claude` goes back, and `#with` alone says which it is and what's installed. Their past sessions sit in the list beside Claude's, marked with their agent, and a message resumes one with its own agent, model and mode. A Codex running in a terminal is followed as it works, as a Claude Code one is. In a session, `/` offers only what that agent can do.
 
@@ -108,14 +108,14 @@ Full is what I use every day, tested has been tried against the real program, an
 
 ### Accounts
 
-Settings › Accounts lists each installed provider and, under it, the accounts it can run on: who each is, its plan, its limits, and which is in use. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
+Settings › Providers lists each installed provider with the account it's on and its tightest limit, then your profiles, then the folders that pick one. Everything about the one picked shows beside it: its accounts (who each is, its plan, its limits, and which is in use), spend today and this week, where it runs, what it does at a limit, and what its new sessions start with. `enter` goes into it, `esc` back to the list; on a narrow terminal the two take turns. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
 
-- `enter` switches to an account. `a` adds an account, `r` renames, `l` signs in again, `d` forgets.
+- On an account, `enter` switches to it. `a` adds an account, `r` renames, `l` signs in again, `d` forgets.
 - A running agent keeps the account it started with, so after a switch each rush session starts again on the new one at its first safe point: an idle one at once, one in a turn once the turn ends, one with work in the background once that's done. The conversation and its queue carry over.
-- `1`–`9` jump to a provider, `o` opens its settings, and `p` goes to Profiles, where the order of providers is set.
+- In the list, `1`–`9` jump to a provider, `*` makes it the default, `r` reads every limit again, and `n` makes a new profile.
 - Codex keeps several sign-ins in rush's vault and swaps one into `~/.codex`. Copilot runs on whichever of `gh`'s GitHub accounts you pick, without changing `gh`'s own. DeepSeek shows its balance; GLM its Coding Plan's limits.
 
-The top bar shows which provider, account and profile new sessions start on, that account's limits, and the battery and free disk. Settings › Agents shows one installed agent at a time (`1`–`9` picks it) and sets the model, effort and permissions its new sessions start with, plus what's that agent's own (for Claude Code: agent definitions, settings.json and its environment). Settings › Overview shows every provider's account, limits, spend today and this week, and what needs you. Settings › Profiles lists each provider's own profile and yours: which providers new sessions run, in order, which harness each runs in, what happens when their accounts run low, and which folders get which profile.
+The top bar shows which provider, account and profile new sessions start on, that account's limits, and the battery and free disk. A provider on Settings › Providers also sets the model, effort and permissions its new sessions start with, plus what's that agent's own (for Claude Code: agent definitions, settings.json and its environment). A profile of yours there sets which providers new sessions run, in order, which harness each runs in, what happens when their accounts run low, and which folders get it.
 
 <table>
   <tr>
@@ -137,11 +137,11 @@ Every installed provider is a profile of its own, built in: sessions under `clau
 - **Stay or mix**: new sessions stay on the first provider, or move on to the next once every account of the current one is nearly out.
 - **At a limit**, for a conversation a usage limit stops: `wait` for the reset, move to another `account` of the same provider and carry on, or `handoff`, which tries another account first and then hands the conversation to the next provider in the list with room.
 
-A provider can run in more than one harness, the program around the model. Ollama's models run in Claude Code (the default), Pi or Codex. Open a provider's own profile to choose which harness it runs in everywhere. In a profile of yours, `h` on a provider chooses again for that profile alone. `#profile ollama-pi` runs one session on Ollama in Pi, whatever the setting.
+A provider can run in more than one harness, the program around the model. Ollama's models run in Claude Code (the default), Pi or Codex. Open the provider on Settings › Providers to choose which harness it runs in everywhere. In a profile of yours, `h` on a provider chooses again for that profile alone. `#profile ollama-pi` runs one session on Ollama in Pi, whatever the setting.
 
 A session gets the profile picked for it (`#profile <name>`, or `rush session start --profile`), else the one for the longest folder rule its folder falls under, else the default. It keeps that profile when it's resumed. If rush had made a Default profile from your old default agent that did no more than that agent, it gave way to that provider's own profile, and folders that named it moved with it.
 
-`alt+w`, from anywhere, lists every profile, each provider's own first: pick one to make it the default. Settings › Profiles does the rest: new profiles, renaming and deleting them, the order of their providers and where each runs, what happens when accounts run low, and folders (`+ add a folder` starts from the selected session's folder).
+`alt+w`, from anywhere, lists every profile, each provider's own first: pick one to make it the default. Settings › Providers does the rest: new profiles, renaming and deleting them, the order of their providers and where each runs, what happens when accounts run low, and folders (`+ add a folder` starts from the selected session's folder).
 
 ## Sessions
 

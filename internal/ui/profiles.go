@@ -216,7 +216,7 @@ func (m *Model) openProfilePicker() {
 		label: faint("  edit profiles…"),
 		do: func(m *Model) tea.Cmd {
 			m.setView(placeSettings)
-			m.setSettingsPage(pageProfiles)
+			m.setSettingsPage(pageProviders)
 			return nil
 		},
 	})

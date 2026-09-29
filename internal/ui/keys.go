@@ -886,8 +886,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "account":
 		if arg == "" {
-			m.setView(placeSettings)
-			m.setSettingsPage(pageAccounts)
+			m.openAgentSettings(agent.Kind(m.startKind()))
 			return nil
 		}
 		return m.useLogin(arg)

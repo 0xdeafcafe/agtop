@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,16 +22,16 @@ import (
 func TestSettingsPagesBrackets(t *testing.T) {
 	m, _ := benchModel(140, 50)
 	m.setView(placeSettings)
-	m.setSettingsPage(pageOverview)
+	m.setSettingsPage(pageProviders)
 	n := len(m.settingsPages())
 	m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
-	if m.dialog.page != pageProfiles {
-		t.Fatalf("] went to page %d, not Profiles", m.dialog.page)
+	if m.dialog.page != pageCapabilities {
+		t.Fatalf("] went to page %d, not Capabilities", m.dialog.page)
 	}
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
 	if m.dialog.page != n-1 {
-		t.Fatalf("[ from Overview went to page %d, not the last (%d)", m.dialog.page, n-1)
+		t.Fatalf("[ from Providers went to page %d, not the last (%d)", m.dialog.page, n-1)
 	}
 	m.setSettingsPage(pageGeneral)
 	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
@@ -84,28 +85,44 @@ func TestStartForKind(t *testing.T) {
 	}
 }
 
-// Agents is one page whatever is installed; 1-9 pick the agent it shows.
-func TestSettingsAgentsOnePage(t *testing.T) {
+// Providers is one page whatever is installed: 1-9 pick a provider, enter
+// goes into it and esc back, and an agent's settings open on its own.
+func TestSettingsProvidersOnePage(t *testing.T) {
 	m, _ := accountsModel(t)
 	m.setView(placeSettings)
 	if n := len(m.settingsPages()); n != pagePlugins+1 {
-		t.Fatalf("%d pages: an agent has a page of its own again", n)
+		t.Fatalf("%d pages: a provider has a page of its own again", n)
 	}
-	order := m.agentOrder()
-	if len(order) < 2 {
-		t.Skip("needs two agents")
-	}
-	m.setSettingsPage(pageAgents)
-	if m.settingsAgent() != order[0].Kind() {
-		t.Fatalf("Agents opens on %s, not the first", m.settingsAgent())
+	m.setSettingsPage(pageProviders)
+	if it := m.provPicked(); it.provider != "claude" {
+		t.Fatalf("Providers opens on %+v, not the first", it)
 	}
 	m.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
-	if m.settingsAgent() != order[1].Kind() {
-		t.Fatalf("2 shows %s, not %s", m.settingsAgent(), order[1].Kind())
+	if it := m.provPicked(); it != m.provItems()[1] {
+		t.Fatalf("2 picked %+v", it)
 	}
-	m.openAgentSettings(order[0].Kind())
-	if m.dialog.page != pageAgents || m.settingsAgent() != order[0].Kind() {
-		t.Fatal("openAgentSettings didn't land on the agent")
+	m.dialog.cursor = slices.Index(m.provItems(), provItem{provider: "zcodex"})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if it := m.provPicked(); !m.dialog.inside || it.provider != "zcodex" {
+		t.Fatalf("enter: inside %v on %+v", m.dialog.inside, it)
+	}
+	body := ansi.Strip(strings.Join(m.dialogBody(150), "\n"))
+	for _, want := range []string{"Account", "one@example.com", "New sessions start with", "When a limit stops a session", "can do"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("zcodex doesn't show %q:\n%s", want, body)
+		}
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.dialog == nil || m.dialog.inside || m.provPicked().provider != "zcodex" {
+		t.Fatal("esc didn't go back to the list, on the provider")
+	}
+	m.openAgentSettings("zplain")
+	if m.dialog.page != pageProviders || !m.dialog.inside || m.provPicked().provider != "zplain" {
+		t.Fatal("openAgentSettings didn't land in the agent's provider")
+	}
+	// Narrow, the list and what's picked take turns.
+	if body := ansi.Strip(strings.Join(m.dialogBody(80), "\n")); strings.Contains(body, "│") || !strings.Contains(body, "can do") {
+		t.Fatalf("narrow and inside, not the provider alone:\n%s", body)
 	}
 }
 
@@ -114,8 +131,9 @@ func TestSettingsAgentsOnePage(t *testing.T) {
 func TestSettingsProfiles(t *testing.T) {
 	m, _ := accountsModel(t)
 	m.setView(placeSettings)
-	m.setSettingsPage(pageProfiles)
+	m.setSettingsPage(pageProviders)
 	cfg := &m.store.Config
+	editing := func() (state.Profile, bool) { return cfg.ProfileNamed(m.provPicked().profile) }
 	press := func(keys ...string) {
 		for _, k := range keys {
 			switch k {
@@ -136,8 +154,8 @@ func TestSettingsProfiles(t *testing.T) {
 	}
 	before := len(cfg.Profiles)
 	press("n", "client", "enter")
-	if len(cfg.Profiles) != before+1 || m.dialog.profile != "client" {
-		t.Fatalf("n didn't make and open a profile: %d profiles, open %q", len(cfg.Profiles), m.dialog.profile)
+	if len(cfg.Profiles) != before+1 || !m.dialog.inside || m.provPicked().profile != "client" {
+		t.Fatalf("n didn't make and open a profile: %d profiles, open %+v", len(cfg.Profiles), m.provPicked())
 	}
 	body := ansi.Strip(strings.Join(m.dialogBody(130), "\n"))
 	for _, want := range []string{"client", "Providers", "When a limit stops a session", "Folders"} {
@@ -146,16 +164,16 @@ func TestSettingsProfiles(t *testing.T) {
 		}
 	}
 	// Add the second agent, then set it to hand off at a limit.
-	p, _ := m.editing()
+	p, _ := editing()
 	n := len(p.Providers)
 	press("down", "enter")
-	if p, _ = m.editing(); len(p.Providers) == n {
+	if p, _ = editing(); len(p.Providers) == n {
 		t.Fatalf("enter on an agent didn't add or drop it: %v", p.Providers)
 	}
 	if body := ansi.Strip(strings.Join(m.dialogBody(130), "\n")); !strings.Contains(body, "When the first is out") {
 		t.Fatalf("with two providers, no choice of what to do when the first is out:\n%s", body)
 	}
-	rows := flat(m.profilesForm())
+	rows := flat(m.provForm(m.provPicked()))
 	for i, r := range rows {
 		if r.label == "When a limit stops a session" {
 			m.dialog.cursor = i
@@ -165,11 +183,11 @@ func TestSettingsProfiles(t *testing.T) {
 		}
 	}
 	press("right")
-	if p, _ = m.editing(); p.Limit() != state.LimitHandoff {
+	if p, _ = editing(); p.Limit() != state.LimitHandoff {
 		t.Fatalf("→ on the limit row: %q", p.Limit())
 	}
 	// A folder for it.
-	for i, r := range flat(m.profilesForm()) {
+	for i, r := range flat(m.provForm(m.provPicked())) {
 		if r.label == "+ add a folder" {
 			m.dialog.cursor = i
 		}
@@ -180,16 +198,12 @@ func TestSettingsProfiles(t *testing.T) {
 	if r, ok := cfg.RuleFor(state.ExpandHome("~/src/client/app")); !ok || r.Profile != "client" {
 		t.Fatalf("folder rule: %+v %v", r, ok)
 	}
-	// esc goes back to every profile, not out of Settings.
+	// esc goes back to the list, not out of Settings.
 	press("esc")
-	if m.dialog == nil || m.dialog.profile != "" {
+	if m.dialog == nil || m.dialog.inside {
 		t.Fatal("esc in a profile left Settings")
 	}
-	for i, r := range flat(m.profilesForm()) {
-		if r.label == "client" {
-			m.dialog.cursor = i
-		}
-	}
+	m.dialog.cursor = slices.Index(m.provItems(), provItem{profile: "client"})
 	press("*")
 	if cfg.Default().Name != "client" {
 		t.Fatalf("* didn't make it the default: %s", cfg.Default().Name)

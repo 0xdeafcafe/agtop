@@ -99,7 +99,7 @@ func accountsModel(t *testing.T) (*Model, *[]string) {
 	m.accts.ready()
 	m.accts.now["zcodex"] = "a1"
 	m.rebuild()
-	m.openDialog(pageAccounts)
+	m.openDialog(pageProviders)
 	return m, &switched
 }
 
@@ -118,8 +118,8 @@ func rowNames(rows []acctRow) []string {
 	return out
 }
 
-// Accounts groups accounts under their agent, lists only installed
-// agents, and follows the order you set.
+// Accounts group under their agent, only installed agents are listed,
+// in the order you set, and Providers shows a provider's accounts.
 func TestAccountsGroupedByAgent(t *testing.T) {
 	m, _ := accountsModel(t)
 	got := strings.Join(rowNames(m.accountRows()), ",")
@@ -130,24 +130,20 @@ func TestAccountsGroupedByAgent(t *testing.T) {
 	m.store.Config.SetProfile("", state.Profile{Name: "all", Providers: []string{"claude", "zcodex", "zplain"}})
 	m.store.Config.SetDefaultProfile("all")
 	m.dialog.cursor = 0
-	// 3 jumps to the third agent.
-	m.accountsKey("3")
-	if r := m.accountRows()[m.dialog.cursor]; !r.head || r.kind != "zplain" {
-		t.Fatalf("3 went to %+v", r)
+	// 3 picks the third provider.
+	m.providersKey("3")
+	if it := m.provPicked(); it.provider != "zplain" {
+		t.Fatalf("3 picked %+v", it)
 	}
-	// p goes to Profiles, where the order and the default are.
-	m.accountsKey("p")
-	if m.dialog.page != pageProfiles {
-		t.Fatalf("p went to page %d, not Profiles", m.dialog.page)
-	}
-	body := m.accountsBody(150)
+	m.providersKey("2")
+	body := m.providersBody(150)
 	for i, l := range body {
 		if w := ansi.StringWidth(l); w > 150 {
 			t.Fatalf("line %d is %d wide: %s", i, w, ansi.Strip(l))
 		}
 	}
 	plain := ansi.Strip(strings.Join(body, "\n"))
-	for _, want := range []string{"★ ✻ Claude Code", "one@example.com", "ZGone"} {
+	for _, want := range []string{"✻ Claude Code", "★ all", "one@example.com", "ZGone"} {
 		if strings.Contains(plain, want) != (want != "ZGone") {
 			t.Errorf("want %q shown %v in:\n%s", want, want != "ZGone", plain)
 		}
@@ -157,13 +153,13 @@ func TestAccountsGroupedByAgent(t *testing.T) {
 // enter on another agent's account switches its home to it.
 func TestAccountsSwitchAnotherAgent(t *testing.T) {
 	m, switched := accountsModel(t)
-	rows := m.accountRows()
-	for i, r := range rows {
-		if r.name() == "two" {
+	m.openItem(provItem{provider: "zcodex"})
+	for i, r := range flat(m.provForm(m.provPicked())) {
+		if r.label == "two" {
 			m.dialog.cursor = i
 		}
 	}
-	cmd := m.accountsKey("enter")
+	cmd := m.providersKey("enter")
 	if cmd == nil {
 		t.Fatal("enter did nothing")
 	}
@@ -265,8 +261,9 @@ func TestAccountsLesserAgent(t *testing.T) {
 	if m.store.Config.DefaultAgent() == "ylesser" {
 		t.Fatal("it became the default though it can't run sessions")
 	}
-	if !strings.Contains(ansi.Strip(strings.Join(m.accountsBody(150), "\n")), "without its CLI") {
-		t.Fatal("no hint in Accounts")
+	m.openItem(provItem{provider: "ylesser"})
+	if !strings.Contains(ansi.Strip(strings.Join(m.providersBody(150), "\n")), "install zlesser's CLI") {
+		t.Fatal("no hint on Providers")
 	}
 }
 
