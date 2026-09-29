@@ -201,6 +201,10 @@ Only `cwd` and `prompt` are required. It returns `{"id": "…", "cwd": "…"}`, 
 - Its permission mode asks the user first: `default`, `acceptEdits` or `plan`. A session in `bypassPermissions` or `auto` is refused.
 - The text is at most 100 KB, and goes with a first line saying who it's from, `[from the agtop plugin <name>]`, so neither Claude nor the user takes it for the user's.
 
+### `sessions.queued.send` / `sessions.queued.remove` — needs `queued`
+
+`{"id": "…", "index": 0, "was": "…"}`. Sends now, or drops, the message waiting at `index` (from 0) in the queue of any session in the plugin's workspaces (a session it started always may), and returns `{}` once the session says it's gone. The plugin never sees queued text: `sessions.list` gives only how many are `queued`. `was` is optional, text the plugin was given (by the user, say) naming the message, so it's still the one meant if the queue moved; without it the message at `index` now is.
+
 ### `sessions.subscribe` / `sessions.unsubscribe` — needs `read`, own sessions only
 
 `{"id": "…"}`. Returns `{}`; events follow as `session.event`. Subscribing again replaces the old subscription. Subscriptions end when the plugin restarts.

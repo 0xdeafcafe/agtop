@@ -87,6 +87,9 @@ func Describe(p Plugin) string {
 	if p.Can(CapControl) {
 		grants = append(grants, "interrupts and stops the sessions it started")
 	}
+	if p.Can(CapQueued) {
+		grants = append(grants, fmt.Sprintf("sends now, or drops, the messages you queued in any session in %s, by their place in the queue, without seeing them", strings.Join(p.Workspaces, ", ")))
+	}
 	if p.Sidebar {
 		grants = append(grants, "arranges your agent list: groups and names agents in sections of its own, offered as a group-by mode")
 	}

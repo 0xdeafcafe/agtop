@@ -11,8 +11,8 @@ The manifest lives at `<plugins>/<name>/plugin.json`. Unknown fields are an erro
 | `protocol` | `"agtop"` \| `"mcp"` | `"agtop"` | `mcp` means an MCP stdio server. It can't have `sessions`. |
 | `env` | object | | Extra environment. `${DATA}` expands to the data folder and `${PLUGIN}` to the plugin folder, and a leading `~/` to the user's home (the plugin's own `HOME` is its data folder), so it can find the files it was given in `read` or `write`. It can't override `PATH`, `HOME`, `TMPDIR`, `AGTOP_*`, or (with `network`) the proxy variables. |
 | `tools` | bool | false | Offer its tools to every agtop-mode session. Always on for `mcp`. |
-| `sessions` | string[] | | Any of `list`, `start`, `read`, `send`, `control`, `queue`. See `protocol.md`. |
-| `workspaces` | string[] | | Absolute paths or `~/…`, not `/`. Required with `start` and `queue`. |
+| `sessions` | string[] | | Any of `list`, `start`, `read`, `send`, `control`, `queue`, `queued`. See `protocol.md`. |
+| `workspaces` | string[] | | Absolute paths or `~/…`, not `/`. Required with `start`, `queue` and `queued`. |
 | `network` | string[] | | `host:port` pairs: exact names, or public IPs, no wildcards. HTTPS through the proxy only. |
 | `read` | string[] | | Extra absolute paths it may read, for an interpreter's libraries or another tool's files. |
 | `write` | string[] | | Extra absolute paths it may write (and read), beyond its data folder: another tool's files. Not `/` or your home folder. |

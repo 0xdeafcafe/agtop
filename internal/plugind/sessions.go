@@ -110,6 +110,8 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params jsontext.
 		Message        string            `json:"message"`
 		Args           []string          `json:"args"`
 		Stdin          string            `json:"stdin"`
+		Index          int               `json:"index"`
+		Was            string            `json:"was"`
 	}
 	if len(params) > 0 {
 		if err := jsonx.Unmarshal(params, &in); err != nil {
@@ -171,6 +173,18 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params jsontext.
 		// for yours.
 		text := "[from the agtop plugin " + p.Name + "]\n" + in.Text
 		return withHost(in.ID, func(c *host.Client) error { return c.Send(text) })
+
+	case "sessions.queued.send", "sessions.queued.remove":
+		if err := need(plugin.CapQueued); err != nil {
+			return nil, err
+		}
+		if _, err := r.inWorkspaces(p, in.ID); err != nil {
+			return nil, err
+		}
+		if len(in.Was) > maxText {
+			return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: "was is too long"}
+		}
+		return queued(in.ID, in.Index, in.Was, method == "sessions.queued.send")
 
 	case "sidebar.set":
 		return r.setSidebar(p, params)
@@ -273,24 +287,103 @@ var safeModes = []string{"default", "acceptEdits", "plan"}
 // queueable checks a plugin may queue to the session: one running in its
 // workspaces, in a mode that still asks you.
 func (r *runner) queueable(p plugin.Plugin, id string) error {
-	if !idRE.MatchString(id) {
-		return &plugin.Error{Code: plugin.CodeInvalidParams, Message: "bad session id"}
-	}
-	info, err := host.ReadInfo(id)
-	if err != nil {
-		return &plugin.Error{Code: plugin.CodeInvalidParams, Message: "no session " + id}
-	}
-	if info.StartedBy == p.Name {
-		return nil
-	}
-	dir, err := filepath.EvalSymlinks(info.Cwd)
-	if err != nil || !slices.ContainsFunc(p.WorkspaceDirs(), func(w string) bool { return within(dir, w) }) {
-		return plugin.Denied("session " + id + " is outside the plugin's workspaces")
+	info, err := r.inWorkspaces(p, id)
+	if err != nil || info.StartedBy == p.Name {
+		return err
 	}
 	if m := info.PermissionMode; m != "" && !slices.Contains(safeModes, m) {
 		return plugin.Denied("session " + id + " runs in " + m + " mode, which doesn't ask you first")
 	}
 	return nil
+}
+
+// inWorkspaces checks the session is one the plugin started, or runs in
+// its workspaces.
+func (r *runner) inWorkspaces(p plugin.Plugin, id string) (host.Info, error) {
+	if !idRE.MatchString(id) {
+		return host.Info{}, &plugin.Error{Code: plugin.CodeInvalidParams, Message: "bad session id"}
+	}
+	info, err := host.ReadInfo(id)
+	if err != nil {
+		return host.Info{}, &plugin.Error{Code: plugin.CodeInvalidParams, Message: "no session " + id}
+	}
+	if info.StartedBy == p.Name {
+		return info, nil
+	}
+	dir, err := filepath.EvalSymlinks(info.Cwd)
+	if err != nil || !slices.ContainsFunc(p.WorkspaceDirs(), func(w string) bool { return within(dir, w) }) {
+		return host.Info{}, plugin.Denied("session " + id + " is outside the plugin's workspaces")
+	}
+	return info, nil
+}
+
+// queued sends now, or drops, the message at index in a session's queue,
+// and waits until the session says it's gone. was, when given, names it
+// by its text, so it's still the one meant if the queue moved.
+func queued(id string, index int, was string, send bool) (any, error) {
+	c, err := host.Dial(id)
+	if err != nil {
+		return nil, fmt.Errorf("session %s is not running", id)
+	}
+	defer c.Close()
+	var queue []string
+	timeout := time.After(5 * time.Second)
+	next := func(want func(any) (bool, error)) error {
+		for {
+			select {
+			case l, ok := <-c.Lines:
+				if !ok {
+					return fmt.Errorf("session %s went away", id)
+				}
+				if ev, err := host.Decode(l); err == nil {
+					if done, err := want(ev); done || err != nil {
+						return err
+					}
+				}
+			case <-timeout:
+				return fmt.Errorf("session %s didn't answer", id)
+			}
+		}
+	}
+	if err := next(func(ev any) (bool, error) {
+		e, ok := ev.(host.InfoEvent)
+		if ok {
+			queue = e.Info.Queue
+		}
+		return ok, nil
+	}); err != nil {
+		return nil, err
+	}
+	if was == "" {
+		if index < 0 || index >= len(queue) {
+			return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: fmt.Sprintf("no queued message %d: the queue has %d", index, len(queue))}
+		}
+		was = queue[index]
+	}
+	if !slices.Contains(queue, was) {
+		return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: "no such message in the queue"}
+	}
+	count := func(q []string) int {
+		return len(slices.DeleteFunc(slices.Clone(q), func(s string) bool { return s != was }))
+	}
+	n := count(queue)
+	if send {
+		err = c.SendQueued(index, was)
+	} else {
+		err = c.RemoveQueued(index, was)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{}, next(func(ev any) (bool, error) {
+		switch e := ev.(type) {
+		case host.ErrorEvent:
+			return true, errors.New(e.Error)
+		case host.InfoEvent:
+			return count(e.Info.Queue) < n, nil
+		}
+		return false, nil
+	})
 }
 
 func withHost(id string, do func(*host.Client) error) (any, error) {

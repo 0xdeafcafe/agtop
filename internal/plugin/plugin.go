@@ -83,9 +83,13 @@ const (
 	// workspaces, as the plugin, never one that skips asking you. It goes
 	// when the session's turn ends, as a queued message of yours does.
 	CapQueue = "queue"
+	// CapQueued sends now, or drops, a message waiting in the queue of any
+	// session in the manifest's workspaces, by its place: the plugin never
+	// sees the text.
+	CapQueued = "queued"
 )
 
-var caps = []string{CapList, CapStart, CapRead, CapSend, CapControl, CapQueue}
+var caps = []string{CapList, CapStart, CapRead, CapSend, CapControl, CapQueue, CapQueued}
 
 // Manifest is plugin.json.
 type Manifest struct {
@@ -229,6 +233,9 @@ func (m Manifest) Validate(dir string) error {
 	}
 	if m.Can(CapQueue) && len(m.Workspaces) == 0 {
 		return errors.New(`"queue" needs at least one workspace whose sessions it may queue to`)
+	}
+	if m.Can(CapQueued) && len(m.Workspaces) == 0 {
+		return errors.New(`"queued" needs at least one workspace whose sessions' queues it may send or drop`)
 	}
 	for _, r := range m.Read {
 		if !filepath.IsAbs(expandHome(r)) {
