@@ -7,8 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/cellw"
-	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 )
 
@@ -51,15 +51,15 @@ type workState struct {
 	projPos int
 	projSel string
 
-	tls     map[string]*claude.Timeline // by transcript path; the loader's alone
-	views   map[string]claude.TimelineView
+	tls     map[string]agent.Timeline    // by transcript path; the loader's alone
+	views   map[string][]agent.Happening // by agent key
 	loading bool
 	loaded  time.Time
 }
 
 type workTimelinesMsg struct {
-	tls   map[string]*claude.Timeline
-	views map[string]claude.TimelineView
+	tls   map[string]agent.Timeline
+	views map[string][]agent.Happening
 }
 
 // workLoad reads what the open sessions' transcripts have gained.
@@ -71,17 +71,18 @@ func (m *Model) workLoad() tea.Cmd {
 	w.loading = true
 	tls := w.tls
 	paths := map[string]string{}
+	kinds := map[string]agent.Kind{}
 	for _, a := range m.workAgents() {
 		if a.TranscriptPath != "" {
-			paths[a.Key] = a.TranscriptPath
+			paths[a.Key], kinds[a.Key] = a.TranscriptPath, a.Acct.Kind
 		}
 	}
 	return func() tea.Msg {
 		if tls == nil {
-			tls = map[string]*claude.Timeline{}
+			tls = map[string]agent.Timeline{}
 		}
 		since := time.Now().Add(-workSince)
-		views := map[string]claude.TimelineView{}
+		views := map[string][]agent.Happening{}
 		want := make(map[string]bool, len(paths))
 		for _, p := range paths {
 			want[p] = true
@@ -94,11 +95,15 @@ func (m *Model) workLoad() tea.Cmd {
 		for key, p := range paths {
 			tl := tls[p]
 			if tl == nil {
-				tl = &claude.Timeline{}
+				tr, ok := agent.As[agent.Timeliner](kinds[key])
+				if !ok {
+					continue
+				}
+				tl = tr.NewTimeline()
 				tls[p] = tl
 			}
 			tl.Update(p, since)
-			views[key] = tl.View(since)
+			views[key] = tl.Events(since)
 		}
 		return workTimelinesMsg{tls: tls, views: views}
 	}
@@ -181,11 +186,11 @@ func (m *Model) workSession(a *fleet.Agent, w int, now time.Time) string {
 	}
 	var tail []string
 	planned, ticked := 0, 0
-	for _, e := range m.work.views[a.Key].Events {
-		if e.Run == "" && e.Kind == claude.EvPlan {
+	for _, e := range m.work.views[a.Key] {
+		if e.Run == "" && e.Kind == agent.EvPlan {
 			planned += e.N
 		}
-		if e.Run == "" && e.Kind == claude.EvTick {
+		if e.Run == "" && e.Kind == agent.EvTick {
 			ticked++
 		}
 	}
@@ -213,9 +218,9 @@ func (m *Model) workSaid(a *fleet.Agent) string {
 	if d != "" && d != "No response requested." {
 		return d
 	}
-	ev := m.work.views[a.Key].Events
+	ev := m.work.views[a.Key]
 	for i := len(ev) - 1; i >= 0; i-- {
-		if ev[i].Kind == claude.EvTurn && ev[i].Run == "" {
+		if ev[i].Kind == agent.EvTurn && ev[i].Run == "" {
 			return oneLine(ev[i].Text)
 		}
 	}

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +11,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/0xdeafcafe/agtop/internal/agent"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
 
 // A Timeline is what a session and its subagents have done, in time order:
@@ -28,30 +30,24 @@ const timelineTail = 4 << 20
 // timelineCap is how many events a session keeps, the newest.
 const timelineCap = 600
 
-type EventKind int
-
-const (
-	EvPrompt  EventKind = iota // you wrote to it
-	EvTurn                     // a turn ended, with what it said
-	EvPlan                     // tasks planned; N of them
-	EvTick                     // a task ticked off
-	EvStart                    // a subagent started
-	EvEnd                      // a subagent, or a background command, ended: Status says how
-	EvAsk                      // it asked you something
-	EvCommit                   // a commit
-	EvPR                       // a PR opened
-	EvError                    // a turn died on an API error
-	EvCompact                  // its context was compacted
+type (
+	EventKind = agent.EventKind
+	Happening = agent.Happening
 )
 
-type Happening struct {
-	At     time.Time
-	Kind   EventKind
-	Run    string // the subagent it's from, by agent id; "" is the session
-	Status string // for EvEnd: completed, failed or stopped
-	Text   string
-	N      int // for EvPlan
-}
+const (
+	EvPrompt  = agent.EvPrompt
+	EvTurn    = agent.EvTurn
+	EvPlan    = agent.EvPlan
+	EvTick    = agent.EvTick
+	EvStart   = agent.EvStart
+	EvEnd     = agent.EvEnd
+	EvAsk     = agent.EvAsk
+	EvCommit  = agent.EvCommit
+	EvPR      = agent.EvPR
+	EvError   = agent.EvError
+	EvCompact = agent.EvCompact
+)
 
 // Run is a subagent as the timeline knows it.
 type Run struct {
