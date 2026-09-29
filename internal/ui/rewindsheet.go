@@ -415,6 +415,29 @@ func (f *rewindSheet) start(m *Model) tea.Cmd {
 	}
 }
 
+// clearInPlace is /clear: the agent carries on in a fresh conversation,
+// named by its next message, and the one it leaves is kept as a path to
+// go back down with /rewind.
+func (m *Model) clearInPlace(c *hostConn, a *fleet.Agent) tea.Cmd {
+	left := host.Branch{From: 1}
+	for _, t := range c.sess.Turns {
+		if t.Prompt != "" {
+			left.Turns++
+			left.Last = t.Prompt
+		}
+	}
+	key, id := c.key, a.ID
+	m.flash("clearing "+a.DisplayName+"…", false)
+	return func() tea.Msg {
+		newID, _ := host.NewSessionID()
+		restarted, err := rewindHost(id, newID, false, left)
+		if err != nil {
+			return doneMsg{err: err}
+		}
+		return rewoundMsg{key: key, text: "cleared · the conversation it had is kept (/rewind)" + restartNote(restarted)}
+	}
+}
+
 // rewindHost tells an agent's host to carry on from sessionID. The host
 // hangs up once it has, or says why it won't. A host from an older rush
 // doesn't know how, so it's restarted on this one, already rewound.

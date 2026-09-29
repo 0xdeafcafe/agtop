@@ -710,3 +710,45 @@ func TestCutInKeepsImages(t *testing.T) {
 		t.Errorf("queue %q images %q stops %d", got, s.info.QueueImages, c.stops)
 	}
 }
+
+// A session started without a message, by /clear, is named from the
+// first one it's sent, pastes and images left out; later ones don't
+// rename it.
+func TestNamedFromFirstMessage(t *testing.T) {
+	setup(t)
+	os.MkdirAll(dir("nf"), 0o700)
+	s := &server{cfg: Config{ID: "nf", Name: "fresh session in app", NameFirst: true}, conn: &inputConn{}, clients: map[*conn]struct{}{}}
+	s.info.State, s.info.Name = "working", s.cfg.Name
+	s.send("[Image #1] retry the upload <pasted_content id=\"a\">\nlots\n</pasted_content> when it times out please now", nil, false)
+	if s.info.Name != "retry the upload when it times" || s.cfg.NameFirst {
+		t.Fatalf("named %q, still to name: %v", s.info.Name, s.cfg.NameFirst)
+	}
+	s.send("something else", nil, false)
+	if s.info.Name != "retry the upload when it times" {
+		t.Fatalf("renamed by the second message: %q", s.info.Name)
+	}
+}
+
+// /clear rewinds to a fresh conversation: the one left is kept as a
+// branch, and the session is named again by its next message.
+func TestRewindFreshRenames(t *testing.T) {
+	setup(t)
+	os.MkdirAll(dir("cl"), 0o700)
+	s := &server{cfg: Config{ID: "cl", SessionID: "old", Resume: true, Cwd: "/work/app", Name: "fix the upload"}, began: true,
+		conn: &inputConn{}, clients: map[*conn]struct{}{}}
+	s.info.State, s.info.Name = "idle", "fix the upload"
+	if err := s.rewind("new", false, &Branch{From: 1, Turns: 4}); err != nil {
+		t.Fatal(err)
+	}
+	if s.info.Name != "fresh session in app" || !s.cfg.NameFirst || len(s.cfg.Branches) != 1 || s.cfg.Branches[0].SessionID != "old" {
+		t.Fatalf("after clearing: name %q, to name %v, branches %+v", s.info.Name, s.cfg.NameFirst, s.cfg.Branches)
+	}
+	s.send("add retries to the upload", nil, false)
+	if s.info.Name != "add retries to the upload" {
+		t.Fatalf("not named by its next message: %q", s.info.Name)
+	}
+	// Back down the old path, which isn't fresh: its name stays.
+	if err := s.rewind("old", true, &Branch{From: 1}); err != nil || s.cfg.NameFirst || s.info.Name != "add retries to the upload" {
+		t.Fatalf("resuming renamed it: %q %v %v", s.info.Name, s.cfg.NameFirst, err)
+	}
+}

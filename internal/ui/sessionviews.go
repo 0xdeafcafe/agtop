@@ -305,7 +305,7 @@ func (m *Model) taskLines(c *hostConn, o convo.Options) []convo.Line {
 // fleetCommands). Claude Code's that rush already does its own way run
 // rush's (/diff opens the changes view, /cd moves the agent, …).
 var rushCommands = []event.Command{
-	{Name: "clear", Description: "start a fresh session in the same folder (this one stays in the list)"},
+	{Name: "clear", Description: "start this agent afresh, named by your next message; what it had is kept (/rewind)"},
 	{Name: "fork", Description: "carry on in a copy of this conversation, as a new agent (this one stays as it is)", ArgumentHint: "[name]"},
 	{Name: "rewind", Description: "go back to before one of your messages and try again; the path you leave is kept as a branch"},
 	{Name: "model", Description: "pick the model for the next turn, or name one", ArgumentHint: "[model]"},
@@ -773,7 +773,10 @@ func (m *Model) runRushCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		if a == nil {
 			return nil, true
 		}
-		return m.startHosted("", a.Cwd), true
+		if c.client == nil || !agent.Supports(sessionAgent(c), agent.FeatureRewind) {
+			return m.startHosted("", a.Cwd), true // a new session beside it
+		}
+		return m.clearInPlace(c, a), true
 	case "fork":
 		if a == nil {
 			return nil, true

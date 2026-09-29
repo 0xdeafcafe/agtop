@@ -3338,12 +3338,13 @@ func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cm
 	if rest, imgs := extractImages(text, m.lookPath); imgs != nil {
 		images, text = append(images, imgs...), rest
 	}
-	name := sessionName(strings.TrimSpace(imageMarkerRe.ReplaceAllString(convo.FoldPastes(text), "")))
+	name := host.NameFrom(text)
 	if name == "" && len(images) > 0 {
 		name = "about " + filepath.Base(images[0])
 	}
-	if name == "" {
-		name = "fresh session in " + filepath.Base(dir)
+	nameFirst := name == ""
+	if nameFirst {
+		name = host.FreshName(dir)
 	}
 	kind, profile := m.startKindIn(dir), m.startProfile(dir).Name
 	if why := agent.Unreadable(agent.Kind(kind), d.StartFor(kind).Model, images); why != "" {
@@ -3354,7 +3355,7 @@ func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cm
 	m.accts.profile = "" // a profile picked with #profile is for one session
 	// Each agent starts with what its own Settings page says.
 	st := d.StartFor(kind)
-	cfg := host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, IdleStop: host.Duration(d.Rest()), Profile: profile,
+	cfg := host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, NameFirst: nameFirst, IdleStop: host.Duration(d.Rest()), Profile: profile,
 		Model: st.Model, Effort: st.Effort, PermissionMode: st.Mode}
 	if agent.Kind(kind) == loginsKind {
 		// Dispatch's own settings are this agent's, and its account the one
@@ -3380,19 +3381,6 @@ func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cm
 
 type hostStartedMsg struct{ id, name, acct string }
 
-// sessionName is the first few words of the task, until the session names
-// itself.
-func sessionName(text string) string {
-	words := strings.Fields(text)
-	if len(words) > 6 {
-		words = words[:6]
-	}
-	n := strings.Join(words, " ")
-	if r := []rune(n); len(r) > 48 {
-		n = string(r[:47]) + "…"
-	}
-	return n
-}
 
 // sendHosted sends a message to a rush-mode agent from the main prompt,
 // through its host.

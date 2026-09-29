@@ -59,6 +59,9 @@ type Config struct {
 	PermissionMode string        `json:"permissionMode,omitempty"`
 	Flags          []string      `json:"flags,omitempty"`
 	Prompt         string        `json:"prompt,omitempty"` // first message
+	// NameFirst names the session from the first message sent to it, for
+	// one started without one (by /clear, say).
+	NameFirst bool `json:"nameFirst,omitzero"`
 	Images         []string      `json:"images,omitempty"` // files attached to it
 	IdleStop       Duration      `json:"idleStop,omitzero"`
 	// LimitMode is what happens when a usage limit stops the session:
@@ -1001,6 +1004,10 @@ func (s *server) send(text string, images []string, now bool) error {
 		pics = append(pics, pic)
 	}
 	s.mu.Lock()
+	if n := NameFrom(text); s.cfg.NameFirst && n != "" {
+		s.cfg.NameFirst, s.cfg.Name, s.info.Name = false, n, n
+		s.saveConfig()
+	}
 	waiting := s.info.Limit != nil && s.info.Limit.Continue && !s.info.Limit.ResetsAt.IsZero()
 	busy := s.info.State == "working" || s.info.State == "blocked" || waiting
 	if !now && busy {
@@ -1485,6 +1492,7 @@ func (s *server) rewind(sessionID string, resume bool, left *Branch) error {
 	s.saveConfig()
 	s.ring, s.ringN, s.stamped = nil, 0, time.Time{}
 	s.info.SessionID, s.info.RewoundAt, s.info.ReplayFrom = sessionID, time.Now(), time.Time{}
+	s.info.Name = s.cfg.Name
 	s.info.Error, s.info.Retry, s.info.Needs = "", nil, ""
 	if s.info.State != "stopped" {
 		s.info.State = "idle"
@@ -1511,6 +1519,10 @@ func (cfg *Config) rewindTo(sessionID string, resume bool, left *Branch, began b
 		}
 	}
 	cfg.SessionID, cfg.Resume, cfg.Fork, cfg.From, cfg.Prompt, cfg.Images = sessionID, resume, false, "", "", nil
+	if !resume {
+		// A conversation started afresh is named by its first message.
+		cfg.Name, cfg.NameFirst = FreshName(cfg.Cwd), true
+	}
 }
 
 // conn is one connected client.
