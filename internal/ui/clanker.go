@@ -328,12 +328,13 @@ func clkGrey(c string) string {
 	if gr == (theme.Ground{}) {
 		gr = theme.Dark
 	}
-	// Dark to light whichever the theme is, so the cap stays black.
+	// Dark to light whichever the theme is, so the cap stays black; its
+	// black a step off the background, so the lid shows on any theme.
 	lo, hi := gr.BG, gr.FG
 	if !lo.Dark() {
 		lo, hi = hi, lo
 	}
-	out := theme.Mix(lo, hi, .015+l*1.075).FG()
+	out := theme.Mix(lo, hi, .2+l*.9).FG()
 	if strings.HasSuffix(c, bold) {
 		out += bold
 	}
