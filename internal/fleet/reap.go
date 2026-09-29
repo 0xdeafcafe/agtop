@@ -5,6 +5,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 )
 
@@ -117,12 +118,12 @@ func (l Leftover) End(grace time.Duration) {
 	}
 }
 
-// ownerOf is the Claude Code process p runs under for an agent whose
-// process is root: root itself when it is Claude Code, else (an agtop
+// ownerOf is the agent's process p runs under for an agent whose process
+// is root: root itself when it is an agent's program, else (an agtop
 // host) the child of root that p descends from. p itself is never its own
 // owner.
 func ownerOf(tab *proc.Table, root, p *proc.Proc) *proc.Proc {
-	if builtinComm(root.Comm) {
+	if agent.IsProgram(root.Comm) {
 		return root
 	}
 	for q, i := p, 0; q != nil && i < 64; i++ {

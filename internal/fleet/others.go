@@ -17,19 +17,19 @@ type othersListing struct {
 	sessions []agent.Session
 }
 
-// otherAgents are the sessions of every agent that can list them (the
-// built-in agent's are found by Load itself), less those a row already
+// otherAgents are the sessions of every agent that can list them but
+// home, whose are found by Load's own account loop, less those a row already
 // stands for: running ones (a codex in a terminal), which agtop can only
 // show, and past ones, which a message resumes in agtop mode with their
 // agent.
-func (l *Loader) otherAgents(claimed, seen map[string]bool, now time.Time) []*Agent {
+func (l *Loader) otherAgents(home agent.Kind, claimed, seen map[string]bool, now time.Time) []*Agent {
 	if l.others == nil {
 		l.others = map[string]othersListing{}
 	}
 	var out []*Agent
 	for _, a := range agent.All() {
 		d, ok := a.(agent.Discoverer)
-		if !ok || agent.IsBuiltin(a.Kind()) {
+		if !ok || a.Kind() == home {
 			continue
 		}
 		for _, p := range a.Profiles() {

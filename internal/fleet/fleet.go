@@ -520,7 +520,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		// every session file whose process is alive.
 		var jobs []claude.Job
 		var sessions []claude.Session
-		live := builtinLive(acct)
+		live := liveOf(acct.Profile())
 		for i := range live {
 			switch x := live[i].Extra.(type) {
 			case claude.Job:
@@ -594,7 +594,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 				a.PID = a.Worker.PID
 				// A roster left behind by a crashed daemon names pids that are
 				// gone or reused; only a live claude process counts.
-				if tab != nil && !isClaudePID(tab, a.PID) {
+				if tab != nil && !isProgramPID(tab, a.PID, a.Acct.Kind) {
 					a.PID, a.Worker = 0, nil
 				}
 			}
@@ -611,7 +611,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			snap.Agents = append(snap.Agents, a)
 		}
 		for _, ss := range sessions {
-			if ss.Kind != "interactive" || len(ss.SessionID) < 8 || tab != nil && !isClaudePID(tab, ss.PID) || ours[ss.SessionID] || oursPID[ss.PID] {
+			if ss.Kind != "interactive" || len(ss.SessionID) < 8 || tab != nil && !isProgramPID(tab, ss.PID, acct.Profile().Kind) || ours[ss.SessionID] || oursPID[ss.PID] {
 				continue
 			}
 			key := state.Key(acct.Name, "i:"+ss.SessionID[:8])
@@ -657,8 +657,8 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		for _, info := range hosted {
 			// Every Claude session runs in ~/.claude, whatever name its
 			// folder had when it started.
-			if otherAgent(info.Kind) {
-				continue
+			if info.Kind != string(acct.Profile().Kind) {
+				continue // listed under its own profile, below
 			}
 			a := l.hostedAgent(acct, info, tab, now)
 			if a.Live() {
@@ -680,11 +680,11 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	// Other agents' sessions belong to no Claude folder: they're listed
 	// under their own profile's name.
 	for _, info := range hosted {
-		if otherAgent(info.Kind) {
+		if info.Kind != string(active.Profile().Kind) {
 			snap.Agents = append(snap.Agents, l.hostedAgent(claude.Account{Name: info.Account}, info, tab, now))
 		}
 	}
-	snap.Agents = append(snap.Agents, l.otherAgents(claimed, seen, now)...)
+	snap.Agents = append(snap.Agents, l.otherAgents(active.Profile().Kind, claimed, seen, now)...)
 	// Rows kept from one reading to the next (past conversations) are
 	// the loader's: the snapshot gets its own, which the UI may change
 	// while the next reading is made.
@@ -725,14 +725,9 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 }
 
 // hosted turns an agtop-mode session's info into an agent row.
-// builtinProfile is the built-in agent's profile for acct.
-func builtinProfile(acct claude.Account) agent.Profile {
-	return agent.Profile{Kind: agent.BuiltinKind(), Name: acct.Name, Dir: acct.ConfigDir}
-}
-
-// builtinDiscoverer is how the built-in agent's sessions are found.
-func builtinDiscoverer() (agent.Discoverer, bool) {
-	a, ok := agent.Get(agent.BuiltinKind())
+// discoverer is how agent k's sessions are found.
+func discoverer(k agent.Kind) (agent.Discoverer, bool) {
+	a, ok := agent.Get(k)
 	if !ok {
 		return nil, false
 	}
@@ -740,23 +735,19 @@ func builtinDiscoverer() (agent.Discoverer, bool) {
 	return d, ok
 }
 
-// builtinLive is the built-in agent's running sessions in acct.
-func builtinLive(acct claude.Account) []agent.Session {
-	if d, ok := builtinDiscoverer(); ok {
-		return d.Live(builtinProfile(acct))
+// liveOf is the running sessions in profile p, as its agent finds them.
+func liveOf(p agent.Profile) []agent.Session {
+	if d, ok := discoverer(p.Kind); ok {
+		return d.Live(p)
 	}
 	return nil
 }
 
-// otherAgent is whether kind is an agent other than the built-in one,
-// whose sessions Load finds itself.
-func otherAgent(kind string) bool { return !agent.IsBuiltin(agent.Kind(kind)) }
-
-// builtinComm is whether a process called comm is the built-in agent's
-// program.
-func builtinComm(comm string) bool {
-	p := agent.ProgramOf(agent.BuiltinKind())
-	return p != "" && (comm == p || strings.HasSuffix(comm, "/"+p))
+// isProgram is whether a process called comm (a name, or a path) is agent
+// k's program.
+func isProgram(k agent.Kind, comm string) bool {
+	p := agent.ProgramOf(k)
+	return p != "" && filepath.Base(comm) == p
 }
 
 // hostedAgent is an agtop session's row, with what you've set on it.
@@ -806,7 +797,7 @@ func (l *Loader) hosted(acct claude.Account, info host.Info, tab *proc.Table, no
 		ID: info.ID, Account: acct.Name, Name: name, State: st, Detail: info.Detail, Needs: info.Needs,
 		Cwd: info.Cwd, SessionID: info.SessionID, CreatedAt: info.StartedAt, UpdatedAt: info.UpdatedAt,
 	}
-	if !otherAgent(info.Kind) {
+	if info.Kind == string(acct.Profile().Kind) {
 		j.TranscriptPath = filepath.Join(acct.ProjectsDir(), claude.ProjectSlug(info.Cwd), info.SessionID+".jsonl")
 	}
 	// What it runs in the background, as Claude Code's own background
@@ -959,6 +950,7 @@ func (l *Loader) cmdline(p *proc.Proc) string {
 }
 
 func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
+	home := l.store.Config.ActiveAccount().Profile().Kind // whose daemon, workers and spares these are
 	var m Machine
 	workerOf := make(map[int]*Agent, len(snap.Agents))
 	agentOf := make(map[int]*Agent, len(snap.Agents)) // every agent's own root process
@@ -987,7 +979,7 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 			// An agtop session's host, or a claude in a terminal: the agent.
 			a := agentOf[pid]
 			row = ProcRow{PID: pid, Cmd: l.cmdline(p), Start: p.Start, Role: RoleWorker, Label: a.DisplayName, Key: a.Key}
-		case builtinComm(p.Comm):
+		case isProgram(home, p.Comm):
 			cmd := l.cmdline(p)
 			row = ProcRow{PID: pid, Cmd: cmd, Start: p.Start}
 			switch {
@@ -1004,7 +996,7 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 			case strings.HasSuffix(strings.TrimSpace(cmd), " agents") || strings.Contains(cmd, " agents "):
 				row.Role, row.Label = RoleView, "claude agents (native view)"
 			default:
-				if hasClaudeAncestor(tab, p) || underAgent(tab, p, agentOf) || !builtinComm(strings.Fields(cmd + " x")[0]) {
+				if hasAgentAncestor(tab, p) || underAgent(tab, p, agentOf) || !isProgram(home, strings.Fields(cmd + " x")[0]) {
 					continue
 				}
 				row.Role, row.Label = RoleOther, "claude (interactive)"
@@ -1048,18 +1040,20 @@ func (l *Loader) machine(tab *proc.Table, snap *Snapshot) Machine {
 	return m
 }
 
-func isClaudePID(tab *proc.Table, pid int) bool {
+// isProgramPID is whether process pid is agent k's program.
+func isProgramPID(tab *proc.Table, pid int, k agent.Kind) bool {
 	p := tab.Procs[pid]
-	return p != nil && p.Comm == agent.ProgramOf(agent.BuiltinKind())
+	return p != nil && isProgram(k, p.Comm)
 }
 
-func hasClaudeAncestor(tab *proc.Table, p *proc.Proc) bool {
+// hasAgentAncestor is whether p runs under an agent's program.
+func hasAgentAncestor(tab *proc.Table, p *proc.Proc) bool {
 	for i, pid := 0, p.PPID; i < 64 && pid > 1; i++ {
 		q := tab.Procs[pid]
 		if q == nil {
 			return false
 		}
-		if builtinComm(q.Comm) {
+		if agent.IsProgram(q.Comm) {
 			return true
 		}
 		pid = q.PPID

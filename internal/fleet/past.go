@@ -43,14 +43,14 @@ func (l *Loader) branches(hosted []host.Info, claimed map[string]bool) {
 func (l *Loader) pastAgents(acct claude.Account, claimed, seen map[string]bool, now time.Time) []*Agent {
 	ov := l.store.Overlay
 	var out []*Agent
-	d, ok := builtinDiscoverer()
+	d, ok := discoverer(acct.Profile().Kind)
 	if !ok {
 		return nil
 	}
 	if l.pastKeys == nil {
 		l.pastKeys = pastKeys{}
 	}
-	past := d.Past(builtinProfile(acct))
+	past := d.Past(acct.Profile())
 	for i := range past {
 		s := &past[i]
 		c, _ := s.Extra.(claude.Convo)
