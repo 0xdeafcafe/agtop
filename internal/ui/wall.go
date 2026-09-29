@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -33,6 +34,24 @@ type wallState struct {
 	// above and below are how many weren't, for want of room.
 	tiles        []wallTile
 	above, below int
+	// streams are the tiles' streams as last drawn, by tile: wrapping them
+	// is most of a frame, and they change only when a tile's read again.
+	streams map[string]wallStreamed
+}
+
+// wallStreamed is a tile's stream as drawn, and what it was drawn from.
+type wallStreamed struct {
+	from  wallStreamFrom
+	lines []string
+}
+
+// wallStreamFrom is what a tile's stream is drawn from.
+type wallStreamFrom struct {
+	at          time.Time // the preview's
+	n, last     int       // its messages, and the newest one's length
+	live        bool
+	intent, ink string
+	w, room     int
 }
 
 type wallTile struct {
@@ -40,9 +59,13 @@ type wallTile struct {
 	x, y, w, h int
 }
 
-// wallReadMsg is a tile's transcript tail, read off the UI's goroutine; ok
-// is false when it hadn't changed.
-type wallReadMsg struct {
+// wallReadMsg is the tiles' transcript tails, read together off the UI's
+// goroutine, so a round of reads is one frame and not one a tile.
+type wallReadMsg []wallRead
+
+// wallRead is a tile's transcript tail; ok is false when it hadn't
+// changed.
+type wallRead struct {
 	key string
 	e   previewEntry
 	ok  bool
@@ -164,6 +187,7 @@ func (m *Model) wallBody(w, h int) []string {
 		}
 		return out
 	}
+	m.wallPrune(items)
 	cols, rows, tileH := wallGrid(len(items), w, h)
 	pick := m.wallPick(items)
 	allRows := (len(items) + cols - 1) / cols
@@ -357,9 +381,9 @@ func (m *Model) wallAgentTile(a *fleet.Agent, w, h int, picked bool) []string {
 	// newest at the bottom, fading as they get older.
 	room := h - 2 - 2
 	if room > 0 {
-		stream := wallStream(p, a.Live(), a.Intent, iw, room)
-		for len(stream) < room {
-			stream = append([]string{""}, stream...)
+		stream := m.wallStreamFor(a.Key, p, a.Live(), a.Intent, iw, room)
+		for range room - len(stream) {
+			inner = append(inner, blanks(iw))
 		}
 		inner = append(inner, stream...)
 	}
@@ -369,14 +393,14 @@ func (m *Model) wallAgentTile(a *fleet.Agent, w, h int, picked bool) []string {
 }
 
 // wallFrameClose finishes a tile: top (drawn already), inner between the
-// side edges, and the bottom edge.
+// side edges, and the bottom edge. Every inner line is exactly w-4 wide
+// already (wallSpread's, or a stream's), so none is measured again.
 func wallFrameClose(top string, inner []string, edge string, w, h int, bl, br, hz, vt string) []string {
-	iw := w - 4
 	out := make([]string, 0, h)
 	out = append(out, top)
 	side := paint(edge, vt)
 	for _, l := range inner[:min(len(inner), h-2)] {
-		out = append(out, side+" "+fit(l, iw)+" "+side)
+		out = append(out, side+" "+l+" "+side)
 	}
 	out = append(out, paint(edge, bl+strings.Repeat(hz, w-2)+br))
 	return out
@@ -422,15 +446,51 @@ func (m *Model) wallSubTile(it wallItem, w, h int, picked bool) []string {
 
 	room := h - 2 - 2
 	if room > 0 {
-		stream := wallStream(p, true, sub.Description, iw, room)
-		for len(stream) < room {
-			stream = append([]string{""}, stream...)
+		stream := m.wallStreamFor(it.key, p, true, sub.Description, iw, room)
+		for range room - len(stream) {
+			inner = append(inner, blanks(iw))
 		}
 		inner = append(inner, stream...)
 	}
 	inner = append(inner, foot)
 
 	return wallFrameClose(top, inner, edge, w, h, bl, br, hz, vt)
+}
+
+// wallPrune keeps only the streams of the tiles still on the Wall, once
+// enough have come and gone.
+func (m *Model) wallPrune(items []wallItem) {
+	if len(m.wall.streams) <= 2*len(items) {
+		return
+	}
+	keep := make(map[string]wallStreamed, len(items))
+	for _, it := range items {
+		if c, ok := m.wall.streams[it.key]; ok {
+			keep[it.key] = c
+		}
+	}
+	m.wall.streams = keep
+}
+
+// wallStreamFor is wallStream for the tile key, as drawn last time when
+// nothing it's drawn from has changed since.
+func (m *Model) wallStreamFor(key string, p claude.Preview, live bool, intent string, w, room int) []string {
+	f := wallStreamFrom{at: p.At, n: len(p.Recent), live: live, intent: intent, ink: cText + cSub, w: w, room: room}
+	if n := len(p.Recent); n > 0 {
+		f.last = len(p.Recent[n-1].Text)
+	}
+	if c, ok := m.wall.streams[key]; ok && c.from == f {
+		return c.lines
+	}
+	if m.wall.streams == nil {
+		m.wall.streams = map[string]wallStreamed{}
+	}
+	lines := wallStream(p, live, intent, w, room)
+	for i, l := range lines {
+		lines[i] = fit(l, w) // each exactly w wide: the frame needn't measure them again
+	}
+	m.wall.streams[key] = wallStreamed{from: f, lines: lines}
+	return lines
 }
 
 // wallStream is the end of what was said and done, room lines of w, oldest
@@ -541,35 +601,53 @@ func (m *Model) wallTick() tea.Cmd {
 	if m.wall.reading == nil {
 		m.wall.reading = map[string]bool{}
 	}
-	var cmds []tea.Cmd
+	type want struct {
+		key, path string
+		had       int64
+	}
+	var wants []want
 	for _, it := range m.wallItems() {
 		path := it.a.TranscriptPath
 		if it.sub != nil {
 			path = it.sub.Path
 		}
-		if path == "" || m.wall.reading[it.key] || len(cmds) >= 24 {
+		if path == "" || m.wall.reading[it.key] || len(wants) >= 24 {
 			continue
 		}
 		m.wall.reading[it.key] = true
-		key, had := it.key, int64(-1)
-		if e, ok := m.previews[key]; ok {
-			had = e.size
+		w := want{key: it.key, path: path, had: -1}
+		if e, ok := m.previews[it.key]; ok {
+			w.had = e.size
 		}
-		cmds = append(cmds, func() tea.Msg {
-			st, err := os.Stat(path)
-			if err != nil || st.Size() == had {
-				return wallReadMsg{key: key}
-			}
-			return wallReadMsg{key: key, ok: true, e: previewEntry{p: claude.ReadPreview(path, 128<<10), size: st.Size()}}
-		})
+		wants = append(wants, w)
 	}
-	return tea.Batch(cmds...)
+	if len(wants) == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		out := make(wallReadMsg, len(wants))
+		var wg sync.WaitGroup
+		for i, w := range wants {
+			wg.Go(func() {
+				out[i].key = w.key
+				st, err := os.Stat(w.path)
+				if err != nil || st.Size() == w.had {
+					return
+				}
+				out[i].ok, out[i].e = true, previewEntry{p: claude.ReadPreview(w.path, 128<<10), size: st.Size()}
+			})
+		}
+		wg.Wait()
+		return out
+	}
 }
 
 func (m *Model) onWallRead(msg wallReadMsg) {
-	delete(m.wall.reading, msg.key)
-	if msg.ok {
-		m.previews[msg.key] = msg.e
+	for i := range msg {
+		delete(m.wall.reading, msg[i].key)
+		if msg[i].ok {
+			m.previews[msg[i].key] = msg[i].e
+		}
 	}
 }
 
