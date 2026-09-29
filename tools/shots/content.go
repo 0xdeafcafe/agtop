@@ -291,15 +291,98 @@ grep -rn "merchantId" src/payments | head`
 		}}
 }
 
+// rateLimits is the session that shows how rush draws a session's work:
+// code it read and wrote, highlighted; a failing test run and its fix; a
+// commit, a merge and a push as git's own cards; and a chain of checks
+// running now, each command timed.
 func rateLimits(dir string, ago func(time.Duration) time.Time) *conv {
+	f := func(p string) string { return filepath.Join(dir, p) }
 	return &conv{id: "a41c09e2-7b3d-4e5f-8a9b-0c1d2e3f4a5b", cwd: dir, branch: "feat/rate-limits", model: "claude-sonnet-5",
-		turns: []turn{{prompt: "rate limit the public API: 100 requests a minute per key, 429 with Retry-After past it", at: ago(25 * time.Minute), open: true,
+		turns: []turn{
+			{prompt: "rate limit the public API: 100 requests a minute per key, 429 with Retry-After past it", at: ago(25 * time.Minute),
+				steps: []step{
+					{tool: "Grep", input: map[string]any{"pattern": "HandleFunc", "path": f("internal")}, result: "internal/http.go:14\ninternal/http.go:15\ninternal/http.go:16"},
+					{tool: "Read", input: map[string]any{"file_path": f("internal/http.go")}, result: read(httpGo)},
+					{tool: "WebSearch", input: map[string]any{"query": "Retry-After header seconds or HTTP-date RFC 9110"},
+						result: "RFC 9110 §10.2.3: Retry-After is either an HTTP-date or a number of seconds to wait. Seconds are simpler for clients to act on."},
+					{text: "A token bucket per key, in its own package, with the middleware wrapping every public route.", tool: "Write",
+						input:  map[string]any{"file_path": f("internal/limit/limit.go"), "content": limitGo},
+						result: "File created successfully at: " + f("internal/limit/limit.go"), extra: map[string]any{"type": "create", "filePath": f("internal/limit/limit.go"), "content": limitGo, "structuredPatch": []any{}}},
+					{tool: "Edit", input: map[string]any{"file_path": f("internal/http.go"), "old_string": "mux.HandleFunc", "new_string": "…"},
+						result: "The file has been updated.", extra: patch(f("internal/http.go"), 11,
+							` func routes(db *store.DB) http.Handler {`, ` 	mux := http.NewServeMux()`,
+							`-	mux.HandleFunc("GET /v2/ledger", ledger(db))`, `-	mux.HandleFunc("POST /v2/import", importCSV(db))`,
+							`+	lim := limit.New(100, time.Minute)`, `+	mux.Handle("GET /v2/ledger", lim.Wrap(ledger(db)))`, `+	mux.Handle("POST /v2/import", lim.Wrap(importCSV(db)))`,
+							` 	return mux`, ` }`)},
+					{tool: "Bash", input: map[string]any{"command": "go test ./internal/limit/", "description": "Test the limiter"}, isErr: true, took: 3 * time.Second,
+						result: "--- FAIL: TestRetryAfter (0.00s)\n    limit_test.go:41: Retry-After = \"0\", want \"60\"\nFAIL\nFAIL\tgithub.com/lumen-labs/lumen-api/internal/limit\t0.18s\n"},
+					{text: "Retry-After should be the time until the bucket refills, not what's left of it.", tool: "Edit",
+						input:  map[string]any{"file_path": f("internal/limit/limit.go"), "old_string": "left", "new_string": "…"},
+						result: "The file has been updated.", extra: patch(f("internal/limit/limit.go"), 38,
+							` 	if b.tokens < 1 {`, `-		w.Header().Set("Retry-After", strconv.Itoa(int(b.tokens)))`,
+							`+		wait := time.Until(b.refill).Round(time.Second)`, `+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())))`,
+							` 		http.Error(w, "too many requests", http.StatusTooManyRequests)`)},
+					{tool: "Bash", input: map[string]any{"command": "go test ./...", "description": "Run the tests"}, took: 9 * time.Second,
+						result: "ok  \tgithub.com/lumen-labs/lumen-api/internal\t0.41s\nok  \tgithub.com/lumen-labs/lumen-api/internal/limit\t0.22s\nok  \tgithub.com/lumen-labs/lumen-api/internal/ledger\t1.37s\n"},
+					{tool: "Bash", input: map[string]any{"command": `git add -A && git commit -m "feat(api): rate limit the public API per key"`, "description": "Commit the rate limits"}, took: time.Second,
+						result: "[feat/rate-limits 3f9c2e1] feat(api): rate limit the public API per key\n 3 files changed, 142 insertions(+), 6 deletions(-)\n create mode 100644 internal/limit/limit.go\n create mode 100644 internal/limit/limit_test.go\n"},
+				},
+				answer: "Every public route now goes through `limit.Wrap`: **100 requests a minute per API key**, a 429 past it, with `Retry-After` in seconds until the bucket refills. The test that caught the wrong `Retry-After` passes, and it's committed as `3f9c2e1`."},
+			{prompt: "merge main in, push it, and run the full checks", at: ago(80 * time.Second), open: true,
+				steps: []step{
+					{tool: "Bash", input: map[string]any{"command": "git fetch -q origin && git merge origin/main", "description": "Merge main in"}, took: 2 * time.Second,
+						result: "Merge made by the 'ort' strategy.\n internal/auth/refresh.go      | 18 ++++++++++++------\n internal/auth/refresh_test.go | 24 ++++++++++++++++++++++++\n 2 files changed, 36 insertions(+), 6 deletions(-)\n"},
+					{tool: "Bash", input: map[string]any{"command": "git log --oneline -4", "description": "Show the history"},
+						result: "c81d0a4 (HEAD -> feat/rate-limits) Merge remote-tracking branch 'origin/main' into feat/rate-limits\n9b2d4e7 (origin/main, main) fix(auth): refresh tokens rotate\n3f9c2e1 feat(api): rate limit the public API per key\n5a7e1c3 perf(import): stream the CSV\n"},
+					{tool: "Bash", input: map[string]any{"command": "git push -u origin feat/rate-limits", "description": "Push the branch"}, took: 2 * time.Second,
+						result: "To github.com:lumen-labs/lumen-api.git\n * [new branch]      feat/rate-limits -> feat/rate-limits\nbranch 'feat/rate-limits' set up to track 'origin/feat/rate-limits'.\n"},
+					{tool: "Bash", input: map[string]any{"command": checksCmd, "description": "Vet, race-test and lint"}, running: true},
+				}},
+		}}
+}
+
+// migrationNotes is a session on a local model, through Pi.
+func migrationNotes(dir string, ago func(time.Duration) time.Time) *conv {
+	f := func(p string) string { return filepath.Join(dir, p) }
+	return &conv{id: "b3c4d5e6-1a2b-4c3d-9e8f-7a6b5c4d3e2f", cwd: dir, branch: "main", model: "qwen3-coder:30b",
+		turns: []turn{{prompt: "write migration notes for the ledger schema change, from the last three migrations", at: ago(6 * time.Minute), open: true,
 			steps: []step{
-				{tool: "Read", input: map[string]any{"file_path": filepath.Join(dir, "internal/http.go")}, result: read("package internal")},
-				{tool: "Write", input: map[string]any{"file_path": filepath.Join(dir, "internal/limit/limit.go"), "content": limitGo}, result: "File created successfully"},
-				{tool: "Bash", input: map[string]any{"command": "go test ./...", "description": "Run the tests"}, running: true},
+				{tool: "Bash", input: map[string]any{"command": "ls migrations | tail -3", "description": "List the newest migrations"},
+					result: "0041_ledger_currency.sql\n0042_ledger_entry_index.sql\n0043_ledger_split_amount.sql\n"},
+				{tool: "Read", input: map[string]any{"file_path": f("migrations/0043_ledger_split_amount.sql")}, result: read(splitSQL)},
+				{text: "0043 splits amount into minor units and currency; reads need both columns from here on.", tool: "Write",
+					input:   map[string]any{"file_path": f("docs/migrations/ledger.md"), "content": "# Ledger migrations\n"},
+					running: true},
 			}}}}
 }
+
+const splitSQL = `-- Amounts become minor units and a currency, so sums never round.
+ALTER TABLE ledger_entries ADD COLUMN amount_minor BIGINT;
+ALTER TABLE ledger_entries ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'GBP';
+UPDATE ledger_entries SET amount_minor = ROUND(amount * 100);
+ALTER TABLE ledger_entries ALTER COLUMN amount_minor SET NOT NULL;
+ALTER TABLE ledger_entries DROP COLUMN amount;
+`
+
+// checksCmd is the chain the rate limits session runs now.
+const checksCmd = "go vet ./... && go test -race ./... && golangci-lint run"
+
+const httpGo = `package internal
+
+import (
+	"net/http"
+
+	"github.com/lumen-labs/lumen-api/internal/store"
+)
+
+// routes is every public route.
+func routes(db *store.DB) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v2/ledger", ledger(db))
+	mux.HandleFunc("POST /v2/import", importCSV(db))
+	return mux
+}
+`
 
 func taxRounding(dir string, ago func(time.Duration) time.Time) *conv {
 	return &conv{id: "b3a4c5d6-8e9f-4a0b-9c1d-2e3f4a5b6c7d", cwd: dir, branch: "fix/tax-rounding", model: "claude-opus-5-5",

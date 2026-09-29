@@ -10,4 +10,9 @@ import (
 	_ "github.com/0xdeafcafe/rush/internal/adapters/glm"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/ollama"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/pi"
+
+	// And the plugins that come with it, as cmd/rush has them.
+	_ "github.com/0xdeafcafe/rush/internal/bundled/clean"
+	_ "github.com/0xdeafcafe/rush/internal/bundled/drafts"
+	_ "github.com/0xdeafcafe/rush/internal/bundled/queue"
 )

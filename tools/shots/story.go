@@ -37,6 +37,11 @@ type procSpec struct {
 	mb   float64
 	cpu  float64
 	kids []procSpec
+	// cued is a process that runs only from..to after the world's cue (to
+	// 0 runs on), started at start after it: a chain's commands, one after
+	// another, while a shot is taken.
+	cued            bool
+	from, to, start time.Duration
 }
 
 // story fills the world: who Sam is, their repositories, their agents.
@@ -76,7 +81,13 @@ func story(w *world) error {
 			Model: "claude-sonnet-5", Effort: "medium", StartedAt: ago(26 * time.Minute), UpdatedAt: ago(8 * time.Second)},
 			conv: rateLimits(api, ago),
 			procs: []procSpec{{comm: "claude", args: []string{"claude", "-p", "--output-format", "stream-json"}, mb: 344, cpu: 12, kids: []procSpec{
-				{comm: "go", args: []string{"go", "test", "./..."}, mb: 96, cpu: 140, kids: []procSpec{{comm: "api.test", args: []string{"api.test"}, mb: 188, cpu: 95}}},
+				{comm: "zsh", args: []string{"/bin/zsh", "-c", "source " + filepath.Join(w.home, ".claude", "shell-snapshots", "snapshot-zsh.sh") + " && eval '" + checksCmd + "' < /dev/null && pwd -P >| /tmp/claude-cwd"},
+					mb: 4, cpu: 0, cued: true, start: -70 * time.Second, kids: []procSpec{
+						{comm: "go", args: []string{"go", "vet", "./..."}, mb: 210, cpu: 180, cued: true, to: 10 * time.Second, start: -58 * time.Second},
+						{comm: "go", args: []string{"go", "test", "-race", "./..."}, mb: 96, cpu: 140, cued: true, from: 10 * time.Second, to: 17 * time.Second, start: 10 * time.Second,
+							kids: []procSpec{{comm: "limit.test", args: []string{"limit.test", "-test.race"}, mb: 188, cpu: 95, cued: true, from: 10 * time.Second, to: 17 * time.Second, start: 11 * time.Second}}},
+						{comm: "golangci-lint", args: []string{"golangci-lint", "run"}, mb: 540, cpu: 310, cued: true, from: 17 * time.Second, start: 17 * time.Second},
+					}},
 			}}}},
 		{info: host.Info{ID: "c7d20b51", Kind: "codex", Account: "codex", Name: "move the design tokens to CSS variables", Cwd: ds, State: "working",
 			Detail: "running pnpm build:tokens", Model: "gpt-5.5-codex", Effort: "high", CostUSD: 3.10, StartedAt: ago(18 * time.Minute), UpdatedAt: ago(5 * time.Second)},
@@ -111,6 +122,13 @@ func story(w *world) error {
 			Detail: "added fr, de and es catalogues", Model: "glm-5", StartedAt: ago(7 * time.Hour), UpdatedAt: ago(6 * time.Hour)}},
 		{info: host.Info{ID: "d9c8b7a6", Kind: "vibe", Account: "vibe", Name: "sketch a landing page for orbit", Cwd: orbit, State: "stopped",
 			Detail: "a one-page site in docs/site", Model: "devstral-2", StartedAt: ago(26 * time.Hour), UpdatedAt: ago(25 * time.Hour)}},
+		{info: host.Info{ID: "b3c4d5e6", Kind: "ollama-pi", Account: "ollama", Name: "write the ledger's migration notes", Cwd: api, State: "working",
+			Model: "qwen3-coder:30b", StartedAt: ago(6 * time.Minute), UpdatedAt: ago(3 * time.Second)},
+			conv:  migrationNotes(api, ago),
+			procs: []procSpec{{comm: "pi", args: []string{"pi", "--mode", "rpc", "--provider", "ollama", "--model", "qwen3-coder:30b"}, mb: 120, cpu: 2}}},
+		{info: host.Info{ID: "c7d8e9f0", Kind: "ollama-codex", Account: "ollama", Name: "explain the auth middleware", Cwd: api, State: "idle",
+			Detail: "a walkthrough of the token refresh, with a diagram", Model: "gpt-oss:20b", StartedAt: ago(2 * time.Hour), UpdatedAt: ago(90 * time.Minute)},
+			procs: []procSpec{{comm: "codex", args: []string{"codex", "app-server"}, mb: 64, cpu: 0}}},
 		{info: host.Info{ID: "e7f8a9b0", Kind: "ollama", Account: "ollama", Name: "summarise yesterday's error logs", Cwd: notes, State: "stopped",
 			Detail: "three causes, the worst a retry storm at 02:14", Model: "qwen3-coder:30b", StartedAt: ago(20 * time.Hour), UpdatedAt: ago(19 * time.Hour)}},
 	}
@@ -160,6 +178,9 @@ func (w *world) hosted(h hosted, projects string) error {
 		spawn = func(ppid int, ps []procSpec) {
 			for _, p := range ps {
 				pid := w.pid(ppid, p.comm, p.args, p.mb, p.cpu)
+				if p.cued {
+					w.cued[pid] = p
+				}
 				if ppid == hp && info.ClaudePID == 0 {
 					info.ClaudePID = pid
 				}
@@ -203,6 +224,12 @@ func (w *world) accounts(ago func(time.Duration) time.Time) error {
 	ov.Done[".codex/i:"+codexReview[:8]] = ago(0)
 	w.cfg, w.ov = cfg, ov
 	if err := w.save(); err != nil {
+		return err
+	}
+	// rtk's hook, set up the way rtk init does it.
+	if err := saveJSON(filepath.Join(claudeDir, "settings.json"), map[string]any{"hooks": map[string]any{
+		"PreToolUse": []any{map[string]any{"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": "rtk hook claude"}}}},
+	}}); err != nil {
 		return err
 	}
 	reset5h, reset7d := ago(-2*time.Hour-14*time.Minute), ago(-50*time.Hour)
@@ -371,12 +398,19 @@ var pastConvs = []pastConv{
 
 func (w *world) past(projects, checkout, api, ds, orbit, notes string, ago func(time.Duration) time.Time) error {
 	dirs := map[string]string{"acme/checkout": checkout, "lumen-api": api, "acme/design-system": ds, "orbit-cli": orbit, "field-notes": notes}
-	for _, p := range pastConvs {
+	for i, p := range pastConvs {
 		at := ago(p.ago + 20*time.Minute)
 		var steps []step
-		for i := range p.cost {
-			steps = append(steps, step{tool: "Read", input: map[string]any{"file_path": filepath.Join(dirs[p.dir], fmt.Sprintf("src/part%d.ts", i))}, result: "…", out: 900, in: 4000})
+		for j := range p.cost {
+			steps = append(steps, step{tool: "Read", input: map[string]any{"file_path": filepath.Join(dirs[p.dir], fmt.Sprintf("src/part%d.ts", j))}, result: "…", out: 900, in: 4000})
 		}
+		// Most of the week ran with rtk's hook, which squeezes what the
+		// shell says; the oldest sessions ran before it was set up.
+		test := step{tool: "Bash", input: map[string]any{"command": "npm test", "description": "Run the tests"}, result: strings.Repeat("✓ passes a case of the suite\n", 60)}
+		if i < 7 {
+			test.input["command"], test.result = "rtk npm test", "tests: 60 passed (1.8s)"
+		}
+		steps = append(steps, test, test)
 		c := conv{id: p.id, cwd: dirs[p.dir], branch: "main", model: "claude-opus-5-5",
 			turns: []turn{{prompt: p.prompt, at: at, steps: steps, answer: p.answer}}}
 		if _, err := c.write(projects); err != nil {

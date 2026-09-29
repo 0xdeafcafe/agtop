@@ -17,10 +17,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/0xdeafcafe/rush/internal/ui"
@@ -41,10 +43,23 @@ type shot struct {
 }
 
 func main() {
+	// Plugins start their broker as this program: here that would build
+	// the world again over the one being drawn, so it isn't started.
+	if len(os.Args) > 1 && os.Args[1] == "plugind" {
+		return
+	}
 	only := flag.String("only", "", "draw only the shots whose names contain this")
 	scale := flag.Float64("scale", 2, "pixels per point")
 	keepPNG := flag.Bool("png", false, "write PNG even when cwebp is installed")
+	ansiFile := flag.String("ansi", "", "draw this file of ANSI text as a picture beside it, and nothing else")
 	flag.Parse()
+	if *ansiFile != "" {
+		if err := drawANSI(*ansiFile, *scale); err != nil {
+			fmt.Fprintln(os.Stderr, "shots:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	out := "../../docs/screenshots"
 	if flag.NArg() > 0 {
 		out = flag.Arg(0)
@@ -122,6 +137,31 @@ func capture(s shot) string {
 	return d.frame()
 }
 
+// drawANSI draws a file of ANSI text, a contact sheet say, as a PNG
+// beside it, in the screenshots' window.
+func drawANSI(path string, scale float64) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	fs, err := loadFonts(13 * scale)
+	if err != nil {
+		return err
+	}
+	text := strings.TrimRight(string(b), "\n")
+	w, h := 0, strings.Count(text, "\n")+1
+	for _, l := range strings.Split(text, "\n") {
+		w = max(w, ansi.StringWidth(l))
+	}
+	img := window(fs.paint(screen(text, w, h), w, h), filepath.Base(path), fs, scale)
+	f, err := os.Create(strings.TrimSuffix(path, filepath.Ext(path)) + ".png")
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
+}
+
 func save(img image.Image, dir, name, cwebp string) error {
 	p := filepath.Join(root, name+".png")
 	f, err := os.Create(p)
@@ -156,7 +196,11 @@ func copyFile(from, to string) error {
 func leaks(text string) string {
 	home, _ := os.UserHomeDir()
 	lower := strings.ToLower(text)
-	for _, s := range []string{realHome, realUser, home, "/users/", "alex", "forbes", "langwatch"} {
+	// The user's name is a word of its own: a short one is in plenty of others.
+	if realUser != "" && regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(realUser)+`\b`).MatchString(text) {
+		return realUser
+	}
+	for _, s := range []string{realHome, home, "/users/", "alex", "forbes", "langwatch"} {
 		if s != "" && s != "/" && strings.Contains(lower, strings.ToLower(s)) && !strings.HasPrefix(s, root) {
 			return s
 		}

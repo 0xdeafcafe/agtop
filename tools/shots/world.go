@@ -36,6 +36,11 @@ type world struct {
 	start time.Time
 	next  int // the next made-up pid
 
+	// cue is when a shot's timed processes start counting (see
+	// procSpec.cued), and cued those processes by pid.
+	cue  time.Time
+	cued map[int]procSpec
+
 	// cfg and ov are rush's settings and what's set on agents, as saved.
 	cfg state.Config
 	ov  state.Overlay
@@ -47,7 +52,7 @@ func build(root string) (*world, error) {
 		return nil, err
 	}
 	w := &world{root: root, home: filepath.Join(root, "home"), now: time.Now(), args: map[int][]string{},
-		cpu: map[int]float64{}, start: time.Now(), next: 41000}
+		cpu: map[int]float64{}, start: time.Now(), next: 41000, cued: map[int]procSpec{}}
 	for _, d := range []string{w.home, filepath.Join(w.home, ".local", "bin"), filepath.Join(root, "tmp")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
@@ -62,6 +67,8 @@ func build(root string) (*world, error) {
 		w.close()
 		return nil, err
 	}
+	// Sam starts rush in the checkout they work on most.
+	_ = os.Chdir(filepath.Join(w.home, "src", "acme", "checkout"))
 	return w, nil
 }
 
@@ -91,7 +98,7 @@ func (w *world) env() {
 // bins are the agents' programs, as stand-ins that do nothing: installed
 // as far as rush can tell.
 func (w *world) bins() error {
-	for _, n := range []string{"claude", "codex", "copilot", "gemini", "kimi", "opencode", "vibe-acp", "dsh", "zcode-acp-server", "ollama", "gh"} {
+	for _, n := range []string{"claude", "codex", "copilot", "gemini", "kimi", "opencode", "vibe-acp", "dsh", "zcode-acp-server", "ollama", "gh", "rtk"} {
 		script := "#!/bin/sh\nexit 0\n"
 		if n == "gh" {
 			// Copilot's GitHub accounts, as gh lists them.
@@ -174,11 +181,18 @@ func (w *world) table() []*proc.Proc {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	up := time.Since(w.start)
-	out := make([]*proc.Proc, len(w.procs))
-	for i, p := range w.procs {
+	out := make([]*proc.Proc, 0, len(w.procs))
+	for _, p := range w.procs {
 		c := *p
 		c.CPUTime = time.Duration(float64(up) * w.cpu[p.PID] / 100)
-		out[i] = &c
+		if cp, ok := w.cued[p.PID]; ok {
+			at := time.Since(w.cue)
+			if w.cue.IsZero() || at < cp.from || cp.to > 0 && at >= cp.to {
+				continue
+			}
+			c.Start = w.cue.Add(cp.start)
+		}
+		out = append(out, &c)
 	}
 	return out
 }
@@ -235,6 +249,14 @@ func (w *world) save() error {
 		return err
 	}
 	return saveJSON(filepath.Join(dir, "state.json"), w.ov)
+}
+
+// startCue starts the timed processes' clock, for the shot about to be
+// taken.
+func (w *world) startCue() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.cue = time.Now()
 }
 
 // view is the layout a shot is taken in: "split", "list" or "agent".
