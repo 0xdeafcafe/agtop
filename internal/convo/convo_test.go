@@ -1117,3 +1117,39 @@ func TestOpenTurnShowsTheWholeMessage(t *testing.T) {
 		t.Fatalf("cut short:\n%s", plain(lines))
 	}
 }
+
+// A subagent's cache lives five minutes, so ten minutes idle is expected;
+// so is a compacted prompt starting a new one. A prompt read only at its
+// start was changed under it rather than dropped.
+func TestColdStartReasons(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "go"}, at(0))
+	s.Apply(toolUse("a1", "Task", map[string]any{"subagent_type": "Explore", "description": "look"}), at(1))
+	use := func(id string, read, write, sec int) {
+		u := &headless.Usage{InputTokens: 10, OutputTokens: 50, CacheReadInputTokens: read, CacheCreationInputTokens: write}
+		u.CacheCreation = &struct {
+			M5 int `json:"ephemeral_5m_input_tokens"`
+			H1 int `json:"ephemeral_1h_input_tokens"`
+		}{M5: write}
+		s.Apply(headless.Message{Role: "assistant", ID: id, Model: "claude-sonnet-5-5", ParentToolUseID: "a1", Usage: u,
+			Blocks: []headless.Block{{Type: "text", Text: "…"}}}, at(sec))
+	}
+	use("s1", 0, 100000, 2)
+	use("s2", 100000, 500, 10)
+	use("s3", 0, 100500, 10+600) // ten minutes idle
+	use("s4", 0, 40000, 620)     // compacted: 100k to 40k
+	use("s5", 5000, 40000, 630)  // only the start read
+	var got []string
+	for _, c := range s.ColdStarts() {
+		got = append(got, fmt.Sprint(c.Expected, " ", c.Reason))
+	}
+	want := []string{
+		"true new subagent: every subagent starts its own cache",
+		"true idle past the cache's 5 minutes",
+		"true compacted: the summary starts a new cache",
+		"false the prompt changed after its first 5k, so the rest was written again",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got\n%s", strings.Join(got, "\n"))
+	}
+}

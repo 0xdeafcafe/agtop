@@ -30,14 +30,16 @@ type ColdStart struct {
 	Expected bool // part of how sessions and subagents work
 }
 
-// cacheHour is how long the prompt cache lives (Claude Code writes the
-// one-hour cache).
+// cacheHour is how long the main agent's prompt cache lives (Claude Code
+// writes the one-hour cache for it; its subagents write five minutes).
 const cacheHour = time.Hour
 
 func (s *Session) ColdStarts() []ColdStart {
 	type last struct {
 		at    time.Time
 		model string
+		ttl   time.Duration // how long the cache it last wrote lives
+		size  int           // its whole prompt
 	}
 	prev := map[string]last{}
 	var out []ColdStart
@@ -45,28 +47,41 @@ func (s *Session) ColdStarts() []ColdStart {
 		u := r.Usage
 		written := int(u.CacheWrite5m + u.CacheWrite1h)
 		total := int(u.CacheRead) + written
+		size := total + int(u.Input)
 		cold := written > 4096 && int(u.CacheRead)*5 < total
 		p, seen := prev[r.Run]
-		prev[r.Run] = last{r.At, r.Model}
+		now := last{r.At, r.Model, p.ttl, size}
+		switch {
+		case u.CacheWrite1h > 0:
+			now.ttl = cacheHour
+		case u.CacheWrite5m > 0:
+			now.ttl = 5 * time.Minute
+		}
+		prev[r.Run] = now
 		if !cold {
 			continue
 		}
 		c := ColdStart{At: r.At, Agent: r.Agent, Written: written}
+		if seen {
+			c.Gap = r.At.Sub(p.at)
+		}
 		switch {
 		case !seen && r.Run != "":
 			c.Reason, c.Expected = "new subagent: every subagent starts its own cache", true
 		case !seen:
 			c.Reason, c.Expected = "session start", true
 		case p.model != "" && r.Model != "" && p.model != r.Model:
-			c.Gap = r.At.Sub(p.at)
 			c.Reason, c.Expected = "model changed, and each model has its own cache", true
+		case size*10 < p.size*7:
+			c.Reason, c.Expected = "compacted: the summary starts a new cache", true
+		case p.ttl > 0 && c.Gap >= p.ttl-p.ttl/12:
+			c.Reason, c.Expected = "idle past the cache's "+map[bool]string{true: "hour", false: "5 minutes"}[p.ttl == cacheHour], true
+		case u.CacheRead > 0:
+			// The start of the prompt was read, the rest wasn't: what came
+			// before changed, as a resumed subagent's history is rebuilt.
+			c.Reason = "the prompt changed after its first " + tokens(int(u.CacheRead)) + ", so the rest was written again"
 		default:
-			c.Gap = r.At.Sub(p.at)
-			if c.Gap >= cacheHour-5*time.Minute {
-				c.Reason, c.Expected = "idle past the cache's hour", true
-			} else {
-				c.Reason = "the cache was dropped early"
-			}
+			c.Reason = "the cache was dropped early"
 		}
 		out = append(out, c)
 	}

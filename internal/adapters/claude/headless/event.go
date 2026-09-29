@@ -94,6 +94,10 @@ type Usage struct {
 	OutputTokens             int `json:"output_tokens"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheCreation            *struct {
+		M5 int `json:"ephemeral_5m_input_tokens"`
+		H1 int `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation,omitempty"`
 }
 
 // PermissionRequest asks the host whether a tool may run. Answer it with

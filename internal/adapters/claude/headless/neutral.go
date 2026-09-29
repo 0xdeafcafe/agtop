@@ -215,11 +215,15 @@ func turnReason(subtype string) string {
 	return "error"
 }
 
-// tokens is a request's usage. The stream doesn't split cache writes by
-// lifetime; they count as the hour Claude Code asks for.
+// tokens is a request's usage. Cache writes the stream doesn't split by
+// lifetime count as the hour Claude Code asks for its main agent.
 func tokens(u Usage) usage.TokenUsage {
-	return usage.TokenUsage{Input: int64(u.InputTokens), Output: int64(u.OutputTokens),
+	t := usage.TokenUsage{Input: int64(u.InputTokens), Output: int64(u.OutputTokens),
 		CacheRead: int64(u.CacheReadInputTokens), CacheWrite1h: int64(u.CacheCreationInputTokens)}
+	if cb := u.CacheCreation; cb != nil && cb.M5+cb.H1 > 0 {
+		t.CacheWrite5m, t.CacheWrite1h = int64(cb.M5), int64(cb.H1)
+	}
+	return t
 }
 
 func firstOf(s ...string) string {

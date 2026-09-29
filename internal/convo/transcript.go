@@ -625,6 +625,10 @@ type lightUsage struct {
 	Output     int64 `json:"output_tokens"`
 	CacheRead  int64 `json:"cache_read_input_tokens"`
 	CacheWrite int64 `json:"cache_creation_input_tokens"`
+	Breakup    *struct {
+		M5 int64 `json:"ephemeral_5m_input_tokens"`
+		H1 int64 `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation,omitempty"`
 }
 
 // lightContent is a message's content: a prompt as plain text, or blocks.
@@ -692,9 +696,12 @@ func (t *Tail) applyLight(b []byte) bool {
 	}
 	m := event.Message{Role: l.Type, ID: l.Message.ID, Model: l.Message.Model, Injected: l.Type == "user"}
 	if u := l.Message.Usage; u != nil {
-		// The stream doesn't split cache writes by lifetime; they count as
-		// the hour Claude Code asks for.
+		// Cache writes not split by lifetime count as the hour Claude
+		// Code asks for its main agent; subagents write the 5 minutes.
 		m.Tokens = &usage.TokenUsage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite1h: u.CacheWrite}
+		if b := u.Breakup; b != nil && b.M5+b.H1 > 0 {
+			m.Tokens.CacheWrite5m, m.Tokens.CacheWrite1h = b.M5, b.H1
+		}
 	}
 	if s.calls == nil {
 		s.calls = map[string]tool.Call{}
