@@ -1827,11 +1827,12 @@ func (m *Model) sharedContext() string {
 	return shared
 }
 
-// dirLabel names a folder the way the list does: repository · branch.
+// dirLabel names a folder by its repository, not a branch: the agent
+// decides at the start whether it works there or in a new worktree.
 func (m *Model) dirLabel(dir string) string {
 	for _, a := range m.snap.Agents {
 		if a.Cwd == dir && a.Repo == dir {
-			return paint(cText, m.context(a))
+			return paint(cText, filepath.Base(a.Repo))
 		}
 	}
 	return paint(cText, tildify(dir))
@@ -2031,7 +2032,7 @@ func (m *Model) promptLines(w int) []string {
 	default:
 		dirs := m.startDirs()
 		dir := m.startDir()
-		b.topL = dim("new session in ") + m.dirLabel(dir) + dim(" · enter starts it")
+		b.topL = dim("in ") + m.dirLabel(dir)
 		b.holder = draftsHolder("describe a task for a new session", "")
 		// What it starts as, so a model or profile is never a surprise;
 		// the folder key goes first when there's no room for both.
@@ -2091,7 +2092,7 @@ func (m *Model) promptLines(w int) []string {
 	case typingHash(text):
 		hint = keysFit(w-4, "enter", "run it", "esc", "clear", "?", "guide")
 	case len(m.input) > 0:
-		hint = keysFit(w-4, "enter", "start it", keySaveDraft, "keep as draft", "ctrl+l", "folder", "esc", "clear", "?", "guide")
+		hint = keysFit(w-4, "enter", "spawn agent", keySaveDraft, "keep as draft", "ctrl+l", "folder", "esc", "clear", "?", "guide")
 	case m.peeking():
 		back := "esc"
 		if from := m.agentByKey(m.peekFrom); from != nil {
