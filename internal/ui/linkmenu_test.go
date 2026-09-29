@@ -40,4 +40,9 @@ func TestLinkActs(t *testing.T) {
 	if got := names(linkActs("https://x.dev")); len(got) != 2 {
 		t.Errorf("web: %v", got)
 	}
+	// A click on a file, a step's path or a thumbnail, asks what to do.
+	m := &Model{}
+	if !m.openLinkMenu("file:///work/docs/icon.png") || m.picker == nil || m.picker.title != "/work/docs/icon.png" {
+		t.Errorf("menu: %+v", m.picker)
+	}
 }

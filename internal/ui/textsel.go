@@ -91,8 +91,8 @@ func (m *Model) dragTextSel(c *hostConn, x, y int) {
 
 // endTextSel finishes a drag: what it covered goes to the clipboard, or,
 // with CopyOnSelect off, stays selected for cmd+c or ctrl+c. A press that
-// never moved is a click: on a link it opens it, anywhere else
-// it's a click on the row.
+// never moved is a click: on a web link it opens it, on a file it asks
+// what to do with it, anywhere else it's a click on the row.
 func (m *Model) endTextSel(c *hostConn) tea.Cmd {
 	c.txt.drag = false
 	if !c.txt.moved {
@@ -100,6 +100,9 @@ func (m *Model) endTextSel(c *hostConn) tea.Cmd {
 		c.txt = textSel{}
 		if at.row < len(c.shown) {
 			if u := linkAt(c.shown[at.row].Text, at.col); u != "" {
+				if strings.HasPrefix(u, "file:") && m.openLinkMenu(u) {
+					return nil
+				}
 				return browse(u)
 			}
 		}

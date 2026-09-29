@@ -63,7 +63,11 @@ func (m *Model) linkMenu(c *hostConn, x, y int) bool {
 	if !ok || at.row >= len(c.shown) {
 		return false
 	}
-	target := linkAt(c.shown[at.row].Text, at.col)
+	return m.openLinkMenu(linkAt(c.shown[at.row].Text, at.col))
+}
+
+// openLinkMenu opens the menu for a link, reporting whether it could.
+func (m *Model) openLinkMenu(target string) bool {
 	if target == "" {
 		return false
 	}
