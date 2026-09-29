@@ -17,8 +17,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/claude"
-	"github.com/0xdeafcafe/rush/internal/headless"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
@@ -252,7 +250,7 @@ func Decode(line []byte) (any, error) {
 	// echo of what you sent) are written with sorted keys and don't. So
 	// most lines, deltas above all, are only taken apart once.
 	if bytes.HasPrefix(line, []byte(`{"type":"`)) && !bytes.HasPrefix(line, []byte(`{"type":"agtop_`)) {
-		return headless.Decode(line)
+		return nativeLine(line)
 	}
 	var head struct {
 		Type      string         `json:"type"`
@@ -305,7 +303,7 @@ func Decode(line []byte) (any, error) {
 		_ = jsonx.Unmarshal(head.Message, &m)
 		return Sent{Text: m.Content, Images: head.Images}, nil
 	}
-	return headless.Decode(line)
+	return nativeLine(line)
 }
 
 // Client is a connection to one session's host.
@@ -335,7 +333,7 @@ func dial(id string, proto int) (*Client, error) {
 	lines := make(chan []byte, 1024)
 	go func() {
 		defer close(lines)
-		r := headless.NewLineReader(c)
+		r := jsonx.NewLineReader(c)
 		for {
 			l, ok := r.Next()
 			if !ok {
@@ -472,8 +470,12 @@ func Restart(id string, change func(*Config)) error {
 // sessionID, with the path it leaves kept as a branch.
 func RewindByRestart(id, sessionID string, resume bool, left Branch) error {
 	return Restart(id, func(cfg *Config) {
-		_, err := os.Stat(claude.AccountOf(cfg.Account).TranscriptPath(cfg.Cwd, cfg.SessionID))
-		cfg.rewindTo(sessionID, resume, &left, err == nil)
+		kept := false
+		if b, ok := agent.As[agent.Brancher](agent.Kind(cfg.Kind)); ok {
+			_, err := os.Stat(b.TranscriptPath(cfg.Account, cfg.Cwd, cfg.SessionID))
+			kept = err == nil
+		}
+		cfg.rewindTo(sessionID, resume, &left, kept)
 	})
 }
 

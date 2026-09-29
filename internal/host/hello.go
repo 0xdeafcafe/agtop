@@ -7,7 +7,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/0xdeafcafe/rush/internal/headless"
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
@@ -47,7 +48,7 @@ func hello(nc net.Conn) (proto int, rest io.Reader) {
 // that reads them. Everything else, the host's own lines and other agents'
 // events, goes as it is.
 type encoder struct {
-	n   headless.Neutral
+	n   agent.Neutral
 	buf bytes.Buffer
 }
 
@@ -57,27 +58,31 @@ func isClaudeLine(l []byte) bool {
 	return bytes.HasPrefix(l, []byte(`{"type":"`)) && !bytes.HasPrefix(l, []byte(`{"type":"agtop_`))
 }
 
-// claudeEvent is a line of Claude Code's as its event, and false for the
-// host's own lines. Claude doesn't always start with its type (a turn's
-// result may not), so a line that doesn't is taken apart to tell.
-func claudeEvent(l []byte) (headless.Event, bool) {
+// claudeEvents is a line of Claude Code's as rush's own events, and false
+// for the host's own lines. Claude doesn't always start with its type (a
+// turn's result may not), so a line that doesn't is taken apart to tell.
+func (e *encoder) claudeEvents(l []byte) ([]event.Event, bool) {
+	var ev any
+	var err error
 	if isClaudeLine(l) {
-		ev, err := headless.Decode(l)
-		return ev, err == nil
+		ev, err = nativeLine(l)
+	} else {
+		ev, err = Decode(l)
 	}
-	ev, err := Decode(l)
-	h, ok := ev.(headless.Event)
-	return h, err == nil && ok
+	if err != nil {
+		return nil, false
+	}
+	return neutral(&e.n).Event(ev)
 }
 
 // encode writes line to w as this client reads it, each line ended with a
 // newline.
 func (e *encoder) encode(w io.Writer, line []byte) error {
-	ev, ok := claudeEvent(line)
+	evs, ok := e.claudeEvents(line)
 	if !ok {
 		return writeLine(w, line) // the host's own, or one it can't read
 	}
-	for _, out := range e.n.Event(ev) {
+	for _, out := range evs {
 		b, err := eventLine(out)
 		if err != nil {
 			continue

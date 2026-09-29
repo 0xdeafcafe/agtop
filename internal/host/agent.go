@@ -6,9 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +15,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/agtools"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/0xdeafcafe/rush/internal/netproof"
 	"github.com/0xdeafcafe/rush/internal/plugin"
@@ -105,8 +102,8 @@ func (s *server) start() error {
 // cwdEvery is how often, at most, the host looks at where the agent works.
 const cwdEvery = 5 * time.Second
 
-// followCwd looks at the folder Claude Code says it works in, as its
-// session file has it, at most every cwdEvery unless now. Entering a
+// followCwd looks at the folder the agent says it works in, where it
+// says (agent.CwdReader), at most every cwdEvery unless now. Entering a
 // worktree moves it, and its transcript with it: the list then shows where
 // it is, and a restart resumes it there. Called with mu held; the file is
 // read off it.
@@ -115,25 +112,25 @@ func (s *server) followCwd(now bool) {
 		return
 	}
 	s.cwdAt = time.Now()
-	acct := claude.AccountOf(s.cfg.Account)
-	if acct.ConfigDir == "" {
-		acct = claude.DefaultAccount()
+	r, ok := agent.As[agent.CwdReader](agent.Kind(s.cfg.Kind))
+	if !ok {
+		return
 	}
-	path := filepath.Join(acct.ConfigDir, "sessions", strconv.Itoa(s.info.ClaudePID)+".json")
+	p, pid := s.cfg.Account, s.info.ClaudePID
 	go func() {
-		ss, ok := claude.ReadSession(path)
-		if !ok || ss.Cwd == "" {
+		sid, cwd, ok := r.SessionCwd(p, pid)
+		if !ok || cwd == "" {
 			return
 		}
-		if st, err := os.Stat(ss.Cwd); err != nil || !st.IsDir() {
+		if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
 			return
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if ss.SessionID != s.info.SessionID || ss.Cwd == s.cfg.Cwd {
+		if sid != s.info.SessionID || cwd == s.cfg.Cwd {
 			return
 		}
-		s.cfg.Cwd, s.info.Cwd = ss.Cwd, ss.Cwd
+		s.cfg.Cwd, s.info.Cwd = cwd, cwd
 		s.saveConfig()
 		s.publish()
 	}()

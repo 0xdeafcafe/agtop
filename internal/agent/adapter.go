@@ -216,6 +216,9 @@ func Register(a Adapter) {
 	mu.Lock()
 	defer mu.Unlock()
 	adapters[a.Kind()] = a
+	if n, ok := a.(Native); ok {
+		native = n
+	}
 	sorted = make([]Adapter, 0, len(adapters))
 	for _, a := range adapters {
 		sorted = append(sorted, a)
