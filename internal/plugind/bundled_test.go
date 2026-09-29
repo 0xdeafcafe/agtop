@@ -5,9 +5,11 @@ import (
 	"encoding/json/jsontext"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -27,9 +29,15 @@ func TestMain(m *testing.M) {
 
 func registerE2E() (forget func()) {
 	return plugin.RegisterBundle(plugin.Bundle{
-		Manifest: plugin.Manifest{Name: "bundle-e2e", Command: []string{"agtop"}, UI: []string{plugin.UINotify}},
+		Manifest: plugin.Manifest{Name: "bundle-e2e", Command: []string{"agtop"}, UI: []string{plugin.UINotify},
+			CLI: []plugin.CLISpec{{Name: "echo", Usage: "[words]", Description: "says them back"}}},
 		Run: func(rw io.ReadWriteCloser) error {
-			conn := plugin.NewConn(rw, func(context.Context, string, jsontext.Value) (any, error) {
+			conn := plugin.NewConn(rw, func(_ context.Context, method string, params jsontext.Value) (any, error) {
+				if method == "cli.run" {
+					var r plugin.CLIRun
+					_ = jsonx.Unmarshal(params, &r)
+					return plugin.CLIResult{Stdout: strings.Join(r.Args, " ") + "\n", Stderr: r.Command, Exit: len(r.Args)}, nil
+				}
 				return map[string]any{}, nil
 			})
 			<-conn.Done()
@@ -56,6 +64,16 @@ func TestBundledPluginRuns(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("not running: %+v", r.status())
 		}
+	}
+	// Its CLI command runs in it, and what it answers comes back.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	res, err := b.cli(ctx, "bundle-e2e", plugin.CLIRun{Command: "echo", Args: []string{"hello", "there"}})
+	if err != nil || res.Stdout != "hello there\n" || res.Stderr != "echo" || res.Exit != 2 {
+		t.Fatalf("cli: %+v, %v", res, err)
+	}
+	if _, err := b.cli(ctx, "bundle-e2e", plugin.CLIRun{Command: "rm"}); err == nil {
+		t.Fatal("a command it doesn't declare should be refused")
 	}
 	if err := plugin.SetBundled("bundle-e2e", false); err != nil {
 		t.Fatal(err)

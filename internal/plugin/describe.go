@@ -122,6 +122,13 @@ func Describe(p Plugin) string {
 		}
 		grants = append(grants, "adds commands you can run and bind to keys: "+strings.Join(cs, ", "))
 	}
+	if len(p.CLI) > 0 {
+		cs := make([]string, 0, len(p.CLI))
+		for _, c := range p.CLI {
+			cs = append(cs, "agtop "+p.Name+" "+c.Name)
+		}
+		grants = append(grants, "adds commands to agtop's CLI, run by the plugin with what it may do: "+strings.Join(cs, ", "))
+	}
 	if len(p.Settings) > 0 {
 		ss := make([]string, 0, len(p.Settings))
 		for _, st := range p.Settings {
