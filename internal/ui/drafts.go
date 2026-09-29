@@ -64,7 +64,7 @@ func (u *undoStack) step(from, to *[]undoState, text []rune, back int) ([]rune, 
 }
 
 func isUndo(s string) bool { return s == "super+z" || s == "ctrl+_" || s == "ctrl+/" }
-func isRedo(s string) bool { return s == "super+shift+z" || s == "ctrl+y" }
+func isRedo(s string) bool { return s == "shift+super+z" || s == "super+shift+z" || s == "ctrl+y" }
 
 // undoKey runs undo or redo on the Session's box.
 func (m *Model) undoKey(c *hostConn, s string) bool {
@@ -153,8 +153,9 @@ func (m *Model) wipePrompt() {
 	}
 	keepLater(m.promptDraft(state.KindCleared))
 	m.emitBox(plugin.EvInputCleared, "", string(m.input))
+	m.undo.save(m.input, m.back, false)
 	m.input, m.back, m.anchor = nil, 0, 0
-	m.flash("cleared · #drafts keeps it under Cleared", false)
+	m.flash("cleared · "+undoHint+" brings it back · #drafts keeps it under Cleared", false)
 }
 
 // Keys for drafts, the same in a Session's box and in the Prompt.

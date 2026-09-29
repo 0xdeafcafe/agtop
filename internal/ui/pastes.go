@@ -147,7 +147,7 @@ func (m *Model) chipUnder(x, y int) chipHover {
 	ok := false
 	switch c := m.host; {
 	case which == 1 && c != nil:
-		sp, ok = c.pastes.chipAt(c.box.text, pos)
+		sp, ok = c.pastes.chipAt(c.input, pos)
 	case which == 2:
 		sp, ok = m.pastes.chipAt(m.promptBox.text, pos)
 	}
@@ -205,22 +205,6 @@ func (m *Model) openChip(h chipHover) bool {
 		return false
 	}
 	return true
-}
-
-// dropChip deletes a whole chip or image marker when backspace lands on
-// its end.
-func dropChip(buf []rune, pos int) ([]rune, int, bool) {
-	if pos == 0 || buf[pos-1] != ']' {
-		return buf, pos, false
-	}
-	before := string(buf[:pos])
-	loc := chipRe.FindAllStringIndex(before, -1)
-	if len(loc) == 0 || loc[len(loc)-1][1] != len(before) {
-		return buf, pos, false
-	}
-	from := len([]rune(before[:loc[len(loc)-1][0]]))
-	out := append(append([]rune{}, buf[:from]...), buf[pos:]...)
-	return out, from, true
 }
 
 // editedMsg carries text back from $EDITOR: into paste id, or (id 0) the

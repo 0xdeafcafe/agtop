@@ -501,12 +501,15 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if s == "ctrl+g" {
 		return editDraft(&m.pastes, m.input, false)
 	}
-	if (s == "backspace" || s == "ctrl+h") && m.anchor == 0 {
-		if buf, pos, ok := dropChip(m.input, m.cursorPos()); ok {
-			m.input = buf
-			m.setCursor(pos)
-			return nil
+	if m.inKind == inPrompt && (isUndo(s) || isRedo(s)) {
+		u := m.undo.undo
+		if isRedo(s) {
+			u = m.undo.redo
 		}
+		if buf, back, ok := u(m.input, m.back); ok {
+			m.input, m.back, m.anchor = buf, back, 0
+		}
+		return nil
 	}
 	before := string(m.input)
 	m.editInput(k, s)
@@ -721,7 +724,7 @@ func (m *Model) submit() tea.Cmd {
 	if kind == inReply && text != "" && m.host != nil && m.host.key == a.Key && m.askCold(m.host, text, m.submit) {
 		return nil
 	}
-	m.pastes = pastes{}
+	m.pastes, m.undo = pastes{}, undoStack{}
 	m.input, m.inKind = m.input[:0], inPrompt
 	switch kind {
 	case inRename:

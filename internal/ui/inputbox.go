@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/0xdeafcafe/agtop/internal/cellw"
@@ -36,6 +38,9 @@ type box struct {
 	top     int  // the first wrapped row shown last draw, kept while the cursor stays in view
 	hot     seg  // a paste chip lit, under the pointer
 	idle    bool // focused but not being typed in: the edge and fill stay, the cursor doesn't
+	// pos maps each drawn position to the text's where an image in the
+	// text is drawn as its name; nil when they are the same.
+	pos []int
 }
 
 // lines draws the box: a top edge carrying its labels, the text wrapped
@@ -245,15 +250,18 @@ func (b box) content(w int) []string {
 	return rows
 }
 
-// chipMask marks the runes of each paste chip in text, nil when it has none,
-// so a chip reads as one thing rather than words you typed.
+// shownChipRe is a chip as a box draws it: a paste's, or an image's name.
+var shownChipRe = regexp.MustCompile(pasteRe.String() + `|\[▣ [^\]\n]*\]`)
+
+// chipMask marks the runes of each chip in text, nil when it has none, so
+// a chip reads as one thing rather than words you typed.
 func chipMask(text []rune) []bool {
 	s := string(text)
-	if !convo.HasPasteChip(s) {
+	if !convo.HasPasteChip(s) && !strings.Contains(s, "[▣ ") {
 		return nil
 	}
 	mask := make([]bool, len(text))
-	for _, loc := range pasteRe.FindAllStringIndex(s, -1) {
+	for _, loc := range shownChipRe.FindAllStringIndex(s, -1) {
 		from := len([]rune(s[:loc[0]]))
 		for i := from; i < from+len([]rune(s[loc[0]:loc[1]])); i++ {
 			mask[i] = true
@@ -264,6 +272,39 @@ func chipMask(text []rune) []bool {
 
 func reverse(s string) string { return "\x1b[7m" + s + "\x1b[27m" }
 
+// named is b with each image in its text drawn as its name, the cursor,
+// selection and lit chip moved to match.
+func (b box) named(r imageRefs) box {
+	text, pos := r.shown(b.text)
+	if pos == nil {
+		return b
+	}
+	b.text, b.pos = text, pos
+	b.cursor = b.drawn(b.cursor)
+	if b.anchor >= 0 {
+		b.anchor = b.drawn(b.anchor)
+	}
+	if b.hot != (seg{}) {
+		b.hot = seg{b.drawn(b.hot.from), b.drawn(b.hot.to)}
+	}
+	return b
+}
+
+// drawn is where text position p is drawn; textPos is the other way.
+func (b box) drawn(p int) int {
+	if b.pos == nil {
+		return p
+	}
+	return sort.SearchInts(b.pos, p)
+}
+
+func (b box) textPos(d int) int {
+	if b.pos == nil {
+		return d
+	}
+	return b.pos[max(0, min(d, len(b.pos)-1))]
+}
+
 // at maps a click inside the box's text area (row from the first text row,
 // col from the box's left edge) to a position in the text.
 func (b box) at(row, col int) int {
@@ -271,9 +312,9 @@ func (b box) at(row, col int) int {
 	start, end := b.window(segs)
 	i := start + row
 	if i < start || i >= end {
-		return b.cursor
+		return b.textPos(b.cursor)
 	}
-	return b.col(segs[i], col)
+	return b.textPos(b.col(segs[i], col))
 }
 
 // near is at for a drag, which can leave the box: above its first row is
@@ -285,11 +326,11 @@ func (b box) near(row, col int) int {
 	case len(segs) == 0:
 		return 0
 	case row < 0:
-		return segs[start].from
+		return b.textPos(segs[start].from)
 	case start+row >= end:
-		return segs[end-1].to
+		return b.textPos(segs[end-1].to)
 	}
-	return b.col(segs[start+row], col)
+	return b.textPos(b.col(segs[start+row], col))
 }
 
 // col is the text position under screen column col on the row sg.

@@ -42,6 +42,8 @@ var Defaults = []Action{
 	{ID: "list.help", Context: List, Title: "the keys, with nothing typed", Keys: []string{"?"}},
 	{ID: "list.editor", Context: List, Title: "write what's typed in your editor", Keys: []string{"ctrl+g"}},
 	{ID: "list.image", Context: List, Title: "paste an image", Keys: []string{"ctrl+v"}},
+	{ID: "list.undo", Context: List, Title: "undo in the Prompt", Keys: []string{"super+z", "ctrl+_", "ctrl+/"}},
+	{ID: "list.redo", Context: List, Title: "redo in the Prompt", Keys: []string{"shift+super+z"}},
 	{ID: "list.focus", Context: List, Title: "into the Session, and back", Keys: []string{"tab", "{", "}"}},
 	{ID: "list.filter", Context: List, Title: "filter agents by name or what's said", Keys: []string{"alt+f"}},
 	{ID: "list.toggle", Context: List, Title: "Agents beside the Session", Keys: []string{"ctrl+6", "ctrl+^", "ctrl+shift+6"}},
@@ -81,6 +83,8 @@ var Defaults = []Action{
 	{ID: "session.split.more", Context: Session, Title: "more of the screen for the list", Keys: []string{"shift+right", "alt+right"}},
 	{ID: "session.editor", Context: Session, Title: "write what's typed in your editor", Keys: []string{"ctrl+g"}},
 	{ID: "session.image", Context: Session, Title: "paste an image", Keys: []string{"ctrl+v"}},
+	{ID: "session.undo", Context: Session, Title: "undo in the box", Keys: []string{"super+z", "ctrl+_", "ctrl+/"}},
+	{ID: "session.redo", Context: Session, Title: "redo in the box", Keys: []string{"shift+super+z", "ctrl+y"}},
 	{ID: "session.focus", Context: Session, Title: "back to Agents, and in again", Keys: []string{"tab", "{", "}"}},
 	{ID: "session.list", Context: Session, Title: "Agents beside the Session", Keys: []string{"ctrl+6", "ctrl+^", "ctrl+shift+6"}},
 }
