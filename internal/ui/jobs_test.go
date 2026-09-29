@@ -187,3 +187,27 @@ func TestJobUsage(t *testing.T) {
 		t.Fatalf("the view's usage and processes:\n%s", got)
 	}
 }
+
+// A task still running whose output ended on a crash a while ago is
+// called out as likely dead; one still writing, or that ended well, isn't.
+func TestJobCrashed(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "b2.output")
+	os.WriteFile(out, []byte("listening on :3000\nTypeError: x is undefined\n[nodemon] app crashed - waiting for file changes before starting...\n"), 0o644)
+	old := time.Now().Add(-time.Minute)
+	os.Chtimes(out, old, old)
+	s := convo.New()
+	now := time.Now()
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 1, State: "working"}}, now)
+	s.Apply(headless.TaskStarted{ID: "b2", ToolUseID: "t2", Type: "local_bash", Description: "npm run dev", Backgrounded: true}, now.Add(-2*time.Minute))
+	s.Job("b2").OutputFile = out
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}}
+	m := &Model{snap: &fleet.Snapshot{}, host: c}
+	if got := ansi.Strip(strings.Join(m.jobsPreview(c, s.RunningJobs(), 120), "\n")); !strings.Contains(got, "crashed?") {
+		t.Fatalf("no crash called out:\n%s", got)
+	}
+	os.Chtimes(out, now, now) // still writing: it may be restarting
+	c.tails = nil
+	if got := ansi.Strip(strings.Join(m.jobsPreview(c, s.RunningJobs(), 120), "\n")); strings.Contains(got, "crashed?") {
+		t.Fatalf("called crashed while still writing:\n%s", got)
+	}
+}

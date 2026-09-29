@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -111,6 +112,36 @@ func (m *Model) jobPID(c *hostConn, j *convo.Job) int {
 	return best
 }
 
+// crashRe is a line a program writes as it dies, or as it gives up and
+// waits: a dev server whose app crashed keeps running, and Claude, told
+// it runs, never hears.
+var crashRe = regexp.MustCompile(`^panic: |Traceback \(most recent call last\)|\bFATAL\b|EADDRINUSE|address already in use|app crashed|exited with code [1-9]|Segmentation fault|npm ERR!|ELIFECYCLE|Cannot find module|command not found|^error(\[E\d+\])?: |^Killed$|^fatal error: `)
+
+// crashQuiet is how long a task's output stays as it is, ending on a
+// crash, before it's called crashed: long enough for a restart to show.
+const crashQuiet = 20 * time.Second
+
+// jobCrashed is whether a running task's output ends on a crash and has
+// stayed that way: still running as far as Claude knows, but likely dead.
+func (m *Model) jobCrashed(c *hostConn, j *convo.Job, now time.Time) bool {
+	if !j.Running() {
+		return false
+	}
+	tail, from := m.jobTailFrom(c, j, 3)
+	if e := c.tails[from]; e == nil || e.mod.IsZero() || now.Sub(e.mod) < crashQuiet {
+		return false
+	}
+	return slices.ContainsFunc(tail, func(l string) bool { return crashRe.MatchString(strings.TrimSpace(l)) })
+}
+
+// jobRight is what ends a task's row: what it uses and how it's doing.
+func (m *Model) jobRight(c *hostConn, j *convo.Job, now time.Time) string {
+	if m.jobCrashed(c, j, now) {
+		return paint(cRed, "⚠ crashed? x stops it") + dim("  ·  ") + jobState(j, now) + "  "
+	}
+	return m.jobUsage(c, j) + jobState(j, now) + "  "
+}
+
 // jobUsage is a running task's CPU and memory, for the end of its row.
 func (m *Model) jobUsage(c *hostConn, j *convo.Job) string {
 	pid := m.jobPID(c, j)
@@ -174,7 +205,7 @@ func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
 		if !j.Background {
 			mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
 		}
-		right := m.jobUsage(c, j) + jobState(j, now) + "  "
+		right := m.jobRight(c, j, now)
 		left := "  " + mark + " " + paint(cText+bold, fmt.Sprintf("%-7s", kind)) + " " +
 			paint(cSub, ansi.Truncate(jobLabel(c, j), max(12, w-cellw.String(ansi.Strip(right))-14), "…"))
 		rows := []string{spread(left, right, w)}
@@ -269,7 +300,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 					continue
 				}
 			}
-			right := m.jobUsage(c, j) + jobState(j, now) + "  "
+			right := m.jobRight(c, j, now)
 			// A shell says what it's for; its command comes under it.
 			label, cmd := jobLabel(c, j), ""
 			if full := c.sess.JobCommand(j); kind == "shell" && full != "" && j.Label != "" && j.Label != full {
