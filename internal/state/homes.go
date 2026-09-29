@@ -12,7 +12,7 @@ import (
 )
 
 // homesDir is where agtop keeps each Claude login's home (claude.LinkHome).
-func homesDir() string { return filepath.Join(Dir(), "claude") }
+func homesDir() string { return filepath.Join(Dir(), string(claude.Kind)) }
 
 // ClaudeHome is the config folder agtop keeps for the login with id.
 func ClaudeHome(id string) claude.Account {

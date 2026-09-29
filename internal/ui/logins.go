@@ -308,7 +308,7 @@ func reloginHosts(root claude.Account, cfg state.Config) (resumed, waiting int) 
 			continue
 		}
 		wait := info.Limit != nil && cfg.ProfileFor(info.Cwd, info.Profile).Limit() == state.LimitWait
-		if !info.Homes && (info.Kind == "" || info.Kind == "claude") {
+		if !info.Homes && (info.Kind == "" || info.Kind == string(claude.Kind)) {
 			switch {
 			case hostBusy(info):
 				go replaceWhenIdle(info.ID)
