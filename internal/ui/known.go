@@ -86,7 +86,7 @@ func (f applyMsg) applyTo(m *Model) tea.Cmd { return f(m) }
 
 // asks are everything a frame asked for, read after the message.
 func (m *Model) asks() tea.Cmd {
-	return tea.Batch(m.procWords.read(readProcWords, nil), m.pickTrees.read(readWorktrees, nil),
+	return tea.Batch(m.procWords.read(readProcWords, nil), m.procLines.read(readProcLine, nil), m.pickTrees.read(readWorktrees, nil),
 		m.localCmds.read(readCommands, nil), m.paths.read(readPath, (*Model).pathsLanded))
 }
 
@@ -111,6 +111,14 @@ func (m *Model) shortCmd(pid int, comm string) string {
 	}
 	return comm
 }
+
+// procLine is a process's whole command line, and whether it's known
+// yet: asked for when it isn't.
+func (m *Model) procLine(pid int, start time.Time) (string, bool) {
+	return m.procLines.get(procKey{pid: pid, start: start.UnixNano()}, 0)
+}
+
+func readProcLine(k procKey) string { return proc.CommandLine(k.pid) }
 
 func readProcWords(k procKey) string {
 	args := proc.Args(k.pid)

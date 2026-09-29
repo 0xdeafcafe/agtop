@@ -16,7 +16,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
@@ -1221,7 +1220,7 @@ func (m *Model) toolRows(a *fleet.Agent) []procRow {
 			continue
 		}
 		cmd := m.shortCmd(n.PID, n.Comm)
-		if full := strings.Join(proc.Args(n.PID), " "); strings.Contains(full, "eval '") {
+		if full, _ := m.procLine(n.PID, n.Start); strings.Contains(full, "eval '") {
 			if c := fleet.ShellCmd(full); c != full {
 				cmd = "$ " + trimCmd(oneLine(c), 200)
 			}

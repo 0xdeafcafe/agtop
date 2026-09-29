@@ -255,6 +255,7 @@ type Model struct {
 	snapWanted, snapLoading bool
 	fleetRead               bool                            // a reading has landed: before it, the list says it's reading
 	procWords               known[procKey, string]          // processes' words, as shortCmd draws them
+	procLines               known[procKey, string]          // processes' whole command lines: see procLine
 	pickTrees               known[string, []string]         // repositories' worktrees, for the folder picker
 	localCmds               known[cmdsKey, []agent.Command] // commands and skills on disk: see commandsOf
 	paths                   known[string, pathFact]         // what's at paths typed, pasted or dropped: see lookPath

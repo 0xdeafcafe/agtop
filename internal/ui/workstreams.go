@@ -12,7 +12,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/proc"
 )
 
 // The Overview place: what is happening, over time. Top, what is going
@@ -675,8 +674,14 @@ func (m *Model) heavyWhat(pid int, start time.Time, comm string) string {
 	k := fmt.Sprintf("%d@%d", pid, start.Unix())
 	e, ok := m.work.args[k]
 	if !ok {
-		e = args{line: proc.CommandLine(pid), at: m.snap.At}
-		m.work.args[k] = e
+		line, known := m.procLine(pid, start) // read off the UI goroutine
+		if !known {
+			line = comm
+		}
+		e = args{line: line, at: m.snap.At}
+		if known {
+			m.work.args[k] = e
+		}
 		if len(m.work.args) > 2000 {
 			for key, v := range m.work.args {
 				if m.snap.At.Sub(v.at) > time.Hour {
