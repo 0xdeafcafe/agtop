@@ -132,6 +132,9 @@ type Info struct {
 	// Queue holds messages sent while the agent was busy; the host sends
 	// the first when the turn ends.
 	Queue []string `json:"queue,omitempty"`
+	// QueueImages are the images attached to each queued message, by its
+	// place in Queue; nil when none has any.
+	QueueImages [][]string `json:"queueImages,omitempty"`
 	// QueueHeld pauses sending the queue; QueueSeparate sends one queued
 	// message per turn instead of the whole queue as one.
 	QueueHeld     bool `json:"queueHeld,omitzero"`
@@ -299,6 +302,9 @@ type server struct {
 	clients map[*conn]struct{}
 	pending map[string]asked
 	info    Info
+	// pics is where each queued image is read from, by its path, so it's
+	// read once, when it's queued.
+	pics map[string]string
 	// commands is the session's slash command list, kept apart from the
 	// ring so every client gets it.
 	commands []byte
@@ -976,8 +982,8 @@ func (s *server) publish() {
 	}
 }
 
-// send delivers a message, or queues it while the agent is busy. Images
-// always go now: a queued message is text only.
+// send delivers a message, or queues it, images and all, while the agent
+// is busy.
 func (s *server) send(text string, images []string, now bool) error {
 	// Images are looked at before taking the lock: they can be megabytes.
 	var pics []string
@@ -991,14 +997,22 @@ func (s *server) send(text string, images []string, now bool) error {
 	s.mu.Lock()
 	waiting := s.info.Limit != nil && s.info.Limit.Continue && !s.info.Limit.ResetsAt.IsZero()
 	busy := s.info.State == "working" || s.info.State == "blocked" || waiting
-	if !now && busy && len(images) == 0 {
+	if !now && busy {
+		qi := queueImages(&s.info)
 		s.info.Queue = append(s.info.Queue, text)
+		s.info.QueueImages = trimImages(append(qi, images))
+		if s.pics == nil {
+			s.pics = map[string]string{}
+		}
+		for i, p := range images {
+			s.pics[p] = pics[i]
+		}
 		s.publish()
 		s.mu.Unlock()
 		return nil
 	}
-	if now && len(images) == 0 && s.cutsIn() {
-		s.cutIn(text)
+	if now && s.cutsIn() {
+		s.cutIn(text, images, pics)
 		conn := s.conn
 		s.mu.Unlock()
 		return conn.Interrupt()
@@ -1015,26 +1029,74 @@ func (s *server) cutsIn() bool {
 	return s.conn != nil && s.info.State == "working" && agent.Supports(agent.Kind(s.cfg.Kind), agent.FeatureInterrupt)
 }
 
-// cutIn puts text first in the queue and lets the queue go, so it's sent
-// the moment the turn, which the caller stops, ends. Called with mu held.
-func (s *server) cutIn(text string) {
+// cutIn puts text and its images first in the queue and lets the queue
+// go, so it's sent the moment the turn, which the caller stops, ends. pics
+// are the images as read to send, or nil when they already were. Called
+// with mu held.
+func (s *server) cutIn(text string, images, pics []string) {
+	qi := queueImages(&s.info)
 	s.info.Queue = append([]string{text}, s.info.Queue...)
+	s.info.QueueImages = trimImages(append([][]string{images}, qi...))
+	for i, p := range pics {
+		if s.pics == nil {
+			s.pics = map[string]string{}
+		}
+		s.pics[images[i]] = p
+	}
 	s.info.QueueHeld = false
 	s.publish()
+}
+
+// queueImages is each queued message's images, one list per message.
+func queueImages(i *Info) [][]string {
+	qi := make([][]string, len(i.Queue))
+	copy(qi, i.QueueImages)
+	return qi
+}
+
+// trimImages is nil when no queued message has images, so a queue that
+// never had any looks as it always did.
+func trimImages(qi [][]string) [][]string {
+	for _, im := range qi {
+		if len(im) > 0 {
+			return qi
+		}
+	}
+	return nil
+}
+
+// deliverQueued sends queued text with its images, from where they were
+// read when queued. Called with mu held.
+func (s *server) deliverQueued(text string, images []string) error {
+	pics := make([]string, 0, len(images))
+	for _, p := range images {
+		pic, ok := s.pics[p]
+		if !ok {
+			pic = p
+		}
+		pics = append(pics, pic)
+	}
+	if err := s.deliver(text, images, pics); err != nil {
+		return err
+	}
+	for _, p := range images {
+		delete(s.pics, p)
+	}
+	return nil
 }
 
 // sendQueue sends what's queued: all of it as one message, or the first
 // one if you asked for one per turn. If the send fails it goes back on the
 // queue. Called with mu held.
 func (s *server) sendQueue() {
-	q := s.info.Queue
-	next, rest := JoinQueue(q), []string(nil)
+	q, qi, all := s.info.Queue, s.info.QueueImages, queueImages(&s.info)
+	next, images, rest, restI := JoinQueue(q), slices.Concat(all...), []string(nil), [][]string(nil)
 	if s.info.QueueSeparate {
-		next, rest = q[0], q[1:]
+		next, images, rest, restI = q[0], all[0], q[1:], trimImages(all[1:])
 	}
-	s.info.Queue = rest
-	if err := s.sendLocked(next); err != nil {
-		s.info.Queue = q
+	s.info.Queue, s.info.QueueImages = rest, restI
+	if err := s.deliverQueued(next, images); err != nil {
+		s.info.Queue, s.info.QueueImages = q, qi
 		s.publish()
 	}
 }
@@ -1168,16 +1230,20 @@ func (s *server) editQueue(o op) error {
 	if o.Index < 0 || o.Index >= len(q) {
 		return fmt.Errorf("no queued message %d", o.Index)
 	}
+	// Each message's images go wherever it does.
+	qi := queueImages(&s.info)
 	switch o.Op {
 	case "queue_edit":
 		q[o.Index] = o.Text
 	case "queue_remove":
 		q = append(q[:o.Index], q[o.Index+1:]...)
+		qi = slices.Delete(qi, o.Index, o.Index+1)
 	case "queue_move":
 		to := max(0, min(o.To, len(q)-1))
-		item := q[o.Index]
+		item, im := q[o.Index], qi[o.Index]
 		q = append(q[:o.Index], q[o.Index+1:]...)
 		q = append(q[:to], append([]string{item}, q[to:]...)...)
+		qi = slices.Insert(slices.Delete(qi, o.Index, o.Index+1), to, im)
 	case "queue_merge":
 		// Into the one after it, so a burst of thoughts goes as one message.
 		if o.Index+1 >= len(q) {
@@ -1185,17 +1251,20 @@ func (s *server) editQueue(o op) error {
 		}
 		q[o.Index] = q[o.Index] + "\n\n" + q[o.Index+1]
 		q = append(q[:o.Index+1], q[o.Index+2:]...)
+		qi[o.Index] = slices.Concat(qi[o.Index], qi[o.Index+1])
+		qi = slices.Delete(qi, o.Index+1, o.Index+2)
 	case "queue_send":
-		text := q[o.Index]
+		text, images, was := q[o.Index], qi[o.Index], s.info.QueueImages
 		s.info.Queue = slices.Delete(slices.Clone(q), o.Index, o.Index+1)
-		if err := s.sendLocked(text); err != nil {
-			s.info.Queue = q
+		s.info.QueueImages = trimImages(slices.Delete(qi, o.Index, o.Index+1))
+		if err := s.deliverQueued(text, images); err != nil {
+			s.info.Queue, s.info.QueueImages = q, was
 			s.publish()
 			return err
 		}
 		return nil
 	}
-	s.info.Queue = q
+	s.info.Queue, s.info.QueueImages = q, trimImages(qi)
 	s.publish()
 	return nil
 }
@@ -1278,8 +1347,11 @@ func (s *server) do(o op) error {
 	case "queue_send":
 		// Mid-turn it cuts in, as a send now does.
 		if i := slices.Index(s.info.Queue, o.Was); i >= 0 && o.Was != "" && s.cutsIn() {
+			qi := queueImages(&s.info)
+			images := qi[i]
 			s.info.Queue = slices.Delete(slices.Clone(s.info.Queue), i, i+1)
-			s.cutIn(o.Was)
+			s.info.QueueImages = trimImages(slices.Delete(qi, i, i+1))
+			s.cutIn(o.Was, images, nil)
 			conn := s.conn
 			s.mu.Unlock()
 			return conn.Interrupt()

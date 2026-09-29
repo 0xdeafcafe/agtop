@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
@@ -278,6 +280,43 @@ func TestQueueEdits(t *testing.T) {
 	}
 	if err := s.editQueue(op{Op: "queue_remove", Index: 5}); err == nil {
 		t.Error("removing past the end should fail")
+	}
+}
+
+// inputConn keeps what it's sent.
+type inputConn struct {
+	fakeConn
+	got []agent.Input
+}
+
+func (c *inputConn) Send(in agent.Input) error { c.got = append(c.got, in); return nil }
+
+func TestQueuedImages(t *testing.T) {
+	setup(t)
+	pic := filepath.Join(t.TempDir(), "shot.jpg")
+	if err := os.WriteFile(pic, []byte("jpeg"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ic := &inputConn{}
+	s := &server{cfg: Config{ID: "qi"}, conn: ic, clients: map[*conn]struct{}{}}
+	s.info.State = "working"
+	if err := s.send("first", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.send("look at this", []string{pic}, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(ic.got) != 0 || len(s.info.Queue) != 2 {
+		t.Fatalf("sent %v while busy; queue %q", ic.got, s.info.Queue)
+	}
+	s.mu.Lock()
+	s.sendQueue()
+	s.mu.Unlock()
+	if len(ic.got) != 1 || !slices.Equal(ic.got[0].Images, []string{pic}) || !strings.Contains(ic.got[0].Text, "look at this") {
+		t.Fatalf("the queue went as %+v", ic.got)
+	}
+	if s.info.Queue != nil || s.info.QueueImages != nil {
+		t.Fatalf("left queued: %q %q", s.info.Queue, s.info.QueueImages)
 	}
 }
 
@@ -640,5 +679,34 @@ func TestSendNowMidTurnCutsIn(t *testing.T) {
 	}
 	if got := strings.Join(s.info.Queue, "|"); got != "b|now|a" || s.info.QueueHeld || c.stops != 2 {
 		t.Errorf("queue %q held %v stops %d", got, s.info.QueueHeld, c.stops)
+	}
+}
+
+// A message with an image sent now mid-turn cuts in with its image, and a
+// queued one sent now keeps its own: each message's images stay its own.
+func TestCutInKeepsImages(t *testing.T) {
+	setup(t)
+	pic := filepath.Join(t.TempDir(), "shot.jpg")
+	if err := os.WriteFile(pic, []byte("jpeg"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := &interruptConn{}
+	s := &server{cfg: Config{ID: "qc", Kind: "claude"}, conn: c, clients: map[*conn]struct{}{}}
+	s.info.State, s.info.QueueHeld = "working", true
+	if err := s.send("a", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.send("b", []string{pic}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.send("now", []string{pic}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.do(op{Op: "queue_send", Index: 2, Was: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{pic}, {pic}, nil}
+	if got := strings.Join(s.info.Queue, "|"); got != "b|now|a" || !slices.EqualFunc(s.info.QueueImages, want, slices.Equal) || c.stops != 2 {
+		t.Errorf("queue %q images %q stops %d", got, s.info.QueueImages, c.stops)
 	}
 }

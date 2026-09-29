@@ -369,10 +369,10 @@ func (c *Client) Send(text string) error { return c.do(op{Op: "send", Text: text
 // SendNow delivers a message mid-turn; Claude reads it at its next step.
 func (c *Client) SendNow(text string) error { return c.do(op{Op: "send", Text: text, Now: true}) }
 
-// SendImages delivers a message with image files attached; it goes now,
-// even mid-turn, since only text can wait in the queue.
-func (c *Client) SendImages(text string, paths []string) error {
-	return c.do(op{Op: "send", Text: text, Images: paths, Now: true})
+// SendImages delivers a message with image files attached, or queues it
+// with them if the agent is busy; now sends it mid-turn instead.
+func (c *Client) SendImages(text string, paths []string, now bool) error {
+	return c.do(op{Op: "send", Text: text, Images: paths, Now: now})
 }
 
 // Queue edits, by index into Info.Queue.
