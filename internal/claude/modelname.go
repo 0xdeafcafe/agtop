@@ -20,6 +20,9 @@ func ModelName(s string) string {
 		return strings.ToUpper(m[1][:1]) + m[1][1:] + " " + v
 	}
 	s = modelParen.ReplaceAllString(s, "")
+	if a, ok := strings.CutSuffix(s, "[1m]"); ok && a != "" && !strings.Contains(a, "-") {
+		s = a // opus[1m] → Opus, as claude-opus-5-5[1m] is Opus 5.5
+	}
 	if s != "" && strings.ToLower(s) == s && !strings.Contains(s, "-") {
 		return strings.ToUpper(s[:1]) + s[1:] // opus → Opus
 	}

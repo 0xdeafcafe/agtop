@@ -1921,10 +1921,14 @@ func (m *Model) promptLines(w int) []string {
 		b.topL = dim("agtop command · enter runs it")
 	default:
 		dirs := m.startDirs()
-		b.topL = dim("new session in ") + m.dirLabel(pickDir(dirs, m.dirIdx)) + dim(" · enter starts it")
+		dir := pickDir(dirs, m.dirIdx)
+		b.topL = dim("new session in ") + m.dirLabel(dir) + dim(" · enter starts it")
 		b.holder = draftsHolder("describe a task for a new session", "")
-		if len(dirs) > 1 {
-			b.topR = paint(cSub, "ctrl+l") + dim(" folder")
+		// What it starts as, so a model or profile is never a surprise;
+		// the folder key goes first when there's no room for both.
+		b.topR = m.startWith(dir, false)
+		if folder := paint(cSub, "ctrl+l") + dim(" folder"); len(dirs) > 1 && cellw.String(b.topL+b.topR+folder)+12 <= w {
+			b.topR = folder + faint(" · ") + b.topR
 		}
 	}
 	if m.sessionFocused() {

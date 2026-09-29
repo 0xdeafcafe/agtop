@@ -129,6 +129,34 @@ func (m *Model) startTag() string {
 	return strings.Join(parts, faint(" · "))
 }
 
+// startWith is what a new session in dir starts as: its agent, the model
+// and effort that agent's Settings page gives it (the agent's own default
+// when it gives none), and the profile when there's more than one or
+// #profile picked one. Plain is without colour, for text that's matched.
+func (m *Model) startWith(dir string, plain bool) string {
+	k := m.startKindIn(dir)
+	st := m.store.Config.Dispatch.StartFor(k)
+	model := "default model"
+	if st.Model != "" {
+		model = modelWord(k, st.Model)
+	}
+	words := []string{kindName(agent.Kind(k)), model}
+	if st.Effort != "" {
+		words = append(words, st.Effort+" effort")
+	}
+	if p := m.startProfile(dir).Name; m.showProfile(p) || m.accts.profile != "" {
+		words = append(words, p)
+	}
+	if plain {
+		return strings.Join(words, " · ")
+	}
+	words[0] = providerTag(agent.Kind(k))
+	for i := 1; i < len(words); i++ {
+		words[i] = dim(words[i])
+	}
+	return strings.Join(words, faint(" · "))
+}
+
 // levelWords say what each support level means.
 var levelWords = map[agent.Level]string{
 	agent.LevelFull:    "everything agtop does, used every day",

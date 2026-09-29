@@ -605,7 +605,7 @@ func (m *Model) barPlaces(q string) []barItem {
 		where := bk.where()
 		add(paint(cOrange, "↩"), "Back", where, "previous return "+where, func(m *Model) tea.Cmd { return m.goSpot(bk) })
 	}
-	add(paint(cGreen, "+"), "Start an agent", "in "+tildify(m.startDir()), "new session spawn prompt task", func(m *Model) tea.Cmd {
+	add(paint(cGreen, "+"), "Start an agent", "in "+tildify(m.startDir())+" · "+m.startWith(m.startDir(), true), "new session spawn prompt task model effort profile", func(m *Model) tea.Cmd {
 		m.toPrompt()
 		return nil
 	})
@@ -1186,6 +1186,8 @@ func (m *Model) barBox(w, h int) []string {
 	}
 	if m.store.Config.SearchTranscriptsOnKey && sc.transcripts() && b.search == nil {
 		head = spread(head, keys(m.searchKey(), "search transcripts"), inner)
+	} else if with := dim("new agents: ") + m.startWith(m.startDir(), false); cellw.String(head+with)+4 <= inner {
+		head = spread(head, with, inner) // what "Start an agent" starts as
 	}
 	out := []string{head, faint(strings.Repeat("─", inner))}
 
