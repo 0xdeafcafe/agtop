@@ -3,7 +3,7 @@ package rush
 
 import _ "embed"
 
-// Guide is rush's README, for the agent #ask starts to answer from.
+// Guide is rush's full guide (docs/guide.md), for the agent #ask starts to answer from.
 //
-//go:embed README.md
+//go:embed docs/guide.md
 var Guide string
