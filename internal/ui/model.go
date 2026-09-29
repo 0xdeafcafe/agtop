@@ -1586,6 +1586,10 @@ func (m *Model) focused() *fleet.Agent {
 	return nil
 }
 
+// activeSection holds every open agent that doesn't need you: its turn is
+// yours, it's working, or it sits idle, each row coloured by which.
+const activeSection = "Active"
+
 // rebuild groups the agents for the current group-by mode. What needs the
 // user comes first; anything finished more than a day ago goes to Earlier.
 func (m *Model) rebuild() {
@@ -1638,15 +1642,15 @@ func (m *Model) rebuild() {
 		case folderKey(a) == scratchSection:
 			add("Scratch", 10, a) // temp-folder runs finish on their own, not on your turn; folded
 		case a.YourTurn(now):
-			add("Your turn", 1, a) // finished without asking; often wants "keep going"
+			add(activeSection, 1, a) // finished without asking; often wants "keep going"
 		case a.Checking || a.JustFinished(now) && !a.Seen: // once seen, a finish needn't linger
-			add("Working", 3, a)
+			add(activeSection, 1, a)
 		case a.Pinned:
 			add("Pinned", 2, a)
 		case a.Live() || a.Busy():
-			add("Working", 3, a)
+			add(activeSection, 1, a)
 		case a.PID != 0:
-			add("Idle", 6, a)
+			add(activeSection, 1, a) // your turn, working and idle share one list, a project's rows together
 		case !fresh:
 			add("Earlier", 9, a)
 		case a.Done:
@@ -1740,12 +1744,16 @@ func (m *Model) rebuild() {
 			if temp >= tempShown {
 				meta += " · " + disk(temp) + " tmp"
 			}
-		case name == "Idle":
+		case name == activeSection:
 			var held uint64
 			for _, a := range g.agents {
-				held += a.Mem
+				if !a.Live() && !a.Busy() {
+					held += a.Mem
+				}
 			}
-			meta += " · " + mem(held) + " ram"
+			if held > 0 {
+				meta += " · " + mem(held) + " idle ram" //nolint:rush // once per section, meta is fresh each time
+			}
 		}
 		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: meta,
 			folded: fold, peek: strings.Join(names, ", ")})

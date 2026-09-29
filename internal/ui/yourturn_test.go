@@ -10,7 +10,7 @@ import (
 )
 
 // An agent that stopped on an error needs you; one that finished without
-// asking is your turn; neither sinks into Idle.
+// asking is your turn, sharing Active with the idle.
 func TestFinishedTurnsWaitForYou(t *testing.T) {
 	now := time.Now()
 	agent := func(key, st string) *fleet.Agent {
@@ -24,7 +24,7 @@ func TestFinishedTurnsWaitForYou(t *testing.T) {
 	m := &Model{store: &state.Store{}, previews: map[string]previewEntry{}, w: 120, h: 40, lastState: map[string]string{}}
 	m.snap = &fleet.Snapshot{At: now, Agents: []*fleet.Agent{quiet, broke, idle}}
 	m.rebuild()
-	want := map[string]string{"quiet": "Your turn", "broke": "Needs you", "idle": "Idle"}
+	want := map[string]string{"quiet": activeSection, "broke": "Needs you", "idle": activeSection}
 	for k, g := range want {
 		if m.groupOf[k] != g {
 			t.Errorf("%s in %q, want %q", k, m.groupOf[k], g)
@@ -36,7 +36,7 @@ func TestFinishedTurnsWaitForYou(t *testing.T) {
 			titles = append(titles, l.title)
 		}
 	}
-	if len(titles) != 3 || titles[0] != "Needs you" || titles[1] != "Your turn" || titles[2] != "Idle" {
+	if len(titles) != 2 || titles[0] != "Needs you" || titles[1] != activeSection {
 		t.Fatalf("sections %v", titles)
 	}
 	if s, _, _ := m.rowSummary(broke); s != "stopped · Response stalled mid-stream." {

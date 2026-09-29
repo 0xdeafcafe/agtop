@@ -1283,7 +1283,7 @@ func (m *Model) sectionLine(l listLine, w int) string {
 		arrow = faint("▸ ")
 	}
 	meta := l.meta
-	if (l.title == "Working" || l.title == "Needs you") && m.sharedContext() != "" {
+	if (l.title == activeSection || l.title == "Needs you") && m.sharedContext() != "" {
 		meta += "  ·  " + m.sharedContext()
 	}
 	if l.folded {
@@ -1713,7 +1713,9 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked 
 	// Working rows are bright, not bold, so six of them don't drown one.
 	nameColor := cSub
 	switch {
-	case sel || a.NeedsYou() || a.Waiting() || a.Halted() || a.YourTurn(now):
+	case a.YourTurn(now) && !sel:
+		nameColor = cGreen + bold // stands out among the working and idle it shares a section with
+	case sel || a.NeedsYou() || a.Waiting() || a.Halted():
 		nameColor = cText + bold
 	case live || busy:
 		nameColor = cText
@@ -1726,6 +1728,10 @@ func (m *Model) agentLine(a *fleet.Agent, w int, sel bool, nameCol int, stacked 
 	badges := m.badges(a)
 	if ps := m.pluginStatus(a.Key); ps != "" {
 		badges = strings.TrimSpace(badges + " " + ps)
+	}
+	if wAct == 0 {
+		// No RUNNING column: its subagents and shells go by the name.
+		badges = strings.TrimSpace(badges + " " + strings.TrimSpace(m.activity(a)))
 	}
 	summary, sumColor, justDone := m.rowSummary(a)
 	room := w - 3 - cellw.String(right)
