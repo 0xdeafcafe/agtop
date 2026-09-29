@@ -78,7 +78,7 @@ func (l *Loader) otherRow(a agent.Adapter, p agent.Profile, s agent.Session, key
 		SessionID: s.ID, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt}
 	ag := &Agent{Job: j, Key: key, Acct: p, DisplayName: s.Name,
 		Kind: string(a.Kind()), History: s.Transcript, Remote: s.Remote, PRs: s.PRs}
-	ag.Detail, ag.Needs = s.Detail, s.Needs
+	ag.Detail, ag.Needs, ag.Headless = s.Detail, s.Needs, s.Headless
 	if n := ov.Names[key]; n != "" {
 		ag.DisplayName = n
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/daemon"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/jsonx"
 	"github.com/0xdeafcafe/agtop/internal/proc"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -263,6 +264,11 @@ type Loader struct {
 	others   map[string]othersListing
 	spendVer map[string]int
 	watching *watching
+	// links are the sessions that ran agents from their shells: each
+	// spawned agent's row key to its session's, kept across restarts, as
+	// nothing else says so once it has finished.
+	links      map[string]string
+	linksDirty bool
 }
 
 // printEntry remembers whether a pid runs claude -p, by its start time.
@@ -278,6 +284,7 @@ type inbox struct {
 	spend   map[string]Spend
 	nudged  map[string]time.Time
 	fetched []fetchedIn // in the order they came
+	links   map[string]string
 }
 
 type fetchedIn struct {
@@ -301,11 +308,36 @@ func (l *Loader) takeIn() {
 	for _, f := range in.fetched {
 		l.setFetched(f.configDir, f.u)
 	}
+	for k, v := range in.links {
+		l.link(k, v)
+	}
 	if in.stale {
 		l.changedSince()
 	}
 	if in.settle && l.watching != nil {
 		l.watching.settle = true
+	}
+}
+
+// LinkSpawn records that the session with row key parent ran the agent
+// with row key child from its shell: child is listed with it from then on.
+func (l *Loader) LinkSpawn(child, parent string) {
+	l.inMu.Lock()
+	defer l.inMu.Unlock()
+	if l.in.links == nil {
+		l.in.links = map[string]string{}
+	}
+	l.in.links[child] = parent
+	l.in.stale = true
+}
+
+func (l *Loader) link(child, parent string) {
+	if child != parent && l.links[child] != parent {
+		if l.links == nil {
+			l.links = map[string]string{}
+		}
+		l.links[child] = parent
+		l.linksDirty = true
 	}
 }
 
@@ -449,7 +481,7 @@ func NewLoader(s *state.Store) *Loader {
 		args:  map[int]argsEntry{}, git: map[string]gitInfo{}, roots: map[string]string{}, usage: map[string]usageEntry{},
 		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
 		files: map[string]fileMemo{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{},
-		Temp: LoadTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"),
+		Temp: LoadTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"), links: loadLinks(),
 	}
 }
 
@@ -521,7 +553,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	for _, info := range hosted {
 		parents[info.ClaudePID], parents[info.HostPID] = true, true
 	}
-	var spawned []int
+	var spawned []spawn
 	// Conversations a row already stands for: the rest are past ones.
 	claimed := map[string]bool{}
 	for id := range ours {
@@ -661,7 +693,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			}
 			headless := l.isPrint(tab, ss.PID)
 			if headless && spawnOf(tab, ss.PID, parents) != 0 {
-				spawned = append(spawned, ss.PID)
+				spawned = append(spawned, spawn{key, ss.PID})
 				continue
 			}
 			if st == "idle" {
@@ -726,7 +758,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		c := *a
 		snap.Agents[i] = &c
 	}
-	countSpawns(tab, snap.Agents, spawned)
+	snap.Agents = l.foldSpawns(tab, snap.Agents, spawned, parents)
 	if len(snap.Accounts) > 0 {
 		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
 	}
@@ -736,6 +768,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		snap.Table = tab
 	}
 	l.Temp.Save()
+	l.saveLinks()
 	listed := make(map[string]bool, len(snap.Agents))
 	for _, a := range snap.Agents {
 		a.Temp = l.Temp.Bytes(a.Key)
@@ -1154,8 +1187,11 @@ func isPrint(args []string) bool {
 
 // Where says where an interactive-kind agent is being driven from.
 func (a *Agent) Where() string {
-	if a.Headless {
+	if a.Headless && a.Kind == string(claude.Kind) {
 		return "run by another program (claude -p)"
+	}
+	if a.Headless {
+		return "run by another program"
 	}
 	if a.Remote {
 		return "on GitHub"
@@ -1183,25 +1219,117 @@ func spawnOf(tab *proc.Table, pid int, parents map[int]bool) int {
 	return 0
 }
 
-// countSpawns counts each agent run from a session's shell among that
-// session's working subagents: its row's process is above it.
-func countSpawns(tab *proc.Table, agents []*Agent, spawned []int) {
-	if len(spawned) == 0 {
+// spawn is an agent a session's shell ran, known by its process: its
+// row's key and its pid.
+type spawn struct {
+	key string
+	pid int
+}
+
+// foldSpawns takes the agents sessions' shells ran out of the list, each
+// counted with the subagents of the session that ran it. One running is
+// found by its process being under that session's; one finished, by that
+// having been seen before. spawned are those left out of the list already.
+func (l *Loader) foldSpawns(tab *proc.Table, agents []*Agent, spawned []spawn, parents map[int]bool) []*Agent {
+	byKey := make(map[string]*Agent, len(agents))
+	byPID := map[int]*Agent{}
+	pids := map[*Agent]int{}
+	for _, a := range agents {
+		byKey[a.Key] = a
+		pid := a.PID
+		// Another agent's session says no process: a codex exec quiet for
+		// a while is listed as past while it still runs.
+		if pid == 0 && (a.Interactive && !a.Past || a.Headless) && !a.Remote && !a.Agtop {
+			pid = procOf(tab, agent.Kind(a.Kind), a.CreatedAt)
+		}
+		if pid != 0 {
+			pids[a], byPID[pid] = pid, a
+			parents[pid] = true
+		}
+	}
+	for _, a := range agents {
+		if pid := pids[a]; a.Headless && pid != 0 && spawnOf(tab, pid, parents) != 0 {
+			spawned = append(spawned, spawn{a.Key, pid})
+		}
+	}
+	gone := map[string]bool{}
+	for _, sp := range spawned {
+		if p := ranBy(tab, sp.pid, byPID); p != nil {
+			p.Subs.Direct++
+			p.Subs.Spawned++
+			gone[sp.key] = true
+			l.link(sp.key, p.Key)
+		}
+	}
+	out := agents[:0]
+	for _, a := range agents {
+		if gone[a.Key] {
+			continue
+		}
+		// ponytail: one level only; a spawn's own spawns fold into it, and
+		// out of sight once it has folded too.
+		// One running was found by its process above: this one has ended.
+		if p := byKey[l.links[a.Key]]; p != nil && p != a && !gone[p.Key] {
+			p.Subs.Spawned++
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// ranBy is the agent whose process is nearest above pid's, or nil.
+func ranBy(tab *proc.Table, pid int, byPID map[int]*Agent) *Agent {
+	if tab == nil {
+		return nil
+	}
+	for i, p := 0, tab.Procs[pid]; p != nil && i < 12; i, p = i+1, tab.Procs[p.PPID] {
+		if a := byPID[p.PPID]; a != nil {
+			return a
+		}
+	}
+	return nil
+}
+
+// procOf is the process of kind k's that started nearest to at, within
+// seconds of it: for a session its agent lists no process for.
+// ponytail: by start time alone, so two runs of one agent begun within
+// seconds of each other may swap; match their folders too if that shows.
+func procOf(tab *proc.Table, k agent.Kind, at time.Time) int {
+	if tab == nil || at.IsZero() {
+		return 0
+	}
+	best, gap := 0, 10*time.Second
+	for pid, p := range tab.Procs {
+		if d := p.Start.Sub(at).Abs(); d < gap && isProgram(k, p.Comm) {
+			best, gap = pid, d
+		}
+	}
+	return best
+}
+
+func linksPath() string { return state.CachePath("spawns.json") }
+
+// loadLinks reads which sessions ran which agents.
+func loadLinks() map[string]string {
+	m := map[string]string{}
+	if b, err := os.ReadFile(linksPath()); err == nil {
+		_ = jsonx.Unmarshal(b, &m)
+	}
+	return m
+}
+
+// saveLinks writes the links if they changed.
+// ponytail: never pruned; an entry per spawned agent, a few dozen bytes.
+func (l *Loader) saveLinks() {
+	if !l.linksDirty {
 		return
 	}
-	byPID := map[int]*Agent{}
-	for _, a := range agents {
-		if a.PID != 0 {
-			byPID[a.PID] = a
+	if b, err := jsonx.Marshal(l.links); err == nil {
+		_ = os.MkdirAll(filepath.Dir(linksPath()), 0o700)
+		if os.WriteFile(linksPath()+".tmp", b, 0o600) == nil {
+			_ = os.Rename(linksPath()+".tmp", linksPath())
 		}
 	}
-	for _, pid := range spawned {
-		for i, p := 0, tab.Procs[pid]; p != nil && i < 12; i, p = i+1, tab.Procs[p.PPID] {
-			if a := byPID[p.PPID]; a != nil {
-				a.Subs.Direct++
-				a.Subs.Spawned++
-				break
-			}
-		}
-	}
+	l.linksDirty = false
 }

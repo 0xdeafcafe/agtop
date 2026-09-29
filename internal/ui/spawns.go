@@ -10,6 +10,7 @@ import (
 
 	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/convo"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // An agent a session ran from its shell (claude -p, codex exec) wrote a
@@ -156,6 +157,10 @@ func (m *Model) onSpawnFound(msg spawnFoundMsg) {
 			r.hist = &history{kind: s.Kind, s: s}
 		}
 		c.paneKick = true // read it now, in the background
+		if m.loader != nil && len(s.ID) >= 8 && s.Profile.Name != "" {
+			// Its row is listed with this session's from now on.
+			m.loader.LinkSpawn(state.Key(s.Profile.Name, "i:"+s.ID[:8]), c.key)
+		}
 	}
 }
 
