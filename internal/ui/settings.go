@@ -248,6 +248,8 @@ type setting struct {
 	key   func(s string) (cmd tea.Cmd, used bool) // its own keys, before ←→
 	keys  []string                                // its own keys, for the key line
 	about func() (title, what, now string)        // About, when it's more than what and means
+	// preview draws what the setting changes, as it is now, under About.
+	preview func(w int) []string
 }
 
 // shown is how the value is shown.
@@ -432,6 +434,12 @@ func (m *Model) about(st setting, w int) []string {
 			out = append(out, body[i])
 		} else {
 			out = append(out, "")
+		}
+	}
+	if st.preview != nil {
+		out = append(out, rule("Preview", "as it looks now · ←→ to change it", w))
+		for _, l := range st.preview(w - 2) {
+			out = append(out, "  "+l)
 		}
 	}
 	return out

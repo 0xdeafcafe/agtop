@@ -1187,6 +1187,26 @@ const (
 	wAge  = 5
 )
 
+// listPreview is the Agents list as it would look now, for a setting that
+// changes it: its header and first rows of your own agents, drawn as the
+// list draws them, at the list's width or w when that's less.
+func (m *Model) listPreview(w, rows int) []string {
+	listW, _ := m.widths()
+	if listW == 0 {
+		listW = m.w
+	}
+	pw := min(listW, w)
+	scroll, keys := m.scroll, m.rowKeys
+	m.stackFor = listW
+	out := append([]string{m.columnHeader(pw)}, m.listLines(pw, rows)...)
+	m.stackFor = 0
+	m.scroll, m.rowKeys = scroll, keys
+	for len(out) < rows+1 {
+		out = append(out, "")
+	}
+	return out
+}
+
 func (m *Model) listLines(w, h int) []string {
 	nameCol := m.nameColumn(w)
 	two := m.stacked(w, nameCol)
@@ -1530,7 +1550,11 @@ func (m *Model) nameColumn(w int) int {
 // name, or takes no more of the screen than Config.StackAt: rows take two
 // lines then, the summary hung under the name.
 func (m *Model) stacked(w, nameCol int) bool {
-	if at := m.store.Config.StackPercent(); at > 0 && w*100 <= m.w*at {
+	share := w
+	if m.stackFor > 0 {
+		share = m.stackFor // a preview, narrower than the list it shows
+	}
+	if at := m.store.Config.StackPercent(); at > 0 && share*100 <= m.w*at {
 		return true
 	}
 	act, cpu, ram, tok, cost := colWidths(w)

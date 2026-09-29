@@ -224,6 +224,7 @@ type Model struct {
 	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
 	eff       effState        // the Efficiency place
 	work      workState       // the Projects place and the Agents place's Wall
+	stackFor  int             // the list width a preview decides two-line rows for
 	wall      wallState       // the Wall page
 	reaper    fleet.Reaper    // ends what agents leave running when they stop
 	squeezing bool            // transcripts are being compressed in the background

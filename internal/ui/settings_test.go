@@ -294,3 +294,31 @@ func TestNeedCells(t *testing.T) {
 		t.Fatalf("needCells = %q, want %q", got, want)
 	}
 }
+
+// A setting that changes the Agents list shows it under About, as it will
+// look: two-line rows always, then one line wherever it fits.
+func TestSettingPreviewsTheList(t *testing.T) {
+	m, _ := benchModel(200, 60)
+	m.store.Config.SetView("list") // the list alone, wide enough for one-line rows
+	m.full, m.preview = false, false
+	m.setView(placeSettings)
+	m.setSettingsPage(pageGeneral)
+	var stack setting
+	for i, r := range flat(m.generalSections()) {
+		if r.label == "Two-line rows" {
+			m.dialog.cursor, stack = i, r
+		}
+	}
+	if stack.preview == nil {
+		t.Fatal("Two-line rows has no preview")
+	}
+	shown := func() string { return ansi.Strip(strings.Join(m.dialogBody(190), "\n")) }
+	m.store.Config.StackAt = 100
+	if !strings.Contains(shown(), "╰ ") {
+		t.Errorf("always: no second lines in the preview:\n%s", shown())
+	}
+	m.store.Config.StackAt = -1
+	if strings.Contains(shown(), "  ╰ ") {
+		t.Errorf("narrow only, on a wide list: second lines in the preview:\n%s", shown())
+	}
+}

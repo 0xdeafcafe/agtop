@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"github.com/0xdeafcafe/rush/internal/cellw"
+
 	"fmt"
 
 	"github.com/0xdeafcafe/rush/internal/convo"
@@ -150,6 +152,19 @@ func (m *Model) interfaceSections() []section {
 			{"asks first", "asks whether to stop the message: y stops it, ! stops it and stops asking."},
 			{"stops it", "stops the message straight away."},
 		}, func(v string) { c.StopTurnUnasked = v == "stops it" })
+
+	// What changes the Agents list shows it, as it will look.
+	listPreview := func(w int) []string {
+		lines := m.listPreview(w-4, 8)
+		bw := 0
+		for _, l := range lines {
+			bw = max(bw, cellw.String(l))
+		}
+		return pbox(paint(cText+bold, "Agents"), dim("your own, as the list shows them"), lines, bw+4, false)
+	}
+	for _, st := range []*setting{&view, &theme, &colours, &group, &split, &sortBy, &stack} {
+		st.preview = listPreview
+	}
 
 	return []section{
 		{title: "Look", rows: []setting{view, theme, colours, spaces}},
