@@ -2319,6 +2319,14 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.leavePane()
 		}
 		return nil
+	case "super+c":
+		// cmd+c, when the terminal hands it over: the text dragged over in
+		// the conversation, unless the box has a selection of its own,
+		// which the editor below copies.
+		if c.txt.on && (c.anchor == 0 || c.anchor-1 == len(c.input)-c.back) {
+			m.copyText(selectedText(c.shown, c.txt.a, c.txt.b, c.paneW))
+			return nil
+		}
 	case "ctrl+c":
 		switch {
 		case c.anchor > 0 && c.anchor-1 != len(c.input)-c.back:
@@ -2638,7 +2646,8 @@ func (m *Model) dragBox(x, y int) {
 }
 
 // endBoxDrag finishes a drag in an input box: what it selected goes to the
-// clipboard, as a terminal's own selection would.
+// clipboard, as a terminal's own selection would, unless CopyOnSelect is
+// off: then it stays selected.
 func (m *Model) endBoxDrag() {
 	var buf []rune
 	var pos, anchor int
@@ -2651,7 +2660,9 @@ func (m *Model) endBoxDrag() {
 	drag := m.boxDrag
 	m.boxDrag = 0
 	if anchor >= 0 && anchor != pos && anchor <= len(buf) {
-		m.copyText(string(buf[min(anchor, pos):max(anchor, pos)]))
+		if m.store.Config.CopiesOnSelect() {
+			m.copyText(string(buf[min(anchor, pos):max(anchor, pos)]))
+		}
 		return
 	}
 	// A plain click leaves no selection behind.

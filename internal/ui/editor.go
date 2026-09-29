@@ -180,7 +180,7 @@ func editSel(buf []rune, pos, anchor int, k tea.KeyPressMsg, s string) (nbuf []r
 	from, to := min(anchor, pos), max(anchor, pos)
 	if has {
 		switch {
-		case s == "ctrl+c":
+		case s == "ctrl+c" || s == "super+c":
 			return buf, pos, -1, string(buf[from:to]), true
 		case s == "backspace" || s == "delete" || s == "ctrl+h":
 			return cut(buf, from, to), from, -1, "", true

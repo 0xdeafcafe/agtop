@@ -11,6 +11,7 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/host"
+	"github.com/0xdeafcafe/agtop/internal/state"
 )
 
 // press types s as keys: "ctrl+left", or plain text wrapped in quotes.
@@ -324,5 +325,33 @@ func TestDropGoesWhereItFalls(t *testing.T) {
 	m.focusAt(40, 10) // the edge between them
 	if m.paneFocus {
 		t.Fatal("a drop on the edge moved the keys")
+	}
+}
+
+// cmd+c copies a selection in a box, as ctrl+c does.
+func TestSuperCCopiesTheSelection(t *testing.T) {
+	buf := []rune("hello world")
+	_, _, anchor, copied, ok := editSel(buf, 5, 0, tea.KeyPressMsg{}, "super+c")
+	if !ok || copied != "hello" || anchor != -1 {
+		t.Fatalf("copied %q, anchor %d, ok %v", copied, anchor, ok)
+	}
+}
+
+// With copy on select off, a drag in the box leaves its selection for
+// cmd+c rather than copying.
+func TestBoxDragKeepsTheSelection(t *testing.T) {
+	off := false
+	m := &Model{store: &state.Store{}}
+	m.store.Config.CopyOnSelect = &off
+	m.input, m.back, m.anchor, m.boxDrag = []rune("hello world"), 6, 1, 2
+	m.endBoxDrag()
+	if m.pendingCopy != "" || m.anchor != 1 {
+		t.Fatalf("copied %q, anchor %d", m.pendingCopy, m.anchor)
+	}
+	m.store.Config.CopyOnSelect = nil
+	m.boxDrag = 2
+	m.endBoxDrag()
+	if m.pendingCopy != "hello" {
+		t.Fatalf("on, it copies: %q", m.pendingCopy)
 	}
 }
