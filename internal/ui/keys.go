@@ -327,13 +327,13 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "pgdown", "ctrl+d":
 		m.move(10)
 		return m.loadPreview()
-	case "home":
-		if empty {
+	case "home", "shift+up":
+		if empty || s == "shift+up" {
 			m.move(-len(m.lines))
 			return m.loadPreview()
 		}
-	case "end":
-		if empty {
+	case "end", "shift+down":
+		if empty || s == "shift+down" {
 			m.move(len(m.lines))
 			return m.loadPreview()
 		}
@@ -482,16 +482,6 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "alt+g":
 		// Go on: what "keep going" in its message box would do.
 		return m.keepGoing(a)
-	case "shift+up", "shift+down":
-		n := m.dockLines()
-		if s == "shift+up" {
-			n++
-		} else {
-			n--
-		}
-		m.store.Config.DockLines = min(max(n, 1), 15)
-		_ = m.store.SaveConfig()
-		return nil
 	case "[", "]":
 		if empty && a != nil {
 			if c := m.host; c != nil && c.key == a.Key {
