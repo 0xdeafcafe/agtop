@@ -98,7 +98,8 @@ func (m *Model) showProfile(name string) bool {
 // there's more than one.
 func (m *Model) sessionTag(a *fleet.Agent) string {
 	k := agent.Kind(a.Kind)
-	parts := []string{providerTag(k)}
+	// Ollama in Pi says so, not Ollama-pi.
+	parts := []string{providerTag(agent.Kind(agent.ProviderOf(k))) + dim(runsInWords(k))}
 	if acct := m.accountOf(k); acct != "" {
 		parts = append(parts, dim(acct))
 	}
