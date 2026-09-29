@@ -26,7 +26,6 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/fswait"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 	"github.com/0xdeafcafe/agtop/internal/jsonx"
 )
@@ -335,7 +334,7 @@ func (m *Model) readSub() {
 	}
 	if st := c.sess.Step(c.subToolUse()); st != nil && st.Status != convo.Running {
 		if live := c.subTail.Sess.Live(); live != nil {
-			c.subTail.Sess.Apply(headless.Result{Subtype: "success"}, time.Now())
+			c.subTail.Sess.Apply(event.TurnEnd{Reason: "done"}, time.Now())
 		}
 	}
 }
@@ -940,11 +939,11 @@ type hostConn struct {
 	artsKey   string
 	mem       []memFile // the memory view's files, and when they were read
 	memAt     time.Time
-	memReport *claude.MemReport  // the memory view's checks, read with its files
-	memTop    int                // the first of them in view
-	memEd     *docEditor         // the picked file, open in the editor below them
-	memEdit   bool               // the editor has the keys
-	local     []headless.Command // custom commands and skills on disk
+	memReport *claude.MemReport // the memory view's checks, read with its files
+	memTop    int               // the first of them in view
+	memEd     *docEditor        // the picked file, open in the editor below them
+	memEdit   bool              // the editor has the keys
+	local     []event.Command   // custom commands and skills on disk
 	skills    map[string]bool
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
 	// waiting for an answer; only then do plain letters and digits answer.
@@ -1297,7 +1296,7 @@ func (m *Model) followTail() {
 		return
 	}
 	if live := c.sess.Live(); live != nil && !a.Live() {
-		c.sess.Apply(headless.Result{Subtype: "success"}, time.Now())
+		c.sess.Apply(event.TurnEnd{Reason: "done"}, time.Now())
 	}
 	c.sess.Info.Cwd = a.Cwd
 	c.sess.Info.CostUSD = a.Spend.Cost

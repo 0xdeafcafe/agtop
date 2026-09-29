@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 )
 
 // agtop's own commands start with #, so / is always Claude's: in the
@@ -19,7 +19,7 @@ import (
 
 // fleetCommands are agtop's # commands, the ones command() runs. A hint in
 // <> needs an argument; one in [] can go without.
-var fleetCommands = []headless.Command{
+var fleetCommands = []event.Command{
 	{Name: "done", Description: "move the agent to Done (alt+d); its idle process stops"},
 	{Name: "go", Description: "tell the agent to keep going (alt+g); after an error, to continue"},
 	{Name: "stop", Description: "stop the agent"},
@@ -137,8 +137,8 @@ func (m *Model) fleetArgs(name string) (opts []string, now string) {
 
 // filterCommands keeps the commands whose name contains q, those starting
 // with it first. An argument hint leads the description.
-func filterCommands(q string, lists ...[]headless.Command) []headless.Command {
-	var out []headless.Command
+func filterCommands(q string, lists ...[]event.Command) []event.Command {
+	var out []event.Command
 	seen := map[string]bool{}
 	for _, list := range lists {
 		for _, cmd := range list {
@@ -165,7 +165,7 @@ func filterCommands(q string, lists ...[]headless.Command) []headless.Command {
 // hashMatches is what the picker offers for a # command being typed: the
 // commands containing what's typed, or after a space, the command's
 // choices.
-func (m *Model) hashMatches(in []rune, back int) []headless.Command {
+func (m *Model) hashMatches(in []rune, back int) []event.Command {
 	text := string(in)
 	if back != 0 || !strings.HasPrefix(text, "#") || strings.ContainsAny(text, "\n") ||
 		len(in) > 1 && !unicode.IsLetter(in[1]) {
@@ -179,7 +179,7 @@ func (m *Model) hashMatches(in []rune, back int) []headless.Command {
 	if strings.Contains(q, " ") {
 		return nil
 	}
-	var out []headless.Command
+	var out []event.Command
 	for _, o := range opts {
 		if !strings.HasPrefix(strings.ToLower(o), strings.ToLower(q)) {
 			continue
@@ -188,7 +188,7 @@ func (m *Model) hashMatches(in []rune, back int) []headless.Command {
 		if o == now {
 			d = "now"
 		}
-		out = append(out, headless.Command{Name: name + " " + o, Description: d})
+		out = append(out, event.Command{Name: name + " " + o, Description: d})
 	}
 	return out
 }
@@ -202,7 +202,7 @@ func (m *Model) newSessionCommands() []claude.Command {
 
 // promptPicker is what the Prompt's picker offers, and the prefix its
 // commands take: # for agtop's, / for a new session's.
-func (m *Model) promptPicker() ([]headless.Command, string) {
+func (m *Model) promptPicker() ([]event.Command, string) {
 	if m.inKind != inPrompt || m.sessionFocused() || !m.acceptsText() {
 		return nil, ""
 	}
@@ -213,9 +213,9 @@ func (m *Model) promptPicker() ([]headless.Command, string) {
 	if m.back != 0 || !strings.HasPrefix(text, "/") || strings.ContainsAny(text[1:], " \n/") {
 		return nil, ""
 	}
-	var list []headless.Command
+	var list []event.Command
 	for _, f := range m.newSessionCommands() {
-		list = append(list, headless.Command{Name: f.Name, Description: f.Description, ArgumentHint: f.ArgumentHint})
+		list = append(list, event.Command{Name: f.Name, Description: f.Description, ArgumentHint: f.ArgumentHint})
 	}
 	return filterCommands(strings.ToLower(text[1:]), list), "/"
 }
@@ -311,11 +311,11 @@ func roundMove(cur, d, n int) int {
 }
 
 // needsArg is whether a picked command can't run without an argument.
-func needsArg(c headless.Command) bool { return strings.HasPrefix(c.ArgumentHint, "<") }
+func needsArg(c event.Command) bool { return strings.HasPrefix(c.ArgumentHint, "<") }
 
 // completed is the box's text once a command is picked: with a space to
 // type its argument after when it takes one, or always with tab.
-func completed(lead string, c headless.Command, tab bool) []rune {
+func completed(lead string, c event.Command, tab bool) []rune {
 	out := []rune(lead + c.Name)
 	if needsArg(c) || tab && c.ArgumentHint != "" {
 		out = append(out, ' ')

@@ -2,7 +2,7 @@ package ui
 
 import (
 	"github.com/0xdeafcafe/agtop/internal/agent"
-	"github.com/0xdeafcafe/agtop/internal/headless"
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 )
 
 // commandNeeds are agtop's session commands only some agents can do, and
@@ -28,8 +28,8 @@ func canRun(c *hostConn, name string) bool {
 func ownScreens(c *hostConn) bool { return agent.Supports(sessionAgent(c), agent.FeatureScreen) }
 
 // sessionCommands are agtop's commands this session's agent can do.
-func sessionCommands(c *hostConn) []headless.Command {
-	var out []headless.Command
+func sessionCommands(c *hostConn) []event.Command {
+	var out []event.Command
 	for _, cmd := range agtopCommands {
 		if canRun(c, cmd.Name) {
 			out = append(out, cmd)

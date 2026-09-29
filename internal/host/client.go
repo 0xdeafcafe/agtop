@@ -217,7 +217,7 @@ type Sent struct {
 type Stamp struct{ At time.Time }
 
 // Commands lists the session's slash commands.
-type Commands struct{ Commands []headless.Command }
+type Commands struct{ Commands []event.Command }
 
 // Reply answers a control request a client passed through with Ask: ID is
 // the client's own.
@@ -247,7 +247,7 @@ func Decode(line []byte) (any, error) {
 		Sent      bool                   `json:"agtop_sent"`
 		Images    []string               `json:"agtop_images"`
 		Message   jsontext.Value         `json:"message"`
-		Commands  []headless.Command     `json:"commands"`
+		Commands  []wireCommand          `json:"commands"`
 		Context   *headless.ContextUsage `json:"context"`
 		ID        string                 `json:"id"`
 		Reply     jsontext.Value         `json:"reply"`
@@ -265,7 +265,11 @@ func Decode(line []byte) (any, error) {
 	case "agtop_error":
 		return ErrorEvent{Error: head.Error}, nil
 	case typeCommands:
-		return Commands{Commands: head.Commands}, nil
+		list := make([]event.Command, len(head.Commands))
+		for i, c := range head.Commands {
+			list[i] = event.Command(c)
+		}
+		return Commands{Commands: list}, nil
 	case typeReply:
 		return Reply{ID: head.ID, Body: head.Reply, Error: head.Error}, nil
 	case typeContext:

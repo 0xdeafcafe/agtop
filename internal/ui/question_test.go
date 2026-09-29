@@ -198,7 +198,7 @@ func TestZenQueue(t *testing.T) {
 
 func TestSlashQueueTasks(t *testing.T) {
 	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
-	c.sess.Commands = []headless.Command{{Name: "compact", Description: "summarise"}, {Name: "context"}, {Name: "code-review"}}
+	c.sess.Commands = []event.Command{{Name: "compact", Description: "summarise"}, {Name: "context"}, {Name: "code-review"}}
 	c.input = []rune("/co")
 	names := func() (out []string) {
 		for _, x := range slashMatches(c) {
@@ -326,7 +326,7 @@ func TestClaudeScreensAndFork(t *testing.T) {
 
 func TestSlashMidMessage(t *testing.T) {
 	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
-	c.local = []headless.Command{{Name: "design:design-critique"}, {Name: "pdf"}}
+	c.local = []event.Command{{Name: "design:design-critique"}, {Name: "pdf"}}
 	c.input = []rune("please /crit this")
 	c.back = len(" this")
 	got := slashMatches(c)

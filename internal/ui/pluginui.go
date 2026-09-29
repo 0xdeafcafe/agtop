@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/hooks"
 	"github.com/0xdeafcafe/agtop/internal/keymap"
 	"github.com/0xdeafcafe/agtop/internal/netwatch"
@@ -139,14 +139,14 @@ func (m *Model) pluginKeys() map[string][]string {
 }
 
 // pluginHashCommands are plugins' commands as # commands: #haven.open.
-func (m *Model) pluginHashCommands() []headless.Command {
+func (m *Model) pluginHashCommands() []event.Command {
 	if m.hooks == nil {
 		return nil
 	}
-	var out []headless.Command
+	var out []event.Command
 	for _, p := range m.hooks.State().Plugins {
 		for _, c := range p.Commands {
-			out = append(out, headless.Command{Name: p.Name + "." + c.Name, Description: c.Description + " (" + p.Name + ")"})
+			out = append(out, event.Command{Name: p.Name + "." + c.Name, Description: c.Description + " (" + p.Name + ")"})
 		}
 	}
 	return out

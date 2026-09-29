@@ -12,10 +12,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/state"
 	"github.com/0xdeafcafe/agtop/internal/statusline"
 )
@@ -145,7 +145,7 @@ func TestStatusSheet(t *testing.T) {
 // not /reload-plugins, which also contains the word.
 func TestSlashAliasComesFirst(t *testing.T) {
 	c := &hostConn{sess: convo.New(), open: map[string]bool{}}
-	c.sess.Commands = []headless.Command{{Name: "reload-plugins"}, {Name: "compact"}}
+	c.sess.Commands = []event.Command{{Name: "reload-plugins"}, {Name: "compact"}}
 	c.input = []rune("/plugins")
 	if got := slashMatches(c); len(got) < 2 || got[0].Name != "plugin" {
 		t.Fatalf("/plugins: %v", got)

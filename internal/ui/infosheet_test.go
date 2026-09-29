@@ -31,7 +31,7 @@ func infoModel(t *testing.T) (*Model, *hostConn) {
 	c := &hostConn{key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	c.sess.Model, c.sess.Version = "claude-opus-5-5", "2.1.280"
 	c.sess.MCP = []event.MCPServer{{Name: "agtop", Status: "connected"}, {Name: "linear", Status: "failed"}}
-	c.sess.Commands = []headless.Command{{Name: "compact"}}
+	c.sess.Commands = []event.Command{{Name: "compact"}}
 	m.host = c
 	return m, c
 }

@@ -14,10 +14,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/agtop/internal/actions"
+	"github.com/0xdeafcafe/agtop/internal/agent/event"
 	"github.com/0xdeafcafe/agtop/internal/claude"
 	"github.com/0xdeafcafe/agtop/internal/convo"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
-	"github.com/0xdeafcafe/agtop/internal/headless"
 	"github.com/0xdeafcafe/agtop/internal/host"
 )
 
@@ -387,7 +387,7 @@ func (m *Model) taskLines(c *hostConn, o convo.Options) []convo.Line {
 // They keep Claude Code's / names; agtop's other commands take # (see
 // fleetCommands). Claude Code's that agtop already does its own way run
 // agtop's (/diff opens the changes view, /cd moves the agent, …).
-var agtopCommands = []headless.Command{
+var agtopCommands = []event.Command{
 	{Name: "clear", Description: "start a fresh session in the same folder (this one stays in the list)"},
 	{Name: "fork", Description: "carry on in a copy of this conversation, as a new agent (this one stays as it is)", ArgumentHint: "[name]"},
 	{Name: "rewind", Description: "go back to before one of your messages and try again; the path you leave is kept as a branch"},
@@ -418,7 +418,7 @@ var agtopAliases = map[string]string{"bashes": "tasks", "bg": "background", "con
 // itself (agtopScreens); the rest hand the terminal to Claude Code on that
 // screen, and come back when you leave it. Given arguments, /mcp and
 // /config go to Claude as usual.
-var claudeScreens = []headless.Command{
+var claudeScreens = []event.Command{
 	{Name: "status", Description: "this agent, its account, Claude Code's version and MCP servers"},
 	{Name: "context", Description: "what fills the context window, by category"},
 	{Name: "usage", Description: "the plan's 5-hour and weekly limits, and what's been spent"},
@@ -444,7 +444,7 @@ var screenAliases = map[string]string{"plugins": "plugin", "marketplace": "plugi
 // claudeCloud are Claude Code's screens for your account and Claude's
 // cloud, which agtop leaves to Claude Code: named claude:<name> in the
 // picker, they open a real Claude Code after saying so (claudeSheet).
-var claudeCloud = []headless.Command{
+var claudeCloud = []event.Command{
 	{Name: "login", Description: "sign in to an Anthropic account"},
 	{Name: "logout", Description: "sign out"},
 	{Name: "upgrade", Description: "upgrade the plan for higher limits"},
@@ -485,12 +485,12 @@ func claudeCloudName(name string) (string, bool) {
 	if n, ok := cloudAliases[name]; ok {
 		name = n
 	}
-	return name, slices.ContainsFunc(claudeCloud, func(c headless.Command) bool { return c.Name == name })
+	return name, slices.ContainsFunc(claudeCloud, func(c event.Command) bool { return c.Name == name })
 }
 
 // claudeCloudPicks is claudeCloud as the picker offers it: claude:login.
-var claudeCloudPicks = func() []headless.Command {
-	var out []headless.Command
+var claudeCloudPicks = func() []event.Command {
+	out := make([]event.Command, 0, len(claudeCloud))
 	for _, c := range claudeCloud {
 		c.Name = "claude:" + c.Name
 		out = append(out, c)
@@ -518,7 +518,7 @@ func claudeScreen(name string) (string, bool) {
 	if n, ok := screenAliases[name]; ok {
 		name = n
 	}
-	ok := slices.ContainsFunc(claudeScreens, func(c headless.Command) bool { return c.Name == name })
+	ok := slices.ContainsFunc(claudeScreens, func(c event.Command) bool { return c.Name == name })
 	return name, ok
 }
 
@@ -547,26 +547,26 @@ func slashWord(c *hostConn) (start, end int, q string, ok bool) {
 // slashMatches is what the picker offers for the /word at the cursor:
 // agtop's own commands (at the start of a message only), the session's,
 // then the custom commands and skills found on disk.
-func slashMatches(c *hostConn) []headless.Command {
+func slashMatches(c *hostConn) []event.Command {
 	start, _, q, ok := slashWord(c)
 	if !ok {
 		return nil
 	}
-	lists := [][]headless.Command{c.sess.Commands, c.local}
+	lists := [][]event.Command{c.sess.Commands, c.local}
 	switch {
 	case start == 0 && !ownScreens(c):
 		// Claude Code's screens are its own, not another agent's.
-		lists = append([][]headless.Command{sessionCommands(c)}, lists...)
+		lists = append([][]event.Command{sessionCommands(c)}, lists...)
 	case start == 0:
-		lists = append([][]headless.Command{sessionCommands(c), claudeScreens}, lists...)
+		lists = append([][]event.Command{sessionCommands(c), claudeScreens}, lists...)
 		lists = append(lists, claudeCloudPicks)
 	}
-	var out []headless.Command
+	var out []event.Command
 	seen := map[string]bool{}
 	// Another name for one of Claude Code's screens (/plugins, /bug) finds
 	// it first.
 	if name, ok := screenAliases[q]; ok && start == 0 {
-		if i := slices.IndexFunc(claudeScreens, func(c headless.Command) bool { return c.Name == name }); i >= 0 {
+		if i := slices.IndexFunc(claudeScreens, func(c event.Command) bool { return c.Name == name }); i >= 0 {
 			seen[name] = true
 			out = append(out, claudeScreens[i])
 		}
@@ -591,7 +591,7 @@ func slashMatches(c *hostConn) []headless.Command {
 		}
 	}
 	// What you typed exactly, then names starting with it, then the rest.
-	rank := func(c headless.Command) int {
+	rank := func(c event.Command) int {
 		n := strings.TrimPrefix(strings.ToLower(c.Name), "claude:")
 		switch {
 		case n == q || screenAliases[q] == c.Name:
@@ -616,7 +616,7 @@ func (m *Model) loadLocal(c *hostConn) {
 	found := claude.Commands(firstNonEmpty(a.Acct.Dir, claude.DefaultAccount().ConfigDir), cwd)
 	c.local, c.skills = c.local[:0], map[string]bool{}
 	for _, f := range found {
-		c.local = append(c.local, headless.Command{Name: f.Name, Description: f.Description, ArgumentHint: f.ArgumentHint})
+		c.local = append(c.local, event.Command{Name: f.Name, Description: f.Description, ArgumentHint: f.ArgumentHint})
 		if f.Skill {
 			c.skills[f.Name] = true
 		}
@@ -624,7 +624,7 @@ func (m *Model) loadLocal(c *hostConn) {
 }
 
 // argChoices are what /model and /effort offer once you've typed a space.
-var argChoices = map[string][]headless.Command{
+var argChoices = map[string][]event.Command{
 	"model": {
 		{Name: "opus", Description: "most capable"},
 		{Name: "opus[1m]", Description: "Opus with a 1M-token context"},
@@ -640,7 +640,7 @@ var argChoices = map[string][]headless.Command{
 
 // argMatches is the picker for a command's argument: "/model so" offers
 // the models starting with so, the current one marked.
-func argMatches(c *hostConn) []headless.Command {
+func argMatches(c *hostConn) []event.Command {
 	text := string(c.input)
 	if c.back != 0 || !strings.HasPrefix(text, "/") || strings.ContainsAny(text, "\n") {
 		return nil
@@ -654,7 +654,7 @@ func argMatches(c *hostConn) []headless.Command {
 	if name == "effort" {
 		now = c.sess.Info.Effort
 	}
-	var out []headless.Command
+	var out []event.Command
 	for _, o := range opts {
 		if !strings.HasPrefix(o.Name, strings.ToLower(q)) {
 			continue
@@ -663,7 +663,7 @@ func argMatches(c *hostConn) []headless.Command {
 		if now != "" && (now == o.Name || name == "model" && strings.Contains(now, strings.TrimSuffix(o.Name, "[1m]"))) {
 			d = strings.TrimPrefix(d+" · now", " · ")
 		}
-		out = append(out, headless.Command{Name: name + " " + o.Name, Description: d})
+		out = append(out, event.Command{Name: name + " " + o.Name, Description: d})
 	}
 	return out
 }
@@ -689,11 +689,11 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 	st, _, _, _ := slashWord(c)
 	tag := func(name string) string {
 		switch {
-		case slices.ContainsFunc(agtopCommands, func(a headless.Command) bool { return a.Name == name }):
+		case slices.ContainsFunc(agtopCommands, func(a event.Command) bool { return a.Name == name }):
 			return paint(cOrange, " agtop")
 		case st == 0 && agtopScreens[name]:
 			return paint(cOrange, " agtop")
-		case st == 0 && (strings.HasPrefix(name, "claude:") || slices.ContainsFunc(claudeScreens, func(a headless.Command) bool { return a.Name == name })):
+		case st == 0 && (strings.HasPrefix(name, "claude:") || slices.ContainsFunc(claudeScreens, func(a event.Command) bool { return a.Name == name })):
 			return paint(cSub, " claude code ↗")
 		case c.skills[name]:
 			return paint(cBlue, " skill")
@@ -709,7 +709,7 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 
 // pickerRows draws a command picker: up to six commands around the
 // selected one, then a row saying how to use it.
-func pickerRows(cmds []headless.Command, sel, w int, lead string, tag func(string) string, how string) []string {
+func pickerRows(cmds []event.Command, sel, w int, lead string, tag func(string) string, how string) []string {
 	start := max(0, sel-5)
 	end := min(len(cmds), start+6)
 	nameW := 0
@@ -982,8 +982,8 @@ func (m *Model) askUnknown(c *hostConn, text string, send func() tea.Cmd) bool {
 	if _, ok := claudeCloudName(name); ok || offCommands[name] != "" || agtopAliases[name] != "" || screenAliases[name] != "" {
 		return false
 	}
-	for _, list := range [][]headless.Command{agtopCommands, claudeScreens, c.sess.Commands, c.local} {
-		if slices.ContainsFunc(list, func(k headless.Command) bool { return strings.EqualFold(k.Name, name) }) {
+	for _, list := range [][]event.Command{agtopCommands, claudeScreens, c.sess.Commands, c.local} {
+		if slices.ContainsFunc(list, func(k event.Command) bool { return strings.EqualFold(k.Name, name) }) {
 			return false
 		}
 	}

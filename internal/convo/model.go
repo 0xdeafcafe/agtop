@@ -215,7 +215,7 @@ type ToolStat struct {
 type Session struct {
 	Turns    []*Turn
 	Info     host.Info
-	Commands []headless.Command
+	Commands []event.Command
 	Tasks    []Task
 	Model    string
 	Cwd      string // where Claude Code says it's running
