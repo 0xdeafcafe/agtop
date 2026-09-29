@@ -240,25 +240,26 @@ func (m *Model) autoSwitch() tea.Cmd {
 	if cfg.Default().Limit() == state.LimitWait && !stopped {
 		return nil
 	}
+	if stopped && m.hasRoom() && len(m.snap.Logins) > 1 {
+		// Stopped under a login rush has switched away from since (by
+		// another rush, or before this one could say): the one in use has
+		// room, so they carry on in it, and no other login is picked.
+		if time.Since(m.resumedAt) < time.Minute {
+			return nil
+		}
+		m.resumedAt = time.Now()
+		return func() tea.Msg {
+			n, _ := reloginHosts(root.Name, cfg)
+			if n == 0 {
+				return nil
+			}
+			return doneMsg{text: fmt.Sprintf("%d stopped by a usage limit carry on, on the account now in use", n)}
+		}
+	}
 	to, ok := fleet.NextLogin(m.snap.Logins, stopped)
 	if len(m.snap.Logins) < 2 || !ok {
 		if stopped && !m.hasRoom() {
 			return m.handOffStopped()
-		}
-		if len(m.snap.Logins) < 2 {
-			return nil
-		}
-		if stopped && m.hasRoom() && time.Since(m.resumedAt) > time.Minute {
-			// Stopped under a login ~/.claude has been switched away from
-			// since (by another rush, or before this one could say).
-			m.resumedAt = time.Now()
-			return func() tea.Msg {
-				n, _ := reloginHosts(root.Name, cfg)
-				if n == 0 {
-					return nil
-				}
-				return doneMsg{text: fmt.Sprintf("%d stopped by a usage limit carry on, on the account now in use", n)}
-			}
 		}
 		return nil
 	}
@@ -336,7 +337,7 @@ func reloginHosts(root string, cfg state.Config) (resumed, waiting int) { //noli
 		}
 		err = c.Relogin()
 		if err == nil && info.Limit != nil && stillLimited(info.ID) {
-			err = restartClaude(c, info, "continue")
+			err = restartClaude(c, info, host.LimitContinue)
 		}
 		switch {
 		case err != nil:
@@ -487,7 +488,7 @@ func replaceHost(info host.Info, carryOn bool) error {
 	}
 	text := strings.Join(info.Queue, "\n\n")
 	if text == "" && info.Limit != nil && carryOn {
-		text = "continue"
+		text = host.LimitContinue
 	}
 	if text == "" {
 		return nil

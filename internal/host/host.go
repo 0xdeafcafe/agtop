@@ -922,9 +922,15 @@ func (s *server) relogin(conn agent.Conn) {
 	if len(s.info.Queue) > 0 && !s.info.QueueHeld {
 		s.sendQueue()
 	} else {
-		_ = s.sendLocked("continue")
+		_ = s.sendLocked(LimitContinue)
 	}
 }
+
+// LimitContinue is what a session a usage limit stopped is sent once it's
+// moved to an account with room: a bare "continue" leaves the agent
+// thinking the limit still holds, and waiting for it to reset.
+const LimitContinue = "continue: you're on another account now, with room, so the usage limit no longer applies. " +
+	"Starting again stopped any background work and subagents that were running; start again whatever is still needed."
 
 // reloginWhenQuiet rests an idle agent due to move to another account once
 // it has no work of its own running, looking again every quietCheck. What's

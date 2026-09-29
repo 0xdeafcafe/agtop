@@ -286,3 +286,16 @@ func TestUpcomingAccountInHeader(t *testing.T) {
 		t.Fatal("upcoming shown with nowhere to go")
 	}
 }
+
+// A session stopped by a limit on a login rush has since switched away
+// from carries on in the one now in use, when that one has room, rather
+// than setting off a switch to yet another login.
+func TestStoppedOnOldLoginStays(t *testing.T) {
+	m, _ := accountsModel(t)
+	a := &fleet.Agent{Key: "k1", Rush: true, Kind: "claude", Account: m.store.Config.ActiveAccount().Name, Detail: "usage limit · resets 00:20"}
+	m.snap.Agents = []*fleet.Agent{a}
+	m.autoSwitch()
+	if m.resumedAt.IsZero() {
+		t.Fatal("stopped sessions weren't moved to the login in use, at 40%")
+	}
+}
