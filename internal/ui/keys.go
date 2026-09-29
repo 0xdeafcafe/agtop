@@ -414,11 +414,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 	case "ctrl+l":
-		// The same folder dialog either way. Drafting a new session, or
-		// nothing selected: where it starts. Otherwise: where the selected
-		// agent works.
-		drafting := !empty && m.inKind == inPrompt && !isHashCmd(string(m.input))
-		if drafting || a == nil {
+		// In the list's Prompt, typed or not: where new sessions start.
+		// Moving the selected agent is #cd.
+		if m.inKind == inPrompt && !isHashCmd(string(m.input)) || a == nil {
 			m.openDirPicker()
 			return nil
 		}
