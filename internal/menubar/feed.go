@@ -21,7 +21,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
@@ -171,8 +170,8 @@ func Feed(in io.Reader, out io.Writer) error {
 	done := make(chan struct{})
 	errs := make(chan string, 8)
 	type reading struct {
-		dir string
-		u   claude.Usage
+		key string
+		u   usage.Reading
 	}
 	fetched := make(chan reading, 8)
 	go func() {
@@ -206,19 +205,23 @@ func Feed(in io.Reader, out io.Writer) error {
 	for {
 		if time.Since(usageAt) > time.Minute {
 			usageAt = time.Now()
-			go func() {
-				a := claude.Active(st.Config)
-				u := claude.RefreshUsage(usagePath, a, false)
-				fetched <- reading{claude.UsageKey(a, u), u}
-			}()
-			for _, lg := range st.Config.Logins {
-				go func() { fetched <- reading{lg.UsageKey(), fleet.RefreshLogin(usagePath, st.Config, lg, false)} }()
+			if pr, ok := agent.As[agent.PlanReader](agent.Kind(state.LoginsKind)); ok {
+				go func() {
+					p := st.Config.ActiveAccount().Profile()
+					u := pr.RefreshPlan(usagePath, p, false)
+					fetched <- reading{fleet.ReadingKey(p, u), u}
+				}()
+			}
+			if k, ok := state.Logins(); ok {
+				for _, lg := range st.Config.Logins {
+					go func() { fetched <- reading{lg.UsageKey(), k.RefreshLogin(usagePath, st.Config, lg, false)} }()
+				}
 			}
 		}
 		for drained := false; !drained; {
 			select {
 			case r := <-fetched:
-				l.SetFetched(r.dir, r.u)
+				l.SetFetched(r.key, r.u)
 			default:
 				drained = true
 			}

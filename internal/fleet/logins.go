@@ -1,20 +1,17 @@
 package fleet
 
 import (
-	"context"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // LoginView is one login with its plan usage.
 type LoginView struct {
-	claude.Login
-	Usage claude.Usage // who it is, and its plan
+	state.Login
+	Usage usage.Reading // who it is, and its plan
 	// Quota is the plan's limits, as Usage read them.
 	Quota   usage.Quota
 	Current bool // the one new sessions run as
@@ -25,11 +22,14 @@ type LoginView struct {
 // the one rush runs sessions as, in its home, or else ~/.claude's.
 func (l *Loader) logins(cfg state.Config, root AccountView, now time.Time) []LoginView {
 	var out []LoginView
-	using := claude.RunAccount(cfg)
+	var using string
+	if k, ok := state.Logins(); ok {
+		using = k.UsingLogin(cfg)
+	}
 	for _, lg := range cfg.Logins {
 		v := LoginView{Login: lg, Current: lg.ID != "" && lg.ID == root.Usage.AccountID}
-		if !using.IsDefault() {
-			v.Current = using.ConfigDir == claude.HomeOf(lg.ID).ConfigDir
+		if using != "" {
+			v.Current = using == lg.ID
 		}
 		f, ok := l.fetched[lg.UsageKey()]
 		switch {
@@ -48,127 +48,6 @@ func (l *Loader) logins(cfg state.Config, root AccountView, now time.Time) []Log
 		out = append(out, v)
 	}
 	return out
-}
-
-// Found is a login signed in somewhere rush looks, and the name it would
-// take: its folder's, for one found in an older ~/.claude-*.
-type Found struct {
-	Login claude.Login
-	Name  string
-}
-
-// Restored is what FindLogins put right: a Claude Code started before a
-// switch had put its account's sign-in back in ~/.claude.
-type Restored struct {
-	Was, Now string // the uuids of the account it had put back, and the one switched to again
-	Err      error  // why it couldn't be switched again, if it couldn't
-}
-
-// FindLogins keeps the sign-in ~/.claude holds now in the vault (Claude
-// Code replaces it as it refreshes) and reports it. It also takes in the
-// folders an older rush was given: each one's login is reported, its
-// sign-in put in the vault unless cfg says that was done already, and its
-// past sessions copied into ~/.claude, where they're found and resumed
-// like any other. imported is whether every older folder was taken in
-// whole, and cfg can forget them.
-// It fails when ~/.claude's sign-in can't be kept: without a copy rush
-// never switches away from it.
-//
-// A sign-in in ~/.claude that isn't the account it names was put back by
-// a Claude Code started before a switch, as it refreshed its own: the
-// switch is made again, and restored says so.
-func FindLogins(cfg state.Config) (found []Found, restored *Restored, imported bool, failed error) {
-	v := claude.TheVault()
-	root := claude.Active(cfg)
-	lg, owner, ok, err := v.Keep(root)
-	if ok && err == nil {
-		found = append(found, Found{Login: lg})
-	}
-	failed = err
-	// A home's sign-in is the newest of its login's: the vault keeps a
-	// copy, in case the home goes.
-	for _, l := range cfg.Logins {
-		if h := claude.HomeOf(l.ID); claude.HasHome(h) {
-			_, _, _, _ = v.Keep(h)
-		}
-	}
-	if ok && err == nil && owner != "" && putBack(owner, lg.ID) {
-		restored = &Restored{Was: owner, Now: lg.ID, Err: v.Use(root, lg)}
-		if restored.Err != nil {
-			// It can't be switched back: it's signed in as owner,
-			// so it says so.
-			for _, l := range cfg.Logins {
-				if l.ID == owner && len(l.Profile) > 0 {
-					_ = claude.Name(root, l)
-				}
-			}
-		}
-	}
-	imported = true
-	for _, f := range cfg.OldFolders() {
-		a := claude.Account(f)
-		if claude.MergeHistory(a, root) != nil {
-			imported = false
-		}
-		if cfg.FoldersImported {
-			continue
-		}
-		lg, cred, ok := claude.Signed(a)
-		if !ok {
-			continue
-		}
-		if _, err := v.Get(lg.ID); err != nil {
-			if v.Put(lg.ID, cred) != nil {
-				imported = false
-				continue
-			}
-		}
-		found = append(found, Found{Login: lg, Name: a.Name})
-	}
-	return found, restored, imported, failed
-}
-
-// mismatch is the sign-in found in ~/.claude as another account's than
-// it names, and when.
-var mismatch struct {
-	sync.Mutex
-	was, now string
-	at       time.Time
-}
-
-// putBack is whether ~/.claude signed in as was while naming now is a
-// switch put back rather than a sign-in under way (claude /login writes
-// the sign-in a moment before the name): it has to be seen twice, at least
-// half a minute apart.
-func putBack(was, now string) bool {
-	mismatch.Lock()
-	defer mismatch.Unlock()
-	if mismatch.was != was || mismatch.now != now || time.Since(mismatch.at) > 10*time.Minute {
-		mismatch.was, mismatch.now, mismatch.at = was, now, time.Now()
-		return false
-	}
-	return time.Since(mismatch.at) >= 30*time.Second
-}
-
-// RefreshLogin is a login's plan usage, shared through path like every
-// account's. It's asked with the login's freshest sign-in: ~/.claude's
-// when it's signed in as it, its home's when it has one, else the one the
-// vault kept.
-func RefreshLogin(path string, cfg state.Config, lg claude.Login, offline bool) claude.Usage {
-	root := claude.Active(cfg)
-	if claude.SignedInAs(root) == lg.ID {
-		return claude.RefreshUsage(path, root, offline)
-	}
-	if h := claude.HomeOf(lg.ID); claude.HasHome(h) {
-		return claude.RefreshUsage(path, h, offline)
-	}
-	return claude.RefreshUsageFor(path, lg.UsageKey(), offline, func(ctx context.Context) (claude.Usage, error) {
-		cred, err := state.Vault().Get(lg.ID)
-		if err != nil {
-			return claude.Usage{}, claude.ErrNotSignedIn
-		}
-		return claude.FetchUsageAs(ctx, cred, lg.ID)
-	})
 }
 
 // NextLogin is the login to switch to when the one in use is nearly out
@@ -194,7 +73,7 @@ func NextLogin(logins []LoginView, stopped bool) (LoginView, bool) {
 		return LoginView{}, false
 	}
 	used := cur.Quota.Used("")
-	fresh := time.Since(cur.Quota.FetchedAt) < 3*claude.UsageEvery
+	fresh := time.Since(cur.Quota.FetchedAt) < 3*usage.Every
 	if !stopped && !(fresh && used >= state.SwitchAt) {
 		return LoginView{}, false
 	}

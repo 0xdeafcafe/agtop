@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func loginAt(id string, current bool, fiveHour, sevenDay float64) LoginView {
 	return LoginView{
-		Login:   claude.Login{ID: id, Name: id},
+		Login:   state.Login{ID: id, Name: id},
 		Current: current,
 		Quota: claude.Usage{
 			FetchedAt: time.Now(),
@@ -55,7 +56,7 @@ func TestNextLogin(t *testing.T) {
 }
 
 func TestNextLoginSkipsLoginsWithoutReading(t *testing.T) {
-	unread := LoginView{Login: claude.Login{ID: "b"}}
+	unread := LoginView{Login: state.Login{ID: "b"}}
 	stale := loginAt("c", false, 0, 0)
 	stale.Quota.FetchedAt = time.Now().Add(-2 * time.Hour)
 	older := loginAt("e", false, 0, 0)
@@ -83,16 +84,16 @@ func TestFreshestSkipsOtherAccountsReading(t *testing.T) {
 	l := NewLoader(&state.Store{})
 	acct := claude.Account{Name: "default", ConfigDir: "/x"}
 	now := time.Now()
-	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "old", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 97}})
+	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "old", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 97}}.Reading())
 	l.takeIn()
 	cached := claude.Usage{AccountID: "new", FetchedAt: now.Add(-time.Minute), FiveHour: claude.Window{Present: true, Percent: 3}}
-	if u := l.freshest(acct, cached); u.AccountID != "new" || u.FiveHour.Percent != 3 {
-		t.Fatalf("got %s at %.0f%%, want new at 3%%", u.AccountID, u.FiveHour.Percent)
+	if u := l.freshest(acct.ConfigDir, cached.Reading()); u.AccountID != "new" || fiveHour(u) != 3 {
+		t.Fatalf("got %s at %.0f%%, want new at 3%%", u.AccountID, fiveHour(u))
 	}
-	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "new", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 5}})
+	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "new", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 5}}.Reading())
 	l.takeIn()
-	if u := l.freshest(acct, cached); u.FiveHour.Percent != 5 {
-		t.Fatalf("got %.0f%%, want the newer reading's 5%%", u.FiveHour.Percent)
+	if u := l.freshest(acct.ConfigDir, cached.Reading()); fiveHour(u) != 5 {
+		t.Fatalf("got %.0f%%, want the newer reading's 5%%", fiveHour(u))
 	}
 }
 
@@ -100,18 +101,18 @@ func TestLoginsUseOwnReadingAfterSwitch(t *testing.T) {
 	t.Setenv("RUSH_HOME", t.TempDir())
 	l := NewLoader(&state.Store{})
 	now := time.Now()
-	cfg := state.Config{Logins: []claude.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}
-	l.SetFetched("login:a", claude.Usage{AccountID: "a", FetchedAt: now.Add(-time.Minute), FiveHour: claude.Window{Present: true, Percent: 97}})
-	l.SetFetched("login:b", claude.Usage{AccountID: "b", FetchedAt: now.Add(-time.Minute), FiveHour: claude.Window{Present: true, Percent: 4}})
+	cfg := state.Config{Logins: []state.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}
+	l.SetFetched("login:a", claude.Usage{AccountID: "a", FetchedAt: now.Add(-time.Minute), FiveHour: claude.Window{Present: true, Percent: 97}}.Reading())
+	l.SetFetched("login:b", claude.Usage{AccountID: "b", FetchedAt: now.Add(-time.Minute), FiveHour: claude.Window{Present: true, Percent: 4}}.Reading())
 	l.takeIn()
 	// ~/.claude is now signed in as b, with a fresher reading of its own.
-	root := AccountView{Usage: claude.Usage{AccountID: "b", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 6}}}
+	root := AccountView{Usage: claude.Usage{AccountID: "b", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 6}}.Reading()}
 	got := l.logins(cfg, root, now)
-	if !got[1].Current || got[1].Usage.FiveHour.Percent != 6 {
-		t.Fatalf("b: current %v at %.0f%%, want current at 6%%", got[1].Current, got[1].Usage.FiveHour.Percent)
+	if !got[1].Current || fiveHour(got[1].Usage) != 6 {
+		t.Fatalf("b: current %v at %.0f%%, want current at 6%%", got[1].Current, fiveHour(got[1].Usage))
 	}
-	if got[0].Current || got[0].Usage.FiveHour.Percent != 97 {
-		t.Fatalf("a: current %v at %.0f%%, want its own 97%%", got[0].Current, got[0].Usage.FiveHour.Percent)
+	if got[0].Current || fiveHour(got[0].Usage) != 97 {
+		t.Fatalf("a: current %v at %.0f%%, want its own 97%%", got[0].Current, fiveHour(got[0].Usage))
 	}
 }
 
@@ -122,26 +123,13 @@ func TestFreshestTakesLoginReading(t *testing.T) {
 	l.UsagePath = filepath.Join(t.TempDir(), "usage.json")
 	acct := claude.Account{Name: "default", ConfigDir: "/x"}
 	now := time.Now()
-	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "a", FetchedAt: now.Add(-4 * time.Minute), FiveHour: claude.Window{Present: true, Percent: 90}})
+	l.SetFetched(acct.ConfigDir, claude.Usage{AccountID: "a", FetchedAt: now.Add(-4 * time.Minute), FiveHour: claude.Window{Present: true, Percent: 90}}.Reading())
 	l.takeIn()
 	_ = claude.RecordUsage(l.UsagePath, "login:a", claude.Usage{AccountID: "a", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 96}})
 	l.syncUsage()
 	cached := claude.Usage{AccountID: "a", FetchedAt: now.Add(-time.Hour)}
-	if u := l.freshest(acct, cached); u.FiveHour.Percent != 96 {
-		t.Fatalf("got %.0f%%, want the session's 96%%", u.FiveHour.Percent)
-	}
-}
-
-func TestPutBackNeedsTwoLooks(t *testing.T) {
-	if putBack("x", "y") {
-		t.Fatal("put right on the first look: it may be a sign-in under way")
-	}
-	mismatch.at = time.Now().Add(-time.Minute)
-	if !putBack("x", "y") {
-		t.Fatal("not put right on the second look")
-	}
-	if putBack("x", "z") {
-		t.Fatal("another mismatch starts over")
+	if u := l.freshest(acct.ConfigDir, cached.Reading()); fiveHour(u) != 96 {
+		t.Fatalf("got %.0f%%, want the session's 96%%", fiveHour(u))
 	}
 }
 
@@ -151,18 +139,28 @@ func TestLoginInUseInItsHome(t *testing.T) {
 	t.Setenv("RUSH_HOME", t.TempDir())
 	l := NewLoader(&state.Store{})
 	now := time.Now()
-	cfg := state.Config{Logins: []claude.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}
-	l.SetFetched("login:a", claude.Usage{AccountID: "a", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 30}})
+	cfg := state.Config{Logins: []state.Login{{ID: "a", Name: "a"}, {ID: "b", Name: "b"}}}
+	l.SetFetched("login:a", claude.Usage{AccountID: "a", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 30}}.Reading())
 	l.takeIn()
 	if err := claude.SetUsing("a"); err != nil {
 		t.Fatal(err)
 	}
-	root := AccountView{Usage: claude.Usage{AccountID: "b", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 80}}}
+	root := AccountView{Usage: claude.Usage{AccountID: "b", FetchedAt: now, FiveHour: claude.Window{Present: true, Percent: 80}}.Reading()}
 	got := l.logins(cfg, root, now)
-	if !got[0].Current || got[0].Usage.FiveHour.Percent != 30 {
-		t.Fatalf("a: current %v at %.0f%%, want current at its own 30%%", got[0].Current, got[0].Usage.FiveHour.Percent)
+	if !got[0].Current || fiveHour(got[0].Usage) != 30 {
+		t.Fatalf("a: current %v at %.0f%%, want current at its own 30%%", got[0].Current, fiveHour(got[0].Usage))
 	}
-	if got[1].Current || got[1].Usage.FiveHour.Percent != 80 {
-		t.Fatalf("b: current %v at %.0f%%, want not current at ~/.claude's 80%%", got[1].Current, got[1].Usage.FiveHour.Percent)
+	if got[1].Current || fiveHour(got[1].Usage) != 80 {
+		t.Fatalf("b: current %v at %.0f%%, want not current at ~/.claude's 80%%", got[1].Current, fiveHour(got[1].Usage))
 	}
+}
+
+// fiveHour is how much of r's 5-hour window is used.
+func fiveHour(r usage.Reading) float64 {
+	for _, w := range r.Windows {
+		if w.ID == "five_hour" {
+			return w.Percent
+		}
+	}
+	return 0
 }

@@ -13,7 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/claude"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/state"
@@ -22,15 +22,15 @@ import (
 // loginsMsg is the logins signed in where rush looks, and why ~/.claude's
 // couldn't be kept, if it couldn't.
 type loginsMsg struct {
-	found    []fleet.Found
-	restored *fleet.Restored
+	found    []state.FoundLogin
+	restored *state.Restored
 	imported bool // the older folders' logins were all taken in
 	err      error
 }
 
 // switchedMsg is ~/.claude signed in as another login, or why it isn't.
 type switchedMsg struct {
-	to      claude.Login
+	to      state.Login
 	why     string
 	resumed int // rush sessions that carried on at once
 	waiting int // rush sessions moving over once their turn ends
@@ -40,7 +40,7 @@ type switchedMsg struct {
 // addedLoginMsg is a login just signed in to from Accounts.
 type addedLoginMsg struct {
 	name string
-	l    claude.Login
+	l    state.Login
 	err  error
 }
 
@@ -55,8 +55,12 @@ func (m *Model) findLogins() tea.Cmd {
 		return nil
 	}
 	cfg := m.store.Config
+	k, ok := state.Logins()
+	if !ok {
+		return nil
+	}
 	return func() tea.Msg {
-		found, restored, imported, err := fleet.FindLogins(cfg)
+		found, restored, imported, err := k.FindLogins(cfg)
 		return loginsMsg{found, restored, imported, err}
 	}
 }
@@ -66,13 +70,17 @@ func (m *Model) findLogins() tea.Cmd {
 func (m *Model) fetchLoginUsage() []tea.Cmd {
 	path := filepath.Join(state.Dir(), "usage.json")
 	cfg, offline := m.store.Config, m.offline
+	k, ok := state.Logins()
+	if !ok {
+		return nil
+	}
 	var cmds []tea.Cmd
 	for _, lg := range cfg.Logins {
 		if m.isCurrent(lg.ID) {
 			continue
 		}
 		cmds = append(cmds, func() tea.Msg {
-			return usageMsg{key: lg.UsageKey(), u: fleet.RefreshLogin(path, cfg, lg, offline)}
+			return usageMsg{key: lg.UsageKey(), u: k.RefreshLogin(path, cfg, lg, offline)}
 		})
 	}
 	return cmds
@@ -196,9 +204,9 @@ func (m *Model) loginIndex(id string) int {
 
 // loginName is what a newly found login is called: its folder's name, or
 // its email's name for ~/.claude's, unless another login has it already.
-func (m *Model) loginName(f fleet.Found) string {
+func (m *Model) loginName(f state.FoundLogin) string {
 	name := f.Name
-	if name == "" || name == claude.DefaultAccount().Name {
+	if name == "" || name == homeName() {
 		name, _, _ = strings.Cut(f.Login.Email, "@")
 	}
 	for _, l := range m.store.Config.Logins {
@@ -222,7 +230,7 @@ func (m *Model) autoSwitch() tea.Cmd {
 	if m.offline || m.switching || time.Since(m.switchedAt) < switchGap {
 		return nil
 	}
-	root := claude.Active(cfg)
+	root := cfg.ActiveAccount()
 	stopped := false
 	for _, a := range m.snap.Agents {
 		if a.Rush && a.Account == root.Name && strings.HasPrefix(a.Detail, "usage limit") && m.sessionProfile(a).Limit() != state.LimitWait {
@@ -245,7 +253,7 @@ func (m *Model) autoSwitch() tea.Cmd {
 			// since (by another rush, or before this one could say).
 			m.resumedAt = time.Now()
 			return func() tea.Msg {
-				n, _ := reloginHosts(root, cfg)
+				n, _ := reloginHosts(root.Name, cfg)
 				if n == 0 {
 					return nil
 				}
@@ -266,18 +274,19 @@ func (m *Model) autoSwitch() tea.Cmd {
 // switchLogin makes to the login new sessions run as, in its home.
 // ~/.claude stays signed in as it is. Idle rush sessions rest so their
 // next message starts on it, and those a limit stopped carry on now.
-func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
-	if m.switching {
+func (m *Model) switchLogin(to state.Login, why string) tea.Cmd {
+	k, ok := state.Logins()
+	if m.switching || !ok {
 		return nil
 	}
 	m.switching = true
 	cfg := m.store.Config
-	root := claude.Active(cfg)
+	root := cfg.ActiveAccount()
 	return func() tea.Msg {
-		if err := claude.UseLogin(root, to); err != nil {
+		if err := k.UseLogin(cfg, to); err != nil {
 			return switchedMsg{to: to, err: err}
 		}
-		resumed, waiting := reloginHosts(root, cfg)
+		resumed, waiting := reloginHosts(root.Name, cfg)
 		return switchedMsg{to: to, why: why, resumed: resumed, waiting: waiting}
 	}
 }
@@ -287,13 +296,13 @@ func (m *Model) switchLogin(to claude.Login, why string) tea.Cmd {
 func (m *Model) hasRoom() bool {
 	for _, l := range m.snap.Logins {
 		if l.Current {
-			return time.Since(l.Quota.FetchedAt) < 3*claude.UsageEvery && l.Quota.Used("") < state.SwitchAt
+			return time.Since(l.Quota.FetchedAt) < 3*usage.Every && l.Quota.Used("") < state.SwitchAt
 		}
 	}
 	return false
 }
 
-// reloginHosts tells every rush session on root that it's signed in as
+// reloginHosts tells every rush session in the folder named root that it's signed in as
 // another account now, and reports how many a usage limit had stopped and
 // how many move over once their turn ends (an idle one does at once). A
 // host from before rush could switch ignores the message: one of those a
@@ -302,13 +311,13 @@ func (m *Model) hasRoom() bool {
 // fresh one. A session whose profile waits at a limit is moved all the
 // same, but left to wait: one from homes on starts in the new home when
 // it next runs, and one from before is replaced without a continue.
-func reloginHosts(root claude.Account, cfg state.Config) (resumed, waiting int) {
+func reloginHosts(root string, cfg state.Config) (resumed, waiting int) {
 	for _, info := range host.List() {
-		if (info.Account != root.Name && info.Account != "") || info.State == "stopped" {
+		if (info.Account != root && info.Account != "") || info.State == "stopped" {
 			continue
 		}
 		wait := info.Limit != nil && cfg.ProfileFor(info.Cwd, info.Profile).Limit() == state.LimitWait
-		if !info.Homes && (info.Kind == "" || info.Kind == string(claude.Kind)) {
+		if !info.Homes && (info.Kind == "" || info.Kind == string(loginsKind)) {
 			switch {
 			case hostBusy(info):
 				go replaceWhenIdle(info.ID)
@@ -371,18 +380,19 @@ func (m *Model) onSwitched(msg switchedMsg) tea.Cmd {
 func (m *Model) addLogin(name string) tea.Cmd {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
-	scratch := claude.Account{Name: name, ConfigDir: filepath.Join(state.Dir(), "signin-"+hex.EncodeToString(b))}
+	scratch := agent.Profile{Kind: loginsKind, Name: name, Dir: filepath.Join(state.Dir(), "signin-"+hex.EncodeToString(b))}
 	lg, ok := agent.As[agent.Loginer](loginsKind)
-	if !ok {
+	k, kok := state.Logins()
+	if !ok || !kok {
 		m.flash(agentName(string(loginsKind))+" can't sign in from rush", true)
 		return nil
 	}
 	return func() tea.Msg { // its command is made off the UI goroutine
-		return tea.ExecProcess(lg.Login(scratch.Profile()), func(err error) tea.Msg {
+		return tea.ExecProcess(lg.Login(scratch), func(err error) tea.Msg {
 			if err != nil {
 				return addedLoginMsg{name: name, err: err}
 			}
-			l, err := claude.AdoptLogin(scratch)
+			l, err := k.AdoptLogin(scratch)
 			return addedLoginMsg{name: name, l: l, err: err}
 		})()
 	}
@@ -585,4 +595,12 @@ func (m *Model) restart(a *fleet.Agent, text string) tea.Cmd {
 		return nil
 	}
 	return run()
+}
+
+// homeName is what the logins agent's own home is called.
+func homeName() string {
+	if h, ok := agent.As[agent.Homer](loginsKind); ok {
+		return h.Home().Name
+	}
+	return ""
 }

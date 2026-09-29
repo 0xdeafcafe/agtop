@@ -181,8 +181,8 @@ type Spend struct {
 }
 
 type AccountView struct {
-	claude.Account
-	Usage claude.Usage // who it's signed in as, and its plan
+	state.Folder
+	Usage usage.Reading // who it's signed in as, and its plan
 	// Quota is the plan's limits, as Usage read them.
 	Quota   usage.Quota
 	Daemon  bool
@@ -249,13 +249,12 @@ type Loader struct {
 	args    map[int]argsEntry
 	git     map[string]gitInfo
 	roots   map[string]string // folder → main checkout, for mainCheckout
-	usage   map[string]usageEntry
 	prevTab *proc.Table
 	spend   map[string]Spend
 	nudged  map[string]time.Time
 	subs    map[string]subsEntry
 	quick   bool // this load leaves out what can wait: see LoadQuick
-	fetched map[string]claude.Usage
+	fetched map[string]usage.Reading
 	// UsagePath is the readings every rush process and session shares;
 	// usageMod is its time when last read.
 	UsagePath string
@@ -315,8 +314,8 @@ type inbox struct {
 }
 
 type fetchedIn struct {
-	configDir string
-	u         claude.Usage
+	key string
+	u   usage.Reading
 }
 
 // takeIn takes in what was handed in since the last Load; l.mu is held.
@@ -333,7 +332,7 @@ func (l *Loader) takeIn() {
 		l.nudged[k] = t
 	}
 	for _, f := range in.fetched {
-		l.setFetched(f.configDir, f.u)
+		l.setFetched(f.key, f.u)
 	}
 	for k, v := range in.links {
 		l.link(k, v)
@@ -368,21 +367,36 @@ func (l *Loader) link(child, parent string) {
 	}
 }
 
-// SetFetched stores a usage reading fetched from Anthropic for an account.
-func (l *Loader) SetFetched(configDir string, u claude.Usage) {
+// SetFetched stores a plan reading fetched for an account, kept under key
+// (see ReadingKey).
+func (l *Loader) SetFetched(key string, u usage.Reading) {
 	l.inMu.Lock()
 	defer l.inMu.Unlock()
-	l.in.fetched = append(l.in.fetched, fetchedIn{configDir, u})
+	l.in.fetched = append(l.in.fetched, fetchedIn{key, u})
 	l.in.stale = true
 }
 
-func (l *Loader) setFetched(configDir string, u claude.Usage) {
-	if old, ok := l.fetched[configDir]; ok && u.FetchedAt.IsZero() {
+func (l *Loader) setFetched(key string, u usage.Reading) {
+	if old, ok := l.fetched[key]; ok && u.FetchedAt.IsZero() {
 		old.Problem = u.Problem // keep the last good numbers, note why they're not refreshing
-		l.fetched[configDir] = old
+		l.fetched[key] = old
 		return
 	}
-	l.fetched[configDir] = u
+	l.fetched[key] = u
+}
+
+// ReadingKey is where a reading r of profile p's account is kept: by the
+// login it's signed in as, else by its folder.
+func ReadingKey(p agent.Profile, r usage.Reading) string {
+	if r.AccountID != "" {
+		return state.Login{ID: r.AccountID}.UsageKey()
+	}
+	return p.Dir
+}
+
+// plans is how the logins agent's plans are read.
+func plans() (agent.PlanReader, bool) {
+	return agent.As[agent.PlanReader](agent.Kind(state.LoginsKind))
 }
 
 // syncUsage takes the readings shared through UsagePath that are newer
@@ -394,14 +408,15 @@ func (l *Loader) syncUsage() {
 		return
 	}
 	l.usageMod = st.ModTime()
-	for k, f := range claude.LoadFetchedUsage(l.UsagePath) {
-		if old, ok := l.fetched[k]; ok && !f.Usage.FetchedAt.After(old.FetchedAt) {
+	pr, ok := plans()
+	if !ok {
+		return
+	}
+	for k, r := range pr.Readings(l.UsagePath) {
+		if old, ok := l.fetched[k]; ok && !r.FetchedAt.After(old.FetchedAt) {
 			continue
 		}
-		if time.Now().Before(f.Wait) {
-			f.Usage.Problem = "rate-limited to " + f.Wait.Local().Format("15:04")
-		}
-		l.fetched[k] = f.Usage
+		l.fetched[k] = r
 	}
 }
 
@@ -506,16 +521,11 @@ type gitInfo struct {
 	at           time.Time
 }
 
-type usageEntry struct {
-	u   claude.Usage
-	mod time.Time
-}
-
 func NewLoader(s *state.Store) *Loader {
 	return &Loader{
 		store: s,
-		args:  map[int]argsEntry{}, git: map[string]gitInfo{}, roots: map[string]string{}, usage: map[string]usageEntry{},
-		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]claude.Usage{},
+		args:  map[int]argsEntry{}, git: map[string]gitInfo{}, roots: map[string]string{},
+		spend: map[string]Spend{}, nudged: map[string]time.Time{}, subs: map[string]subsEntry{}, fetched: map[string]usage.Reading{},
 		files: map[string]fileMemo{}, moved: map[string]string{}, pastRows: map[string]pastRow{}, spendVer: map[string]int{}, print: map[int]printEntry{},
 		Temp: NewTempSizes(), UsagePath: filepath.Join(state.Dir(), "usage.json"), links: loadLinks(),
 	}
@@ -629,9 +639,9 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			}
 			return pins
 		}).(map[string]int)
-		av := AccountView{Account: acct, Daemon: daemon.Client{Account: acct}.Running(), Current: true}
-		av.Usage = l.readUsage(acct)
-		av.Quota = av.Usage.Quota(claude.UsageKey(acct, av.Usage))
+		av := AccountView{Folder: state.Folder(acct), Daemon: daemon.Client{Account: acct}.Running(), Current: true}
+		av.Usage = l.readUsage(acct.Profile())
+		av.Quota = av.Usage.Quota(ReadingKey(acct.Profile(), av.Usage))
 		// Its sessions, as its adapter finds them: background jobs, then
 		// every session file whose process is alive.
 		var jobs []claude.Job
@@ -1019,26 +1029,23 @@ func (l *Loader) sample(tab *proc.Table, a *Agent) {
 	a.Mem, a.CPU, a.Procs = tab.Sum(a.PID, nil)
 }
 
-func (l *Loader) readUsage(acct claude.Account) claude.Usage {
-	st, err := os.Stat(acct.StatePath())
-	if err != nil {
-		return l.freshest(acct, claude.Usage{})
+// readUsage is p's plan: the agent's own record of it, or rush's
+// reading when that's newer.
+func (l *Loader) readUsage(p agent.Profile) usage.Reading {
+	var r usage.Reading
+	if pr, ok := plans(); ok {
+		r = pr.Plan(p)
 	}
-	if e, ok := l.usage[acct.ConfigDir]; ok && e.mod.Equal(st.ModTime()) {
-		return l.freshest(acct, e.u)
-	}
-	u, _ := claude.ReadUsage(acct)
-	l.usage[acct.ConfigDir] = usageEntry{u: u, mod: st.ModTime()}
-	return l.freshest(acct, u)
+	return l.freshest(p.Dir, r)
 }
 
-// freshest prefers rush's own fetch when it is newer than Claude Code's cache.
-// Windows that have reset since either reading are dropped.
-func (l *Loader) freshest(acct claude.Account, cached claude.Usage) claude.Usage {
-	f, ok := l.fetched[acct.ConfigDir]
+// freshest prefers rush's own fetch when it is newer than the agent's
+// cache. Windows that have reset since either reading are dropped.
+func (l *Loader) freshest(dir string, cached usage.Reading) usage.Reading {
+	f, ok := l.fetched[dir]
 	if cached.AccountID != "" {
 		// Readings are kept by the login it's signed in as.
-		g, gok := l.fetched[claude.Login{ID: cached.AccountID}.UsageKey()]
+		g, gok := l.fetched[state.Login{ID: cached.AccountID}.UsageKey()]
 		if gok && (!ok || g.FetchedAt.After(f.FetchedAt) || f.AccountID != cached.AccountID) {
 			f, ok = g, true
 			f.AccountID = cached.AccountID
