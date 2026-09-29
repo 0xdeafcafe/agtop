@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/0xdeafcafe/agtop/internal/plugin"
 )
 
@@ -31,9 +33,28 @@ func pluginCLI(name string, m plugin.Manifest, args []string, stdout, stderr io.
 		fmt.Fprintln(stderr, "agtop:", err)
 		return 1
 	}
-	fmt.Fprint(stdout, res.Stdout)
-	fmt.Fprint(stderr, res.Stderr)
+	fmt.Fprint(stdout, forTerminal(stdout, res.Stdout))
+	fmt.Fprint(stderr, forTerminal(stderr, res.Stderr))
 	return res.Exit
+}
+
+// forTerminal is a plugin's output as it may reach a terminal: no control
+// characters but newlines and tabs, so it can't set the clipboard, the
+// title or the screen with escape sequences. Piped, it goes as it came.
+func forTerminal(w io.Writer, s string) string {
+	if f, ok := w.(*os.File); !ok || !term.IsTerminal(f.Fd()) {
+		return s
+	}
+	return stripControl(s)
+}
+
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || r >= 0x20 && r != 0x7f && (r < 0x80 || r > 0x9f) {
+			return r
+		}
+		return -1
+	}, s)
 }
 
 func pluginCLIUsage(name string, m plugin.Manifest) string {

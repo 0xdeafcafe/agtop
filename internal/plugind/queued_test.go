@@ -99,10 +99,17 @@ func TestQueuedSendAndRemove(t *testing.T) {
 	if b, _ := jsonx.Marshal(res); string(b) != "{}" {
 		t.Fatalf("the plugin was told %s", b)
 	}
-	// The queue moved: was names the one meant.
+	// Naming one by its text would let a plugin test guesses at the queue:
+	// only agtop's own plugins may, and then was names the one meant even
+	// if the queue moved.
+	if _, err := call("sessions.queued.remove", `{"id": "q1", "index": 0, "was": "third"}`); !denied(err) {
+		t.Fatalf("an installed plugin named a message by its text: %v", err)
+	}
+	r.p.Bundled = true
 	if _, err := call("sessions.queued.remove", `{"id": "q1", "index": 0, "was": "third"}`); err != nil {
 		t.Fatal(err)
 	}
+	r.p.Bundled = false
 	if _, err := call("sessions.queued.remove", `{"id": "q1", "index": 5}`); err == nil {
 		t.Fatal("no message 5, it should say so")
 	}

@@ -136,6 +136,19 @@ func Describe(p Plugin) string {
 		}
 		grants = append(grants, "offers settings under Settings, Plugins: "+strings.Join(ss, ", "))
 	}
+	if r := p.Requires; len(r.OS)+len(r.Arch)+len(r.Bin) > 0 {
+		var needs []string
+		if len(r.OS) > 0 {
+			needs = append(needs, strings.Join(r.OS, " or "))
+		}
+		if len(r.Arch) > 0 {
+			needs = append(needs, strings.Join(r.Arch, " or "))
+		}
+		for _, b := range r.Bin {
+			needs = append(needs, b+" on PATH")
+		}
+		w("\nIt runs only with %s.\n", strings.Join(needs, ", "))
+	}
 	if len(grants) > 0 {
 		w("\nIt:\n")
 		for _, g := range grants {

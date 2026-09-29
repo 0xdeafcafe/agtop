@@ -574,11 +574,17 @@ func Verify(name string) (Plugin, error) {
 		if !BundledOn(name) {
 			return Plugin{}, fmt.Errorf("%s is turned off", name)
 		}
+		if why := b.Manifest.Unmet(); why != "" {
+			return Plugin{}, fmt.Errorf("%s %s", name, why)
+		}
 		return Plugin{Manifest: b.Manifest, Bundled: true}, nil
 	}
 	a, ok := Approvals()[name]
 	if !ok {
 		return Plugin{}, fmt.Errorf("%s is not approved", name)
+	}
+	if why := a.Manifest.Unmet(); why != "" {
+		return Plugin{}, fmt.Errorf("%s %s", name, why)
 	}
 	dir := filepath.Join(Root(), name)
 	d, err := Digest(dir)

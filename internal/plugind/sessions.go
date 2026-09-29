@@ -184,6 +184,11 @@ func (r *runner) fromPlugin(ctx context.Context, method string, params jsontext.
 		if len(in.Was) > maxText {
 			return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: "was is too long"}
 		}
+		if in.Was != "" && !p.Bundled {
+			// Naming a message by its text would let a plugin test guesses
+			// at what's queued, which it's never to see.
+			return nil, plugin.Denied("only agtop's own plugins name a queued message by its text")
+		}
 		return queued(in.ID, in.Index, in.Was, method == "sessions.queued.send")
 
 	case "sidebar.set":
@@ -356,7 +361,7 @@ func queued(id string, index int, was string, send bool) (any, error) {
 	}
 	if was == "" {
 		if index < 0 || index >= len(queue) {
-			return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: fmt.Sprintf("no queued message %d: the queue has %d", index, len(queue))}
+			return nil, &plugin.Error{Code: plugin.CodeInvalidParams, Message: fmt.Sprintf("no queued message %d", index)}
 		}
 		was = queue[index]
 	}

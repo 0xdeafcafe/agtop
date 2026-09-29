@@ -43,7 +43,7 @@ const (
 	CLITimeout = 2 * time.Minute
 )
 
-var cliUsageRE = regexp.MustCompile(`^[^\x00-\x1f]{0,120}$`)
+var cliUsageRE = regexp.MustCompile(`^[^\x00-\x1f\x7f\x{80}-\x{9f}]{0,120}$`)
 
 func (m Manifest) validateCLI() error {
 	if len(m.CLI) == 0 {

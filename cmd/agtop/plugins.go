@@ -67,6 +67,9 @@ func pluginCmd(args []string) error {
 		if _, err := (plugin.Launch{Plugin: p}).Program(); err != nil {
 			return fmt.Errorf("its program: %w", err)
 		}
+		if why := p.Manifest.Unmet(); why != "" {
+			fmt.Printf("\nIt won't run here: it %s.\n", why)
+		}
 		a, ok := plugin.Approvals()[p.Name]
 		switch d, _ := plugin.Digest(p.Dir); {
 		case !ok:
