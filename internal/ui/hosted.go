@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/agtop/internal/agent"
 	"github.com/0xdeafcafe/agtop/internal/fleet"
 	"github.com/0xdeafcafe/agtop/internal/state"
 )
@@ -11,8 +14,8 @@ import (
 // another app: agtop's header, then its Session at the whole width, with no
 // Agents list and no keys that lead to another agent. Efficiency, Machine
 // and Settings open with ctrl+\, and Agents is this session. id is the
-// session's agtop id. esc at the Session's top level and ctrl+q quit; the session's host
-// keeps running.
+// session's agtop id. Only ctrl+q quits: esc leaves the message box, then
+// stops the turn. The session's host keeps running.
 func NewHosted(store *state.Store, version, id string) *Model {
 	m := New(store, version)
 	m.hosted = id
@@ -99,7 +102,7 @@ func (m *Model) hostedShow(key string) {
 // Session alone, without changing the layout #view keeps.
 func (m *Model) toggleList() tea.Cmd {
 	if m.hosted != "" {
-		m.hostedList = !m.hostedList
+		m.hostedList, m.hostedAway = !m.hostedList, false
 		if m.hostedList {
 			m.full, m.preview, m.paneFocus = false, true, false
 			m.flash("Agents beside the session · ctrl+6 or esc hides them", false)
@@ -149,7 +152,35 @@ func (m *Model) pinHosted() {
 	if m.hostedKey != "" {
 		m.sel, m.shown = m.hostedKey, m.hostedKey
 	}
-	m.preview, m.full, m.paneFocus = true, true, true
+	m.preview, m.full = true, true
+	if m.hostedAway && m.paneFocus {
+		m.hostedAway = false // something gave the box the keys again
+	}
+	if !m.hostedAway {
+		m.paneFocus = true
+	}
+}
+
+// hostedAwayKey is a key in hosted while the message box doesn't have the
+// keys: esc stops the turn if one is running and does nothing else, enter
+// or → give the box the keys back, and any other key goes back to the box
+// and on to it.
+func (m *Model) hostedAwayKey(s string) (tea.Cmd, bool) {
+	switch s {
+	case "esc":
+		c := m.host
+		if c.client != nil && c.sess.Live() != nil && time.Since(c.stopArmed) > 2*time.Second && agent.Supports(sessionAgent(c), agent.FeatureInterrupt) {
+			c.stopArmed = time.Now()
+			m.flash("stopping the turn", false)
+			return hostCmd(func() error { return c.client.Interrupt() }), true
+		}
+		return nil, true
+	case "enter", "right":
+		m.paneFocus, m.hostedAway = true, false
+		return nil, true
+	}
+	m.paneFocus, m.hostedAway = true, false
+	return nil, false
 }
 
 // hostedKeyGuard drops the keys that would leave the one session in hosted:
@@ -183,12 +214,11 @@ func (m *Model) hostedKeyGuard(s string) (tea.Cmd, bool) {
 		return nil, false // the place's own keys, tab through its pages included
 	}
 	if m.host == nil {
-		// Still opening: nothing to type into yet but the way out.
-		if s == "esc" {
-			m.scanner.Flush()
-			return tea.Quit, true
-		}
+		// Still opening: nothing to type into yet.
 		return nil, s != "ctrl+c"
+	}
+	if m.hostedAway && !m.paneFocus {
+		return m.hostedAwayKey(s)
 	}
 	if s == "tab" {
 		if c := m.host; c != nil {

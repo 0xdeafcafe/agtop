@@ -242,6 +242,9 @@ type Model struct {
 	hosted, hostedKey string
 	// hostedList is hosted with Agents shown beside the session (ctrl+6).
 	hostedList bool
+	// hostedAway is hosted with the keys off the message box, after esc:
+	// esc again stops the turn, and anything else goes back to the box.
+	hostedAway bool
 	// snapWanted is a reading of the fleet asked for, snapLoading one
 	// being made; selectOnLoad is an agent to select once one has it.
 	snapWanted, snapLoading bool

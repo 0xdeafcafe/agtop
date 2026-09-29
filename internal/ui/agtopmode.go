@@ -2043,7 +2043,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	pairs := []string{"enter", "send", "ctrl+f", "find in chat", "esc · ←", "back to the list"}
 	switch {
 	case m.hostedAlone():
-		pairs[4], pairs[5] = "esc", "close"
+		pairs[4], pairs[5] = "esc", "leave the box"
 		pairs = append(pairs[:6:6], append([]string{"ctrl+6", "Agents"}, pairs[6:]...)...)
 	case m.store.Config.View == "agent" && m.chatAlone() && !m.zen:
 		pairs[5] = "peek at Agents"
@@ -2098,6 +2098,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	if !m.paneFocus {
 		hint = keysFit(w-4, "enter · →", "type here", "ctrl+n", "next needing you")
+		if m.hostedAlone() {
+			hint = keysFit(w-4, "enter · →", "type here", "esc", "stop the turn", "ctrl+q", "quit")
+			if c.sess.Live() == nil {
+				hint = keysFit(w-4, "enter · →", "type here", "ctrl+q", "quit")
+			}
+		}
 		b.holder = "enter or → to talk to this agent"
 		out = append(out[:len(out)-len(b.lines())], b.lines()...)
 	}
@@ -2285,10 +2291,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		case m.zen:
 			// Zen keeps the keys on the agent; tab or ctrl+z leaves zen.
 		case m.hostedAlone():
-			// Alone, there's nothing behind it: esc closes the view and
-			// the session carries on.
-			m.scanner.Flush()
-			return tea.Quit
+			// Alone, there's no list to go to: esc takes the keys off the
+			// box, and esc again stops the turn. Only ctrl+q quits.
+			m.paneFocus, m.hostedAway = false, true
 		default:
 			m.leavePane()
 		}

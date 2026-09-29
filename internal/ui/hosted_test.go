@@ -99,9 +99,43 @@ func TestHostedShowsOneSession(t *testing.T) {
 	if len(c.input) != 0 {
 		t.Fatalf("esc left %q", string(c.input))
 	}
-	cmd := m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
+	// esc on the empty box takes the keys off it, and never quits; with no
+	// turn running, esc again does nothing.
+	for range 3 {
+		if cmd := m.key(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil && isQuit(cmd) {
+			t.Fatal("esc quit hosted")
+		}
+		if m.paneFocus || !m.hostedAway || m.sel != m.hostedKey || m.view != placeAgents {
+			t.Fatalf("after esc: focus %v away %v sel %q view %d", m.paneFocus, m.hostedAway, m.sel, m.view)
+		}
+	}
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "ctrl+q quit") {
+		t.Fatalf("off the box, the hint should say how to quit:\n%s", out)
+	}
+	// Typing goes back to the box, the key with it.
+	hostedPress(m, "b")
+	if !m.paneFocus || m.hostedAway || string(c.input) != "b" {
+		t.Fatalf("typing off the box: focus %v away %v input %q", m.paneFocus, m.hostedAway, string(c.input))
+	}
+	hostedPress(m, "esc")
+	hostedPress(m, "esc")
+	m.key(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.paneFocus || m.hostedAway || len(c.input) != 0 {
+		t.Fatalf("enter off the box: focus %v away %v input %q", m.paneFocus, m.hostedAway, string(c.input))
+	}
+	cmd := m.key(tea.KeyPressMsg{Code: 'q', Mod: tea.ModCtrl})
 	if cmd == nil || !isQuit(cmd) {
-		t.Fatal("esc at the top level should quit")
+		t.Fatal("ctrl+q should quit")
+	}
+}
+
+// Still opening, esc does nothing: the view stays.
+func TestHostedEscWhileOpening(t *testing.T) {
+	t.Setenv("AGTOP_HOME", t.TempDir())
+	writeSession(t, "aaaa1111", "the hosted session")
+	m := NewHosted(state.Load(), "test", "aaaa1111")
+	if cmd := m.key(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd != nil && isQuit(cmd) {
+		t.Fatal("esc while opening quit hosted")
 	}
 }
 
