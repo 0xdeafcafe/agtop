@@ -155,4 +155,14 @@ func (s *Store) FromEnv(key string) (string, bool) {
 	return "", false
 }
 
+// EnvBool is the bool setting at key as the environment sets it, if it
+// does: for code that reads config.json itself.
+func EnvBool(key string) (on, ok bool) {
+	s, ok := lookupEnv(EnvName(key))
+	if !ok {
+		return false, false
+	}
+	return parseBool(strings.TrimSpace(s))
+}
+
 func lookupEnv(name string) (string, bool) { return os.LookupEnv(name) }

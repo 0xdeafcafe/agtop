@@ -98,8 +98,11 @@ func Load() *Record {
 }
 
 // Enabled is whether the advisor is on in the config on disk: another
-// agtop may have turned it off.
+// agtop may have turned it off. AGTOP_ADVISOR decides it for this run.
 func Enabled() bool {
+	if on, ok := state.EnvBool("advisor"); ok {
+		return on
+	}
 	var c struct {
 		Advisor bool `json:"advisor"`
 	}

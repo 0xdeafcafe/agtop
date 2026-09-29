@@ -349,4 +349,8 @@ func TestEnabled(t *testing.T) {
 	if !Enabled() {
 		t.Fatal("off with it on in the config")
 	}
+	t.Setenv("AGTOP_ADVISOR", "off")
+	if Enabled() {
+		t.Fatal("on with the environment turning it off")
+	}
 }
