@@ -5,14 +5,15 @@ import (
 	"encoding/json/jsontext"
 	"fmt"
 
-	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Plugin, PluginParts and Marketplace are rush's, as Claude Code's plugin

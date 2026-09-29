@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/rush/internal/claude"
 	"github.com/0xdeafcafe/rush/internal/squeeze"
 )
 
@@ -19,7 +20,7 @@ func (m *Model) squeezeTranscripts() tea.Cmd {
 	if m.store.Config.KeepTranscriptsPlain || m.squeezing || (m.tick != 120 && m.tick%21600 != 120) {
 		return nil
 	}
-	dirs := []string{m.store.Config.ActiveAccount().ProjectsDir()}
+	dirs := []string{claude.Active(m.store.Config).ProjectsDir()}
 	m.squeezing = true
 	return func() tea.Msg { return squeezedMsg(squeeze.Transcripts(dirs, 48*time.Hour)) }
 }

@@ -6,12 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"io"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // ErrRateLimited carries when the usage endpoint says to try again.

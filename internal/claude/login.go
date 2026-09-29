@@ -3,87 +3,28 @@ package claude
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
-	"os/exec"
-	osuser "os/user"
 	"path/filepath"
 	"runtime"
-	"strings"
-	"syscall"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/keychain"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// Login is one Claude account rush can sign ~/.claude in as. Every
-// session shares ~/.claude (settings, transcripts, history); what differs
-// between accounts is only the sign-in, which rush keeps in its Vault and
-// puts in place when you switch.
-type Login struct {
-	Name  string `json:"name"`
-	ID    string `json:"id"` // the account's uuid
-	Email string `json:"email,omitempty"`
-	Org   string `json:"org,omitempty"`
-	// Profile is the oauthAccount block Claude Code keeps beside the
-	// sign-in in its state file: who the account is, not a secret.
-	Profile jsontext.Value `json:"profile,omitzero"`
-}
+// Login is one Claude account rush can sign ~/.claude in as.
+type Login = state.Login
 
-// UsageKey is where the login's usage readings are kept.
-func (l Login) UsageKey() string { return "login:" + l.ID }
+// Vault is rush's vault, with what it does with Claude Code's sign-ins.
+type Vault struct{ state.Keys }
 
-// Vault keeps each login's sign-in while it isn't the one in ~/.claude:
-// in the login keychain on macOS, in files only you can read elsewhere.
-type Vault struct{ Dir string }
-
-const vaultService = "rush-login"
-
-func (v Vault) Get(id string) ([]byte, error) {
-	if runtime.GOOS == "darwin" {
-		return keychainRead(vaultService, id)
-	}
-	return os.ReadFile(filepath.Join(v.Dir, id+".json"))
-}
-
-func (v Vault) Put(id string, cred []byte) error {
-	if runtime.GOOS == "darwin" {
-		return keychainWrite(vaultService, id, cred)
-	}
-	if err := os.MkdirAll(v.Dir, 0o700); err != nil {
-		return err
-	}
-	return writeFileAtomic(filepath.Join(v.Dir, id+".json"), cred, 0o600)
-}
-
-func (v Vault) Forget(id string) error {
-	if runtime.GOOS == "darwin" {
-		return keychainDelete(vaultService, id)
-	}
-	return os.Remove(filepath.Join(v.Dir, id+".json"))
-}
-
-// Lock keeps two rushes from switching any agent's account at once; the
-// func it returns lets go.
-func (v Vault) Lock() (func(), error) { return v.lock() }
-
-// lock keeps two rushes from switching at once.
-func (v Vault) lock() (func(), error) {
-	if err := os.MkdirAll(v.Dir, 0o700); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(filepath.Join(v.Dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
-		return nil, err
-	}
-	return func() { f.Close() }, nil
-}
+// TheVault is rush's vault, where the logins not in use keep their
+// sign-ins.
+func TheVault() Vault { return Vault{state.Vault()} }
 
 // Signed reports who a config folder is signed in as, from its state file,
 // with the sign-in itself; ok is false when it isn't signed in.
@@ -147,7 +88,7 @@ func (v Vault) Keep(a Account) (l Login, owner string, ok bool, err error) {
 // its sign-in it sees the stored one changed and takes that instead of
 // writing its own back.
 func (v Vault) Use(root Account, to Login) error {
-	unlock, err := v.lock()
+	unlock, err := v.Lock()
 	if err != nil {
 		return err
 	}
@@ -277,84 +218,29 @@ func writeProfile(statePath string, prof jsontext.Value) error {
 // login keychain on macOS, in .credentials.json elsewhere.
 func readCreds(a Account) ([]byte, error) {
 	if runtime.GOOS == "darwin" {
-		if cred, err := keychainRead(a.keychainService(), keychainUser()); err == nil {
+		if cred, err := keychain.Read(a.keychainService(), keychain.User()); err == nil {
 			return cred, nil
 		}
-		return keychainRead(a.keychainService(), "")
+		if cred, err := keychain.Read(a.keychainService(), ""); err == nil {
+			return cred, nil
+		}
+		return nil, ErrNotSignedIn
 	}
 	return os.ReadFile(filepath.Join(a.ConfigDir, ".credentials.json"))
 }
 
 func writeCreds(a Account, cred []byte) error {
 	if runtime.GOOS == "darwin" {
-		return keychainWrite(a.keychainService(), keychainUser(), cred)
+		return keychain.Write(a.keychainService(), keychain.User(), cred)
 	}
 	return writeFileAtomic(filepath.Join(a.ConfigDir, ".credentials.json"), cred, 0o600)
 }
 
 func deleteCreds(a Account) error {
 	if runtime.GOOS == "darwin" {
-		return keychainDelete(a.keychainService(), keychainUser())
+		return keychain.Delete(a.keychainService(), keychain.User())
 	}
 	return os.Remove(filepath.Join(a.ConfigDir, ".credentials.json"))
-}
-
-func keychainRead(service, account string) ([]byte, error) {
-	args := []string{"find-generic-password", "-s", service, "-w"}
-	if account != "" {
-		args = append(args, "-a", account)
-	}
-	out, err := exec.Command("/usr/bin/security", args...).Output()
-	if err != nil {
-		return nil, ErrNotSignedIn
-	}
-	return bytes.TrimRight(out, "\n"), nil
-}
-
-// keychainWrite goes through security's own prompt rather than its
-// arguments where it fits, so the sign-in doesn't show in the process
-// list; a longer one (a prompt line holds at most 4 KB, and a sign-in with
-// MCP servers' logins in it is more) goes as an argument, which only your
-// own user can read. security's output echoes the secret back, so it's
-// never passed on.
-func keychainWrite(service, account string, secret []byte) error {
-	var cmd *exec.Cmd
-	if line := fmt.Sprintf("add-generic-password -U -a %q -s %q -X %q\n", account, service, hex.EncodeToString(secret)); len(line) < 4000 {
-		cmd = exec.Command("/usr/bin/security", "-i")
-		cmd.Stdin = strings.NewReader(line)
-	} else {
-		cmd = exec.Command("/usr/bin/security", "add-generic-password", "-U", "-a", account, "-s", service, "-X", hex.EncodeToString(secret))
-	}
-	out, err := cmd.CombinedOutput()
-	if err == nil && bytes.Contains(out, []byte("unknown command")) {
-		err = errors.New("rejected")
-	}
-	if err != nil {
-		return fmt.Errorf("couldn't save a sign-in to the keychain (%s)", service)
-	}
-	return nil
-}
-
-func keychainDelete(service, account string) error {
-	args := []string{"delete-generic-password", "-s", service}
-	if account != "" {
-		args = append(args, "-a", account)
-	}
-	return exec.Command("/usr/bin/security", args...).Run()
-}
-
-// keychainUser is the account name Claude Code reads and writes its
-// sign-in under: your user name. Another item under the same service (an
-// older tool's) is never read by Claude Code, so a switch written there
-// would leave it on the old sign-in.
-func keychainUser() string {
-	if u := os.Getenv("USER"); u != "" {
-		return u
-	}
-	if u, err := osuser.Current(); err == nil {
-		return u.Username
-	}
-	return ""
 }
 
 func writeFileAtomic(path string, b []byte, mode os.FileMode) error {

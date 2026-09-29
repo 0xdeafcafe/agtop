@@ -2,11 +2,12 @@ package claude
 
 import (
 	"encoding/json/jsontext"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"math"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 const block1 = `{"type":"assistant","timestamp":"2026-09-23T10:00:00Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"thinking"}],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":200}}}}`

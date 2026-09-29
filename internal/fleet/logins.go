@@ -25,11 +25,11 @@ type LoginView struct {
 // the one rush runs sessions as, in its home, or else ~/.claude's.
 func (l *Loader) logins(cfg state.Config, root AccountView, now time.Time) []LoginView {
 	var out []LoginView
-	using := cfg.RunAccount()
+	using := claude.RunAccount(cfg)
 	for _, lg := range cfg.Logins {
 		v := LoginView{Login: lg, Current: lg.ID != "" && lg.ID == root.Usage.AccountID}
 		if !using.IsDefault() {
-			v.Current = using.ConfigDir == state.ClaudeHome(lg.ID).ConfigDir
+			v.Current = using.ConfigDir == claude.HomeOf(lg.ID).ConfigDir
 		}
 		f, ok := l.fetched[lg.UsageKey()]
 		switch {
@@ -78,8 +78,8 @@ type Restored struct {
 // a Claude Code started before a switch, as it refreshed its own: the
 // switch is made again, and restored says so.
 func FindLogins(cfg state.Config) (found []Found, restored *Restored, imported bool, failed error) {
-	v := state.Vault()
-	root := cfg.ActiveAccount()
+	v := claude.TheVault()
+	root := claude.Active(cfg)
 	lg, owner, ok, err := v.Keep(root)
 	if ok && err == nil {
 		found = append(found, Found{Login: lg})
@@ -88,7 +88,7 @@ func FindLogins(cfg state.Config) (found []Found, restored *Restored, imported b
 	// A home's sign-in is the newest of its login's: the vault keeps a
 	// copy, in case the home goes.
 	for _, l := range cfg.Logins {
-		if h := state.ClaudeHome(l.ID); claude.HasHome(h) {
+		if h := claude.HomeOf(l.ID); claude.HasHome(h) {
 			_, _, _, _ = v.Keep(h)
 		}
 	}
@@ -105,7 +105,8 @@ func FindLogins(cfg state.Config) (found []Found, restored *Restored, imported b
 		}
 	}
 	imported = true
-	for _, a := range cfg.OldFolders() {
+	for _, f := range cfg.OldFolders() {
+		a := claude.Account(f)
 		if claude.MergeHistory(a, root) != nil {
 			imported = false
 		}
@@ -154,11 +155,11 @@ func putBack(was, now string) bool {
 // when it's signed in as it, its home's when it has one, else the one the
 // vault kept.
 func RefreshLogin(path string, cfg state.Config, lg claude.Login, offline bool) claude.Usage {
-	root := cfg.ActiveAccount()
+	root := claude.Active(cfg)
 	if claude.SignedInAs(root) == lg.ID {
 		return claude.RefreshUsage(path, root, offline)
 	}
-	if h := state.ClaudeHome(lg.ID); claude.HasHome(h) {
+	if h := claude.HomeOf(lg.ID); claude.HasHome(h) {
 		return claude.RefreshUsage(path, h, offline)
 	}
 	return claude.RefreshUsageFor(path, lg.UsageKey(), offline, func(ctx context.Context) (claude.Usage, error) {

@@ -1,12 +1,13 @@
 package state
 
 import (
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // The kinds of Draft: what you kept on purpose, what you sent, and what

@@ -207,7 +207,7 @@ func Feed(in io.Reader, out io.Writer) error {
 		if time.Since(usageAt) > time.Minute {
 			usageAt = time.Now()
 			go func() {
-				a := st.Config.ActiveAccount()
+				a := claude.Active(st.Config)
 				u := claude.RefreshUsage(usagePath, a, false)
 				fetched <- reading{claude.UsageKey(a, u), u}
 			}()

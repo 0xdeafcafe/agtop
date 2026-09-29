@@ -1,10 +1,11 @@
 package state
 
 import (
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // A config.json that can't be read comes back as it was last read whole,

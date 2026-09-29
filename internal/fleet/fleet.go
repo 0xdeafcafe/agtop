@@ -590,7 +590,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	snap := &Snapshot{At: now}
 	cfg := l.store.Config
 	ov := l.store.Overlay
-	active := cfg.ActiveAccount()
+	active := claude.Active(cfg)
 
 	var tab *proc.Table
 	if sampleProcs {

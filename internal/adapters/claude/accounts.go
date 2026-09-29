@@ -64,7 +64,7 @@ func (a Adapter) Switch(p agent.Profile, acct agent.Account) error {
 	if !ok {
 		return errors.New("rush has no sign-in for " + acct.Name)
 	}
-	return state.UseLogin(Account(p), l)
+	return claude.UseLogin(Account(p), l)
 }
 
 // SignIn is Claude Code's own sign-in, in a folder of its own: done keeps
@@ -77,7 +77,7 @@ func (Adapter) SignIn(p agent.Profile) (*exec.Cmd, func() (agent.Account, error)
 	c := exec.Command("claude", "auth", "login")
 	c.Env = scratch.Env()
 	done := func() (agent.Account, error) {
-		l, err := state.AdoptLogin(scratch)
+		l, err := claude.AdoptLogin(scratch)
 		if err != nil {
 			return agent.Account{}, err
 		}
@@ -109,7 +109,7 @@ func firstOf(vs ...string) string {
 
 // Forget drops rush's copy of a's sign-in.
 func (Adapter) Forget(a agent.Account) error {
-	return state.ForgetLogin(a.ID)
+	return claude.ForgetLogin(a.ID)
 }
 
 // Quota asks Anthropic for acct's limits with the sign-in rush keeps

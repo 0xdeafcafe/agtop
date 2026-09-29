@@ -1,10 +1,11 @@
 package claude
 
 import (
-	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 func TestSettingsKeepUnknownKeys(t *testing.T) {
