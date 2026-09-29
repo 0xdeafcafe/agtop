@@ -140,13 +140,15 @@ func (t *Tail) Read() (bool, error) {
 // Fresh is what a transcript gained since its Tail last fetched: whole
 // lines, not yet applied.
 type Fresh struct {
-	reset bool // the file was rewritten: start the conversation over
-	lines []byte
+	reset  bool // the file was rewritten: start the conversation over
+	lines  []byte
+	parsed []parsedLine // lines, parsed off the UI's goroutine; nil for a light session
 }
 
-// Fetch reads what the file has gained without applying it. It touches
-// only where the tail is in the file, never Sess, so it can run off the
-// UI's goroutine while Sess is drawn; Take then applies what it read.
+// Fetch reads what the file has gained, and decodes it, without applying
+// it. It touches only where the tail is in the file, never Sess, so it can
+// run off the UI's goroutine while Sess is drawn; Take then applies what
+// it read.
 // Only one Fetch or Read of a tail may run at a time.
 func (t *Tail) Fetch() (Fresh, error) {
 	var f Fresh
@@ -182,6 +184,19 @@ func (t *Tail) Fetch() (Fresh, error) {
 		t.partial = bytes.Clone(buf[i+1:])
 	}
 	f.lines = buf[:i+1]
+	if !t.Sess.light { // set as the tail is made, never after
+		for rest := f.lines; len(rest) > 0; {
+			line := rest
+			if i := bytes.IndexByte(rest, '\n'); i >= 0 {
+				line, rest = rest[:i], rest[i+1:]
+			} else {
+				rest = nil
+			}
+			if p, ok := t.parse(bytes.TrimSpace(line)); ok {
+				f.parsed = append(f.parsed, p)
+			}
+		}
+	}
 	return f, nil
 }
 
@@ -190,6 +205,14 @@ func (t *Tail) Take(f Fresh) bool {
 	changed := f.reset
 	if f.reset {
 		*t.Sess = *New() // in place: whoever holds the Session keeps following it
+	}
+	if f.parsed != nil || !t.Sess.light {
+		for i := range f.parsed {
+			if t.take(&f.parsed[i]) {
+				changed = true
+			}
+		}
+		return changed
 	}
 	for rest := f.lines; len(rest) > 0; {
 		line := rest
@@ -212,10 +235,61 @@ func (t *Tail) apply(b []byte) bool {
 	if t.Sess.light {
 		return t.applyLight(b)
 	}
-	var l tline
-	if jsonx.Unmarshal(b, &l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
-		return false
+	p, ok := t.parse(b)
+	return ok && t.take(&p)
+}
+
+// parsedLine is a transcript line as parse decoded it: all the JSON a
+// line holds, read without touching the Session, so Fetch can do it off
+// the UI's goroutine.
+type parsedLine struct {
+	l tline
+	// A user line: what you typed, when it's that.
+	text     string
+	images   []string
+	prompt   bool
+	content  jsontext.Value
+	notice   string // a system line's text
+	ev       any    // a message as the stream would carry it
+	evFailed bool
+}
+
+// parse decodes a line for take; ok is false when it's not one to take.
+func (t *Tail) parse(b []byte) (p parsedLine, ok bool) {
+	if len(b) == 0 {
+		return p, false
 	}
+	l := &p.l
+	if jsonx.Unmarshal(b, l) != nil || l.IsSidechain != t.sidechain || l.IsMeta {
+		return p, false
+	}
+	switch l.Type {
+	case "system":
+		if l.Subtype == "informational" || l.Subtype == "local_command" {
+			_ = jsonx.Unmarshal(l.Content, &p.notice)
+		}
+	case "user":
+		var m struct {
+			Content jsontext.Value `json:"content"`
+		}
+		_ = jsonx.Unmarshal(l.Message, &m)
+		p.content = m.Content
+		if p.text, p.images, p.prompt = prompt(m.Content); p.prompt {
+			break
+		}
+		fallthrough
+	case "assistant":
+		ev, err := headless.DecodeMessage(l.Type, l.Message, l.ToolUseResult)
+		p.ev, p.evFailed = ev, err != nil
+	}
+	// What's been decoded isn't kept twice.
+	l.Message, l.ToolUseResult, l.Content = nil, nil, nil
+	return p, true
+}
+
+// take applies a parsed line to the Session.
+func (t *Tail) take(p *parsedLine) bool {
+	l := &p.l
 	if !t.before.IsZero() && !l.Timestamp.IsZero() && !l.Timestamp.Before(t.before) {
 		// A transcript is written in order: once well past before (a
 		// minute, for lines written a little out of it), the rest is
@@ -238,8 +312,7 @@ func (t *Tail) apply(b []byte) bool {
 		if l.Subtype == "informational" || l.Subtype == "local_command" {
 			// Claude Code telling you something (an unknown command, a
 			// warning): shown where it happened.
-			var text string
-			if jsonx.Unmarshal(l.Content, &text) == nil && strings.TrimSpace(text) != "" {
+			if text := p.notice; strings.TrimSpace(text) != "" {
 				s.notice(stripTags(text), l.Level, at)
 				return true
 			}
@@ -252,11 +325,7 @@ func (t *Tail) apply(b []byte) bool {
 		}
 		return false
 	case "user":
-		var m struct {
-			Content jsontext.Value `json:"content"`
-		}
-		_ = jsonx.Unmarshal(l.Message, &m)
-		if text, images, ok := prompt(m.Content); ok {
+		if text, images := p.text, p.images; p.prompt {
 			// A shell command you ran with ! is its own small turn, and
 			// its output lands on it rather than starting another.
 			if out, ok := shellOutput(text); ok {
@@ -283,7 +352,7 @@ func (t *Tail) apply(b []byte) bool {
 			from, text2, injected := Injected(text)
 			if injected {
 				text = text2
-				s.noteTask(m.Content)
+				s.noteTask(p.content)
 			}
 			s.Apply(host.Sent{Text: text, Images: images}, at)
 			if injected {
@@ -299,8 +368,8 @@ func (t *Tail) apply(b []byte) bool {
 		}
 		fallthrough
 	case "assistant":
-		ev, err := headless.DecodeMessage(l.Type, l.Message, l.ToolUseResult)
-		if err != nil {
+		ev := p.ev
+		if p.evFailed {
 			return false
 		}
 		if msg, ok := ev.(headless.Message); ok && l.Type == "assistant" {
