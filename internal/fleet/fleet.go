@@ -92,7 +92,7 @@ func (a *Agent) Waiting() bool {
 
 // applyStatus trusts the session's live busy/idle flag over the job file,
 // whose state Claude Code only re-summarises every 15-40s.
-func (a *Agent) applyStatus(ss agent.Session) {
+func (a *Agent) applyStatus(ss *agent.Session) {
 	switch {
 	case ss.Status == "busy" && a.State == "running":
 		a.State = "working"
@@ -396,11 +396,12 @@ func (l *Loader) syncUsage() {
 	if !ok {
 		return
 	}
-	for k, r := range pr.Readings(l.UsagePath) {
-		if old, ok := l.fetched[k]; ok && !r.FetchedAt.After(old.FetchedAt) {
+	all := pr.Readings(l.UsagePath)
+	for k := range all {
+		if old, ok := l.fetched[k]; ok && !all[k].FetchedAt.After(old.FetchedAt) {
 			continue
 		}
-		l.fetched[k] = r
+		l.fetched[k] = all[k]
 	}
 }
 
@@ -631,11 +632,12 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		// Its sessions, as its adapter finds them: background jobs, then
 		// every session whose process is alive.
 		var jobs, sessions []agent.Session
-		for _, s := range liveOf(p) {
-			if s.Job != nil {
-				jobs = append(jobs, s)
+		live := liveOf(p)
+		for i := range live {
+			if live[i].Job != nil {
+				jobs = append(jobs, live[i])
 			} else {
-				sessions = append(sessions, s)
+				sessions = append(sessions, live[i])
 			}
 		}
 		byJob := map[string]agent.Session{}
@@ -656,7 +658,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			claimed[j.SessionID] = true
 			a := &Agent{Job: *j, Extra: jobs[i].Extra, Key: key, Acct: p, Kind: string(p.Kind), DisplayName: j.Name}
 			if ss, ok := byJob[id]; ok {
-				a.applyStatus(ss)
+				a.applyStatus(&ss)
 			}
 			if a.State == "running" { // only a busy session makes it work
 				a.State = "done"
@@ -886,7 +888,7 @@ func isProgram(k agent.Kind, comm string) bool {
 }
 
 // hostedAgent is a rush session's row, with what you've set on it.
-func (l *Loader) hostedAgent(p agent.Profile, info host.Info, tab *proc.Table, now time.Time) *Agent {
+func (l *Loader) hostedAgent(p agent.Profile, info host.Info, tab *proc.Table, now time.Time) *Agent { //nolint:gocritic // host.Info goes by value, as the hosts list it
 	ov := l.store.Overlay
 	a := l.hosted(p, info, tab, now)
 	if n := ov.Names[a.Key]; n != "" {
@@ -905,7 +907,7 @@ func (l *Loader) hostedAgent(p agent.Profile, info host.Info, tab *proc.Table, n
 		// Its host says whether Claude Code runs: when neither runs, nor
 		// does anything Claude Code started.
 		gone := a.PID == 0 || info.Proto >= 3 && info.ClaudePID == 0 && info.State != "working"
-		a.Subs, a.Subagents = l.subagents(a.Acct.Kind, a.Key, a.Job.TranscriptPath, gone, now)
+		a.Subs, a.Subagents = l.subagents(a.Acct.Kind, a.Key, a.TranscriptPath, gone, now)
 	}
 	// A transcript is priced call by call, subagents and all; the host's
 	// own figure is only for agents that leave none. (Older hosts summed
@@ -939,7 +941,7 @@ func (l *Loader) transcriptOf(pr agent.Profile, cwd, sid string) string {
 	return p
 }
 
-func (l *Loader) hosted(p agent.Profile, info host.Info, tab *proc.Table, now time.Time) *Agent {
+func (l *Loader) hosted(p agent.Profile, info host.Info, tab *proc.Table, now time.Time) *Agent { //nolint:gocyclo,gocritic // one case per thing a host can say
 	st := info.State
 	switch st {
 	case "idle", "starting":

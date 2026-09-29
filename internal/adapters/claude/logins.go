@@ -48,7 +48,9 @@ func (Adapter) Plan(p agent.Profile) usage.Reading {
 // wait for says until when.
 func (Adapter) Readings(path string) map[string]usage.Reading {
 	out := map[string]usage.Reading{}
-	for k, f := range claude.LoadFetchedUsage(path) {
+	all := claude.LoadFetchedUsage(path)
+	for k := range all {
+		f := all[k]
 		if time.Now().Before(f.Wait) {
 			f.Usage.Problem = "rate-limited to " + f.Wait.Local().Format("15:04")
 		}
@@ -76,7 +78,7 @@ func (Adapter) RefreshPlan(path string, p agent.Profile, offline bool) usage.Rea
 // A sign-in in ~/.claude that isn't the account it names was put back by
 // a Claude Code started before a switch, as it refreshed its own: the
 // switch is made again, and restored says so.
-func (Adapter) FindLogins(cfg state.Config) (found []state.FoundLogin, restored *state.Restored, imported bool, failed error) {
+func (Adapter) FindLogins(cfg state.Config) (found []state.FoundLogin, restored *state.Restored, imported bool, failed error) { //nolint:gocritic // state.LoginKeeper's signature
 	v := claude.TheVault()
 	root := claude.Active(cfg)
 	lg, owner, ok, err := v.Keep(root)
@@ -153,7 +155,7 @@ func putBack(was, now string) bool {
 // account's. It's asked with the login's freshest sign-in: ~/.claude's
 // when it's signed in as it, its home's when it has one, else the one the
 // vault kept.
-func (Adapter) RefreshLogin(path string, cfg state.Config, lg state.Login, offline bool) usage.Reading {
+func (Adapter) RefreshLogin(path string, cfg state.Config, lg state.Login, offline bool) usage.Reading { //nolint:gocritic // state.LoginKeeper's signature
 	root := claude.Active(cfg)
 	if claude.SignedInAs(root) == lg.ID {
 		return claude.RefreshUsage(path, root, offline).Reading()
@@ -172,7 +174,7 @@ func (Adapter) RefreshLogin(path string, cfg state.Config, lg state.Login, offli
 
 // UsingLogin is the login new sessions run as in its home, when it's one
 // cfg keeps.
-func (Adapter) UsingLogin(cfg state.Config) string {
+func (Adapter) UsingLogin(cfg state.Config) string { //nolint:gocritic // state.LoginKeeper's signature
 	id := claude.Using()
 	if _, ok := cfg.Login(id); id == "" || !ok {
 		return ""
@@ -181,7 +183,7 @@ func (Adapter) UsingLogin(cfg state.Config) string {
 }
 
 // UseLogin readies l's home and makes it the one new sessions run in.
-func (Adapter) UseLogin(cfg state.Config, l state.Login) error {
+func (Adapter) UseLogin(cfg state.Config, l state.Login) error { //nolint:gocritic // state.LoginKeeper's signature
 	return claude.UseLogin(claude.Active(cfg), l)
 }
 

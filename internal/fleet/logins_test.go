@@ -12,7 +12,8 @@ import (
 
 func loginAt(id string, current bool, fiveHour, sevenDay float64) LoginView {
 	return LoginView{
-		Login:   state.Login{ID: id, Name: id},
+		ID:      id,
+		Name:    id,
 		Current: current,
 		Quota: claude.Usage{
 			FetchedAt: time.Now(),
@@ -56,7 +57,7 @@ func TestNextLogin(t *testing.T) {
 }
 
 func TestNextLoginSkipsLoginsWithoutReading(t *testing.T) {
-	unread := LoginView{Login: state.Login{ID: "b"}}
+	unread := LoginView{ID: "b"}
 	stale := loginAt("c", false, 0, 0)
 	stale.Quota.FetchedAt = time.Now().Add(-2 * time.Hour)
 	older := loginAt("e", false, 0, 0)
@@ -157,9 +158,9 @@ func TestLoginInUseInItsHome(t *testing.T) {
 
 // fiveHour is how much of r's 5-hour window is used.
 func fiveHour(r usage.Reading) float64 {
-	for _, w := range r.Windows {
-		if w.ID == "five_hour" {
-			return w.Percent
+	for i := range r.Windows {
+		if r.Windows[i].ID == "five_hour" {
+			return r.Windows[i].Percent
 		}
 	}
 	return 0

@@ -10,23 +10,23 @@ import (
 func TestSessionStatusBeatsAStaleJobFile(t *testing.T) {
 	now := time.Now()
 	ended := &Agent{Job: agent.Job{State: "working", UpdatedAt: now.Add(-20 * time.Second)}}
-	ended.applyStatus(agent.Session{Status: "idle", StatusAt: now})
+	ended.applyStatus(&agent.Session{Status: "idle", StatusAt: now})
 	if ended.State != "blocked" || !ended.Checking {
 		t.Fatalf("turn end not surfaced: %+v", ended.Job)
 	}
 	// The summary can be rewritten after the reply; the live flag still wins.
 	answered := &Agent{Job: agent.Job{State: "blocked", Needs: "want that?", UpdatedAt: now}}
-	answered.applyStatus(agent.Session{Status: "busy", StatusAt: now.Add(-time.Minute)})
+	answered.applyStatus(&agent.Session{Status: "busy", StatusAt: now.Add(-time.Minute)})
 	if answered.State != "working" || answered.Needs != "" {
 		t.Fatalf("reply not surfaced: %+v", answered.Job)
 	}
 	tending := &Agent{Job: agent.Job{State: "done", InFlight: 2, Background: []string{"shell\x00pnpm test"}, UpdatedAt: now.Add(-time.Minute)}}
-	tending.applyStatus(agent.Session{Status: "busy", StatusAt: now})
+	tending.applyStatus(&agent.Session{Status: "busy", StatusAt: now})
 	if tending.State != "done" {
 		t.Fatal("a session tending background work is not working on a reply")
 	}
 	watching := &Agent{Job: agent.Job{State: "done", InFlight: 1, UpdatedAt: now.Add(-time.Minute)}}
-	watching.applyStatus(agent.Session{Status: "busy", StatusAt: now})
+	watching.applyStatus(&agent.Session{Status: "busy", StatusAt: now})
 	if watching.State != "working" {
 		t.Fatal("a watcher or cron is not background work; a busy session is working")
 	}

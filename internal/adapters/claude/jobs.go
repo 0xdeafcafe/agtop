@@ -75,10 +75,11 @@ func (Adapter) LinkedPRs(p agent.Profile) map[string]agent.PR {
 // folder.
 func (Adapter) Watched(p agent.Profile, jobs []string) []string {
 	acct := Account(p)
-	out := []string{
+	out := make([]string, 0, 8+2*len(jobs))
+	out = append(out,
 		acct.ConfigDir, filepath.Join(acct.ConfigDir, "sessions"), acct.JobsDir(), filepath.Dir(acct.RosterPath()),
 		acct.RosterPath(), acct.PRCachePath(), claude.PinsPath(acct), acct.StatePath(),
-	}
+	)
 	for _, id := range jobs {
 		out = append(out, filepath.Join(acct.JobsDir(), id), filepath.Join(acct.JobsDir(), id, "state.json"))
 	}

@@ -55,7 +55,7 @@ func nativeCall(id, name string, input jsontext.Value) tool.Call {
 }
 
 // nativeOutput is how call c came out, from what the native agent said.
-func nativeOutput(c tool.Call, text string, isError bool, result jsontext.Value) tool.Output {
+func nativeOutput(c tool.Call, text string, isError bool, result jsontext.Value) tool.Output { //nolint:gocritic // agent.Native's signature
 	if n := native(); n != nil {
 		return n.Output(c, text, isError, result)
 	}
