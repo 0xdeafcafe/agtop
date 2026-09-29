@@ -1398,7 +1398,7 @@ func styledAsk(s, base string) string {
 			return reset + paint(cBlue, "▣ ") + paint(cText, ImageLabel(strings.TrimSuffix(m[len("[image: "):], "]"))) + base
 		case strings.HasPrefix(m, "[Image"):
 			return reset + paint(cBlue, "▣ ") + paint(cText, strings.Trim(m, "[]")) + base
-		case strings.HasPrefix(m, "[Pasted"):
+		case strings.HasPrefix(m, "[Pasted"), strings.HasPrefix(m, "[#"):
 			return reset + paint(cBlue, "▤ ") + paint(cText, strings.Trim(m, "[]")) + base
 		case strings.HasPrefix(m, "http"):
 			return reset + link(m) + base
@@ -1408,7 +1408,7 @@ func styledAsk(s, base string) string {
 	return paint(base, inline(s, base))
 }
 
-var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[image: [^\]]+\]|\[Pasted text #\d+[^\]]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*(?:$|[\s.,;:!?)])|@[\w./-]+`)
+var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[image: [^\]]+\]|\[(?:Pasted text )?#\d+ [^\]\n]*lines?[^\]\n]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*(?:$|[\s.,;:!?)])|@[\w./-]+`)
 
 var pastedRe = regexp.MustCompile(`(?s)\s*<pasted_content id="[^"]*">\n?(.*?)\n?</pasted_content(?: id="[^"]*")?>\s*`)
 
@@ -1428,7 +1428,7 @@ func FoldPastes(s string) string {
 	n := 0
 	return strings.TrimSpace(EachPaste(s, func(text string) string {
 		n++
-		return fmt.Sprintf("[Pasted text #%d +%d lines]", n, strings.Count(strings.TrimRight(text, "\n"), "\n")+1)
+		return PasteChip(n, text)
 	}))
 }
 

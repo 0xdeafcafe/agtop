@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/0xdeafcafe/agtop/internal/convo"
 )
 
 // imageRefs are the images a Session's box holds, each standing in the text
@@ -90,7 +92,7 @@ func (r imageRefs) clone() imageRefs {
 
 // chipRe is what deletes as one unit in a box: a long paste's chip, or an
 // image's marker.
-var chipRe = regexp.MustCompile(`\[Pasted text #\d+ \+\d+ lines\]|\[Image #\d+\]`)
+var chipRe = regexp.MustCompile(convo.PasteChipRe.String() + `|\[Image #\d+\]`)
 
 // dropChipAfter deletes a whole chip or marker when delete lands on its
 // start.

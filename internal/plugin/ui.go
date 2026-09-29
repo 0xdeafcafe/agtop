@@ -237,7 +237,7 @@ type UIEvent struct {
 }
 
 // Box is a message box as a plugin with "input" sees it, and may set it.
-// Text is as the box shows it: a long paste as [Pasted text #N +L lines],
+// Text is as the box shows it: a paste as [#N L lines: start…end],
 // an image as [Image #N]. Setting a Box puts all of it back as it was.
 type Box struct {
 	Text   string         `json:"text"`

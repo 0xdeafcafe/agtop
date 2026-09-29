@@ -6,6 +6,8 @@ import (
 	"github.com/0xdeafcafe/agtop/internal/cellw"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
+
+	"github.com/0xdeafcafe/agtop/internal/convo"
 )
 
 // The input box sits on the brightest surface on screen, so where you type
@@ -247,7 +249,7 @@ func (b box) content(w int) []string {
 // so a chip reads as one thing rather than words you typed.
 func chipMask(text []rune) []bool {
 	s := string(text)
-	if !strings.Contains(s, "[Pasted text #") {
+	if !convo.HasPasteChip(s) {
 		return nil
 	}
 	mask := make([]bool, len(text))

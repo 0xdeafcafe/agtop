@@ -235,7 +235,7 @@ func TestPasteChips(t *testing.T) {
 	var p pastes
 	long := "a\nb\nc\nd\ne"
 	chip := p.add(long)
-	if chip != "[Pasted text #1 +5 lines]" {
+	if chip != "[#1 5 lines: a b c d e]" {
 		t.Fatalf("chip = %q", chip)
 	}
 	draft := []rune("look at " + chip + " please")
@@ -254,10 +254,10 @@ func TestPasteChips(t *testing.T) {
 		t.Fatal("lastIn")
 	}
 	got := applyEdit(&p, draft, 1, "x\ny")
-	if string(got) != "look at [Pasted text #1 +2 lines] please" || p.text[1] != "x\ny" {
+	if string(got) != "look at [#1 2 lines: x y] please" || p.text[1] != "x\ny" {
 		t.Fatalf("applyEdit = %q", string(got))
 	}
-	if isLongPaste("one\ntwo") || !isLongPaste(long) {
+	if !isLongPaste("one\ntwo") || isLongPaste("one line\n") || !isLongPaste(long) {
 		t.Fatal("isLongPaste")
 	}
 }
@@ -296,7 +296,7 @@ func TestPasteTaggedRoundTrip(t *testing.T) {
 	}
 	var q pastes
 	back := string(q.unfold(sent))
-	if back != "look at [Pasted text #1 +4 lines] please" || q.expand(back, false) != "look at a\nb\nc\nd please" {
+	if back != "look at [#1 4 lines: a b c d] please" || q.expand(back, false) != "look at a\nb\nc\nd please" {
 		t.Fatalf("unfold = %q", back)
 	}
 }

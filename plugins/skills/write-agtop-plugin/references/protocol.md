@@ -109,7 +109,7 @@ Something happened in one of agtop's windows. Sent without waiting for the plugi
 
 `{"plugin": "…", "command": "summarize", "ui": "main", "session": {…}, "box": "a1b2c3d4", "input": {…}}`: the user ran one of its `commands`, on `session` if one was selected (as in `ui.event`, or absent). `box` is whose message box had the keys: a session's id, or `""` for the Prompt (where new sessions start). `input`, to a plugin with `input` only, is that box as it was when the key was pressed, whole:
 
-`{"text": "see [Image #1] and [Pasted text #2 +4 lines]", "cursor": 3, "pastes": {"2": "…"}, "images": {"1": "/path/a.png"}}`
+`{"text": "see [Image #1] and [#2 4 lines: first…last]", "cursor": 3, "pastes": {"2": "…"}, "images": {"1": "/path/a.png"}}`
 
 `text` is as the box shows it, with a long paste as its chip and an image as its marker; `cursor` counts characters from the start; `pastes` and `images` are what each chip and marker stand for. The Prompt's images are attachments rather than markers in its text, numbered 1, 2, 3. Answer `{}` within 10 seconds; the work may go on after.
 

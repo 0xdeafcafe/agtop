@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,14 +21,15 @@ type pastes struct {
 	text map[int]string
 }
 
-var pasteRe = regexp.MustCompile(`\[Pasted text #(\d+) \+\d+ lines\]`)
+var pasteRe = convo.PasteChipRe
 
-// isLongPaste is a paste worth folding into a chip.
-func isLongPaste(s string) bool { return strings.Count(s, "\n") >= 3 || len(s) > 800 }
-
-func chipFor(id int, text string) string {
-	return fmt.Sprintf("[Pasted text #%d +%d lines]", id, strings.Count(strings.TrimRight(text, "\n"), "\n")+1)
+// isLongPaste is a paste worth folding into a chip: any with more than one
+// line, or a very long one.
+func isLongPaste(s string) bool {
+	return strings.Contains(strings.TrimRight(s, "\n"), "\n") || len(s) > 800
 }
+
+func chipFor(id int, text string) string { return convo.PasteChip(id, text) }
 
 // add keeps text and returns the chip that stands for it.
 func (p *pastes) add(text string) string {
@@ -82,7 +82,7 @@ func (p *pastes) lastIn(buf []rune) int {
 // whether it's a paste kept here, to open.
 func (p *pastes) chipAt(buf []rune, pos int) (seg, bool) {
 	s := string(buf)
-	if !strings.Contains(s, "[Pasted text #") {
+	if !convo.HasPasteChip(s) {
 		return seg{}, false
 	}
 	for _, loc := range pasteRe.FindAllStringSubmatchIndex(s, -1) {
