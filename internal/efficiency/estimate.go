@@ -135,3 +135,68 @@ func (v *View) Measured(id string) (Measured, bool) {
 	}
 	return Measured{With: sp[0].side(), Without: sp[1].side(), Since: v.FirstUse[id]}, true
 }
+
+// Verdict is whether a saver that's set up is doing anything here.
+type Verdict int
+
+const (
+	Unseen Verdict = iota // a setting: acts on every session, nothing in a transcript shows it
+	Half                  // found, but not finished: it does nothing
+	Silent                // set up, but never seen in these sessions
+	Firing                // seen at work
+)
+
+// Working is a saver's verdict over the view and, when Compared, how the
+// figure it should move differed in sessions with it against those
+// without, in percent: negative is better, but for cache hits.
+type Working struct {
+	Verdict  Verdict
+	Metric   Metric
+	Change   float64
+	Compared bool
+	Few      bool // under FewSessions on a side
+}
+
+// Working is whether a saver found set up is doing anything in the view.
+func (v *View) Working(s *Saver, f Found) Working {
+	switch {
+	case f.Status == Partial:
+		return Working{Verdict: Half}
+	case len(s.Uses) == 0:
+		return Working{Verdict: Unseen}
+	case v.Uses[s.ID] == nil:
+		return Working{Verdict: Silent}
+	}
+	w := Working{Verdict: Firing, Metric: MetricCost}
+	if len(s.Moves) > 0 {
+		w.Metric = s.Moves[0]
+	}
+	mz, ok := v.Measured(s.ID)
+	if !ok || mz.With.Sessions == 0 || mz.Without.Sessions == 0 {
+		return w
+	}
+	a, b := sideFigure(mz.With, w.Metric), sideFigure(mz.Without, w.Metric)
+	if b <= 0 {
+		return w
+	}
+	w.Change, w.Compared = (a-b)/b*100, true
+	w.Few = mz.With.Sessions < FewSessions || mz.Without.Sessions < FewSessions
+	return w
+}
+
+// sideFigure is a side's figure for a metric, per request or per call.
+func sideFigure(s Side, m Metric) float64 {
+	switch m {
+	case MetricToolKB:
+		return s.ToolPerCall
+	case MetricCtx:
+		return s.CtxPerReq
+	case MetricOut:
+		return s.OutPerReq
+	case MetricCache:
+		return s.CacheHit
+	case MetricStart:
+		return float64(s.StartMedian)
+	}
+	return s.CostPerReq
+}

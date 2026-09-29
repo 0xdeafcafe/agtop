@@ -33,3 +33,31 @@ func TestEstimate(t *testing.T) {
 		t.Fatalf("by estimate: %s %s %s %s", list[0].ID, list[1].ID, list[2].ID, list[3].ID)
 	}
 }
+
+func TestWorking(t *testing.T) {
+	sv := &Saver{ID: "x", Uses: []string{"bash:x"}, Moves: []Metric{MetricToolKB}}
+	on := Found{Status: On}
+	v := &View{Uses: map[string]*SaverUse{}, split: map[string]*[2]sideAcc{}}
+
+	if w := v.Working(sv, Found{Status: Partial}); w.Verdict != Half {
+		t.Fatalf("half set up: %+v", w)
+	}
+	if w := v.Working(&Saver{ID: "s"}, on); w.Verdict != Unseen {
+		t.Fatalf("a setting can't be seen: %+v", w)
+	}
+	if w := v.Working(sv, on); w.Verdict != Silent {
+		t.Fatalf("on but never used: %+v", w)
+	}
+
+	v.Uses["x"] = &SaverUse{N: 3, Sessions: 2}
+	if w := v.Working(sv, on); w.Verdict != Firing || w.Compared {
+		t.Fatalf("used, nothing to compare: %+v", w)
+	}
+	sp := &[2]sideAcc{}
+	sp[0].n, sp[0].b.Calls[ToolBash], sp[0].b.Bytes[ToolBash] = 1, 10, 600
+	sp[1].n, sp[1].b.Calls[ToolBash], sp[1].b.Bytes[ToolBash] = 1, 10, 1000
+	v.split["x"] = sp
+	if w := v.Working(sv, on); !w.Compared || w.Change != -40 || !w.Few || w.Metric != MetricToolKB {
+		t.Fatalf("with 60 B/call against 100: %+v", w)
+	}
+}

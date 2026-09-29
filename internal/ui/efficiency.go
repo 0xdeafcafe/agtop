@@ -756,24 +756,31 @@ func (m *Model) effOverview(w int) []string {
 	out = append(out, blanks(9)+markLane(m.effMarks(), m.effBucket, width, at))
 	out = append(out, blanks(9)+m.effAxis(width, len(vals2)), "")
 
-	out = append(out, rule("Savers", "", w))
 	var on []string
+	firing, silent := 0, 0
 	for _, sv := range m.effSavers() {
 		f := e.found[sv.ID]
 		if f.Status == efficiency.Off {
 			continue
 		}
-		s := effStatusGlyph(f.Status) + " " + sv.Name
-		if u := v.Uses[sv.ID]; u != nil {
-			s += dim(fmt.Sprintf(" %d× in %d sessions", u.N, u.Sessions))
+		wk := v.Working(sv, f)
+		switch wk.Verdict {
+		case efficiency.Firing:
+			firing++
+		case efficiency.Silent, efficiency.Half:
+			silent++
 		}
-		on = append(on, s)
+		on = append(on, fit("  "+effStatusGlyph(f.Status)+" "+fit(sv.Name, 26)+m.effWorking(sv, f, wk), w))
 	}
+	sum := ""
+	if len(on) > 0 {
+		sum = fmt.Sprintf("%d working · %d not", firing, silent)
+	}
+	out = append(out, rule("Savers", sum, w))
 	if len(on) == 0 {
 		out = append(out, dim("  none set up · i shows what there is"))
-	} else {
-		out = append(out, "  "+strings.Join(on, "   "))
 	}
+	out = append(out, on...)
 	if best := m.effBest(3); len(best) > 0 {
 		out = append(out, "  "+dim("might save most here: ")+strings.Join(best, dim(" · ")))
 	}
@@ -791,6 +798,54 @@ func (m *Model) effOverview(w int) []string {
 		out = append(out, dim("  nothing stands out"))
 	}
 	return out
+}
+
+// effWorking says whether a saver that's set up is doing anything in the
+// view: seen at work, and what moved in the sessions that used it.
+func (m *Model) effWorking(sv *efficiency.Saver, f efficiency.Found, wk efficiency.Working) string {
+	switch wk.Verdict {
+	case efficiency.Half:
+		return paint(cYellow, "✗ half set up: "+f.Wants)
+	case efficiency.Unseen:
+		return dim("a setting: acts on every session, so no transcript shows it · t, b for before/after")
+	case efficiency.Silent:
+		return paint(cRed, "✗ not seen in these sessions") + dim(": not loading, or not this work")
+	}
+	u := m.eff.view.Uses[sv.ID]
+	s := paint(cGreen, "✓ firing") + dim(fmt.Sprintf(" %d× in %d sessions", u.N, u.Sessions))
+	if wk.Compared {
+		s += dim(" · "+efficiency.MetricNames[wk.Metric]+" ") + effChange(wk)
+	} else {
+		s += dim(" · every session since used it: nothing to compare")
+	}
+	if sv.ID == "rtk" && len(m.eff.gains) > 0 {
+		var saved int64
+		for _, g := range m.eff.gains {
+			if d, err := time.ParseInLocation("2006-01-02", g.Day, time.Local); err == nil && !d.Before(m.eff.view.Q.From.Add(-24*time.Hour)) {
+				saved += g.Saved
+			}
+		}
+		s += dim(" · rtk says " + tokens(saved) + " saved")
+	}
+	return s
+}
+
+// effChange is how the figure a saver should move differed with it.
+func effChange(wk efficiency.Working) string {
+	good := (wk.Change < 0) != (wk.Metric == efficiency.MetricCache)
+	col, word := cSub, "no clear difference"
+	switch {
+	case math.Abs(wk.Change) < 5:
+	case good:
+		col, word = cGreen, "better"
+	default:
+		col, word = cRed, "worse"
+	}
+	s := paint(col, fmt.Sprintf("%+.0f%%", wk.Change)) + dim(" vs without: "+word)
+	if wk.Few {
+		s += dim(", few sessions")
+	}
+	return s
 }
 
 // effBest are the savers not set up that might save most over the view,
@@ -1225,6 +1280,9 @@ func (m *Model) effSaverDetail(sv *efficiency.Saver, w int) []string {
 		add("yours", txt)
 	}
 	add("careful", sv.Note)
+	if f.Status != efficiency.Off {
+		add("working", m.effWorking(sv, f, e.view.Working(sv, f)))
+	}
 	switch f.Status {
 	case efficiency.Off:
 		add("here", "not set up")
