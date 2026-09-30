@@ -23,7 +23,13 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	// Hosts the tests start write shims: into a cache of their own, not
+	// the machine's, which sessions' shells run.
+	d, _ := os.MkdirTemp("", "rush-cache")
+	os.Setenv("RUSH_CACHE", d)
+	code := m.Run()
+	os.RemoveAll(d)
+	os.Exit(code)
 }
 
 // fakeClaude logs its arguments and every message it is sent, and ends each
