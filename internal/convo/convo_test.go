@@ -395,6 +395,34 @@ func TestSubagents(t *testing.T) {
 	}
 }
 
+// A message rush's inbox handed a subagent at a tool call's end is yours,
+// mid-turn, without the note the hook put before it; other hooks' aren't.
+func TestSubagentToldMidTurn(t *testing.T) {
+	path := t.TempDir() + "/agent-a1.jsonl"
+	note, _ := jsonx.Marshal(host.TellNote + "also echo pineapple")
+	_ = os.WriteFile(path, []byte(strings.Join([]string{
+		`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"count to five"}}`,
+		`{"type":"attachment","isSidechain":true,"timestamp":"2026-09-23T20:00:00Z","attachment":{"type":"hook_additional_context","content":["PONYTAIL MODE ACTIVE"],"hookEvent":"SubagentStart"}}`,
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-09-23T20:00:01Z","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":"echo one"}}]}}`,
+		`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","content":"one"}]}}`,
+		`{"type":"attachment","isSidechain":true,"timestamp":"2026-09-23T20:00:02Z","attachment":{"type":"hook_success","content":"","hookEvent":"PostToolUse"}}`,
+		`{"type":"attachment","isSidechain":true,"timestamp":"2026-09-23T20:00:02Z","attachment":{"type":"hook_additional_context","content":[` + string(note) + `],"hookName":"PostToolUse:Bash","hookEvent":"PostToolUse"}}`,
+	}, "\n")+"\n"), 0o644)
+	tl := SubagentTail(path)
+	if _, err := tl.Read(); err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	for _, it := range tl.Sess.Turns[len(tl.Sess.Turns)-1].Items {
+		if it.Kind == KInterject {
+			said = append(said, it.Text)
+		}
+	}
+	if len(tl.Sess.Turns) != 1 || len(said) != 1 || said[0] != "also echo pineapple" {
+		t.Fatalf("%d turns, said %q", len(tl.Sess.Turns), said)
+	}
+}
+
 // A run's row numbers read the same whether the run was read in full or
 // only for its numbers.
 func TestSubagentStatsMatchFull(t *testing.T) {

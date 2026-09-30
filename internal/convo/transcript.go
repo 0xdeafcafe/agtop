@@ -159,7 +159,11 @@ type tline struct {
 	Effort        string         `json:"effort"`
 	Content       jsontext.Value `json:"content"`
 	Level         string         `json:"level"`
-	Compact       struct {
+	Attachment    struct {
+		Type    string         `json:"type"`
+		Content jsontext.Value `json:"content"`
+	} `json:"attachment"`
+	Compact struct {
 		Trigger    string `json:"trigger"`
 		PreTokens  int    `json:"preTokens"`
 		PostTokens int    `json:"postTokens"`
@@ -384,9 +388,11 @@ func (t *Tail) parse(b []byte) (p parsedLine, ok bool) {
 			ev, err := n.Message(l.Type, l.Message, l.ToolUseResult)
 			p.ev, p.evFailed = ev, err != nil
 		}
+	case "attachment":
+		p.text, p.prompt = told(l.Attachment.Type, l.Attachment.Content)
 	}
 	// What's been decoded isn't kept twice.
-	l.Message, l.ToolUseResult, l.Content = nil, nil, nil
+	l.Message, l.ToolUseResult, l.Content, l.Attachment.Content = nil, nil, nil, nil
 	return p, true
 }
 
@@ -484,8 +490,29 @@ func (t *Tail) take(p *parsedLine) bool {
 		}
 		s.Apply(ev, at)
 		return true
+	case "attachment":
+		// A message rush's inbox handed over mid-turn: yours, as you sent it.
+		if p.prompt {
+			s.Apply(host.Sent{Text: p.text}, at)
+		}
+		return p.prompt
 	}
 	return false
+}
+
+// told is the message rush's inbox hook handed the agent, from the
+// attachment Claude Code keeps of what the hook added.
+func told(kind string, content jsontext.Value) (string, bool) {
+	var texts []string
+	if kind != "hook_additional_context" || jsonx.Unmarshal(content, &texts) != nil {
+		return "", false
+	}
+	for _, t := range texts {
+		if msg, ok := strings.CutPrefix(t, host.TellNote); ok {
+			return msg, true
+		}
+	}
+	return "", false
 }
 
 // prompt reads a user line as something you typed: plain text or text and

@@ -202,6 +202,7 @@ type Model struct {
 	// skips those for a while rather than sticking on one it can't show.
 	openFailed   map[string]time.Time
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
+	subNotes     map[string][]subNote   // what you sent subagents that their conversations don't show, by subQKey
 	online       onlineWatch            // sessions an API error stopped, told to continue once it can be reached
 	moveWhenIdle map[string]bool        // agents to move to rush mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
@@ -1092,6 +1093,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.picker != nil && m.picker.img == msg.path && m.picker.big == msg.big {
 			m.picker.shot = msg.rows
 		}
+		return m, nil
+	case subSentMsg:
+		m.onSubSent(msg)
 		return m, nil
 	case doneMsg:
 		if msg.err != nil {

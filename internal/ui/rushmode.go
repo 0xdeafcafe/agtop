@@ -2356,6 +2356,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			line(l)
 		}
 	}
+	if l := m.subNoteLines(c, w); len(l) > 0 {
+		block()
+		for _, l := range l {
+			line(l)
+		}
+	}
 	if qs := m.queueOf(c); len(qs.items) > 0 {
 		block()
 		var rows []string
@@ -3284,7 +3290,14 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	}
 	if id := m.watchedHost(c); id != "" && text != "" {
 		c.input, c.back = c.input[:0], 0
-		return sendHostedID(id, "the spawned agent", text, false)
+		return viaSub(c, convo.Subagent{ID: c.subOpen, Type: "the spawned agent"}, text, "in its own queue · it reads it when its turn ends", func() error {
+			hc, err := host.Dial(id)
+			if err != nil {
+				return err
+			}
+			defer hc.Close()
+			return hc.Send(text)
+		})
 	}
 	if cmd, ok := m.sendMentioned(text, text); ok {
 		c.input, c.back = c.input[:0], 0
@@ -3337,15 +3350,28 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		m.queueSub(c, q, sa, text)
 		return nil
 	}
-	if relay && len(images) == 0 {
-		text = relayPrompt(sa, text)
-	}
 	c.input, c.back, c.imgs = nil, 0, imageRefs{}
 	c.undo = undoStack{}
 	c.scroll = 0
 	c.lastSend = time.Now()
 	if a := m.focused(); a != nil {
 		m.markSeen(a)
+	}
+	if relay && len(images) == 0 {
+		// Into the main session's turn at its next step, not its queue:
+		// one waiting on this subagent ends only once it has.
+		cl, prompt := c.client, relayPrompt(sa, text)
+		return viaSub(c, sa, text, "the main session passes it on at its next step", func() error { return cl.SendGuide(prompt, nil) })
+	}
+	if sa, live, ok := m.pickedSub(c); ok && m.watchingSub(c) {
+		why := "went to the main session"
+		switch {
+		case !live:
+			why += " · it has finished"
+		case len(images) > 0:
+			why += " · a subagent takes no images"
+		}
+		m.noteSub(c.key, sa.ID, subNote{text: text, how: why})
 	}
 	if now && len(images) == 0 && len(m.queueOf(c).items) > 0 {
 		return m.sendQueueNow(c, text)

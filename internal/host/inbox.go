@@ -81,6 +81,10 @@ func (s *server) unread(sub string) {
 	s.publish()
 }
 
+// TellNote heads what the hook hands over. The transcript keeps it, so a
+// view can show what follows it as your message.
+const TellNote = "The user sent you this message directly while you work. Take it into account, then carry on:\n\n"
+
 // Inbox is the hook: given a tool call's hook input on in, it writes to out
 // what's waiting in dir for the subagent that made it, and takes it.
 func Inbox(dir string, in io.Reader, out io.Writer) error {
@@ -101,7 +105,7 @@ func Inbox(dir string, in io.Reader, out io.Writer) error {
 	if err != nil || strings.TrimSpace(string(b)) == "" {
 		return err
 	}
-	msg := "The user sent you this message directly while you work. Take it into account, then carry on:\n\n" + strings.TrimSpace(string(b))
+	msg := TellNote + strings.TrimSpace(string(b))
 	b, err = jsonx.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": h.Event, "additionalContext": msg}})
 	if err != nil {
 		return err

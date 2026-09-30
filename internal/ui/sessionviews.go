@@ -160,7 +160,7 @@ func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
 	if sq, sa := m.subQueue(c); sq != nil {
 		sq.items = items
 		if op == "send" {
-			return tellSub(c, sa.Type, sa.ID, was)
+			return tellSub(c, sa, was)
 		}
 		return nil
 	}
