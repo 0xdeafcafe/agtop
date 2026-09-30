@@ -313,7 +313,8 @@ func (s *Session) overview(o Options) []Line {
 			meta += " · counted " + dur(ago) + " ago"
 		}
 		section("Context", meta)
-		add("    "+ContextBar(u, max(20, w-8)), "")
+		// A column in from the legend's marks, a blank corner above them.
+		add("     "+ContextBar(u, max(20, w-9)), "")
 		for _, l := range ContextLegend(u, "    ") {
 			add(l, "")
 		}
