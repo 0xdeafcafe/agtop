@@ -145,8 +145,11 @@ func (s *server) followCwd(now bool) {
 			return
 		}
 		s.mu.Lock()
-		was := s.cfg.Cwd
+		was, seen := s.cfg.Cwd, s.sawCwd(pid, cwd)
 		s.mu.Unlock()
+		if seen == "" || seen == cwd {
+			return // a session moved elsewhere isn't pulled back to where its agent still is
+		}
 		cwd, move := followTo(was, cwd, actions.RepoRoot)
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -157,6 +160,18 @@ func (s *server) followCwd(now bool) {
 		s.saveConfig()
 		s.publish()
 	}()
+}
+
+// sawCwd notes that process pid works in cwd, and says where it was last
+// seen working: "" for a new process, where it starts being no move.
+// Called with mu held.
+func (s *server) sawCwd(pid int, cwd string) string {
+	seen := s.seenCwd
+	if s.seenPID != pid {
+		seen = ""
+	}
+	s.seenPID, s.seenCwd = pid, cwd
+	return seen
 }
 
 // followTo is where a session in was moves when its agent works in cwd:
