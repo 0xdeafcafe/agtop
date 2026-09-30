@@ -1360,6 +1360,7 @@ type op struct {
 	Model     string         `json:"model,omitempty"`
 	Effort    string         `json:"effort,omitempty"`
 	Now       bool           `json:"now,omitzero"`
+	Guide     bool           `json:"guide,omitzero"` // send: into the turn under way, not stopping it
 	Images    []string       `json:"images,omitempty"`
 	Index     int            `json:"index,omitzero"`
 	Was       string         `json:"was,omitempty"` // the queued text the client saw at Index
@@ -1371,6 +1372,9 @@ type op struct {
 }
 
 func (s *server) do(o op) error {
+	if o.Op == "send" && o.Guide {
+		return s.guide(o.Text, o.Images)
+	}
 	if o.Op == "send" {
 		return s.send(o.Text, o.Images, o.Now)
 	}

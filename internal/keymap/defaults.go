@@ -79,6 +79,7 @@ var Defaults = []Action{
 	{ID: "session.verbose", Context: Session, Title: "more or less detail", Keys: []string{"ctrl+o"}},
 	{ID: "session.stop", Context: Session, Title: "stop the turn, then the session", Keys: []string{"ctrl+x"}},
 	{ID: "session.background", Context: Session, Title: "background what the turn waits on", Keys: []string{"ctrl+b"}},
+	{ID: "session.sendmode", Context: Session, Title: "how enter sends while it works: queue, guide, or stop and send", Keys: []string{"ctrl+t"}},
 	{ID: "session.mode", Context: Session, Title: "the next permission mode", Keys: []string{"shift+tab"}},
 	{ID: "session.needs", Context: Session, Title: "the next agent that needs you", Keys: []string{"ctrl+n"}},
 	{ID: "session.split.less", Context: Session, Title: "less of the screen for the list", Keys: []string{"shift+left", "alt+left"}},

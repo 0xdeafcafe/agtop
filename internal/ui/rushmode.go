@@ -2433,10 +2433,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	case len(s.Pending()) > 0:
 		top += dim(" · ") + paint(cYellow, "answer the card first, or type a note")
 	case s.Live() != nil:
-		top += dim(" · working, so ") + paint(cOrange, "enter queues")
-		if len(c.input) > 0 {
-			top += dim(" · " + m.sendNowKey() + " sends it now")
-		}
+		top += m.sendModeTop(c)
 	}
 	bt := m.btwFor(c.key)
 	btwOn := bt != nil && bt.focused
@@ -2900,6 +2897,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return nil
 		}
 		return m.sendPane(c, false)
+	case "ctrl+t":
+		m.cycleSendMode(c)
+		return nil
 	case "ctrl+enter", "ctrl+s":
 		// Now, whatever's waiting: the queue, then what's in the box. ctrl+s
 		// is for terminals that never pass ctrl+enter on: macOS's Terminal
@@ -3225,6 +3225,9 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	if c.intercepting {
 		return nil
 	}
+	working := c.sess != nil && c.sess.Live() != nil
+	now = now || working && m.sendModeOf(c) == sendStop
+	guide := !now && working && m.sendModeOf(c) == sendGuide
 	if m.wantsIntercept(c, now) {
 		return m.interceptSend(c, now)
 	}
@@ -3334,6 +3337,8 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	m.markSending(c, text)
 	cl := c.client
 	switch {
+	case guide:
+		return sendingVia(c.key, hostCmd(func() error { return cl.SendGuide(text, images) }))
 	case len(images) > 0:
 		return sendingVia(c.key, hostCmd(func() error { return cl.SendImages(text, images, now) }))
 	case now:

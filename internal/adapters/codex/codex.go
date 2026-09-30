@@ -40,7 +40,7 @@ func (Adapter) Program() (string, []string) { return "codex", []string{".codex/b
 // plan mode among its approval presets, and nothing to rewind to.
 var features = map[agent.Feature]agent.Support{
 	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
-	agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes.With("from the next turn"),
+	agent.FeatureInterrupt: agent.Yes, agent.FeatureGuide: agent.Yes.With("steered into the turn"), agent.FeatureModel: agent.Yes.With("from the next turn"),
 	agent.FeatureEffort: agent.Yes, agent.FeatureModes: agent.Yes.With("read-only, auto, full-access"),
 	agent.FeatureImages: agent.Yes, agent.FeatureQuestions: agent.Yes, agent.FeatureContext: agent.Yes.With("how full it is, not what fills it"),
 	agent.FeatureMCP: agent.Yes, agent.FeatureHandoffIn: agent.Yes,

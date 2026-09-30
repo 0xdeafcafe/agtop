@@ -13,6 +13,7 @@ const (
 	FeatureFork         Feature = "fork"      // branches a session into a new one
 	FeatureRewind       Feature = "rewind"    // goes back to an earlier message, files and all
 	FeatureInterrupt    Feature = "interrupt" // stops a turn and keeps the session
+	FeatureGuide        Feature = "guide"     // takes a message mid-turn without stopping it
 	FeatureModel        Feature = "model"     // changes model mid-session
 	FeatureEffort       Feature = "effort"    // sets how hard the model thinks
 	FeatureModes        Feature = "modes"     // permission modes, such as accept-edits
@@ -61,6 +62,7 @@ var allFeatures = []FeatureInfo{
 	{FeatureFork, "Fork"},
 	{FeatureRewind, "Rewind"},
 	{FeatureInterrupt, "Interrupt"},
+	{FeatureGuide, "Guide mid-turn"},
 	{FeatureModel, "Switch model"},
 	{FeatureEffort, "Effort"},
 	{FeatureModes, "Permission modes"},

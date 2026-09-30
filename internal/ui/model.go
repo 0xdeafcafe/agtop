@@ -72,6 +72,8 @@ type confirmation struct {
 
 type Model struct {
 	reloadFields // #reload, and what it carries
+	// sendModes are how enter sends to each session while it works, by key.
+	sendModes map[string]sendMode
 	// keys is the keymap in force: see keybind.go.
 	keys keyState
 	// hooks is this window's way to its plugins, which never waits; see

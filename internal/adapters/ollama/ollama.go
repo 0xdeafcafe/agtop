@@ -37,7 +37,7 @@ func (Adapter) Program() (string, []string) {
 // find, and there are no limits or accounts, only this machine.
 var features = map[agent.Feature]agent.Support{
 	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
-	agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes.With("any model Ollama has that calls tools"),
+	agent.FeatureInterrupt: agent.Yes, agent.FeatureGuide: agent.Yes.With("at its next step"), agent.FeatureModel: agent.Yes.With("any model Ollama has that calls tools"),
 	agent.FeatureModes: agent.Yes, agent.FeatureCompact: agent.Yes.With("at the window the model was loaded with"),
 	agent.FeatureImages:    agent.Yes.With("on models that take them"),
 	agent.FeatureHandoffIn: agent.Yes, agent.FeaturePricing: agent.Yes.With("free: it runs on this machine"),

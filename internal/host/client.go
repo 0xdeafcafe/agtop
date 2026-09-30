@@ -369,6 +369,12 @@ func (c *Client) Send(text string) error { return c.do(op{Op: "send", Text: text
 // SendNow delivers a message mid-turn; Claude reads it at its next step.
 func (c *Client) SendNow(text string) error { return c.do(op{Op: "send", Text: text, Now: true}) }
 
+// SendGuide hands a message to the turn under way without stopping it,
+// where the agent can take one; else it's a Send.
+func (c *Client) SendGuide(text string, paths []string) error {
+	return c.do(op{Op: "send", Text: text, Images: paths, Guide: true})
+}
+
 // SendImages delivers a message with image files attached, or queues it
 // with them if the agent is busy; now sends it mid-turn instead.
 func (c *Client) SendImages(text string, paths []string, now bool) error {

@@ -44,7 +44,7 @@ func (Adapter) Program() (string, []string) { return "claude", []string{".claude
 // Anthropic's servers.
 var features = map[agent.Feature]agent.Support{
 	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
-	agent.FeatureRewind: agent.Yes, agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes,
+	agent.FeatureRewind: agent.Yes, agent.FeatureInterrupt: agent.Yes, agent.FeatureGuide: agent.Yes.With("at its next step"), agent.FeatureModel: agent.Yes,
 	agent.FeatureEffort: agent.Yes, agent.FeatureModes: agent.Yes, agent.FeaturePlan: agent.Yes,
 	agent.FeatureImages: agent.Yes, agent.FeatureQuestions: agent.Yes, agent.FeatureSubagents: agent.Yes,
 	agent.FeatureBackground: agent.Yes, agent.FeatureContext: agent.Yes, agent.FeatureCompact: agent.Yes,
