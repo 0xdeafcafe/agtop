@@ -393,6 +393,15 @@ func (d *drawer) blank() {
 	d.lines = append(d.lines, Line{Text: row("", d.spine(), "", d.o.Width, d.cw)})
 }
 
+// num is the turn's number and then gap, or nothing while only the
+// session's end is read: its numbers would change once the rest is.
+func (d *drawer) num(gap string) string {
+	if d.s.Partial {
+		return ""
+	}
+	return dim(fmt.Sprintf("#%d", d.t.N)) + gap
+}
+
 func (d *drawer) mark() string {
 	t := d.t
 	switch {
@@ -550,7 +559,7 @@ func (d *drawer) folded() {
 			who = dim(noun+" ") + sub(`"`+ask+`"`) + how
 		}
 	}
-	left := "  " + faint("▸") + " " + d.mark() + " " + dim(fmt.Sprintf("#%d", t.N)) + "  " + who
+	left := "  " + faint("▸") + " " + d.mark() + " " + d.num("  ") + who
 	if outcome != "" && outcome != text("") {
 		left += "  " + dim("→") + " " + outcome
 	}
@@ -566,12 +575,15 @@ func (d *drawer) open() {
 	case t.Err != "":
 		band = bgErr
 	}
-	right := dim(fmt.Sprintf("#%d", t.N))
+	right := d.num("")
 	if m := d.meta(); m != "" {
+		if right != "" {
+			right += "  "
+		}
 		if t.Live {
-			right += "  " + paint(cOrange, m)
+			right += paint(cOrange, m)
 		} else {
-			right += "  " + dim(m)
+			right += dim(m)
 		}
 	}
 	// Images show as the box showed them, unless the words already place

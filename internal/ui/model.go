@@ -818,6 +818,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case wholeMsg:
 		m.onWhole(msg)
 		return m, nil
+	case preMsg:
+		return m, m.onPre(msg)
+	case replayMsg:
+		return m, m.onReplay(msg)
 	case foldersMsg:
 		m.onFolders(msg)
 		return m, nil

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -549,4 +550,60 @@ func TestHistoryTail(t *testing.T) {
 		t.Errorf("start: %v", got)
 	}
 	same(t, got[len(got)-5:], whole[len(whole)-5:])
+}
+
+// A tail that starts after the rollout's only turn_context still says the
+// model, as the whole rollout does.
+func TestHistoryTailModel(t *testing.T) {
+	turn := func(r *rollout, said, answer string) *rollout {
+		return r.event("task_started", map[string]any{}).
+			response("message", userMsg(said)).
+			response("message", map[string]any{"id": "a", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": answer}}}).
+			event("task_complete", map[string]any{})
+	}
+	r := (&rollout{t0: t0}).add("session_meta", meta("thread-9", "cli")).add("turn_context", map[string]any{"model": "gpt-5", "approval_policy": "never"})
+	r = turn(turn(r, "first", "one"), "second", "two")
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	r.write(t, path)
+	all := r.text()
+	evs, cut, err := Adapter{}.HistoryTail(agent.Session{Transcript: path}, int64(len(all)-strings.Index(all, `"second"`)))
+	if err != nil || !cut || !strings.HasPrefix(describe(evs[0]), "init thread-9 gpt-5") {
+		t.Fatalf("cut %v, %v: %v", cut, err, describeAll(evs))
+	}
+}
+
+// Following a rollout as it's written reads only what's new, and gives
+// what a whole read would each time; once stopped, it gives up.
+func TestFollowHistory(t *testing.T) {
+	r := itemTurn((&rollout{t0: t0}).add("session_meta", meta("thread-1", "cli")))
+	whole := r.text()
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	half := len(whole) - len(r.lines[len(r.lines)-1])/2 // the last line still being written
+	if err := os.WriteFile(path, []byte(whole[:half]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stop atomic.Bool
+	follow := Adapter{}.FollowHistory(agent.Session{Transcript: path}, &stop)
+	evs, err := follow()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := strings.LastIndex(whole[:half], "\n") + 1
+	part, _ := readRollout(strings.NewReader(whole[:cut]), time.Time{})
+	same(t, describeAll(evs), describeAll(part))
+	if err := os.WriteFile(path, []byte(whole), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	evs, err = follow()
+	if err != nil {
+		t.Fatal(err)
+	}
+	same(t, describeAll(evs), history(t, r, time.Time{}))
+	stop.Store(true)
+	if err := os.WriteFile(path, []byte(whole+whole), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := follow(); err == nil {
+		t.Error("a stopped follow read on")
+	}
 }

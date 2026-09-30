@@ -99,6 +99,10 @@ func (m *Model) drain(cmd tea.Cmd) {
 		}
 	case wholeMsg:
 		m.onWhole(msg)
+	case preMsg:
+		m.drain(m.onPre(msg))
+	case replayMsg:
+		m.drain(m.onReplay(msg))
 	case applyMsg:
 		m.drain(msg.applyTo(m))
 	}

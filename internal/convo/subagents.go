@@ -18,6 +18,7 @@ type Subagent struct {
 	Description string `json:"description"`
 	Model       string `json:"model"`
 	ToolUseID   string `json:"toolUseId"`
+	Depth       int    `json:"spawnDepth"` // 1 for one the session started, more for one a run started
 	Path        string // its own transcript
 	Born        int64  // when it started: its meta file's time as first seen
 	Mod         int64  // when it last wrote, for ordering

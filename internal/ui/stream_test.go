@@ -183,7 +183,7 @@ func TestReplayBeforeFirstFrame(t *testing.T) {
 	lines <- []byte(`{"info":{},"type":"agtop_info"}`)
 	lines <- []byte(`{"type":"result","subtype":"success"}`) // live output after it stays for next
 	sess := convo.New()
-	if !takeReplay(lines, sess, time.Second) {
+	if !takeReplay(lines, sess, time.Second, nil) {
 		t.Fatal("the replay should have come in whole")
 	}
 	if len(lines) != 1 {
@@ -199,7 +199,7 @@ func TestReplayBeforeFirstFrame(t *testing.T) {
 	// A host that never says it's done: the pane draws what came, in time.
 	quiet := make(chan []byte, 1)
 	quiet <- []byte(`{"type":"result","subtype":"success"}`)
-	if takeReplay(quiet, convo.New(), 20*time.Millisecond) {
+	if takeReplay(quiet, convo.New(), 20*time.Millisecond, nil) {
 		t.Fatal("no info, no whole replay")
 	}
 }

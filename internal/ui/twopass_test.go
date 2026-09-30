@@ -7,10 +7,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // twoPass is a model showing a long transcript opened on its last few
@@ -50,18 +54,33 @@ func whole(t *testing.T, c *hostConn) wholeMsg {
 	return msg
 }
 
-var turnNum = regexp.MustCompile(` *#\d+ *`)
+var turnNum, gaps = regexp.MustCompile(`#\d+`), regexp.MustCompile(` +`)
 
-// onScreen is the conversation's rows in view; turn numbers settle once
+// onScreen is the conversation's rows in view; turn numbers show only once
 // the whole is read, so they're left out.
 func onScreen(m *Model, c *hostConn) []string {
 	m.View()
 	end := len(c.shown) - c.scroll
 	var out []string
 	for _, l := range c.shown[end-c.bodyRows : end] {
-		out = append(out, turnNum.ReplaceAllString(strings.TrimRight(ansi.Strip(l.Text), " "), " # "))
+		out = append(out, gaps.ReplaceAllString(turnNum.ReplaceAllString(strings.TrimRight(ansi.Strip(l.Text), " "), ""), " "))
 	}
 	return out
+}
+
+// No turn is numbered from the end read so far: #1 there is #50 once the
+// whole is, and numbers that jumped would say so.
+func TestNumbersOnlyOnceWhole(t *testing.T) {
+	m, c := twoPass(t)
+	m.View()
+	if slices.ContainsFunc(c.shown, func(l convo.Line) bool { return turnNum.MatchString(ansi.Strip(l.Text)) }) {
+		t.Error("a turn numbered before the whole was read")
+	}
+	m.onWhole(whole(t, c))
+	m.View()
+	if !slices.ContainsFunc(c.shown, func(l convo.Line) bool { return strings.Contains(ansi.Strip(l.Text), "#60") }) {
+		t.Error("the last turn isn't #60 once the whole is read")
+	}
 }
 
 func TestWholeKeepsTheBottom(t *testing.T) {
@@ -96,5 +115,54 @@ func TestCountingUntilWhole(t *testing.T) {
 	m.onWhole(whole(t, c))
 	if got := strings.Join(onScreen(m, c), "\n"); strings.Contains(got, "counting…") || !strings.Contains(got, "60") {
 		t.Errorf("the overview of the whole:\n%s", got)
+	}
+}
+
+// A hosted session opens in stages, none waiting on the next: the header
+// from its host's info, its transcript's end before the replay, that with
+// the replay, then the whole, with what the host sent meanwhile on top.
+func TestHostedOpensInStages(t *testing.T) {
+	at := func(n int) time.Time {
+		return time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC).Add(time.Duration(n) * time.Minute)
+	}
+	out := strings.Repeat("x", 40<<10) // enough turns to run past tailBytes
+	var b strings.Builder
+	for n := 1; n <= 60; n++ {
+		s := at(n).Format(time.RFC3339)
+		fmt.Fprintf(&b, `{"type":"user","timestamp":%q,"message":{"role":"user","content":"question %d"}}`+"\n", s, n)
+		fmt.Fprintf(&b, `{"type":"assistant","timestamp":%q,"message":{"id":"a%d","role":"assistant","content":[{"type":"text","text":"answer %d %s"}]}}`+"\n", s, n, n, out)
+	}
+	path := t.TempDir() + "/s.jsonl"
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The host replays from turn 51 on.
+	pre, _ := preFor(host.Info{Kind: "claude", State: "idle", Model: "opus", StartedAt: at(0), ReplayFrom: at(51)}, nil, host.Config{Resume: true}, nil, path, agent.Profile{})
+	lines := make(chan []byte, 64)
+	for n := 51; n <= 60; n++ {
+		lines <- fmt.Appendf(nil, `{"agtop_sent":true,"message":{"content":"question %d","role":"user"},"type":"user"}`, n)
+		lines <- []byte(`{"type":"result","subtype":"success"}`)
+	}
+	lines <- []byte(`{"info":{"state":"idle","model":"opus"},"type":"agtop_info"}`)
+	m, _ := benchModel(160, 40)
+	c := &hostConn{key: m.sel, kind: "claude", client: &host.Client{Lines: lines}, sess: pre.base(), open: map[string]bool{}, pre: pre}
+	m.host = c
+	if c.sess.Info.Model != "opus" {
+		t.Fatal("no header from the host's info")
+	}
+	o := convo.Options{Width: 150, Open: map[string]bool{}}
+	replay := m.onPre(c.readPre(o)().(preMsg))
+	if last := c.sess.Turns[len(c.sess.Turns)-1]; !c.sess.Partial || last.Prompt != "question 50" {
+		t.Fatalf("the end before the replay: partial %v, %q", c.sess.Partial, last.Prompt)
+	}
+	cmds := m.onReplay(replay().(replayMsg))().(tea.BatchMsg)
+	if last := c.sess.Turns[len(c.sess.Turns)-1]; last.Prompt != "question 60" || !c.ready {
+		t.Fatalf("with the replay: %q", last.Prompt)
+	}
+	lines <- fmt.Appendf(nil, `{"agtop_sent":true,"message":{"content":"question 61","role":"user"},"type":"user"}`)
+	m.onHostLines(cmds[0]().(hostLinesMsg)) // live, while the whole is read
+	m.onWhole(cmds[1]().(wholeMsg))
+	if s := c.sess; s.Partial || len(s.Turns) != 61 || s.Turns[60].Prompt != "question 61" || s.Turns[49].Prompt != "question 50" {
+		t.Fatalf("the whole: partial %v, %d turns", s.Partial, len(s.Turns))
 	}
 }

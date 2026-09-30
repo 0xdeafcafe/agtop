@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -362,6 +363,8 @@ func linkedWorktree(w Worktree) error {
 // cwds are transcripts' folders as their heads say: one never changes.
 var cwds sync.Map
 
+var headBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
+
 var cwdMark = []byte(`"cwd":"`)
 
 // TranscriptCwd is the folder a transcript's head says its agent ran in:
@@ -375,10 +378,19 @@ func TranscriptCwd(path string) string {
 		return ""
 	}
 	defer f.Close()
-	b := make([]byte, 64<<10)
-	n, _ := f.Read(b)
+	// Its first line says it, after the prompt: mostly in the first few
+	// kilobytes, read into a buffer kept for the next.
+	bp := headBufs.Get().(*[]byte)
+	defer headBufs.Put(bp)
+	b := *bp
+	n, _ := io.ReadFull(f, b[:16<<10])
+	i := bytes.Index(b[:n], cwdMark)
+	if i < 0 && n == 16<<10 {
+		more, _ := io.ReadFull(f, b[n:])
+		n += more
+		i = bytes.Index(b[:n], cwdMark)
+	}
 	b = b[:n]
-	i := bytes.Index(b, cwdMark)
 	if i < 0 {
 		return ""
 	}

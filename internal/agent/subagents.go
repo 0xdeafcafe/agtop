@@ -20,6 +20,7 @@ type SubagentRun struct {
 	ID, ToolUseID string
 	Depth         int       // 1 for one the session started, more for one a run started
 	Mod           time.Time // when its transcript was last written
+	Born          time.Time // when it began, when that's known
 	// Type and Description are the run's own words: which subagent it is,
 	// and what it was asked.
 	Type, Description string
@@ -33,9 +34,12 @@ type SubagentRuns interface {
 	// run the transcripts left unfinished ended with it. Gone says so.
 	SetGone(gone bool)
 	Gone() bool
-	// Update reads what the session's transcript at path, and its runs',
-	// have gained.
-	Update(path string) []SubagentRun
+	// UpdateRuns reads what the session's transcript at path, and those of
+	// its runs (as listed from their meta files), have gained.
+	UpdateRuns(path string, runs []SubagentRun)
+	// Took reads line, the next of the transcript at path, as read by
+	// another from its start: UpdateRuns goes on from after it.
+	Took(path string, line []byte)
 	// Stats counts the session's runs, and those still working.
 	Stats(path string, now time.Time) SubagentStats
 	// Running are the runs Stats last found still working.

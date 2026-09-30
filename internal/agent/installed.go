@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -219,16 +220,31 @@ func InstalledAll() []Adapter {
 // ProgramKind is the agent whose program a shell runs as name (a bare name
 // or a path to it), when one is registered.
 func ProgramKind(name string) (Kind, bool) {
-	name = filepath.Base(name)
-	for _, a := range All() {
+	k, ok := programKinds()[filepath.Base(name)]
+	return k, ok
+}
+
+// programs are the registered agents by program name, made again when one
+// is registered: ProgramKind is asked of every shell step a session ran.
+var programs atomic.Pointer[map[string]Kind]
+
+func programKinds() map[string]Kind {
+	if p := programs.Load(); p != nil {
+		return *p
+	}
+	m := map[string]Kind{}
+	all := All()
+	for i := len(all) - 1; i >= 0; i-- { // the first by kind wins, as it did
+		a := all[i]
 		if _, ok := a.(Rider); ok {
 			continue
 		}
 		if p, ok := a.(Programmer); ok {
-			if n, _ := p.Program(); n != "" && n == name {
-				return a.Kind(), true
+			if n, _ := p.Program(); n != "" {
+				m[n] = a.Kind()
 			}
 		}
 	}
-	return "", false
+	programs.Store(&m)
+	return m
 }

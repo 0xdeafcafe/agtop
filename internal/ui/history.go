@@ -2,11 +2,13 @@ package ui
 
 import (
 	"os"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
@@ -66,6 +68,31 @@ type history struct {
 	mod  time.Time
 	size int64
 	at   time.Time // when it was last read
+	// follow reads it on from where it last got to, when its adapter can.
+	follow func() ([]event.Event, error)
+}
+
+// read is the session as its history tells it now: through a follower,
+// which reads only what's new, when the adapter has one; nil once stop is
+// set. Only one read of h runs at a time.
+func (h *history) read(stop *atomic.Bool) *convo.Session {
+	if h.follow == nil && !h.s.Remote {
+		if f, ok := agent.As[agent.HistoryFollower](h.kind); ok {
+			h.follow = f.FollowHistory(h.s, stop)
+		}
+	}
+	if h.follow == nil {
+		return agentHistory(h.kind, h.s, time.Time{})
+	}
+	evs, err := h.follow()
+	if err != nil {
+		return nil
+	}
+	sess := convo.New()
+	for _, ev := range evs {
+		sess.Apply(ev, time.Time{})
+	}
+	return sess
 }
 
 // historyEvery is how often a growing history is read again: it's read

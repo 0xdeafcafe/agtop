@@ -32,9 +32,19 @@ import (
 // event_msg user_message and agent_message records and the
 // token_usage_record lines repeat what is read elsewhere and are skipped.
 type rolloutLine struct {
-	Timestamp string         `json:"timestamp"`
-	Type      string         `json:"type"`
-	Payload   jsontext.Value `json:"payload"`
+	Timestamp string `json:"timestamp"`
+	Type      string `json:"type"`
+	Payload   view   `json:"payload"`
+}
+
+// view is a JSON value where the decoder found it, never copied: good for
+// as long as the line it's in, which a rollout's reader never keeps.
+type view []byte
+
+func (v *view) UnmarshalJSONFrom(d *jsontext.Decoder) error {
+	b, err := d.ReadValue()
+	*v = view(b)
+	return err
 }
 
 // maxLine is the longest line a rollout reader takes. Compactions and
@@ -47,8 +57,15 @@ const maxLine = 256 << 20
 // few hundred lines, so a smaller buffer reads less past them.
 var readers, headReaders sync.Pool
 
+// lineReader is a pooled reader and the buffer its lines longer than it
+// are put together in, kept too: a rollout can have hundreds of them.
+type lineReader struct {
+	br   *bufio.Reader
+	long []byte
+}
+
 // readLines calls fn with each line of r, however long, until fn says to
-// stop.
+// stop. The line is only fn's until it returns.
 func readLines(r io.Reader, fn func([]byte) bool) error {
 	return readLinesWith(&readers, 1<<20, r, fn)
 }
@@ -59,16 +76,23 @@ func readHeadLines(r io.Reader, fn func([]byte) bool) error {
 }
 
 func readLinesWith(pool *sync.Pool, size int, r io.Reader, fn func([]byte) bool) error {
-	br, _ := pool.Get().(*bufio.Reader)
-	if br == nil {
-		br = bufio.NewReaderSize(r, size)
+	lr, _ := pool.Get().(*lineReader)
+	if lr == nil {
+		lr = &lineReader{br: bufio.NewReaderSize(r, size)}
 	} else {
-		br.Reset(r)
+		lr.br.Reset(r)
 	}
-	defer func() { br.Reset(nil); pool.Put(br) }()
-	var long []byte
+	defer func() {
+		lr.br.Reset(nil)
+		if cap(lr.long) > 32<<20 {
+			lr.long = nil // one huge line needn't be held on to
+		}
+		pool.Put(lr)
+	}()
+	long := lr.long[:0]
+	defer func() { lr.long = long }()
 	for {
-		chunk, err := br.ReadSlice('\n')
+		chunk, err := lr.br.ReadSlice('\n')
 		if err == bufio.ErrBufferFull {
 			if len(long)+len(chunk) > maxLine {
 				return bufio.ErrTooLong
@@ -77,9 +101,9 @@ func readLinesWith(pool *sync.Pool, size int, r io.Reader, fn func([]byte) bool)
 			continue
 		}
 		line := chunk
-		if long != nil {
-			line = append(long, chunk...)
-			long = nil
+		if len(long) > 0 {
+			long = append(long, chunk...)
+			line, long = long, long[:0]
 		}
 		if line = bytes.TrimSpace(line); len(line) > 0 && !fn(line) {
 			return nil
@@ -369,7 +393,7 @@ func (r *replay) line(l rolloutLine) {
 	case "event_msg":
 		r.eventMsg(l)
 	case "response_item":
-		r.responseItem(l.Payload)
+		r.responseItem(jsontext.Value(l.Payload))
 	}
 }
 

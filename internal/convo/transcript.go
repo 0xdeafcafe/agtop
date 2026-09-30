@@ -34,6 +34,8 @@ type Tail struct {
 	cut       bool      // NewTailFrom: the first line read is the end of one, dropped
 	// Stop, once set, has Read give up where it is.
 	Stop *atomic.Bool
+	// Each, when set, is given each whole line Read takes, as it's read.
+	Each func(line []byte)
 }
 
 var readBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
@@ -60,16 +62,89 @@ func (t *Tail) Size() int64 { return t.off.Load() }
 // History is the conversation a transcript holds from before a moment: what
 // a rush session that resumed one had already said before its host
 // started (the host replays the rest). Its last turn is closed.
-func History(path string, before time.Time) *Session {
+func History(path string, before time.Time) *Session { return HistoryFrom(path, before, 0, nil) }
+
+// HistoryFrom is History read from the first whole line at or after byte
+// from, its Session Partial when that's past the start; once stop is set
+// it gives up, and says nothing.
+func HistoryFrom(path string, before time.Time, from int64, stop *atomic.Bool) *Session {
 	t := NewTail(path)
-	t.before = before
-	if _, err := t.Read(); err != nil {
+	t.before, t.Stop = before, stop
+	if from > 0 {
+		t.off.Store(from - 1) // as NewTailFrom
+		t.cut, t.Sess.Partial = true, true
+	}
+	if _, err := t.Read(); err != nil || stop != nil && stop.Load() {
 		return New()
 	}
 	if live := t.Sess.Live(); live != nil {
 		t.Sess.Apply(event.TurnEnd{Reason: "done"}, live.Start)
 	}
 	return t.Sess
+}
+
+// HistoryStart is where to read a transcript from for the last most bytes
+// written before at: at's line is found by its timestamps, a handful of
+// small reads, so the rest of the file is never read.
+func HistoryStart(path string, at time.Time, most int64) int64 {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return 0
+	}
+	lo, hi := int64(0), st.Size()
+	buf := make([]byte, 64<<10)
+	for hi-lo > max(most/8, 64<<10) {
+		mid := lo + (hi-lo)/2
+		if t, ok := stampAfter(f, mid, buf); ok && t.Before(at) {
+			lo = mid
+		} else {
+			hi = mid // unknown reads as later: the tail starts earlier
+		}
+	}
+	return max(0, hi-most)
+}
+
+var stampMark = []byte(`"timestamp":"`)
+
+// stampAfter is the time of the first whole line after byte off that
+// says one, looked for over up to a megabyte: a tool's output can be long.
+func stampAfter(f *os.File, off int64, buf []byte) (time.Time, bool) {
+	for range 16 {
+		n, _ := f.ReadAt(buf, off)
+		lines := bytes.Split(buf[:n], []byte{'\n'})
+		// The first may have begun before off, and the last may run on.
+		for i := 1; i < len(lines)-1; i++ {
+			if t, ok := lineStamp(lines[i]); ok {
+				return t, true
+			}
+		}
+		if n < len(buf) {
+			break
+		}
+		off += int64(n)
+	}
+	return time.Time{}, false
+}
+
+// lineStamp is a transcript line's own time: its last stamp, since the
+// message before it can hold tool inputs that have one.
+func lineStamp(b []byte) (time.Time, bool) {
+	k := bytes.LastIndex(b, stampMark)
+	if k < 0 {
+		return time.Time{}, false
+	}
+	b = b[k+len(stampMark):]
+	e := bytes.IndexByte(b, '"')
+	if e < 0 {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, string(b[:e]))
+	return t, err == nil
 }
 
 type tline struct {
@@ -144,6 +219,9 @@ func (t *Tail) Read() (bool, error) {
 			if t.cut {
 				t.cut = false
 				continue
+			}
+			if t.Each != nil {
+				t.Each(line)
 			}
 			if t.apply(bytes.TrimSpace(line)) {
 				changed = true

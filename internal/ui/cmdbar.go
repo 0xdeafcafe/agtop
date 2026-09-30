@@ -892,8 +892,11 @@ func (m *Model) barTurns(c *hostConn, q string) []barItem {
 				continue
 			}
 			meta := fmt.Sprintf("#%d", t.N)
+			if c.sess.Partial {
+				meta = "" // numbered from the end read so far: not its own yet
+			}
 			if !t.Start.IsZero() {
-				meta = age(time.Since(t.Start)) + " ago  " + meta
+				meta = strings.TrimSpace(age(time.Since(t.Start)) + " ago  " + meta)
 			}
 			ref := fmt.Sprintf("t%d", t.N)
 			items = append(items, barItem{glyph: paint(cSub, "›"), title: text, meta: meta, run: func(m *Model) tea.Cmd {

@@ -151,3 +151,36 @@ func TestSubagentStatsSkipsQuietSessions(t *testing.T) {
 		t.Fatalf("written again: %+v", st)
 	}
 }
+
+// A nested run's call is looked for only in the runs going as it began.
+func TestMayHaveStarted(t *testing.T) {
+	at := func(m int) time.Time { return time.Unix(0, 0).Add(time.Duration(m) * time.Minute) }
+	kid := SubagentRun{Born: at(10), Mod: at(20)}
+	for i, c := range []struct {
+		p    SubagentRun
+		want bool
+	}{
+		{SubagentRun{Born: at(5), Mod: at(30)}, true},   // going as it began
+		{SubagentRun{Born: at(1), Mod: at(3)}, false},   // done before
+		{SubagentRun{Born: at(12), Mod: at(30)}, false}, // began after it
+		{SubagentRun{}, true},                           // times unknown
+	} {
+		if got := mayHaveStarted(c.p, kid); got != c.want {
+			t.Errorf("%d: %v", i, got)
+		}
+	}
+}
+
+// Lines read elsewhere count as read: what they say is known, and the
+// transcript is read on from after them.
+func TestTookLines(t *testing.T) {
+	main := filepath.Join(t.TempDir(), "s.jsonl")
+	b := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Agent","input":{}}]}}` + "\n"
+	os.WriteFile(main, []byte(b), 0o644)
+	var r SubagentRuns
+	r.Took(main, []byte(b))
+	r.UpdateRuns(main, []SubagentRun{{ID: "a", ToolUseID: "t1", Depth: 1}})
+	if st, _, _ := r.State("a", "t1"); st != RunRunning || r.files[main] != int64(len(b)) || r.seq != 1 {
+		t.Errorf("state %v, read to %d, %d lines", st, r.files[main], r.seq)
+	}
+}

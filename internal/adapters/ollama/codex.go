@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	codexad "github.com/0xdeafcafe/rush/internal/adapters/codex"
@@ -127,6 +128,10 @@ func (CodexAdapter) HistoryTail(s agent.Session, most int64) ([]event.Event, boo
 	return codexad.Adapter{}.HistoryTail(s, most)
 }
 
+func (CodexAdapter) FollowHistory(s agent.Session, stop *atomic.Bool) func() ([]event.Event, error) { //nolint:gocritic // as History
+	return codexad.Adapter{}.FollowHistory(s, stop)
+}
+
 // ours are codex's sessions as Ollama in Codex's.
 func ours(ss []agent.Session) []agent.Session {
 	for i := range ss {
@@ -137,13 +142,14 @@ func ours(ss []agent.Session) []agent.Session {
 }
 
 var (
-	_ agent.Adapter       = CodexAdapter{}
-	_ agent.Driver        = CodexAdapter{}
-	_ agent.Programmer    = CodexAdapter{}
-	_ agent.Pricer        = CodexAdapter{}
-	_ agent.Rider         = CodexAdapter{}
-	_ agent.Provided      = CodexAdapter{}
-	_ agent.Discoverer    = CodexAdapter{}
-	_ agent.HistoryReader = CodexAdapter{}
-	_ agent.TailReader    = CodexAdapter{}
+	_ agent.Adapter         = CodexAdapter{}
+	_ agent.Driver          = CodexAdapter{}
+	_ agent.Programmer      = CodexAdapter{}
+	_ agent.Pricer          = CodexAdapter{}
+	_ agent.Rider           = CodexAdapter{}
+	_ agent.Provided        = CodexAdapter{}
+	_ agent.Discoverer      = CodexAdapter{}
+	_ agent.HistoryReader   = CodexAdapter{}
+	_ agent.TailReader      = CodexAdapter{}
+	_ agent.HistoryFollower = CodexAdapter{}
 )

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent/event"
@@ -154,6 +155,13 @@ type HistoryReader interface {
 	History(s Session, before time.Time) ([]event.Event, error)
 }
 
+// HistoryFollower reads a session's history as it grows: each call of
+// the func it returns reads only what's been written since, and gives all
+// of it. Once stop is set a call gives up, with an error.
+type HistoryFollower interface {
+	FollowHistory(s Session, stop *atomic.Bool) func() ([]event.Event, error)
+}
+
 // TailReader reads only a session's end, from the first whole line of its
 // transcript's last most bytes, for a long one to show at once; cut is
 // whether that left some out.
@@ -295,6 +303,7 @@ func Register(a Adapter) {
 		sorted = append(sorted, a)
 	}
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Kind() < sorted[j].Kind() })
+	programs.Store(nil)
 }
 
 // Get is the adapter for kind, if one is registered.

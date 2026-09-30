@@ -54,6 +54,7 @@ type SubagentRuns struct {
 	ends   map[string]runEnd     // finished runs, by agent id and by tool_use id
 	woken  map[string]int        // runs a message was sent to, by agent id: when
 	seq    int                   // lines read, which orders what they say
+	unmet  int                   // calls still without their result: only then are results looked at
 	metas  map[string]runMeta    // by meta file
 	dirMod time.Time
 	names  []string // the meta files as of dirMod
@@ -111,26 +112,61 @@ func (r *SubagentRuns) Update(path string) []SubagentRun {
 	return runs
 }
 
+// UpdateRuns is Update for runs listed, from their meta files, by the
+// caller: they aren't listed, nor their transcripts looked at, again.
+func (r *SubagentRuns) UpdateRuns(path string, runs []SubagentRun) {
+	if r.files == nil || r.path != path {
+		r.reset(path)
+	}
+	if len(runs) > 0 {
+		r.readFor(path, runs)
+	}
+}
+
+// Took reads line, the next of the session's transcript at path, as read
+// by another from its start: Update goes on from after it.
+func (r *SubagentRuns) Took(path string, line []byte) {
+	if r.files == nil || r.path != path {
+		r.reset(path)
+	}
+	r.files[path] += int64(len(line))
+	r.line(line)
+}
+
 // readFor reads what the session's transcript, and its runs' when needed,
 // have gained.
 func (r *SubagentRuns) readFor(path string, runs []SubagentRun) {
 	r.read(path)
 	// A run a run started has its call, and word of its end, in that run's
-	// transcript: those are read only while such a run hasn't ended.
-	depths := map[int]bool{}
+	// transcript: those are read only while such a run hasn't ended, and
+	// only those that were going as it began.
+	var kids []SubagentRun
 	for _, x := range runs {
-		if x.Depth > 1 && !depths[x.Depth-1] {
+		if x.Depth > 1 {
 			if st, _, _ := r.State(x.ID, x.ToolUseID); st != RunDone {
-				depths[x.Depth-1] = true
+				kids = append(kids, x)
 			}
 		}
 	}
 	dir := r.dir()
 	for _, x := range runs {
-		if depths[x.Depth] {
+		if slices.ContainsFunc(kids, func(k SubagentRun) bool { return k.Depth == x.Depth+1 && mayHaveStarted(x, k) }) {
 			r.read(filepath.Join(dir, "agent-"+x.ID+".jsonl"))
 		}
 	}
+}
+
+// mayHaveStarted is whether run p could have started run k: it had begun,
+// and was still writing, as k began. Unknown times say it could.
+func mayHaveStarted(p, k SubagentRun) bool {
+	began := func(x SubagentRun) time.Time { // by its meta, or its writing if that's earlier
+		if !x.Mod.IsZero() && x.Mod.Before(x.Born) {
+			return x.Mod
+		}
+		return x.Born
+	}
+	kb, pb := began(k), began(p)
+	return kb.IsZero() || (pb.IsZero() || !pb.After(kb)) && (p.Mod.IsZero() || !p.Mod.Before(kb.Add(-time.Minute)))
 }
 
 // Clone is a copy that answers State and Going as r does now, for the
@@ -192,7 +228,7 @@ func (r *SubagentRuns) list() []SubagentRun {
 				r.metas[p] = m
 			}
 		}
-		run := SubagentRun{ID: m.id, ToolUseID: m.toolUse, Depth: m.depth, Type: m.agentType, Description: m.description}
+		run := SubagentRun{ID: m.id, ToolUseID: m.toolUse, Depth: m.depth, Type: m.agentType, Description: m.description, Born: m.mod}
 		run.Path = filepath.Join(dir, "agent-"+m.id+".jsonl")
 		if fi, err := os.Stat(run.Path); err == nil {
 			run.Mod = fi.ModTime()
@@ -268,6 +304,7 @@ func (r *SubagentRuns) line(b []byte) {
 			case bl.Type != "tool_use":
 			case (bl.Name == "Agent" || bl.Name == "Task") && r.calls[bl.ID] == nil:
 				r.calls[bl.ID] = &agentCall{seq: r.seq}
+				r.unmet++
 			case bl.Name == "SendMessage":
 				// A message to a finished run wakes it, until it next ends.
 				if bl.Input != "" {
@@ -276,13 +313,14 @@ func (r *SubagentRuns) line(b []byte) {
 			}
 		}
 	}
-	if len(r.calls) > 0 && bytes.Contains(b, toolResultMark) {
+	if r.unmet > 0 && bytes.Contains(b, toolResultMark) {
 		for _, bl := range lineBlocks(b) {
 			c := r.calls[bl.ToolUseID]
 			if bl.Type != "tool_result" || c == nil || c.result {
 				continue
 			}
 			c.result, c.at, c.resSeq = true, lineTime(b), r.seq
+			r.unmet--
 			c.async = bytes.Contains(b, asyncMarks[0]) || bytes.Contains(b, asyncMarks[1])
 			c.status = "completed"
 			switch {

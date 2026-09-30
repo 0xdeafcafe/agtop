@@ -127,28 +127,24 @@ func (m *Model) refreshSubs() tea.Cmd {
 		}
 	}
 	reader, list, gone := c.subReader, &c.subList, m.sessionGone(c)
-	if !c.listed {
-		reader = nil // the runs listed first, quickly; what they say next
+	if !c.listed || c.tail != nil && c.sess.Partial {
+		reader = nil // the runs listed first, quickly; what they say with the whole transcript
 	}
-	_, paneW, _ := m.layout() // a history read again is drawn here, as warmed does
-	warm := convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()}
+	o, closed := m.warmOpts(), &c.closed // a history read again is drawn here, as warmed does
 	return func() tea.Msg {
 		if msg.path != "" {
 			msg.subs = list.List(msg.path)
 			if len(msg.subs) > 0 && reader != nil {
 				reader.SetGone(gone)
-				reader.Update(msg.path)
+				reader.UpdateRuns(msg.path, subRuns(msg.subs))
 				msg.runs = reader.Clone()
 			}
 		}
 		if h := msg.hist; h != nil {
 			h.at = time.Now()
 			if h.stat() {
-				msg.histSess = agentHistory(h.kind, h.s, time.Time{})
-				msg.histSess.Spawns()
-				if warm.Width > 0 { // else the frame that takes it draws it whole
-					warm.Now = time.Now()
-					msg.histSess.Render(warm)
+				if msg.histSess = h.read(closed); msg.histSess != nil {
+					warm(msg.histSess, o) // else the frame that takes it draws it whole
 				}
 			}
 		}
@@ -173,8 +169,9 @@ func (m *Model) refreshSubs() tea.Cmd {
 		for _, sh := range spawnHists {
 			if h := sh.r.hist; sh.first || h.stat() {
 				h.at = time.Now()
-				sh.sess = agentHistory(h.kind, h.s, time.Time{})
-				msg.spawnHists = append(msg.spawnHists, sh)
+				if sh.sess = h.read(closed); sh.sess != nil {
+					msg.spawnHists = append(msg.spawnHists, sh)
+				}
 			}
 		}
 		return msg
@@ -1392,6 +1389,12 @@ type hostConn struct {
 
 	listed bool        // its runs have been listed once, quickly: the next read is all of it
 	closed atomic.Bool // let go: what still reads for it gives up
+
+	// A hosted session's transcript before its replay (hostPre), and the
+	// host's lines kept while the whole of it is read (keep), to apply after.
+	pre   *hostPre
+	since [][]byte
+	keep  bool
 }
 
 type hostOpenMsg struct {
@@ -1422,47 +1425,15 @@ func openHost(a *fleet.Agent) tea.Cmd {
 		if err != nil {
 			return hostOpenMsg{key: key, err: err}
 		}
-		// The transcript up to where the host's replay begins, then the
-		// replay: a session that took over an existing conversation shows
-		// it, and a long one whose replay was trimmed shows all of it.
-		sess := convo.New()
+		// The header from the host's info at once; the transcript up to
+		// where its replay begins, then the replay, follow (hostPre): a
+		// session that took over an existing conversation shows it, and a
+		// long one whose replay was trimmed shows all of it.
 		info, infoErr := host.ReadInfo(id)
-		if infoErr == nil && info.SessionID != "" && info.Cwd != "" {
-			// The list may not have caught up with a rewind yet.
-			path = agent.TranscriptPath(agent.Kind(info.Kind), acct, info.Cwd, info.SessionID)
-		}
-		trimmed := infoErr == nil && !info.ReplayFrom.IsZero()
-		if cfg, err := host.ReadConfig(id); err == nil && (cfg.Resume || trimmed) {
-			started := time.Now()
-			if infoErr == nil && !info.StartedAt.IsZero() {
-				started = info.StartedAt
-				for _, t := range []time.Time{info.RewoundAt, info.ReplayFrom} {
-					if t.After(started) {
-						started = t
-					}
-				}
-			}
-			sess = convo.History(path, started)
-			if len(sess.Turns) == 0 && cfg.From != "" {
-				sess = convo.History(filepath.Join(filepath.Dir(path), cfg.From+".jsonl"), started)
-			}
-		}
-		if infoErr == nil && !agent.ReadsAsClaude(agent.Kind(info.Kind)) {
-			// Another agent's: what came before the replay is in its own
-			// history, read through its adapter.
-			sess = convo.New()
-			if cfg, err := host.ReadConfig(id); err == nil && (cfg.Resume || trimmed) {
-				started := info.StartedAt
-				if trimmed {
-					started = info.ReplayFrom
-				}
-				sess = agentHistory(agent.Kind(info.Kind), agent.Session{ID: info.SessionID, Profile: agent.Profile{Kind: agent.Kind(info.Kind), Dir: acct.Dir}}, started)
-			}
-			path = ""
-		}
-		c := &hostConn{key: key, id: id, kind: kind, client: cl, sess: sess, open: map[string]bool{}, path: path}
-		c.ready = takeReplay(cl.Lines, sess, replayMost)
-		return hostOpenMsg{key: key, c: c}
+		cfg, cfgErr := host.ReadConfig(id)
+		pre, path := preFor(info, infoErr, cfg, cfgErr, path, acct)
+		sess := pre.base()
+		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, kind: kind, client: cl, sess: sess, open: map[string]bool{}, path: path, pre: pre}}
 	}
 }
 
@@ -1472,10 +1443,10 @@ const replayMost = 3 * time.Second
 
 // takeReplay takes in what the host replays on connecting, here rather
 // than on the UI's thread a batch a frame, up to the info the host sends
-// once the replay's done: the pane's first frame is then the whole
-// conversation, at its end, rather than its start growing towards it.
-// It says whether the replay came in whole before most passed.
-func takeReplay(lines <-chan []byte, sess *convo.Session, most time.Duration) bool {
+// once the replay's done: the pane then draws the whole conversation, at
+// its end, rather than its start growing towards it. It says whether the
+// replay came in whole before most passed; keep, when set, gets its lines.
+func takeReplay(lines <-chan []byte, sess *convo.Session, most time.Duration, keep *[][]byte) bool {
 	t := time.NewTimer(most)
 	defer t.Stop()
 	now := time.Now()
@@ -1490,22 +1461,32 @@ func takeReplay(lines <-chan []byte, sess *convo.Session, most time.Duration) bo
 		if !ok {
 			return false
 		}
-		ev, err := host.Decode(l)
-		if err != nil || ev == nil {
-			continue
+		if keep != nil {
+			*keep = append(*keep, l)
 		}
-		switch ev := ev.(type) {
-		case host.Stamp:
-			now = ev.At
-			continue
-		case host.Reply:
-			continue // nothing's been asked on this connection yet
-		}
-		sess.Apply(ev, now)
-		if _, done := ev.(host.InfoEvent); done {
+		if applyHostLine(sess, l, &now) {
 			return true
 		}
 	}
+}
+
+// applyHostLine applies one of a host's lines as a replay is, and says
+// whether it was the info that ends one.
+func applyHostLine(sess *convo.Session, l []byte, now *time.Time) bool {
+	ev, err := host.Decode(l)
+	if err != nil || ev == nil {
+		return false
+	}
+	switch ev := ev.(type) {
+	case host.Stamp:
+		*now = ev.At
+		return false
+	case host.Reply:
+		return false // nothing's been asked on this connection yet
+	}
+	sess.Apply(ev, *now)
+	_, done := ev.(host.InfoEvent)
+	return done
 }
 
 // next waits for output and hands it over at once when the pane last drew
@@ -1700,12 +1681,18 @@ func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 		m.followTail()
 		c.paneKick = true // its subagents and jobs, now rather than on the next tick
 		if c.tail != nil && c.sess.Partial {
-			_, paneW, _ := m.layout()
-			return c.readWhole(convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()})
+			return c.readWhole(m.warmOpts())
 		}
 		return nil
 	}
-	return m.host.next()
+	return m.host.readPre(m.warmOpts())
+}
+
+// warmOpts is how the pane draws a conversation, for one read in the
+// background to be drawn once there as warmed does.
+func (m *Model) warmOpts() convo.Options {
+	_, paneW, _ := m.layout()
+	return convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()}
 }
 
 func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
@@ -1715,6 +1702,9 @@ func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
 	}
 	now := time.Now()
 	var cmds []tea.Cmd
+	if c.keep { // for the whole transcript being read to take in too
+		c.since = append(c.since, msg.lines...)
+	}
 	for _, l := range msg.lines {
 		ev, err := host.Decode(l)
 		if err != nil || ev == nil {
