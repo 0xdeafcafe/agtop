@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -905,5 +906,32 @@ func TestReviewPicksSend(t *testing.T) {
 	}
 	if c.qIdx != len(qs) || !c.cardFocus {
 		t.Fatalf("on the review with the keys on the card: idx=%d focus=%v", c.qIdx, c.cardFocus)
+	}
+}
+
+// Pointing at a queued message says what its keys do, and clicking it
+// picks it for them.
+func TestQueueHover(t *testing.T) {
+	a := &fleet.Agent{Key: "k"}
+	a.State = "working"
+	m := &Model{snap: &fleet.Snapshot{Agents: []*fleet.Agent{a}}, store: &state.Store{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
+	m.host = c
+	m.queueLocal("k", "first")
+	m.queueLocal("k", "second")
+	dock := m.paneDock(a, c, 120, 40)
+	y := slices.IndexFunc(dock, func(l string) bool { return strings.Contains(ansi.Strip(l), "second") })
+	if !c.queueHover(c.dockY+y) || c.qHover != 2 {
+		t.Fatalf("hovering line %d found %d", y, c.qHover-1)
+	}
+	if head := ansi.Strip(strings.Join(m.paneDock(a, c, 120, 40), "\n")); !strings.Contains(head, "steer with all") {
+		t.Errorf("no keys said on hover:\n%s", head)
+	}
+	m.clickRow(c, c.dockY+y)
+	if c.sel != "q:1" {
+		t.Errorf("clicking picked %q", c.sel)
+	}
+	if !c.queueHover(-1) || c.qHover != 0 {
+		t.Error("moving off kept the hover")
 	}
 }

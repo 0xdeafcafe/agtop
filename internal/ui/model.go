@@ -1298,6 +1298,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.dialog != nil && m.dialog.page == pageKeys && m.sheet == nil {
 			changed = m.keysHover(msg.Y) || changed
 		}
+		if c := m.host; c != nil {
+			y := msg.Y
+			if msg.X <= m.listW+1 {
+				y = -1 // over the list, not the queue
+			}
+			changed = c.queueHover(y) || changed
+		}
 		// The pointer coming onto the Session gives it the keys, once as it
 		// crosses: tab back to Agents holds while the pointer stays put.
 		if focused := m.paneFocus; !wasOver && msg.Button == tea.MouseNone && msg.X > m.listW+1 {

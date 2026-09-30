@@ -1291,9 +1291,14 @@ type hostConn struct {
 	// top, which is cardTop rows into the dock, which starts at dockY.
 	btns           []cardBtn
 	cardTop, dockY int
-	peekOf         string  // the approval and note peek was read for
-	peek           memPeek // the memory card's note as it is on disk
-	editAfter      string  // the step whose note to open in the editor once written
+	// The queue card's rows as last drawn: which message is on each row
+	// from its top, qTop rows into the dock; qHover is the one under the
+	// pointer, plus one.
+	qAt          map[int]int
+	qTop, qHover int
+	peekOf       string  // the approval and note peek was read for
+	peek         memPeek // the memory card's note as it is on disk
+	editAfter    string  // the step whose note to open in the editor once written
 
 	// Answering Claude's questions, one at a time.
 	qFor      string
@@ -2287,7 +2292,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			c.cardFocus, c.cardAgain = true, ""
 		}
 	}
-	c.btns = nil
+	c.btns, c.qAt = nil, nil
 	out := []string{onBg(bgChrome, "", w)} // a row of the dock's own ground
 	line := func(txt string) { out = append(out, onBg(bgChrome, txt, w)) }
 	// Each part of the dock (the task, a card, the subagents, the queue)
@@ -2383,10 +2388,16 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		pick, picked := queueSel(c, len(q))
 		var how string
-		if m.paneFocus && !picked && len(c.input) == 0 {
+		title := " " + paint(cQueue, "⋯ ") + paint(cQueue+bold, fmt.Sprintf("queue %d", len(q)))
+		switch {
+		case c.qHover > 0 && !picked:
+			// What its keys do, once a click has picked it.
+			when = ""
+			how = keysFit(w-cellw.String(title)-6, "g", "steer with it", "G", "steer with all", "s", "send now", "enter", "edit", "click", "picks it") + "  "
+		case m.paneFocus && !picked && len(c.input) == 0:
 			how = keys("↑", "edit, reorder or steer", m.sendNowKey(), "send now") + "  "
 		}
-		line(spread(" "+paint(cQueue, "⋯ ")+paint(cQueue+bold, fmt.Sprintf("queue %d", len(q)))+when, how, w))
+		line(spread(title+when, how, w))
 		// Three at a time, keeping the picked one in sight.
 		start := 0
 		if picked && pick >= 3 {
@@ -2421,14 +2432,22 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 				body = faint("once it's done ") + body
 			}
 			row := cellw.Truncate("  "+paint(cQueue, strconv.Itoa(i+1))+"  "+body+pics.String(), w, "…")
-			if picked && i == pick {
+			switch {
+			case picked && i == pick:
 				row = picked1(row, w, m.paneFocus)
+			case i == c.qHover-1:
+				row = hoverBG + strings.ReplaceAll(fit(row, w), reset, reset+hoverBG) + reset
 			}
+			if c.qAt == nil {
+				c.qAt = map[int]int{}
+			}
+			c.qAt[len(rows)] = i
 			line(row)
 		}
 		if rest := len(q) - (start + 3); rest > 0 {
 			line(dim(fmt.Sprintf("  + %d more", rest)))
 		}
+		c.qTop = len(out)
 		out = append(out, dockCard(bgQueue, cQueue, rows, w+1)...)
 	}
 	cards()
@@ -3518,6 +3537,10 @@ func (m *Model) moveSel(c *hostConn, d int) {
 // clickRow selects the row under a click in the pane; clicking the selected
 // row again opens or closes it.
 func (m *Model) clickRow(c *hostConn, y int) {
+	if q, ok := c.qAt[y-c.dockY-c.qTop]; ok {
+		c.sel = fmt.Sprintf("q:%d", q)
+		return
+	}
 	i := y - m.paneTop
 	if i < 0 || i >= len(c.rowRefs) || c.rowRefs[i] == "" {
 		return
@@ -3539,6 +3562,18 @@ func (m *Model) clickRow(c *hostConn, y int) {
 		return
 	}
 	c.sel = ref
+}
+
+// queueHover finds the queued message under the pointer at y, reporting
+// whether that changed.
+func (c *hostConn) queueHover(y int) bool {
+	hover := 0
+	if q, ok := c.qAt[y-c.dockY-c.qTop]; ok {
+		hover = q + 1
+	}
+	changed := hover != c.qHover
+	c.qHover = hover
+	return changed
 }
 
 // leavePane gives the keys back to the list. On a narrow screen, where the
