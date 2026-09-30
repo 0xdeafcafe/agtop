@@ -11,6 +11,7 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
 	"github.com/0xdeafcafe/rush/internal/adapters/claude/headless"
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
@@ -101,6 +102,7 @@ func benchModel(w, h int) (*Model, chan []byte) {
 var deltaLine = []byte(`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"more words "}}}`)
 
 func BenchmarkView(b *testing.B) {
+	agent.NeverWait() // as cmd/rush does, or the header stats every agent's home each frame
 	for _, sz := range [][2]int{{120, 40}, {250, 70}} {
 		b.Run(fmt.Sprintf("%dx%d", sz[0], sz[1]), func(b *testing.B) {
 			m, _ := benchModel(sz[0], sz[1])

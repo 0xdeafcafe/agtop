@@ -691,10 +691,11 @@ func (m *Model) withWrites(c *hostConn, body []convo.Line, w int) []convo.Line {
 		}
 		// Running, it shows what it writes whether opened or not.
 		running := st.Status == convo.Running || c.sess.JobRunning(id)
-		if !running && !m.isOpen(c, ref) {
+		// The cheap test first: isOpen looks through the whole session.
+		if !running && (st.End.IsZero() || now.Sub(st.End) > writesFor) {
 			continue
 		}
-		if !running && (st.End.IsZero() || now.Sub(st.End) > writesFor) {
+		if !running && !m.isOpen(c, ref) {
 			continue
 		}
 		rows := c.writeRows(id, st, running, now, m.followedBy(c, id))

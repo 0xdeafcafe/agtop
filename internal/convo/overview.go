@@ -599,10 +599,16 @@ func (s *Session) cost(model string, u usage.TokenUsage) float64 {
 
 // Cost prices every model call in the session.
 func (s *Session) Cost() float64 {
+	// Kept until a request changes: the subagents view asks of every run
+	// every frame.
+	if m := &s.costMemo; m.ver == s.reqVer && m.n == len(s.Requests) && m.kind == s.Info.Kind {
+		return m.usd
+	}
 	var total float64
 	for _, r := range s.Requests {
 		total += s.cost(r.Model, r.Usage)
 	}
+	s.costMemo.ver, s.costMemo.n, s.costMemo.kind, s.costMemo.usd = s.reqVer, len(s.Requests), s.Info.Kind, total
 	return total
 }
 

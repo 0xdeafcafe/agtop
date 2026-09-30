@@ -76,6 +76,12 @@ type Step struct {
 	spawn   *Spawn
 	spawnAt int
 	child   *Session
+	// unit is it as an item of its own, for the unit memo to keep its rows
+	// while the subagent it's under works on.
+	unit []*Item
+	// agent is agentName's answer, as of a result agentFor long.
+	agent    string
+	agentFor int
 }
 
 // Asking is what a step waits on you for: leave to run, or answers to
@@ -172,6 +178,8 @@ type Turn struct {
 	ref     string // "t13", made once
 	waits   bool   // a step waits on you, as of waitVer-1
 	waitVer int
+
+	folded, foldedOf string // the prompt with its pastes folded, and the prompt
 }
 
 // Outcome is the first line of the turn's answer.
@@ -282,6 +290,12 @@ type Session struct {
 	baseList   []string
 	baseFor    string
 	reqIdx     map[string]int
+	reqVer     int // bumped by every request recorded, for costMemo
+	costMemo   struct {
+		ver, n int
+		kind   string
+		usd    float64
+	}
 	// light keeps only what a subagent's row shows (SubagentStats): no
 	// tool inputs or outputs, no thinking, and only each turn's latest words.
 	light    bool
@@ -771,6 +785,7 @@ func (s *Session) request(m *event.Message, parent *Step, now time.Time) {
 		return // Claude Code's own placeholder, not a model call
 	}
 	r := Request{ID: m.ID, At: now, Model: m.Model, Agent: agent, Run: m.Parent, Usage: *m.Tokens}
+	s.reqVer++
 	// One call arrives as several messages with the same id and usage; the
 	// output count can grow between them, so keep the largest.
 	if i, ok := s.reqIdx[m.ID]; ok && m.ID != "" {

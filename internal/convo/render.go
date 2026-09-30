@@ -74,6 +74,7 @@ const (
 type cached struct {
 	key   cacheKey
 	lines []Line
+	fast  bool // it drew a timer showing tenths: it's keyed to the tenth
 }
 
 // cacheKey is everything that affects a turn's drawing: its content, the
@@ -87,6 +88,7 @@ type cacheKey struct {
 	focused    bool
 	tick       int
 	now        int64
+	tenth      int64 // the clock to a tenth, while a timer shows them
 	gen        int64 // lookups finished: a commit card or thumbnail may read differently
 	clock      bool
 	latest     string // the session's newest step, when it's in this turn
@@ -211,12 +213,17 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 		key.latest = mine.ID
 	}
 	c, ok := s.cache[t]
+	if ok && c.fast && key.clock {
+		key.tenth = o.Now.UnixMilli() / 100
+	}
 	if ok && c.key == key {
+		s.Fast = s.Fast || c.fast // its tenths still tick
 		return c.lines
 	}
 	// Built only on a miss: it escapes, so every turn every frame allocated.
 	d := &drawer{s: s, t: t, o: o, ref: ref, cw: min(o.Width, o.rowCap()), latest: mine}
 	if ok && s.over() {
+		s.Fast = s.Fast || c.fast
 		s.stale = true
 		return c.lines // as it was drawn: another render redraws it
 	}
@@ -229,6 +236,8 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	if open && !noUnitMemo {
 		d.unit = &unitKey{base: s.Info.Cwd + "|" + s.Cwd, folds: key.folds, sel: key.sel, focused: key.focused, width: o.Width, cw: d.cw, verb: o.Verbose, pal: palette, gen: key.gen, spine: d.spine()}
 	}
+	fastBefore := s.Fast
+	s.Fast = false // set again if this turn draws a timer in tenths
 	if open {
 		d.open()
 	} else {
@@ -240,11 +249,16 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	if open {
 		d.lines = append(d.lines, Line{Text: row("", "", "", d.o.Width, d.cw)})
 	}
+	fast := s.Fast
+	s.Fast = s.Fast || fastBefore
 	if d.stale {
 		s.stale = true // part of it is as it was: not to keep
 		return d.lines
 	}
-	s.cache[t] = cached{key: key, lines: d.lines}
+	if fast && key.clock {
+		key.tenth = o.Now.UnixMilli() / 100
+	}
+	s.cache[t] = cached{key: key, lines: d.lines, fast: fast}
 	return d.lines
 }
 
@@ -521,7 +535,10 @@ func (d *drawer) open() {
 	if len(t.Images) > 0 && !strings.Contains(t.Prompt, "[Image #") {
 		imgs = imageNames(t.Images)
 	}
-	ask := FoldPastes(t.Prompt)
+	if t.foldedOf != t.Prompt { // a live turn is drawn every frame
+		t.folded, t.foldedOf = FoldPastes(t.Prompt), t.Prompt
+	}
+	ask := t.folded
 	if ask == "" {
 		ask = unasked(t)
 	}
@@ -2085,7 +2102,12 @@ func (d *drawer) step(st *Step, depth int) {
 			kids = kids[len(kids)-spawnShown:]
 		}
 		for _, c := range kids {
-			d.step(c, depth+1)
+			// Each a unit of its own: a working subagent's done steps are
+			// drawn once, not every frame its parent's clock ticks.
+			if c.unit == nil {
+				c.unit = []*Item{{Kind: KStep, Step: c}}
+			}
+			d.memoized(c.unit, "", true, func() { d.step(c, depth+1) })
 		}
 	}
 }
@@ -2166,13 +2188,21 @@ func readInput(raw jsontext.Value) input {
 // in its result (it resolves an omitted or aliased subagent_type), else the
 // one asked for, else just "subagent".
 func agentName(st *Step) string {
+	n := len(st.Result)
+	if n > 0 && st.agentFor == n { // the Overview asks of every run, every frame
+		return st.agent
+	}
 	var r struct {
 		AgentType string `json:"agentType"`
 	}
-	if len(st.Result) > 0 && jsonx.Unmarshal(st.Result, &r) == nil && r.AgentType != "" {
-		return r.AgentType
+	name := firstNonEmpty(st.in().Agent, "subagent")
+	if n > 0 && jsonx.Unmarshal(st.Result, &r) == nil && r.AgentType != "" {
+		name = r.AgentType
 	}
-	return firstNonEmpty(st.in().Agent, "subagent")
+	if n > 0 {
+		st.agent, st.agentFor = name, n
+	}
+	return name
 }
 
 func glyphFor(st *Step) string {

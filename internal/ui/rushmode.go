@@ -664,8 +664,10 @@ func (m *Model) subBanner(c *hostConn, w int) string {
 			state += dim(" · " + money(cost))
 		}
 	}
-	if u := usageText(m.subUsage(c, sa)); live && u != "" {
-		state += dim(" · ") + u
+	if live {
+		if u := usageText(m.subUsage(c, sa)); u != "" {
+			state += dim(" · ") + u
+		}
 	}
 	if on := c.subRunsOn(sa, t); on != "" {
 		state += dim(" · " + on)
@@ -907,8 +909,10 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 			facts = append(facts, on)
 		}
 		second := "      " + dim(strings.Join(facts, " · "))
-		if u := usageText(m.subUsage(c, sa)); r.live && u != "" {
-			second += dim(" · ") + u
+		if r.live { // subUsage walks every task and run: only for one working
+			if u := usageText(m.subUsage(c, sa)); u != "" {
+				second += dim(" · ") + u
+			}
 		}
 		if lw := r.t.LastWords(); lw != "" {
 			second += dim("  ·  ") + faint(ansi.Truncate(lw, max(10, w-cellw.String(second)-8), "…"))
