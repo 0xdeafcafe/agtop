@@ -251,7 +251,7 @@ func (m *Model) zenPeekLines(w, h int) []string {
 		if len(out) >= h {
 			break
 		}
-		out = append(out, m.agentLine(a, w, w, false, nameCol, false))
+		out = append(out, m.agentLine(a, w, w, false, nameCol, false, ""))
 	}
 	return out
 }

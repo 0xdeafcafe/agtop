@@ -240,7 +240,7 @@ func TestInsetRowMatchesHeader(t *testing.T) {
 		}
 	}
 	a.CreatedAt = m.snap.At.Add(-time.Minute) // a time that fits its column
-	row := ansi.Strip(strings.Repeat(" ", inset) + m.agentLine(a, w-inset, w, false, 28, false))
+	row := ansi.Strip(strings.Repeat(" ", inset) + m.agentLine(a, w-inset, w, false, 28, false, ""))
 	col := func(s, sub string) int { return cellw.String(s[:strings.Index(s, sub)+len(sub)]) }
 	if !strings.Contains(row, "%") {
 		t.Fatalf("the row has no CPU column under the header's:\n%s\n%s", head, row)

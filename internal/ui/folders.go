@@ -252,8 +252,18 @@ func baseShort(s fleet.GitState) string {
 
 // treeLine heads a linked worktree's rows under its project.
 func (m *Model) treeLine(l listLine, w int) string {
+	s := "     " + m.treeTag(l)
+	if cellw.String(s)+2 > w {
+		return fit(s, w)
+	}
+	return s + " " + faint(strings.Repeat("┄", max(0, w-cellw.String(s)-3)))
+}
+
+// treeTag is a worktree's name, what git says of it, and where it came
+// from, for a tree line: its heading, or beside its one agent's name.
+func (m *Model) treeTag(l listLine) string {
 	name := filepath.Base(l.root)
-	s := "     " + faint("⎇ ") + paint(cBlue, name)
+	s := faint("⎇ ") + paint(cBlue, name)
 	if st, ok := m.folders.byRoot[l.title].Trees[l.root]; ok {
 		if strings.ReplaceAll(st.Branch, "/", "-") == name {
 			st.Branch = "" // the folder is named for it: once is enough
@@ -265,10 +275,7 @@ func (m *Model) treeLine(l listLine, w int) string {
 	} else if m.folders.byRoot[l.title].Root != "" || m.folders.looking > 0 {
 		s += "  " + faint("…")
 	}
-	if cellw.String(s)+2 > w {
-		return fit(s, w)
-	}
-	return s + " " + faint(strings.Repeat("┄", max(0, w-cellw.String(s)-3)))
+	return s
 }
 
 // refreshFolders asks git about the projects on screen, in the

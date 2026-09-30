@@ -37,3 +37,34 @@ func TestTreeLineNamesOnce(t *testing.T) {
 		t.Fatalf("another branch is still named: %q", got)
 	}
 }
+
+// A worktree with one agent heads no row of its own: its name goes beside
+// the agent's, which sits where the heading would have. Two keep it.
+func TestSoloWorktreeRow(t *testing.T) {
+	m, _ := benchModel(90, 40)
+	m.store.Config.StackAt = 100 // two lines a row
+	a, b, c := m.snap.Agents[0], m.snap.Agents[1], m.snap.Agents[2]
+	m.lines = []listLine{
+		{kind: lineProject, title: "rush", root: "/work/rush"},
+		{kind: lineTree, title: "/work/rush", root: "/work/wt-solo"},
+		{kind: lineAgent, agent: a, inset: 2 * rowInset},
+		{kind: lineTree, title: "/work/rush", root: "/work/wt-pair"},
+		{kind: lineAgent, agent: b, inset: 2 * rowInset},
+		{kind: lineAgent, agent: c, inset: 2 * rowInset},
+	}
+	out := ansi.Strip(strings.Join(m.listLines(90, 40), "\n"))
+	row := func(name string) string {
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, name) {
+				return l
+			}
+		}
+		return ""
+	}
+	if strings.Contains(out, "⎇ wt-solo ┄") || !strings.Contains(row(a.DisplayName), "⎇ wt-solo") {
+		t.Errorf("the solo worktree:\n%s", out)
+	}
+	if !strings.Contains(out, "⎇ wt-pair ┄") || strings.Contains(row(b.DisplayName), "⎇") {
+		t.Errorf("the worktree of two:\n%s", out)
+	}
+}
