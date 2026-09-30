@@ -1476,6 +1476,7 @@ func (s *server) do(o op) error {
 	}
 	s.mu.Lock()
 	conn := s.conn
+	var wasCfg, wasInfo string // the model before a switch, should the agent refuse it
 	switch o.Op {
 	case "ask":
 		// Asleep, it wakes to answer, and rests again once idle.
@@ -1560,6 +1561,7 @@ func (s *server) do(o op) error {
 		s.info.PermissionMode = o.Mode
 		s.publish()
 	case "model":
+		wasCfg, wasInfo = s.cfg.Model, s.info.Model
 		s.cfg.Model = o.Model
 		if o.Model != "" {
 			s.info.Model = o.Model
@@ -1651,7 +1653,15 @@ func (s *server) do(o op) error {
 	case "mode":
 		return conn.SetMode(o.Mode)
 	case "model":
-		return conn.SetModel(o.Model)
+		err := conn.SetModel(o.Model)
+		if err != nil {
+			// Its agent hasn't that model: it runs on with the one it had.
+			s.mu.Lock()
+			s.cfg.Model, s.info.Model = wasCfg, wasInfo
+			s.publish()
+			s.mu.Unlock()
+		}
+		return err
 	case "stop_task":
 		if t, ok := conn.(agent.TaskStopper); ok {
 			return t.StopTask(o.ID)

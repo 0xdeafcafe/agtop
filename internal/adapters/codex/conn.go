@@ -54,6 +54,7 @@ type Conn struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	version string
+	models  []cachedModel // what its account offers, to name a model by
 
 	mu      sync.Mutex
 	thread  string
@@ -122,6 +123,10 @@ func (c *Conn) begin(rpc *client, o agent.StartOptions) error {
 		return err
 	}
 	c.version = v
+	c.models = readModels(o.Profile.Dir)
+	if o.Model, err = modelID(o.Model, c.models); err != nil {
+		return err
+	}
 	params := map[string]any{}
 	set := func(k string, v any) {
 		if v != "" {
@@ -252,6 +257,10 @@ func (c *Conn) Interrupt() error {
 
 // SetModel changes the model from the next turn on.
 func (c *Conn) SetModel(model string) error {
+	model, err := modelID(model, c.models)
+	if err != nil {
+		return err
+	}
 	c.mu.Lock()
 	c.next.model = model
 	c.mu.Unlock()
