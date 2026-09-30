@@ -122,24 +122,24 @@ const maxBranches = 30
 // Info is what the list shows about a session; the host keeps it in
 // info.json and sends it to clients whenever it changes.
 type Info struct {
-	ID             string   `json:"id"`
-	SessionID      string   `json:"sessionId"`
-	Account        string   `json:"account"`
-	Cwd            string   `json:"cwd"`
-	Name           string   `json:"name,omitempty"`
-	HostPID        int      `json:"hostPid"`
-	ClaudePID      int      `json:"claudePid,omitzero"`
-	State          string   `json:"state"` // starting, working, blocked, idle, stopped
-	Detail         string   `json:"detail,omitempty"`
-	Needs          string   `json:"needs,omitempty"`
-	Model          string   `json:"model,omitempty"`
-	Effort         string   `json:"effort,omitempty"`
-	Without        []string `json:"without,omitempty"` // what the agent goes without: see Config.Without
+	ID        string   `json:"id"`
+	SessionID string   `json:"sessionId"`
+	Account   string   `json:"account"`
+	Cwd       string   `json:"cwd"`
+	Name      string   `json:"name,omitempty"`
+	HostPID   int      `json:"hostPid"`
+	ClaudePID int      `json:"claudePid,omitzero"`
+	State     string   `json:"state"` // starting, working, blocked, idle, stopped
+	Detail    string   `json:"detail,omitempty"`
+	Needs     string   `json:"needs,omitempty"`
+	Model     string   `json:"model,omitempty"`
+	Effort    string   `json:"effort,omitempty"`
+	Without   []string `json:"without,omitempty"` // what the agent goes without: see Config.Without
 	// Inbox is whether its running subagents can be sent messages
 	// straight (Client.Tell), not only through the main session.
-	Inbox bool `json:"inbox,omitzero"`
-	PermissionMode string   `json:"permissionMode,omitempty"`
-	CostUSD        float64  `json:"costUsd,omitzero"`
+	Inbox          bool    `json:"inbox,omitzero"`
+	PermissionMode string  `json:"permissionMode,omitempty"`
+	CostUSD        float64 `json:"costUsd,omitzero"`
 	// Billing is how its requests are paid for: plan, overage or metered
 	// (usage.Billing); empty until the agent says.
 	Billing string `json:"billing,omitempty"`
@@ -312,13 +312,13 @@ type server struct {
 	// startCwd is where the agent's process was started: its shell goes
 	// back there between commands from anywhere outside it.
 	startCwd string
-	spent   float64   // the running process's last cost total: see TurnCost
-	ring    [][]byte  // big lines packed: see pack
-	ringN   int       // the ring's size as written
-	pk      packer
-	clients map[*conn]struct{}
-	pending map[string]asked
-	info    Info
+	spent    float64  // the running process's last cost total: see TurnCost
+	ring     [][]byte // big lines packed: see pack
+	ringN    int      // the ring's size as written
+	pk       packer
+	clients  map[*conn]struct{}
+	pending  map[string]asked
+	info     Info
 	// pics is where each queued image is read from, by its path, so it's
 	// read once, when it's queued.
 	pics map[string]string
@@ -343,8 +343,8 @@ type server struct {
 	quietWait bool
 	// queuedAt is when the queue last went from empty to not: see lateQueue.
 	queuedAt time.Time
-	quit      chan struct{}
-	stopOnce  sync.Once
+	quit     chan struct{}
+	stopOnce sync.Once
 	// broker reaches the approved plugins' MCP servers.
 	broker plugin.Broker
 }
@@ -631,7 +631,7 @@ func (s *server) stalled(e event.TurnEnd) bool {
 	}
 	text := strings.ToLower(said)
 	switch {
-	case isErr && (s.limited != nil || strings.Contains(text, "usage limit") || strings.Contains(text, "limit reached")):
+	case isErr && (s.limited != nil || isLimit(text)):
 		l := &Limit{}
 		if s.limited != nil {
 			l.Window, l.ResetsAt = s.limited.Window, s.limited.ResetsAt
@@ -667,6 +667,13 @@ func (s *server) stalled(e event.TurnEnd) bool {
 		return true
 	}
 	return false
+}
+
+// isLimit is an error, lowercased, that says a usage limit stopped it:
+// "Claude usage limit reached", "You've hit your session limit · resets 5am".
+func isLimit(t string) bool {
+	return strings.Contains(t, "usage limit") || strings.Contains(t, "limit reached") ||
+		strings.Contains(t, "hit your") && strings.Contains(t, "limit")
 }
 
 func isAuthError(t string) bool {

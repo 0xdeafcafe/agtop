@@ -56,6 +56,10 @@ func (c *staleConn) Stale() bool { return login(c.dir) != c.login }
 
 func (c *staleConn) Send(in agent.Input) error {
 	c.bg = in.Text == "bg"
+	if in.Text == "limit" { // out on this account: the turn ends at once
+		c.events <- event.TurnEnd{Err: "You've hit your session limit · resets 5am (Europe/London)"}
+		return nil
+	}
 	return c.fakeConn.Send(in)
 }
 
@@ -157,7 +161,44 @@ func TestReloginAtASafePoint(t *testing.T) {
 	if d := time.Since(asked); d < time.Second {
 		t.Fatalf("rested %v after, with work in the background", d)
 	}
+
+	// Out on the account it's due to move off, it moves now, work in the
+	// background or not, and carries on.
+	if err := c.Send("bg"); err != nil {
+		t.Fatal(err)
+	}
+	ap = next(t, c, isApproval("echo bg")).(event.Approval)
+	if err := c.Allow(ap.ID, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	next(t, c, func(ev any) bool {
+		i, ok := ev.(InfoEvent)
+		return ok && i.Info.State == "idle" && len(i.Info.Background) > 0
+	})
+	setLogin("e")
+	if err := c.Relogin(); err != nil {
+		t.Fatal(err)
+	}
+	asked = time.Now()
+	if err := c.Send("limit"); err != nil {
+		t.Fatal(err)
+	}
+	next(t, c, isApproval("echo "+LimitContinue))
+	if d := time.Since(asked); d > time.Second {
+		t.Fatalf("carried on %v after the limit: it waited for the background", d)
+	}
 	if err := c.Stop(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIsLimit(t *testing.T) {
+	for _, s := range []string{"Claude usage limit reached", "You've hit your session limit · resets 5am", "You've hit your weekly limit"} {
+		if !isLimit(strings.ToLower(s)) {
+			t.Errorf("%q isn't read as a limit", s)
+		}
+	}
+	if isLimit("api error: 529 overloaded") {
+		t.Error("an overload read as a limit")
 	}
 }

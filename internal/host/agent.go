@@ -395,6 +395,18 @@ func (s *server) onTurnEnd(conn agent.Conn, e event.TurnEnd) {
 	s.askContext()
 	if s.stalled(e) {
 		s.publish()
+		if st, ok := conn.(agent.Staler); s.info.Limit != nil && (s.info.Relogin || ok && st.Stale()) {
+			// Out on the account it was due to move off: it moves now,
+			// not once its subagents are quiet, as they're out too.
+			go func() {
+				s.mu.Lock()
+				if s.conn != conn {
+					s.mu.Unlock()
+					return
+				}
+				s.relogin(conn)
+			}()
+		}
 		return
 	}
 	s.info.Retry, s.info.Limit, s.limited = nil, nil, nil
