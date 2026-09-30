@@ -27,6 +27,11 @@ type Agent struct {
 	// sets: prompt, model, cwd, mode (its value), mode=m, "=v" for one
 	// that must be v, "" for one that changes nothing printed.
 	Flags map[string]string
+	// Creds are files in Home, and Keys environment variables, any of
+	// which means it's signed in; with none, rush takes it as it is.
+	Creds, Keys []string
+	// SignIn says how to sign it in, when it isn't.
+	SignIn string
 	// More are features it has, or lacks, beyond what ACP gives every
 	// agent (Features).
 	More map[agent.Feature]agent.Support
@@ -39,7 +44,9 @@ type Agent struct {
 // Vibe have.
 var Known = []Agent{
 	{ID: "gemini", Title: "Gemini", Command: "gemini", Args: []string{"--experimental-acp"}, Home: ".gemini",
-		Once: `gemini -p "<task>"`, Model: "-m", Flags: map[string]string{"-p": "prompt", "--prompt": "prompt",
+		Creds: []string{"oauth_creds.json"}, Keys: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
+		SignIn: "run gemini once and pick Sign in with Google (free), or set GEMINI_API_KEY",
+		Once:   `gemini -p "<task>"`, Model: "-m", Flags: map[string]string{"-p": "prompt", "--prompt": "prompt",
 			"-m": "model", "--model": "model", "-o": "=text", "--output-format": "=text"}},
 	{ID: "kimi", Title: "Kimi", Command: "kimi", Args: []string{"acp"}, Home: ".kimi-code", More: plannedLimits,
 		Once: `kimi -p "<task>"`, Model: "-m", Flags: map[string]string{"-p": "prompt", "--prompt": "prompt",
@@ -106,6 +113,24 @@ func (a Agent) Profiles() []agent.Profile {
 		return nil
 	}
 	return []agent.Profile{{Kind: a.ID, Name: a.Title, Dir: filepath.Join(home, a.Home)}}
+}
+
+// CheckKey is whether it's signed in: a file it keeps, or a key set.
+func (a Agent) CheckKey(p agent.Profile) error {
+	if len(a.Creds)+len(a.Keys) == 0 {
+		return nil
+	}
+	for _, k := range a.Keys {
+		if os.Getenv(k) != "" {
+			return nil
+		}
+	}
+	for _, f := range a.Creds {
+		if _, err := os.Stat(filepath.Join(p.Dir, f)); err == nil {
+			return nil
+		}
+	}
+	return errors.New(a.Title + " isn't signed in: " + a.SignIn)
 }
 
 // ErrNoFork is a fork asked of an agent ACP can't fork.
@@ -223,6 +248,7 @@ var (
 	_ agent.Adapter    = Agent{}
 	_ agent.Driver     = Agent{}
 	_ agent.OnceReader = Agent{}
+	_ agent.KeyChecker = Agent{}
 	_ agent.Conn       = (*Session)(nil)
 	_ agent.Answerer   = (*Session)(nil)
 )
