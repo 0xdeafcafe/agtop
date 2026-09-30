@@ -15,6 +15,7 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
@@ -485,7 +486,7 @@ func (m *Model) wallLook(a *fleet.Agent) (edge, glyph, word string) {
 	case a.Halted():
 		return cRed, paint(cRed, "✕"), paint(cRed, "stopped")
 	case a.Live():
-		return cOrange, paint(cOrange, spinner[(m.tick+len(a.ID))%len(spinner)]), paint(cOrange, "working")
+		return cOrange, paint(cOrange, convo.Spin(a.Kind, m.tick+len(a.ID))), paint(cOrange, "working")
 	case a.Busy():
 		return cQueue, paint(cQueue, "◌"), paint(cQueue, lanesLine(a))
 	case a.Waiting():

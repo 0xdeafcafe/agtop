@@ -49,7 +49,7 @@ func contextLines(c *hostConn, w int) []string {
 	if u.AutoCompact && u.AutoCompactAt > 0 {
 		meta += " · auto-compacts at " + convo.Tokens(u.AutoCompactAt)
 	}
-	out := []string{infoHead(convo.PrettyModel(u.Model)) + "  " + dim(meta), ""}
+	out := []string{infoHead(convo.PrettyModel(u.Model)) + "  " + dim(meta) + faint("  · #slim drops what it never uses"), ""}
 	grid := convo.ContextGrid(u, 20, 10)
 	legend := convo.ContextLegend(u, "")
 	for i := range max(len(grid), len(legend)) {

@@ -46,6 +46,18 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 	if p := strings.TrimSpace(o.Prompt); p != "" {
 		ho.Flags = append(ho.Flags, "--append-system-prompt", p)
 	}
+	if len(o.Without) > 0 {
+		// Taken out of the model's context, not only refused.
+		ho.Flags = append(ho.Flags, "--disallowedTools", strings.Join(o.Without, ","))
+	}
+	if o.Inbox != "" {
+		// After each tool call, a message waiting for the agent that made
+		// it goes into that agent's own context: the one way into a
+		// running subagent that isn't the main session's SendMessage.
+		h := []map[string]any{{"matcher": "*", "hooks": []map[string]any{{"type": "command", "command": o.Inbox, "timeout": 10}}}}
+		b, _ := jsonx.Marshal(map[string]any{"hooks": map[string]any{"PostToolUse": h, "PostToolUseFailure": h}})
+		ho.Flags = append(ho.Flags, "--settings", string(b))
+	}
 	ho.Flags = append(ho.Flags, o.Flags...)
 	if o.Resume {
 		ho.Resume = o.SessionID
@@ -66,6 +78,10 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 	// Checkpoints, as Claude Code keeps them in a terminal, so a rewind can
 	// put the files back too. The session's own environment goes last, to
 	// have the last word.
+	if o.APIKey != "" {
+		// Ahead of the login signed in: paid per token.
+		ho.Env = append(ho.Env, "ANTHROPIC_API_KEY="+o.APIKey)
+	}
 	ho.Env = append(append(ho.Env, headless.CheckpointEnv), o.Env...)
 	if o.Tap != nil {
 		tap := o.Tap

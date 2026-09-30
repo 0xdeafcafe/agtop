@@ -51,6 +51,8 @@ func pick(rush, agtop, mark string) string {
 func Key(account, id string) string { return account + "/" + id }
 
 type Config struct {
+	// APIKeys are the providers whose API key rush keeps in the vault.
+	APIKeys []string `json:"apiKeys,omitempty"`
 	// Folders are the Claude config folders an older rush was given:
 	// ~/.claude and ~/.claude-*. Everything is in ~/.claude now; the others
 	// are only read to take their sign-ins and past sessions in, once, and

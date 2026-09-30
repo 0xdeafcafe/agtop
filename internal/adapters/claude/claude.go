@@ -22,10 +22,16 @@ type Adapter struct {
 }
 
 func (Adapter) Kind() agent.Kind { return Kind }
-func (Adapter) Name() string     { return "Claude Code" }
+
+// ProjectFolder is the folder it keeps in a project.
+func (Adapter) ProjectFolder() string { return ".claude" }
+func (Adapter) Name() string          { return "Claude Code" }
 
 // Maker is Anthropic, whose models Claude Code runs.
 func (Adapter) Maker() string { return "Anthropic" }
+
+// KeyEnv is where Claude Code reads an Anthropic API key from.
+func (Adapter) KeyEnv() string { return "ANTHROPIC_API_KEY" }
 
 // ClaudeTranscripts: its transcripts are Claude Code's own.
 func (Adapter) ClaudeTranscripts() {}
@@ -152,3 +158,10 @@ var (
 // Doing is a call in a few words, with words of its own for Claude Code's
 // tools that have no kind (Skill, SendMessage, Monitor, ...).
 func (Adapter) Doing(c *tool.Call) string { return claude.Doing(c.Name, c.Raw) }
+
+// SpawnCommand is a run of Claude Code a shell can hand rush to host.
+func (Adapter) SpawnCommand() (cmd, modelFlag string) { return `claude -p "<task>"`, "--model" }
+
+// TakesSubagentMessages: a PostToolUse hook hands a running subagent what
+// was sent it, at its next tool call.
+func (Adapter) TakesSubagentMessages() {}

@@ -12,6 +12,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/hooks"
 	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func ctrlK() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl} }
@@ -33,7 +34,7 @@ func TestBarOpensAndGoes(t *testing.T) {
 	}
 	// Clean-up lives on Projects now, so "clean" finds Projects.
 	typeBar(m, "clean")
-	if it := m.bar.items[0]; !strings.HasPrefix(it.title, "Projects › ") {
+	if it := m.bar.items[0]; !strings.HasPrefix(it.title, "Projects") {
 		t.Fatalf("top match for clean: %q", it.title)
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -465,6 +466,10 @@ func TestStartDirFollowsSelection(t *testing.T) {
 	if d := m.startDir(); d != a.Cwd {
 		t.Fatalf("alt+l: want the worktree, got %q", d)
 	}
+	a.Cwd, a.Root = "/r/.claude/worktrees/x/sub/dir", a.Repo
+	if d := m.startDir(); d != a.Repo {
+		t.Fatalf("agent in a subfolder: want its repository's top, got %q", d)
+	}
 	m.setStartDir("/elsewhere")
 	if d := m.startDir(); d != "/elsewhere" {
 		t.Fatalf("a picked folder should hold, got %q", d)
@@ -472,5 +477,24 @@ func TestStartDirFollowsSelection(t *testing.T) {
 	m.sel = m.snap.Agents[0].Key
 	if d := m.startDir(); d != m.followDir(m.snap.Agents[0]) {
 		t.Fatalf("selecting another agent should follow it, got %q", d)
+	}
+}
+
+// A folder of rush's own, or an agent's transcripts, is never where a new
+// session starts; a long one shows its own name, its middle left out.
+func TestStartDirSkipsStateFolders(t *testing.T) {
+	for d, want := range map[string]bool{
+		"/Users/x/src/app": true,
+		filepath.Join(state.Dir(), "claude", "a4bb", "projects", "-Users-x-src"): false,
+		"/Users/x/.claude/projects/-Users-x-src-app":                               false,
+		"/var/folders/ab/T/tmp1":                                                   false,
+	} {
+		if workDir(d) != want {
+			t.Errorf("workDir(%s) = %v", d, !want)
+		}
+	}
+	got := shortDir("~/Source/github.com/langwatch/langwatch/.worktrees/go-ports-graph", 40)
+	if got != "~/…/langwatch/.worktrees/go-ports-graph" {
+		t.Errorf("shortDir = %q", got)
 	}
 }

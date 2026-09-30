@@ -51,8 +51,8 @@ func TestProjectsMoveKeepsLevel(t *testing.T) {
 	}
 }
 
-// Each kind has its own place: repositories, then other folders on the
-// Projects tab, and temp work and /tmp on Temporary.
+// Each kind has its own place in the one list: repositories, other
+// folders, then Temporary, which shows /tmp and temp work on the right.
 func TestProjectsSections(t *testing.T) {
 	now := time.Now()
 	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{At: now}, w: 140, h: 40}
@@ -65,14 +65,34 @@ func TestProjectsSections(t *testing.T) {
 	}
 	m.clean.tmp = fleet.Scratch{Items: 3, Size: 4 << 20, StaleItems: 1, Stale: 1 << 20, Checked: now}
 	page := ansi.Strip(strings.Join(m.projectsBody(), "\n"))
-	m.setProjPage(ptTemp)
+	m.pickInProjects(paneTemp)
 	page += ansi.Strip(strings.Join(m.projectsBody(), "\n"))
 	last := -1
-	for _, s := range []string{"Projects", "◆ alpha", "OTHER FOLDERS", "◇ Downloads", "Temporary", "◌ /tmp", "◌ Sort downloads"} {
+	for _, s := range []string{"Projects", "◆ alpha", "OTHER FOLDERS", "◇ Downloads", "◌ Temporary", "System", "◌ /tmp", "◌ Sort downloads"} {
 		i := strings.Index(page[last+1:], s)
 		if i < 0 {
 			t.Fatalf("%q missing or out of order:\n%s", s, page)
 		}
 		last += 1 + i
+	}
+}
+
+// A project on the right says how big each of its worktrees is, and what
+// its agents keep as scratch in it (.claude/tmp).
+func TestProjectShowsSizes(t *testing.T) {
+	now := time.Now()
+	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{At: now}, w: 160, h: 40}
+	a := &fleet.Agent{Key: "a1", PID: 1, Root: "/src/alpha", Repo: "/src/alpha/.claude/worktrees/fix"}
+	a.UpdatedAt = now
+	m.snap.Agents = []*fleet.Agent{a}
+	m.folders.byRoot = map[string]fleet.Folder{"/src/alpha": {Trees: map[string]fleet.GitState{"/src/alpha/.claude/worktrees/fix": {Branch: "fix"}}}}
+	m.clean.wts = []fleet.Worktree{{Path: "/src/alpha/.claude/worktrees/fix", Size: 300 << 20, Checked: now}}
+	m.clean.agentTmp = map[string]int64{"/src/alpha/.claude/tmp": 12 << 20}
+	m.work.projSel = "p/src/alpha"
+	page := ansi.Strip(strings.Join(m.projectsBody(), "\n"))
+	for _, s := range []string{"WORKTREES", "fix", "300M", "AGENTS' SCRATCH", ".claude/tmp", "12M"} {
+		if !strings.Contains(page, s) {
+			t.Errorf("%q missing:\n%s", s, page)
+		}
 	}
 }

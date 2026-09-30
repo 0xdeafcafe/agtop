@@ -14,11 +14,17 @@ import (
 
 // watchShells shows the open conversation what its Bash calls have
 // running: the shells Claude Code runs them in and every process under
-// them, so a chain can say which of its commands runs now. Each process's
-// words are read off the UI's goroutine; they land as a shellsMsg.
+// them, so a chain can say which of its commands runs now. A subagent
+// runs in the same process, so the one opened is shown its own the same
+// way. Each process's words are read off the UI's goroutine; they land as
+// a shellsMsg.
 func (m *Model) watchShells() tea.Cmd {
 	c := m.host
-	if c == nil || c.sess == nil || m.snap == nil || m.snap.Table == nil || c.sess.Live() == nil && len(c.sess.RunningJobs()) == 0 {
+	if c == nil || c.sess == nil || m.snap == nil || m.snap.Table == nil {
+		return nil
+	}
+	subLive := c.subTail != nil && c.subTail.Sess.Live() != nil
+	if c.sess.Live() == nil && len(c.sess.RunningJobs()) == 0 && !subLive {
 		return nil
 	}
 	pid := c.sess.Info.ClaudePID
@@ -58,6 +64,9 @@ type shellsMsg struct {
 func (m *Model) onShells(msg shellsMsg) {
 	if c := m.host; c != nil && c.sess != nil && c.key == msg.key {
 		c.sess.WatchShells(msg.shells, time.Now())
+		if c.subTail != nil {
+			c.subTail.Sess.WatchShells(msg.shells, time.Now())
+		}
 	}
 }
 

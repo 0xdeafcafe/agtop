@@ -262,11 +262,6 @@ func TestTabTurnsPages(t *testing.T) {
 	if m.eff.page == p {
 		t.Fatal("tab didn't turn Efficiency's page")
 	}
-	m.setView(placeProjects)
-	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.projTab() != ptWorktrees {
-		t.Fatalf("tab on Projects went to page %d, not Worktrees", m.projTab())
-	}
 }
 
 // An agent's models table has a row a model: what it reads, its window

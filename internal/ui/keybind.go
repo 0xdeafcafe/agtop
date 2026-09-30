@@ -90,7 +90,7 @@ func (m *Model) onPages() bool {
 	switch m.mode {
 	case modeEff:
 		return !m.eff.typing() && m.eff.plan == nil
-	case modeProjects, modeWall:
+	case modeWall:
 		return true
 	}
 	return false

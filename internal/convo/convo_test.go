@@ -597,7 +597,7 @@ func TestLiveLine(t *testing.T) {
 	s.Apply(host.Sent{Text: "think hard"}, at(0))
 	s.Apply(headless.BlockStart{Index: 0, Type: "thinking"}, at(1))
 	out := plain(s.Render(Options{Width: 100, Now: at(9)}))
-	if !strings.Contains(out, "thinking…  8.0s · turn 9.0s") {
+	if !strings.Contains(out, musing(at(1))+"…  8.0s · turn 9.0s") {
 		t.Fatalf("no thinking line:\n%s", out)
 	}
 	s.Apply(headless.BlockStart{Index: 1, Type: "text"}, at(10))

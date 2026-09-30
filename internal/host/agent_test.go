@@ -25,7 +25,7 @@ func (fakeAgent) Kind() agent.Kind   { return "fake" }
 func (fakeAgent) Name() string       { return "Fake" }
 func (fakeAgent) Level() agent.Level { return agent.LevelPreview }
 func (fakeAgent) Features() map[agent.Feature]agent.Support {
-	return map[agent.Feature]agent.Support{agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes}
+	return map[agent.Feature]agent.Support{agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureRewind: agent.Yes}
 }
 func (fakeAgent) Profiles() []agent.Profile { return nil }
 

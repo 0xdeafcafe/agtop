@@ -17,28 +17,25 @@ import (
 )
 
 // The Projects place: where agents work, and what they leave behind, on
-// four pages.
+// one page. On the left, every repository (◆) and other folder (◇) an
+// agent worked in over the last day, then Temporary and System; on the
+// right, the one picked, whole:
 //
-//   - Projects: every repository (◆) and other folder (◇) an agent worked in
-//     over the last day, listed on the left; the one picked, whole, on the
-//     right: where it is and pushes to, what git says, its agents and
-//     where each works, its worktrees, its last commits and pull requests.
-//   - Worktrees: every project's ⎇ linked worktrees in one table.
+//   - a project: where it is and pushes to, what git says, its agents and
+//     where each works, each of its worktrees and its size, the agents'
+//     scratch in it (.claude/tmp), its last commits and pull requests.
 //   - Temporary: ◌ /tmp and finished agents' temp work, none of it
 //     anyone's work.
 //   - System: processes no project owns, orphans first.
 //
-// [ ] and tab turn the page; ↑↓ move in the list; enter on a project goes
-// into it on the right, ← or esc comes back. Nothing is deleted without
-// the Delete sheet saying first what goes and what's lost.
+// ↑↓ move in the list; enter goes into what's picked on the right, ← or
+// esc comes back. Nothing is deleted without the Delete sheet saying first
+// what goes and what's lost.
 
-// The place's pages, in projPages' order.
+// The list's rows that aren't projects, by id.
 const (
-	ptProjects = iota
-	ptWorktrees
-	ptTemp
-	ptSystem
-	ptCount
+	paneTemp   = "~temp"
+	paneSystem = "~system"
 )
 
 // project is one repository on the page, and its agents by worktree ("" for
@@ -307,17 +304,10 @@ func pad(body []string, n int) []string {
 	return body
 }
 
-// ---- the tabs ----
-
-func (m *Model) projTab() int { return m.work.projTab % ptCount }
-
-// projPages are the Projects place's pages.
-var projPages = []string{"Projects", "Worktrees", "Temporary", "System"}
-
-// setProjPage shows one of the Projects place's pages, from its top.
-func (m *Model) setProjPage(t int) {
-	m.work.projTab, m.work.projIn = (t+ptCount)%ptCount, false
-	m.work.projPos, m.work.projSel = 0, ""
+// pickInProjects picks the list's row id ("" for the first project),
+// from outside what's picked.
+func (m *Model) pickInProjects(id string) {
+	m.work.projIn, m.work.projPos, m.work.projSel = false, 0, id
 }
 
 // projectsOpen is what opening the Projects place starts: finding its
@@ -327,31 +317,6 @@ func (m *Model) projectsOpen() tea.Cmd {
 		return nil
 	}
 	return m.refreshFolders()
-}
-
-// projPageNames are the Projects place's pages, each with how much is
-// under it.
-func (m *Model) projPageNames() []string {
-	var n, wts int
-	for _, p := range m.projects() {
-		n++
-		if p.repo {
-			wts += len(projectTrees(p, m.folders.byRoot[p.key]))
-		}
-	}
-	var temp int64
-	for _, a := range m.snap.Agents {
-		if a.PID == 0 && a.Temp >= tempShown {
-			temp += a.Temp
-		}
-	}
-	temp += m.clean.tmp.Size
-	return []string{
-		"Projects " + strconv.Itoa(n),
-		"Worktrees " + strconv.Itoa(wts),
-		"Temporary " + disk(temp),
-		"System " + strconv.Itoa(len(m.procs())),
-	}
 }
 
 // summaryBar is the page's top line: the machine's load and what can go
@@ -392,31 +357,26 @@ func (m *Model) projectsSummary(running int) string {
 	return s
 }
 
-// listRows are the rows of the current tab's list: on Projects, the
-// projects; on the others, the whole table.
-func (m *Model) listRows(w int) []workRow {
-	switch m.projTab() {
-	case ptWorktrees:
-		return m.worktreeTable(w)
-	case ptTemp:
-		return m.tempRows(w)
-	case ptSystem:
-		return m.systemRows(w)
-	}
-	return m.projectList(w)
-}
-
-// projectRows are every row the page can pick, list and detail, for tests
-// and the command bar.
+// projectRows are every row the page can pick, list and what's picked,
+// for tests and the command bar.
 func (m *Model) projectRows() []workRow {
 	w := m.w - 4
-	rows := m.listRows(w)
-	if m.projTab() == ptProjects {
-		if p := m.pickedProject(); p != nil {
-			rows = append(rows, m.projectDetail(p, w)...)
-		}
+	return append(m.projectList(w), m.pickedRows(w)...)
+}
+
+// pickedRows are what the list's pick shows on the right: a project whole,
+// Temporary's or System's table.
+func (m *Model) pickedRows(w int) []workRow {
+	switch m.work.projSel {
+	case paneTemp:
+		return m.tempRows(w)
+	case paneSystem:
+		return m.systemRows(w)
 	}
-	return rows
+	if p := m.pickedProject(); p != nil {
+		return m.projectDetail(p, w)
+	}
+	return nil
 }
 
 // ---- Projects ----
@@ -427,11 +387,11 @@ const projNameW, projGitW = 22, 24
 // folders that aren't.
 func (m *Model) projectList(w int) []workRow {
 	list := m.projects()
-	if len(list) == 0 {
-		return []workRow{{line: dim("no agent has worked anywhere in the last day")}}
-	}
 	now := m.snap.At
 	rows := []workRow{{line: thead("  NAME", projNameW, "GIT", projGitW, "AGENTS", 10)}}
+	if len(list) == 0 {
+		rows = []workRow{{line: dim("no agent has worked anywhere in the last day")}}
+	}
 	for i, p := range list {
 		if i > 0 && p.repo != list[i-1].repo {
 			rows = append(rows, workRow{}, workRow{line: psection("Other folders", "◇ not a repository", w)})
@@ -455,7 +415,21 @@ func (m *Model) projectList(w int) []workRow {
 		line := mark + " " + fit(paint(cText+bold, p.title), projNameW-2) + fit(git, projGitW) + agentCounts(p.agents, now)
 		rows = append(rows, workRow{id: "p" + p.key, proj: p, line: line})
 	}
-	return rows
+	// What's no project's: temp work, and processes.
+	var temp int64
+	for _, a := range m.snap.Agents {
+		if a.PID == 0 && a.Temp >= tempShown {
+			temp += a.Temp
+		}
+	}
+	temp += m.clean.tmp.Size
+	procs := dim(fmt.Sprintf("%d processes", len(m.procs())))
+	if n := m.snap.Machine.Orphans; n > 0 {
+		procs = paint(cYellow, fmt.Sprintf("%d orphaned", n)) + dim(" · ") + procs
+	}
+	return append(rows, workRow{}, workRow{line: psection("No project's", "", w)},
+		workRow{id: paneTemp, pane: true, line: kindMark(kindTemp) + " " + fit(paint(cText+bold, "Temporary"), projNameW-2) + dim(disk(temp))},
+		workRow{id: paneSystem, pane: true, line: faint("⚙") + " " + fit(paint(cText+bold, "System"), projNameW-2) + procs})
 }
 
 // agentCounts is a project's agents in a few cells: working, needing you,
@@ -487,6 +461,9 @@ func agentCounts(agents []*fleet.Agent, now time.Time) string {
 
 // pickedProject is the project the list's cursor is on.
 func (m *Model) pickedProject() *project {
+	if strings.HasPrefix(m.work.projSel, "~") {
+		return nil
+	}
 	key := strings.TrimPrefix(m.work.projSel, "p")
 	list := m.projects()
 	for _, p := range list {
@@ -542,39 +519,48 @@ func (m *Model) projectDetail(p *project, w int) []workRow {
 		}
 		rows = append(rows, workRow{id: "a" + a.Key, a: a, owner: p.key, line: line})
 	}
-	// Worktrees: those with work of their own, the rest folded into one.
+	// Worktrees, each with its size.
 	if trees := projectTrees(p, f); p.repo && len(trees) > 0 {
-		var busy []workRow
-		var idle, asking int
-		var idleSize int64
+		var size int64
+		wrows := make([]workRow, 0, len(trees))
 		for _, t := range trees {
-			running, n := 0, 0
+			running := 0
 			for _, a := range p.agents {
-				if treeOf(a) == t {
-					n++
-					if a.Open() || a.Busy() {
-						running++
-					}
+				if treeOf(a) == t && (a.Open() || a.Busy()) {
+					running++
 				}
 			}
 			wt := m.worktreeAt(t)
-			st, ok := f.Trees[t]
-			switch {
-			case !ok && n == 0:
-				asking++
-			case n == 0 && st.Err == "" && st.Changed == 0 && ownCommits(st) == 0:
-				idle++
-				idleSize += wt.Size
-			default:
-				busy = append(busy, workRow{id: "w" + t, wt: &wt, owner: p.key, line: m.worktreeLine(t, st, wt, running, w)})
+			size += wt.Size
+			line := m.worktreeLine(t, f.Trees[t], wt, running, w)
+			if _, ok := f.Trees[t]; !ok {
+				nw, _, _, _ := wtCols(w)
+				line = fit(kindMark(kindWorktree)+" "+dim(filepath.Base(t)), nw) + faint("asking git…")
 			}
+			wrows = append(wrows, workRow{id: "w" + t, wt: &wt, owner: p.key, line: line})
+		}
+		meta := strconv.Itoa(len(trees))
+		if size > 0 {
+			meta += " · " + disk(size)
 		}
 		text("")
-		text(psection("Worktrees", fmt.Sprintf("%d · %d with work of their own", len(trees), len(busy)), w))
+		text(psection("Worktrees", meta, w))
 		text(worktreeHead(w))
-		rows = append(rows, busy...)
-		if idle+asking > 0 {
-			rows = append(rows, workRow{id: "f" + p.key, fold: true, owner: p.key, line: foldLine(idle, asking, idleSize)})
+		rows = append(rows, wrows...)
+	}
+	// What agents keep as scratch in it: .claude/tmp.
+	var scratch []string
+	for _, d := range agentTmpDirs(p.key) {
+		if n, ok := m.clean.agentTmp[d]; ok {
+			nw, bw, sw, zw := wtCols(w)
+			scratch = append(scratch, fit(kindMark(kindTemp)+" "+paint(cSub, strings.TrimPrefix(d, p.key+"/")), nw+bw+sw)+dim(right(disk(n), zw)))
+		}
+	}
+	if len(scratch) > 0 {
+		text("")
+		text(psection("Agents' scratch", "", w))
+		for _, l := range scratch {
+			text(l)
 		}
 	}
 	if known && len(f.Recent) > 0 {
@@ -650,68 +636,6 @@ func (m *Model) worktreeLine(t string, st fleet.GitState, wt fleet.Worktree, run
 	nw, bw, sw, zw := wtCols(w)
 	return fit(kindMark(kindWorktree)+" "+name, nw) + fit(dim(branch), bw) +
 		fit(strings.Join(work, dim(" · ")), sw) + dim(right(size, zw)) + "   " + faint(from)
-}
-
-// foldLine is the row a project's worktrees with nothing of their own fold
-// into, and those git hasn't answered for yet.
-func foldLine(idle, asking int, size int64) string {
-	var parts []string
-	if idle > 0 {
-		s := fmt.Sprintf("%d more with nothing of their own", idle)
-		if size > 0 {
-			s += " · " + disk(size)
-		}
-		parts = append(parts, s)
-	}
-	if asking > 0 {
-		parts = append(parts, fmt.Sprintf("%d asking git…", asking))
-	}
-	out := faint("▸ ") + dim(strings.Join(parts, " · "))
-	if idle > 0 {
-		out += dim(" · ") + paint(cSub, "x") + dim(" cleans them up")
-	}
-	return out
-}
-
-// worktreeTable is every project's worktrees, under each project's name.
-func (m *Model) worktreeTable(w int) []workRow {
-	var rows []workRow
-	for _, p := range m.projects() {
-		if !p.repo {
-			continue
-		}
-		f := m.folders.byRoot[p.key]
-		trees := projectTrees(p, f)
-		if len(trees) == 0 {
-			continue
-		}
-		if len(rows) > 0 {
-			rows = append(rows, workRow{})
-		}
-		head := kindMark(kindProject) + " " + paint(cText+bold, p.title) + "  " + dim(fmt.Sprintf("%d worktree%s", len(trees), plural(len(trees))))
-		rows = append(rows, workRow{line: head + " " + faint(strings.Repeat("─", max(0, w-cellw.String(head)-1)))})
-		rows = append(rows, workRow{line: worktreeHead(w)})
-		for _, t := range trees {
-			running := 0
-			for _, a := range p.agents {
-				if treeOf(a) == t && (a.Open() || a.Busy()) {
-					running++
-				}
-			}
-			wt := m.worktreeAt(t)
-			st, ok := f.Trees[t]
-			line := m.worktreeLine(t, st, wt, running, w)
-			if !ok {
-				nw, _, _, _ := wtCols(w)
-				line = fit(kindMark(kindWorktree)+" "+dim(filepath.Base(t)), nw) + faint("asking git…")
-			}
-			rows = append(rows, workRow{id: "w" + t, wt: &wt, line: line})
-		}
-	}
-	if len(rows) == 0 {
-		return []workRow{{line: dim("no project here has linked worktrees")}}
-	}
-	return rows
 }
 
 // ---- Temporary ----
@@ -844,45 +768,41 @@ func (m *Model) systemRows(w int) []workRow {
 func (m *Model) projectsBody() []string {
 	w := m.w - 4
 	out := []string{m.summaryBar(w), ""}
-	tab := m.projTab()
 	lw := min(max(w*2/5, 64), 84)
 	rw := w - lw - 1
 	stack := w < 130
 	if stack {
 		lw, rw = w, w
 	}
-	if tab != ptProjects {
-		lw = w
-	}
-	list := m.listRows(lw - 4)
+	list := m.projectList(lw - 4)
 	pick := pickRow(list, &m.work.projPos, &m.work.projSel)
 	// The boxes run to the bottom of the screen, whatever is in them.
 	fill := m.wallH() - len(out) - 2
-	if tab != ptProjects {
-		titles := [ptCount]string{"", "Worktrees", "Temporary", "System"}
-		metas := [ptCount]string{"", "⎇ every project's linked worktrees", "◌ /tmp and finished agents' temp work", "processes no project owns"}
-		return append(out, pbox(paint(cText+bold, titles[tab]), dim(metas[tab]), pad(drawRows(list, pick, w-4, true), fill), w, true)...)
-	}
-	p := m.pickedProject()
-	if p == nil {
-		return append(out, pbox(paint(cText+bold, "Projects"), "", pad(drawRows(list, pick, w-4, true), fill), w, true)...)
-	}
-	detail := m.projectDetail(p, rw-4)
+	detail := m.pickedRows(rw - 4)
 	dpick := -1
 	if m.work.projIn {
 		dpick = pickRow(detail, &m.work.inPos, &m.work.inSel)
 	}
 	left := drawRows(list, pick, lw-4, !m.work.projIn)
 	right := drawRows(detail, dpick, rw-4, m.work.projIn)
-	mark := kindMark(kindFolder)
-	if p.repo {
-		mark = kindMark(kindProject)
+	var title, meta string
+	switch p := m.pickedProject(); {
+	case m.work.projSel == paneTemp:
+		title, meta = kindMark(kindTemp)+" "+paint(cText+bold, "Temporary"), dim("/tmp and finished agents' temp work")
+	case m.work.projSel == paneSystem:
+		title, meta = paint(cText+bold, "System"), dim("processes no project owns")
+	case p != nil:
+		mark := kindMark(kindFolder)
+		if p.repo {
+			mark = kindMark(kindProject)
+		}
+		title, meta = mark+" "+paint(cText+bold, p.title), folderMeta(p.agents, m.snap.At)
 	}
 	lbox := func(n int) []string {
 		return pbox(paint(cText+bold, "Projects"), dim(fmt.Sprintf("%d", len(m.projects()))), pad(left, n), lw, !m.work.projIn)
 	}
 	rbox := func(n int) []string {
-		return pbox(mark+" "+paint(cText+bold, p.title), folderMeta(p.agents, m.snap.At), pad(right, n), rw, m.work.projIn)
+		return pbox(title, meta, pad(right, n), rw, m.work.projIn)
 	}
 	if stack {
 		return append(append(append(out, lbox(0)...), ""), rbox(0)...)
@@ -891,17 +811,15 @@ func (m *Model) projectsBody() []string {
 	return append(out, sideBySide(lbox(n), rbox(n), lw)...)
 }
 
-// projCur is the row the cursor is on: in the project, once gone into it,
-// or in the tab's list.
+// projCur is the row the cursor is on: in what's picked, once gone into
+// it, or in the list.
 func (m *Model) projCur() (rows []workRow, i int, pos *int, sel *string) {
 	w := m.w - 4
-	if m.projTab() == ptProjects && m.work.projIn {
-		if p := m.pickedProject(); p != nil {
-			rows = m.projectDetail(p, w)
-			return rows, pickRow(rows, &m.work.inPos, &m.work.inSel), &m.work.inPos, &m.work.inSel
-		}
+	if m.work.projIn {
+		rows = m.pickedRows(w)
+		return rows, pickRow(rows, &m.work.inPos, &m.work.inSel), &m.work.inPos, &m.work.inSel
 	}
-	rows = m.listRows(w)
+	rows = m.projectList(w)
 	return rows, pickRow(rows, &m.work.projPos, &m.work.projSel), &m.work.projPos, &m.work.projSel
 }
 
@@ -911,7 +829,7 @@ func (m *Model) projectsHint() string {
 		r = rows[i]
 	}
 	w := m.w - 4
-	tabs := []string{"[ ]", "pages"}
+	var tabs []string
 	switch {
 	case r.proc != nil:
 		k := []string{"↑↓", "move", "x", "end", "!", "SIGKILL tree"}
@@ -921,13 +839,11 @@ func (m *Model) projectsHint() string {
 		return keysFit(w, append(append(k, tabs...), "esc", "back")...)
 	case r.wt != nil:
 		return keysFit(w, append([]string{"↑↓", "move", "x", "remove…", "c", "clean up", "r", "check again"}, append(tabs, "esc", "back")...)...)
-	case r.fold:
-		return keysFit(w, "↑↓", "move", "x", "clean them up", "r", "check again", "←", "the list", "esc", "back")
 	case r.tmp:
 		return keysFit(w, append([]string{"↑↓", "move", "x", "clear untouched…", "c", "clean up", "r", "look again"}, append(tabs, "esc", "back")...)...)
 	case r.temp != nil:
 		return keysFit(w, append([]string{"↑↓", "move", "x", "delete it…", "X", "every finished agent's…"}, append(tabs, "esc", "back")...)...)
-	case r.proj != nil:
+	case r.proj != nil || r.pane:
 		return keysFit(w, append([]string{"↑↓", "move", "enter", "into it", "c", "clean up"}, append(tabs, "esc", "back")...)...)
 	case r.a != nil:
 		k := []string{"↑↓", "move", "enter", "open", "ctrl+y", "its PR", "alt+g", "keep going"}
@@ -956,10 +872,6 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 		}
 	}
 	switch s {
-	case "tab":
-		m.setProjPage(m.projTab() + 1)
-	case "shift+tab":
-		m.setProjPage(m.projTab() - 1)
 	case "esc", "q", "left":
 		if m.work.projIn {
 			m.work.projIn = false
@@ -976,7 +888,7 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 		move(10)
 	case "enter", "right":
 		switch {
-		case r.proj != nil:
+		case r.proj != nil || r.pane:
 			m.work.projIn, m.work.inPos, m.work.inSel = true, 0, ""
 			if rows, j, _, _ := m.projCur(); j < 0 || rows[j].id == "" {
 				m.work.projIn = false // nothing in it to pick
@@ -992,8 +904,6 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			return m.askClearScratch()
 		case r.temp != nil:
 			return m.askClean(r.temp)
-		case r.fold:
-			return m.openCleanSheet()
 		}
 	case "ctrl+y":
 		return m.openPR(r.a)
@@ -1009,8 +919,6 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			return m.askClearScratch()
 		case r.temp != nil:
 			return m.askClean(r.temp)
-		case r.fold:
-			return m.openCleanSheet()
 		case r.a != nil && r.a.Temp >= tempShown:
 			return m.askClean(r.a)
 		}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
@@ -47,12 +48,11 @@ type workState struct {
 	// so new rows above it keep it picked.
 	projPos int
 	projSel string
-	// projTab is the Projects place's page; projIn is set once enter has
-	// gone into the picked project, inPos and inSel its row picked there.
-	projTab int
-	projIn  bool
-	inPos   int
-	inSel   string
+	// projIn is set once enter has gone into what the list picked, inPos
+	// and inSel its row picked there.
+	projIn bool
+	inPos  int
+	inSel  string
 
 	tls     map[string]agent.Timeline    // by transcript path; the loader's alone
 	views   map[string][]agent.Happening // by agent key
@@ -153,12 +153,12 @@ type workRow struct {
 	proc  *procRow
 	tmp   bool         // the /tmp row
 	temp  *fleet.Agent // a finished agent's temp work
-	fold  bool         // a project's worktrees with nothing of their own, as one row
+	pane  bool         // Temporary or System in the Projects list
 	owner string       // the project an agent or worktree row is inside
 }
 
 func (r workRow) pickable() bool {
-	return r.id != "" && (r.proj != nil || r.a != nil || r.wt != nil || r.proc != nil || r.tmp || r.temp != nil || r.fold)
+	return r.id != "" && (r.proj != nil || r.a != nil || r.wt != nil || r.proc != nil || r.tmp || r.temp != nil || r.pane)
 }
 
 // workSession is a session in Projects: its state, then how far through
@@ -178,7 +178,7 @@ func (m *Model) workSession(a *fleet.Agent, w int, now time.Time) string {
 	case a.YourTurn(now):
 		marker, state = paint(cGreen, "◆"), paint(cGreen, "your turn · ")+paint(cSub, m.workSaid(a))
 	case a.Live():
-		marker = paint(cOrange, spinner[(m.tick+len(a.ID))%len(spinner)])
+		marker = paint(cOrange, convo.Spin(a.Kind, m.tick+len(a.ID)))
 		state = m.workSaid(a)
 		if p := m.previews[a.Key].p; p.Doing != "" {
 			state = oneLine(p.Doing)

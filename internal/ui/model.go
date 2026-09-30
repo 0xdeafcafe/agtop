@@ -100,6 +100,7 @@ type Model struct {
 	// account key.
 	quotas    map[string]usage.Quota
 	accts     accountsState
+	startOver *startOver // what the next session starts as, picked with alt+m
 	resumedAt time.Time // when sessions a limit stopped were last told to carry on
 
 	sel          string
@@ -557,16 +558,32 @@ func (m *Model) startDir() string {
 	return pickDir(m.startDirs(), m.dirIdx)
 }
 
-// followDir is the folder a new session takes from a: for one in a linked
-// worktree, the checkout it was made from, or with alt+l the worktree.
+// followDir is the folder a new session takes from a: the top of its
+// repository, not the subfolder it's in; for one in a linked worktree,
+// the checkout it was made from, or with alt+l the worktree.
 func (m *Model) followDir(a *fleet.Agent) string {
-	if strings.Contains(a.Cwd, "/var/folders/") {
-		return "" // a temp folder isn't somewhere to start work
-	}
 	if inTree(a) && !m.startInTree {
 		return a.Root
 	}
-	return agentDir(a)
+	for _, d := range []string{a.Repo, agentDir(a), a.Cwd} {
+		if workDir(d) {
+			return d
+		}
+	}
+	return ""
+}
+
+// workDir is whether d is somewhere to start work: not a temp folder, and
+// not rush's or an agent's own state (a session rush ran in a transcript's
+// folder is its business, not a place for yours).
+func workDir(d string) bool {
+	if d == "" || strings.Contains(d, "/var/folders/") || strings.HasPrefix(d, "/tmp/") {
+		return false
+	}
+	if rel, err := filepath.Rel(state.Dir(), d); err == nil && !strings.HasPrefix(rel, "..") {
+		return false
+	}
+	return !strings.Contains(d, "/projects/-") // an agent's transcripts, by folder
 }
 
 // inTree is an agent working in a linked worktree.
@@ -708,7 +725,7 @@ func (m *Model) markSeen(a *fleet.Agent) {
 }
 
 func (m *Model) flash(s string, err bool) {
-	m.status, m.statusErr, m.statusAt = s, err, time.Now()
+	m.status, m.statusErr, m.statusAt = convo.KeyWord(s), err, time.Now()
 	if err {
 		m.react(fxError)
 	}
@@ -1031,6 +1048,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flash("rush "+msg.to.Short()+" installed · reopen rush to use it", false)
 		}
 		return m, nil
+	case shotMsg:
+		if m.picker != nil && m.picker.img == msg.path && m.picker.big == msg.big {
+			m.picker.shot = msg.rows
+		}
+		return m, nil
 	case doneMsg:
 		if msg.err != nil {
 			m.flash(msg.err.Error(), true)
@@ -1172,7 +1194,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		cmd := m.key(msg)
+		cmd := m.key(macOption(msg))
 		m.emitInput()
 		return m, cmd
 	case hooks.StateMsg, hooks.DoMsg:
@@ -1312,7 +1334,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// open it, in Preview, Quick Look, reveal or copy it.
 		if msg.Button == tea.MouseRight && m.host != nil && (m.listW == 0 || msg.X > m.listW+1) && m.mode == modeList && m.dialog == nil && m.picker == nil && !m.embedded {
 			m.linkMenu(m.host, msg.X, msg.Y)
-			return m, nil
+			return m, m.drawShot()
 		}
 		if msg.Button == tea.MouseLeft {
 			m.paneFocus, m.embedded = false, false // clicking Agents takes the keys back

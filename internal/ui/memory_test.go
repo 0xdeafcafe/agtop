@@ -99,12 +99,17 @@ func TestMemoryView(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}}
 	c := &hostConn{kind: "claude", sess: convo.New(), open: map[string]bool{}, mem: files, memAt: time.Now()}
 	c.memInfo = &report
-	for i, v := range m.views(c) {
-		if v == "memory" {
-			c.view = i
-		}
+	if !m.showView(c, "memory") || m.viewName(c) != "memory" {
+		t.Fatal("memory opens from the Overview")
 	}
 	c.sel = "mem:" + note
+	listed := false
+	for _, l := range m.overviewSections(c, convo.Options{Width: 100, Now: time.Now()}) {
+		listed = listed || l.Ref == "mem:"+note
+	}
+	if !listed {
+		t.Fatal("the Overview's Memory section lists the files")
+	}
 	var out string
 	for _, l := range m.memoryLines(c, convo.Options{Width: 100, Now: time.Now()}, 50) {
 		out += ansi.Strip(l.Text) + "\n"

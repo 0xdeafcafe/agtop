@@ -36,7 +36,7 @@ const dockJobsShown = 4
 func (c *hostConn) dockJobs() []*convo.Job {
 	var out []*convo.Job
 	for _, j := range c.sess.RunningJobs() {
-		if c.sess.JobKind(j) == "subagent" || !j.Background && time.Since(j.Start) < jobWait {
+		if c.jobKind(j) == "subagent" || !j.Background && time.Since(j.Start) < jobWait {
 			continue
 		}
 		out = append(out, j)
@@ -67,7 +67,114 @@ func jobLabel(c *hostConn, j *convo.Job) string {
 	if j.Agent != "" {
 		l = j.Agent + "  " + l
 	}
-	return oneLine(tildify(l))
+	return oneLine(tildify(convo.DropCd(l)))
+}
+
+// jobOwner is the subagent that started task j, when one did.
+func (c *hostConn) jobOwner(j *convo.Job) (convo.Subagent, bool) {
+	for _, sa := range c.subs {
+		if t := c.subTails[sa.ID]; t != nil && t.Sess.MadeCall(j.ToolUseID) {
+			return sa, true
+		}
+	}
+	return convo.Subagent{}, false
+}
+
+// jobWhere is the worktree task j runs in, when that isn't the session's
+// own: the one its command cds into, else its subagent's.
+func (c *hostConn) jobWhere(j *convo.Job) string {
+	wt := convo.WorktreeIn(c.sess.JobCommand(j))
+	if sa, ok := c.jobOwner(j); ok && wt == "" {
+		wt = c.subTails[sa.ID].Sess.Worktree()
+	}
+	if wt == c.ownWorktree() {
+		return ""
+	}
+	return wt
+}
+
+// jobWho is whose a task is and where it runs, after its command:
+// "→ lane-opus(go-ports)" for a subagent's, "⎇ go-ports" for the
+// session's own in another worktree. "" for the session's own, at home.
+func jobWho(c *hostConn, j *convo.Job) string {
+	wt := c.jobWhere(j)
+	if sa, ok := c.jobOwner(j); ok {
+		who := "  " + faint("→ ") + paint(cBlue, sa.Type)
+		if wt != "" {
+			who += faint("(") + dim(wt) + faint(")")
+		}
+		return who
+	}
+	if wt != "" {
+		return "  " + faint("⎇ ") + dim(wt)
+	}
+	return ""
+}
+
+// looseJobs are the dock's tasks no running subagent started: those
+// show under their subagent instead.
+func (c *hostConn) looseJobs() []*convo.Job {
+	running := map[string]bool{}
+	for _, sa := range c.runningSubs() {
+		running[sa.ID] = true
+	}
+	var out []*convo.Job
+	for _, j := range c.dockJobs() {
+		if sa, ok := c.jobOwner(j); !ok || !running[sa.ID] {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// jobsOf are the dock's tasks subagent id started.
+func (c *hostConn) jobsOf(id string) []*convo.Job {
+	var out []*convo.Job
+	for _, j := range c.dockJobs() {
+		if sa, ok := c.jobOwner(j); ok && sa.ID == id {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// jobHint is what the keys do on picked task j.
+func (c *hostConn) jobHint(j *convo.Job) string {
+	switch rp, ok := c.sess.RunningPart(j.ToolUseID); {
+	case j.Background:
+		return keys("x", "stop", "shift+x", "…and say why", "enter", "output")
+	case ok:
+		return keys("k", "kill "+firstWord(rp.Command), "b", "background", "x", "stop", "shift+x", "…and say why")
+	}
+	return keys("b", "background", "x", "stop", "shift+x", "…and say why", "enter", "output")
+}
+
+// jobRow is a dock task's row, lead before its mark, whose it is after its
+// command when who, and its latest line of output under it.
+func (m *Model) jobRow(c *hostConn, j *convo.Job, i, w int, lead string, who bool, now time.Time) []string {
+	kind := c.sess.JobKind(j)
+	icon, col := jobIcon(kind)
+	mark := paint(col, icon)
+	if !j.Background {
+		mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
+	}
+	right, whose := m.jobRight(c, j, now), ""
+	if who {
+		whose = jobWho(c, j)
+	}
+	room := max(12, w-cellw.String(ansi.Strip(right))-cellw.String(ansi.Strip(whose))-12-cellw.String(lead))
+	left := lead + mark + " " + paint(cText+bold, fmt.Sprintf("%-7s", kind)) + " " +
+		paint(cSub, ansi.Truncate(jobLabel(c, j), room, "…")) + whose
+	rows := []string{spread(left, right, w)}
+	if last := m.jobTail(c, j, 1); len(last) > 0 {
+		rows = append(rows, ansi.Truncate(lead+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+faint(last[0]), w-2, "…"))
+	}
+	if c.sel == "job:"+j.ID {
+		for k := range rows {
+			rows[k] = picked1(rows[k], w, m.paneFocus)
+		}
+	}
+	return rows
 }
 
 // jobState is how a task stands, in a word or two and its colour.
@@ -175,14 +282,8 @@ func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
 	}
 	hint := ""
 	switch {
-	case picked >= 0 && !jobs[picked].Background:
-		if rp, ok := c.sess.RunningPart(jobs[picked].ToolUseID); ok {
-			hint = keys("k", "kill "+firstWord(rp.Command), "b", "background", "x", "stop")
-		} else {
-			hint = keys("b", "background", "x", "stop", "enter", "output")
-		}
 	case picked >= 0:
-		hint = keys("x", "stop", "enter", "output")
+		hint = c.jobHint(jobs[picked])
 	case m.paneFocus && fg > 0:
 		hint = keys("ctrl+b", "background", "↑", "pick")
 	case m.paneFocus && len(c.input) == 0 && len(m.queueOf(c).items) == 0:
@@ -198,26 +299,7 @@ func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
 	}
 	now := time.Now()
 	for i := start; i < min(len(jobs), start+dockJobsShown); i++ {
-		j := jobs[i]
-		kind := c.sess.JobKind(j)
-		icon, col := jobIcon(kind)
-		mark := paint(col, icon)
-		if !j.Background {
-			mark = paint(cOrange, spinner[(m.tick+i)%len(spinner)])
-		}
-		right := m.jobRight(c, j, now)
-		left := "  " + mark + " " + paint(cText+bold, fmt.Sprintf("%-7s", kind)) + " " +
-			paint(cSub, ansi.Truncate(jobLabel(c, j), max(12, w-cellw.String(ansi.Strip(right))-14), "…"))
-		rows := []string{spread(left, right, w)}
-		if last := m.jobTail(c, j, 1); len(last) > 0 {
-			rows = append(rows, ansi.Truncate("  "+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+faint(last[0]), w-2, "…"))
-		}
-		if i == picked {
-			for k := range rows {
-				rows[k] = picked1(rows[k], w, m.paneFocus)
-			}
-		}
-		out = append(out, rows...)
+		out = append(out, m.jobRow(c, jobs[i], i, w, "  ", true, now)...)
 	}
 	if rest := len(jobs) - start - dockJobsShown; rest > 0 {
 		out = append(out, dim(fmt.Sprintf("  + %d more in the background view", rest)))
@@ -232,6 +314,9 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 	w := o.Width
 	var run, done []*convo.Job
 	for _, j := range c.sess.WorkJobs() {
+		if c.spawnJob(j) {
+			continue // a spawned agent: the subagents view has it
+		}
 		if j.Running() {
 			run = append(run, j)
 		} else {
@@ -323,8 +408,9 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			if full := c.sess.JobCommand(j); kind == "shell" && full != "" && j.Label != "" && j.Label != full {
 				label, cmd = oneLine(j.Label), jobLabel(c, j)
 			}
+			who := jobWho(c, j)
 			left := "  " + fold + " " + mark + " " + paint(cText+bold, fmt.Sprintf("%-8s", kind)) + " " +
-				paint(cSub, ansi.Truncate(label, max(12, w-cellw.String(ansi.Strip(right))-18), "…"))
+				who + paint(cSub, ansi.Truncate(label, max(12, w-cellw.String(ansi.Strip(right))-cellw.String(ansi.Strip(who))-18), "…"))
 			rows := []string{spread(left, right, w)}
 			var facts []string
 			if rp, ok := c.sess.RunningPart(j.ToolUseID); ok {
@@ -351,9 +437,13 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			if len(body) == 0 && cmd != "" {
 				rows = append(rows, ansi.Truncate("      "+faint("$ "+cmd), w-2, "…"))
 			}
+			var followed []string // what a tail -f under it follows
 			if pid := m.jobPID(c, j); pid != 0 && c.open[ref] {
 				// Opened, what it runs: the processes under it, busiest first.
 				nodes := m.snap.Table.Tree(pid)
+				for _, n := range nodes {
+					followed = append(followed, tailFollows(m.shortCmd(n.PID, n.Comm), c.sess.Info.Cwd)...)
+				}
 				sort.SliceStable(nodes, func(a, b int) bool { return nodes[a].CPU > nodes[b].CPU })
 				for _, n := range nodes[:min(len(nodes), 5)] {
 					rows = append(rows, "      "+dim(fit(m.shortCmd(n.PID, n.Comm), max(10, w-24)))+
@@ -385,13 +475,19 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				rows = append(rows, "      "+faint(none))
 			}
 			if c.open[ref] {
-				// Opened: every other file its command writes, too.
-				for _, f := range c.jobWrites(j) {
-					if f == from {
+				// Opened: every other file its command writes, and those what
+				// it runs follows, too; one that's there but empty says so.
+				var seen []string
+				for _, f := range append(c.jobWrites(j), followed...) {
+					if f == from || slices.Contains(seen, f) {
 						continue
 					}
+					seen = append(seen, f)
 					more := c.tailOf(f, j.Running(), jobFileLines)
 					if len(more) == 0 {
+						if e := c.tails[f]; e != nil && e.size == 0 {
+							rows = append(rows, "      "+faint("from "+c.shownPath(f)+" · empty so far")+c.tailWhen(f, now))
+						}
 						continue
 					}
 					rows = append(rows, "      "+faint("from "+c.shownPath(f))+c.tailWhen(f, now))
@@ -549,13 +645,136 @@ func (m *Model) jobTailFrom(c *hostConn, j *convo.Job, n int) ([]string, string)
 	if lines := c.tailOf(p, j.Running(), n); len(lines) > 0 || c.sess.JobKind(j) != "shell" {
 		return lines, p
 	}
+	// Else the file it writes that changed last; while it runs, only one
+	// still changing: a file written at its start and left (what it
+	// fetched to read) isn't its output, and would read as done.
+	var best []string
+	from, at := "", time.Time{}
 	for _, w := range c.jobWrites(j) {
-		if lines := c.tailOf(w, j.Running(), n); len(lines) > 0 {
-			return lines, w
+		lines := c.tailOf(w, j.Running(), n)
+		e := c.tails[w]
+		if len(lines) == 0 || e == nil || j.Running() && time.Since(e.mod) > liveFor || !e.mod.After(at) && from != "" {
+			continue
+		}
+		best, from, at = lines, w, e.mod
+	}
+	return best, from
+}
+
+// writesFor is how long after a shell step ends its opened row still
+// shows what the files its command wrote hold.
+const writesFor = 5 * time.Minute
+
+// withWrites puts under each opened shell step in the conversation what
+// the files its command writes to hold, as the background view does: its
+// log, what it redirected, what it tees. Only for one running, in the
+// background or lately ended, so a long session doesn't read them all.
+// body is left as it is; the rows go in a copy.
+func (m *Model) withWrites(c *hostConn, body []convo.Line, w int) []convo.Line {
+	now := time.Now()
+	var out []convo.Line
+	for i := range body {
+		if out != nil {
+			out = append(out, body[i])
+		}
+		ref := body[i].Ref
+		_, id, ok := strings.Cut(ref, ":s:")
+		if !ok || i+1 < len(body) && body[i+1].Ref == ref {
+			continue // not a step, or not its last row
+		}
+		st := c.sess.Step(id)
+		if st == nil || st.Tool != "Bash" || !m.isOpen(c, ref) {
+			continue
+		}
+		running := st.Status == convo.Running || c.sess.JobRunning(id)
+		if !running && (st.End.IsZero() || now.Sub(st.End) > writesFor) {
+			continue
+		}
+		rows := c.writeRows(id, st, running, now, m.followedBy(c, id))
+		if len(rows) == 0 {
+			continue
+		}
+		if out == nil {
+			out = append(make([]convo.Line, 0, len(body)+len(rows)), body[:i+1]...)
+		}
+		pad := faint(railOf(body[i].Text))
+		for _, r := range rows {
+			out = append(out, convo.Line{Text: ansi.Truncate(pad+r, w, "…"), Ref: ref})
 		}
 	}
-	return nil, ""
+	if out == nil {
+		return body
+	}
+	return out
 }
+
+// followedBy are the files a tail -f under step id's running task
+// follows, as the background view finds them.
+func (m *Model) followedBy(c *hostConn, id string) []string {
+	var out []string
+	for _, j := range c.sess.RunningJobs() {
+		if j.ToolUseID != id {
+			continue
+		}
+		if pid := m.jobPID(c, j); pid != 0 {
+			for _, n := range m.snap.Table.Tree(pid) {
+				out = append(out, tailFollows(m.shortCmd(n.PID, n.Comm), c.sess.Info.Cwd)...)
+			}
+		}
+	}
+	return out
+}
+
+// writeRows are the files step id's command writes to, and those what it
+// runs follows, each named with its last lines, as the background view
+// shows them.
+func (c *hostConn) writeRows(id string, st *convo.Step, running bool, now time.Time, followed []string) []string {
+	files, ok := c.writes[id]
+	if !ok {
+		cmd := strings.TrimSpace(st.Call().Input.Command)
+		files = c.sess.Writes(cmd)
+		if cmd != "" { // its call may not be read yet
+			if c.writes == nil {
+				c.writes = map[string][]string{}
+			}
+			c.writes[id] = files
+		}
+	}
+	var rows, seen []string
+	for _, f := range append(slices.Clone(files), followed...) {
+		if slices.Contains(seen, f) {
+			continue
+		}
+		seen = append(seen, f)
+		lines := c.tailOf(f, running, jobFileLines)
+		if len(lines) == 0 {
+			continue
+		}
+		rows = append(rows, "  "+faint("from "+c.shownPath(f))+c.tailWhen(f, now))
+		for _, l := range lines {
+			rows = append(rows, "  "+paint(cFaint, "│ ")+dim(l))
+		}
+	}
+	return rows
+}
+
+// railOf is the rail and indent a conversation row starts with, so rows
+// put under it line up with it.
+func railOf(row string) string {
+	s := ansi.Strip(row)
+	n := 0
+	for _, r := range s {
+		if r != ' ' && r != '▏' && r != '│' && r != '▍' {
+			break
+		}
+		n += len(string(r))
+	}
+	return s[:n]
+}
+
+// liveFor is how recently a file a running task writes must have changed
+// to stand for its output.
+const liveFor = 30 * time.Second
 
 // jobWrites is the files a task's command writes to, worked out once: a
 // frame asks for every task's.
@@ -667,6 +886,33 @@ func (c *hostConn) tailWhen(p string, now time.Time) string {
 		return ""
 	}
 	return faint(" · updated " + age(now.Sub(e.mod)) + " ago")
+}
+
+// tailFollows are the files a tail -f or -F command follows, made absolute
+// from dir; none for any other command.
+func tailFollows(cmd, dir string) []string {
+	w := strings.Fields(cmd)
+	if len(w) < 2 || w[0] != "tail" {
+		return nil
+	}
+	follow := false
+	var files []string
+	for i := 1; i < len(w); i++ {
+		switch a := w[i]; {
+		case a == "-n" || a == "-c":
+			i++ // its count
+		case strings.HasPrefix(a, "-"):
+			follow = follow || strings.ContainsAny(a[1:], "fF") && !strings.HasPrefix(a, "--") || a == "--follow" || strings.HasPrefix(a, "--follow=")
+		case filepath.IsAbs(a):
+			files = append(files, filepath.Clean(a))
+		case dir != "":
+			files = append(files, filepath.Join(dir, a))
+		}
+	}
+	if !follow {
+		return nil
+	}
+	return files
 }
 
 // jobFileLines is how much of each further file an opened task writes is

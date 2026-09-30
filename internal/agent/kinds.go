@@ -75,3 +75,10 @@ func IsProgram(comm string) bool {
 	}
 	return false
 }
+
+// Spawnable is an adapter whose program a session's shell can run as a
+// run rush hosts (see host's stand-ins): how the run is written, with a
+// "<task>" for its prompt, and the flag that picks its model.
+type Spawnable interface {
+	SpawnCommand() (cmd, modelFlag string)
+}

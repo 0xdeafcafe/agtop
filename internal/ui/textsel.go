@@ -152,7 +152,7 @@ func (m *Model) endTextSel(c *hostConn) tea.Cmd {
 		if at.row < len(c.shown) {
 			if u := linkAt(c.shown[at.row].Text, at.col); u != "" {
 				if strings.HasPrefix(u, "file:") && m.openLinkMenu(u) {
-					return nil
+					return m.drawShot()
 				}
 				return browse(u)
 			}

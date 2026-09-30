@@ -17,7 +17,6 @@ func TestPlacesAndFocus(t *testing.T) {
 	back := tea.KeyPressMsg{Code: '<', Text: "<"}
 	zen := tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl}
 	next := tea.KeyPressMsg{Code: ']', Text: "]"}
-	prev := tea.KeyPressMsg{Code: '[', Text: "["}
 	brace := tea.KeyPressMsg{Code: '}', Text: "}"}
 	if places.String() != ">" || back.String() != "<" || zen.String() != "ctrl+z" {
 		t.Fatalf("keys print as %q, %q and %q", places.String(), back.String(), zen.String())
@@ -62,22 +61,13 @@ func TestPlacesAndFocus(t *testing.T) {
 		t.Fatal("] past the Wall should come back to the plain Agents list")
 	}
 
-	// Projects is a place of its own, its pages in the row under it.
+	// Projects is a place of its own, one page with no pages row.
 	m.key(places)
-	if m.view != placeProjects || m.mode != modeProjects || m.projTab() != ptProjects {
+	if m.view != placeProjects || m.mode != modeProjects {
 		t.Fatalf("> from Agents should go to Projects: view %d mode %d", m.view, m.mode)
 	}
-	if p := ansi.Strip(m.pages()); !strings.Contains(p, "Worktrees") || strings.Contains(p, "Wall") {
-		t.Fatalf("the pages row in Projects should be its own: %q", p)
-	}
-	m.key(next)
-	if m.projTab() != ptWorktrees {
-		t.Fatal("] in Projects should go to Worktrees")
-	}
-	m.key(prev)
-	m.key(prev)
-	if m.projTab() != ptSystem {
-		t.Fatal("[ [ from Worktrees should go round to System")
+	if p := ansi.Strip(m.pages()); strings.Contains(p, "Worktrees") || strings.Contains(p, "Wall") {
+		t.Fatalf("Projects has pages: %q", p)
 	}
 	m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.view != placeAgents || m.mode != modeList {

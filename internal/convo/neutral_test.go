@@ -3,6 +3,9 @@ package convo
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
@@ -155,5 +158,66 @@ func TestSubagentCallMidStreamKeepsWordsOnce(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("text items = %d, want 1", n)
+	}
+}
+
+// Between a step's end and the model's next words, the live line says how
+// much it reads, and a retried request says why and when it goes again,
+// until the model starts answering.
+func TestWaitingLine(t *testing.T) {
+	s := New()
+	exit := 0
+	s.Apply(host.Sent{Text: "build it"}, at(0))
+	s.Apply(event.Context{Tokens: 182_000}, at(1))
+	s.Apply(event.Message{Role: "assistant", ID: "m1", Parts: []event.Part{
+		{Kind: event.ToolCall, Call: &tool.Call{ID: "c1", Name: "shell", Kind: tool.Shell, Input: tool.Input{Command: "go build ./..."}}},
+	}}, at(2))
+	s.Apply(event.Message{Role: "user", Parts: []event.Part{{Kind: event.ToolResult, Output: &tool.Output{CallID: "c1", Text: "ok", Exit: &exit}}}}, at(4))
+	s.Apply(event.Retry{Attempt: 2, Max: 10, Delay: 8e9, Status: 529}, at(10))
+	out := plain(s.Render(Options{Width: 120, Now: at(12)}))
+	for _, want := range []string{waitingWord + " · 8.0s", "~182k tokens in", "↻ retrying · the API is overloaded · attempt 2 of 10 · next in 6.0s"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+	}
+	s.Apply(event.PartStart{Index: 0, Kind: event.Text}, at(20))
+	if out := plain(s.Render(Options{Width: 120, Now: at(21)})); strings.Contains(out, "retrying") {
+		t.Errorf("the retry should go once the model answers:\n%s", out)
+	}
+}
+
+// A compaction under way shows as a bar with a rough time left, and the
+// next is judged by how long this one took.
+func TestCompactingLine(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "go on"}, at(0))
+	s.Apply(event.Context{Tokens: 400_000}, at(1))
+	s.Apply(event.Status{Busy: true, Text: "compacting"}, at(10))
+	out := plain(s.Render(Options{Width: 140, Now: at(70)}))
+	// 400k tokens: about 20s + 100s; a minute in is half way.
+	if !strings.Contains(out, "compacting the context") || !strings.Contains(out, "50% · 1m 00s · ~1m 00s left · 400k tokens to summarise") {
+		t.Fatalf("no compacting line:\n%s", out)
+	}
+	s.Apply(event.Compacted{Trigger: "auto", Before: 400_000, After: 10_000}, at(90))
+	if out := plain(s.Render(Options{Width: 140, Now: at(91)})); strings.Contains(out, "compacting the context") {
+		t.Fatalf("done, the bar goes:\n%s", out)
+	}
+	if got := compactEstimate(200_000, s.compactRate); got != 40*time.Second {
+		t.Errorf("the next half as big should take half as long: %s", got)
+	}
+}
+
+// A URL in your message is linked once: linked twice, the second link
+// went round the first's own escape, and the address showed three times.
+func TestYourURLLinkedOnce(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "the UI is https://app.visualdiff-check.langwatch.localhost, the API http://127.0.0.1:<port> for haven"}, at(0))
+	for _, l := range s.Render(Options{Width: 200, Now: at(1)}) {
+		if n := strings.Count(l.Text, "\x1b]8;;http"); n > 0 && n != strings.Count(ansi.Strip(l.Text), "http") {
+			t.Errorf("each link once, got %d opened for %d shown: %q", n, strings.Count(ansi.Strip(l.Text), "http"), l.Text)
+		}
+		if strings.Contains(ansi.Strip(l.Text), "8;;") {
+			t.Errorf("a link's escape shows: %q", ansi.Strip(l.Text))
+		}
 	}
 }

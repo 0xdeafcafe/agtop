@@ -202,6 +202,16 @@ type Limited struct {
 	ResetsAt time.Time
 }
 
+// Retry says a request to the model failed and is tried again after
+// Delay: attempt Attempt of Max, for Status (529 overloaded, 429 rate
+// limited, 0 when there was no answer) and Err.
+type Retry struct {
+	Attempt, Max int
+	Delay        time.Duration
+	Status       int
+	Err          string
+}
+
 // Context is how much of the model's context the last request used.
 type Context struct {
 	Tokens, Window int
@@ -308,6 +318,7 @@ func (Quota) event()             {}
 func (Limited) event()           {}
 func (Billing) event()           {}
 func (Context) event()           {}
+func (Retry) event()             {}
 func (TaskStarted) event()       {}
 func (TaskUpdated) event()       {}
 func (TaskProgress) event()      {}

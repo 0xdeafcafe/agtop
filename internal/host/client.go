@@ -433,12 +433,26 @@ func (c *Client) ContinueAtReset(yes bool) error { return c.do(op{Op: "limit", N
 // SetEffort changes effort; it applies from the next Claude Code start.
 func (c *Client) SetEffort(e string) error { return c.do(op{Op: "effort", Effort: e}) }
 
+// SetWithout says what the session goes without from its agent's next
+// start: at once when it's idle.
+func (c *Client) SetWithout(w []string) error { return c.do(op{Op: "without", Without: w}) }
+
 // Rewind carries on from another conversation, sessionID: a copy cut
 // before one of your messages (resume), a fresh one, or one of its
 // Branches. The path it leaves is kept as a branch, as left describes it.
 // The connection closes once it has; dial again to see it.
 func (c *Client) Rewind(sessionID string, resume bool, left Branch) error {
 	return c.do(op{Op: "rewind", Text: sessionID, Now: resume, Branch: &left})
+}
+
+// Tell leaves text for running subagent sub, which it's given at its next
+// tool call, straight, not through the main session.
+func (c *Client) Tell(sub, text string) error { return c.do(op{Op: "tell", ID: sub, Text: text}) }
+
+// Compacted carries the session on in a fresh conversation, sessionID,
+// that starts with prompt: a summary another model wrote of this one.
+func (c *Client) Compacted(sessionID, prompt string, left Branch) error {
+	return c.do(op{Op: "compacted", Text: sessionID, Message: prompt, Branch: &left})
 }
 
 // Restart ends a session's host and starts it again on this rush's

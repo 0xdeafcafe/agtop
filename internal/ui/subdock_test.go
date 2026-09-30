@@ -458,3 +458,45 @@ func TestBackgroundSubagentStaysOneTurn(t *testing.T) {
 		t.Error("the turn outlived its task")
 	}
 }
+
+// A task a running subagent started hangs under it in the dock, not in the
+// tasks card, and ↑ goes from the subagent onto it; one the session started
+// says whose it is after its command.
+func TestSubagentsTasksUnderIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent-a1.jsonl")
+	os.WriteFile(path, []byte(strings.Join([]string{
+		`{"type":"user","isSidechain":true,"timestamp":"2026-09-23T20:00:00Z","message":{"role":"user","content":"merge main"}}`,
+		`{"type":"assistant","isSidechain":true,"timestamp":"2026-09-23T20:00:01Z","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t9","name":"Bash","input":{"command":"cd /r/.worktrees/merge-0930 && git diff --stat","run_in_background":true}}]}}`,
+	}, "\n")+"\n"), 0o644)
+	st := convo.SubagentStats(path)
+	st.Read()
+	sa := convo.Subagent{ID: "a1", Type: "lane-opus", Description: "merge main", Path: path, Mod: time.Now().UnixNano()}
+	s := convo.New()
+	now := time.Now()
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, ClaudePID: 1, State: "working"}}, now)
+	s.Apply(headless.TaskStarted{ID: "b9", ToolUseID: "t9", Type: "local_bash", Description: "git diff --stat", Backgrounded: true}, now.Add(-time.Minute))
+	s.Apply(headless.TaskStarted{ID: "b1", ToolUseID: "t1", Type: "local_bash", Description: "npm run dev", Backgrounded: true}, now.Add(-time.Minute))
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{},
+		subs: []convo.Subagent{sa}, subTails: map[string]*convo.Tail{"a1": st}}
+	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
+
+	if loose := c.looseJobs(); len(loose) != 1 || loose[0].ID != "b1" {
+		t.Fatalf("loose: %v", loose)
+	}
+	out := ansi.Strip(strings.Join(m.runningPreview(c, c.runningSubs(), 110), "\n"))
+	if !strings.Contains(out, "git diff --stat") {
+		t.Fatalf("its task isn't under it:\n%s", out)
+	}
+	if got := ansi.Strip(jobWho(c, s.Job("b9"))); got != "  → lane-opus(merge-0930)" {
+		t.Fatalf("whose: %q", got)
+	}
+	m.moveSel(c, -1)
+	m.moveSel(c, -1)
+	if c.sel != "job:b9" {
+		t.Fatalf("↑↑ picked %q", c.sel)
+	}
+	m.moveSel(c, -1)
+	if c.sel != "run:a1" {
+		t.Fatalf("↑↑↑ picked %q", c.sel)
+	}
+}

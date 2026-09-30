@@ -26,6 +26,7 @@ var Defaults = []Action{
 	{ID: "list.rename", Context: List, Title: "rename the agent", Keys: []string{"ctrl+r"}},
 	{ID: "list.draft.save", Context: List, Title: "keep what's typed as a draft", Keys: []string{"alt+s"}},
 	{ID: "list.draft.recall", Context: List, Title: "bring back a draft", Keys: []string{"alt+p"}},
+	{ID: "list.start", Context: List, Title: "pick the next session's agent, model and effort", Keys: []string{"alt+m"}},
 	{ID: "list.folder", Context: List, Title: "choose the folder, or move the agent", Keys: []string{"ctrl+l"}},
 	{ID: "list.pr", Context: List, Title: "open the agent's pull request", Keys: []string{"ctrl+y"}},
 	{ID: "list.pin", Context: List, Title: "pin the agent", Keys: []string{"ctrl+t"}},

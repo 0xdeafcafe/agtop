@@ -6,6 +6,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/adapters/claude/headless"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/host"
 )
 
@@ -166,5 +169,41 @@ func TestThumbNeverWaits(t *testing.T) {
 			t.Fatal("never made")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A file's preview fills the cells it's given, keeping the image's shape.
+func TestPreviewFits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wide.png")
+	f, _ := os.Create(path)
+	png.Encode(f, image.NewNRGBA(image.Rect(0, 0, 1600, 400)))
+	f.Close()
+	rows := Preview(path, 80, 30, false)
+	if len(rows) != 10 || cellw.String(ansi.Strip(rows[0])) != 80 {
+		t.Fatalf("want 80×10 cells, got %d rows", len(rows))
+	}
+	if Preview(filepath.Join(t.TempDir(), "none.png"), 80, 30, false) != nil {
+		t.Fatal("a missing file has no preview")
+	}
+}
+
+// A cell split down the middle draws as a half block, not one blurred
+// colour; a fine preview has twice the pixels across.
+func TestQuadrants(t *testing.T) {
+	px := image.NewNRGBA(image.Rect(0, 0, 2, 4))
+	for y := range 4 {
+		px.SetNRGBA(0, y, color.NRGBA{R: 255, A: 255})
+		px.SetNRGBA(1, y, color.NRGBA{B: 255, A: 255})
+	}
+	rows := quadrants(px)
+	if len(rows) != 1 || !strings.Contains(rows[0], "▌") {
+		t.Fatalf("got %q", rows)
+	}
+	path := filepath.Join(t.TempDir(), "wide.png")
+	f, _ := os.Create(path)
+	png.Encode(f, image.NewNRGBA(image.Rect(0, 0, 1600, 400)))
+	f.Close()
+	if rows := Preview(path, 80, 30, true); len(rows) != 10 || cellw.String(ansi.Strip(rows[0])) != 80 {
+		t.Fatalf("fine: want 80×10 cells, got %d rows", len(rows))
 	}
 }

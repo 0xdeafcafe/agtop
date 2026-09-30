@@ -187,14 +187,6 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.setEffPage(m.eff.page + d)
 		return m.effOpen()
 	}
-	if (s == "[" || s == "]") && m.mode == modeProjects {
-		d := 1
-		if s == "[" {
-			d = -1
-		}
-		m.setProjPage(m.projTab() + d)
-		return nil
-	}
 	if (s == "[" || s == "]") && m.mode == modeWall {
 		d := 1
 		if s == "[" {
@@ -396,6 +388,12 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.startRename(a)
 		}
 		return nil
+	case "alt+m":
+		// What the next session starts as: agent, model and effort.
+		if m.inKind == inPrompt {
+			m.openStartSheet()
+			return nil
+		}
 	case keySaveDraft, keyRecallDraft:
 		// Drafts, in the Prompt or a reply: alt+s keeps what's typed as
 		// one, alt+p brings the latest back, then older ones.
@@ -773,6 +771,9 @@ func (m *Model) submit() tea.Cmd {
 	if text == "" {
 		return m.attach(a)
 	}
+	if cmd, ok := m.sendMentioned(text, tagged); ok {
+		return cmd
+	}
 	if isHashCmd(text) {
 		return m.command(a, text)
 	}
@@ -786,7 +787,7 @@ func (m *Model) submit() tea.Cmd {
 	}
 	// The Prompt only starts new sessions; replies go through a Session's
 	// own message box.
-	if d := m.store.Config.Dispatch; m.startKind() != state.LoginsKind || d.RunIn != "daemon" && d.OwnAgent() {
+	if d := m.store.Config.Dispatch; m.startOver != nil || m.startKind() != state.LoginsKind || d.RunIn != "daemon" && d.OwnAgent() {
 		return m.startHosted(tagged, m.startDir())
 	}
 	d, ok := agent.As[agent.Dispatcher](loginsKind)
@@ -887,6 +888,12 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	case "restart":
 		if need() {
 			return m.restart(a, arg)
+		}
+	case "slim":
+		m.openSlim(m.host)
+	case "compact":
+		if need() {
+			return m.openCompact(m.host, a)
 		}
 	case "cd":
 		if need() {

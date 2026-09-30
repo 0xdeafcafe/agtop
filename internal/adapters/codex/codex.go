@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
@@ -21,10 +22,16 @@ func init() { agent.Register(Adapter{}) }
 type Adapter struct{}
 
 func (Adapter) Kind() agent.Kind { return Kind }
-func (Adapter) Name() string     { return "Codex" }
+
+// ProjectFolder is the folder it keeps in a project.
+func (Adapter) ProjectFolder() string { return ".codex" }
+func (Adapter) Name() string          { return "Codex" }
 
 // Maker is OpenAI, whose models Codex runs.
 func (Adapter) Maker() string { return "OpenAI" }
+
+// KeyEnv is where Codex reads an OpenAI API key from.
+func (Adapter) KeyEnv() string { return "OPENAI_API_KEY" }
 
 // Program is codex.
 func (Adapter) Program() (string, []string) { return "codex", []string{".codex/bin"} }
@@ -73,11 +80,38 @@ func (Adapter) Quota(ctx context.Context, p agent.Profile, _ agent.Account) (usa
 
 var _ agent.QuotaSource = Adapter{}
 
+// UseReset spends one of the signed-in account's earned limit resets.
+func (Adapter) UseReset(ctx context.Context, p agent.Profile, id string) (string, error) {
+	return UseReset(ctx, p, "", id)
+}
+
+var _ agent.ResetSpender = Adapter{}
+
 // Start runs a thread in its own app-server.
 func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, error) {
+	if o.APIKey != "" {
+		o.Env, o.Flags = append(o.Env, "OPENAI_API_KEY="+o.APIKey), append(KeyFlags(), o.Flags...)
+	}
 	c, err := Start(ctx, o)
 	if err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+// SpawnCommand is a run of Codex a shell can hand rush to host.
+func (Adapter) SpawnCommand() (cmd, modelFlag string) { return `codex exec "<task>"`, "-m" }
+
+// keyProvider is the model provider rush gives Codex to pay with an API
+// key: OpenAI's own, read from OPENAI_API_KEY rather than the ChatGPT
+// sign-in, so the same CODEX_HOME keeps its threads either way.
+const keyProvider = "rush-openai"
+
+// KeyFlags are app-server's config overrides that pay per token with the
+// key in OPENAI_API_KEY.
+func KeyFlags() []string {
+	return []string{
+		"-c", "model_provider=" + strconv.Quote(keyProvider),
+		"-c", "model_providers." + keyProvider + `={name="OpenAI",base_url="https://api.openai.com/v1",env_key="OPENAI_API_KEY",wire_api="responses"}`,
+	}
 }

@@ -124,6 +124,18 @@ func (n *Neutral) Event(ev Event) []event.Event {
 	case ControlReply, MCPRequest:
 		return nil
 	case Other:
+		if e.Type == "system" && e.Subtype == "api_retry" {
+			var r struct {
+				Attempt int    `json:"attempt"`
+				Max     int    `json:"max_retries"`
+				DelayMS int64  `json:"retry_delay_ms"`
+				Status  int    `json:"error_status"`
+				Err     string `json:"error"`
+			}
+			if jsonx.Unmarshal(e.Raw, &r) == nil {
+				return []event.Event{event.Retry{Attempt: r.Attempt, Max: r.Max, Delay: time.Duration(r.DelayMS) * time.Millisecond, Status: r.Status, Err: r.Err}}
+			}
+		}
 		return []event.Event{event.Other{Adapter: "claude", Type: e.Type + "/" + e.Subtype, Raw: e.Raw}}
 	}
 	return nil

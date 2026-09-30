@@ -4,32 +4,41 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/0xdeafcafe/rush/internal/adapters/claude/headless"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
-	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
-func TestSlimResult(t *testing.T) {
-	big := strings.Repeat("x", 4<<10)
-	edit, _ := jsonx.Marshal(map[string]any{"filePath": "a.go", "originalFile": big,
-		"structuredPatch": []map[string]any{{"oldStart": 1, "oldLines": 1, "newStart": 1, "newLines": 1, "lines": []string{"-a", "+b"}}}})
-	got := slimResult(tool.Edit, edit)
-	if strings.Contains(string(got), big) || len(headless.Patches(got)) != 1 {
-		t.Fatalf("edit kept the file or lost its patch: %.200s", got)
+// What the context holds and the session never called is offered to drop,
+// the costliest first; what it did use, and rush's own server, aren't.
+func TestUnused(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "go"}, at(0))
+	s.Apply(event.Message{Role: "assistant", ID: "m1", Parts: []event.Part{
+		{Kind: event.ToolCall, Call: &tool.Call{ID: "a", Name: "mcp__linear__list_issues", Kind: tool.MCP, Input: tool.Input{Server: "linear", Tool: "list_issues"}}},
+		{Kind: event.ToolCall, Call: &tool.Call{ID: "b", Name: "Task", Kind: tool.Subagent, Input: tool.Input{Agent: "Explore"}}},
+	}}, at(1))
+	s.Usage = &usage.Context{
+		MCPTools: []usage.ContextMCPTool{
+			{Name: "list_issues", Server: "linear", Tokens: 500, IsLoaded: true},
+			{Name: "browser_click", Server: "playwright", Tokens: 900, IsLoaded: true},
+			{Name: "browser_type", Server: "playwright", Tokens: 700, IsLoaded: true},
+			{Name: "show", Server: "rush", Tokens: 50, IsLoaded: true},
+		},
+		Agents: []usage.ContextAgent{{Type: "Explore", Tokens: 300}, {Type: "Plan", Tokens: 200}},
+		Skills: usage.ContextSkills{Each: []usage.ContextSkill{{Name: "pdf", Tokens: 120}}},
 	}
-	read, _ := jsonx.Marshal(map[string]any{"type": "text", "file": map[string]any{"filePath": "a.go", "content": big, "numLines": 3, "startLine": 1, "totalLines": 9}})
-	got = slimResult(tool.Read, read)
-	var r struct {
-		File struct {
-			NumLines, TotalLines int
-			Content              string
-		}
+	got := s.Unused()
+	names := make([]string, 0, len(got))
+	for _, u := range got {
+		names = append(names, u.What+":"+u.Name+":"+strings.Join(u.Rules, ","))
 	}
-	if jsonx.Unmarshal(got, &r) != nil || r.File.Content != "" || r.File.NumLines != 3 || r.File.TotalLines != 9 {
-		t.Fatalf("read: %.200s", got)
+	want := "MCP server:playwright:mcp__playwright|subagent:Plan:Task(Plan),Agent(Plan)|skill:pdf:Skill(pdf)"
+	if strings.Join(names, "|") != want {
+		t.Errorf("unused:\n got %s\nwant %s", strings.Join(names, "|"), want)
 	}
-	bash, _ := jsonx.Marshal(map[string]any{"stdout": big})
-	if got := slimResult(tool.Shell, bash); string(got) != string(bash) {
-		t.Fatal("a command's output is kept")
+	if got[0].Tokens != 1600 {
+		t.Errorf("a server costs all its loaded tools: %d", got[0].Tokens)
 	}
 }

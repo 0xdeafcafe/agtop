@@ -902,19 +902,33 @@ func (d *drawer) compacted(it *Item) {
 // stretch (thinking, a long answer being composed) never looks stalled.
 func (d *drawer) liveLine() {
 	t := d.t
-	verb, since := "working", time.Time{}
+	if !d.s.compacting.IsZero() {
+		d.compactingLine()
+		return
+	}
+	verb, since, gap, waiting := musing(t.Start), time.Time{}, false, false
 	if n := len(t.Items); n > 0 {
 		switch last := t.Items[n-1]; {
 		case last.Kind == KThinking && !t.Thinking.IsZero():
-			verb, since = "thinking", t.Thinking
+			verb, since, gap = musing(t.Thinking), t.Thinking, true
 		case last.Kind == KText && d.s.streaming == last:
 			verb = "writing"
 		case last.Kind == KStep && last.Step.Status == Running:
 			return // the step's own row is spinning
+		case last.Kind == KStep && !last.Step.End.IsZero():
+			// Its steps are done and their results sent back: the model
+			// is working out what's next, and nothing shows until it says.
+			verb, since, gap, waiting = musing(last.Step.End), last.Step.End, true, true
 		}
 	}
-	line := paint(cOrange, spinner[d.o.Tick%len(spinner)]+" "+verb+"…")
+	if gap {
+		d.add("", "", d.spine(), "")
+	}
+	line := paint(cOrange, d.spin(d.o.Tick)+" "+verb+"…")
 	var facts []string
+	if waiting {
+		facts = append(facts, waitingWord)
+	}
 	if !since.IsZero() {
 		facts = append(facts, dur(d.o.Now.Sub(since)))
 	}
@@ -924,10 +938,83 @@ func (d *drawer) liveLine() {
 	if t.Streamed > 0 {
 		facts = append(facts, "↓ "+tokens(t.Streamed/4)+" tokens")
 	}
+	if waiting {
+		// What it's reading: the context as of the last request, and
+		// whether the cache had gone, so all of it is read afresh.
+		if d.s.Context > 0 {
+			facts = append(facts, "~"+tokens(d.s.Context)+" tokens in")
+		}
+		if _, cold := d.s.CacheCold(since); cold {
+			facts = append(facts, "cache expired, read uncached")
+		}
+	}
 	if len(facts) > 0 {
 		line += dim("  " + strings.Join(facts, " · "))
 	}
 	d.add("", "", d.spine()+"   "+line, "")
+	if r := t.Retry; r != nil {
+		// A request failed and is tried again: the model hasn't stalled,
+		// its API has.
+		d.add("", "", d.spine()+"     "+paint(cYellow, "↻ "+retryWords(r, d.o.Now.Sub(t.RetryAt))), "")
+	}
+}
+
+// compactingLine is a compaction under way: a bar of how far through it
+// is likely to be and roughly how long is left. Nothing says how far it
+// has got, so both are estimates, from how long this session's last one
+// took for its size, else from the context's size alone.
+func (d *drawer) compactingLine() {
+	since := d.o.Now.Sub(d.s.compacting)
+	est := compactEstimate(max(d.s.Context, 1), d.s.compactRate)
+	frac := min(0.95, float64(since)/float64(est))
+	const w = 20
+	fill := int(frac * w)
+	bar := paint(cOrange, strings.Repeat("▰", fill)) + faint(strings.Repeat("▱", w-fill))
+	facts := []string{fmt.Sprintf("%d%%", int(frac*100)), dur(since)}
+	if left := est - since; left > 0 {
+		facts = append(facts, "~"+dur(left.Round(time.Second))+" left")
+	} else {
+		facts = append(facts, "taking longer than expected")
+	}
+	if d.s.Context > 0 {
+		facts = append(facts, tokens(d.s.Context)+" tokens to summarise")
+	}
+	d.add("", "", d.spine(), "")
+	d.add("", "", d.spine()+"   "+paint(cOrange, d.spin(d.o.Tick)+" compacting the context  ")+bar+dim("  "+strings.Join(facts, " · ")), "")
+}
+
+// compactEstimate is how long compacting tokens is likely to take: at the
+// rate the session's last one went, else about 20s and a second more for
+// every 4k tokens, as Claude Code's summaries of a full context go.
+func compactEstimate(tokens int, rate time.Duration) time.Duration {
+	if rate > 0 {
+		return max(5*time.Second, rate*time.Duration(tokens))
+	}
+	return 20*time.Second + time.Duration(tokens/4000)*time.Second
+}
+
+// waitingWord is what the live line says, after its word for it, between
+// a step's end and the model's next words.
+const waitingWord = "working out what's next"
+
+// retryWords say a retry: which attempt, why, and when the next goes.
+func retryWords(r *event.Retry, since time.Duration) string {
+	why := map[int]string{529: "the API is overloaded", 429: "rate limited", 0: "no answer from the API"}[r.Status]
+	switch {
+	case why != "":
+	case r.Status >= 500:
+		why = fmt.Sprintf("the API failed (%d)", r.Status)
+	default:
+		why = firstNonEmpty(r.Err, fmt.Sprintf("error %d", r.Status))
+	}
+	s := "retrying · " + why + fmt.Sprintf(" · attempt %d", r.Attempt)
+	if r.Max > 0 {
+		s += fmt.Sprintf(" of %d", r.Max)
+	}
+	if left := r.Delay - since; left > time.Second {
+		s += " · next in " + dur(left.Round(time.Second))
+	}
+	return s
 }
 
 // verb is a step in a word or two, for a folded run: the program a command
@@ -1010,7 +1097,7 @@ func (d *drawer) run(ref string, items []*Item) {
 	left := d.spine() + blanks(gutter-1) + faint("▸ "+plural(len(items), "step")+": ") + dim(strings.Join(names, ", "))
 	left += faint(" · all ok")
 	if !first.IsZero() && !last.IsZero() && last.Sub(first) >= 100*time.Millisecond {
-		left += faint(" · " + dur(last.Sub(first)))
+		left += faint(" · ") + took(last.Sub(first))
 	}
 	d.worked = true
 	d.add(ref, "", left, "")
@@ -1428,8 +1515,7 @@ func styledAsk(s, base string) string {
 		case strings.HasPrefix(m, "[Pasted"), strings.HasPrefix(m, "[pasted"), strings.HasPrefix(m, "[#"):
 			return reset + paint(cBlue, "▤ ") + paint(cText, strings.Trim(m, "[]")) + base
 		case strings.HasPrefix(m, "http"):
-			u := trimURL(m)
-			return reset + link(u) + base + m[len(u):]
+			return m // inline links it, once: linked here too, it'd link the link
 		}
 		return reset + paint(cWhite+bold, m) + base
 	})
@@ -1438,10 +1524,27 @@ func styledAsk(s, base string) string {
 
 var specialRe = regexp.MustCompile(`\[Image #\d+\]|\[image: [^\]]+\]|\[(?:[Pp]asted text )?#\d+ [^\]\n]*lines?[^\]\n]*\]|https?://[^\s)>\]]+|(^|\s)/[a-z][\w:-]*(?:$|[\s.,;:!?)])|@[\w./-]+`)
 
-var linkRe = regexp.MustCompile(`https?://[^\s)>\]]+`)
-
 // URLIn is the first link in s, whoever's it is; "" when there's none.
-func URLIn(s string) string { return strings.TrimRight(linkRe.FindString(s), ".,;:!?'\"") }
+func URLIn(s string) string {
+	i := strings.Index(s, "http")
+	for ; i >= 0; i = strings.Index(s, "http") {
+		j := i + 4
+		switch {
+		case strings.HasPrefix(s[j:], "s://"):
+			j += 4
+		case strings.HasPrefix(s[j:], "://"):
+			j += 3
+		default:
+			s = s[i+4:]
+			continue
+		}
+		if n := urlLen(s[j:]); n > 0 {
+			return s[i : j+n]
+		}
+		s = s[j:]
+	}
+	return ""
+}
 
 var pastedRe = regexp.MustCompile(`(?s)\s*<pasted_content id="[^"]*">\n?(.*?)\n?</pasted_content(?: id="[^"]*")?>\s*`)
 
@@ -1660,11 +1763,7 @@ func links(s, base string) string {
 			p = i + 1
 			continue
 		}
-		end := j
-		for end < len(s) && !urlStop(s[end]) {
-			end++
-		}
-		end = j + len(trimURL(s[j:end]))
+		end := j + urlLen(s[j:])
 		if end == j {
 			p = i + 1
 			continue
@@ -1688,9 +1787,38 @@ func trimURL(u string) string {
 	return strings.TrimRight(u, ".:;!?")
 }
 
+// urlLen is how much of s, just past a URL's scheme, is the URL: up to a
+// space or quote, or a ) or > the URL didn't open itself, so a placeholder
+// like http://127.0.0.1:<port> or a wiki's _(film) stays in, and
+// <https://x.dev> or (see https://x.dev) keeps its bracket out.
+func urlLen(s string) int {
+	angle, paren, end := 0, 0, 0
+	for ; end < len(s) && !urlStop(s[end]); end++ {
+		switch s[end] {
+		case '<':
+			angle++
+		case '(':
+			paren++
+		}
+		if s[end] == '>' {
+			if angle == 0 {
+				break
+			}
+			angle--
+		}
+		if s[end] == ')' {
+			if paren == 0 {
+				break
+			}
+			paren--
+		}
+	}
+	return len(trimURL(s[:end]))
+}
+
 func urlStop(c byte) bool {
 	switch c {
-	case '\t', '\n', '\f', '\r', ' ', ')', '>', ']', '"', '\'', '`', ',':
+	case '\t', '\n', '\f', '\r', ' ', ']', '"', '\'', '`', ',':
 		return true
 	}
 	return false
@@ -1768,7 +1896,7 @@ func hidden(st *Step) bool {
 func (d *drawer) statusMark(st *Step) string {
 	switch st.Status {
 	case Running:
-		return paint(cOrange, spinner[(d.o.Tick+len(st.ID))%len(spinner)])
+		return paint(cOrange, d.spin(d.o.Tick+len(st.ID)))
 	case OK:
 		if d.testsFailed(st) {
 			return paint(cRed, "✗")
@@ -1887,11 +2015,30 @@ func (d *drawer) cells(st *Step) string {
 		if p := st.runningPart(); p != "" {
 			parts = append(parts, paint(cSub, p))
 		}
-		parts = append(parts, paint(cOrange, dur(d.o.Now.Sub(st.Start))))
+		ran := paint(cOrange, dur(d.o.Now.Sub(st.Start)))
+		// One running a while says when it started, to tell stuck from slow
+		// against the clock.
+		if d.o.Now.Sub(st.Start) >= 30*time.Second {
+			ran += faint(" since " + st.Start.Local().Format("15:04"))
+		}
+		parts = append(parts, ran)
 	case !st.End.IsZero() && !st.Start.IsZero() && st.End.Sub(st.Start) >= 100*time.Millisecond:
-		parts = append(parts, faint(dur(st.End.Sub(st.Start))))
+		parts = append(parts, took(st.End.Sub(st.Start)))
 	}
 	return strings.Join(parts, faint(" · "))
+}
+
+// took is how long something finished took, warmer the longer: a
+// minute or more yellow, five orange, so the slow stretches of a long
+// turn stand out as it scrolls by.
+func took(d time.Duration) string {
+	switch {
+	case d >= 5*time.Minute:
+		return paint(cOrange, dur(d))
+	case d >= time.Minute:
+		return paint(cYellow, dur(d))
+	}
+	return faint(dur(d))
 }
 
 // --- labels ---
@@ -2845,7 +2992,15 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	}
 	last := -1
 	head := "" // the path last put above its matches, when prefixes are too wide to go beside them
+	var hex map[int]string
+	if !failed && !isJSON {
+		hex = hexRows(lines)
+	}
 	emit := func(i int, l string) {
+		if r, ok := hex[i]; ok {
+			put(b, "", r) // od's bytes as a hex viewer draws them
+			return
+		}
 		// A tool's own escape codes (colours, cursor moves, titles) would
 		// reach the terminal or throw widths off; rush does the colour.
 		l = expandTabs(cleanOutput(l))
@@ -3275,7 +3430,7 @@ func (d *drawer) figure(st *Step, ref string, indent int) bool {
 	}
 	foot := ""
 	if wide > inner {
-		foot = dim(fmt.Sprintf("%d more columns · pick it, alt+c copies it whole", wide-inner))
+		foot = dim(fmt.Sprintf(KeyWord("%d more columns · pick it, alt+c copies it whole"), wide-inner))
 	}
 	d.addWide("", edge("╰", "╯", foot))
 	d.blank()

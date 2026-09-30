@@ -48,6 +48,13 @@ type Config struct {
 	// --fork-session), leaving the original to whoever has it open. Once
 	// Claude Code names the copy, SessionID becomes that and Fork is cleared.
 	Fork bool `json:"fork,omitzero"`
+	// Billing is how the session is paid for: "key" with its provider's
+	// API key, per token; "" as its agent is signed in.
+	Billing string `json:"billing,omitempty"`
+	// Without is what the session's agent goes without, in its own words
+	// (for Claude Code, tool rules: an MCP server, a subagent, a skill), so
+	// what it never uses isn't in its context.
+	Without []string `json:"without,omitempty"`
 	// From is the conversation this one continues, for showing its history
 	// (a fork's own transcript may start empty).
 	From           string        `json:"from,omitempty"`
@@ -61,9 +68,9 @@ type Config struct {
 	Prompt         string        `json:"prompt,omitempty"` // first message
 	// NameFirst names the session from the first message sent to it, for
 	// one started without one (by /clear, say).
-	NameFirst bool `json:"nameFirst,omitzero"`
-	Images         []string      `json:"images,omitempty"` // files attached to it
-	IdleStop       Duration      `json:"idleStop,omitzero"`
+	NameFirst bool     `json:"nameFirst,omitzero"`
+	Images    []string `json:"images,omitempty"` // files attached to it
+	IdleStop  Duration `json:"idleStop,omitzero"`
 	// LimitMode is what happens when a usage limit stops the session:
 	// "auto" continues at the reset, "off" waits for you, and "" (opt-in)
 	// asks once per session.
@@ -115,20 +122,24 @@ const maxBranches = 30
 // Info is what the list shows about a session; the host keeps it in
 // info.json and sends it to clients whenever it changes.
 type Info struct {
-	ID             string  `json:"id"`
-	SessionID      string  `json:"sessionId"`
-	Account        string  `json:"account"`
-	Cwd            string  `json:"cwd"`
-	Name           string  `json:"name,omitempty"`
-	HostPID        int     `json:"hostPid"`
-	ClaudePID      int     `json:"claudePid,omitzero"`
-	State          string  `json:"state"` // starting, working, blocked, idle, stopped
-	Detail         string  `json:"detail,omitempty"`
-	Needs          string  `json:"needs,omitempty"`
-	Model          string  `json:"model,omitempty"`
-	Effort         string  `json:"effort,omitempty"`
-	PermissionMode string  `json:"permissionMode,omitempty"`
-	CostUSD        float64 `json:"costUsd,omitzero"`
+	ID             string   `json:"id"`
+	SessionID      string   `json:"sessionId"`
+	Account        string   `json:"account"`
+	Cwd            string   `json:"cwd"`
+	Name           string   `json:"name,omitempty"`
+	HostPID        int      `json:"hostPid"`
+	ClaudePID      int      `json:"claudePid,omitzero"`
+	State          string   `json:"state"` // starting, working, blocked, idle, stopped
+	Detail         string   `json:"detail,omitempty"`
+	Needs          string   `json:"needs,omitempty"`
+	Model          string   `json:"model,omitempty"`
+	Effort         string   `json:"effort,omitempty"`
+	Without        []string `json:"without,omitempty"` // what the agent goes without: see Config.Without
+	// Inbox is whether its running subagents can be sent messages
+	// straight (Client.Tell), not only through the main session.
+	Inbox bool `json:"inbox,omitzero"`
+	PermissionMode string   `json:"permissionMode,omitempty"`
+	CostUSD        float64  `json:"costUsd,omitzero"`
 	// Billing is how its requests are paid for: plan, overage or metered
 	// (usage.Billing); empty until the agent says.
 	Billing string `json:"billing,omitempty"`
@@ -374,8 +385,8 @@ func Run(id string) error {
 		clients: map[*conn]struct{}{}, pending: map[string]asked{},
 		quit: make(chan struct{}),
 		info: Info{ID: cfg.ID, Kind: cfg.Kind, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
-			HostPID: os.Getpid(), State: "idle", Proto: Proto, Model: cfg.Model, Effort: cfg.Effort, PermissionMode: cfg.PermissionMode,
-			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta, Profile: cfg.Profile, Homes: true},
+			HostPID: os.Getpid(), State: "idle", Proto: Proto, Model: cfg.Model, Effort: cfg.Effort, Without: cfg.Without, PermissionMode: cfg.PermissionMode,
+			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta, Profile: cfg.Profile, Homes: true, Inbox: takesInbox(cfg.Kind)},
 	}
 	s.publish()
 	if cfg.Prompt != "" || len(cfg.Images) > 0 {
@@ -1103,15 +1114,38 @@ func (s *server) deliverQueued(text string, images []string) error {
 // queue. Called with mu held.
 func (s *server) sendQueue() {
 	q, qi, all := s.info.Queue, s.info.QueueImages, queueImages(&s.info)
-	next, images, rest, restI := JoinQueue(q), slices.Concat(all...), []string(nil), [][]string(nil)
-	if s.info.QueueSeparate {
-		next, images, rest, restI = q[0], all[0], q[1:], trimImages(all[1:])
+	n := queueCut(q, s.info.QueueSeparate)
+	next, images, rest, restI := JoinQueue(q[:n]), slices.Concat(all[:n]...), q[n:], trimImages(all[n:])
+	if len(rest) == 0 {
+		rest, restI = nil, nil
 	}
 	s.info.Queue, s.info.QueueImages = rest, restI
 	if err := s.deliverQueued(next, images); err != nil {
 		s.info.Queue, s.info.QueueImages = q, qi
 		s.publish()
 	}
+}
+
+// queueCut is how many of queue q go now: all, or one when separate. A
+// command (/compact, /clear…) goes alone, and what was queued after it
+// waits for it to finish: joined to other text it's only words.
+func queueCut(q []string, separate bool) int {
+	n := len(q)
+	if separate {
+		n = 1
+	}
+	for i, t := range q[:n] {
+		if IsCommand(t) {
+			return max(1, i)
+		}
+	}
+	return n
+}
+
+// isCommand is whether a queued message is a slash command.
+func IsCommand(t string) bool {
+	t = strings.TrimSpace(t)
+	return strings.HasPrefix(t, "/") && !strings.ContainsAny(strings.Fields(t)[0][1:], "/.")
 }
 
 // readImage checks a picture to attach, refusing what the API won't take,
@@ -1299,9 +1333,10 @@ type op struct {
 	Index     int            `json:"index,omitzero"`
 	Was       string         `json:"was,omitempty"` // the queued text the client saw at Index
 	To        int            `json:"to,omitzero"`
-	Branch    *Branch        `json:"branch,omitempty"` // what rewind leaves
-	Request   jsontext.Value `json:"request,omitzero"` // ask: the control request
-	Proto     int            `json:"proto,omitzero"`   // hello: the client's protocol
+	Branch    *Branch        `json:"branch,omitempty"`  // what rewind leaves
+	Request   jsontext.Value `json:"request,omitzero"`  // ask: the control request
+	Proto     int            `json:"proto,omitzero"`    // hello: the client's protocol
+	Without   []string       `json:"without,omitempty"` // without: what the session goes without
 }
 
 func (s *server) do(o op) error {
@@ -1396,6 +1431,19 @@ func (s *server) do(o op) error {
 			s.info.Model = o.Model
 			s.publish()
 		}
+	case "without":
+		// What the agent's told of is fixed for its process, so it takes
+		// hold when one next starts: right away when idle.
+		s.cfg.Without, s.info.Without = o.Without, o.Without
+		s.saveConfig()
+		s.publish()
+		if conn != nil && s.info.State == "idle" {
+			s.detach()
+			s.publish()
+			s.mu.Unlock()
+			stopAgent(conn)
+			return nil
+		}
 	case "effort":
 		// Effort is fixed for an agent's process, so it takes hold the next
 		// time one starts: right away when idle, else after this turn.
@@ -1409,6 +1457,34 @@ func (s *server) do(o op) error {
 			stopAgent(conn)
 			return nil
 		}
+	case "tell":
+		inbox := s.info.Inbox
+		s.mu.Unlock()
+		if !inbox {
+			return errors.New("this agent's subagents take messages only through the main session")
+		}
+		return tell(s.cfg.ID, o.ID, o.Text)
+	case "compacted":
+		// Carry on in a fresh conversation that starts with its summary,
+		// under the same name, the one left kept as a path for /rewind.
+		if !agent.Supports(agent.Kind(s.cfg.Kind), agent.FeatureRewind) {
+			s.mu.Unlock()
+			return fmt.Errorf("%s isn't something this agent can do", o.Op)
+		}
+		name := s.cfg.Name
+		err := s.rewind(o.Text, false, o.Branch)
+		if err == nil {
+			s.cfg.Name, s.cfg.NameFirst, s.info.Name = name, false, name
+			s.saveConfig()
+		}
+		s.mu.Unlock()
+		if err == nil && conn != nil {
+			stopAgent(conn)
+		}
+		if err == nil {
+			err = s.send(o.Message, nil, false)
+		}
+		return err
 	case "rewind":
 		if !agent.Supports(agent.Kind(s.cfg.Kind), agent.FeatureRewind) {
 			s.mu.Unlock()

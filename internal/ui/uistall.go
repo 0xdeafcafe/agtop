@@ -21,7 +21,7 @@ import (
 // doing, the stack included, in stalls.log, so whatever still does is found
 // by name rather than by feel. The Network sheet shows the count.
 
-const stallAfter = 150 * time.Millisecond
+const stallAfter = 75 * time.Millisecond
 
 // uiStall is one time the UI's goroutine was held up.
 type uiStall struct {

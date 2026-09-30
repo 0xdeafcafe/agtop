@@ -261,7 +261,7 @@ func (d *drawer) partMarks(st *Step, n int) []string {
 		}
 		switch {
 		case stop.IsZero() && live:
-			marks[k] = paint(cOrange, spinner[d.o.Tick%len(spinner)]+" "+dur(end.Sub(r.start))+round)
+			marks[k] = paint(cOrange, d.spin(d.o.Tick)+" "+dur(end.Sub(r.start))+round)
 			continue
 		case stop.IsZero():
 			stop = end

@@ -29,6 +29,9 @@ var cli = acp.Agent{ID: Kind, Title: "DeepSeek", Command: "dsh", Args: []string{
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "DeepSeek" }
 
+// KeyEnv is where DeepSeek's API key is read from.
+func (Adapter) KeyEnv() string { return "DEEPSEEK_API_KEY" }
+
 // Program is dsh, which npm puts on PATH.
 func (Adapter) Program() (string, []string) { return "dsh", []string{".dsh/bin"} }
 

@@ -25,6 +25,8 @@ var fleetCommands = []event.Command{
 	{Name: "stop", Description: "stop the agent"},
 	{Name: "rm", Description: "delete the session, and its worktree when that's safe"},
 	{Name: "kill", Description: "kill the agent and everything it started"},
+	{Name: "compact", Description: "compact this session with a model of your choosing: its own (keeps the cache), a cheaper Claude, or a local Ollama one"},
+	{Name: "slim", Description: "what this session carries every request and never uses (MCP servers, subagents, skills): drop them for it alone, or compact it (#optimise)"},
 	{Name: "restart", Description: "restart the agent's Claude Code on the account in use, resuming the conversation; text is sent first (#rs)", ArgumentHint: "[message]"},
 	{Name: "clean", Description: "delete the agent's temp work; all does every finished agent", ArgumentHint: "[all]"},
 	{Name: "cd", Description: "tell the agent to work in another folder from now on", ArgumentHint: "[path]"},
@@ -60,7 +62,7 @@ var fleetCommands = []event.Command{
 }
 
 // fleetAliases are other names command() answers to.
-var fleetAliases = map[string]string{"eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "drafts", "net": "network"}
+var fleetAliases = map[string]string{"optimise": "slim", "optimize": "slim", "trim": "slim", "bloat": "slim", "eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "drafts", "net": "network"}
 
 // fleetNeedsAgent are # commands that act on the selected or focused agent;
 // the bar offers them only once one's in view. The rest are rush-wide.
@@ -223,6 +225,9 @@ func (m *Model) promptPicker() ([]event.Command, string) {
 	if cmds := m.hashMatches(m.input, m.back); len(cmds) > 0 {
 		return cmds, "#"
 	}
+	if cmds := m.mentionMatches(m.input, m.back); len(cmds) > 0 {
+		return cmds, "@"
+	}
 	text := string(m.input)
 	if m.back != 0 || !strings.HasPrefix(text, "/") || strings.ContainsAny(text[1:], " \n/") {
 		return nil, ""
@@ -243,6 +248,9 @@ func (m *Model) fleetSlashLines(w int) []string {
 	m.slashSel = max(0, min(m.slashSel, len(cmds)-1))
 	if lead == "#" {
 		return pickerRows(cmds, m.slashSel, w, "#", func(string) string { return "" }, "↑↓ · tab completes · enter runs")
+	}
+	if lead == "@" {
+		return pickerRows(cmds, m.slashSel, w, "@", func(string) string { return "" }, mentionHow)
 	}
 	skills := map[string]bool{}
 	for _, f := range m.newSessionCommands() {
@@ -284,7 +292,10 @@ func (m *Model) fleetSlashKey(s string) (tea.Cmd, bool) {
 // paneHashKey drives the # picker in a Session's box: its commands act on
 // that Session's agent.
 func (m *Model) paneHashKey(c *hostConn, s string) (tea.Cmd, bool) {
-	cmds := m.hashMatches(c.input, c.back)
+	cmds, lead := m.hashMatches(c.input, c.back), "#"
+	if len(cmds) == 0 {
+		cmds, lead = m.mentionMatches(c.input, c.back), "@"
+	}
 	if len(cmds) == 0 {
 		return nil, false
 	}
@@ -294,9 +305,9 @@ func (m *Model) paneHashKey(c *hostConn, s string) (tea.Cmd, bool) {
 	case "up", "down":
 		c.slashSel = pickerMove(c.slashSel, len(cmds), s)
 	case "tab":
-		c.input, c.back, c.slashSel = completed("#", pick, true), 0, 0
+		c.input, c.back, c.slashSel = completed(lead, pick, true), 0, 0
 	case "enter":
-		c.input, c.back, c.slashSel = completed("#", pick, false), 0, 0
+		c.input, c.back, c.slashSel = completed(lead, pick, false), 0, 0
 		if !needsArg(pick) {
 			text := string(c.input)
 			c.input = c.input[:0]

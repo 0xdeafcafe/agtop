@@ -170,7 +170,12 @@ func TestHostLifecycle(t *testing.T) {
 	}
 	next(t, c, func(ev any) bool { _, ok := ev.(event.Approval); return ok })
 	args, _ := os.ReadFile(filepath.Join(filepath.Dir(bin), "args.log"))
-	launches := strings.Split(strings.TrimSpace(string(args)), "\n")
+	var launches []string // one a line, the prompt's own lines between
+	for l := range strings.SplitSeq(strings.TrimSpace(string(args)), "\n") {
+		if strings.HasPrefix(l, "-p ") {
+			launches = append(launches, l)
+		}
+	}
 	if len(launches) != 2 || !strings.Contains(launches[0], "--session-id "+cfg.SessionID) || !strings.Contains(launches[1], "--resume "+cfg.SessionID) {
 		t.Errorf("launches:\n%s", args)
 	}
@@ -750,5 +755,19 @@ func TestRewindFreshRenames(t *testing.T) {
 	// Back down the old path, which isn't fresh: its name stays.
 	if err := s.rewind("old", true, &Branch{From: 1}); err != nil || s.cfg.NameFirst || s.info.Name != "add retries to the upload" {
 		t.Fatalf("resuming renamed it: %q %v %v", s.info.Name, s.cfg.NameFirst, err)
+	}
+}
+
+// #compact by another model carries on in a fresh conversation that
+// starts with the summary, under the same name, the old one kept.
+func TestCompactedKeepsName(t *testing.T) {
+	setup(t)
+	os.MkdirAll(dir("cp"), 0o700)
+	s := &server{cfg: Config{ID: "cp", Kind: "fake", SessionID: "old", Resume: true, Cwd: "/work/app", Name: "fix the upload", Account: agent.Profile{Kind: "fake", Name: "fake", Dir: t.TempDir()}}, began: true,
+		conn: &inputConn{fakeConn: fakeConn{events: make(chan event.Event, 1)}}, clients: map[*conn]struct{}{}}
+	s.info.State, s.info.Name = "idle", "fix the upload"
+	s.do(op{Op: "compacted", Text: "new", Message: "summary: it was all about uploads", Branch: &Branch{From: 1, Turns: 4}})
+	if s.cfg.SessionID != "new" || s.info.Name != "fix the upload" || s.cfg.NameFirst || len(s.cfg.Branches) != 1 || s.cfg.Branches[0].SessionID != "old" {
+		t.Fatalf("after compacting: session %q name %q, to name %v, branches %+v", s.cfg.SessionID, s.info.Name, s.cfg.NameFirst, s.cfg.Branches)
 	}
 }

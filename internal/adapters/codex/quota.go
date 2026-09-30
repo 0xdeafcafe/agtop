@@ -2,6 +2,8 @@ package codex
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -39,6 +41,17 @@ type rateLimitsResponse struct {
 	RateLimits          rateLimitSnapshot            `json:"rateLimits"`
 	RateLimitsByLimitID map[string]rateLimitSnapshot `json:"rateLimitsByLimitId"`
 	AccountID           string                       `json:"accountId"`
+	ResetCredits        *struct {
+		AvailableCount int `json:"availableCount"`
+		Credits        []struct {
+			ID          string `json:"id"`
+			Title       string `json:"title"`
+			Description string `json:"description"`
+			Status      string `json:"status"`
+			GrantedAt   int64  `json:"grantedAt"`
+			ExpiresAt   *int64 `json:"expiresAt"`
+		} `json:"credits"`
+	} `json:"rateLimitResetCredits"`
 }
 
 // accountResponse is account/read's answer.
@@ -184,6 +197,19 @@ func quotaFromResponse(r rateLimitsResponse) usage.Quota {
 	if r.AccountID != "" {
 		q.Account = "codex:" + r.AccountID
 	}
+	if rc := r.ResetCredits; rc != nil {
+		q.Resets = &usage.Resets{Available: rc.AvailableCount}
+		for _, c := range rc.Credits {
+			if c.Status != "" && c.Status != "available" {
+				continue
+			}
+			one := usage.ResetCredit{ID: c.ID, Title: c.Title, About: c.Description, Granted: time.Unix(c.GrantedAt, 0)}
+			if c.ExpiresAt != nil {
+				one.Expires = time.Unix(*c.ExpiresAt, 0)
+			}
+			q.Resets.Credits = append(q.Resets.Credits, one)
+		}
+	}
 	q.Source = usage.Fetched
 	return q
 }
@@ -222,4 +248,42 @@ func Quota(ctx context.Context, p agent.Profile, binary string) (usage.Quota, er
 		return usage.Quota{Problem: err.Error()}, err
 	}
 	return readQuota(ctx, c)
+}
+
+// resetOutcomes say each answer of account/rateLimitResetCredit/consume.
+var resetOutcomes = map[string]string{
+	"reset":           "its limits are reset",
+	"nothingToReset":  "nothing to reset: none of its limits can be reset now",
+	"noCredit":        "it has no resets left",
+	"alreadyRedeemed": "that reset was already used",
+}
+
+// UseReset spends one of the account's earned resets (id, or the next
+// when ""), in its own app-server, and says what came of it. Asked once:
+// the key makes a retry of the same attempt safe, and there's none.
+func UseReset(ctx context.Context, p agent.Profile, binary, id string) (string, error) {
+	c, err := spawn(binary, p.Dir, nil, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	defer c.close()
+	if _, err := c.initialize(ctx); err != nil {
+		return "", err
+	}
+	key := make([]byte, 16)
+	_, _ = rand.Read(key)
+	params := map[string]any{"idempotencyKey": hex.EncodeToString(key)}
+	if id != "" {
+		params["creditId"] = id
+	}
+	var r struct {
+		Outcome string `json:"outcome"`
+	}
+	if err := c.call(ctx, "account/rateLimitResetCredit/consume", params, &r); err != nil {
+		return "", err
+	}
+	if w, ok := resetOutcomes[r.Outcome]; ok {
+		return w, nil
+	}
+	return r.Outcome, nil
 }

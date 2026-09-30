@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
@@ -29,6 +31,9 @@ type cleanup struct {
 	// tmp is what's yours in /tmp, looked at every few minutes at most:
 	// walking it takes seconds.
 	tmp fleet.Scratch
+	// agentTmp is the size of each project's agent tmp folders
+	// (.claude/tmp), by path, for those that are there.
+	agentTmp map[string]int64
 	// nudged is when rush last said there's a lot to clean up.
 	nudged time.Time
 	// left is what agents left running, found by reap, waiting for the
@@ -81,6 +86,8 @@ type worktreesMsg struct {
 	wts  []fleet.Worktree
 	full bool           // every worktree checked and measured, for the view
 	tmp  *fleet.Scratch // /tmp, when it was due a look
+	// agentTmp are the projects' agent tmp folders' sizes, by path.
+	agentTmp map[string]int64
 }
 
 type scratchClearedMsg struct {
@@ -124,8 +131,17 @@ func (m *Model) scanWorktrees() tea.Cmd {
 	c.checking = true
 	agents := m.agentCopies()
 	tmpDue := time.Since(c.tmp.Checked) > 10*time.Minute
+	var tmps []string
+	for _, p := range m.projects() {
+		tmps = append(tmps, agentTmpDirs(p.key)...)
+	}
 	return func() tea.Msg {
-		msg := worktreesMsg{full: true}
+		msg := worktreesMsg{full: true, agentTmp: map[string]int64{}}
+		for _, d := range tmps {
+			if st, err := os.Stat(d); err == nil && st.IsDir() {
+				msg.agentTmp[d] = fleet.DiskUsage([]fleet.TempDir{{Path: d}})
+			}
+		}
 		if tmpDue {
 			s := fleet.FindScratch()
 			msg.tmp = &s
@@ -136,6 +152,19 @@ func (m *Model) scanWorktrees() tea.Cmd {
 		}
 		return msg
 	}
+}
+
+// agentTmpDirs are where the agents keep scratch in the project at root:
+// each one's own folder's tmp (.claude/tmp).
+func agentTmpDirs(root string) []string {
+	if !filepath.IsAbs(root) {
+		return nil
+	}
+	var out []string
+	for _, f := range agent.ProjectFolders() {
+		out = append(out, filepath.Join(root, f, "tmp"))
+	}
+	return out
 }
 
 // untouched is how long ago an agent was last active or marked done.
@@ -242,7 +271,7 @@ func (m *Model) onWorktrees(msg worktreesMsg) {
 		c.tmp = *msg.tmp
 	}
 	if msg.full {
-		c.wts, c.checked = msg.wts, time.Now()
+		c.wts, c.checked, c.agentTmp = msg.wts, time.Now(), msg.agentTmp
 		m.nudgeClean()
 		return
 	}

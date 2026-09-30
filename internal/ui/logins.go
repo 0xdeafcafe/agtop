@@ -363,10 +363,10 @@ func (m *Model) onSwitched(msg switchedMsg) tea.Cmd {
 		text = msg.why + " · " + text
 	}
 	if msg.resumed > 0 {
-		text += fmt.Sprintf(" · %d stopped by the limit carry on", msg.resumed)
+		text += fmt.Sprintf(" · %d session%s the limit stopped carry on", msg.resumed, plural(msg.resumed))
 	}
 	if msg.waiting > 0 {
-		text += fmt.Sprintf(" · %d move over once their turn ends", msg.waiting)
+		text += fmt.Sprintf(" · %d busy session%s will switch after the current turn", msg.waiting, plural(msg.waiting))
 	}
 	m.flash(text, false)
 	if m.dialog != nil {

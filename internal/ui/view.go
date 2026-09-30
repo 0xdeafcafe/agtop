@@ -15,6 +15,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/0xdeafcafe/rush/internal/theme"
@@ -224,8 +225,6 @@ func (m *Model) pageTabs() (names []string, cur int, turn func(int) tea.Cmd) {
 		return names, m.dialog.page, func(i int) tea.Cmd { m.setSettingsPage(i); return nil }
 	case m.mode == modeEff:
 		return effPages, m.eff.page, func(i int) tea.Cmd { m.setEffPage(i); return m.effOpen() }
-	case m.mode == modeProjects:
-		return m.projPageNames(), m.projTab(), func(i int) tea.Cmd { m.setProjPage(i); return nil }
 	case m.zen || m.hosted != "":
 		return nil, 0, nil
 	case m.mode == modeWall || m.view == placeAgents:
@@ -516,6 +515,9 @@ func (m *Model) renderScreen() string {
 		return m.frame(m.dialogBody(m.w-6), "")
 	}
 	if m.picker != nil {
+		if m.picker.pickerWide() {
+			return m.overlayBox(m.listView(), m.pickerBody(m.w-10), m.w-6)
+		}
 		return m.overlayBox(m.listView(), m.pickerBody(min(m.w-10, 96)), min(m.w-6, 100))
 	}
 	if m.sheet != nil {
@@ -550,7 +552,11 @@ func (m *Model) frame(body []string, hint string) string {
 	b.WriteString(faint(strings.Repeat("─", m.w)))
 	b.WriteByte('\n')
 	if d := m.dialog; d != nil && d.asking != "" {
-		hint = paint(cOrange, d.asking+" ❯ ") + paint(cText, string(d.input)) + paint(cOrange, "▏")
+		typed := string(d.input)
+		if d.secret {
+			typed = strings.Repeat("•", min(len(d.input), 24))
+		}
+		hint = paint(cOrange, d.asking+" ❯ ") + paint(cText, typed) + paint(cOrange, "▏")
 	}
 	b.WriteString(m.statusOr(hint))
 	return b.String()
@@ -649,7 +655,7 @@ func needsLabel(n int) string {
 func keys(pairs ...string) string {
 	var parts []string
 	for i := 0; i+1 < len(pairs); i += 2 {
-		parts = append(parts, paint(cSub, pairs[i])+" "+dim(pairs[i+1]))
+		parts = append(parts, paint(cSub, convo.KeyWord(pairs[i]))+" "+dim(convo.KeyWord(pairs[i+1])))
 	}
 	return strings.Join(parts, faint("  ·  "))
 }
@@ -1652,7 +1658,7 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	case a.Waiting():
 		marker = paint(cYellow, "○")
 	case live:
-		marker = paint(cOrange, spinner[(m.tick+len(a.ID))%len(spinner)])
+		marker = paint(cOrange, convo.Spin(a.Kind, m.tick+len(a.ID)))
 	case a.Busy():
 		marker = paint(cOrange, "◌")
 	case a.Done:
@@ -1857,7 +1863,24 @@ func (m *Model) dirLabel(dir string) string {
 			return paint(cText, filepath.Base(a.Repo))
 		}
 	}
-	return paint(cText, tildify(dir))
+	return paint(cText, shortDir(tildify(dir), 48))
+}
+
+// shortDir is a path in at most n cells, its middle left out, so the
+// folder's own name always shows: ~/…/langwatch/.worktrees/go-ports.
+func shortDir(p string, n int) string {
+	if cellw.String(p) <= n {
+		return p
+	}
+	parts := strings.Split(p, "/")
+	tail := parts[len(parts)-1]
+	for i := len(parts) - 2; i > 0; i-- {
+		if cellw.String(parts[0]+"/…/"+parts[i]+"/"+tail) > n {
+			break
+		}
+		tail = parts[i] + "/" + tail
+	}
+	return ansi.Truncate(parts[0]+"/…/"+tail, n, "…")
 }
 
 // context is where a live agent works: repository and branch.
@@ -2058,16 +2081,21 @@ func (m *Model) promptLines(w int) []string {
 		b.topR = m.startWith(dir, false)
 		folder := paint(cSub, "ctrl+l") + dim(" folder")
 		if a != nil && inTree(a) && a.Key != m.pickedFor {
-			other := "worktree"
+			// Said as what the key does, by name: its worktree, or the
+			// checkout it was made from.
+			other := filepath.Base(a.Repo)
 			if m.startInTree {
-				other = "main checkout"
+				other = filepath.Base(a.Root)
 			}
-			folder = paint(cSub, "alt+l") + dim(" "+other)
+			folder = paint(cSub, convo.KeyWord("alt+l")) + dim(" start in "+other)
 		} else if len(dirs) <= 1 {
 			folder = ""
 		}
 		if folder != "" && cellw.String(b.topL+b.topR+folder)+12 <= w {
 			b.topR = folder + faint(" · ") + b.topR
+		}
+		if change := paint(cSub, convo.KeyWord("alt+m")) + dim(" change"); cellw.String(b.topL+b.topR+change)+12 <= w {
+			b.topR += faint(" · ") + change
 		}
 	}
 	if m.sessionFocused() {

@@ -7,27 +7,41 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/theme"
 )
 
 // --- what fills the context window ---
 
+// ctxHues are the categories' colours, each its own hue so neighbours in
+// the bar stay apart: what rush is given (blue, violet), what's plugged in
+// (green, teal, pink), what's read in (white, yellow), what's said
+// (orange, as rush's own).
+var ctxHues = map[string]theme.RGB{
+	"System prompt": {R: 86, G: 140, B: 230},
+	"System tools":  {R: 160, G: 130, B: 220},
+	"MCP tools":     {R: 127, G: 191, B: 138},
+	"MCP server":    {R: 70, G: 180, B: 170},
+	"Custom agents": {R: 220, G: 120, B: 170},
+	"Memory":        {R: 235, G: 230, B: 220},
+	"Skills":        {R: 225, G: 190, B: 80},
+	"Messages":      {R: 217, G: 119, B: 87},
+}
+
+// ctxInk is each of ctxHues fitted to the terminal's ground.
+var ctxInk = map[string]string{}
+
 // ctxColour is a category's colour, the same in the overview and /context.
 func ctxColour(name string) string {
-	switch {
-	case strings.HasPrefix(name, "System prompt"):
-		return cBlue
-	case strings.HasPrefix(name, "System tools"):
-		return cSub
-	case strings.HasPrefix(name, "MCP"):
-		return cGreen
-	case strings.HasPrefix(name, "Custom agents"), strings.HasPrefix(name, "Memory"):
-		return cWhite
-	case strings.HasPrefix(name, "Skills"):
-		return cYellow
-	case strings.HasPrefix(name, "Messages"):
-		return cOrange
+	best := ""
+	for prefix := range ctxHues {
+		if strings.HasPrefix(name, prefix) && len(prefix) > len(best) {
+			best = prefix
+		}
 	}
-	return cDim
+	if best == "" {
+		return cDim
+	}
+	return ctxInk[best]
 }
 
 // ctxParts are the categories in the window, in Claude Code's order:

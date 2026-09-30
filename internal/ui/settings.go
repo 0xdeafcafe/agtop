@@ -95,6 +95,7 @@ type dialog struct {
 
 	input    []rune
 	asking   string // what the input line is for; empty when not typing
+	secret   bool   // what's typed is shown as dots: a key
 	onAnswer func(string) tea.Cmd
 
 	agents   []agent.AgentDef   // the signed-in agent's definitions
@@ -135,7 +136,13 @@ func (m *Model) dialogLen() int {
 // ask opens the input line for a typed value; answer gets it, trimmed,
 // unless it's empty.
 func (m *Model) ask(what, prefill string, answer func(string) tea.Cmd) {
-	m.dialog.asking, m.dialog.input, m.dialog.onAnswer = what, []rune(prefill), answer
+	m.dialog.asking, m.dialog.input, m.dialog.onAnswer, m.dialog.secret = what, []rune(prefill), answer, false
+}
+
+// askSecret is ask for a secret, shown as dots.
+func (m *Model) askSecret(what string, answer func(string) tea.Cmd) {
+	m.ask(what, "", answer)
+	m.dialog.secret = true
 }
 
 // confirmThen asks a yes or no question before doing yes.

@@ -88,6 +88,16 @@ type StartOptions struct {
 	Env       []string
 	Flags     []string // passed to the agent as they are
 	Binary    string   // the agent's program, when it isn't on PATH by its usual name
+	// Without is what the agent goes without, in its own words: for
+	// Claude Code, tool rules taken out of its context.
+	Without []string
+	// Inbox is a command to run after each tool call, the call's hook
+	// input on its stdin: what it prints is a message for the (sub)agent
+	// that made the call. An agent that can take one says so (SubagentInbox).
+	Inbox string
+	// APIKey, when set, pays for the session per token with the
+	// provider's API key rather than out of the subscription signed in.
+	APIKey string
 	// TempDir is the session's own scratch folder, for the agent's
 	// temporary files.
 	TempDir string
@@ -141,6 +151,17 @@ type HistoryReader interface {
 // through, for agents whose sign-in lives in the profile.
 type QuotaSource interface {
 	Quota(ctx context.Context, p Profile, a Account) (usage.Quota, error)
+}
+
+// SubagentInbox is an agent whose running subagents can be sent a message
+// straight, with StartOptions.Inbox, rather than through the main session.
+type SubagentInbox interface{ TakesSubagentMessages() }
+
+// ResetSpender is an agent whose accounts earn limit resets: UseReset
+// spends one (id, or the next when ""), on the account profile p is
+// signed in to, and says what came of it.
+type ResetSpender interface {
+	UseReset(ctx context.Context, p Profile, id string) (string, error)
 }
 
 // PlanReader reads the plans of an agent's accounts, sharing each reading

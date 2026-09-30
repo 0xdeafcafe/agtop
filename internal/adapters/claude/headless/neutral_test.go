@@ -114,3 +114,12 @@ func TestNeutralTasks(t *testing.T) {
 		t.Errorf("TurnEnd = %+v", end)
 	}
 }
+
+// Claude Code's word that a request is tried again is rush's Retry.
+func TestNeutralRetry(t *testing.T) {
+	evs := neutral(t, &Neutral{}, `{"type":"system","subtype":"api_retry","attempt":3,"max_retries":10,"retry_delay_ms":4200,"error_status":529,"error":"overloaded_error"}`)
+	r, ok := evs[0].(event.Retry)
+	if len(evs) != 1 || !ok || r.Attempt != 3 || r.Max != 10 || r.Delay != 4200*time.Millisecond || r.Status != 529 {
+		t.Fatalf("got %#v", evs)
+	}
+}

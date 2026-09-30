@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
@@ -23,6 +25,9 @@ type picker struct {
 	query  []rune // narrows dirs, or is a folder of its own
 	moving string // the agent a folder is chosen for; "" is new sessions
 	acts   []linkAct
+	img    string   // the image file the acts are for, shown above them
+	shot   []string // img drawn, once it's made
+	big    bool     // img drawn as big as the window allows
 	cursor int
 }
 
@@ -134,6 +139,11 @@ func (m *Model) moveTo(a *fleet.Agent, dir string) tea.Cmd {
 		return nil
 	}
 	text := moveNote(dir, agentDir(a))
+	if a.Rush {
+		// Mid-turn, not queued: work it does before reading it lands in the old folder.
+		m.flash("sending to "+a.DisplayName+"…", false)
+		return sendHostedID(a.ID, a.DisplayName, text, true)
+	}
 	return m.replyTo(a, text, text)
 }
 
@@ -195,6 +205,11 @@ func (m *Model) pickerKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		p.cursor = roundMove(p.cursor, -1, p.size())
 	case "down", "j", "tab":
 		p.cursor = roundMove(p.cursor, 1, p.size())
+	case "v":
+		if p.img != "" {
+			p.big = !p.big
+			return m.drawShot() // the one shown stays until this lands
+		}
 	case "enter":
 		if p.acts != nil {
 			m.picker = nil
@@ -281,6 +296,13 @@ func (m *Model) pickerBody(w int) []string {
 		return append(out, "", keys("type", "filter or a path", "↑↓", "choose", "enter", do, "esc", "close"))
 	}
 	if p.acts != nil {
+		if p.shot != nil {
+			pad := strings.Repeat(" ", max(0, (w-cellw.String(ansi.Strip(p.shot[0])))/2))
+			for _, r := range p.shot {
+				out = append(out, pad+r)
+			}
+			out = append(out, "")
+		}
 		for i, a := range p.acts {
 			line := paint(cText, a.label)
 			if i == p.cursor {
@@ -289,6 +311,13 @@ func (m *Model) pickerBody(w int) []string {
 				line = " " + line
 			}
 			out = append(out, line)
+		}
+		if p.shot != nil {
+			size := "bigger"
+			if p.big {
+				size = "smaller"
+			}
+			return append(out, "", keys("↑↓", "choose", "enter", "do it", "v", size, "esc", "close"))
 		}
 		return append(out, "", keys("↑↓", "choose", "enter", "do it", "esc", "close"))
 	}

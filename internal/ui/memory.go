@@ -386,6 +386,10 @@ func (m *Model) docHint(e *docEditor, w int) string {
 // below, ctrl+g opens it in $EDITOR, x deletes it; while it's being edited,
 // every key is the editor's. It reports whether it used the key.
 func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bool) {
+	// Enter on a file in the Overview's Memory section opens the view on it.
+	if (s == "enter" || s == "e") && len(c.input) == 0 && strings.HasPrefix(c.sel, "mem:") && m.viewName(c) == "overview" {
+		c.memOpen = true
+	}
 	if m.viewName(c) != "memory" {
 		c.memEdit = false
 		return nil, false

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
 // linkAct is one thing the menu on a link can do with it.
@@ -52,6 +53,36 @@ func linkAt(s string, col int) string {
 	}
 }
 
+// pickedLink is the first file linked in the rows of the picked step:
+// its own, and those under it with no step of their own, as its pictures.
+func pickedLink(c *hostConn) string {
+	in := false
+	for _, r := range c.shown {
+		if r.Ref != "" {
+			in = r.Ref == c.sel
+		}
+		if !in {
+			continue
+		}
+		for rest := r.Text; ; {
+			i := strings.Index(rest, "\x1b]8;;")
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len("\x1b]8;;"):]
+			j := strings.Index(rest, "\x1b\\")
+			if j < 0 {
+				break
+			}
+			if u := rest[:j]; strings.HasPrefix(u, "file:") {
+				return u
+			}
+			rest = rest[j:]
+		}
+	}
+	return ""
+}
+
 // linkMenu opens the menu for the link under a right-click in the pane,
 // reporting whether there was one.
 func (m *Model) linkMenu(c *hostConn, x, y int) bool {
@@ -80,7 +111,39 @@ func (m *Model) openLinkMenu(target string) bool {
 		title = tildify(u.Path)
 	}
 	m.picker = &picker{title: title, acts: acts}
+	if u, err := url.Parse(target); err == nil && u.Scheme == "file" && previewable[strings.ToLower(filepath.Ext(u.Path))] {
+		m.picker.img = u.Path
+	}
 	return true
+}
+
+// shotMsg is a menu's image drawn, for the menu on path at that size.
+type shotMsg struct {
+	path string
+	big  bool
+	rows []string
+}
+
+// pickerWide is whether the menu takes the window's width, for its image.
+func (p *picker) pickerWide() bool { return p != nil && p.big && p.shot != nil }
+
+// drawShot draws the menu's image off the UI goroutine: small, or with v
+// as big as the window leaves room for and finer; nil when there's no
+// image to draw.
+func (m *Model) drawShot() tea.Cmd {
+	p := m.picker
+	if p == nil || p.img == "" {
+		return nil
+	}
+	// The box's edges and padding, the title, the acts and the keys.
+	w, h, path, big := min(m.w-10, 48), min(m.h-12-len(p.acts), 12), p.img, p.big
+	if big {
+		w, h = m.w-10, m.h-12-len(p.acts)
+	}
+	if w < 8 || h < 4 {
+		return nil
+	}
+	return func() tea.Msg { return shotMsg{path, big, convo.Preview(path, w, h, big)} }
 }
 
 // linkActs are what can be done with a link: a file can be opened, in

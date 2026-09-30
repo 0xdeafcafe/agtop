@@ -30,6 +30,9 @@ var cli = acp.Agent{ID: Kind, Title: "GLM", Command: "zcode-acp-server",
 func (Adapter) Kind() agent.Kind { return Kind }
 func (Adapter) Name() string     { return "GLM" }
 
+// KeyEnv is where Z.ai's API key is read from.
+func (Adapter) KeyEnv() string { return "ZAI_API_KEY" }
+
 // Program is the ACP bridge, what rush runs.
 func (Adapter) Program() (string, []string) { return "zcode-acp-server", nil }
 

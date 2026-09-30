@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -10,7 +11,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/cellw"
+	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
@@ -208,6 +211,10 @@ func (m *Model) providersKey(s string) tea.Cmd {
 		if name := it.provider + it.profile; name != "" {
 			m.makeDefaultProfile(name)
 		}
+	case "$":
+		if it.provider != "" {
+			return m.askAPIKey(agent.ProviderOf(m.provKind(it.provider)))
+		}
 	case "a":
 		if it.provider != "" {
 			return m.addAccount(m.provKind(it.provider))
@@ -247,6 +254,9 @@ func (m *Model) listKeys(it provItem) []string {
 	switch {
 	case it.provider != "":
 		keys := []string{"enter", "open", "1-9", "provider", "*", "make default", "a", "add account", "r", "read limits", "n", "new profile"}
+		if agent.KeyEnv(agent.ProviderOf(m.provKind(it.provider))) != "" {
+			keys = append(keys, "$", "API key")
+		}
 		if p, _ := m.store.Config.ProfileNamed(it.provider); !p.Builtin {
 			keys = append(keys, "x", "put its profile back")
 		}
@@ -540,8 +550,12 @@ func (m *Model) accountSection(k agent.Kind) (section, bool) {
 		return section{}, false
 	}
 	sec := section{title: "Account", note: "one at a time, shared by all its sessions"}
-	for _, r := range accountsOf(m.accountRows(), k) {
-		sec.rows = append(sec.rows, m.accountRow(r))
+	rows := accountsOf(m.accountRows(), k)
+	for i := range rows {
+		sec.rows = append(sec.rows, m.accountRow(rows[i]))
+	}
+	if all, n := together(rows); n > 1 {
+		sec.rows = append(sec.rows, m.togetherRow(all, n))
 	}
 	sec.rows = append(sec.rows, setting{
 		label: "+ add an account",
@@ -566,6 +580,9 @@ func (m *Model) accountRow(r acctRow) setting {
 	if r.login == nil {
 		keys = slices.Delete(keys, 6, 8)
 	}
+	if rs := r.q.Resets; rs != nil && rs.Available > 0 {
+		keys = append(keys, "u", "use a reset")
+	}
 	return setting{
 		label: r.name(),
 		line: func(w int) string {
@@ -573,10 +590,12 @@ func (m *Model) accountRow(r acctRow) setting {
 			if r.current {
 				mark = paint(cOrange, "● ")
 			}
-			return mark + paint(cText, fit(r.name(), 16)) + dim(fit(r.email(), max(0, min(28, w-60)))) + m.limits(r, 20, 20)
+			return mark + paint(cText, fit(r.name(), 16)) + dim(fit(r.email(), max(0, min(28, w-72)))) + m.limits(r, 26, 26) + resetsChip(r.q)
 		},
 		key: func(s string) (tea.Cmd, bool) {
 			switch {
+			case s == "u":
+				return m.useReset(&r), true
 			case s == "a":
 				return m.addAccount(r.kind), true
 			case r.login != nil && slices.Contains([]string{"enter", "r", "l", "d", "x"}, s):
@@ -592,7 +611,101 @@ func (m *Model) accountRow(r acctRow) setting {
 			if r.current {
 				now = "In use: new " + agentName(string(r.kind)) + " sessions run on it."
 			}
+			if resets := resetsText(r.q, m.snap.At); resets != "" {
+				now += "\n" + resets
+			}
+			now += resetCredits(r.q, m.snap.At)
 			return r.name(), acctWho(r), now
+		},
+	}
+}
+
+// resetsText is when each of a reading's windows resets, by the clock
+// and how long from now: "5h resets 17:00, in 3h · 7d resets Thu 09:00,
+// in 2d".
+func resetsText(q usage.Quota, now time.Time) string {
+	var out []string
+	for i := range q.Windows {
+		win := &q.Windows[i]
+		if !win.ResetsAt.After(now) {
+			continue
+		}
+		when := win.ResetsAt.Local().Format("15:04")
+		if win.ResetsAt.Sub(now) > 20*time.Hour {
+			when = win.ResetsAt.Local().Format("Mon 15:04")
+		}
+		out = append(out, win.Label+" resets "+when+", in "+roughly(win.ResetsAt.Sub(now)))
+	}
+	return strings.Join(out, " · ")
+}
+
+// together is an agent's accounts as one: each window's use averaged
+// over the accounts with a reading of it, resetting when the first of
+// them does; and how many accounts had a reading.
+func together(rows []acctRow) (usage.Quota, int) {
+	var all usage.Quota
+	count := map[string]int{}
+	n := 0
+	for k := range rows {
+		r := &rows[k]
+		if len(r.q.Windows) == 0 {
+			continue
+		}
+		n++
+		if r.q.FetchedAt.After(all.FetchedAt) {
+			all.FetchedAt = r.q.FetchedAt
+		}
+		for j := range r.q.Windows {
+			win := &r.q.Windows[j]
+			i := slices.IndexFunc(all.Windows, func(w usage.Window) bool { return w.Label == win.Label })
+			if i < 0 {
+				all.Windows = append(all.Windows, usage.Window{Label: win.Label, Name: win.Name, ResetsAt: win.ResetsAt})
+				i = len(all.Windows) - 1
+			}
+			a := &all.Windows[i]
+			a.Percent += win.Percent // summed here, averaged below
+			if a.ResetsAt.IsZero() || !win.ResetsAt.IsZero() && win.ResetsAt.Before(a.ResetsAt) {
+				a.ResetsAt = win.ResetsAt
+			}
+			count[win.Label]++
+		}
+	}
+	for i := range all.Windows {
+		all.Windows[i].Percent /= float64(count[all.Windows[i].Label])
+	}
+	for i := range rows {
+		if rs := rows[i].q.Resets; rs != nil {
+			if all.Resets == nil {
+				all.Resets = &usage.Resets{}
+			}
+			all.Resets.Available += rs.Available
+		}
+	}
+	return all, n
+}
+
+// togetherRow is an agent's accounts added up: how much room they have
+// between them before rush has nowhere left to switch to.
+func (m *Model) togetherRow(all usage.Quota, n int) setting {
+	return setting{
+		label: "together",
+		line: func(w int) string {
+			return faint("Σ ") + paint(cSub, fit("together", 16)) + dim(fit(fmt.Sprintf("%d accounts", n), max(0, min(28, w-72)))) + m.limits(acctRow{q: all}, 26, 26) + resetsChip(all)
+		},
+		key: func(string) (tea.Cmd, bool) { return nil, false },
+		about: func() (string, string, string) {
+			left := make([]string, 0, len(all.Windows))
+			for i := range all.Windows {
+				left = append(left, fmt.Sprintf("%s: %.1f accounts' worth left", all.Windows[i].Label, float64(n)*(100-all.Windows[i].Percent)/100))
+			}
+			now := strings.Join(left, " · ")
+			if resets := resetsText(all, m.snap.At); resets != "" {
+				now += "\nSoonest: " + resets
+			}
+			if rs := all.Resets; rs != nil && rs.Available > 0 {
+				now += fmt.Sprintf("\n↺ %d limit reset%s earned between them: open an account to use one", rs.Available, plural(rs.Available))
+			}
+			return "All accounts together", fmt.Sprintf("Each limit's use averaged over the %d accounts with a reading, so 50%% means half their combined room is left. It resets when the first of them does.", n), now
 		},
 	}
 }
@@ -621,4 +734,130 @@ func acctWho(r acctRow) string {
 		return "Who it is isn't known yet."
 	}
 	return strings.Join(who, " · ")
+}
+
+// askAPIKey asks for provider p's API key, which pays for its models per
+// token in any harness that speaks its API, and picks "API key" over the
+// subscription where a session can be either. "none" forgets it.
+func (m *Model) askAPIKey(p string) tea.Cmd {
+	name := agent.ProviderLabel(p)
+	if agent.KeyEnv(p) == "" {
+		m.flash(name+" takes no API key", true)
+		return nil
+	}
+	what := name + " API key"
+	if m.store.Config.HasAPIKey(p) {
+		what += " (none forgets it)"
+	}
+	m.askSecret(what, func(v string) tea.Cmd {
+		if v == "none" {
+			v = ""
+		}
+		return later(func() error { return state.PutAPIKey(p, v) }, func(m *Model, err error) tea.Cmd {
+			if err != nil {
+				m.flash(err.Error(), true)
+				return nil
+			}
+			m.store.Config.MarkAPIKey(p, v != "")
+			_ = m.store.SaveConfig()
+			if v == "" {
+				m.flash(name+"'s API key is forgotten", false)
+			} else {
+				m.flash(name+"'s API key is kept in the keychain · alt+m picks it per session", false)
+			}
+			return nil
+		})
+	})
+	return nil
+}
+
+// resetsChip is how many limit resets an account has earned, when any.
+func resetsChip(q usage.Quota) string {
+	if q.Resets == nil || q.Resets.Available == 0 {
+		return ""
+	}
+	return "  " + paint(cGreen, fmt.Sprintf("↺ %d", q.Resets.Available))
+}
+
+// resetCredits says an account's earned resets, each with what it does
+// and when it runs out, for its about: "" when it has none.
+func resetCredits(q usage.Quota, now time.Time) string {
+	rs := q.Resets
+	if rs == nil || rs.Available == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n↺ %d limit reset%s earned: each resets its limits at once · u uses one", rs.Available, plural(rs.Available))
+	for _, c := range rs.Credits {
+		b.WriteString("\n  • " + firstNonEmpty(c.Title, "a limit reset"))
+		if c.About != "" {
+			b.WriteString(": " + c.About)
+		}
+		if !c.Expires.IsZero() {
+			b.WriteString(" · runs out " + c.Expires.Local().Format("Mon 2 Jan") + ", in " + roughly(c.Expires.Sub(now)))
+		}
+	}
+	return b.String()
+}
+
+// useReset spends one of an account's earned resets, once you say so. A
+// reset goes to the account its agent is signed in to, so another one is
+// switched to first.
+func (m *Model) useReset(r *acctRow) tea.Cmd {
+	rs := r.q.Resets
+	ad, _ := agent.Get(r.kind)
+	sp, ok := ad.(agent.ResetSpender)
+	switch {
+	case rs == nil || rs.Available == 0:
+		m.flash(r.name()+" has no limit resets", false)
+		return nil
+	case !ok:
+		m.flash(agentName(string(r.kind))+" can't spend resets through rush", true)
+		return nil
+	case !r.current:
+		m.flash("a reset goes to the account in use: enter switches to "+r.name()+", then u", false)
+		return nil
+	}
+	p, found := m.profileOf(ad)
+	if !found {
+		return nil
+	}
+	left := rs.Available - 1
+	m.confirmThen(fmt.Sprintf("Use one of %s's %d limit resets now? Its limits go back to empty; %d left after.", r.name(), rs.Available, left), func() tea.Cmd {
+		m.flash("using a reset on "+r.name()+"…", false)
+		src, _ := ad.(agent.QuotaSource)
+		return later(func() resetDone {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			var d resetDone
+			if d.words, d.err = sp.UseReset(ctx, p, ""); src == nil {
+				return d
+			}
+			// Read again at once, so the limits shown are the reset ones.
+			if q, err := src.Quota(ctx, p, agent.Account{Kind: p.Kind}); err == nil {
+				d.q = quotaMsg{p.Dir: q}
+				_ = usage.Record(host.QuotasPath(), host.QuotaKey(p), q)
+				if q.Account != "" {
+					d.q[q.Account] = q
+					_ = usage.Record(host.QuotasPath(), q.Account, q)
+				}
+			}
+			return d
+		}, func(m *Model, d resetDone) tea.Cmd {
+			if d.err != nil {
+				m.flash("couldn't use a reset on "+r.name()+": "+d.err.Error(), true)
+			} else {
+				m.flash(r.name()+": "+d.words, false)
+			}
+			return d.q.applyTo(m)
+		})
+	})
+	return nil
+}
+
+// resetDone is what came of spending a reset, and the limits read after.
+type resetDone struct {
+	words string
+	err   error
+	q     quotaMsg
 }

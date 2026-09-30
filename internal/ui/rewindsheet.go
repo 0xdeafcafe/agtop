@@ -419,13 +419,7 @@ func (f *rewindSheet) start(m *Model) tea.Cmd {
 // named by its next message, and the one it leaves is kept as a path to
 // go back down with /rewind.
 func (m *Model) clearInPlace(c *hostConn, a *fleet.Agent) tea.Cmd {
-	left := host.Branch{From: 1}
-	for _, t := range c.sess.Turns {
-		if t.Prompt != "" {
-			left.Turns++
-			left.Last = t.Prompt
-		}
-	}
+	left := leftOf(c)
 	key, id := c.key, a.ID
 	m.flash("clearing "+a.DisplayName+"…", false)
 	return func() tea.Msg {
@@ -448,13 +442,31 @@ func rewindHost(id, sessionID string, resume bool, left host.Branch) (restarted 
 	return false, rewindLive(id, sessionID, resume, left)
 }
 
+// leftOf is the conversation c leaves, as a path for /rewind.
+func leftOf(c *hostConn) host.Branch {
+	left := host.Branch{From: 1}
+	for _, t := range c.sess.Turns {
+		if t.Prompt != "" {
+			left.Turns++
+			left.Last = t.Prompt
+		}
+	}
+	return left
+}
+
 func rewindLive(id, sessionID string, resume bool, left host.Branch) error {
+	return hangUp(id, func(c *host.Client) error { return c.Rewind(sessionID, resume, left) })
+}
+
+// hangUp asks agent id's host to do something it hangs up after, and
+// waits until it has, or says why it won't.
+func hangUp(id string, do func(*host.Client) error) error {
 	c, err := host.Dial(id)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
-	if err := c.Rewind(sessionID, resume, left); err != nil {
+	if err := do(c); err != nil {
 		return err
 	}
 	timeout := time.After(15 * time.Second)

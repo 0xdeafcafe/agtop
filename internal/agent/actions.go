@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"os/exec"
+	"slices"
 )
 
 // What rush does to a session or an account that runs outside rush
@@ -89,4 +90,22 @@ func As[T any](k Kind) (T, bool) {
 	}
 	t, ok := a.(T)
 	return t, ok
+}
+
+// ProjectFolderer is an agent that keeps a folder of its own in the
+// projects it works in: Claude Code's .claude, Codex's .codex.
+type ProjectFolderer interface {
+	ProjectFolder() string
+}
+
+// ProjectFolders are the folders the agents rush knows keep in a project,
+// each once.
+func ProjectFolders() []string {
+	var out []string
+	for _, a := range All() {
+		if f, ok := a.(ProjectFolderer); ok && !slices.Contains(out, f.ProjectFolder()) {
+			out = append(out, f.ProjectFolder())
+		}
+	}
+	return out
 }

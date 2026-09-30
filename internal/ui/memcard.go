@@ -34,7 +34,17 @@ type memPeek struct {
 	old   string
 	had   bool
 	notes int // -1 when it isn't in a memory folder
+	// What the folder holds: every note's bytes (this one's as it is now),
+	// the index's lines and bytes, and the notes there by name, for links.
+	bytes      int64
+	indexLines int
+	indexBytes int64
+	names      map[string]bool
 }
+
+// indexCap is how many of MEMORY.md's lines a new session reads: Claude
+// Code's auto memory loads the index up to here.
+const indexCap = 200
 
 // memPeeks are the memory cards' reads out, by approval and path.
 var memPeeks = offReads[string, memPeek]{}
@@ -79,11 +89,19 @@ func (c *hostConn) peekMem(key, path string) (memPeek, bool) {
 			p.old, p.had = string(b), true
 		}
 		if shaped {
-			p.notes = 0
+			p.notes, p.names = 0, map[string]bool{}
 			ms, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*.md"))
 			for _, f := range ms {
-				if filepath.Base(f) != "MEMORY.md" {
-					p.notes++
+				b, _ := os.ReadFile(f)
+				if filepath.Base(f) == "MEMORY.md" {
+					p.indexBytes, p.indexLines = int64(len(b)), strings.Count(strings.TrimRight(string(b), "\n"), "\n")+1
+					continue
+				}
+				p.notes++
+				p.bytes += int64(len(b))
+				p.names[strings.TrimSuffix(filepath.Base(f), ".md")] = true
+				if n := agent.FrontMatter(strings.NewReader(string(b)))["name"]; n != "" {
+					p.names[n] = true
 				}
 			}
 		}
@@ -219,8 +237,8 @@ func memoryCard(c *hostConn, st *convo.Step, w, maxH int) ([]string, []cardBtn) 
 	if !update {
 		text = memText(body, tw)
 	}
-	// It keeps to maxH: the text gives way, the rest (11 rows) doesn't.
-	if room := max(3, maxH-11); maxH > 0 && len(text) > room {
+	// It keeps to maxH: the text gives way, the rest (15 rows) doesn't.
+	if room := max(3, maxH-15); maxH > 0 && len(text) > room {
 		text = append(text[:room-1:room-1], dim(fmt.Sprintf("… %d more lines", len(text)-room+1)))
 	}
 	for _, l := range text {
@@ -228,26 +246,34 @@ func memoryCard(c *hostConn, st *convo.Step, w, maxH int) ([]string, []cardBtn) 
 	}
 	row("")
 
-	// The foot: the notes it links to, and whether it's new, among how many.
+	// The foot: how much memory there is, what this adds to every session,
+	// where it goes, the notes it links to, and whether it's new.
+	if inMemoryDir(in.Path) && known && peek.notes >= 0 {
+		for _, l := range memImpact(peek, update, in.Path, fm["description"], newText, tw) {
+			row(l)
+		}
+		row("")
+	}
+	var ls []string
+	for _, l := range memLink.FindAllString(body, 6) {
+		if peek.names == nil || peek.names[strings.Trim(l, "[]")] {
+			ls = append(ls, paint(cBlue, l))
+		} else {
+			ls = append(ls, faint(l+" (none yet)"))
+		}
+	}
 	links := ""
-	if ls := memLink.FindAllString(body, 6); len(ls) > 0 {
-		links = paint(cSub, "links") + "  " + paint(cBlue, strings.Join(ls, " "))
+	if len(ls) > 0 {
+		links = paint(cSub, "links") + "  " + strings.Join(ls, " ")
 	}
 	status := "new"
 	if update {
 		status = "update"
 	}
-	if known && peek.notes >= 0 {
-		n := peek.notes
-		if !peek.had {
-			n++
-		}
-		status += fmt.Sprintf(" · 1 of %d memories", n)
-	}
 	row(spread(links, dim(status)+"  ", w-4))
 	row("")
 
-	rows, btns := memButtons(c.cardFocus, len(out))
+	rows, btns := memButtons(c.cardFocus, c.memPick, c.subHover, len(out))
 	for _, r := range rows {
 		row(r)
 	}
@@ -255,10 +281,49 @@ func memoryCard(c *hostConn, st *convo.Step, w, maxH int) ([]string, []cardBtn) 
 	// The bottom edge says how to get to it, or back from it.
 	hint := " ↑ to answer "
 	if c.cardFocus {
-		hint = " esc back to typing "
+		hint = " ←→ pick · enter · esc back to typing "
 	}
 	out = append(out, onBg(qCard, e("╰"+strings.Repeat("─", max(1, w-3-cellw.String(hint))))+dim(hint)+e("─╯"), w))
 	return out, btns
+}
+
+// memImpact is what saving a note means, in a few rows: how much memory
+// the project has, what every new session reads more of, and where it's
+// kept. Tokens are estimated, a token to four bytes.
+func memImpact(p memPeek, update bool, path, about, text string, w int) []string {
+	tok := func(n int64) string { return "~" + convo.Tokens(max(1, int(n/4))) + " tokens" }
+	label := func(s string) string { return paint(cSub, fmt.Sprintf("%-8s", s)) + "  " }
+	notes := p.notes
+	if !update && !p.had {
+		notes++
+	}
+	index := fmt.Sprintf("index %d of %d lines", p.indexLines, indexCap)
+	if p.indexLines >= indexCap {
+		index = paint(cYellow, fmt.Sprintf("index %d lines: past %d, new sessions miss the rest", p.indexLines, indexCap))
+	}
+	have := fmt.Sprintf("%d note%s · %s", notes, plural(notes), tok(p.bytes+int64(len(text))-int64(len(p.old))))
+	out := []string{label("memory") + dim(have+" · ") + dim(index)}
+	var impact string
+	if update {
+		d := int64(len(text)) - int64(len(p.old))
+		change := "the same size"
+		if d != 0 {
+			change = fmt.Sprintf("%+d bytes", d)
+		}
+		impact = "a session reads it when it's relevant: " + change + " (" + tok(int64(len(text))) + " in all); the index stays as it is"
+	} else {
+		// The index gets a line naming it: its description and a link.
+		impact = "every new session here starts with the index, a line (" + tok(int64(len(about))+40) + ") longer; the note (" +
+			tok(int64(len(text))) + ") is read only when it's relevant"
+	}
+	for i, l := range wrap(impact, w-10) {
+		if i == 0 {
+			out = append(out, label("impact")+dim(l))
+		} else {
+			out = append(out, strings.Repeat(" ", 10)+dim(l))
+		}
+	}
+	return append(out, label("file")+faint(shortPath(tildify(path), w-10)))
 }
 
 // memText is a note's text as it reads, wrapped to w.
@@ -275,23 +340,34 @@ func memText(body string, w int) []string {
 // memButtons draws the card's buttons as boxes, three rows starting y rows
 // into the card, and where each is. The first is enter's, lit while the
 // card has the keys.
-func memButtons(focus bool, y int) ([3]string, []cardBtn) {
+// memBtns are the memory card's buttons: the key each presses, what
+// shows for it, and its name.
+var memBtns = [][3]string{{"enter", "↵", "Remember"}, {"e", "e", "Edit it first"}, {"n", "n", "Skip"}, {"a", "a", "Always ok"}}
+
+func memButtons(focus bool, pick int, hover string, y int) ([3]string, []cardBtn) {
 	var rows [3]strings.Builder
 	btns := make([]cardBtn, 0, 4)
 	x := 3 // past the edge and its two spaces
-	for i, b := range [][3]string{{"enter", "↵", "Remember"}, {"e", "e", "Edit it first"}, {"n", "n", "Skip"}, {"a", "a", "Always ok"}} {
+	for i, b := range memBtns {
 		iw := cellw.String(" " + b[1] + " " + b[2] + "  ")
 		col, label := cSub, paint(cText+bold, b[1])+" "+paint(cSub, b[2])
-		if i == 0 {
+		if i == pick {
+			// The one enter presses: bright, and orange while the card
+			// has the keys.
 			label = paint(cText+bold, b[1]+" "+b[2])
 			if focus {
 				col = cOrange
+				label = paint(cOrange+bold, b[1]+" "+b[2])
 			}
-		} else {
+		}
+		if i > 0 {
 			for j := range rows {
 				rows[j].WriteString("  ")
 			}
 			x += 2
+		}
+		if hover == "btn:"+b[0] {
+			col = cOrange // under the pointer: a click presses it
 		}
 		rows[0].WriteString(paint(col, "╭"+strings.Repeat("─", iw)+"╮"))
 		rows[1].WriteString(paint(col, "│") + " " + label + "  " + paint(col, "│"))
@@ -342,14 +418,22 @@ func memDiff(old, cur string, w int) []string {
 
 // clickCard presses the card's button under a click.
 func (m *Model) clickCard(c *hostConn, x, y int) (tea.Cmd, bool) {
+	if key := m.cardBtnAt(c, x, y); key != "" {
+		c.cardFocus = true
+		return m.cardKey(c, key, true)
+	}
+	return nil, false
+}
+
+// cardBtnAt is the key of the card's button at x, y on screen; "" off them.
+func (m *Model) cardBtnAt(c *hostConn, x, y int) string {
 	for _, b := range c.btns {
 		bx, by := m.paneX()+b.x, c.dockY+c.cardTop+b.y
 		if x >= bx && x < bx+b.w && y >= by && y < by+3 {
-			c.cardFocus = true
-			return m.cardKey(c, b.key, true)
+			return b.key
 		}
 	}
-	return nil, false
+	return ""
 }
 
 // openWritten opens the note "e" allowed in the memory view's editor, once

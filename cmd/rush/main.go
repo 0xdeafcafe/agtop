@@ -96,6 +96,13 @@ func main() {
 			return
 		case "session", "sessions":
 			os.Exit(sessionCmd(args[1:], os.Stdin, os.Stdout, os.Stderr))
+		case "inbox":
+			// A session's hook after each tool call: not meant to be run
+			// by hand.
+			if len(args) > 1 {
+				exitIf(host.Inbox(args[1], os.Stdin, os.Stdout))
+			}
+			return
 		case "spawn":
 			// What a session's stand-in for codex or claude runs: not meant
 			// to be run by hand.

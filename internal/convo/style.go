@@ -2,6 +2,7 @@ package convo
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -65,6 +66,9 @@ func SetColours(g theme.Ground, colorBlind bool) {
 	cDim, cFaint = ink(138, 132, 122), ink(94, 89, 82)
 	cWhite, cOut = ink(240, 236, 228), ink(119, 113, 106)
 	cOrange, cYellow, cBlue = accent(orange), accent(yellow), accent(blue)
+	for name, c := range ctxHues {
+		ctxInk[name] = accent(c)
+	}
 	cWarnQ = quiet(theme.RGB{R: 168, G: 136, B: 82}, yellow)
 	bgWell, bgLive = surface(0x1a, 0x18, 0x16), surface(0x21, 0x18, 0x14)
 	bgSel, bgSelU = surface(0x2c, 0x28, 0x24), surface(0x1f, 0x1d, 0x1a)
@@ -128,6 +132,52 @@ func folded(n int) string {
 }
 
 var spinner = []string{"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"}
+
+// spinners are each agent's own spinner, as its own program draws it, so
+// what's running shows at a glance; Claude Code's is spinner.
+var spinners = map[string][]string{
+	"codex":  {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
+	"ollama": {"◐", "◓", "◑", "◒"},
+	"pi":     {"◜", "◝", "◞", "◟"},
+	"gemini": {"✦", "✧", "✦", "✧", "·"},
+}
+
+// spin is the spinner's frame at tick for the session's agent.
+func (d *drawer) spin(tick int) string {
+	if d.s == nil {
+		return Spin("", tick)
+	}
+	return Spin(d.s.Info.Kind, tick)
+}
+
+// Spin is the spinner's frame at tick for agent k: an agent through
+// Ollama, in any harness, spins as Ollama.
+func Spin(k string, tick int) string {
+	if strings.HasPrefix(k, "ollama") {
+		k = "ollama"
+	}
+	fs := spinners[k]
+	if fs == nil {
+		fs = spinner
+	}
+	return fs[tick%len(fs)]
+}
+
+// musings are what a turn thinking is called, one a stretch of thinking:
+// mostly British, some tied up in knots.
+var musings = []string{
+	"thinking", "pondering", "mulling it over", "cogitating", "chin-stroking", "ruminating",
+	"faffing about", "dillydallying", "pottering", "dithering", "chuntering", "noodling",
+	"having a cuppa", "putting the kettle on", "rummaging", "tinkering", "bodging", "waffling",
+	"processing", "inhaling", "taking a deep breath", "rigging", "tying knots",
+	"getting tied up in knots", "tying up loose ends", "unpicking it", "gubbing", "wrangling",
+}
+
+// musing is what the thinking that began at since is called: the same
+// word for the whole stretch, not a new one each frame.
+func musing(since time.Time) string {
+	return musings[int(uint64(since.UnixNano())/1e6%uint64(len(musings)))]
+}
 
 // row lays left and right out across width cells on background b ("" for
 // the terminal's own), with the right half ending at the content cap so
@@ -246,11 +296,14 @@ func wrap(s string, w int) []string {
 // open at the end of the row before, and closes it at the row's end.
 // Each row is drawn on its own, so without this a paragraph's second row
 // on is in the terminal's own colour, not the paragraph's.
+//
+// A link is carried the same way: a row that ends inside one closes it
+// and the next opens it again, or the terminal is left with half a link.
 func CarryStyle(rows []string) []string {
-	open := ""
+	open, link := "", ""
 	for i, r := range rows {
-		carried := open
-		open = openStyle(open, r)
+		carried, linked := open, link
+		open, link = openStyle(open, r), openLink(link, r)
 		// One string made per row, not one per addition.
 		switch {
 		case carried != "" && open != "":
@@ -260,9 +313,42 @@ func CarryStyle(rows []string) []string {
 		case open != "":
 			r += reset
 		}
+		pre, post := "", ""
+		if linked != "" {
+			pre = "\x1b]8;;" + linked + "\x1b\\"
+		}
+		if link != "" {
+			post = "\x1b]8;;\x1b\\"
+		}
+		if pre != "" || post != "" {
+			r = pre + r + post
+		}
 		rows[i] = r
 	}
 	return rows
+}
+
+// openLink is the link still open after s, given the one open before it.
+func openLink(open, s string) string {
+	for {
+		i := strings.Index(s, "\x1b]8;")
+		if i < 0 {
+			return open
+		}
+		s = s[i+len("\x1b]8;"):]
+		// Its parameters, then the URL, to the string terminator.
+		if j := strings.IndexByte(s, ';'); j >= 0 {
+			s = s[j+1:]
+		}
+		end, n := strings.Index(s, "\x1b\\"), 2
+		if k := strings.IndexByte(s, '\a'); k >= 0 && (end < 0 || k < end) {
+			end, n = k, 1
+		}
+		if end < 0 {
+			return open
+		}
+		open, s = s[:end], s[end+n:]
+	}
 }
 
 // openStyle is the style codes open after s, given open before it.
@@ -289,4 +375,13 @@ func openStyle(open, s string) string {
 		}
 		s = s[j+1:]
 	}
+}
+
+// KeyWord is a key's name as your keyboard says it: a Mac has no alt
+// key, so alt+ is ⌥ there.
+func KeyWord(s string) string {
+	if runtime.GOOS == "darwin" {
+		return strings.ReplaceAll(s, "alt+", "⌥")
+	}
+	return s
 }

@@ -114,6 +114,17 @@ func (s *Session) RunningJobs() []*Job {
 	return out
 }
 
+// JobRunning is whether the task tool call id started is still running:
+// a command sent to the background, long after its step returned.
+func (s *Session) JobRunning(id string) bool {
+	for _, j := range s.jobs {
+		if j.ToolUseID == id && j.Running() {
+			return true
+		}
+	}
+	return false
+}
+
 // Job is the task with this id, or nil.
 func (s *Session) Job(id string) *Job {
 	for _, j := range s.jobs {
@@ -379,10 +390,13 @@ var (
 // JobWrites are the files a shell task's command sends its output to (>
 // f, >> f, &> f, | tee f), a cd before them heeded: where its output is
 // when Claude Code's own file has none.
-func (s *Session) JobWrites(j *Job) []string {
+func (s *Session) JobWrites(j *Job) []string { return s.Writes(s.JobCommand(j)) }
+
+// Writes are the files a shell command sends its output to, as JobWrites.
+func (s *Session) Writes(cmd string) []string {
 	dir := s.Info.Cwd
 	var out []string
-	for _, sg := range segments(s.JobCommand(j)) {
+	for _, sg := range segments(cmd) {
 		if w := fieldsOf(sg.text); len(w) == 2 && w[0] == "cd" {
 			dir = writePath(dir, w[1])
 			continue

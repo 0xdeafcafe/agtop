@@ -28,6 +28,7 @@ const (
 // keycap is a key drawn as a key: " 1 " on its own ground, lit when it's
 // the one under the cursor.
 func keycap(k string, on bool) string {
+	k = convo.KeyWord(k)
 	if on {
 		return qCapOn + qInk + bold + " " + k + " " + reset
 	}

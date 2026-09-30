@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/adapters/claude/headless"
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
@@ -248,5 +251,156 @@ func TestOpenedJobEdge(t *testing.T) {
 		if !strings.HasPrefix(l, "▍") {
 			t.Errorf("a row of the opened task without the bar: %q\n%s", l, strings.Join(job, "\n"))
 		}
+	}
+}
+
+// A tail -f under a task says which files it follows, as the task's own
+// output; any other command follows none.
+func TestTailFollows(t *testing.T) {
+	for cmd, want := range map[string]string{
+		"tail -n0 -F .claude/tmp/runs/r6/fuzz.log": "/w/.claude/tmp/runs/r6/fuzz.log",
+		"tail -f /var/log/a.log b.log":             "/var/log/a.log /w/b.log",
+		"tail --follow=name x.log":                 "/w/x.log",
+		"tail -20 .claude/tmp/runs/r6.out":         "",
+		"grep -F x.log y":                          "",
+	} {
+		if got := strings.Join(tailFollows(cmd, "/w"), " "); got != want {
+			t.Errorf("%q follows %q, want %q", cmd, got, want)
+		}
+	}
+}
+
+// An opened task names a file its command writes that's still empty, so
+// no output reads as none yet rather than as nothing there.
+func TestOpenedJobEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "r6.out"), nil, 0o644)
+	s := convo.New()
+	now := time.Now()
+	s.Info.Cwd = dir
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, Cwd: dir, State: "working"}}, now)
+	s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "t2", Name: "Bash",
+		Input: []byte(`{"command":"bash run-all.sh > r6.out 2>&1","run_in_background":true}`)}}}, now)
+	s.Apply(headless.TaskStarted{ID: "b2", ToolUseID: "t2", Type: "local_bash", Description: "run it all", Backgrounded: true}, now)
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{"job:b2": true}}
+	m := &Model{snap: &fleet.Snapshot{}, host: c}
+	m.jobLines(c, convo.Options{Width: 110, Open: c.open}) // the reads start
+	if got := ansi.Strip(joinLines(m.jobLines(c, convo.Options{Width: 110, Open: c.open}))); !strings.Contains(got, "from r6.out · empty so far") {
+		t.Fatalf("the empty file isn't named:\n%s", got)
+	}
+}
+
+// A running task whose own output is empty doesn't show a file it wrote at
+// its start and left as its output, which would read as done; a file it's
+// still writing does stand for it.
+func TestJobOutputOnlyLiveFile(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.json")
+	os.WriteFile(spec, []byte("{\n}\n"), 0o644)
+	old := time.Now().Add(-2 * time.Minute)
+	os.Chtimes(spec, old, old)
+	s := convo.New()
+	now := time.Now()
+	s.Info.Cwd = dir
+	s.Apply(host.InfoEvent{Info: host.Info{Proto: 3, Cwd: dir, State: "working"}}, now)
+	s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "t2", Name: "Bash",
+		Input: []byte(`{"command":"git show main:spec.json > spec.json; python3 check.py","run_in_background":true}`)}}}, now)
+	s.Apply(headless.TaskStarted{ID: "b2", ToolUseID: "t2", Type: "local_bash", Description: "check it", Backgrounded: true}, now)
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}}
+	m := &Model{snap: &fleet.Snapshot{}, host: c}
+	j := s.Job("b2")
+	m.jobTailFrom(c, j, 3) // the reads start
+	if lines, from := m.jobTailFrom(c, j, 3); from != "" {
+		t.Fatalf("a file left since the start stands for the output: %s %q", from, lines)
+	}
+	os.WriteFile(spec, []byte("{\n\"more\": 1\n}\n"), 0o644)
+	c.tails[spec].at = time.Time{} // look again now
+	m.jobTailFrom(c, j, 3)
+	if _, from := m.jobTailFrom(c, j, 3); from != spec {
+		t.Fatalf("a file still being written doesn't stand for the output: %q", from)
+	}
+}
+
+// An agent the shell ran in the background (codex exec, claude -p) is a
+// subagent once rush has found its session: not a background command in
+// the dock or the background view, and looked for while it still runs.
+func TestSpawnedJobIsASubagent(t *testing.T) {
+	s := convo.New()
+	now := time.Now()
+	s.Apply(headless.TaskStarted{ID: "b1", ToolUseID: "t1", Type: "local_bash", Description: "codex exec 'fix it'", Backgrounded: true}, now.Add(-time.Minute))
+	c := &hostConn{kind: "claude", key: "k", sess: s, open: map[string]bool{}}
+	j := s.Job("b1")
+	if !s.JobRunning("t1") || c.jobKind(j) != "shell" || len(c.dockJobs()) != 1 {
+		t.Fatalf("not found yet, it's the shell it is: %q", c.jobKind(j))
+	}
+	c.spawns = map[string]*spawnRun{"t1": {path: "/tmp/rollout.jsonl"}}
+	if c.jobKind(j) != "subagent" || len(c.dockJobs()) != 0 {
+		t.Fatalf("found, it's a subagent: %q, %d in the dock", c.jobKind(j), len(c.dockJobs()))
+	}
+	m := &Model{snap: &fleet.Snapshot{}, host: c}
+	if slices.Contains(m.views(c), "background") {
+		t.Error("no background view for it alone")
+	}
+}
+
+// An opened shell step in the conversation shows what the files its
+// command writes to hold, as the background view does.
+func TestConversationShowsWrites(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "test.log"), []byte("ok  pkg/a\nFAIL pkg/b\n"), 0o644)
+	s := convo.New()
+	now := time.Now()
+	s.Apply(host.InfoEvent{Info: host.Info{Cwd: dir}}, now)
+	s.Apply(host.Sent{Text: "test it"}, now)
+	s.Apply(event.Message{Role: "assistant", ID: "m1", Parts: []event.Part{
+		{Kind: event.ToolCall, Call: &tool.Call{ID: "b1", Name: "Bash", Kind: tool.Shell, Input: tool.Input{Command: "go test ./... > test.log 2>&1"}}},
+	}}, now)
+	c := &hostConn{kind: "claude", key: "k", sess: s, open: map[string]bool{}}
+	m := &Model{snap: &fleet.Snapshot{}, host: c}
+	body := s.Render(convo.Options{Width: 100, Now: now, Open: c.open})
+	ref := ""
+	for _, l := range body {
+		if strings.Contains(l.Ref, ":s:b1") {
+			ref = l.Ref
+		}
+	}
+	c.open[ref] = true
+	body = s.Render(convo.Options{Width: 100, Now: now, Open: c.open})
+	out := m.withWrites(c, body, 100)
+	var b strings.Builder
+	for _, l := range out {
+		b.WriteString(ansi.Strip(l.Text) + "\n")
+	}
+	text := b.String()
+	if !strings.Contains(text, "from test.log") || !strings.Contains(text, "│ FAIL pkg/b") {
+		t.Fatalf("no preview of test.log:\n%s", text)
+	}
+	if len(out) <= len(body) {
+		t.Fatal("the preview's rows go in a copy")
+	}
+}
+
+// shift+x on a task takes the box for why, esc gives the pick back, and
+// enter stops it as x would.
+func TestStopWithNote(t *testing.T) {
+	s := convo.New()
+	s.Apply(headless.TaskStarted{ID: "b1", ToolUseID: "t1", Type: "local_bash", Description: "sleep 100", Backgrounded: true}, time.Now())
+	c := &hostConn{kind: "claude", key: "k", sess: s, open: map[string]bool{}, sel: "job:b1"}
+	m := &Model{snap: &fleet.Snapshot{}, host: c}
+	if _, used := m.stopNoteKey(c, "shift+x", true); !used || c.stopNote == nil || c.sel != "" {
+		t.Fatalf("X should take the box: %+v %q", c.stopNote, c.sel)
+	}
+	m.stopNoteKey(c, "esc", true)
+	if c.stopNote != nil || c.sel != "job:b1" {
+		t.Fatalf("esc gives the pick back: %q", c.sel)
+	}
+	m.stopNoteKey(c, "X", true)
+	m.stopNoteKey(c, "enter", true)
+	if c.stopNote != nil || !strings.Contains(m.status, "stop a task only in a session it runs") {
+		t.Errorf("enter stops it as x would: %q", m.status)
+	}
+	c.sel = ""
+	if _, used := m.stopNoteKey(c, "X", true); used {
+		t.Error("with nothing picked, X is only a letter")
 	}
 }

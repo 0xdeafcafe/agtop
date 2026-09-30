@@ -100,7 +100,7 @@ type cmdBar struct {
 // spot is somewhere the bar jumped from, for "Back".
 type spot struct {
 	view, effPage, settingsPage int
-	projPage                    int
+	projSel                     string
 	agentsPage                  int
 	mode                        mode // which of Agents' pages
 	zen                         bool
@@ -655,16 +655,14 @@ func (m *Model) barPlaces(q string) []barItem {
 		m.setAgentsPage(agentsWall)
 		return m.refreshFolders()
 	})
-	for i, p := range projPages {
-		what := []string{
-			"each repository whole: branch, changes, worktrees, commits, PRs and its agents",
-			"every project's linked worktrees",
-			"/tmp and finished agents' temp work",
-			"processes no project owns",
-		}[i]
-		add(paint(cSub, "◇"), "Projects › "+p, what, "projects repositories repos folders git branches worktrees commits prs cleanup clean disk temporary processes orphans machine system "+p, func(m *Model) tea.Cmd {
+	for _, p := range []struct{ name, id, what string }{
+		{"Projects", "", "each repository whole: branch, changes, worktrees and their sizes, agents' scratch, commits, PRs and its agents"},
+		{"Projects › Temporary", paneTemp, "/tmp and finished agents' temp work"},
+		{"Projects › System", paneSystem, "processes no project owns"},
+	} {
+		add(paint(cSub, "◇"), p.name, p.what, "projects repositories repos folders git branches worktrees commits prs cleanup clean disk temporary scratch processes orphans machine system "+p.name, func(m *Model) tea.Cmd {
 			m.goView(placeProjects)
-			m.setProjPage(i)
+			m.pickInProjects(p.id)
 			return m.projectsOpen()
 		})
 	}
@@ -688,7 +686,7 @@ func (m *Model) barPlaces(q string) []barItem {
 			add(paint(cBlue, "▤"), title, oneLine(m.hostName(c)), "session view "+v, func(m *Model) tea.Cmd {
 				m.goView(placeAgents)
 				if c := m.host; c != nil {
-					c.view = i
+					c.view, c.memOpen = i, false
 				}
 				m.preview, m.paneFocus = true, true
 				return nil
@@ -706,7 +704,7 @@ func (m *Model) barPlaces(q string) []barItem {
 			return m.attach(a)
 		})
 	}
-	drafts := "sent and cleared too · alt+s keeps one, alt+p brings it back"
+	drafts := convo.KeyWord("sent and cleared too · alt+s keeps one, alt+p brings it back")
 	if n := draftCount(); n > 0 {
 		drafts = fmt.Sprintf("%d waiting · ", n) + drafts
 	}
@@ -755,7 +753,7 @@ func (m *Model) barCommands(q string) []barItem {
 		if fleetNeedsAgent[cmd.Name] && a == nil {
 			continue
 		}
-		if it, ok := matchItem(barItem{glyph: paint(cSub, "#"), title: "#" + cmd.Name, meta: cmd.Description, run: func(m *Model) tea.Cmd {
+		if it, ok := matchItem(barItem{glyph: paint(cSub, "#"), title: "#" + cmd.Name, meta: convo.KeyWord(cmd.Description), run: func(m *Model) tea.Cmd {
 			m.toPrompt()
 			m.input, m.back = completed("#", cmd, false), 0
 			if !needsArg(cmd) {
@@ -1029,7 +1027,7 @@ func (m *Model) applyJump() {
 
 // here is where the screen is now, to come back to.
 func (m *Model) here() *spot {
-	s := &spot{view: m.view, agentsPage: m.work.page, mode: m.mode, effPage: m.eff.page, projPage: m.projTab(), settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
+	s := &spot{view: m.view, agentsPage: m.work.page, mode: m.mode, effPage: m.eff.page, projSel: m.work.projSel, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
 	if a := m.agentByKey(m.sel); a != nil {
 		s.name = oneLine(a.DisplayName)
 	}
@@ -1049,7 +1047,13 @@ func (s *spot) where() string {
 			return "Agents › Wall"
 		}
 	case placeProjects:
-		return "Projects › " + projPages[s.projPage%len(projPages)]
+		switch s.projSel {
+		case paneTemp:
+			return "Projects › Temporary"
+		case paneSystem:
+			return "Projects › System"
+		}
+		return "Projects"
 	case placeEff:
 		return "Efficiency › " + effPages[s.effPage%len(effPages)]
 	case placeSettings:
@@ -1079,7 +1083,7 @@ func (m *Model) goSpot(s *spot) tea.Cmd {
 		return nil
 	case placeProjects:
 		m.goView(placeProjects)
-		m.setProjPage(s.projPage)
+		m.pickInProjects(s.projSel)
 		return m.projectsOpen()
 	}
 	m.goView(placeAgents)

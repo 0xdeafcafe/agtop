@@ -107,7 +107,19 @@ type Tree struct {
 	Root  string
 	Files []TreeFile
 	Err   string
-	at    time.Time
+	// Total is the branch's whole diff, committed or not, against where it
+	// forked from the default branch; Base is that branch, "" off one.
+	Base               string
+	TotalAdd, TotalDel int
+	at                 time.Time
+}
+
+// Stat is the lines added and deleted in the working tree.
+func (t *Tree) Stat() (add, del int) {
+	for _, f := range t.Files {
+		add, del = add+f.Add, del+f.Del
+	}
+	return add, del
 }
 
 var trees = struct {
@@ -143,7 +155,9 @@ func WorkingTree(dir string) *Tree {
 func git(dir string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...).Output()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0") // a look must not block the agent's own git
+	return cmd.Output()
 }
 
 func readTree(dir string) *Tree {
@@ -185,7 +199,38 @@ func readTree(dir string) *Tree {
 		}
 	}
 	sort.Slice(t.Files, func(i, j int) bool { return t.Files[i].Path < t.Files[j].Path })
+	t.Base, t.TotalAdd, t.TotalDel = branchTotal(root)
 	return t
+}
+
+// branchTotal is the lines added and deleted since HEAD forked from the
+// default branch, the working tree included; "" when HEAD is on it.
+func branchTotal(root string) (base string, add, del int) {
+	ref := "origin/HEAD"
+	if out, err := git(root, "rev-parse", "--abbrev-ref", "origin/HEAD"); err == nil {
+		ref = strings.TrimSpace(string(out))
+	} else if _, err := git(root, "rev-parse", "--verify", "-q", "main"); err == nil {
+		ref = "main"
+	} else {
+		ref = "master"
+	}
+	mb, err := git(root, "merge-base", "HEAD", ref)
+	if err != nil {
+		return "", 0, 0
+	}
+	fork := strings.TrimSpace(string(mb))
+	if head, _ := git(root, "rev-parse", "HEAD"); strings.TrimSpace(string(head)) == fork {
+		return "", 0, 0
+	}
+	out, _ := git(root, "diff", fork, "--numstat", "-z", "--no-renames")
+	for _, rec := range strings.Split(string(out), "\x00") {
+		if f := strings.SplitN(rec, "\t", 3); len(f) == 3 {
+			a, _ := strconv.Atoi(f[0])
+			d, _ := strconv.Atoi(f[1])
+			add, del = add+a, del+d
+		}
+	}
+	return ref, add, del
 }
 
 // realPath resolves symlinks (macOS's /tmp is /private/tmp), so the same
@@ -257,7 +302,7 @@ func (s *Session) ChangesView(o Options) []Line {
 				seen++
 			}
 		}
-		meta += fmt.Sprintf(" · %d of %d reviewed · alt+r marks one", seen, len(changes))
+		meta += fmt.Sprintf(KeyWord(" · %d of %d reviewed · alt+r marks one"), seen, len(changes))
 	}
 	rule("This session", meta)
 	for _, fc := range changes {

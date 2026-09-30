@@ -40,6 +40,9 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 			s.Apply(host.Sent{Text: text}, now)
 			return
 		}
+		if t := s.Live(); t != nil && e.Role == "assistant" {
+			t.Retry = nil // the model answered
+		}
 		s.message(&e, now)
 	case event.CallUpdated:
 		if st := s.byID[e.Call.ID]; st != nil {
@@ -68,7 +71,26 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 	case event.Plan:
 		b, _ := jsonx.Marshal(map[string]any{"todos": claudeTodos(e.Todos)})
 		s.tasksFromInput(&Step{Tool: "TodoWrite", Input: b})
+	case event.Status:
+		switch {
+		case e.Text == "compacting" && s.compacting.IsZero():
+			s.compacting = now
+			if t := s.Live(); t != nil {
+				t.touch()
+			}
+		case e.Text != "compacting":
+			s.compacting = time.Time{}
+		}
+	case event.Retry:
+		if t := s.Live(); t != nil {
+			r := e
+			t.Retry, t.RetryAt = &r, now
+			t.touch()
+		}
 	case event.TurnEnd:
+		if t := s.Live(); t != nil {
+			t.Retry = nil
+		}
 		s.turnEnd(&e, now)
 	}
 }
@@ -77,7 +99,7 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 // it starts, since it often streams nothing readable.
 func (s *Session) partStart(k event.PartKind, now time.Time) {
 	t := s.turnFor(now)
-	t.Thinking = time.Time{}
+	t.Thinking, t.Retry = time.Time{}, nil // the model is answering
 	if k == event.Thinking {
 		t.Thinking = now
 		if n := len(t.Items); n == 0 || t.Items[n-1].Kind != KThinking {
@@ -121,6 +143,10 @@ func (s *Session) compacted(e *event.Compacted, now time.Time) {
 	if t == nil {
 		t = s.turnFor(now)
 	}
+	if !s.compacting.IsZero() && e.Before > 0 {
+		s.compactRate = now.Sub(s.compacting) / time.Duration(e.Before)
+	}
+	s.compacting = time.Time{}
 	c := *e
 	t.Items = append(t.Items, &Item{Kind: KCompact, Compact: &c})
 	if e.After > 0 {

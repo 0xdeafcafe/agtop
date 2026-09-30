@@ -113,3 +113,48 @@ func KindFor(p string, h Kind) (Kind, bool) {
 func ProviderInstalled(p string) bool {
 	return slices.ContainsFunc(Harnesses(p), Runs)
 }
+
+// ProviderLabel is provider p as you'd call it: the company behind its
+// models (Anthropic, OpenAI, GitHub), else its agent's name (Ollama).
+func ProviderLabel(p string) string {
+	if n := ProviderName(p); n != "" {
+		return n
+	}
+	if a, ok := Get(Kind(p)); ok {
+		return a.Name()
+	}
+	return p
+}
+
+// HarnessLabel is the program agent k runs in, by name: Claude Code for
+// Ollama in Claude Code.
+func HarnessLabel(k Kind) string {
+	if a, ok := Get(HarnessOf(k)); ok {
+		return a.Name()
+	}
+	return string(HarnessOf(k))
+}
+
+// Keyed is a provider that can be paid for per token with an API key,
+// apart from any subscription: the variable its own programs read the
+// key from.
+type Keyed interface {
+	KeyEnv() string
+}
+
+// KeyEnv is where provider p's programs read its API key from; "" when
+// it takes none.
+func KeyEnv(p string) string {
+	if a, ok := Get(Kind(p)); ok {
+		if k, ok := a.(Keyed); ok {
+			return k.KeyEnv()
+		}
+	}
+	return ""
+}
+
+// KeyOnly is whether agent k is paid for only with its provider's API
+// key: a provider that takes one, in another's harness.
+func KeyOnly(k Kind) bool {
+	return HarnessOf(k) != k && KeyEnv(ProviderOf(k)) != ""
+}

@@ -78,6 +78,23 @@ type Quota struct {
 	FetchedAt time.Time
 	Source    Source
 	Problem   string // why there is no fresh reading: not signed in, expired, rate-limited
+	// Resets are the limit resets the account has earned; nil when its
+	// provider has none, or didn't say.
+	Resets *Resets `json:",omitempty"`
+}
+
+// Resets are an account's earned limit resets: each one, spent, resets
+// the limits it's for at once. Credits has the details the provider gave,
+// which may be fewer than Available.
+type Resets struct {
+	Available int
+	Credits   []ResetCredit `json:",omitempty"`
+}
+
+// ResetCredit is one earned reset.
+type ResetCredit struct {
+	ID, Title, About string
+	Granted, Expires time.Time // Expires is zero when it doesn't
 }
 
 // Tightest is the fullest window that limits model: the one that stops it

@@ -108,8 +108,10 @@ func (m *Model) refreshSpawns() tea.Cmd {
 		}
 		// One whose command has ended is looked for until a while after,
 		// and at least once: a past conversation's are looked for as it opens.
+		// A command sent to the background returned at once; its agent
+		// runs on, and may write its session well after.
 		end := st.End
-		if st.Status == convo.Running || end.IsZero() {
+		if st.Status == convo.Running || end.IsZero() || c.sess.JobRunning(st.ID) {
 			end = now
 		} else if !r.looked.IsZero() && r.looked.After(end.Add(spawnGrace)) {
 			r.lost = true
@@ -293,6 +295,22 @@ func sameDir(a, b string) bool {
 	ra, err1 := filepath.EvalSymlinks(a)
 	rb, err2 := filepath.EvalSymlinks(b)
 	return err1 == nil && err2 == nil && ra == rb
+}
+
+// spawnJob is whether j is the shell of a spawned agent rush has found:
+// it's listed with the subagents, not as a background command.
+func (c *hostConn) spawnJob(j *convo.Job) bool {
+	r := c.spawns[j.ToolUseID]
+	return r != nil && r.path != ""
+}
+
+// jobKind is what task j is, as the pane shows it: a found spawned
+// agent's shell is a subagent.
+func (c *hostConn) jobKind(j *convo.Job) string {
+	if c.spawnJob(j) {
+		return "subagent"
+	}
+	return c.sess.JobKind(j)
 }
 
 // spawnSubs are the spawned agents found, as subagent runs.

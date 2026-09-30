@@ -53,6 +53,16 @@ func spawnCmd(args []string) int {
 	// programs; the real one run in its place keeps PATH as it was.
 	_ = os.Setenv("PATH", host.WithoutShims(path))
 	r, ok := parseRun(prog, rest)
+	// RUSH_AGENT=ollama claude -p … runs on another provider through the
+	// same harness; its own spawns choose again.
+	if k := agent.Kind(os.Getenv("RUSH_AGENT")); ok && k != "" {
+		_ = os.Unsetenv("RUSH_AGENT")
+		if a, found := agent.Get(k); found {
+			if _, rides := a.(agent.Rider); rides && harness(k) == r.kind {
+				r.kind = k
+			}
+		}
+	}
 	if ok && os.Getenv("RUSH_NO_SHIM") == "" {
 		if k, ok := agent.Get(r.kind); !ok || !agent.Installed(k.Kind()) {
 			return runReal(prog, rest, path, nil)
@@ -62,7 +72,7 @@ func spawnCmd(args []string) int {
 			// The program adds what it's fed to the prompt: it does that itself.
 			return runReal(prog, rest, path, io.MultiReader(bytes.NewReader(in), os.Stdin))
 		}
-		if fed && r.kind == "codex" {
+		if fed && harness(r.kind) == "codex" {
 			fmt.Fprintln(os.Stderr, "Reading additional input from stdin...")
 		}
 		if code, ok := hostRun(r, os.Stdout, os.Stderr); ok {
@@ -302,6 +312,17 @@ func runReal(prog string, args []string, path string, fed io.Reader) int {
 // configDirEnv is where each agent's program is told its config folder.
 var configDirEnv = map[agent.Kind]string{"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"} // migration: per-agent CLI parsing and output move behind the adapters
 
+// harness is the agent whose program k runs: its own, or the one a
+// provider riding another's (Ollama in Claude Code) runs.
+func harness(k agent.Kind) agent.Kind {
+	if a, ok := agent.Get(k); ok {
+		if rd, ok := a.(agent.Rider); ok {
+			return rd.Rides()
+		}
+	}
+	return k
+}
+
 // hostRun runs r as a rush session and prints it as its program would;
 // false when it couldn't start one, and nothing was printed.
 func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
@@ -315,7 +336,8 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 			cwd = filepath.Join(must(os.Getwd()), cwd)
 		}
 	}
-	if r.kind == "codex" && !r.skipGit && !inRepo(cwd) {
+	base := harness(r.kind)
+	if base == "codex" && !r.skipGit && !inRepo(cwd) {
 		return 0, false // codex says why it won't run there
 	}
 	cfg := host.Config{Cwd: cwd, Model: r.model, Effort: r.effort, PermissionMode: r.mode, Prompt: r.prompt,
@@ -327,7 +349,7 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 		return 0, false
 	}
 	// In the config folder the program would have used.
-	if d := os.Getenv(configDirEnv[r.kind]); d != "" && filepath.Clean(d) != filepath.Clean(cfg.Account.Dir) {
+	if d := os.Getenv(configDirEnv[r.kind]); r.kind == base && d != "" && filepath.Clean(d) != filepath.Clean(cfg.Account.Dir) {
 		cfg.Account.Dir = d
 		if a, ok := agent.Get(r.kind); ok {
 			for _, p := range a.Profiles() {
@@ -342,7 +364,7 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 		return 0, false
 	}
 	dial := host.Dial
-	if r.kind == "claude" { // migration: per-agent CLI parsing and output move behind the adapters
+	if base == "claude" { // migration: per-agent CLI parsing and output move behind the adapters
 		dial = host.DialRaw // its own lines, as claude -p prints them
 	}
 	c, err := dial(started.ID)
@@ -357,7 +379,7 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	var out printer
-	if r.kind == "codex" {
+	if base == "codex" {
 		out = &codexOut{r: r, cwd: cwd, stdout: stdout, stderr: stderr}
 	} else {
 		out = &claudeOut{r: r, stdout: stdout}

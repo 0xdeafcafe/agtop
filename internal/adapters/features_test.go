@@ -14,6 +14,7 @@ import (
 	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/codex"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/copilot"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/cross"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/deepseek"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/glm"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/ollama"

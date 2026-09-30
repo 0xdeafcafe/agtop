@@ -18,6 +18,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/0xdeafcafe/rush/internal/netproof"
 	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // typeEvent is a line carrying one of rush's own events: every agent's
@@ -54,10 +55,19 @@ func (s *server) start() error {
 		Profile: agent.Profile{Kind: a.Kind(), Name: s.cfg.Account.Name, Dir: s.cfg.Account.Dir},
 		Dir:     s.cfg.Cwd, SessionID: s.cfg.SessionID, Resume: s.began && s.cfg.SessionID != "", Fork: s.began && s.cfg.Fork,
 		Model: s.cfg.Model, Effort: s.cfg.Effort, Mode: s.cfg.PermissionMode,
-		Env: append(append([]string{"TMPDIR=" + tmp}, s.shimEnv()...), s.cfg.Env...), Flags: s.cfg.Flags, Binary: s.cfg.Binary,
+		Env: append(append([]string{"TMPDIR=" + tmp}, s.shimEnv()...), s.cfg.Env...), Flags: s.cfg.Flags, Binary: s.cfg.Binary, Without: s.cfg.Without,
 		TempDir: tmp, Lean: s.cfg.Lean, Tap: s.tap, Lightly: true,
 		// rush's own tools only draw, so they never ask.
 		Tools: []agent.ToolServer{{Name: agtools.Server, Trusted: agtools.Names(), Handle: agtools.Handle}},
+	}
+	if takesInbox(s.cfg.Kind) {
+		o.Inbox = inboxHook(s.cfg.ID)
+	}
+	if s.cfg.Billing == "key" {
+		p := agent.ProviderOf(a.Kind())
+		if o.APIKey = state.APIKey(p); o.APIKey == "" {
+			return fmt.Errorf("%s has no API key: add one in Settings › Providers", agent.ProviderLabel(p))
+		}
 	}
 	if o.Binary == "" {
 		// Found where its installer put it, off PATH: rush started from
@@ -67,7 +77,12 @@ func (s *server) start() error {
 	// Approved plugins add subagents and prompt text, and their tools, which
 	// ask like any other.
 	pc := plugin.ForSession()
-	o.Agents, o.Prompt = pc.Agents, strings.TrimSpace(tasksPrompt+"\n\n"+pc.Prompt+"\n\n"+s.cfg.SystemPrompt)
+	o.Agents = pc.Agents
+	for _, p := range []string{tasksPrompt, agentsPrompt(), pc.Prompt, s.cfg.SystemPrompt} {
+		if p = strings.TrimSpace(p); p != "" {
+			o.Prompt = strings.TrimSpace(o.Prompt + "\n\n" + p)
+		}
+	}
 	for _, srv := range pc.Servers {
 		name, ok := plugin.NameOf(srv)
 		if !ok {
@@ -281,6 +296,7 @@ func (s *server) onTask(ev event.Event) bool {
 		}
 	case event.TaskDone:
 		delete(s.taskStart, e.ID)
+		s.unread(e.ID)
 	case event.Background:
 		s.info.Background = background(s.info.Background, e.Tasks, s.taskStart, time.Now())
 		if len(s.info.Background) == 0 && s.info.State == "idle" && s.conn != nil {

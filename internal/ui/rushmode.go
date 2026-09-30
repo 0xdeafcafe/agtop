@@ -40,14 +40,8 @@ func (m *Model) views(c *hostConn) []string {
 	if len(c.subs) > 0 {
 		v = append(v, "subagents")
 	}
-	if slices.ContainsFunc(c.sess.Jobs(), func(j *convo.Job) bool { return c.sess.JobKind(j) != "subagent" }) {
+	if slices.ContainsFunc(c.sess.Jobs(), func(j *convo.Job) bool { return c.jobKind(j) != "subagent" }) {
 		v = append(v, "background")
-	}
-	if len(c.artifactsOf()) > 0 {
-		v = append(v, "artifacts")
-	}
-	if canScreen(c, "memory") {
-		v = append(v, "memory")
 	}
 	if c.client == nil {
 		if a := m.focused(); a != nil && liveCapable(a) {
@@ -682,6 +676,9 @@ func (m *Model) subHoverAt(x, y int) string {
 		c.txt.drag || (m.listW > 0 && x <= m.listW+1) {
 		return ""
 	}
+	if b := m.cardBtnAt(c, x, y); b != "" {
+		return "btn:" + b // a card's button: the pointer says it's one
+	}
 	view := m.viewName(c)
 	i := y - m.paneTop
 	if view != "subagents" && view != "background" || i < 0 || i >= len(c.rowRefs) {
@@ -814,14 +811,33 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		}
 		rows = append(rows, r)
 	}
-	head := fmt.Sprintf("%d subagent runs", len(c.subs))
+	// Laid out as the background view is: a count, then what's running
+	// and what's finished under their own headings.
+	head := dim(fmt.Sprintf("%d runs", len(c.subs)))
 	if running > 0 {
-		head = paint(cOrange, fmt.Sprintf("%d running", running)) + dim(" · "+head)
-	} else {
-		head = dim(head)
+		head = paint(cOrange, fmt.Sprintf("%d running", running)) + dim(" · ") + head
 	}
 	lines := []convo.Line{{Text: fit("  "+head+dim(" · enter opens one"), w)}, {Text: ""}}
+	slices.SortStableFunc(rows, func(a, b row) int {
+		switch {
+		case a.live == b.live:
+			return 0
+		case a.live:
+			return -1
+		}
+		return 1
+	})
 	for i, r := range rows {
+		if i == 0 || r.live != rows[i-1].live {
+			if i > 0 {
+				lines = append(lines, convo.Line{Text: ""})
+			}
+			title := "Finished"
+			if r.live {
+				title = "Running"
+			}
+			lines = append(lines, convo.Line{Text: fit("  "+paint(cSub+bold, title), w)})
+		}
 		sa := r.sa
 		now := time.Now()
 		end := r.t.Last
@@ -946,6 +962,12 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 	switch {
 	case picked:
 		hint = keys("enter", "watch it")
+	case strings.HasPrefix(c.sel, "job:"):
+		if j := c.sess.Job(strings.TrimPrefix(c.sel, "job:")); j != nil {
+			if sa, ok := c.jobOwner(j); ok && slices.ContainsFunc(run, func(r convo.Subagent) bool { return r.ID == sa.ID }) {
+				hint = c.jobHint(j)
+			}
+		}
 	case m.paneFocus && len(c.input) == 0 && len(m.queueOf(c).items) == 0:
 		hint = keys("↑", "pick one to watch")
 	}
@@ -996,6 +1018,10 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 			top, act = picked1(top, w, m.paneFocus), picked1(act, w, m.paneFocus)
 		}
 		out = append(out, top, act)
+		// What it's running itself, hung under it.
+		for k, j := range c.jobsOf(sa.ID) {
+			out = append(out, m.jobRow(c, j, i+k, w, "    ", false, now)...)
+		}
 	}
 	if rest := len(run) - start - len(shown); rest > 0 {
 		out = append(out, dim(fmt.Sprintf("  + %d older", rest)))
@@ -1022,7 +1048,34 @@ func (m *Model) otherViews(c *hostConn) string {
 
 func (m *Model) viewName(c *hostConn) string {
 	v := m.views(c)
-	return v[c.view%len(v)]
+	if name := v[c.view%len(v)]; name != "overview" || !c.memOpen {
+		return name
+	}
+	return "memory" // opened from the Overview's Memory section
+}
+
+// tabLabel is a view's tab: the Overview's says it has artifacts, the
+// Changes' what the working tree and the whole branch add and delete.
+func tabLabel(c *hostConn, v string) string {
+	switch v {
+	case "overview":
+		if n := len(c.artifactsOf()); n > 0 {
+			return fmt.Sprintf("%s ◆%d", v, n)
+		}
+	case "changes":
+		dir := firstNonEmpty(c.sess.Info.Cwd, c.sess.Cwd)
+		if dir == "" {
+			break
+		}
+		t := convo.WorkingTree(dir)
+		if a, d := t.Stat(); a+d > 0 {
+			v += fmt.Sprintf(" +%d −%d", a, d)
+		}
+		if t.Base != "" {
+			v += fmt.Sprintf(" · total +%d −%d", t.TotalAdd, t.TotalDel)
+		}
+	}
+	return v
 }
 
 // hostConn is the open connection to the selected rush-mode session: its
@@ -1079,6 +1132,7 @@ type hostConn struct {
 	memTop   int             // the first of them in view
 	memEd    *docEditor      // the picked file, open in the editor below them
 	memEdit  bool            // the editor has the keys
+	memOpen  bool            // the Overview shows the memory view instead
 	local    []event.Command // custom commands and skills on disk
 	skills   map[string]bool
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
@@ -1089,6 +1143,7 @@ type hostConn struct {
 	// whether you were typing then, the one set aside for later, and when
 	// you last pressed a key.
 	cardShown, cardLater string
+	memPick              int // the memory card's button enter presses
 	cardAt, lastKeyAt    time.Time
 	cardTyping           bool
 	inModal              bool // the card is being drawn in its modal
@@ -1150,6 +1205,7 @@ type hostConn struct {
 	subTail    *convo.Tail
 	subTails   map[string]*convo.Tail // every run, followed for its row's numbers only
 	subWT      map[string]string      // each run's checkout, when not the session's, once known
+	stopNote   *stopNote              // a stop waiting on the message that goes with it
 	subBack    bool                   // the open run was picked in the dock: ← goes back there
 	subPeek    *convo.Tail            // the run picked in the list, in full, shown beside it
 	subPeekID  string
@@ -1608,7 +1664,7 @@ func (m *Model) rushPane(w, h int) []string {
 			body = []convo.Line{{Text: ""}, {Text: dim("  connecting to its screen…")}}
 		}
 	case "overview":
-		body = append(s.Overview(o), m.pluginOverview(c.key)...)
+		body = append(append(s.Overview(o), m.pluginOverview(c.key)...), m.overviewSections(c, o)...)
 	case "changes":
 		if m.fullFile(c) {
 			view = "file" // a view of its own, so it opens at its top
@@ -1621,8 +1677,6 @@ func (m *Model) rushPane(w, h int) []string {
 		body = m.taskLines(c, o)
 	case "background":
 		body = m.jobLines(c, o)
-	case "artifacts":
-		body = m.artifactLines(c, o)
 	case "memory":
 		body = m.memoryLines(c, o, bodyH)
 	case "subagents":
@@ -1637,6 +1691,9 @@ func (m *Model) rushPane(w, h int) []string {
 		body = s.RenderInto(o, c.bodyBuf)
 		c.bodyBuf = body
 		c.drawn, c.drewConvo, c.stale = o, true, s.Stale()
+		if s == c.sess {
+			body = m.withWrites(c, body, o.Width)
+		}
 		if len(body) == 0 {
 			body = []convo.Line{{Text: ""}, {Text: dim("  nothing yet · type below to start")}}
 		}
@@ -1812,7 +1869,7 @@ func changedFile(ref string) string {
 // a conversation (the main one or a subagent's) or a screen at its end.
 func readsFromTop(view string, c *hostConn) bool {
 	switch view {
-	case "overview", "changes", "file", "tasks", "memory", "artifacts", "background":
+	case "overview", "changes", "file", "tasks", "memory", "background":
 		return true
 	case "subagents":
 		return c.subOpen == ""
@@ -1921,6 +1978,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	// on is where the tab showing sits on the row, for the rule under it.
 	onX, onW := 0, 0
 	for i, v := range views {
+		v = tabLabel(c, v)
 		if i == c.view%len(views) {
 			onX, onW = cellw.String(indent[1:]+strings.Join(tabs, " "))+min(i, 1), cellw.String(" "+v+" ")
 			tabs = append(tabs, bgTabOn+paint(cText+bold, " "+v+" ")+reset+bgChrome)
@@ -2114,7 +2172,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		block()
 		out = append(out, dockCard(bgRuns, cBlue, m.runningPreview(c, run, w-1), w)...)
 	}
-	if jobs := c.dockJobs(); len(jobs) > 0 && m.viewName(c) == "conversation" {
+	if jobs := c.looseJobs(); len(jobs) > 0 && m.viewName(c) == "conversation" {
 		block()
 		out = append(out, dockCard(bgRuns, cSub, m.jobsPreview(c, jobs, w-1), w)...)
 	}
@@ -2172,7 +2230,15 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 				pics.WriteString(" " + queueChip(p))
 			}
 			text = ansi.Truncate(text, max(10, w-8-ansi.StringWidth(pics.String())), "…")
-			row := ansi.Truncate("  "+paint(cQueue, strconv.Itoa(i+1))+"  "+paint(cText, text)+pics.String(), w, "…")
+			body := paint(cText, text)
+			switch {
+			case host.IsCommand(q[i]):
+				// A command runs alone, as a command, not words.
+				body = paint(cQueue, "⌘ ") + paint(cGreen+bold, text) + dim("  "+commandAbout(c, q[i]))
+			case i > 0 && host.IsCommand(q[i-1]):
+				body = faint("once it's done ") + body
+			}
+			row := ansi.Truncate("  "+paint(cQueue, strconv.Itoa(i+1))+"  "+body+pics.String(), w, "…")
 			if picked && i == pick {
 				row = picked1(row, w, m.paneFocus)
 			}
@@ -2189,8 +2255,13 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
 	if sa, ok := m.relaySub(c); ok {
-		// The main session passes it on with SendMessage.
-		top = dim("to the subagent ") + paint(cText, ansi.Truncate(oneLine(sa.Type), 28, "…")) + dim(", passed on by the main session")
+		top = dim("to the subagent ") + paint(cText, ansi.Truncate(oneLine(sa.Type), 28, "…"))
+		if c.sess.Info.Inbox {
+			top += dim(", straight, after the step it's on")
+		} else {
+			// The main session passes it on with SendMessage.
+			top += dim(", passed on by the main session")
+		}
 	} else if m.watchingSub(c) {
 		// A finished subagent takes no messages; the main session does.
 		top = dim("to the main session, ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(", not the subagent")
@@ -2250,6 +2321,13 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	if c.editQ > 0 {
 		b.topL = paint(cOrange, fmt.Sprintf("editing queued message %d", c.editQ)) + dim(" · enter saves it back · esc cancels")
 	}
+	if n := c.stopNote; n != nil {
+		what := "stops it"
+		if n.key == "k" {
+			what = "kills that command"
+		}
+		b.topL = paint(cOrange, "why? told to the agent") + dim(" · enter "+what+" and sends this · esc cancels")
+	}
 	b.top = c.box.top
 	b = b.scrolled()
 	c.box, c.boxIdx = b, len(out)
@@ -2303,33 +2381,38 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if c.subBack || m.hostedAlone() {
 			back = "back to the conversation"
 		}
-		hint = keysFit(w-4, "enter", "send to the main session", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat", "ctrl+o", "show all")
+		hint = keysFit(w-4, "enter", "send to the main session", "esc · ←", back, "alt+↑↓", "other runs", "↑", "pick a step", "ctrl+f", "find in chat", "ctrl+o", "show all")
 		if _, ok := m.relaySub(c); ok {
-			hint = keysFit(w-4, "enter", "send to the subagent", "ctrl+x", "stop this subagent", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat")
+			hint = keysFit(w-4, "enter", "send to the subagent", "ctrl+x", "stop this subagent", "esc · ←", back, "alt+↑↓", "other runs", "↑", "pick a step", "ctrl+f", "find in chat")
 		} else if _, live, _ := m.pickedSub(c); live {
-			hint = keysFit(w-4, "enter", "send to the main session", "ctrl+x", "stop this subagent", "esc · ←", back, "↑", "pick a step", "ctrl+f", "find in chat")
+			hint = keysFit(w-4, "enter", "send to the main session", "ctrl+x", "stop this subagent", "esc · ←", back, "alt+↑↓", "other runs", "↑", "pick a step", "ctrl+f", "find in chat")
 		}
 	}
 	if c.sel != "" {
 		hint = keysFit(w-4, "enter · space", "open or close", "↑↓", "pick a step", "esc", "done picking", "ctrl+o", "show all")
+		if pickedLink(c) != "" {
+			hint = keysFit(w-4, "o", "open the file", "enter · space", "open or close", "↑↓", "pick a step", "esc", "done picking")
+		}
 		if selTurn(c) != nil {
 			hint = keysFit(w-4, "alt+r", "rewind to here", "alt+f", "fork from here", "enter · space", "open or close", "↑↓", "pick", "esc", "done picking")
 		}
 		// A running command picked in the conversation: x stops it.
 		if id := m.pickedShell(c); id != "" && strings.Contains(c.sel, ":s:") {
 			if rp, ok := c.sess.RunningPart(id); ok {
-				hint = keysFit(w-4, "x", "stop this command", "k", "kill "+firstWord(rp.Command)+" only", "b", "background", "enter", "open or close", "esc", "done picking")
+				hint = keysFit(w-4, "x", "stop this command", "k", "kill "+firstWord(rp.Command)+" only", "shift+x · shift+k", "…and say why", "b", "background", "enter", "open or close", "esc", "done picking")
 			} else {
-				hint = keysFit(w-4, "x", "stop this command", "b", "background", "enter", "open or close", "esc", "done picking")
+				hint = keysFit(w-4, "x", "stop this command", "shift+x", "…and say why", "b", "background", "enter", "open or close", "esc", "done picking")
 			}
 		}
 		if strings.HasPrefix(c.sel, "run:") {
-			hint = keysFit(w-4, "enter", "watch this subagent", "x", "stop it", "↑↓", "pick", "esc", "done picking")
+			hint = keysFit(w-4, "enter", "watch this subagent", "x", "stop it", "shift+x", "…and say why", "↑↓", "pick", "esc", "done picking")
 		}
 		if _, live, ok := m.pickedSub(c); ok && live && strings.HasPrefix(c.sel, "sub:") {
-			hint = keysFit(w-4, "enter", "watch it", "x", "stop it", "↑↓", "pick", "esc", "done picking")
+			hint = keysFit(w-4, "enter", "watch it", "x", "stop it", "shift+x", "…and say why", "↑↓", "pick", "esc", "done picking")
 		}
-		if strings.HasPrefix(c.sel, "mem:") {
+		if strings.HasPrefix(c.sel, "mem:") && m.viewName(c) == "overview" {
+			hint = keysFit(w-4, "enter", "open it in memory", "↑↓", "pick", "esc", "done picking")
+		} else if strings.HasPrefix(c.sel, "mem:") {
 			hint = keysFit(w-4, "enter", "edit it here", "ctrl+g", "open in $EDITOR", "x", "delete", "↑↓", "pick", "esc", "done picking")
 		}
 		if c.memEdit {
@@ -2507,6 +2590,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if cmd, used := m.queueKey(c, s); used {
 		return cmd
 	}
+	if cmd, used := m.stopNoteKey(c, s, empty); used {
+		return cmd
+	}
 	if cmd, used := m.jobKey(c, s, empty); used {
 		return cmd
 	}
@@ -2515,6 +2601,12 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if s == "ctrl+x" || s == "x" && empty && !m.watchingSub(c) {
 		if sa, live, ok := m.pickedSub(c); ok && (live || s == "x") {
 			return m.stopSub(c, sa, live)
+		}
+	}
+	// o on a picked step asks what to do with its file, as a click on it.
+	if s == "o" && empty && c.sel != "" {
+		if u := pickedLink(c); u != "" && m.openLinkMenu(u) {
+			return m.drawShot()
 		}
 	}
 	if cmd, used := m.memoryKey(c, k, s); used {
@@ -2539,6 +2631,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			c.txt = textSel{} // first esc drops the dragged-over text
 		case m.fullFile(c):
 			c.full, c.selMoved = "", true // back to the file, picked, in the list
+		case c.memOpen && m.viewName(c) == "memory":
+			c.memOpen, c.selMoved = false, true // back to the Overview, the file picked
 		case c.sel != "":
 			c.sel, c.subSel = "", "" // first esc drops the step selection
 		case m.watchingSub(c):
@@ -2589,7 +2683,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			c.view, c.sel, c.selMoved = 0, step, true
 			return nil
 		}
-		if url, ok := strings.CutPrefix(c.sel, "art:"); ok && empty && m.viewName(c) == "artifacts" {
+		if url, ok := strings.CutPrefix(c.sel, "art:"); ok && empty && m.viewName(c) == "overview" {
 			return browse(url)
 		}
 		if empty && m.viewName(c) == "subagents" && strings.HasPrefix(c.sel, "sub:") && c.subOpen == "" {
@@ -2742,7 +2836,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 				d = -1
 			}
 			c.view = (c.view%n + d + n) % n
-			c.scroll = 0
+			c.scroll, c.memOpen = 0, false
 			return nil
 		}
 	case "ctrl+o":
@@ -2997,7 +3091,11 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	}
 	if id := m.watchedHost(c); id != "" && text != "" {
 		c.input, c.back = c.input[:0], 0
-		return sendHostedID(id, "the spawned agent", text)
+		return sendHostedID(id, "the spawned agent", text, false)
+	}
+	if cmd, ok := m.sendMentioned(text, text); ok {
+		c.input, c.back = c.input[:0], 0
+		return cmd
 	}
 	if isHashCmd(text) {
 		c.input, c.back = c.input[:0], 0
@@ -3031,7 +3129,16 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	m.keepSent(c, text)
-	if sa, ok := m.relaySub(c); ok && len(images) == 0 {
+	sa, relay := m.relaySub(c)
+	if relay && len(images) == 0 && c.sess.Info.Inbox {
+		// Straight into the subagent, at its next tool call.
+		c.input, c.back, c.imgs = nil, 0, imageRefs{}
+		c.undo = undoStack{}
+		m.flash("sent to "+sa.Type+" · it reads it after the step it's on", false)
+		cl, id := c.client, sa.ID
+		return hostCmd(func() error { return cl.Tell(id, text) })
+	}
+	if relay && len(images) == 0 {
 		text = relayPrompt(sa, text)
 	}
 	c.input, c.back, c.imgs = nil, 0, imageRefs{}
@@ -3131,8 +3238,11 @@ func (m *Model) dockRefs(c *hostConn) []string {
 	if m.viewName(c) == "conversation" {
 		for _, sa := range c.runningSubs() {
 			refs = append(refs, "run:"+sa.ID)
+			for _, j := range c.jobsOf(sa.ID) {
+				refs = append(refs, "job:"+j.ID)
+			}
 		}
-		for _, j := range c.dockJobs() {
+		for _, j := range c.looseJobs() {
 			refs = append(refs, "job:"+j.ID)
 		}
 		for i := range m.queueOf(c).items {
@@ -3346,17 +3456,20 @@ func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cm
 	if nameFirst {
 		name = host.FreshName(dir)
 	}
-	kind, profile := m.startKindIn(dir), m.startProfile(dir).Name
-	if why := agent.Unreadable(agent.Kind(kind), d.StartFor(kind).Model, images); why != "" {
+	// Each agent starts with what its own Settings page says, or what
+	// alt+m picked for this one session.
+	next := m.nextStart(dir)
+	kind, profile := next.kind, m.startProfile(dir).Name
+	if why := agent.Unreadable(agent.Kind(kind), next.model, images); why != "" {
 		m.flash(why, true)
 		return nil
 	}
 	m.imgs = imageRefs{}
 	m.accts.profile = "" // a profile picked with #profile is for one session
-	// Each agent starts with what its own Settings page says.
+	m.startOver = nil    // and a start picked with alt+m
 	st := d.StartFor(kind)
 	cfg := host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, NameFirst: nameFirst, IdleStop: host.Duration(d.Rest()), Profile: profile,
-		Model: st.Model, Effort: st.Effort, PermissionMode: st.Mode}
+		Model: next.model, Effort: next.effort, PermissionMode: st.Mode, Billing: next.billing}
 	if agent.Kind(kind) == loginsKind {
 		// Dispatch's own settings are this agent's, and its account the one
 		// switched in.
@@ -3384,17 +3497,24 @@ type hostStartedMsg struct{ id, name, acct string }
 
 // sendHosted sends a message to a rush-mode agent from the main prompt,
 // through its host.
-func sendHosted(a *fleet.Agent, text string) tea.Cmd { return sendHostedID(a.ID, a.DisplayName, text) }
+func sendHosted(a *fleet.Agent, text string) tea.Cmd {
+	return sendHostedID(a.ID, a.DisplayName, text, false)
+}
 
-// sendHostedID sends to the rush session id, called name.
-func sendHostedID(id, name, text string) tea.Cmd {
+// sendHostedID sends to the rush session id, called name: queued while
+// it's busy, or mid-turn when now.
+func sendHostedID(id, name, text string, now bool) tea.Cmd {
 	return func() tea.Msg {
 		c, err := host.Dial(id)
 		if err != nil {
 			return doneMsg{err: err}
 		}
 		defer c.Close()
-		if err := c.Send(text); err != nil {
+		send := c.Send
+		if now {
+			send = c.SendNow
+		}
+		if err := send(text); err != nil {
 			return doneMsg{err: err}
 		}
 		return doneMsg{text: "sent to " + name}
@@ -3689,6 +3809,11 @@ func (m *Model) goQuestion(c *hostConn, qs []question, i int) {
 	}
 	c.qIdx, c.qCursor = max(0, min(i, len(qs))), 0
 	c.input, c.back = nil, 0
+	if c.qIdx == len(qs) {
+		// The review: Send answers is picked, even after an answer typed
+		// in the box, so enter sends them.
+		c.cardFocus = true
+	}
 	if c.qIdx < len(qs) {
 		q := qs[c.qIdx]
 		c.input = c.qTyped[c.qIdx]
@@ -3794,6 +3919,16 @@ func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 		}
 	case "approval":
 		req := pending[0].Approval
+		// A memory card's buttons: ←→ (or tab) pick one, enter presses it.
+		if c.cardFocus && memoryWrite(pending[0]) {
+			if d := map[string]int{"left": -1, "right": 1, "tab": 1, "shift+tab": -1, "h": -1, "l": 1}[s]; d != 0 {
+				c.memPick = (c.memPick + d + len(memBtns)) % len(memBtns)
+				return nil, true
+			}
+			if s == "enter" {
+				s = memBtns[c.memPick][0]
+			}
+		}
 		switch {
 		case s == "alt+y" || c.cardFocus && (s == "y" || s == "enter"):
 			return done(m.answerHost(c, req, true, false))
@@ -3958,7 +4093,33 @@ func (c *hostConn) subWhere(id string) string {
 	if wt := c.subWT[id]; wt != "" {
 		return "  " + faint("⎇ ") + dim(wt)
 	}
+	// Working from the session's folder, it may cd into one itself.
+	if t := c.subTails[id]; t != nil {
+		if wt := t.Sess.Worktree(); wt != "" && wt != c.ownWorktree() {
+			return "  " + faint("⎇ ") + dim(wt)
+		}
+	}
 	return ""
+}
+
+// ownWorktree is the worktree the session itself works in, by name; ""
+// when it's in a main checkout.
+func (c *hostConn) ownWorktree() string {
+	if c.sess == nil {
+		return ""
+	}
+	return convo.WorktreeIn(firstNonEmpty(c.sess.Info.Cwd, c.sess.Cwd) + "/")
+}
+
+// commandAbout is what queued command t does, as the agent describes it.
+func commandAbout(c *hostConn, t string) string {
+	name := strings.TrimPrefix(strings.Fields(t)[0], "/")
+	for _, cmd := range c.sess.Commands {
+		if cmd.Name == name || slices.Contains(cmd.Aliases, name) {
+			return oneLine(cmd.Description)
+		}
+	}
+	return "runs as a command"
 }
 
 // queueChip is a queued message's image as a chip.

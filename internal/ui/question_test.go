@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
@@ -886,5 +887,23 @@ func TestSlashFullWordSends(t *testing.T) {
 	c.input = []rune("then run /pd")
 	if _, used := m.slashKey(c, "enter"); !used || string(c.input) != "then run /pdf " {
 		t.Fatalf("a partial word still completes, got %q", string(c.input))
+	}
+}
+
+// The last question answered in your own words goes to the review with
+// Send answers picked, so enter sends them.
+func TestReviewPicksSend(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	c := m.host
+	ask(m)
+	req := c.sess.Pending()[0].Approval.Question
+	qs := qsOf(req)
+	for i := range qs {
+		c.cardFocus = false
+		c.input = []rune("mine " + fmt.Sprint(i))
+		m.questionKey(c, req, "enter", false)
+	}
+	if c.qIdx != len(qs) || !c.cardFocus {
+		t.Fatalf("on the review with the keys on the card: idx=%d focus=%v", c.qIdx, c.cardFocus)
 	}
 }

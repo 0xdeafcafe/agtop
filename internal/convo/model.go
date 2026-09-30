@@ -161,6 +161,10 @@ type Turn struct {
 	// is when the thinking now under way began.
 	Streamed int
 	Thinking time.Time
+	// Retry is the request to the model being tried again, from when it
+	// was said, until the model starts answering.
+	Retry   *event.Retry
+	RetryAt time.Time
 
 	steps map[string]*Step
 	ver   int
@@ -233,13 +237,17 @@ type Session struct {
 	MCP      []event.MCPServer
 	// Usage is what fills the context window, as the host last counted
 	// it; nil until it has.
-	Usage    *usage.Context
-	NTools   int
-	Context  int // tokens in the context window after the last request
-	Window   int // the context window's size, when the agent says it
-	Limit    string
-	Requests []Request
-	Tools    map[string]*ToolStat
+	Usage   *usage.Context
+	NTools  int
+	Context int // tokens in the context window after the last request
+	// compacting is when the compaction under way began; compactRate is
+	// how long the last one took per token it compacted, for an estimate.
+	compacting  time.Time
+	compactRate time.Duration
+	Window      int // the context window's size, when the agent says it
+	Limit       string
+	Requests    []Request
+	Tools       map[string]*ToolStat
 
 	streaming  *Item
 	woke       *Job      // the background task that last ended or fired
@@ -274,6 +282,7 @@ type Session struct {
 	light    bool
 	inFlight map[string]flight // a light session's tool calls still out
 	done     []string          // a light session's latest calls back, in words, oldest first
+	worktree string            // the worktree its calls last reached into, by name
 
 	jobs []*Job // Claude Code's tasks, in the order they started
 
@@ -555,6 +564,9 @@ func (s *Session) call(c *tool.Call, parent *Step, t *Turn, sub bool, now time.T
 		s.streaming = nil
 	}
 	s.tool(name).Calls++
+	if wt := WorktreeIn(string(input)); wt != "" && !sub {
+		s.worktree = wt
+	}
 	if s.light {
 		// Counted and timed, never drawn: only calls still out are kept.
 		if s.inFlight == nil {

@@ -46,3 +46,21 @@ func TestLinkActs(t *testing.T) {
 		t.Errorf("menu: %+v", m.picker)
 	}
 }
+
+// o on a picked step finds its file: in its own rows or its pictures'.
+func TestPickedLink(t *testing.T) {
+	lk := func(u string) string { return "\x1b]8;;" + u + "\x1b\\x\x1b]8;;\x1b\\" }
+	c := &hostConn{sel: "s2", shown: []convo.Line{
+		{Text: lk("file:///a.png"), Ref: "s1"},
+		{Text: "✓ ◧ read", Ref: "s2"},
+		{Text: lk("https://x.dev") + lk("file:///b.png")},
+		{Text: lk("file:///c.png"), Ref: "s3"},
+	}}
+	if got := pickedLink(c); got != "file:///b.png" {
+		t.Fatalf("got %q", got)
+	}
+	c.sel = "s4"
+	if got := pickedLink(c); got != "" {
+		t.Fatalf("nothing picked: got %q", got)
+	}
+}

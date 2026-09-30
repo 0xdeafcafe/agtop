@@ -598,6 +598,10 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 		c.slashSel = max(0, min(c.slashSel, len(cmds)-1))
 		return pickerRows(cmds, c.slashSel, w, "#", func(string) string { return "" }, "rush's, for this agent · ↑↓ · tab completes · enter runs")
 	}
+	if cmds := m.mentionMatches(c.input, c.back); len(cmds) > 0 {
+		c.slashSel = max(0, min(c.slashSel, len(cmds)-1))
+		return pickerRows(cmds, c.slashSel, w, "@", func(string) string { return "" }, mentionHow)
+	}
 	cmds := argMatches(c)
 	if cmds == nil {
 		if _, _, _, ok := slashWord(c); !ok {
@@ -646,7 +650,7 @@ func pickerRows(cmds []event.Command, sel, w int, lead string, tag func(string) 
 		cmd := cmds[i]
 		name := paint(cBright+bold, fit(lead+cmd.Name, nameW+1))
 		t := tag(cmd.Name)
-		desc := dim(ansi.Truncate(oneLine(cmd.Description), max(10, w-nameW-7-ansi.StringWidth(t)), "…"))
+		desc := dim(ansi.Truncate(convo.KeyWord(oneLine(cmd.Description)), max(10, w-nameW-7-ansi.StringWidth(t)), "…"))
 		row := "   " + name + "  " + desc + t
 		if i == sel {
 			out = append(out, onBg(selBG, paint(cOrange, " ▸ ")+strings.TrimPrefix(row, "   "), w))
@@ -956,6 +960,14 @@ func (m *Model) rushScreen(c *hostConn, a *fleet.Agent, screen string) (tea.Cmd,
 
 // showView switches the Session to one of its views by name.
 func (m *Model) showView(c *hostConn, name string) bool {
+	c.memOpen = false
+	if name == "memory" {
+		if !canScreen(c, "memory") || !m.showView(c, "overview") {
+			return false
+		}
+		c.memOpen = true
+		return true
+	}
 	for i, v := range m.views(c) {
 		if v == name {
 			c.view = i

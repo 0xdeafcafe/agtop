@@ -29,7 +29,7 @@ func modalCard(c *hostConn) bool { return cardKind(c) == "limit" }
 func (m *Model) cardModal(c *hostConn) bool {
 	id := cardID(c)
 	if id != c.cardShown {
-		c.cardShown, c.cardAt = id, time.Now()
+		c.cardShown, c.cardAt, c.memPick = id, time.Now(), 0
 		c.cardTyping = time.Since(c.lastKeyAt) < time.Second
 		if id != "" && id != c.cardLater && modalCard(c) {
 			c.cardFocus = true

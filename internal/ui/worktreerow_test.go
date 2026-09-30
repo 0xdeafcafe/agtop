@@ -21,8 +21,4 @@ func TestWorktreeRowSaysWhatItHas(t *testing.T) {
 	if strings.Contains(got, "worktree-devclean") {
 		t.Errorf("row %q repeats the name as its branch", got)
 	}
-	got = ansi.Strip(foldLine(16, 0, 2<<30))
-	if !strings.Contains(got, "16 more with nothing of their own") || !strings.Contains(got, "cleans them up") {
-		t.Errorf("fold %q", got)
-	}
 }
