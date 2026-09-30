@@ -45,6 +45,7 @@ func (s *server) start() error {
 		return nil
 	}
 	s.spent = 0 // a new process counts from zero
+	s.startCwd = s.cfg.Cwd
 	a, ok := agent.Get(agent.Kind(s.cfg.Kind))
 	if !ok {
 		return fmt.Errorf("rush doesn't know the agent %q", s.cfg.Kind)
@@ -145,10 +146,11 @@ func (s *server) followCwd(now bool) {
 			return
 		}
 		s.mu.Lock()
-		was, seen := s.cfg.Cwd, s.sawCwd(pid, cwd)
+		was, from := s.cfg.Cwd, s.startCwd
 		s.mu.Unlock()
-		if seen == "" || seen == cwd {
-			return // a session moved elsewhere isn't pulled back to where its agent still is
+		if cwd == from && was != from {
+			// ponytail: its shell reset, not a move; an agent that really goes back there stays put
+			return
 		}
 		cwd, move := followTo(was, cwd, actions.RepoRoot)
 		s.mu.Lock()
@@ -160,18 +162,6 @@ func (s *server) followCwd(now bool) {
 		s.saveConfig()
 		s.publish()
 	}()
-}
-
-// sawCwd notes that process pid works in cwd, and says where it was last
-// seen working: "" for a new process, where it starts being no move.
-// Called with mu held.
-func (s *server) sawCwd(pid int, cwd string) string {
-	seen := s.seenCwd
-	if s.seenPID != pid {
-		seen = ""
-	}
-	s.seenPID, s.seenCwd = pid, cwd
-	return seen
 }
 
 // followTo is where a session in was moves when its agent works in cwd:

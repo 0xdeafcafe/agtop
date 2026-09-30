@@ -309,10 +309,9 @@ type server struct {
 	options map[string][]event.Option
 	began   bool      // the conversation has a transcript to resume
 	cwdAt   time.Time // when followCwd last looked
-	// seenCwd is where the agent process seenPID was last seen working:
-	// only it going somewhere else moves the session.
-	seenCwd string
-	seenPID int
+	// startCwd is where the agent's process was started: its shell goes
+	// back there between commands from anywhere outside it.
+	startCwd string
 	spent   float64   // the running process's last cost total: see TurnCost
 	ring    [][]byte  // big lines packed: see pack
 	ringN   int       // the ring's size as written

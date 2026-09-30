@@ -18,6 +18,7 @@ func TestFollowCwd(t *testing.T) {
 	cfgDir, start, wt := t.TempDir(), t.TempDir(), t.TempDir()
 	s := &server{cfg: Config{ID: "cwd", Kind: string(claudead.Kind), Cwd: start, Account: agent.Profile{Dir: cfgDir}}, clients: map[*conn]struct{}{}}
 	s.info = Info{SessionID: "s1", Cwd: start, ClaudePID: 4242}
+	s.startCwd = start
 	for _, d := range []string{filepath.Join(cfgDir, "sessions"), dir(s.cfg.ID)} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
@@ -55,5 +56,11 @@ func TestFollowCwd(t *testing.T) {
 	}
 	if b, err := os.ReadFile(filepath.Join(dir(s.cfg.ID), "config.json")); err != nil || !strings.Contains(string(b), wt) {
 		t.Fatalf("config.json should resume in the worktree: %s %v", b, err)
+	}
+	// Its shell going back to where the process started, between commands,
+	// is no move: the session stays where it went.
+	write("s1", start)
+	if got := follow(); got != wt {
+		t.Fatalf("the shell's reset pulled it back to %q", got)
 	}
 }
