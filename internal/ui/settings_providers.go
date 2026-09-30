@@ -19,13 +19,15 @@ import (
 
 // Providers is a list and, beside it, everything about the line picked.
 // The list is each installed provider in the default profile's order,
-// with the account it's on and its tightest limit; then the profiles you
-// made; then the folders that pick one. A provider shows its accounts,
-// limits and spend, where it runs, what it does at a limit, what its new
-// sessions start with and what its agent adds; a profile of yours its
-// providers, their order and its policy; a folder the profile it gives.
-// enter goes into what's shown and esc back to the list; on a narrow
-// terminal the two take turns.
+// Anthropic's and OpenAI's subscriptions apart from their API keys, with
+// the account it's on and its tightest limit; then the profiles you made;
+// then the folders that pick one. A provider shows its accounts or key,
+// the harnesses it runs in (which you use, and the default), what its
+// sessions start with in each, what it does at a limit, and under all of
+// it what rush can do with it in its default harness. A profile of yours
+// shows its providers, their order and its policy; a folder the profile
+// it gives. enter goes into what's shown and esc back to the list; on a
+// narrow terminal the two take turns.
 
 var providersPage = page{
 	name: "Providers",
@@ -53,7 +55,7 @@ const provListW = 36
 
 // provItem is a line of Providers' list: one of these is set.
 type provItem struct {
-	provider string // an installed provider, by name
+	provider string // an installed provider, by id (state.IDs)
 	profile  string // a profile of yours
 	folder   string // a folder rule's path
 	add      string // "profile" or "folder": its group's + line
@@ -63,8 +65,15 @@ type provItem struct {
 func (m *Model) provItems() []provItem {
 	var out []provItem
 	for _, ad := range m.agentOrder() {
-		if it := (provItem{provider: agent.ProviderOf(ad.Kind())}); !slices.Contains(out, it) {
-			out = append(out, it)
+		pr := agent.ProviderOf(ad.Kind())
+		ids := []string{pr}
+		if agent.Split(pr) {
+			ids = append(ids, agent.KeyOf(pr))
+		}
+		for _, id := range ids {
+			if it := (provItem{provider: id}); !slices.Contains(out, it) {
+				out = append(out, it)
+			}
 		}
 	}
 	cfg := m.store.Config
@@ -98,11 +107,68 @@ func (m *Model) openItem(it provItem) {
 	}
 }
 
-// provKind is the agent provider pr runs as: in its own harness, or the
-// one its profile chose.
-func (m *Model) provKind(pr string) agent.Kind {
-	p, _ := m.store.Config.ProfileNamed(pr)
-	return agent.Kind(p.KindOf(pr))
+// provKind is the agent provider id runs as: in its own harness, or the
+// one chosen as its default.
+func (m *Model) provKind(id string) agent.Kind {
+	p, ok := m.store.Config.ProfileNamed(id)
+	if !ok || len(p.Providers) == 0 {
+		return agent.Kind(id)
+	}
+	return agent.Kind(p.KindOf(p.Providers[0]))
+}
+
+// provLabel is provider id as you'd call it: whose models, and how
+// they're paid for where that's worth saying (Anthropic · subscription,
+// DeepSeek · API key, GitHub Copilot).
+func provLabel(id string) string {
+	if b := billWord(id); b != "" {
+		return provName(id) + " · " + b
+	}
+	return provName(id)
+}
+
+// provName is whose models provider id serves: GitHub Copilot, where
+// the company isn't the agent's name, else the one that is.
+func provName(id string) string {
+	p, _ := agent.Billed(id)
+	name := agent.ProviderLabel(p)
+	if !agent.Split(p) && agent.KeyEnv(p) == "" && name != agentName(p) {
+		return name + " " + agentName(p)
+	}
+	return name
+}
+
+// billWord is how provider id is paid for, where it's one of two ways or
+// only by key.
+func billWord(id string) string {
+	p, _ := agent.Billed(id)
+	switch {
+	case paysByKey(id):
+		return "API key"
+	case agent.Split(p):
+		return "subscription"
+	}
+	return ""
+}
+
+// paysByKey is whether provider id is paid for with an API key alone.
+func paysByKey(id string) bool {
+	p, key := agent.Billed(id)
+	return key || !agent.Split(p) && agent.KeyEnv(p) != ""
+}
+
+// spentToday is what provider id's sessions spent today, in every
+// harness it runs in: a split provider's own program's are its
+// subscription's.
+func (m *Model) spentToday(id string) float64 {
+	p, key := agent.Billed(id)
+	sum := 0.0
+	for _, k := range agent.RunsFor(id) {
+		if !key || k != agent.Kind(p) {
+			sum += m.useOf(k).spentToday
+		}
+	}
+	return sum
 }
 
 // provUse is how an agent is being used: the account it's on, and what
@@ -212,14 +278,17 @@ func (m *Model) providersKey(s string) tea.Cmd {
 			m.makeDefaultProfile(name)
 		}
 	case "$":
-		if it.provider != "" {
-			return m.askAPIKey(agent.ProviderOf(m.provKind(it.provider)))
+		if it.provider != "" && paysByKey(it.provider) {
+			pr, _ := agent.Billed(it.provider)
+			return m.askAPIKey(pr)
 		}
 	case "a":
-		if it.provider != "" {
+		switch {
+		case it.provider != "" && !paysByKey(it.provider):
 			return m.addAccount(m.provKind(it.provider))
+		case it.provider == "":
+			m.addFolder(it.profile)
 		}
-		m.addFolder(it.profile)
 	case "r":
 		if it.profile != "" {
 			m.renameProfile(it.profile)
@@ -242,7 +311,7 @@ func (m *Model) providersKey(s string) tea.Cmd {
 			if p, _ := cfg.ProfileNamed(it.provider); !p.Builtin {
 				cfg.DeleteProfile(it.provider)
 				_ = m.store.SaveConfig()
-				m.flash(agentName(it.provider)+"'s own profile is as it was", false)
+				m.flash(provLabel(it.provider)+"'s own profile is as it was", false)
 			}
 		}
 	}
@@ -254,8 +323,8 @@ func (m *Model) listKeys(it provItem) []string {
 	switch {
 	case it.provider != "":
 		keys := []string{"enter", "open", "1-9", "provider", "*", "make default", "a", "add account", "r", "read limits", "n", "new profile"}
-		if agent.KeyEnv(agent.ProviderOf(m.provKind(it.provider))) != "" {
-			keys = append(keys, "$", "API key")
+		if paysByKey(it.provider) {
+			keys = append(keys[:6], "$", "API key", "n", "new profile")
 		}
 		if p, _ := m.store.Config.ProfileNamed(it.provider); !p.Builtin {
 			keys = append(keys, "x", "put its profile back")
@@ -292,6 +361,9 @@ func (m *Model) providersBody(w int) []string {
 			back[0] = "← esc"
 		}
 		keys = m.formKeys(row, back, w)
+	}
+	if it.provider != "" {
+		detail = append(detail, m.canDo(it.provider, dw)...)
 	}
 	for i, l := range detail {
 		if cellw.String(ansi.Strip(l)) > dw {
@@ -377,11 +449,15 @@ func (m *Model) provList(w int) []string {
 func (m *Model) provLine(it provItem, w int) []string {
 	switch {
 	case it.provider != "":
-		k := m.provKind(it.provider)
-		u := m.useOf(k)
+		pr, key := agent.Billed(it.provider)
+		u := m.useOf(m.provKind(it.provider))
 		q := u.inUse.q
 		meter := faint("—")
 		switch win, ok := q.Tightest(""); {
+		case key && !m.store.Config.HasAPIKey(pr):
+			meter = paint(cYellow, "no key")
+		case key:
+			meter = dim("per token")
 		case ok:
 			meter = bar(win.Percent) + " " + paint(cText, fmt.Sprintf("%3.0f%%", win.Percent))
 		case q.Balance != "":
@@ -389,23 +465,39 @@ func (m *Model) provLine(it provItem, w int) []string {
 		case q.Problem != "":
 			meter = paint(cYellow, "! no reading")
 		}
-		name := paint(cText+bold, agentName(it.provider))
+		name := paint(cText+bold, provName(it.provider))
 		if star := m.profileMark(it.provider); strings.TrimSpace(star) != "" {
 			name += " " + strings.TrimSpace(star)
 		}
-		first := glyph(k) + " " + fit(name, w-18) + right(meter, 15)
-		on := u.inUse.name()
-		if u.inUse.head {
-			on = firstNonEmpty(u.inUse.q.Email, "its own sign-in")
+		first := glyph(agent.Kind(pr)) + " " + fit(name, w-18) + right(meter, 15)
+		// Under it, only what's worth a line: the account, how many more
+		// and how many are nearly out, and what it spent today.
+		var more []string
+		if b := billWord(it.provider); b != "" {
+			more = append(more, dim(b))
 		}
-		second := "  " + dim(on)
-		if u.accts > 1 {
-			second += faint(fmt.Sprintf(" · %d more", u.accts-1))
+		if !key {
+			on := u.inUse.name()
+			if u.inUse.head {
+				on = u.inUse.q.Email // its own sign-in, unnamed, says nothing
+			}
+			if on != "" {
+				more = append(more, dim(on))
+			}
+			if u.accts > 1 {
+				more = append(more, faint(fmt.Sprintf("%d more", u.accts-1)))
+			}
+			if u.out > 0 {
+				more = append(more, paint(cYellow, fmt.Sprintf("%d nearly out", u.out)))
+			}
 		}
-		if u.out > 0 {
-			second += paint(cYellow, fmt.Sprintf(" · %d nearly out", u.out))
+		if v := m.spentToday(it.provider); v > 0 {
+			more = append(more, dim(money(v)+" today"))
 		}
-		return []string{fit(first, w), fit(second, w)}
+		if len(more) == 0 {
+			return []string{fit(first, w)}
+		}
+		return []string{fit(first, w), fit("  "+strings.Join(more, faint(" · ")), w)}
 	case it.profile != "":
 		p, _ := m.store.Config.ProfileNamed(it.profile)
 		return []string{fit(m.profileMark(it.profile)+paint(cText+bold, it.profile)+"  "+faint(m.profileAgents(p)), w)}
@@ -467,88 +559,192 @@ func (m *Model) provForm(it provItem) []section {
 	return nil
 }
 
-// providerHead is provider pr's name, how far it's been tried, where it
-// lives, its limits and spend, and what rush can do with it.
-func (m *Model) providerHead(pr string, w int) []string {
-	k := m.provKind(pr)
+// providerHead is provider id's name, whether it can run, the account
+// or key it's paid with, and its limits.
+func (m *Model) providerHead(id string, w int) []string {
+	cfg := &m.store.Config
+	pr, key := agent.Billed(id)
+	k := m.provKind(id)
 	u := m.useOf(k)
 	label := func(s string) string { return dim(fit(s, 10)) }
-	name := glyph(k) + " " + paint(cText+bold, agentName(pr)) + dim(runsInWords(k)) + "  " + levelChip(k) + faint(levelWords[agent.LevelOf(k)])
-	if strings.EqualFold(pr, m.store.Config.Default().Name) {
+	name := glyph(agent.Kind(pr)) + " " + paint(cText+bold, provLabel(id))
+	if strings.EqualFold(id, cfg.Default().Name) {
 		name += paint(cOrange, "  ★ the default")
 	}
 	out := []string{name}
-	var where []string
-	if ad, ok := agent.Get(k); ok {
-		if p, ok := m.profileOf(ad); ok {
-			where = append(where, tildify(p.Dir))
-		}
-	}
-	if path := agent.Path(k); path != "" {
-		where = append(where, "runs "+tildify(path))
-	}
-	if len(where) > 0 {
-		out = append(out, label("home")+faint(strings.Join(where, " · ")))
-	}
 	if hint := agent.Hint(k); hint != "" && !agent.Runs(k) {
 		out = append(out, label("can't run")+faint(hint))
 	}
+	if paysByKey(id) {
+		if cfg.HasAPIKey(pr) {
+			out = append(out, label("API key")+paint(cGreen, "✓ kept")+faint(" · $ changes it"))
+		} else {
+			out = append(out, label("API key")+paint(cYellow, "none yet")+faint(" · $ adds one"))
+		}
+	}
+	if key {
+		return out // no account or limits: every token is paid for
+	}
 	switch why := m.accts.why[string(k)]; {
-	case switches(k):
 	case why != "":
 		out = append(out, label("account")+paint(cRed, "✗ not signed in")+dim(" · "+why))
-	default:
-		out = append(out, label("account")+dim(firstNonEmpty(u.inUse.q.Email, "its own sign-in"))+faint(" · it signs in through its own program"))
+	case !switches(k) && u.inUse.q.Email != "":
+		out = append(out, label("account")+dim(u.inUse.q.Email))
 	}
 	q := u.inUse.q
 	if len(q.Windows) == 0 && q.Balance == "" && q.Problem == "" {
 		out = append(out, label("limits")+m.limits(u.inUse, w-10, 0))
 	}
-	out = append(out, m.windowLines(q, m.snap.At, label)...)
-	spend := func(v float64) string {
-		if !agent.Supports(k, agent.FeaturePricing) && v == 0 {
-			return faint("—")
-		}
-		return paint(cText, money(v))
-	}
-	out = append(out, label("spend")+spend(u.spentToday)+dim(" today · ")+spend(u.spentWeek)+dim(" this week")+
-		faint(fmt.Sprintf(" · %d running · %d sessions today", u.running, u.today)))
-	return append(out, label("can do")+canDo(k, w-10))
+	return append(out, m.windowLines(q, m.snap.At, label)...)
 }
 
-// canDo is what rush can do with agent k, in a line w wide: the features
-// it has, and how many of all there are.
-func canDo(k agent.Kind, w int) string {
-	var yes []string
+// canDo is what rush can do with provider id in its default harness,
+// feature by feature, and what the model it starts with takes.
+func (m *Model) canDo(id string, w int) []string {
+	k := m.provKind(id)
+	model := m.store.Config.Dispatch.StartFor(string(k)).Model
+	if p, ok := m.store.Config.ProfileNamed(id); ok && p.Model != "" {
+		model = p.Model
+	}
+	_, key := agent.Billed(id)
+	out := []string{"", rule("What it can do", "in "+agent.HarnessLabel(k)+" · "+agent.LevelOf(k).String(), w)}
+	out = append(out, featureGrid(k, key, w)...)
+	if model != "" {
+		out = append(out, "  "+paint(cText, model)+"  "+modelTakes(k, model))
+	}
+	return out
+}
+
+// featureGrid is what rush can do with agent k, feature by feature, in as
+// many columns as fit: lit where it can, faint where it can't, ◌ where
+// it's planned. What's said of the ones it can follows, a line each.
+// Paid with a key, it has no accounts to switch, sign in to or read.
+func featureGrid(k agent.Kind, key bool, w int) []string {
+	const cell = 24
+	cols := max(1, (w-2)/cell)
 	all := agent.AllFeatures()
-	for _, f := range all {
-		if agent.Supports(k, f.Feature) {
-			yes = append(yes, strings.ToLower(f.Label))
+	rows := (len(all) + cols - 1) / cols
+	var out, notes []string
+	for r := range rows {
+		line := "  "
+		for c := range cols {
+			i := c*rows + r // down the columns, so related features stay together
+			if i >= len(all) {
+				break
+			}
+			f := all[i]
+			st := agent.FeatureOf(k, f.Feature)
+			if key && slices.Contains([]agent.Feature{agent.FeatureSwitch, agent.FeatureSignIn, agent.FeatureQuota}, f.Feature) {
+				st = agent.No
+			}
+			switch st.Is {
+			case agent.StateYes:
+				line += paint(cGreen, "✓ ") + paint(cText, fit(f.Label, cell-2))
+			case agent.StatePlanned:
+				line += paint(cYellow, "◌ ") + dim(fit(f.Label, cell-2))
+			default:
+				line += faint("– " + fit(f.Label, cell-2))
+			}
+			if st.Note != "" && st.Is == agent.StateYes {
+				notes = append(notes, f.Label+": "+st.Note)
+			}
 		}
+		out = append(out, line)
 	}
-	tail := fmt.Sprintf("%d of %d · Capabilities compares", len(yes), len(all))
-	if len(yes) == 0 {
-		return faint(tail)
+	for _, n := range notes {
+		out = append(out, "  "+faint(n))
 	}
-	tail = "  " + tail
-	return ansi.Truncate(paint(cGreen, "✓ ")+dim(strings.Join(yes, " · ")), max(8, w-len(tail)), "…") + faint(tail)
+	return out
 }
 
-// providerForm is provider pr's accounts, where it runs and what it does
-// at a limit, what its new sessions start with, its own profile's
-// default and folders, then what its agent adds.
-func (m *Model) providerForm(pr string) []section {
-	k := m.provKind(pr)
-	p, _ := m.store.Config.ProfileNamed(pr)
+// providerForm is provider id's accounts, the harnesses it runs in, what
+// its sessions start with in each you use, what it does at a limit and
+// its folders, then what its default harness adds.
+func (m *Model) providerForm(id string) []section {
+	cfg := &m.store.Config
+	k := m.provKind(id)
+	p, _ := cfg.ProfileNamed(id)
 	var secs []section
-	if acct, ok := m.accountSection(k); ok {
+	if acct, ok := m.accountSection(k); ok && !paysByKey(id) {
 		secs = append(secs, acct)
 	}
-	own := m.profileForm(p) // its harness and policy, then its default and folders
-	n := len(own) - 2
-	ag := m.agentSections(k)
-	secs = append(append(secs, own[:n]...), ag[0])
-	return append(append(secs, own[n:]...), ag[1:]...)
+	secs = append(secs, m.harnessSection(id))
+	var used []agent.Kind
+	for _, hk := range agent.RunsFor(id) {
+		if hk != k && agent.Runs(hk) && cfg.Uses(id, string(agent.HarnessOf(hk))) {
+			used = append(used, hk)
+		}
+	}
+	for _, hk := range append([]agent.Kind{k}, used...) {
+		st := m.startSection(hk)
+		if len(used) > 0 {
+			st.title = "In " + agent.HarnessLabel(hk) + ", new sessions start with"
+		}
+		secs = append(secs, st)
+	}
+	own := m.profileForm(p) // at a limit, and its folders
+	if _, key := agent.Billed(id); key {
+		own = own[1:] // a key has no limit to reach
+	}
+	secs = append(secs, own...)
+	return append(secs, m.agentSections(k)[1:]...)
+}
+
+// harnessSection is every harness provider id can run in: which you
+// use, and the default, ★, where its new sessions start.
+func (m *Model) harnessSection(id string) section {
+	cfg := &m.store.Config
+	sec := section{title: "Harnesses", note: "where its sessions can run; ★ is where new ones start"}
+	def := agent.HarnessOf(m.provKind(id))
+	for _, k := range agent.RunsFor(id) {
+		h, hn := agent.HarnessOf(k), agent.HarnessLabel(k)
+		use := h == def || cfg.Uses(id, string(h))
+		sec.rows = append(sec.rows, setting{
+			label: hn,
+			line: func(int) string {
+				mark, now := "  ", faint("not used")
+				switch {
+				case !agent.Runs(k):
+					now = faint("not installed")
+				case h == def:
+					mark, now = paint(cOrange, "★ "), dim("the default")
+				case use:
+					now = dim("used")
+				}
+				return mark + glyph(h) + " " + paint(cText, fit(hn, 14)) + levelChip(k) + " " + now
+			},
+			key: func(s string) (tea.Cmd, bool) {
+				switch {
+				case s == "*" && agent.Runs(k):
+					cfg.SetUses(id, string(def), true) // the old default stays in use
+					cfg.SetUses(id, string(h), false)
+					cfg.SetRunsIn(id, string(h))
+				case (s == "enter" || s == "space") && h != def && agent.Runs(k):
+					cfg.SetUses(id, string(h), !use)
+				case s == "enter" || s == "space" || s == "*":
+					return nil, true
+				default:
+					return nil, false
+				}
+				_ = m.store.SaveConfig()
+				return nil, true
+			},
+			keys: []string{"enter", "use or not", "*", "make default"},
+			about: func() (string, string, string) {
+				what := provLabel(id) + " in " + hn + ": " + levelWords[agent.LevelOf(k)] + ". A session can start in any harness you use; new ones start in the default, ★."
+				switch {
+				case !agent.Runs(k):
+					return hn, what, hn + " isn't installed here."
+				case h == def:
+					return hn, what, "The default: new " + provLabel(id) + " sessions start here."
+				case use:
+					return hn, what, "Used besides the default: enter stops using it, * makes it the default."
+				}
+				return hn, what, "Not used: enter uses it too, * makes it the default."
+			},
+		})
+	}
+	return sec
 }
 
 // accountSection is agent k's accounts, the one in use marked; none when

@@ -7,7 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
@@ -70,63 +69,34 @@ func (m *Model) agentSections(k agent.Kind) []section {
 	return secs
 }
 
-// modelTable is what each of models takes, a row each: images and PDFs
-// as its agent's MediaReader says, its context window, and the efforts
-// it starts with. What the agent doesn't know shows ?, and a footnote
-// says so. Nothing here waits: Ollama's Reads asks in the background.
-func modelTable(k agent.Kind, models []agent.Choice) []string {
-	if len(models) == 0 {
-		return nil
-	}
-	width := 17
-	for _, c := range models {
-		width = max(width, len(c.ID)+2)
-	}
-	unknown := false
-	cell := func(s string, w int) string {
-		switch s {
-		case "✓":
-			return paint(cGreen, fit(s, w))
-		case "?":
-			unknown = true
-			return paint(cYellow, fit(s, w))
-		case "–":
-			return faint(fit(s, w))
-		}
-		return dim(fit(s, w))
-	}
-	effort := "–"
-	if ch, _ := agent.ChoicesOf(k); agent.Supports(k, agent.FeatureEffort) && len(ch.Efforts) > 0 {
-		effort = ch.Efforts[0].ID + "–" + ch.Efforts[len(ch.Efforts)-1].ID
-	}
-	reader, reads := agent.As[agent.MediaReader](k)
-	windower, windows := agent.As[agent.ContextWindower](k)
-	out := []string{"", dim(fit(glyph(k)+" "+kindName(k), 2+width) + "  " + fit("images", 8) + fit("pdf", 5) + fit("context", 9) + "effort")}
-	for _, c := range models {
-		img, pdf := "?", "?"
-		if reads {
-			if has, ok := reader.Reads(c.ID); ok {
-				img, pdf = "–", "–"
-				if has&agent.MediaImage != 0 {
-					img = "✓"
-				}
-				if has&agent.MediaPDF != 0 {
-					pdf = "✓"
+// modelTakes is what model takes in agent k: images and PDFs as its
+// MediaReader says, and its context window, each only when known. Nothing
+// here waits: Ollama's Reads asks in the background.
+func modelTakes(k agent.Kind, model string) string {
+	var out []string
+	if reader, ok := agent.As[agent.MediaReader](k); ok {
+		if has, ok := reader.Reads(model); ok {
+			for _, m := range []struct {
+				bit  agent.Media
+				name string
+			}{{agent.MediaImage, "images"}, {agent.MediaPDF, "PDFs"}} {
+				if has&m.bit != 0 {
+					out = append(out, paint(cGreen, "✓ ")+dim(m.name))
+				} else {
+					out = append(out, faint("– "+m.name))
 				}
 			}
 		}
-		window := "?"
-		if windows {
-			if n := windower.ContextWindow(c.ID); n > 0 {
-				window = tokens(n)
-			}
+	}
+	if windower, ok := agent.As[agent.ContextWindower](k); ok {
+		if n := windower.ContextWindow(model); n > 0 {
+			out = append(out, dim(tokens(n)+" context"))
 		}
-		out = append(out, "  "+paint(cText, fit(c.ID, width))+"  "+cell(img, 8)+cell(pdf, 5)+cell(window, 9)+cell(effort, cellw.String(effort)))
 	}
-	if unknown {
-		out = append(out, "  "+paint(cYellow, "? ")+faint("unknown to rush until it's used"))
+	if len(out) == 0 {
+		return faint("what it takes is unknown to rush until it's used")
 	}
-	return out
+	return strings.Join(out, faint(" · "))
 }
 
 // agentModels are the models agent k's adapter offers, then any your

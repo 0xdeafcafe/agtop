@@ -96,7 +96,7 @@ rush runs any agent it has an adapter for, and shows only the ones you have inst
 | GLM | ZCode, Z.ai's own agent, through `zcode-acp-server` | preview |
 | Ollama | Claude Code on Ollama's Anthropic API, tuned per model | preview |
 
-Full is what I use every day, tested has been tried against the real program, and preview is built but not yet tried against it. Settings › Capabilities sets them side by side: each one's level, what rush can do with it, feature by feature (✓ it can, – it can't, ◌ planned), and what each of its models takes.
+Full is what I use every day, tested has been tried against the real program, and preview is built but not yet tried against it. Settings › Providers says, under each provider, what rush can do with it in its default harness, feature by feature (✓ it can, – it can't, ◌ planned), and what the model it starts with takes.
 
 `#with codex` (or any of them) makes new sessions start with that agent; `#with claude` goes back, and `#with` alone says which it is and what's installed. Their past sessions sit in the list beside Claude's, marked with their agent, and a message resumes one with its own agent, model and mode. A Codex running in a terminal is followed as it works, as a Claude Code one is. In a session, `/` offers only what that agent can do.
 
@@ -108,7 +108,7 @@ Full is what I use every day, tested has been tried against the real program, an
 
 ### Accounts
 
-Settings › Providers lists each installed provider with the account it's on and its tightest limit, then your profiles, then the folders that pick one. Everything about the one picked shows beside it: its accounts (who each is, its plan, its limits, and which is in use), spend today and this week, where it runs, what it does at a limit, and what its new sessions start with. `enter` goes into it, `esc` back to the list; on a narrow terminal the two take turns. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
+Settings › Providers lists each installed provider with the account it's on and its tightest limit, then your profiles, then the folders that pick one. Anthropic and OpenAI are listed twice: their subscription, which runs only in Claude Code or Codex, and their API key, which runs in any harness that speaks their API. Everything about the one picked shows beside it: its accounts (who each is, its plan, its limits, and which is in use) or its key, the harnesses it can run in (which you use, and the default, ★), what its new sessions start with in each, what it does at a limit, and what rush can do with it. `enter` goes into it, `esc` back to the list; on a narrow terminal the two take turns. Every agent runs from its own home (`~/.claude`, `~/.codex`, …); an account is a sign-in swapped into it, so settings, transcripts and history are shared.
 
 - On an account, `enter` switches to it. `a` adds an account, `r` renames, `l` signs in again, `d` forgets.
 - A running agent keeps the account it started with, so after a switch each rush session starts again on the new one at its first safe point: an idle one at once, one in a turn once the turn ends, one with work in the background once that's done. The conversation and its queue carry over.
@@ -137,7 +137,7 @@ Every installed provider is a profile of its own, built in: sessions under `clau
 - **Stay or mix**: new sessions stay on the first provider, or move on to the next once every account of the current one is nearly out.
 - **At a limit**, for a conversation a usage limit stops: `wait` for the reset, move to another `account` of the same provider and carry on, or `handoff`, which tries another account first and then hands the conversation to the next provider in the list with room.
 
-A provider can run in more than one harness, the program around the model. Ollama's models run in Claude Code (the default), Pi or Codex. Open the provider on Settings › Providers to choose which harness it runs in everywhere. In a profile of yours, `h` on a provider chooses again for that profile alone. `#profile ollama-pi` runs one session on Ollama in Pi, whatever the setting.
+A provider can run in more than one harness, the program around the model. Ollama's models run in Claude Code (the default), Pi or Codex. Open the provider on Settings › Providers: `enter` on a harness uses it or not, `*` makes it the default everywhere. In a profile of yours, `h` on a provider chooses again for that profile alone. `#profile ollama-pi` runs one session on Ollama in Pi, whatever the setting.
 
 A session gets the profile picked for it (`#profile <name>`, or `rush session start --profile`), else the one for the longest folder rule its folder falls under, else the default. It keeps that profile when it's resumed. If rush had made a Default profile from your old default agent that did no more than that agent, it gave way to that provider's own profile, and folders that named it moved with it.
 

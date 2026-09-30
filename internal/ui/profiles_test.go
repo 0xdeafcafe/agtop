@@ -114,7 +114,7 @@ func TestProfilePicker(t *testing.T) {
 		t.Fatalf("no %q in the picker", label)
 	}
 	m.openProfilePicker()
-	if m.picker == nil || !strings.Contains(ansi.Strip(m.picker.acts[m.picker.cursor].label), "★ ✻ Claude only") {
+	if m.picker == nil || !strings.Contains(ansi.Strip(m.picker.acts[m.picker.cursor].label), "★ ✻ Claude Code only") {
 		t.Fatal("the picker didn't open on the default, Claude Code's own")
 	}
 	pick("work")

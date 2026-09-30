@@ -16,14 +16,13 @@ import (
 // Settings is a place of pages, and [ and ] go between them, as in every
 // place with pages. Providers is each installed provider, your profiles
 // and the folders that pick them, a list with everything about the one
-// picked beside it: its account, limits, spend, where it runs, what it
-// does at a limit and what its new sessions start with. Capabilities
-// sets the providers side by side, feature by feature and model by
-// model. General is the rest.
+// picked beside it: its accounts, limits, the harnesses it runs in, what
+// its new sessions start with, what it does at a limit and what rush can
+// do with it. General is the rest.
 //
 // Most pages are forms: sections of settings, each of which says what it
-// does and what its values mean, drawn and driven here. Providers and
-// Capabilities draw themselves, Providers with a form beside its list.
+// does and what its values mean, drawn and driven here. Providers draws
+// itself, with a form beside its list.
 
 // page is one page of Settings: a form, or one that draws itself.
 type page struct {
@@ -44,7 +43,6 @@ type page struct {
 // The pages, in order.
 const (
 	pageProviders = iota
-	pageCapabilities
 	pageGeneral
 	pageKeys
 	pagePlugins
@@ -54,7 +52,6 @@ const (
 func (m *Model) settingsPages() []page {
 	return []page{
 		providersPage,
-		{name: "Capabilities", body: (*Model).capabilitiesBody, key: func(*Model, string) tea.Cmd { return nil }, rows: (*Model).capabilitiesLen},
 		{name: "General", form: (*Model).generalSections},
 		{name: "Keys", body: (*Model).keysBody, key: (*Model).keysKey, rows: (*Model).keysLen},
 		pluginsPage(),
@@ -62,11 +59,15 @@ func (m *Model) settingsPages() []page {
 }
 
 // openAgentSettings shows agent k's provider on Settings › Providers,
-// open.
+// open: its API key's when only that runs it.
 func (m *Model) openAgentSettings(k agent.Kind) {
 	m.setView(placeSettings)
 	m.setSettingsPage(pageProviders)
-	m.openItem(provItem{provider: agent.ProviderOf(k)})
+	id := agent.ProviderOf(k)
+	if agent.Split(id) && agent.KeyOnly(k) {
+		id = agent.KeyOf(id)
+	}
+	m.openItem(provItem{provider: id})
 }
 
 // dialog is Settings while it's open: the page, the cursor, and a value
@@ -121,7 +122,7 @@ func (m *Model) openDialog(p int) {
 func (m *Model) loadDialog() {
 	d := m.dialog
 	d.agents = m.agentDefs(loginsKind)
-	if d.page == pageProviders || d.page == pageCapabilities {
+	if d.page == pageProviders {
 		agent.Recheck() // an agent installed since shows at once
 	}
 	if d.page == pagePlugins {

@@ -48,7 +48,7 @@ func installedProviders() []string {
 // ownProfile is whether name is an installed provider's own profile, as
 // built in or as you changed it.
 func ownProfile(name string) bool {
-	return slices.ContainsFunc(installedProviders(), func(pr string) bool { return strings.EqualFold(pr, name) })
+	return slices.ContainsFunc(state.IDs(), func(id string) bool { return strings.EqualFold(id, name) })
 }
 
 // runsInWords is " in Pi" when agent k is its provider in another's
@@ -91,6 +91,9 @@ func (m *Model) makeDefaultProfile(name string) {
 	m.store.Config.SetDefaultProfile(name)
 	_ = m.store.SaveConfig()
 	m.spillTo()
+	if ownProfile(name) {
+		name = provLabel(name)
+	}
 	m.flash(name+" is the default: new sessions get it unless you or a folder pick another", false)
 }
 
@@ -102,13 +105,22 @@ func (m *Model) profileAgents(p state.Profile) string {
 	}
 	var names []string
 	for _, k := range inst {
-		names = append(names, kindName(agent.Kind(agent.ProviderOf(agent.Kind(k))))+runsInWords(agent.Kind(k)))
+		names = append(names, provLabel(p.ID(agent.ProviderOf(agent.Kind(k))))+runsInWords(agent.Kind(k)))
 	}
 	return strings.Join(names, " → ")
 }
 
+// newProfile makes a profile of the default's providers and policy, on
+// the account new sessions start on now, named after its harness and
+// that account (claudecode:alex) unless you name it otherwise.
 func (m *Model) newProfile() {
-	m.ask("name the new profile", "", func(v string) tea.Cmd {
+	k := m.startKind()
+	pick, _ := m.startPick(m.startDir())
+	name := strings.ToLower(strings.ReplaceAll(agent.HarnessLabel(agent.Kind(k)), " ", ""))
+	if a := m.accountOf(agent.Kind(k)); a != "" {
+		name += ":" + strings.ToLower(strings.ReplaceAll(a, " ", "-"))
+	}
+	m.ask("name the new profile", name, func(v string) tea.Cmd {
 		cfg := &m.store.Config
 		for _, p := range cfg.AllProfiles() {
 			if strings.EqualFold(p.Name, v) {
@@ -121,7 +133,8 @@ func (m *Model) newProfile() {
 			return nil
 		}
 		d := cfg.Default()
-		cfg.SetProfile("", state.Profile{Name: v, Providers: slices.Clone(d.Providers), Mix: d.Mix, OnLimit: d.OnLimit})
+		cfg.SetProfile("", state.Profile{Name: v, Providers: slices.Clone(d.Providers), Mix: d.Mix, OnLimit: d.OnLimit,
+			Billing: d.Billing, Account: pick.Account.ID, Model: d.Model, Effort: d.Effort})
 		_ = m.store.SaveConfig()
 		m.openItem(provItem{profile: v})
 		return nil
@@ -145,57 +158,18 @@ func (m *Model) renameProfile(name string) {
 	})
 }
 
-// harnessSetting is where provider pr runs: value is the harness chosen
-// ("" the default, when unset is given), set keeps a choice.
-func harnessSetting(pr, value, unset, what string, set func(string)) setting {
-	var choices [][2]string
-	if unset != "" {
-		choices = append(choices, [2]string{"", unset})
-	}
-	for _, k := range agent.Harnesses(pr) {
-		h := string(agent.HarnessOf(k))
-		mean := agentName(pr) + "'s models, run by " + agentName(h) + "."
-		if !agent.Runs(k) {
-			mean = agentName(pr) + "'s models, run by " + agentName(h) + ", which isn't installed: it runs in the first that is."
-		}
-		choices = append(choices, [2]string{h, mean})
-	}
-	st := choiceSetting("Runs in", value, what, choices, set)
-	st.unset, st.names = unset, map[string]string{}
-	for _, c := range choices {
-		if c[0] != "" {
-			st.names[c[0]] = agentName(c[0])
-		}
-	}
-	return st
-}
-
-// profileForm is one profile, open: its providers in order and where each
-// runs (a provider's own: only where it runs), what it does when they run
-// low, and the folders that pick it.
+// profileForm is one profile, open. One of yours has its providers in
+// order, where each runs and what it starts with; any has what it does
+// when they run low and the folders that pick it. A provider's own keeps
+// its harnesses and default on the provider's page, so has only those.
 func (m *Model) profileForm(p state.Profile) []section {
 	name := p.Name
 	cfg := &m.store.Config
 	change := func(f func(*state.Profile)) { m.changeProfile(name, f) }
+	own := ownProfile(name)
 	var first []section
-
-	if ownProfile(name) {
-		pr := agent.ProviderOf(agent.Kind(p.Providers[0]))
-		if len(agent.Harnesses(pr)) > 1 {
-			h := cfg.RunsIn[pr]
-			if h == "" {
-				h = string(agent.HarnessOf(agent.Harnesses(pr)[0]))
-			}
-			first = append(first, section{title: "Harness", note: "for every profile that doesn't choose its own",
-				rows: []setting{harnessSetting(pr, h, "",
-					"The program "+agentName(pr)+"'s sessions run in. Profiles of yours that list "+agentName(pr)+" use this, unless they choose another.",
-					func(v string) {
-						cfg.SetRunsIn(pr, v)
-						_ = m.store.SaveConfig()
-					})}})
-		}
-	} else {
-		first = append(first, m.profileProviders(p, change))
+	if !own {
+		first = append(first, m.profileProviders(p, change), m.profileStart(p, change))
 	}
 
 	limit := choiceSetting("When a limit stops a session", p.Limit(),
@@ -218,6 +192,9 @@ func (m *Model) profileForm(p state.Profile) []section {
 		low = append([]setting{mix}, low...)
 	}
 
+	if own {
+		return []section{{title: "When accounts run low", rows: low}, m.folderSection(name)}
+	}
 	isDef := strings.EqualFold(cfg.Default().Name, name)
 	def := choiceSetting("Default", map[bool]string{true: "yes", false: "no"}[isDef],
 		"Whether a new session gets this profile when you haven't picked one and its folder has none.",
@@ -228,24 +205,70 @@ func (m *Model) profileForm(p state.Profile) []section {
 				m.spillTo()
 			}
 		})
-	this := []setting{def}
-	if !ownProfile(name) {
-		rename := setting{label: "Name", value: name, typed: true, what: "What it's called, for #profile and the top bar.",
-			run: func(string) tea.Cmd { return nil }}
-		rename.key = func(s string) (tea.Cmd, bool) {
-			if s == "enter" || s == "right" {
-				m.renameProfile(name)
-				return nil, true
-			}
-			return nil, false
+	rename := setting{label: "Name", value: name, typed: true, what: "What it's called, for #profile and the top bar.",
+		run: func(string) tea.Cmd { return nil }}
+	rename.key = func(s string) (tea.Cmd, bool) {
+		if s == "enter" || s == "right" {
+			m.renameProfile(name)
+			return nil, true
 		}
-		this = append([]setting{rename}, this...)
+		return nil, false
 	}
+	this := []setting{rename, def}
 	return append(first,
 		section{title: "When accounts run low", rows: low},
 		section{title: "This profile", rows: this},
 		m.folderSection(name),
 	)
+}
+
+// profileStart is what the sessions of one of your profiles start with
+// on its first provider: how it's paid, the account, the model and the
+// effort, each what Settings gives the provider until chosen here.
+func (m *Model) profileStart(p state.Profile, change func(func(*state.Profile))) section {
+	sec := section{title: "Starts with", note: "on its first provider; unset is what that provider starts with"}
+	if len(p.Providers) == 0 {
+		return sec
+	}
+	pr := p.Providers[0]
+	k := agent.Kind(p.KindOf(pr))
+	pairs := func(list []agent.Choice) [][2]string {
+		out := [][2]string{{"", "as " + provLabel(p.ID(pr)) + " starts in " + agent.HarnessLabel(k) + "."}}
+		for _, c := range list {
+			out = append(out, [2]string{c.ID, c.Note})
+		}
+		return out
+	}
+	if agent.Split(pr) {
+		st := choiceSetting("Paid with", p.Billing, "How its sessions are paid for: the subscription, or per token with "+agent.ProviderLabel(pr)+"'s API key.",
+			[][2]string{{"", "the subscription " + agentName(pr) + " is signed in to."}, {state.BillingKey, "the API key, per token, in any harness you use it in."}},
+			func(v string) { change(func(p *state.Profile) { p.Billing = v }) })
+		st.unset, st.names = "subscription", map[string]string{state.BillingKey: "API key"}
+		sec.rows = append(sec.rows, st)
+	}
+	if rows := accountsOf(m.accountRows(), k); len(rows) > 1 && p.Billing != state.BillingKey {
+		choices := [][2]string{{"", "whichever of its accounts has the most room."}}
+		names := map[string]string{}
+		for _, r := range rows {
+			choices = append(choices, [2]string{r.id(), "starts on " + r.name() + " while it has room."})
+			names[r.id()] = r.name()
+		}
+		st := choiceSetting("Account", p.Account, "The account its sessions start on.", choices,
+			func(v string) { change(func(p *state.Profile) { p.Account = v }) })
+		st.unset, st.names = "most room", names
+		sec.rows = append(sec.rows, st)
+	}
+	model := choiceSetting("Model", p.Model, "The model its sessions start with.", pairs(m.agentModels(k)),
+		func(v string) { change(func(p *state.Profile) { p.Model = v }) })
+	model.unset = "provider's"
+	sec.rows = append(sec.rows, model)
+	if ch, _ := agent.ChoicesOf(k); agent.Supports(k, agent.FeatureEffort) {
+		effort := choiceSetting("Effort", p.Effort, "How hard its sessions think before acting.", pairs(ch.Efforts),
+			func(v string) { change(func(p *state.Profile) { p.Effort = v }) })
+		effort.unset, effort.typed = "provider's", len(ch.Efforts) == 0
+		sec.rows = append(sec.rows, effort)
+	}
+	return sec
 }
 
 // profileProviders is a profile of yours' providers, in its order, then the

@@ -13,7 +13,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/plugin"
 	"github.com/0xdeafcafe/rush/internal/state"
@@ -27,8 +26,8 @@ func TestSettingsPagesBrackets(t *testing.T) {
 	m.setSettingsPage(pageProviders)
 	n := len(m.settingsPages())
 	m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
-	if m.dialog.page != pageCapabilities {
-		t.Fatalf("] went to page %d, not Capabilities", m.dialog.page)
+	if m.dialog.page != pageGeneral {
+		t.Fatalf("] went to page %d, not General", m.dialog.page)
 	}
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
@@ -109,7 +108,7 @@ func TestSettingsProvidersOnePage(t *testing.T) {
 		t.Fatalf("enter: inside %v on %+v", m.dialog.inside, it)
 	}
 	body := ansi.Strip(strings.Join(m.dialogBody(150), "\n"))
-	for _, want := range []string{"Account", "one@example.com", "New sessions start with", "When a limit stops a session", "can do"} {
+	for _, want := range []string{"Account", "one@example.com", "New sessions start with", "When a limit stops a session", "Harnesses", "What it can do"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("zcodex doesn't show %q:\n%s", want, body)
 		}
@@ -137,7 +136,7 @@ func TestSettingsProvidersOnePage(t *testing.T) {
 		t.Fatal("openAgentSettings didn't land in the agent's provider")
 	}
 	// Narrow, the list and what's picked take turns.
-	if body := ansi.Strip(strings.Join(m.dialogBody(80), "\n")); strings.Contains(body, "│") || !strings.Contains(body, "can do") {
+	if body := ansi.Strip(strings.Join(m.dialogBody(80), "\n")); strings.Contains(body, "│") || !strings.Contains(body, "What it can do") {
 		t.Fatalf("narrow and inside, not the provider alone:\n%s", body)
 	}
 }
@@ -169,12 +168,17 @@ func TestSettingsProfiles(t *testing.T) {
 		}
 	}
 	before := len(cfg.Profiles)
-	press("n", "client", "enter")
+	press("n")
+	if got := string(m.dialog.input); got != "claudecode:work" {
+		t.Fatalf("a new profile is offered the name %q, not its harness and account", got)
+	}
+	m.dialog.input = nil
+	press("client", "enter")
 	if len(cfg.Profiles) != before+1 || !m.dialog.inside || m.provPicked().profile != "client" {
 		t.Fatalf("n didn't make and open a profile: %d profiles, open %+v", len(cfg.Profiles), m.provPicked())
 	}
 	body := ansi.Strip(strings.Join(m.dialogBody(130), "\n"))
-	for _, want := range []string{"client", "Providers", "When a limit stops a session", "Folders"} {
+	for _, want := range []string{"client", "Providers", "Starts with", "When a limit stops a session", "Folders"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the open profile doesn't show %q:\n%s", want, body)
 		}
@@ -264,21 +268,14 @@ func TestTabTurnsPages(t *testing.T) {
 	}
 }
 
-// An agent's models table has a row a model: what it reads, its window
-// and efforts, and ? with a footnote for what the agent doesn't know.
-func TestModelTable(t *testing.T) {
-	rows := ansi.Strip(strings.Join(modelTable("claude", []agent.Choice{{ID: "opus"}, {ID: "haiku"}}), "\n"))
-	for _, want := range []string{"\n  opus               ✓       ✓    1M       low–max\n", "\n  haiku              ✓       ✓    200k     low–max"} {
-		if !strings.Contains(rows+"\n", want) {
-			t.Errorf("no row %q in\n%s", want, rows)
-		}
+// What a model takes says images, PDFs and its window when the agent
+// knows them, and that it doesn't when it doesn't.
+func TestModelTakes(t *testing.T) {
+	if got := ansi.Strip(modelTakes("claude", "opus")); got != "✓ images · ✓ PDFs · 1M context" {
+		t.Errorf("opus takes %q", got)
 	}
-	if strings.Contains(rows, "unknown to rush") {
-		t.Errorf("a footnote with nothing unknown:\n%s", rows)
-	}
-	rows = ansi.Strip(strings.Join(modelTable("nobody", []agent.Choice{{ID: "m"}}), "\n"))
-	if !strings.Contains(rows, "\n  m                  ?       ?    ?        –\n") || !strings.Contains(rows, "? unknown to rush until it's used") {
-		t.Errorf("an agent that knows nothing of its model:\n%s", rows)
+	if got := ansi.Strip(modelTakes("nobody", "m")); !strings.Contains(got, "unknown to rush") {
+		t.Errorf("an agent that knows nothing of its model: %q", got)
 	}
 }
 
@@ -383,5 +380,28 @@ func TestHiddenLogo(t *testing.T) {
 	}
 	if _, ok := m.clickTab(col(m.underHead()[0], "Keys"), m.headH()); !ok || m.dialog.page != pageKeys {
 		t.Errorf("clicking Keys: page %d", m.dialog.page)
+	}
+}
+
+// Anthropic's subscription and its API key are providers of their own:
+// the key has no account or limits, and says whether there's one yet.
+func TestProvidersSplitByBilling(t *testing.T) {
+	m, _ := benchModel(160, 50)
+	m.setView(placeSettings)
+	m.setSettingsPage(pageProviders)
+	items := m.provItems()
+	i := slices.Index(items, provItem{provider: "claude"})
+	if i < 0 || i+1 >= len(items) || items[i+1].provider != "claude-key" {
+		t.Fatalf("no Anthropic key after its subscription: %+v", items)
+	}
+	m.dialog.cursor = i + 1
+	body := ansi.Strip(strings.Join(m.dialogBody(150), "\n"))
+	for _, want := range []string{"Anthropic · API key", "none yet · $ adds one", "Harnesses", "What it can do"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the key doesn't show %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "Account ·") || strings.Contains(body, "When a limit stops") {
+		t.Errorf("the key shows accounts or limits:\n%s", body)
 	}
 }

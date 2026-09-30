@@ -241,7 +241,9 @@ func (m *Model) chain(p state.Profile) string {
 		return paint(cYellow, "none of its providers is installed")
 	}
 	tag := func(k string) string {
-		return providerTag(agent.Kind(agent.ProviderOf(agent.Kind(k)))) + dim(runsInWords(agent.Kind(k)))
+		pr := agent.ProviderOf(agent.Kind(k))
+		l := lookOf(agent.Kind(pr))
+		return paint(l.colour(), l.glyph+" "+provLabel(p.ID(pr))) + dim(runsInWords(agent.Kind(k)))
 	}
 	if !p.Mixes() || len(inst) == 1 {
 		return tag(inst[0]) + dim(" only")
