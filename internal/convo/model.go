@@ -9,7 +9,6 @@ package convo
 
 import (
 	"encoding/json/jsontext"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -332,6 +331,9 @@ type Session struct {
 	TaskStatus map[string]string
 	// First and Last are the times of the first and latest activity.
 	First, Last time.Time
+	// Partial is a session read from part way through its transcript
+	// (NewTailFrom): what needs all of it says it's still counting.
+	Partial bool
 }
 
 func New() *Session {
@@ -919,16 +921,21 @@ func (s *Session) bases() []string {
 		return s.baseList
 	}
 	var out []string
+	known := true
 	for _, b := range []string{s.Info.Cwd, s.Cwd} {
 		if b == "" {
 			continue
 		}
 		out = append(out, b)
-		if r, err := filepath.EvalSymlinks(b); err == nil && r != b {
+		r, ok := realDir(b)
+		if r != b {
 			out = append(out, r)
 		}
+		known = known && ok
 	}
-	s.baseList, s.baseFor = out, s.Info.Cwd+"|"+s.Cwd
+	if known {
+		s.baseList, s.baseFor = out, s.Info.Cwd+"|"+s.Cwd
+	}
 	return out
 }
 

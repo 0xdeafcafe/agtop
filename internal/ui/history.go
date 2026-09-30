@@ -49,8 +49,11 @@ func openHistory(a *fleet.Agent) tea.Cmd {
 				h.s.Profile.Dir = cfg.Account.Dir
 			}
 		}
-		h.stat()
-		sess := agentHistory(h.kind, h.s, time.Time{})
+		// Its end first; the pane's next read takes in the whole of it.
+		sess := agentHistoryTail(h.kind, h.s)
+		if !sess.Partial {
+			h.stat()
+		}
 		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, kind: h.kind, sess: sess, hist: h, open: map[string]bool{}, ready: true}}
 	}
 }

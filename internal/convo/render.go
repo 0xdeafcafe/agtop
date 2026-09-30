@@ -125,8 +125,11 @@ func (s *Session) RenderInto(o Options, buf []Line) []Line {
 		n += len(parts[i])
 	}
 	out := buf[:0]
-	if cap(out) < n {
-		out = make([]Line, 0, n+n/4)
+	if cap(out) < n+1 {
+		out = make([]Line, 0, n+n/4+1)
+	}
+	if s.Partial {
+		out = append(out, Line{Text: dim("  reading earlier…")})
 	}
 	for _, p := range parts {
 		out = append(out, p...)
@@ -1603,7 +1606,7 @@ type memoKey struct {
 // without asking: a folded run that gains a step would work out every
 // step in it again, in one frame.
 func (s *Session) memoTurn() {
-	if f := s.Info.Cwd + "|" + s.Cwd; f != s.rowsFor {
+	if f := strings.Join(s.bases(), "|"); f != s.rowsFor {
 		s.rows, s.rowsOld, s.rowsFor = nil, nil, f // paths read relative to other folders now
 	}
 	s.memoOld, s.memo = age(s.memoOld, s.memo)

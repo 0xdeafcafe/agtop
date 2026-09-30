@@ -210,6 +210,9 @@ var agentSegs = []barSeg{
 		return t
 	}},
 	{"lines", "Lines changed", "lines it added and removed", func(x *barCtx) string {
+		if x.c.sess.Partial {
+			return dim("counting…")
+		}
 		add, del := 0, 0
 		for _, f := range x.c.sess.Changes() {
 			add, del = add+f.Add, del+f.Del
@@ -220,18 +223,27 @@ var agentSegs = []barSeg{
 		return paint(cGreen, fmt.Sprintf("+%d", add)) + " " + paint(cRed, fmt.Sprintf("−%d", del))
 	}},
 	{"files", "Files changed", "how many files it changed", func(x *barCtx) string {
+		if x.c.sess.Partial {
+			return dim("counting…")
+		}
 		if n := len(x.c.sess.Changes()); n > 0 {
 			return dim(fmt.Sprintf("%d file%s", n, plural(n)))
 		}
 		return ""
 	}},
 	{"turns", "Turns", "how many of your messages it has had", func(x *barCtx) string {
+		if x.c.sess.Partial {
+			return dim("counting…")
+		}
 		if n := len(x.c.sess.Turns); n > 0 {
 			return dim(fmt.Sprintf("%d turn%s", n, plural(n)))
 		}
 		return ""
 	}},
 	{"time", "Time", "how long since its first turn", func(x *barCtx) string {
+		if x.c.sess.Partial {
+			return dim("counting…")
+		}
 		ts := x.c.sess.Turns
 		if len(ts) == 0 || ts[0].Start.IsZero() {
 			return ""

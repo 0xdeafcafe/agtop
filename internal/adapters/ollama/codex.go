@@ -123,6 +123,10 @@ func (CodexAdapter) History(s agent.Session, before time.Time) ([]event.Event, e
 	return codexad.Adapter{}.History(s, before)
 }
 
+func (CodexAdapter) HistoryTail(s agent.Session, most int64) ([]event.Event, bool, error) { //nolint:gocritic // as History
+	return codexad.Adapter{}.HistoryTail(s, most)
+}
+
 // ours are codex's sessions as Ollama in Codex's.
 func ours(ss []agent.Session) []agent.Session {
 	for i := range ss {
@@ -141,4 +145,5 @@ var (
 	_ agent.Provided      = CodexAdapter{}
 	_ agent.Discoverer    = CodexAdapter{}
 	_ agent.HistoryReader = CodexAdapter{}
+	_ agent.TailReader    = CodexAdapter{}
 )

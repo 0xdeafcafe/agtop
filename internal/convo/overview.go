@@ -190,6 +190,9 @@ func bar(frac float64, w int, c string) string {
 // Overview draws the session's numbers as sections: what's running now,
 // totals, model and effort over time, tools, the cache, and subagents.
 func (s *Session) Overview(o Options) []Line {
+	if s.Partial {
+		return Counting()
+	}
 	// Kept for the second: a frame for every message would draw it anew.
 	// ponytail: keyed on Apply and the Info the UI sets; other direct writes aren't seen.
 	i := s.Info
@@ -202,6 +205,10 @@ func (s *Session) Overview(o Options) []Line {
 	s.ovMemo.key, s.ovMemo.lines = k, out[:len(out):len(out)] // a caller's append copies
 	return s.ovMemo.lines
 }
+
+// Counting is what a view of the whole session shows while only its end
+// has been read.
+func Counting() []Line { return []Line{{Text: ""}, {Text: dim("  counting…")}} }
 
 type overviewKey struct {
 	applied, width, pal            int

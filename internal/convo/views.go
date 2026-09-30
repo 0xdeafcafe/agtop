@@ -1,9 +1,11 @@
 package convo
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -161,14 +163,20 @@ func fileBinary(path string) bool {
 	return err == nil && binary(string(bs))
 }
 
-// heads keeps each file's first bytes as read, so a frame reads it once.
+// heads keeps each file's first bytes, read by a goroutine the first time
+// they're asked for: a frame never waits on the disk, and is drawn again
+// (lookupsGen) once they're in.
 // ponytail: never forgets or rereads; key on mtime if files change under it.
 var heads sync.Map
 
 type head struct {
 	bs   []byte
 	size int64
+	err  error
 }
+
+// errNotYet is a file whose head is still being read.
+var errNotYet = errors.New("not read yet")
 
 // readHead is up to n of path's first bytes and how big it is.
 func readHead(path string, n int) ([]byte, int64, error) {
@@ -176,24 +184,52 @@ func readHead(path string, n int) ([]byte, int64, error) {
 		return nil, 0, os.ErrNotExist
 	}
 	k := fmt.Sprint(path, n)
-	if h, ok := heads.Load(k); ok {
-		return h.(head).bs, h.(head).size, nil
+	h, known := heads.LoadOrStore(k, head{err: errNotYet})
+	if !known {
+		go func() {
+			heads.Store(k, readHeadNow(path, n))
+			lookupsGen.Add(1)
+		}()
 	}
+	hd := h.(head)
+	return hd.bs, hd.size, hd.err
+}
+
+func readHeadNow(path string, n int) head {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, 0, err
+		return head{err: err}
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil || fi.IsDir() {
-		return nil, 0, os.ErrNotExist
+		return head{err: os.ErrNotExist}
 	}
 	bs, err := io.ReadAll(io.LimitReader(f, int64(n)))
-	if err != nil {
-		return nil, 0, err
+	return head{bs: bs, size: fi.Size(), err: err}
+}
+
+// realDirs are folders as their links resolve, by folder.
+var realDirs sync.Map
+
+// realDir is where dir's links lead, once a goroutine has looked: a render
+// never waits on the disk, it draws with dir until then.
+func realDir(dir string) (string, bool) {
+	r, looked := realDirs.LoadOrStore(dir, "")
+	if r != "" {
+		return r.(string), true
 	}
-	heads.Store(k, head{bs, fi.Size()})
-	return bs, fi.Size(), nil
+	if !looked {
+		go func() {
+			r, err := filepath.EvalSymlinks(dir)
+			if err != nil {
+				r = dir
+			}
+			realDirs.Store(dir, r)
+			lookupsGen.Add(1)
+		}()
+	}
+	return dir, false
 }
 
 // hexSource is the bytes st's hex view shows and how many there are in

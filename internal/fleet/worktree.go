@@ -395,13 +395,34 @@ func TranscriptCwd(path string) string {
 // by its branch (or folder), when that isn't its session's, whose folder
 // is cwd: "" when it's the same. ok is false while that can't be told.
 func SubWorktree(transcript, cwd string) (label string, ok bool) {
-	sub := TranscriptCwd(transcript)
-	if sub == "" || cwd == "" {
-		return "", false
+	label, ok = SubWorktrees([]string{transcript}, cwd)[transcript]
+	return label, ok
+}
+
+// SubWorktrees is SubWorktree for many runs of one session, asking git
+// about each folder once: by transcript, those that can be told.
+func SubWorktrees(transcripts []string, cwd string) map[string]string {
+	out := map[string]string{}
+	if cwd == "" {
+		return out
 	}
-	repo, branch := gitAt(sub)
-	if own, _ := gitAt(cwd); repo == "" || repo == own {
-		return "", true
+	own, _ := gitAt(cwd)
+	type checkout struct{ repo, branch string }
+	seen := map[string]checkout{}
+	for _, t := range transcripts {
+		sub := TranscriptCwd(t)
+		if sub == "" {
+			continue
+		}
+		g, ok := seen[sub]
+		if !ok {
+			g.repo, g.branch = gitAt(sub)
+			seen[sub] = g
+		}
+		out[t] = ""
+		if g.repo != "" && g.repo != own {
+			out[t] = firstNonEmpty(g.branch, filepath.Base(g.repo))
+		}
 	}
-	return firstNonEmpty(branch, filepath.Base(repo)), true
+	return out
 }

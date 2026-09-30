@@ -18,6 +18,9 @@ import (
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
+// Dir is rush's folder.
+//
+//uiblock:nowait Load asks it before the view starts: after that it's kept
 func Dir() string {
 	if d := os.Getenv("RUSH_HOME"); d != "" {
 		return d

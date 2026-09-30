@@ -154,6 +154,13 @@ type HistoryReader interface {
 	History(s Session, before time.Time) ([]event.Event, error)
 }
 
+// TailReader reads only a session's end, from the first whole line of its
+// transcript's last most bytes, for a long one to show at once; cut is
+// whether that left some out.
+type TailReader interface {
+	HistoryTail(s Session, most int64) (evs []event.Event, cut bool, err error)
+}
+
 // QuotaSource reads an account's limits. p is the profile to read them
 // through, for agents whose sign-in lives in the profile.
 type QuotaSource interface {

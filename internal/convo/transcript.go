@@ -31,11 +31,28 @@ type Tail struct {
 	sidechain bool      // a subagent's own transcript: its lines are the story
 	before    time.Time // History: only lines from before this
 	past      bool      // History: read past before, so there's nothing more to take
+	cut       bool      // NewTailFrom: the first line read is the end of one, dropped
+	// Stop, once set, has Read give up where it is.
+	Stop *atomic.Bool
 }
 
 var readBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
 
 func NewTail(path string) *Tail { return &Tail{Path: path, Sess: New()} }
+
+// NewTailFrom is a Tail that starts at the first whole line of the file's
+// last most bytes, so a long conversation's end is read at once; its
+// Session is then Partial.
+func NewTailFrom(path string, most int64) *Tail {
+	t := NewTail(path)
+	if st, err := os.Stat(path); err == nil && st.Size() > most {
+		// A byte early: the line cut short there runs to the first newline,
+		// which is that byte when the cut fell between two lines.
+		t.off.Store(st.Size() - most - 1)
+		t.cut, t.Sess.Partial = true, true
+	}
+	return t
+}
 
 // Size is how far into the file Read has got.
 func (t *Tail) Size() int64 { return t.off.Load() }
@@ -124,6 +141,10 @@ func (t *Tail) Read() (bool, error) {
 				// hundreds of them each holding a buffer add up.
 				t.partial = nil
 			}
+			if t.cut {
+				t.cut = false
+				continue
+			}
 			if t.apply(bytes.TrimSpace(line)) {
 				changed = true
 			}
@@ -131,7 +152,7 @@ func (t *Tail) Read() (bool, error) {
 				return changed, nil
 			}
 		}
-		if err != nil || n == 0 {
+		if err != nil || n == 0 || t.Stop != nil && t.Stop.Load() {
 			break
 		}
 	}
@@ -350,8 +371,9 @@ func (t *Tail) take(p *parsedLine) bool {
 				s.interrupted(at)
 				return true
 			}
-			// A new prompt closes a turn the transcript never marked done.
-			if live := s.Live(); live != nil && live.Prompt != "" {
+			// A new prompt closes a turn the transcript never marked done,
+			// and the one a Partial session began part way through.
+			if live := s.Live(); live != nil && (live.Prompt != "" || s.Partial && live.N == 1) {
 				s.Apply(event.TurnEnd{Reason: "done"}, at)
 			}
 			from, text2, injected := Injected(text)

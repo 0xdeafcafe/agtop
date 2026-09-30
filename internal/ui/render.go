@@ -93,6 +93,12 @@ func (m *Model) drain(cmd tea.Cmd) {
 		}
 	case paneMsg:
 		m.drain(m.onPane(msg))
+		if c := m.host; c != nil && c.paneKick { // as Update follows it
+			c.paneKick = false
+			m.drain(m.refreshSubs())
+		}
+	case wholeMsg:
+		m.onWhole(msg)
 	case applyMsg:
 		m.drain(msg.applyTo(m))
 	}

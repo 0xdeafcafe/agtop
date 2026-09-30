@@ -815,12 +815,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onGrow(msg)
 	case paneMsg:
 		return m, m.onPane(msg)
+	case wholeMsg:
+		m.onWhole(msg)
+		return m, nil
 	case foldersMsg:
 		m.onFolders(msg)
 		return m, nil
 	case subStatsMsg:
-		m.onSubStats(msg)
-		return m, nil
+		return m, m.onSubStats(msg)
 	case spawnFoundMsg:
 		m.onSpawnFound(msg)
 		return m, nil

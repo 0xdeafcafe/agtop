@@ -522,3 +522,31 @@ func TestOneLineMatchesWhole(t *testing.T) {
 		}
 	}
 }
+
+// A rollout read from part way through a turn keeps the thread's meta and
+// reads its last turn as the whole rollout does.
+func TestHistoryTail(t *testing.T) {
+	turn := func(r *rollout, said, answer string) *rollout {
+		return r.add("turn_context", map[string]any{"model": "gpt-5", "approval_policy": "never"}).
+			event("task_started", map[string]any{}).
+			response("message", userMsg(said)).
+			response("function_call", map[string]any{"id": "f", "call_id": "c-" + said, "name": "exec_command", "arguments": `{"cmd":"ls"}`}).
+			response("function_call_output", map[string]any{"id": "fo", "call_id": "c-" + said, "output": "a.go"}).
+			response("message", map[string]any{"id": "a", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": answer}}}).
+			event("task_complete", map[string]any{})
+	}
+	r := turn(turn((&rollout{t0: t0}).add("session_meta", meta("thread-9", "cli")), "first", "one"), "second", "two")
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	r.write(t, path)
+	whole := history(t, r, time.Time{})
+	all := r.text()
+	evs, cut, err := Adapter{}.HistoryTail(agent.Session{Transcript: path}, int64(len(all)-strings.Index(all, `"c-first"`)))
+	if err != nil || !cut {
+		t.Fatalf("cut %v: %v", cut, err)
+	}
+	got := describeAll(evs)
+	if !strings.HasPrefix(got[0], "init thread-9") || strings.Contains(strings.Join(got, "\n"), "text:first") {
+		t.Errorf("start: %v", got)
+	}
+	same(t, got[len(got)-5:], whole[len(whole)-5:])
+}

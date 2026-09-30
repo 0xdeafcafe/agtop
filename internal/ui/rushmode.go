@@ -127,6 +127,9 @@ func (m *Model) refreshSubs() tea.Cmd {
 		}
 	}
 	reader, list, gone := c.subReader, &c.subList, m.sessionGone(c)
+	if !c.listed {
+		reader = nil // the runs listed first, quickly; what they say next
+	}
 	_, paneW, _ := m.layout() // a history read again is drawn here, as warmed does
 	warm := convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()}
 	return func() tea.Msg {
@@ -154,8 +157,13 @@ func (m *Model) refreshSubs() tea.Cmd {
 			f, err := t.Fetch()
 			msg.got[i] = fetched{t: t, f: f, err: err}
 		}
+		paths := make([]string, len(wtFor))
+		for i, sa := range wtFor {
+			paths[i] = sa.Path
+		}
+		wts := fleet.SubWorktrees(paths, cwd)
 		for _, sa := range wtFor {
-			if wt, ok := fleet.SubWorktree(sa.Path, cwd); ok {
+			if wt, ok := wts[sa.Path]; ok {
 				if msg.wt == nil {
 					msg.wt = map[string]string{}
 				}
@@ -220,8 +228,15 @@ func (m *Model) onPane(msg paneMsg) tea.Cmd {
 		}
 	}
 	m.takeSpawns(c, grew, msg.spawnHists)
+	if msg.path != "" && msg.path == c.path && !c.listed {
+		c.listed, c.paneKick = true, len(msg.subs) > 0
+	}
 	if msg.histSess != nil && c.hist == msg.hist {
-		c.sess = msg.histSess
+		if c.sess.Partial {
+			m.takeWhole(c, msg.histSess)
+		} else {
+			c.sess = msg.histSess
+		}
 	}
 	if msg.path != "" && msg.path == c.path {
 		c.subs = append(msg.subs, c.spawnSubs()...)
@@ -273,22 +288,27 @@ func (m *Model) readUnread(c *hostConn) tea.Cmd {
 	c.subReading = true
 	key := c.key
 	return func() tea.Msg {
-		// Hundreds of runs read one after another took seconds: a few at once.
+		// Hundreds of runs took seconds: a few at once, the newest first,
+		// brought a batch a frame or so; onSubStats asks for the rest.
 		tails := make([]*convo.Tail, len(unread))
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, max(2, runtime.NumCPU()/2))
-		for i, sa := range unread {
+		until := time.Now().Add(subBatch)
+		for i := len(unread) - 1; i >= 0 && time.Now().Before(until); i-- {
+			sem <- struct{}{}
 			wg.Go(func() {
-				sem <- struct{}{}
 				defer func() { <-sem }()
-				tails[i] = convo.SubagentStats(sa.Path)
-				_, _ = tails[i].Read()
+				t := convo.SubagentStats(unread[i].Path)
+				_, _ = t.Read()
+				tails[i] = t
 			})
 		}
 		wg.Wait()
 		read := make(map[string]*convo.Tail, len(unread))
 		for i, sa := range unread {
-			read[sa.ID] = tails[i]
+			if tails[i] != nil {
+				read[sa.ID] = tails[i]
+			}
 		}
 		return subStatsMsg{key: key, tails: read}
 	}
@@ -338,10 +358,10 @@ type subStatsMsg struct {
 	tails map[string]*convo.Tail
 }
 
-func (m *Model) onSubStats(msg subStatsMsg) {
+func (m *Model) onSubStats(msg subStatsMsg) tea.Cmd {
 	c := m.host
 	if c == nil || c.key != msg.key {
-		return
+		return nil
 	}
 	c.subReading = false
 	for id, t := range msg.tails {
@@ -349,7 +369,11 @@ func (m *Model) onSubStats(msg subStatsMsg) {
 			c.subTails[id] = t
 		}
 	}
+	return m.readUnread(c) // the next batch
 }
+
+// subBatch is about how long each batch of runs' numbers reads for.
+const subBatch = 50 * time.Millisecond
 
 // subDetail is the whole conversation of a run, for showing it beside the
 // list: the opened run's, or one read now and kept while it's the one picked.
@@ -1166,6 +1190,9 @@ func tabStat(c *hostConn, v string) string {
 			return paint(cBlue, fmt.Sprintf("◆%d", n))
 		}
 	case "changes":
+		if c.sess.Partial {
+			return dim("counting…")
+		}
 		a, d := 0, 0
 		for _, fc := range c.sess.Changes() {
 			a, d = a+fc.Add, d+fc.Del
@@ -1362,6 +1389,9 @@ type hostConn struct {
 	// shows some of it as drawn before, at another width perhaps: relayout
 	// draws again soon.
 	stale bool
+
+	listed bool        // its runs have been listed once, quickly: the next read is all of it
+	closed atomic.Bool // let go: what still reads for it gives up
 }
 
 type hostOpenMsg struct {
@@ -1578,6 +1608,7 @@ func warmed(open tea.Cmd, o convo.Options) tea.Cmd {
 func (m *Model) dropHost() {
 	if m.host != nil {
 		m.host.unwatch()
+		m.host.closed.Store(true)
 	}
 	if m.host != nil && m.host.client != nil {
 		go m.host.client.Close() //nolint:errcheck // a socket let go: nothing waits on its close
@@ -1612,7 +1643,7 @@ func openTail(a *fleet.Agent) tea.Cmd {
 		return openHistory(a)
 	}
 	return func() tea.Msg {
-		t := convo.NewTail(path)
+		t := convo.NewTailFrom(path, tailBytes)
 		// A stopped rush session that never got a message has no
 		// transcript yet: it opens empty, and a message resumes it.
 		if _, err := t.Read(); err != nil && (!rush || !errors.Is(err, fs.ErrNotExist)) {
@@ -1665,8 +1696,13 @@ func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 		m.host.input, m.host.back = []rune(d), 0
 		m.paneFocus = true
 	}
-	if m.host.client == nil {
+	if c := m.host; c.client == nil {
 		m.followTail()
+		c.paneKick = true // its subagents and jobs, now rather than on the next tick
+		if c.tail != nil && c.sess.Partial {
+			_, paneW, _ := m.layout()
+			return c.readWhole(convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()})
+		}
 		return nil
 	}
 	return m.host.next()

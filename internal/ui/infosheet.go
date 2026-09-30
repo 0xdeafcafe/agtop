@@ -457,9 +457,12 @@ func usageLines(m *Model, c *hostConn, a *fleet.Agent, other *usage.Quota, w int
 	if t.Turns > 0 {
 		cost += dim(fmt.Sprintf(" · %d turns · %s working", t.Turns, dur(t.Working)))
 	}
+	if s.Partial {
+		cost = dim("counting…")
+	}
 	out = append(out, infoRow("cost", cost, w))
 	out = append(out, billedRow(usage.Billing(s.Info.Billing), w)...)
-	if t.Requests > 0 {
+	if t.Requests > 0 && !s.Partial {
 		out = append(out, infoRow("requests", paint(cText, fmt.Sprint(t.Requests))+dim(fmt.Sprintf(" · %d tool calls", t.ToolCalls)), w))
 		read := t.In + t.CacheRead + t.CacheOut
 		hit := ""
