@@ -890,7 +890,7 @@ func (m *Model) wallHint() string {
 	if m.wall.all {
 		all = "only what's open"
 	}
-	pairs := []string{"←↑↓→", "move", "enter", "open", "a", all, "alt+g", "keep going", "esc", "back"}
+	pairs := []string{"←↑↓→", "move", "enter", "open", "a", all, "ctrl+b", "keep going", "esc", "back"}
 	if a := m.agentByKey(m.wall.sel); a != nil && a.Halted() {
 		pairs[7] = "continue"
 	}
@@ -956,7 +956,7 @@ func (m *Model) wallKey(s string) tea.Cmd {
 		m.wall.all = !m.wall.all
 	case "enter":
 		return m.goAgent(it.a)
-	case "alt+g":
+	case "ctrl+b", "alt+g":
 		if it.sub == nil {
 			return m.keepGoing(it.a)
 		}

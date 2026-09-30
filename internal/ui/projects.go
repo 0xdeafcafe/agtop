@@ -846,7 +846,7 @@ func (m *Model) projectsHint() string {
 	case r.proj != nil || r.pane:
 		return keysFit(w, append([]string{"↑↓", "move", "enter", "into it", "c", "clean up"}, append(tabs, "esc", "back")...)...)
 	case r.a != nil:
-		k := []string{"↑↓", "move", "enter", "open", "ctrl+y", "its PR", "alt+g", "keep going"}
+		k := []string{"↑↓", "move", "enter", "open", "ctrl+y", "its PR", "ctrl+b", "keep going"}
 		if r.a.Temp >= tempShown && r.a.PID == 0 {
 			k = append(k, "x", "remove temp work")
 		}
@@ -907,7 +907,7 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 		}
 	case "ctrl+y":
 		return m.openPR(r.a)
-	case "alt+g", "g":
+	case "ctrl+b", "alt+g", "g":
 		return m.keepGoing(r.a)
 	case "x", "ctrl+x", "backspace", "delete":
 		switch {

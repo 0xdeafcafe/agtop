@@ -245,3 +245,33 @@ func TestHaltSaysRushRetries(t *testing.T) {
 		}
 	}
 }
+
+// ctrl+] begins rush's chords for the keys ⌥ has, but always hands Claude
+// Code's own screen back.
+func TestCtrlBracketLeavesTheScreen(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	m.paneFocus, m.embedded = false, true
+	pressKeys(m, "ctrl+]")
+	if m.embedded || len(m.keys.chord) != 0 {
+		t.Fatalf("embedded %v, chord %v", m.embedded, m.keys.chord)
+	}
+	pressKeys(m, "ctrl+]")
+	if len(m.keys.chord) != 1 {
+		t.Fatal("ctrl+] off the screen should begin a chord")
+	}
+}
+
+// ctrl+d moves the agent to Done, from the list as from its Session.
+func TestCtrlDMarksDone(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	m.paneFocus = false
+	a := m.selected()
+	if a == nil {
+		t.Skip("no agent selected")
+	}
+	_, was := m.store.Overlay.Done[a.Key]
+	pressKeys(m, "ctrl+d")
+	if _, now := m.store.Overlay.Done[a.Key]; now == was && m.confirm == nil {
+		t.Fatal("ctrl+d should move the agent to Done, or ask first")
+	}
+}

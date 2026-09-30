@@ -107,6 +107,9 @@ func (m *Model) remapKey(k *tea.KeyPressMsg, s *string) (tea.Cmd, bool) {
 		m.keys.capture = nil
 		return f(*s), true
 	}
+	if m.embedded && *s == "ctrl+]" {
+		return nil, false // always hands Claude Code's screen back, never a chord
+	}
 	if len(m.keys.chord) > 0 && time.Since(m.keys.chordAt) > chordWait {
 		m.keys.chord = nil
 	}

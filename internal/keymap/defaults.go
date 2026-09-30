@@ -2,7 +2,8 @@ package keymap
 
 // Defaults are rush's own keys, as its key handling is written. Keys that
 // only edit text (arrows in a box, ctrl+a, backspace) aren't here: they
-// belong to the box, not to an action.
+// belong to the box, not to an action. None needs ⌥: where no ctrl or
+// shift key is free, ctrl+] then the letter is the chord for its ⌥ key.
 var Defaults = []Action{
 	{ID: "bar.open", Context: Global, Title: "the command bar", Keys: []string{"ctrl+k", "super+k"}},
 	{ID: "bar.scope", Context: Global, Title: "the command bar, next scope", Keys: []string{"ctrl+f"}},
@@ -10,12 +11,12 @@ var Defaults = []Action{
 	{ID: "zen", Context: Global, Title: "Zen on and off", Keys: []string{"ctrl+z"}},
 	{ID: "place.prev", Context: Global, Title: "the place before", Keys: []string{",", "<"}},
 	{ID: "place.next", Context: Global, Title: "the next place", Keys: []string{".", ">", "ctrl+\\"}},
-	{ID: "profile.pick", Context: Global, Title: "switch the default profile or provider", Keys: []string{"alt+w"}},
+	{ID: "profile.pick", Context: Global, Title: "switch the default profile or provider", Keys: []string{"ctrl+] w", "alt+w"}},
 
 	{ID: "list.up", Context: List, Title: "the agent above", Keys: []string{"up"}},
 	{ID: "list.down", Context: List, Title: "the agent below", Keys: []string{"down"}},
 	{ID: "list.pageup", Context: List, Title: "ten agents up", Keys: []string{"pgup"}},
-	{ID: "list.pagedown", Context: List, Title: "ten agents down", Keys: []string{"pgdown", "ctrl+d"}},
+	{ID: "list.pagedown", Context: List, Title: "ten agents down", Keys: []string{"pgdown"}},
 	{ID: "list.first", Context: List, Title: "the first agent", Keys: []string{"home", "shift+up"}},
 	{ID: "list.last", Context: List, Title: "the last agent", Keys: []string{"end", "shift+down"}},
 	{ID: "list.enter", Context: List, Title: "open or rename the agent, or send what's typed", Keys: []string{"enter"}},
@@ -24,15 +25,16 @@ var Defaults = []Action{
 	{ID: "list.left", Context: List, Title: "fold the heading", Keys: []string{"left"}},
 	{ID: "list.back", Context: List, Title: "clear, go back, or (twice) quit", Keys: []string{"esc"}},
 	{ID: "list.rename", Context: List, Title: "rename the agent", Keys: []string{"ctrl+r"}},
-	{ID: "list.start", Context: List, Title: "pick the next session's agent, model and effort", Keys: []string{"alt+m"}},
+	{ID: "list.start", Context: List, Title: "pick the next session's agent, model and effort", Keys: []string{"shift+tab", "alt+m"}},
+	{ID: "list.worktree", Context: List, Title: "new sessions from a worktree agent: its worktree or main checkout", Keys: []string{"ctrl+] l", "alt+l"}},
 	{ID: "list.folder", Context: List, Title: "choose the folder, or move the agent", Keys: []string{"ctrl+l"}},
 	{ID: "list.pr", Context: List, Title: "open the agent's pull request", Keys: []string{"ctrl+y"}},
 	{ID: "list.pin", Context: List, Title: "pin the agent", Keys: []string{"ctrl+t"}},
 	{ID: "list.groupby", Context: List, Title: "group agents by the next", Keys: []string{"ctrl+s"}},
 	{ID: "list.split", Context: List, Title: "split each section by project, or stop", Keys: []string{"ctrl+p"}},
 	{ID: "list.stop", Context: List, Title: "stop or remove the agent", Keys: []string{"ctrl+x"}},
-	{ID: "list.done", Context: List, Title: "move the agent to Done", Keys: []string{"alt+d"}},
-	{ID: "list.go", Context: List, Title: "tell the agent to keep going", Keys: []string{"alt+g"}},
+	{ID: "list.done", Context: List, Title: "move the agent to Done", Keys: []string{"ctrl+d", "alt+d"}},
+	{ID: "list.go", Context: List, Title: "tell the agent to keep going", Keys: []string{"ctrl+b", "alt+g"}},
 	{ID: "list.view.prev", Context: List, Title: "the agent's view before", Keys: []string{"["}},
 	{ID: "list.view.next", Context: List, Title: "the agent's next view", Keys: []string{"]"}},
 	{ID: "list.needs", Context: List, Title: "the next agent that needs you", Keys: []string{"ctrl+n"}},
@@ -44,18 +46,18 @@ var Defaults = []Action{
 	{ID: "list.undo", Context: List, Title: "undo in the Prompt", Keys: []string{"super+z", "ctrl+_", "ctrl+/"}},
 	{ID: "list.redo", Context: List, Title: "redo in the Prompt", Keys: []string{"shift+super+z"}},
 	{ID: "list.focus", Context: List, Title: "into the Session, and back", Keys: []string{"tab", "{", "}"}},
-	{ID: "list.filter", Context: List, Title: "filter agents by name or what's said", Keys: []string{"alt+f"}},
+	{ID: "list.filter", Context: List, Title: "filter agents by name or what's said", Keys: []string{"ctrl+] f", "alt+f"}},
 	{ID: "list.toggle", Context: List, Title: "Agents beside the Session", Keys: []string{"ctrl+6", "ctrl+^", "ctrl+shift+6"}},
 
-	// The same keys as the list's group-by and rename, which have them back
+	// The same keys as the list's split and rename, which have them back
 	// once the Prompt is empty.
-	{ID: "prompt.stash", Context: Prompt, Title: "set what's typed aside; it comes back after you send", Keys: []string{"ctrl+s"}, Runs: true},
+	{ID: "prompt.stash", Context: Prompt, Title: "set what's typed aside; it comes back after you send", Keys: []string{"ctrl+p"}, Runs: true},
 	{ID: "prompt.history", Context: Prompt, Title: "what you set aside, sent, cleared and replaced", Keys: []string{"ctrl+r"}, Runs: true},
 
 	{ID: "page.prev", Context: Pages, Title: "the page before", Keys: []string{"[", "shift+tab"}},
 	{ID: "page.next", Context: Pages, Title: "the next page", Keys: []string{"]", "tab"}},
 
-	{ID: "session.send", Context: Session, Title: "send now, the queue first", Keys: []string{"ctrl+enter"}},
+	{ID: "session.send", Context: Session, Title: "send now, the queue first", Keys: []string{"ctrl+enter", "ctrl+s"}},
 	{ID: "session.enter", Context: Session, Title: "send, or open what's picked", Keys: []string{"enter"}},
 	{ID: "session.right", Context: Session, Title: "open what's picked", Keys: []string{"right"}},
 	{ID: "session.back", Context: Session, Title: "back: off a row, out of a subagent, to Agents", Keys: []string{"left"}},
@@ -66,16 +68,16 @@ var Defaults = []Action{
 	{ID: "session.pagedown", Context: Session, Title: "scroll down", Keys: []string{"pgdown"}},
 	{ID: "session.bottom", Context: Session, Title: "back to the latest", Keys: []string{"end"}},
 	{ID: "session.toggle", Context: Session, Title: "open or close the row", Keys: []string{"space"}},
-	{ID: "session.stash", Context: Session, Title: "set what's typed aside, or bring it back; it comes back after you send", Keys: []string{"ctrl+s"}},
+	{ID: "session.stash", Context: Session, Title: "set what's typed aside, or bring it back; it comes back after you send", Keys: []string{"ctrl+p"}},
 	{ID: "session.history", Context: Session, Title: "what you set aside, sent, cleared and replaced", Keys: []string{"ctrl+r"}},
-	{ID: "session.done", Context: Session, Title: "move the agent to Done", Keys: []string{"alt+d"}},
-	{ID: "session.hold", Context: Session, Title: "hold or release the queue", Keys: []string{"alt+h"}},
-	{ID: "session.rewind", Context: Session, Title: "rewind to the turn, or mark a file reviewed", Keys: []string{"alt+r"}},
-	{ID: "session.full", Context: Session, Title: "the picked changed file in full", Keys: []string{"alt+v"}},
-	{ID: "session.fork", Context: Session, Title: "fork from the turn", Keys: []string{"alt+f"}},
-	{ID: "session.copy", Context: Session, Title: "copy the answer or drawing", Keys: []string{"alt+c"}},
-	{ID: "session.sub.next", Context: Session, Title: "the next subagent run", Keys: []string{"alt+down"}},
-	{ID: "session.sub.prev", Context: Session, Title: "the subagent run before", Keys: []string{"alt+up"}},
+	{ID: "session.done", Context: Session, Title: "move the agent to Done", Keys: []string{"ctrl+d", "alt+d"}},
+	{ID: "session.hold", Context: Session, Title: "hold or release the queue", Keys: []string{"ctrl+] h", "alt+h"}},
+	{ID: "session.rewind", Context: Session, Title: "rewind to the turn, or mark a file reviewed", Keys: []string{"ctrl+] r", "alt+r"}},
+	{ID: "session.full", Context: Session, Title: "the picked changed file in full", Keys: []string{"ctrl+] v", "alt+v"}},
+	{ID: "session.fork", Context: Session, Title: "fork from the turn", Keys: []string{"ctrl+] f", "alt+f"}},
+	{ID: "session.copy", Context: Session, Title: "copy the answer or drawing", Keys: []string{"ctrl+] c", "alt+c"}},
+	{ID: "session.sub.next", Context: Session, Title: "the next subagent run", Keys: []string{"shift+down", "alt+down"}},
+	{ID: "session.sub.prev", Context: Session, Title: "the subagent run before", Keys: []string{"shift+up", "alt+up"}},
 	{ID: "session.view.prev", Context: Session, Title: "the view before", Keys: []string{"["}},
 	{ID: "session.view.next", Context: Session, Title: "the next view", Keys: []string{"]"}},
 	{ID: "session.verbose", Context: Session, Title: "more or less detail", Keys: []string{"ctrl+o"}},

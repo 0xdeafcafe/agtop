@@ -80,33 +80,33 @@ func stashRunning(called string) *hooks.Client {
 	return hooks.Static(plugin.UIState{Plugins: []plugin.UIPlugin{{Name: stashPlugin, Values: map[string]string{"called": called}}}})
 }
 
-// ctrl+s and ctrl+r are the stash and history in a Session's box, typed
+// ctrl+p and ctrl+r are the stash and history in a Session's box, typed
 // in or not; in the Prompt only with something typed, and the list's own
-// group-by and rename without.
+// split and rename without.
 func TestStashKeys(t *testing.T) {
 	m, c := draftModel()
 	m.hooks = stashRunning("")
-	for _, s := range []string{"ctrl+s", "ctrl+r"} {
+	for _, s := range []string{"ctrl+p", "ctrl+r"} {
 		if cmd := m.key(mustKey(s)); cmd == nil {
 			t.Fatalf("%s in an empty Session box should run the stash", s)
 		}
 	}
 	typeInBox(m, "half a thought")
-	if cmd := m.key(mustKey("ctrl+s")); cmd == nil || string(c.input) != "half a thought" {
-		t.Fatal("ctrl+s should ask the stash, which sets the box")
+	if cmd := m.key(mustKey("ctrl+p")); cmd == nil || string(c.input) != "half a thought" {
+		t.Fatal("ctrl+p should ask the stash, which sets the box")
 	}
 
 	m, _ = benchModel(200, 50)
 	m.hooks = stashRunning("")
 	m.paneFocus, m.inKind = false, inPrompt
-	was := m.store.Config.GroupBy
-	if m.key(mustKey("ctrl+s")); m.store.Config.GroupBy == was {
-		t.Fatal("ctrl+s in an empty Prompt should group the list")
+	was := m.splitProjects()
+	if m.key(mustKey("ctrl+p")); m.splitProjects() == was {
+		t.Fatal("ctrl+p in an empty Prompt should split the list")
 	}
-	was = m.store.Config.GroupBy
+	was = m.splitProjects()
 	m.input = []rune("a task")
-	if cmd := m.key(mustKey("ctrl+s")); cmd == nil || m.store.Config.GroupBy != was {
-		t.Fatal("ctrl+s with something typed should stash it, not group the list")
+	if cmd := m.key(mustKey("ctrl+p")); cmd == nil || m.splitProjects() != was {
+		t.Fatal("ctrl+p with something typed should stash it, not split the list")
 	}
 	if cmd := m.key(mustKey("ctrl+r")); cmd == nil || m.inKind != inPrompt {
 		t.Fatal("ctrl+r with something typed should open the history, not rename")
@@ -119,11 +119,11 @@ func TestStashCalledDrafts(t *testing.T) {
 	m, c := draftModel()
 	m.hooks = stashRunning("Drafts")
 	m.pluginDo(plugin.UIDo{Plugin: stashPlugin, Kind: "notify", Text: "kept as a draft · {aside} brings it back now"})
-	if m.status != "kept as a draft · ctrl+s brings it back now" {
+	if m.status != "kept as a draft · ctrl+p brings it back now" {
 		t.Fatalf("flash %q", m.status)
 	}
 	c.input = []rune("typed")
-	if keys := strings.Join(m.boxKeys(c, &fleet.Agent{}, c.sess), " "); !strings.Contains(keys, "ctrl+s keep as a draft") || !strings.Contains(keys, "ctrl+r drafts · sent · cleared") {
+	if keys := strings.Join(m.boxKeys(c, &fleet.Agent{}, c.sess), " "); !strings.Contains(keys, "ctrl+p keep as a draft") || !strings.Contains(keys, "ctrl+r drafts · sent · cleared") {
 		t.Fatalf("box keys: %s", keys)
 	}
 	m.helpPage = 0

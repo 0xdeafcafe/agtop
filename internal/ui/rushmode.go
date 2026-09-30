@@ -2951,8 +2951,10 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "ctrl+t":
 		m.cycleSendMode(c)
 		return nil
-	case "ctrl+enter":
-		// Now, whatever's waiting: the queue, then what's in the box.
+	case "ctrl+enter", "ctrl+s":
+		// Now, whatever's waiting: the queue, then what's in the box. ctrl+s
+		// is for terminals that never pass ctrl+enter on: macOS's Terminal
+		// takes it to open its own context menu.
 		if !empty {
 			return m.sendPane(c, true)
 		}
@@ -2976,7 +2978,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.boxVert(c, map[string]int{"shift+up": -1, "shift+down": 1}[s], true)
 			return nil
 		}
-	case "ctrl+s":
+		m.cycleSub(c, map[string]int{"shift+up": -1, "shift+down": 1}[s])
+		return nil
+	case "ctrl+p":
 		return m.stashCommand("stash")
 	case "ctrl+r":
 		return m.stashCommand("history")
@@ -3010,7 +3014,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			}
 			return nil
 		}
-	case "alt+d":
+	case "ctrl+d", "alt+d":
 		// Done with this agent: to Done, its idle process stopped.
 		return m.markDone(m.agentByKey(c.key))
 	case "alt+h":

@@ -297,7 +297,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "pgup":
 		m.move(-10)
 		return m.loadPreview()
-	case "pgdown", "ctrl+d":
+	case "pgdown":
 		m.move(10)
 		return m.loadPreview()
 	case "home", "shift+up":
@@ -404,7 +404,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.startRename(a)
 		}
 		return nil
-	case "alt+m":
+	case "shift+tab", "alt+m":
 		// What the next session starts as: agent, model and effort.
 		if m.inKind == inPrompt {
 			m.openStartSheet()
@@ -455,10 +455,10 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		return nil
 	case "ctrl+x":
 		return m.stopOrRemove(a)
-	case "alt+d":
+	case "ctrl+d", "alt+d":
 		// Done with it: to Done, its idle process stopped.
 		return m.markDone(a)
-	case "alt+g":
+	case "ctrl+b", "alt+g":
 		// Go on: what "keep going" in its message box would do.
 		return m.keepGoing(a)
 	case "{", "}":
