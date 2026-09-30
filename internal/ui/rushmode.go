@@ -1150,8 +1150,8 @@ func (m *Model) viewName(c *hostConn) string {
 }
 
 // tabStat is what a tab says beside its name, as the list's git bits look:
-// the Overview that it has artifacts, Changes what this session and
-// everything uncommitted add and delete.
+// the Overview that it has artifacts, Changes what this session adds and
+// deletes, else everything uncommitted: one pair, the tab says the rest.
 func tabStat(c *hostConn, v string) string {
 	// Small: thousands as k, and a side that's nothing left out.
 	num := func(n int) string {
@@ -1160,7 +1160,19 @@ func tabStat(c *hostConn, v string) string {
 		}
 		return strconv.Itoa(n)
 	}
-	counts := func(a, d int) string {
+	switch v {
+	case "overview":
+		if n := len(c.artifactsOf()); n > 0 {
+			return paint(cBlue, fmt.Sprintf("◆%d", n))
+		}
+	case "changes":
+		a, d := 0, 0
+		for _, fc := range c.sess.Changes() {
+			a, d = a+fc.Add, d+fc.Del
+		}
+		if dir := firstNonEmpty(c.sess.Info.Cwd, c.sess.Cwd); a+d == 0 && dir != "" {
+			a, d = convo.WorkingTree(dir).Stat()
+		}
 		var p []string
 		if a > 0 {
 			p = append(p, paint(cGreen, "+"+num(a)))
@@ -1168,28 +1180,7 @@ func tabStat(c *hostConn, v string) string {
 		if d > 0 {
 			p = append(p, paint(cRed, "−"+num(d)))
 		}
-		return strings.Join(p, "")
-	}
-	switch v {
-	case "overview":
-		if n := len(c.artifactsOf()); n > 0 {
-			return paint(cBlue, fmt.Sprintf("◆%d", n))
-		}
-	case "changes":
-		var parts []string
-		a, d := 0, 0
-		for _, fc := range c.sess.Changes() {
-			a, d = a+fc.Add, d+fc.Del
-		}
-		if a+d > 0 {
-			parts = append(parts, counts(a, d))
-		}
-		if dir := firstNonEmpty(c.sess.Info.Cwd, c.sess.Cwd); dir != "" {
-			if ta, td := convo.WorkingTree(dir).Stat(); ta+td > 0 && (ta != a || td != d) {
-				parts = append(parts, counts(ta, td))
-			}
-		}
-		return strings.Join(parts, dim(" · "))
+		return strings.Join(p, " ")
 	}
 	return ""
 }
