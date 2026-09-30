@@ -2384,7 +2384,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		pick, picked := queueSel(c, len(q))
 		var how string
 		if m.paneFocus && !picked && len(c.input) == 0 {
-			how = keys("↑", "edit or reorder", m.sendNowKey(), "send now") + "  "
+			how = keys("↑", "edit, reorder or steer", m.sendNowKey(), "send now") + "  "
 		}
 		line(spread(" "+paint(cQueue, "⋯ ")+paint(cQueue+bold, fmt.Sprintf("queue %d", len(q)))+when, how, w))
 		// Three at a time, keeping the picked one in sight.

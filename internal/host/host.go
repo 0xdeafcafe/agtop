@@ -210,8 +210,9 @@ type Task struct {
 // to the background (the background op) and Info.Background, 4 other
 // agents' sessions as rush's own events, 5 the client's hello (hello.go),
 // 6 Claude Code's sessions as rush's own events too, to a client that
-// says it reads them. A client sends its build's in the hello.
-const Proto = 6
+// says it reads them, 7 steering with a queued message (queue_send's
+// guide). A client sends its build's in the hello.
+const Proto = 7
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
@@ -1381,6 +1382,28 @@ func (s *server) editQueue(o op) error {
 	return nil
 }
 
+// steerQueued hands queued message i to the turn under way without
+// stopping it, as a guide does; if that fails it goes back on the queue.
+// Called with mu held, which it lets go.
+func (s *server) steerQueued(i int, text string) error {
+	qi := queueImages(&s.info)
+	images := qi[i]
+	s.info.Queue = slices.Delete(slices.Clone(s.info.Queue), i, i+1)
+	s.info.QueueImages = trimImages(slices.Delete(qi, i, i+1))
+	s.publish()
+	s.mu.Unlock()
+	err := s.guide(text, images)
+	if err != nil {
+		s.mu.Lock()
+		qi := queueImages(&s.info)
+		s.info.Queue = slices.Insert(slices.Clone(s.info.Queue), 0, text)
+		s.info.QueueImages = trimImages(slices.Insert(qi, 0, images))
+		s.publish()
+		s.mu.Unlock()
+	}
+	return err
+}
+
 // op is one command from a client.
 type op struct {
 	Op        string         `json:"op"`
@@ -1462,6 +1485,9 @@ func (s *server) do(o op) error {
 		s.mu.Unlock()
 		return nil
 	case "queue_send":
+		if i := slices.Index(s.info.Queue, o.Was); o.Guide && i >= 0 && o.Was != "" {
+			return s.steerQueued(i, o.Was) // unlocks
+		}
 		// Mid-turn it cuts in, as a send now does.
 		if i := slices.Index(s.info.Queue, o.Was); i >= 0 && o.Was != "" && s.cutsIn() {
 			qi := queueImages(&s.info)

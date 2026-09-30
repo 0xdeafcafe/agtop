@@ -693,6 +693,21 @@ func TestSendNowMidTurnCutsIn(t *testing.T) {
 	}
 }
 
+// Steering with a queued message hands it to the turn under way: out of
+// the queue, into the agent, and nothing stopped.
+func TestSteerQueuedDoesNotStop(t *testing.T) {
+	setup(t)
+	c := &inputConn{}
+	s := &server{cfg: Config{ID: "sq", Kind: "claude"}, conn: c, clients: map[*conn]struct{}{}}
+	s.info.State, s.info.Queue = "working", []string{"a", "b"}
+	if err := s.do(op{Op: "queue_send", Index: 1, Was: "b", Guide: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(s.info.Queue, "|"); got != "a" || len(c.got) != 1 || c.got[0].Text != "b" {
+		t.Errorf("queue %q, the agent got %v", got, c.got)
+	}
+}
+
 // A message with an image sent now mid-turn cuts in with its image, and a
 // queued one sent now keeps its own: each message's images stay its own.
 func TestCutInKeepsImages(t *testing.T) {

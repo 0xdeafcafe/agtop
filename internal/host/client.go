@@ -401,6 +401,12 @@ func (c *Client) SendQueued(i int, was string) error {
 	return c.do(op{Op: "queue_send", Index: i, Was: was})
 }
 
+// SteerQueued hands queued message i to the turn under way without
+// stopping it, where the agent can take one (Proto 7).
+func (c *Client) SteerQueued(i int, was string) error {
+	return c.do(op{Op: "queue_send", Index: i, Was: was, Guide: true})
+}
+
 // HoldQueue pauses or resumes sending the queue.
 func (c *Client) HoldQueue(on bool) error { return c.do(op{Op: "queue_hold", Now: on}) }
 

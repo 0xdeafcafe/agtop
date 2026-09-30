@@ -34,7 +34,7 @@ func queueHint(q queued, w int) string {
 	if q.held {
 		hold = "let go"
 	}
-	pairs := []string{"enter", "edit", "shift+↑↓", "merge up/down", "[ ]", "move", "s", "send this now", "⌫", "drop", "h", hold}
+	pairs := []string{"enter", "edit", "shift+↑↓", "merge up/down", "[ ]", "move", "s", "send this now", "g", "steer with it", "G", "steer with all", "⌫", "drop", "h", hold}
 	if !q.local {
 		how := "one per turn"
 		if q.separate {
@@ -107,6 +107,10 @@ func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
 		return m.queueEdit(c, "merge", i, 0), true
 	case "s":
 		return m.queueEdit(c, "send", i, 0), true
+	case "g":
+		return m.steerQueue(c, i, false), true
+	case "G", "shift+g":
+		return m.steerQueue(c, i, true), true
 	case "backspace", "delete", "ctrl+x":
 		return m.queueEdit(c, "drop", i, 0), true
 	case "h", "alt+h":
@@ -237,18 +241,85 @@ func (m *Model) sendQueueNow(c *hostConn, extra string) tea.Cmd {
 		if n == 0 {
 			return cl.SendNow(extra)
 		}
-		// The rest merged into the first, so their images go too, then
-		// all of it written out, what's in the box last, and sent.
-		for k := 1; k < n; k++ {
-			if err := cl.MergeQueued(0, strings.Join(queued[:k], "\n\n")); err != nil {
-				return err
-			}
-		}
-		text := host.JoinQueue(items)
-		if err := cl.EditQueued(0, strings.Join(queued, "\n\n"), text); err != nil {
+		text, err := joinQueued(cl, queued, items)
+		if err != nil {
 			return err
 		}
 		return cl.SendQueued(0, text)
+	})
+}
+
+// joinQueued merges the queue into its first message, so their images go
+// too, and writes it out as items (the queue, maybe with more after), for
+// sending as one.
+func joinQueued(cl *host.Client, queued, items []string) (string, error) {
+	for k := 1; k < len(queued); k++ {
+		if err := cl.MergeQueued(0, strings.Join(queued[:k], "\n\n")); err != nil {
+			return "", err
+		}
+	}
+	text := host.JoinQueue(items)
+	return text, cl.EditQueued(0, strings.Join(queued, "\n\n"), text)
+}
+
+// steerQueue hands the turn under way queued message i, or all of them as
+// one, without stopping it. A command the turn waits on goes to the
+// background first, so it reads them at its next step, not when that ends.
+func (m *Model) steerQueue(c *hostConn, i int, all bool) tea.Cmd {
+	sq, _ := m.subQueue(c)
+	if c.client == nil || sq != nil {
+		// Sent as they'd go anyway: these are read at the next step already.
+		if all {
+			return m.sendQueueNow(c, "")
+		}
+		return m.queueEdit(c, "send", i, 0)
+	}
+	if c.sess.Info.Proto < 7 {
+		m.flash("this session's host is older than this rush · /restart it to steer with the queue", true)
+		return nil
+	}
+	queued := slices.Clone(m.queueOf(c).items)
+	was := queued[i]
+	if all {
+		c.sess.Info.Queue, c.sess.Info.QueueImages = nil, nil
+		i, c.sel = 0, ""
+	} else {
+		qi := make([][]string, len(queued))
+		copy(qi, c.sess.Info.QueueImages)
+		c.sess.Info.Queue = slices.Delete(slices.Clone(queued), i, i+1)
+		c.sess.Info.QueueImages = slices.Delete(qi, i, i+1)
+		if c.sel = ""; len(c.sess.Info.Queue) > 0 {
+			c.sel = fmt.Sprintf("q:%d", min(i, len(c.sess.Info.Queue)-1))
+		}
+	}
+	blocked := c.sess.Info.Proto >= 3 && slices.ContainsFunc(c.sess.RunningJobs(), func(j *convo.Job) bool {
+		return !j.Background && c.jobKind(j) != "subagent"
+	})
+	what := "it"
+	if all && len(queued) > 1 {
+		what = "the queue"
+	}
+	if blocked {
+		m.flash("steering with "+what+" · moved the command it waited on to the background so it reads it now", false)
+	} else {
+		m.flash("steering with "+what+" · it reads it at its next step, nothing stopped", false)
+	}
+	cl := c.client
+	return hostCmd(func() error {
+		if all {
+			text, err := joinQueued(cl, queued, queued)
+			if err != nil {
+				return err
+			}
+			was = text
+		}
+		if err := cl.SteerQueued(i, was); err != nil {
+			return err
+		}
+		if blocked {
+			return cl.Background("")
+		}
+		return nil
 	})
 }
 
