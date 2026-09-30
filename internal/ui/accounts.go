@@ -570,6 +570,14 @@ func (m *Model) limits(r acctRow, w1, w2 int) string {
 		return fit(msg, w1+w2)
 	}
 	stale := time.Since(q.FetchedAt) > 3*usage.Every
+	if stale {
+		// Say why it's old, not only that it is: a sign-in gone, a limit on asking.
+		why := "not read since " + q.FetchedAt.Local().Format("15:04")
+		if q.Problem != "" {
+			why = q.Problem + " · last read " + q.FetchedAt.Local().Format("15:04")
+		}
+		return fit(paint(cYellow, "! ")+dim(why), w1+w2)
+	}
 	var out string
 	for i, cw := range []int{w1, w2} {
 		if i >= len(q.Windows) {
@@ -579,9 +587,6 @@ func (m *Model) limits(r acctRow, w1, w2 int) string {
 		win := q.Windows[i]
 		pct := fmt.Sprintf("%3.0f%%", win.Percent)
 		cell := faint(fit(win.Label, 3)) + bar(win.Percent) + " " + paint(cText, pct) + resetIn(win.ResetsAt, m.snap.At, false)
-		if stale {
-			cell = faint(fit(win.Label, 3)+strings.Repeat("▱", 10)+" "+pct) + resetIn(win.ResetsAt, m.snap.At, false)
-		}
 		out += fit(cell, cw)
 	}
 	return out

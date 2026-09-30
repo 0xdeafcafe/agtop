@@ -359,9 +359,9 @@ func (m *Model) provList(w int) []string {
 			out = append(out, "", faint("── "+g+" "+strings.Repeat("─", max(0, w-len(g)-4))))
 			group = g
 		}
-		for _, l := range m.provLine(it, w-2) {
+		for j, l := range m.provLine(it, w-2) {
 			switch {
-			case d.inside && i == d.pick:
+			case d.inside && i == d.pick && j == 0:
 				out = append(out, paint(cOrange, "▸ ")+l)
 			case !d.inside && i == d.cursor:
 				out = append(out, highlight(paint(cOrange, "▍")+" "+l, w))
@@ -389,12 +389,16 @@ func (m *Model) provLine(it provItem, w int) []string {
 		case q.Problem != "":
 			meter = paint(cYellow, "! no reading")
 		}
-		first := m.profileMark(it.provider) + glyph(k) + " " + paint(cText+bold, fit(agentName(it.provider), w-20)) + right(meter, 15)
+		name := paint(cText+bold, agentName(it.provider))
+		if star := m.profileMark(it.provider); strings.TrimSpace(star) != "" {
+			name += " " + strings.TrimSpace(star)
+		}
+		first := glyph(k) + " " + fit(name, w-18) + right(meter, 15)
 		on := u.inUse.name()
 		if u.inUse.head {
 			on = firstNonEmpty(u.inUse.q.Email, "its own sign-in")
 		}
-		second := "    " + dim(on)
+		second := "  " + dim(on)
 		if u.accts > 1 {
 			second += faint(fmt.Sprintf(" · %d more", u.accts-1))
 		}
