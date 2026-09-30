@@ -91,6 +91,9 @@ type Config struct {
 	// RunsIn is the harness each provider runs in, by provider, where
 	// it isn't its usual one: "ollama": "pi" runs Ollama in Pi.
 	RunsIn map[string]string `json:"runsIn,omitempty"`
+	// Harnesses are the harnesses you use each provider in besides its
+	// default, by provider.
+	Harnesses map[string][]string `json:"harnesses,omitempty"`
 	// BuiltinProfiles is set once an older config's profiles were fitted
 	// to built-in ones (migrateProfiles).
 	BuiltinProfiles bool `json:"builtinProfiles,omitzero"`
@@ -237,6 +240,7 @@ func (c *Config) migrate() {
 		c.Dispatch.Kind = string(agent.Migrated("")) // migration: no kind was Claude Code
 	}
 	c.migrateProfiles()
+	c.migrateKeyHarness()
 }
 
 // SetSwitchOnLimit sets what rush does when an account is nearly out.

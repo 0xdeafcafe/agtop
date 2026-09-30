@@ -18,7 +18,9 @@ import (
 //
 // A provider runs in a harness (agent.Harnesses): Ollama in Claude Code,
 // Pi or Codex. Config.RunsIn picks it for each provider, and a profile's
-// own RunsIn picks it for that profile alone.
+// own RunsIn picks it for that profile alone. Anthropic and OpenAI are
+// two providers each (agent.Split): "claude" is Anthropic's subscription,
+// "claude-key" its API key, and each has its own profile.
 
 // Profile is a named list of providers and a policy.
 type Profile struct {
@@ -39,6 +41,16 @@ type Profile struct {
 	// account of the same provider, and "handoff" does that, then hands
 	// the conversation to the next provider when none has room.
 	OnLimit string `json:"onLimit,omitempty"`
+	// Billing is how the first provider is paid for: "key" with its API
+	// key, "" as it's signed in.
+	Billing string `json:"billing,omitempty"`
+	// Account is the first provider's account new sessions start on, by
+	// ID, while it has room; empty is whichever has the most.
+	Account string `json:"account,omitempty"`
+	// Model and Effort are what its sessions start with, over what
+	// Settings gives the provider in its harness.
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
 	// Builtin is a provider's own profile, made here rather than stored.
 	Builtin bool `json:"-"`
 	// runsIn is Config.RunsIn, for the providers RunsIn leaves out.
@@ -53,6 +65,8 @@ const (
 	LimitWait    = "wait"
 	LimitAccount = "account"
 	LimitHandoff = "handoff"
+
+	BillingKey = "key"
 )
 
 // DefaultProfileName is what the profile made from an older config is
@@ -88,7 +102,16 @@ func (p Profile) Harness(provider string) agent.Kind {
 	if h := p.RunsIn[provider]; h != "" {
 		return agent.Kind(h)
 	}
-	return agent.Kind(p.runsIn[provider])
+	return agent.Kind(p.runsIn[p.ID(provider)])
+}
+
+// ID is provider as this profile pays for it: its key one when that's
+// the first provider and the profile pays with the key.
+func (p Profile) ID(provider string) string {
+	if p.Billing == BillingKey && len(p.Providers) > 0 && p.Providers[0] == provider && agent.Split(provider) {
+		return agent.KeyOf(provider)
+	}
+	return provider
 }
 
 // KindOf is the agent that runs provider under this profile.
@@ -144,32 +167,54 @@ func (c Config) ProfileNamed(name string) (Profile, bool) {
 	if slices.Contains(agent.Providers(), string(k)) {
 		return c.builtin(string(k)), true
 	}
+	if _, key := agent.Billed(string(k)); key {
+		return c.builtin(string(k)), true
+	}
 	if _, ok := agent.Get(k); ok {
 		p := c.builtin(agent.ProviderOf(k))
 		p.Name, p.RunsIn = string(k), map[string]string{p.Providers[0]: string(agent.HarnessOf(k))}
+		if agent.KeyOnly(k) {
+			p.Billing = BillingKey
+		}
 		return p, true
 	}
 	return Profile{}, false
 }
 
-// builtin is provider's own profile: it alone, in the harness the config
-// gives it, moving to another of its accounts at a limit.
-func (c *Config) builtin(provider string) Profile {
-	return Profile{Name: provider, Providers: []string{provider}, Builtin: true, runsIn: c.RunsIn}
+// builtin is provider id's own profile: it alone, in the harness the
+// config gives it, moving to another of its accounts at a limit.
+func (c *Config) builtin(id string) Profile {
+	p := Profile{Name: id, Providers: []string{id}, Builtin: true, runsIn: c.RunsIn}
+	if pr, key := agent.Billed(id); key {
+		p.Providers, p.Billing = []string{pr}, BillingKey
+	}
+	return p
+}
+
+// IDs are the installed providers, each a split one's key after it.
+func IDs() []string {
+	var out []string
+	for _, pr := range agent.Providers() {
+		if !agent.ProviderInstalled(pr) {
+			continue
+		}
+		out = append(out, pr)
+		if agent.Split(pr) {
+			out = append(out, agent.KeyOf(pr))
+		}
+	}
+	return out
 }
 
 // Builtins are the installed providers' own profiles, by name, less any
 // you made of the same name, which stands in for it.
 func (c *Config) Builtins() []Profile {
 	var out []Profile
-	for _, pr := range agent.Providers() {
-		if !agent.ProviderInstalled(pr) {
+	for _, id := range IDs() {
+		if slices.ContainsFunc(c.Profiles, func(p Profile) bool { return strings.EqualFold(p.Name, id) }) {
 			continue
 		}
-		if slices.ContainsFunc(c.Profiles, func(p Profile) bool { return strings.EqualFold(p.Name, pr) }) {
-			continue
-		}
-		out = append(out, c.builtin(pr))
+		out = append(out, c.builtin(id))
 	}
 	return out
 }
@@ -312,6 +357,9 @@ func (p Profile) Pick(room Room) (Pick, bool) {
 		return Pick{}, false
 	}
 	first, ok := room.seat(inst[0])
+	if i := slices.IndexFunc(room[inst[0]], func(s Seat) bool { return s.ID == p.Account && !s.Out }); p.Account != "" && i >= 0 {
+		first, ok = room[inst[0]][i], true
+	}
 	if ok {
 		return Pick{Kind: inst[0], Account: first}, true
 	}
@@ -488,21 +536,64 @@ func (c *Config) SetDefaultProfile(name string) bool {
 // sessions run it: "ollama-pi" is Ollama's, in Pi.
 func (c *Config) SetDefaultProvider(kind string) { c.SetDefaultProfile(kind) }
 
-// SetRunsIn gives provider the harness it runs in wherever a profile
+// SetRunsIn gives provider id the harness it runs in wherever a profile
 // doesn't pick one; empty is its default.
-func (c *Config) SetRunsIn(provider, harness string) {
-	if def := agent.Harnesses(provider); len(def) > 0 && string(agent.HarnessOf(def[0])) == harness {
+func (c *Config) SetRunsIn(id, harness string) {
+	if def := agent.RunsFor(id); len(def) > 0 && string(agent.HarnessOf(def[0])) == harness {
 		harness = ""
 	}
 	if harness == "" {
-		delete(c.RunsIn, provider)
+		delete(c.RunsIn, id)
 	} else {
 		if c.RunsIn == nil {
 			c.RunsIn = map[string]string{}
 		}
-		c.RunsIn[provider] = harness
+		c.RunsIn[id] = harness
 	}
 	c.SyncLegacy()
+}
+
+// Uses is whether you use provider id in harness, besides its default.
+func (c Config) Uses(id, harness string) bool {
+	return slices.Contains(c.Harnesses[id], harness)
+}
+
+// SetUses says whether you use provider id in harness.
+func (c *Config) SetUses(id, harness string, on bool) {
+	hs := slices.DeleteFunc(slices.Clone(c.Harnesses[id]), func(h string) bool { return h == harness })
+	if on {
+		hs = append(hs, harness)
+	}
+	if len(hs) == 0 {
+		delete(c.Harnesses, id)
+		return
+	}
+	if c.Harnesses == nil {
+		c.Harnesses = map[string][]string{}
+	}
+	c.Harnesses[id] = hs
+}
+
+// migrateKeyHarness keeps a split provider set to run in a harness only
+// its API key can (Anthropic in Pi) doing so: that's its key's harness
+// now, and the key what the default and folders that named it get.
+func (c *Config) migrateKeyHarness() { // migration: providers split by billing
+	for pr, h := range c.RunsIn {
+		if !agent.Split(pr) || h == pr {
+			continue
+		}
+		key := agent.KeyOf(pr)
+		c.RunsIn[key] = h
+		delete(c.RunsIn, pr)
+		if strings.EqualFold(c.DefaultProfile, pr) {
+			c.DefaultProfile = key
+		}
+		for i, r := range c.FolderRules {
+			if strings.EqualFold(r.Profile, pr) {
+				c.FolderRules[i].Profile = key
+			}
+		}
+	}
 }
 
 // SetRule gives folder path the profile called name; an empty name drops

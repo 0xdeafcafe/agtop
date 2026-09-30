@@ -35,8 +35,13 @@ func runners() []runner {
 		if agent.KeyOnly(k) && !cfg.HasAPIKey(prov) {
 			continue // no key to pay with
 		}
-		if want, _ := agent.KindFor(prov, agent.Kind(cfg.RunsIn[prov])); want != k {
-			continue // each provider in the harness it's set to run in
+		want, _ := agent.KindFor(prov, agent.Kind(cfg.RunsIn[prov]))
+		key := want
+		if agent.Split(prov) {
+			key, _ = agent.KindFor(prov, agent.Kind(cfg.RunsIn[agent.KeyOf(prov)]))
+		}
+		if k != want && k != key {
+			continue // each provider in the harness it's set to run in, its key in its own
 		}
 		if r, ok := a.(agent.Rider); ok {
 			base, _ = agent.Get(r.Rides())

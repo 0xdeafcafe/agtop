@@ -131,7 +131,7 @@ func TestMigrateProfiles(t *testing.T) {
 	if c.DefaultProfile != "Default" || len(c.Profiles) != 1 || d.Mix != MixMix || d.Limit() != LimitAccount {
 		t.Fatalf("migrated to %+v", c.Profiles)
 	}
-	if want := []string{"pa", "pb", "claude", "gone", "pc"}; !equal(d.Providers, want) {
+	if want := []string{"pa", "pb", "claude", "gone", "pc", "ps"}; !equal(d.Providers, want) {
 		t.Fatalf("providers %v, want %v", d.Providers, want)
 	}
 	// Changed here: written back where older rushes read it.
@@ -215,7 +215,7 @@ func TestBuiltins(t *testing.T) {
 	for _, p := range all {
 		names = append(names, p.Name)
 	}
-	if !equal(names, []string{"claude", "pa", "pc", "pb", "mine"}) {
+	if !equal(names, []string{"claude", "pa", "pc", "ps", "ps-key", "pb", "mine"}) {
 		t.Fatalf("profiles %v", names)
 	}
 	if c.Default().Name != "claude" {

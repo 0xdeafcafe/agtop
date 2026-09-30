@@ -1,6 +1,9 @@
 package agent
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // A provider is where a session's model comes from (Anthropic, OpenAI,
 // Ollama on this machine); a harness is the program that runs the session
@@ -157,4 +160,41 @@ func KeyEnv(p string) string {
 // key: a provider that takes one, in another's harness.
 func KeyOnly(k Kind) bool {
 	return HarnessOf(k) != k && KeyEnv(ProviderOf(k)) != ""
+}
+
+// A provider paid for two ways is two providers in rush: its
+// subscription, which only its own program signs in to, and its API key,
+// which any harness that speaks its API can use. The key one is named
+// KeyOf the provider: "claude-key" is Anthropic by API key.
+
+// Split is whether provider p is paid for both ways: a subscription its
+// own program signs in to, and an API key apart from it.
+func Split(p string) bool {
+	return KeyEnv(p) != "" && Supports(Kind(p), FeatureSignIn)
+}
+
+// KeyOf is the provider that is p paid for with its API key.
+func KeyOf(p string) string { return p + keySuffix }
+
+const keySuffix = "-key"
+
+// Billed is the provider id names, and whether it's that one's API key:
+// "claude-key" is claude by key, "claude" its subscription.
+func Billed(id string) (p string, key bool) {
+	if p, ok := strings.CutSuffix(id, keySuffix); ok && Split(p) {
+		return p, true
+	}
+	return id, false
+}
+
+// RunsFor are the agents that run provider id: a split provider's
+// subscription in its own program only, its key in any that speaks its
+// API; any other provider in all of Harnesses.
+func RunsFor(id string) []Kind {
+	p, key := Billed(id)
+	all := Harnesses(p)
+	if key || !Split(p) {
+		return all
+	}
+	return slices.DeleteFunc(all, func(k Kind) bool { return k != Kind(p) })
 }

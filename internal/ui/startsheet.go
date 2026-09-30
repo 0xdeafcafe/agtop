@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"slices"
 
 	tea "charm.land/bubbletea/v2"
@@ -82,12 +83,21 @@ func (m *Model) openStartSheet() {
 }
 
 // nextStart is what the next session in dir starts as: one picked with
-// alt+m, else its folder's agent with what Settings says it starts with.
+// alt+m, else its folder's agent with what Settings says it starts with,
+// and what its profile says over that.
 func (m *Model) nextStart(dir string) startOver {
 	if m.startOver != nil {
 		return *m.startOver
 	}
-	return m.startDefaults(m.startKindIn(dir))
+	k := m.startKindIn(dir)
+	o := m.startDefaults(k)
+	if p := m.startProfile(dir); len(p.Providers) > 0 && agent.ProviderOf(agent.Kind(k)) == p.Providers[0] {
+		o.model, o.effort = cmp.Or(p.Model, o.model), cmp.Or(p.Effort, o.effort)
+		if p.Billing != "" {
+			o.billing = p.Billing // with no key kept yet, starting says where to add one
+		}
+	}
+	return o
 }
 
 // startDefaults is agent k as Settings says it starts.
