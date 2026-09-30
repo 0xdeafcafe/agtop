@@ -2726,6 +2726,13 @@ func (d *drawer) body(st *Step, indent int) {
 	defer func() { d.lg, d.byPath, d.spans, d.view = nil, false, nil, "" }()
 	x := st.in()
 	ref := d.ref + ":s:" + st.ID
+	if stopTool(st.Tool) && st.Status != Failed {
+		// What it stopped, laid out as a command: the row says the rest.
+		if cmd := stoppedCommand(st); cmd != "" {
+			d.shellBody(st, cmd, indent)
+		}
+		return
+	}
 	switch v, _ := d.viewOf(st, ref); {
 	case v == ViewHex:
 		if cmd := strings.TrimSpace(x.Command); st.kind() == tool.Shell && cmd != "" {

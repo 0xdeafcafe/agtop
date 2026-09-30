@@ -114,7 +114,7 @@ func viewable(st *Step) bool {
 	case tool.Edit, tool.Write, tool.Subagent:
 		return false
 	}
-	return !messageTool(st.Tool) && st.Tool != agtools.Show
+	return !messageTool(st.Tool) && st.Tool != agtools.Show && !stopTool(st.Tool)
 }
 
 // viewText is the text a step's views are of: a command's stdout, a read

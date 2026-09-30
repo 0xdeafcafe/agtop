@@ -866,7 +866,7 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		mark, state := paint(cGreen, "✓"), dim("done")
 		switch {
 		case r.live:
-			mark, state = paint(cOrange, spinner[(m.tick+i)%len(spinner)]), paint(cOrange, "running")
+			mark, state = spinOf(c.kindOf(), m.tick+i), paint(cOrange, "running")
 		case r.status == "stopped":
 			mark, state = dim("⏹"), dim(r.status)
 		case r.status == "failed":
@@ -1035,7 +1035,7 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 		if q := m.localQ[subQKey(c.key, sa.ID)]; q != nil && len(q.items) > 0 {
 			where += " " + paint(cQueue, fmt.Sprintf("✉%d", len(q.items)))
 		}
-		top := spread("  "+paint(cOrange, spinner[(m.tick+i)%len(spinner)])+" "+paint(cText+bold, sa.Type)+where+
+		top := spread("  "+spinOf(c.kindOf(), m.tick+i)+" "+paint(cText+bold, sa.Type)+where+
 			"  "+paint(cSub, ansi.Truncate(oneLine(sa.Description), max(12, w-cellw.String(ansi.Strip(right))-cellw.String(sa.Type)-cellw.String(ansi.Strip(where))-10), "…")), right, w)
 		// Hung off its spinner, so each run reads as one block.
 		act := ansi.Truncate("  "+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+doing+trail, w-2, "…")

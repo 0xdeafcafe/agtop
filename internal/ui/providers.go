@@ -69,6 +69,28 @@ func glyph(k agent.Kind) string {
 	return paint(l.colour(), l.glyph)
 }
 
+// spinOf is frame n of what a run of provider k shows while it works: its
+// harness's spinner (Claude Code's star, Codex's turning circle, another's
+// glyph) in the provider's colour.
+func spinOf(k agent.Kind, n int) string {
+	h := agent.HarnessOf(k)
+	frames := []string{lookOf(h).glyph}
+	switch h {
+	case loginsKind:
+		frames = spinner
+	case "codex":
+		frames = codexSpin
+	}
+	return paint(lookOf(k).colour(), frames[n%len(frames)])
+}
+
+var codexSpin = []string{"◐", "◓", "◑", "◒"}
+
+// kindOf is session c's provider: Claude Code's when it doesn't say.
+func (c *hostConn) kindOf() agent.Kind {
+	return agent.Kind(firstNonEmpty(c.sess.Info.Kind, string(loginsKind)))
+}
+
 // providerTag is provider k's glyph and short name, in its colour.
 func providerTag(k agent.Kind) string {
 	l := lookOf(k)

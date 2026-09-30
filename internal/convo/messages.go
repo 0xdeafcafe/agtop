@@ -205,6 +205,19 @@ var (
 	tookFor   = regexp.MustCompile(`task: \S+ \((.*)\)$`)
 )
 
+// stopTool is whether tool stops a background task.
+func stopTool(tool string) bool { return tool == "TaskStop" || tool == "KillShell" }
+
+// stoppedCommand is the command of the task a stop step stopped, as the
+// result gives it; "" when it doesn't.
+func stoppedCommand(st *Step) string {
+	var r struct {
+		Command string `json:"command"`
+	}
+	_ = jsonx.Unmarshal(st.Result, &r)
+	return strings.TrimSpace(r.Command)
+}
+
 // toolLabel is the row for one of Claude Code's own tools that has no row
 // of its own yet, and whether it had one.
 func (d *drawer) toolLabel(st *Step, lbl func(string) string) (string, bool) {
@@ -222,11 +235,10 @@ func (d *drawer) toolLabel(st *Step, lbl func(string) string) (string, bool) {
 	case "ListAgents":
 		return g("⇉") + lbl("listed agents"), true
 	case "TaskStop", "KillShell":
-		var r struct {
-			Command string `json:"command"`
+		what := stoppedCommand(st)
+		if first, _, more := strings.Cut(what, "\n"); more {
+			what = strings.TrimSpace(first) + " …"
 		}
-		_ = jsonx.Unmarshal(st.Result, &r)
-		what := oneLine(r.Command)
 		if what == "" {
 			if m := tookFor.FindStringSubmatch(oneLine(st.Output)); m != nil {
 				what = m[1]
