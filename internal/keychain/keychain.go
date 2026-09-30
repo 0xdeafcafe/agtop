@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	osuser "os/user"
+	"slices"
 	"strings"
 )
 
@@ -26,7 +27,22 @@ func Read(service, account string) ([]byte, error) {
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	return bytes.TrimRight(out, "\n"), nil
+	out = bytes.TrimRight(out, "\n")
+	// A secret that isn't one line of text (a pretty-printed auth.json)
+	// is printed as hex; -g says whether it was.
+	if b, err := hex.DecodeString(string(out)); err == nil && len(out) > 0 && printedHex(args) {
+		return b, nil
+	}
+	return out, nil
+}
+
+// printedHex is whether security prints the secret args find as hex:
+// -g writes it to stderr as password: 0x… when it does.
+func printedHex(args []string) bool {
+	var stderr bytes.Buffer
+	cmd := exec.Command("/usr/bin/security", append(slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "-w" }), "-g")...)
+	cmd.Stderr = &stderr
+	return cmd.Run() == nil && bytes.HasPrefix(stderr.Bytes(), []byte("password: 0x"))
 }
 
 // Has is whether service keeps an item for account, found without

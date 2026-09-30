@@ -26,3 +26,22 @@ func TestWriteLong(t *testing.T) {
 		}
 	}
 }
+
+// A secret of more than one line (Codex's pretty-printed auth.json) comes
+// back as it went in, not as the hex security prints it as; one line of
+// text that looks like hex stays text.
+func TestReadsBackLines(t *testing.T) {
+	if os.Getenv("RUSH_KEYCHAIN_TEST") == "" {
+		t.Skip("writes to your login keychain; set RUSH_KEYCHAIN_TEST=1")
+	}
+	const svc = "rush-test"
+	defer Delete(svc, "t")
+	for _, secret := range []string{"{\n  \"a\": 1\n}", "deadbeef", `{"one":"line"}`} {
+		if err := Write(svc, "t", []byte(secret)); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := Read(svc, "t"); err != nil || string(got) != secret {
+			t.Errorf("wrote %q, read %q (%v)", secret, got, err)
+		}
+	}
+}
