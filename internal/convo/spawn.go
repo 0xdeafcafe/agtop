@@ -3,6 +3,7 @@ package convo
 import (
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
@@ -19,11 +20,10 @@ type Spawn struct {
 	From   string // the file its prompt was fed from, when it was
 	Model  string
 	Dir    string // where it ran, when the command went somewhere first
+	// Child is the run a harness's own subagent call names, when its
+	// harness keeps it apart (agent.ChildFinder); Kind is then the session's.
+	Child string
 }
-
-// Look is a provider's glyph in its colour, for a row of a spawned
-// agent; the UI sets it, and a plain ⇉ stands in without it.
-var Look func(agent.Kind) string
 
 // spawnNot are the first words that make an agent's program do something
 // other than work: set up, sign in, list, report.
@@ -272,6 +272,9 @@ func spawnIn(c command, body []string, stdin string) (Spawn, bool) {
 	if len(words) == 0 {
 		return Spawn{}, false
 	}
+	if len(words) >= 3 && filepath.Base(words[0]) == "rush" && words[1] == "session" && words[2] == "start" {
+		return rushStart(words[3:], c, body, stdin)
+	}
 	k, ok := agent.ProgramKind(unquoteArg(words[0]))
 	if !ok {
 		return Spawn{}, false
@@ -360,6 +363,47 @@ func spawnIn(c command, body []string, stdin string) (Spawn, bool) {
 	return sp, true
 }
 
+// rushStart reads rush session start's args as the agent it starts: a
+// session of its own, which rush lists as its starter's subagent.
+func rushStart(args []string, c command, body []string, stdin string) (Spawn, bool) {
+	sp := Spawn{Kind: agent.LegacyKind}
+	if slices.Contains(args, "--resume") {
+		return Spawn{}, false // one it had already
+	}
+	for i := 0; i+1 < len(args); i++ {
+		name, val, eq := strings.Cut(args[i], "=")
+		if !eq {
+			val = args[i+1]
+		}
+		switch v := unquoteArg(val); name {
+		case "--agent":
+			sp.Kind = agent.Kind(v)
+		case "--model":
+			sp.Model = v
+		case "--cwd":
+			sp.Dir = v
+		case "--prompt-file":
+			sp.From = v
+		}
+	}
+	if sp.From == "-" {
+		sp.From = ""
+		switch {
+		case stdin != "":
+			sp.Prompt = stdin
+		case c.tag != "":
+			sp.Prompt = strings.TrimSpace(strings.Join(heredoc(body, c.tag), "\n"))
+		case c.stdin != "":
+			sp.From = c.stdin
+		}
+	}
+	sp.Name = string(sp.Kind)
+	if a, ok := agent.Get(sp.Kind); ok {
+		sp.Name = a.Name()
+	}
+	return sp, true
+}
+
 func quoted(w string) bool { return strings.HasPrefix(w, `"`) || strings.HasPrefix(w, "'") }
 
 // promptOf is a prompt as written: quoted, or fed in by $(cat <<'EOF' …).
@@ -395,8 +439,16 @@ func unquoteArg(w string) string {
 	return w
 }
 
-// Spawn is the agent the step's command ran, when it ran one.
+// Spawn is the agent the step's command ran, when it ran one, or the
+// subagent it started when that keeps a session of its own.
 func (st *Step) Spawn() (Spawn, bool) {
+	if st.kind() == tool.Subagent {
+		in := st.in()
+		if in.Child == "" {
+			return Spawn{}, false
+		}
+		return Spawn{Name: agentName(st), Prompt: firstNonEmpty(in.Prompt, in.Description), Child: in.Child}, true
+	}
 	if st.kind() != tool.Shell {
 		return Spawn{}, false
 	}
@@ -416,7 +468,8 @@ func (st *Step) Spawn() (Spawn, bool) {
 // Child is the session a spawned agent wrote, once SetChild found it.
 func (st *Step) Child() *Session { return st.child }
 
-// Spawns are the steps that ran another agent from the shell, in order.
+// Spawns are the steps that started an agent whose session is its own, in
+// order: from the shell, or as a harness's subagent kept apart.
 func (s *Session) Spawns() []*Step {
 	var out []*Step
 	for _, t := range s.Turns {
@@ -450,13 +503,9 @@ func (s *Session) SetChild(st *Step, child *Session) {
 // its row.
 const spawnShown = 4
 
-// spawnLabel is a spawned agent's row: its glyph and name, then what it
-// was asked (or what the command says it's for).
+// spawnLabel is a spawned agent's row, as any subagent's: ⇉, the agent's
+// name, then what it was asked (or what the command says it's for).
 func spawnLabel(sp Spawn, desc string, lbl func(string) string) string {
-	g := glyphColor("⇉")
-	if Look != nil {
-		g = Look(sp.Kind)
-	}
 	what := oneLine(sp.Prompt)
 	switch {
 	case what == "" && sp.From != "":
@@ -464,22 +513,18 @@ func spawnLabel(sp Spawn, desc string, lbl func(string) string) string {
 	case what == "":
 		what = desc
 	}
-	return g + " " + lbl(sp.Name) + "  " + faint(what)
+	return glyphColor("⇉") + " " + lbl(sp.Name) + "  " + faint(what)
 }
 
-// spawnSummary is how far a spawned agent got: its steps, and the model it
-// ran on, once its session is found.
-func spawnSummary(st *Step) string {
-	c := st.child
-	if c == nil {
-		return ""
+// reply is what a subagent said back, drawn as its opened row's body: the
+// last answer of its own session once that's found, else what its call
+// returned (a spawned agent's stdout, or its stderr when that's all).
+func reply(st *Step) string {
+	if st.child != nil {
+		if a := st.child.LastAnswer(1); a != "" {
+			return a
+		}
 	}
-	var parts []string
-	if n := len(st.Children); n > 0 {
-		parts = append(parts, plural(n, "step"))
-	}
-	if c.Model != "" {
-		parts = append(parts, PrettyModel(c.Model))
-	}
-	return faint(strings.Join(parts, " · "))
+	o := st.out()
+	return firstNonEmpty(o.Stdout, o.Stderr, st.Output)
 }

@@ -314,6 +314,13 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 			cfg.Meta[k] = v
 		}
 	}
+	// Started from a rush session's shell, it's that session's subagent.
+	if by := os.Getenv("RUSH_SESSION"); by != "" && !cfg.Resume && cfg.Meta["spawnedBy"] == "" {
+		if cfg.Meta == nil {
+			cfg.Meta = map[string]string{}
+		}
+		cfg.Meta["spawnedBy"] = by
+	}
 	cfg.Name = or(name, cfg.Name)
 	if cfg.Name == "" {
 		cfg.Name = firstWordsOf(prompt)

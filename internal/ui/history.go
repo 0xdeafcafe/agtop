@@ -9,6 +9,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // agentHistory is another agent's session as its history tells it, up to
@@ -38,10 +39,16 @@ func agentHistory(kind agent.Kind, s agent.Session, before time.Time) *convo.Ses
 // which a message resumes (the pane then follows the host), or one running
 // in a terminal, read again as it grows.
 func openHistory(a *fleet.Agent) tea.Cmd {
-	key, id := a.Key, a.ID
+	key, id, rush := a.Key, a.ID, a.Rush
 	h := &history{kind: agent.Kind(a.Kind), s: agent.Session{ID: a.SessionID, Name: a.DisplayName, Transcript: a.History,
 		State: a.State, Remote: a.Remote, Profile: agent.Profile{Kind: agent.Kind(a.Kind), Dir: a.Acct.Dir}}}
 	return func() tea.Msg {
+		// A stopped rush session's folder is its host's to say.
+		if rush && h.s.Profile.Dir == "" {
+			if cfg, err := host.ReadConfig(id); err == nil {
+				h.s.Profile.Dir = cfg.Account.Dir
+			}
+		}
 		h.stat()
 		sess := agentHistory(h.kind, h.s, time.Time{})
 		return hostOpenMsg{key: key, c: &hostConn{key: key, id: id, kind: h.kind, sess: sess, hist: h, open: map[string]bool{}, ready: true}}

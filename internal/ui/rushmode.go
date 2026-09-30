@@ -914,7 +914,7 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		mark, state := paint(cGreen, "✓"), dim("done")
 		switch {
 		case r.live:
-			mark, state = spinOf(c.kindOf(), m.tick+i), paint(cOrange, "running")
+			mark, state = spinOf(c.subKind(sa.ID), m.tick+i), paint(cOrange, "running")
 		case r.status == "stopped":
 			mark, state = dim("⏹"), dim(r.status)
 		case r.status == "failed":
@@ -1108,10 +1108,10 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 		if q := m.localQ[subQKey(c.key, sa.ID)]; q != nil && len(q.items) > 0 {
 			where += " " + paint(cQueue, fmt.Sprintf("✉%d", len(q.items)))
 		}
-		top := spread("  "+spinOf(c.kindOf(), m.tick+i)+" "+paint(cText+bold, sa.Type)+where+
-			"  "+paint(cSub, ansi.Truncate(oneLine(sa.Description), max(12, w-cellw.String(ansi.Strip(right))-cellw.String(sa.Type)-cellw.String(ansi.Strip(where))-10), "…")), right, w)
+		top := spread("  "+spinOf(c.subKind(sa.ID), m.tick+i)+" "+paint(cText+bold, sa.Type)+where+
+			"  "+paint(cSub, cellw.Truncate(oneLine(sa.Description), max(12, w-cellw.String(ansi.Strip(right))-cellw.String(sa.Type)-cellw.String(ansi.Strip(where))-10), "…")), right, w)
 		// Hung off its spinner, so each run reads as one block.
-		act := ansi.Truncate("  "+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+doing+trail, w-2, "…")
+		act := cellw.Truncate("  "+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+doing+trail, w-2, "…")
 		if c.sel == "run:"+sa.ID {
 			top, act = picked1(top, w, m.paneFocus), picked1(act, w, m.paneFocus)
 		}
@@ -1534,7 +1534,8 @@ func (m *Model) syncHost() tea.Cmd {
 	_, paneW, _ := m.layout()
 	showing := a != nil && paneW > 0 && m.mode == modeList
 	hosted := showing && a.Rush && a.PID != 0
-	fromFile := showing && !hosted && (a.TranscriptPath != "" || a.History != "")
+	// A stopped rush session of another agent is read from its history.
+	fromFile := showing && !hosted && (a.TranscriptPath != "" || a.History != "" || a.Rush && a.SessionID != "")
 	if !hosted && !fromFile {
 		m.dropHost()
 		if a == nil {
@@ -1609,7 +1610,7 @@ func freeSoon() {
 // first time; after that a watch takes in what is new as it is written.
 func openTail(a *fleet.Agent) tea.Cmd {
 	key, id, path, rush, kind := a.Key, a.ID, a.TranscriptPath, a.Rush, agent.Kind(a.Kind)
-	if path == "" && a.History != "" {
+	if path == "" && (a.History != "" || rush) {
 		return openHistory(a)
 	}
 	return func() tea.Msg {
@@ -1760,6 +1761,9 @@ func (m *Model) rushPane(w, h int) []string {
 	if c == nil || c.key != a.Key {
 		if !a.Rush {
 			return nil // still loading; the summary shows meanwhile
+		}
+		if a.PID == 0 && m.hostOpening != a.Key {
+			return []string{"", dim("  " + oneLine(a.DisplayName) + " isn't running, and has no conversation to show yet")}
 		}
 		return []string{"", dim("  connecting to " + oneLine(a.DisplayName) + "…")}
 	}

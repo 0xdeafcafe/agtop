@@ -49,8 +49,9 @@ type threadItem struct {
 
 	Path string `json:"path"` // imageView
 
-	Prompt string `json:"prompt"` // collabAgentToolCall
-	Model  string `json:"model"`
+	Prompt    string   `json:"prompt"` // collabAgentToolCall
+	Receivers []string `json:"receiverThreadIds"`
+	Model     string   `json:"model"`
 }
 
 type commandAction struct {
@@ -148,6 +149,9 @@ func callOf(it threadItem, raw jsontext.Value) (tool.Call, bool) {
 		c.Name, c.Kind, c.Input.Path = "view_image", tool.Read, it.Path
 	case "collabAgentToolCall":
 		c.Name, c.Kind, c.Input.Prompt, c.Input.Agent = it.Tool, tool.Subagent, it.Prompt, it.Model
+		if it.Tool == "spawnAgent" && len(it.Receivers) > 0 {
+			c.Input.Child = it.Receivers[0]
+		}
 	default:
 		return tool.Call{}, false
 	}

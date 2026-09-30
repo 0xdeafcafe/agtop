@@ -9,6 +9,8 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
 )
 
 // linesAgent's history is a prompt and an answer per line of its file.
@@ -53,5 +55,23 @@ func TestAHistoryIsFollowedAsItGrows(t *testing.T) {
 	c.followHistory()
 	if c.sess != was {
 		t.Error("read again with nothing changed")
+	}
+}
+
+// A stopped rush session of an agent whose transcripts rush doesn't tail
+// opens from its history, in the folder its host ran it in: it never
+// waits on a connection that won't come.
+func TestStoppedHostedOpensFromHistory(t *testing.T) {
+	t.Setenv("RUSH_HOME", t.TempDir())
+	d := filepath.Join(host.Root(), "abcd1234")
+	if err := os.MkdirAll(d, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(d, "config.json"), []byte(`{"id":"abcd1234","account":{"name":"x","configDir":"/work/.lines"}}`), 0o600)
+	a := &fleet.Agent{Key: "k", Rush: true, Kind: "lines"}
+	a.ID, a.SessionID = "abcd1234", "thread-1"
+	msg, ok := openTail(a)().(hostOpenMsg)
+	if !ok || msg.err != nil || msg.c == nil || msg.c.hist == nil || msg.c.hist.s.Profile.Dir != "/work/.lines" {
+		t.Fatalf("opened %+v", msg)
 	}
 }

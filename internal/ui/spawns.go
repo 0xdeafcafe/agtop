@@ -19,9 +19,6 @@ import (
 // it was asked), draws its steps under the command's row, and lists it
 // with the session's subagents.
 
-// A row of an agent the shell ran leads with its provider's glyph.
-func init() { convo.Look = glyph }
-
 // spawnPrefix marks a spawned agent among the subagent runs.
 const spawnPrefix = "spawn:"
 
@@ -70,6 +67,7 @@ type spawnWant struct {
 	step       string
 	sp         convo.Spawn
 	dir        string
+	parent     string // the session's own id, for a harness's subagent
 	start, end time.Time
 }
 
@@ -118,8 +116,8 @@ func (m *Model) refreshSpawns() tea.Cmd {
 			continue
 		}
 		r.looked = now
-		sp, _ := st.Spawn()
-		want = append(want, spawnWant{step: st.ID, sp: sp, dir: m.spawnDir(c, sp), start: st.Start, end: end})
+		sp := c.spawnOf(st)
+		want = append(want, spawnWant{step: st.ID, sp: sp, dir: m.spawnDir(c, sp), parent: c.sessionID(), start: st.Start, end: end})
 	}
 	if len(want) == 0 {
 		return nil
@@ -167,7 +165,7 @@ func (m *Model) onSpawnFound(msg spawnFoundMsg) {
 		if r == nil || st == nil || r.path != "" {
 			continue
 		}
-		sp, _ := st.Spawn()
+		sp := c.spawnOf(st)
 		r.kind, r.prompt, r.path, r.born, r.hosted = s.Kind, sp.Prompt, s.Transcript, s.CreatedAt, msg.hosted[id]
 		if agent.ReadsAsClaude(s.Kind) {
 			r.tail = convo.NewTail(s.Transcript)
@@ -250,6 +248,15 @@ func findSpawn(w spawnWant, mine []agent.Profile, own string, taken map[string]b
 	if !ok {
 		return agent.Session{}, false
 	}
+	if w.sp.Child != "" {
+		f, ok := a.(agent.ChildFinder)
+		for _, p := range append(mine, a.Profiles()...) {
+			if s, found := f.FindChild(p, w.parent, w.sp.Child, w.start); ok && found && !taken[s.Transcript] {
+				return s, true
+			}
+		}
+		return agent.Session{}, false
+	}
 	if f, ok := a.(agent.SpawnFinder); ok {
 		return f.FindSpawn(append(mine, a.Profiles()...), w.dir, w.start, fits)
 	}
@@ -321,7 +328,7 @@ func (c *hostConn) spawnSubs() []convo.Subagent {
 		if r == nil || r.path == "" {
 			continue
 		}
-		sp, _ := st.Spawn()
+		sp := c.spawnOf(st)
 		sa := convo.Subagent{ID: spawnPrefix + st.ID, Type: sp.Name, Description: firstNonEmpty(oneLineUI(sp.Prompt), sp.From),
 			Model: sp.Model, ToolUseID: st.ID, Path: r.path, Born: r.born.UnixNano()}
 		if !r.mod.IsZero() {
@@ -383,6 +390,32 @@ func (c *hostConn) spawnRunFor(id string) *spawnRun {
 		return r
 	}
 	return nil
+}
+
+// spawnOf is the agent step st started: a harness's own subagent is of
+// the session's agent.
+func (c *hostConn) spawnOf(st *convo.Step) convo.Spawn {
+	sp, _ := st.Spawn()
+	if sp.Kind == "" {
+		sp.Kind = c.kindOf()
+	}
+	return sp
+}
+
+// sessionID is the id the session's agent knows it by.
+func (c *hostConn) sessionID() string {
+	if c.hist != nil {
+		return firstNonEmpty(c.sess.Info.SessionID, c.hist.s.ID)
+	}
+	return c.sess.Info.SessionID
+}
+
+// subKind is the agent run id is: a spawned one's own, else the session's.
+func (c *hostConn) subKind(id string) agent.Kind {
+	if r := c.spawnRunFor(id); r != nil && r.kind != "" {
+		return r.kind
+	}
+	return c.kindOf()
 }
 
 func oneLineUI(s string) string { return strings.Join(strings.Fields(s), " ") }

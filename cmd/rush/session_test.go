@@ -50,6 +50,7 @@ func setup(t *testing.T) (bin string) {
 		t.Fatal(err)
 	}
 	t.Setenv("RUSH_HOME", home)
+	t.Setenv("RUSH_SESSION", "") // not the session these tests may run in
 	bin = filepath.Join(home, "claude")
 	if err := os.WriteFile(bin, []byte(fakeClaude), 0o755); err != nil {
 		t.Fatal(err)
@@ -156,6 +157,16 @@ func TestStartIsIdempotentAndPrintsInfo(t *testing.T) {
 	}
 	if _, code := run(t, "", "start", "--resume", "--cwd", dir); code == 0 {
 		t.Fatal("--resume without --session-id should fail")
+	}
+}
+
+// One started from a rush session's shell is listed as that session's.
+func TestStartFromASessionIsItsSubagent(t *testing.T) {
+	bin := setup(t)
+	t.Setenv("RUSH_SESSION", "parent00")
+	startJSON(t, "--cwd", filepath.Dir(bin), "--session-id", sid, "--binary", bin)
+	if cfg, err := host.ReadConfig("11111111"); err != nil || cfg.Meta["spawnedBy"] != "parent00" {
+		t.Fatalf("config: %+v %v", cfg.Meta, err)
 	}
 }
 

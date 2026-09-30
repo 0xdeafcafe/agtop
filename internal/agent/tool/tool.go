@@ -75,6 +75,7 @@ type Input struct {
 	Description string     // what the call is for, in the agent's words
 	Prompt      string     // Subagent; Fetch: what to look for
 	Agent       string     // Subagent: its type
+	Child       string     // Subagent: the run it started, where its harness keeps it apart (a Codex thread, or task)
 	Content     string     // Write: the whole file
 	Edits       []Replace  // Edit
 	Offset      int        // Read: first line, 1-based; 0 is the start

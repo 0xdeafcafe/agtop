@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/host"
 
 	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
@@ -45,6 +47,9 @@ func TestSpawnOf(t *testing.T) {
 		{cmd: `claude`},
 		{cmd: `which claude`},
 		{cmd: `go test ./...`},
+		{cmd: `rush session start --agent codex --name walk --cwd /work --prompt-file .claude/tmp/walk.md --json`, ok: true, kind: "codex", from: ".claude/tmp/walk.md", dir: "/work"},
+		{cmd: "rush session start --agent codex --prompt-file - <<'EOF'\nwalk the site\nEOF", ok: true, kind: "codex", prompt: "walk the site"},
+		{cmd: `rush session start --session-id x --resume`},
 	} {
 		sp, ok := SpawnOf(c.cmd)
 		if ok != c.ok {
@@ -88,5 +93,39 @@ func TestSpawnRow(t *testing.T) {
 	}
 	if strings.Contains(out, "b.go") {
 		t.Errorf("an early step shows before the row is opened:\n%s", out)
+	}
+}
+
+// Opened, a spawned agent's row shows what it said back, as any
+// subagent's does: not the command that ran it, nor its banner.
+func TestSpawnReplies(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "get a second opinion"}, at(0))
+	s.Apply(toolUse("b1", "Bash", map[string]any{"command": `codex exec "review the diff for races"`}), at(1))
+	s.Apply(toolResult("b1", "OpenAI Codex v0.1\nworkdir: /work\nNo races found.", false, nil), at(5))
+	child := New()
+	child.Apply(host.Sent{Text: "review the diff for races"}, at(1))
+	child.Apply(say("No races found."), at(4))
+	s.SetChild(s.Spawns()[0], child)
+	out := plain(s.Render(Options{Width: 100, Now: at(9), Verbose: true}))
+	if !strings.Contains(out, "No races found.") || strings.Contains(out, "$ codex exec") || strings.Contains(out, "workdir") {
+		t.Errorf("the reply isn't its body:\n%s", out)
+	}
+}
+
+// A harness's own subagent kept in a session apart (Codex's spawn_agent)
+// is followed as a spawned agent is: its row is a subagent's.
+func TestHarnessChildSpawn(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "fan out"}, at(0))
+	s.Apply(event.Message{Role: "assistant", Parts: []event.Part{{Kind: event.ToolCall, Call: &tool.Call{ID: "c1", Name: "spawn_agent",
+		Kind: tool.Subagent, Input: tool.Input{Description: "trace_bug", Child: "trace_bug"}}}}}, at(1))
+	s.Apply(toolUse("c2", "Agent", map[string]any{"description": "inline", "prompt": "look"}), at(2))
+	st := s.Spawns()
+	if len(st) != 1 || st[0].ID != "c1" {
+		t.Fatalf("spawns: %v", st)
+	}
+	if sp, _ := st[0].Spawn(); sp.Child != "trace_bug" || sp.Prompt != "trace_bug" {
+		t.Errorf("spawn %+v", sp)
 	}
 }

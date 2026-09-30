@@ -724,7 +724,17 @@ func responseCall(ri responseItem) tool.Call {
 		_ = jsonx.Unmarshal([]byte(ri.Arguments), &a)
 		c.Kind, c.Input.Path = tool.Read, a.Path
 	case "spawn_agent":
-		c.Kind = tool.Subagent
+		var a struct {
+			Task  string `json:"task_name"`
+			Type  string `json:"agent_type"`
+			Model string `json:"model"`
+		}
+		_ = jsonx.Unmarshal([]byte(ri.Arguments), &a)
+		// Its message is kept encrypted: the task names it.
+		c.Kind, c.Input.Description, c.Input.Child, c.Input.Agent = tool.Subagent, a.Task, a.Task, a.Type
+		if a.Type == "" {
+			c.Input.Agent = a.Model
+		}
 	}
 	if ri.Namespace != "" {
 		c.Name = ri.Namespace + "." + ri.Name

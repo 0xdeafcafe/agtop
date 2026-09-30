@@ -2111,13 +2111,12 @@ func (d *drawer) step(st *Step, depth int) {
 	}
 	d.cards(st, indent+2)
 	d.denial(st, indent+2)
-	// A subagent shows its own steps while it works, or when opened; an
-	// agent the shell ran, only its latest few until it's opened, as its
-	// runs go long.
+	// A subagent shows its own steps while it works, or when opened: only
+	// its latest few until it's opened, as its runs go long.
 	if len(st.Children) > 0 && (st.Status == Running || open) {
 		kids := st.Children
 		// Open only for being the latest step isn't opened.
-		if st.child != nil && !d.o.Verbose && !d.o.Open[ref] && len(kids) > spawnShown {
+		if !d.o.Verbose && !d.o.Open[ref] && len(kids) > spawnShown {
 			d.add("", "", d.spine()+strings.Repeat(" ", indent+3)+faint(fmt.Sprintf("⋯ %s before", plural(len(kids)-spawnShown, "step"))), "")
 			kids = kids[len(kids)-spawnShown:]
 		}
@@ -2619,8 +2618,11 @@ var (
 )
 
 func (d *drawer) summary(st *Step) string {
-	if _, ok := st.Spawn(); ok {
-		return spawnSummary(st)
+	if _, ok := st.Spawn(); ok || st.child != nil {
+		if n := len(st.Children); n > 0 {
+			return faint(plural(n, "step"))
+		}
+		return ""
 	}
 	switch {
 	case st.kind() == tool.Shell:
@@ -2755,6 +2757,11 @@ func (d *drawer) body(st *Step, indent int) {
 	}
 	if qa := answered(st); st.kind() == tool.Question && qa != nil {
 		d.answers(qa, indent)
+		return
+	}
+	// Any subagent's body is what it said back: a shell-run agent's too.
+	if _, ok := st.Spawn(); ok || st.child != nil {
+		d.output(reply(st), indent, st.Status == Failed)
 		return
 	}
 	switch v, _ := d.viewOf(st, ref); {

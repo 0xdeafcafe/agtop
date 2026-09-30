@@ -44,6 +44,14 @@ type SpawnFinder interface {
 	FindSpawn(profiles []Profile, dir string, start time.Time, fits func(Session) bool) (Session, bool)
 }
 
+// ChildFinder is an adapter whose subagents keep sessions of their own,
+// apart from the one that started them (Codex's spawn_agent threads).
+type ChildFinder interface {
+	// FindChild is the run session parent started as child (its call's
+	// Input.Child), begun after start, in p.
+	FindChild(p Profile, parent, child string, start time.Time) (Session, bool)
+}
+
 // ProgramOf is what agent k's program is called; empty when it has none,
 // isn't registered, or rides another's.
 func ProgramOf(k Kind) string {
