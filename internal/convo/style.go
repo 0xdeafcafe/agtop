@@ -174,6 +174,7 @@ var musings = []string{
 	"watching the langs", "binding", "experiencing euphoria", "microgurning",
 	"implicating", "golden godding", "consulting bird law",
 	"wildcarding", "fighting the Nightman", "rum hamming", "boiling denim",
+	"fixing the gas crisis", "opening Hormuz", "closing the Strait",
 	"consulting the rubber duck", "staring into the middle distance", "reticulating splines",
 	"asking its mum", "counting sheep", "doing a little jig", "stroking an imaginary beard",
 	"having a biscuit", "reading the manual for once", "pretending to understand",
