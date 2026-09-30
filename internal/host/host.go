@@ -1078,8 +1078,22 @@ func (s *server) send(text string, images []string, now bool) error {
 		s.mu.Unlock()
 		return nil
 	}
+	if len(s.info.Queue) > 0 && (now || !s.info.QueueHeld) && (!busy || s.cutsIn()) {
+		// After what's waiting, never ahead of it: a message with images
+		// went first here, and one sent while idle went round it.
+		s.cutIn(text, images, pics, len(s.info.Queue))
+		if !busy {
+			s.sendQueue()
+			s.publish()
+			s.mu.Unlock()
+			return nil
+		}
+		conn := s.conn
+		s.mu.Unlock()
+		return conn.Interrupt()
+	}
 	if now && s.cutsIn() {
-		s.cutIn(text, images, pics)
+		s.cutIn(text, images, pics, 0)
 		conn := s.conn
 		s.mu.Unlock()
 		return conn.Interrupt()
@@ -1118,14 +1132,14 @@ func (s *server) cutsIn() bool {
 	return s.conn != nil && s.info.State == "working" && agent.Supports(agent.Kind(s.cfg.Kind), agent.FeatureInterrupt)
 }
 
-// cutIn puts text and its images first in the queue and lets the queue
-// go, so it's sent the moment the turn, which the caller stops, ends. pics
-// are the images as read to send, or nil when they already were. Called
-// with mu held.
-func (s *server) cutIn(text string, images, pics []string) {
+// cutIn puts text and its images at place at in the queue and lets the
+// queue go, so it's sent the moment the turn, which the caller stops,
+// ends. pics are the images as read to send, or nil when they already
+// were. Called with mu held.
+func (s *server) cutIn(text string, images, pics []string, at int) {
 	qi := queueImages(&s.info)
-	s.info.Queue = append([]string{text}, s.info.Queue...)
-	s.info.QueueImages = trimImages(append([][]string{images}, qi...))
+	s.info.Queue = slices.Insert(slices.Clone(s.info.Queue), at, text)
+	s.info.QueueImages = trimImages(slices.Insert(qi, at, images))
 	for i, p := range pics {
 		if s.pics == nil {
 			s.pics = map[string]string{}
@@ -1494,7 +1508,7 @@ func (s *server) do(o op) error {
 			images := qi[i]
 			s.info.Queue = slices.Delete(slices.Clone(s.info.Queue), i, i+1)
 			s.info.QueueImages = trimImages(slices.Delete(qi, i, i+1))
-			s.cutIn(o.Was, images, nil)
+			s.cutIn(o.Was, images, nil, 0)
 			conn := s.conn
 			s.mu.Unlock()
 			return conn.Interrupt()

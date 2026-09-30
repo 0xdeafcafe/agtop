@@ -675,8 +675,9 @@ type interruptConn struct {
 
 func (c *interruptConn) Interrupt() error { c.stops++; return nil }
 
-// Sent now mid-turn, a message stops the turn and waits first in the
-// queue, rather than going to a turn that may be stuck in a long tool.
+// Sent now mid-turn, a message stops the turn and waits in the queue
+// after what was there, rather than going to a turn that may be stuck in
+// a long tool; a queued one sent now goes first.
 func TestSendNowMidTurnCutsIn(t *testing.T) {
 	setup(t)
 	c := &interruptConn{}
@@ -688,7 +689,7 @@ func TestSendNowMidTurnCutsIn(t *testing.T) {
 	if err := s.do(op{Op: "queue_send", Index: 2, Was: "b"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(s.info.Queue, "|"); got != "b|now|a" || s.info.QueueHeld || c.stops != 2 {
+	if got := strings.Join(s.info.Queue, "|"); got != "b|a|now" || s.info.QueueHeld || c.stops != 2 {
 		t.Errorf("queue %q held %v stops %d", got, s.info.QueueHeld, c.stops)
 	}
 }
@@ -731,9 +732,24 @@ func TestCutInKeepsImages(t *testing.T) {
 	if err := s.do(op{Op: "queue_send", Index: 2, Was: "b"}); err != nil {
 		t.Fatal(err)
 	}
-	want := [][]string{{pic}, {pic}, nil}
-	if got := strings.Join(s.info.Queue, "|"); got != "b|now|a" || !slices.EqualFunc(s.info.QueueImages, want, slices.Equal) || c.stops != 2 {
+	want := [][]string{{pic}, nil, {pic}}
+	if got := strings.Join(s.info.Queue, "|"); got != "b|a|now" || !slices.EqualFunc(s.info.QueueImages, want, slices.Equal) || c.stops != 2 {
 		t.Errorf("queue %q images %q stops %d", got, s.info.QueueImages, c.stops)
+	}
+}
+
+// A message sent while idle, with the queue still waiting and not held,
+// goes after what's queued, all of it together, not round it.
+func TestIdleSendJoinsTheQueue(t *testing.T) {
+	setup(t)
+	c := &inputConn{}
+	s := &server{cfg: Config{ID: "iq", Kind: "claude"}, conn: c, clients: map[*conn]struct{}{}}
+	s.info.State, s.info.Queue = "idle", []string{"a", "b"}
+	if err := s.send("new", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.info.Queue) != 0 || len(c.got) != 1 || c.got[0].Text != JoinQueue([]string{"a", "b", "new"}) {
+		t.Errorf("queue %q, the agent got %+v", s.info.Queue, c.got)
 	}
 }
 
