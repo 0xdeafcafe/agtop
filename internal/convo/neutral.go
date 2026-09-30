@@ -14,6 +14,9 @@ import (
 // applyNeutral folds in an event from any agent: Claude Code's come here
 // too, read as rush's own.
 func (s *Session) applyNeutral(ev event.Event, now time.Time) {
+	if t := s.Live(); t != nil && now.After(t.Heard) {
+		t.Heard = now
+	}
 	switch e := ev.(type) {
 	case event.Init:
 		s.Model, s.Cwd = e.Model, e.Cwd

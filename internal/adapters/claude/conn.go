@@ -83,6 +83,11 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 	if o.Lean {
 		ho.Env = append(ho.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	}
+	// A stream that goes silent is cut and tried again, not waited on for
+	// good; one you've set yourself stands.
+	if os.Getenv(StreamWatchdogEnv) == "" {
+		ho.Env = append(ho.Env, StreamWatchdogEnv+"=1")
+	}
 	// Checkpoints, as Claude Code keeps them in a terminal, so a rewind can
 	// put the files back too. The session's own environment goes last, to
 	// have the last word.
@@ -475,3 +480,7 @@ func (Adapter) RunsSession(args []string, sessionID string) bool {
 }
 
 const subagentCapEnv = "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"
+
+// StreamWatchdogEnv turns on Claude Code's own watchdog for a model stream
+// that goes silent.
+const StreamWatchdogEnv = "CLAUDE_ENABLE_STREAM_WATCHDOG"

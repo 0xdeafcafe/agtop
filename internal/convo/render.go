@@ -1075,7 +1075,22 @@ func (d *drawer) liveLine() {
 		// A request failed and is tried again: the model hasn't stalled,
 		// its API has.
 		d.add("", "", pad+"  "+paint(cYellow, "↻ "+retryWords(r, d.o.Now.Sub(t.RetryAt))), "")
+	} else if quiet := d.o.Now.Sub(latest(t.Heard, t.Start)); !t.Start.IsZero() && quiet >= stallAfter {
+		d.add("", "", pad+"  "+paint(cYellow, "⚠ stalled · nothing from the model for "+d.since(d.o.Now.Add(-quiet))+
+			" · stop the turn and send again"), "")
 	}
+}
+
+// stallAfter is how long a turn can hear nothing from its agent, no step
+// running, before it's drawn as stalled: a stream gone silent, not thought.
+const stallAfter = 2 * time.Minute
+
+// latest is the later of a and b.
+func latest(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 // air is a row of space above what follows, unless the last row is one.

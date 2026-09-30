@@ -177,6 +177,9 @@ type Turn struct {
 	// is when the thinking now under way began.
 	Streamed int
 	Thinking time.Time
+	// Heard is when its agent last said anything, to tell a turn that has
+	// gone quiet (a stream that stalled) from one that's working.
+	Heard time.Time
 	// Retry is the request to the model being tried again, from when it
 	// was said, until the model starts answering.
 	Retry   *event.Retry

@@ -117,6 +117,18 @@ func (m *Model) generalSections() []section {
 		[][2]string{{"on", "it looks at most every 3 hours, once there's something new."}, {"off", "no advisor."}}, nil)
 	advisor.run = m.advCommand
 	secs = append(secs, section{title: "Advice", rows: []setting{advisor}})
+
+	// What keeps a turn from hanging on a stream that went silent: shown,
+	// as it's always on.
+	stalls := setting{
+		label: "Stalled turns",
+		what:  "A model's stream can go silent without ending, leaving a turn waiting for good. Claude Code sessions rush runs have Claude Code's own stream watchdog on, which cuts such a stream and tries again, and every turn that has heard nothing from its agent for 2 minutes, with no step running, is marked stalled on its working line.",
+		line: func(int) string {
+			return fit(paint(cText, "Stalled turns"), 32) + paint(cGreen, "✓ watched") +
+				faint(" · Claude Code's stream watchdog on · a turn quiet 2m is marked stalled")
+		},
+	}
+	secs = append(secs, section{title: "Stalls", rows: []setting{stalls}})
 	return append(secs, m.interfaceSections()...)
 }
 
