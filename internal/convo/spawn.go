@@ -50,7 +50,7 @@ var spawnValued = map[string]bool{
 	"--output-last-message": true, "-o": true, "--color": true, "--output-schema": true, "--log-level": true,
 	"--allow-tool": true, "--deny-tool": true, "--betas": true, "--setting-sources": true, "--plugin-dir": true,
 	"--json-schema": true, "--max-budget-usd": true, "--permission-prompt-tool": true, "--permission-prompts": true,
-	"--name": true, "-n": true, "--reasoning-effort": true, "--agent-file": true,
+	"--name": true, "-n": true, "--reasoning-effort": true, "--agent-file": true, "--workdir": true, "--dir": true,
 }
 
 // spawnPrint are the flags that run the agent once and print: the prompt
@@ -312,7 +312,7 @@ func spawnIn(c command, body []string, stdin string) (Spawn, bool) {
 			switch name {
 			case "--model", "-m":
 				sp.Model = unquoteArg(next)
-			case "-C", "--cd":
+			case "-C", "--cd", "--workdir", "--dir":
 				sp.Dir = unquoteArg(next)
 			case "--input-format":
 				streamed = unquoteArg(next) == "stream-json"

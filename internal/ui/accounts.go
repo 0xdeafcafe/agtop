@@ -256,13 +256,20 @@ func (m *Model) startQuota() (usage.Quota, bool) {
 }
 
 // findSignIns asks each agent rush can switch who it's signed in as, and
-// which accounts it knows of itself.
+// which accounts it knows of itself; one that runs on a key its program
+// keeps, whether it has it.
 func (m *Model) findSignIns() tea.Cmd {
 	if m.offline {
 		return nil
 	}
 	var cmds []tea.Cmd
 	for _, ad := range agent.InstalledAll() {
+		if kc, ok := ad.(agent.KeyChecker); ok {
+			if p, found := m.profileOf(ad); found {
+				cmds = append(cmds, func() tea.Msg { return signInsMsg{kind: string(ad.Kind()), err: kc.CheckKey(p)} })
+			}
+			continue
+		}
 		acc, ok := ad.(agent.Accounts)
 		if !ok || ad.Kind() == loginsKind {
 			continue

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 )
@@ -17,7 +18,15 @@ type Agent struct {
 	Title   string
 	Command string   // its program
 	Args    []string // what makes it speak ACP
+	ACP     string   // the program that does, beside Command, when it's another: vibe-acp
 	Home    string   // its config folder, under the home folder: ".kimi-code"
+	// Once is how Command runs one task and prints the answer, "<task>"
+	// for the prompt; Model is the flag that picks its model, or a VAR=.
+	Once, Model string
+	// Flags are the flags of a one-shot run rush hosts, by what each
+	// sets: prompt, model, cwd, mode (its value), mode=m, "=v" for one
+	// that must be v, "" for one that changes nothing printed.
+	Flags map[string]string
 	// More are features it has, or lacks, beyond what ACP gives every
 	// agent (Features).
 	More map[agent.Feature]agent.Support
@@ -26,12 +35,18 @@ type Agent struct {
 }
 
 // Known are the ACP agents rush runs. An agent that grows more than ACP
-// gives (history, limits) moves to a package of its own, as Copilot has.
+// gives (history, limits) moves to a package of its own, as Copilot and
+// Vibe have.
 var Known = []Agent{
-	{ID: "gemini", Title: "Gemini", Command: "gemini", Args: []string{"--experimental-acp"}, Home: ".gemini"},
-	{ID: "kimi", Title: "Kimi", Command: "kimi", Args: []string{"acp"}, Home: ".kimi-code", More: plannedLimits},
-	{ID: "opencode", Title: "OpenCode", Command: "opencode", Args: []string{"acp"}, Home: ".config/opencode"},
-	{ID: "vibe", Title: "Mistral Vibe", Command: "vibe-acp", Home: ".vibe", More: plannedLimits},
+	{ID: "gemini", Title: "Gemini", Command: "gemini", Args: []string{"--experimental-acp"}, Home: ".gemini",
+		Once: `gemini -p "<task>"`, Model: "-m", Flags: map[string]string{"-p": "prompt", "--prompt": "prompt",
+			"-m": "model", "--model": "model", "-o": "=text", "--output-format": "=text"}},
+	{ID: "kimi", Title: "Kimi", Command: "kimi", Args: []string{"acp"}, Home: ".kimi-code", More: plannedLimits,
+		Once: `kimi -p "<task>"`, Model: "-m", Flags: map[string]string{"-p": "prompt", "--prompt": "prompt",
+			"-m": "model", "--model": "model", "--output-format": "=text"}},
+	{ID: "opencode", Title: "OpenCode", Command: "opencode", Args: []string{"acp"}, Home: ".config/opencode",
+		Once: `opencode run "<task>"`, Model: "-m", Flags: map[string]string{"-m": "model", "--model": "model",
+			"--dir": "cwd", "--format": "=default"}},
 }
 
 func init() {
@@ -43,7 +58,7 @@ func init() {
 func (a Agent) Kind() agent.Kind { return a.ID }
 func (a Agent) Name() string     { return a.Title }
 
-// plannedLimits are Kimi's and Vibe's: their billing APIs aren't read yet.
+// plannedLimits are Kimi's: its billing API isn't read yet.
 var plannedLimits = map[agent.Feature]agent.Support{agent.FeatureQuota: agent.Planned}
 
 // features are what ACP gives any agent. Rewind, fork, context breakdowns,
@@ -109,6 +124,9 @@ func (a Agent) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 			cmd = p
 		}
 	}
+	if a.ACP != "" {
+		cmd = filepath.Join(filepath.Dir(cmd), a.ACP)
+	}
 	opts := Options{Command: cmd, Args: append(append([]string(nil), a.Args...), o.Flags...), Env: o.Env, Dir: o.Dir, Adapter: string(a.ID)}
 	if o.Resume {
 		opts.Resume = o.SessionID
@@ -132,9 +150,79 @@ func (a Agent) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 	return s, nil
 }
 
+// SpawnCommand is its one-shot run, as a session's shell writes it.
+func (a Agent) SpawnCommand() (cmd, modelFlag string) { return a.Once, a.Model }
+
+// ReadOnce reads args as its one-shot run: the prompt after Once's flag,
+// or the words after its subcommand, and what Flags set. A flag it
+// doesn't name, or two that set one thing two ways, runs the real one.
+func (a Agent) ReadOnce(args []string) (agent.Once, bool) {
+	var o agent.Once
+	sub := ""
+	if w := strings.Fields(a.Once); len(w) > 1 && !strings.HasPrefix(w[1], "-") {
+		sub = w[1] // opencode run
+	}
+	var words []string
+	started := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			switch {
+			case sub != "" && !started && arg == sub:
+				started = true
+			case sub != "" && started:
+				words = append(words, arg)
+			default:
+				return o, false // a prompt for its own screen
+			}
+			continue
+		}
+		name, val, eq := strings.Cut(arg, "=")
+		role, ok := a.Flags[name]
+		bare := role == "" || strings.HasPrefix(role, "mode=")
+		switch {
+		case !ok || bare && eq:
+			return o, false
+		case !bare && !eq:
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return o, false
+			}
+			i++
+			val = args[i]
+		}
+		var set *string
+		switch {
+		case role == "prompt":
+			started, words = true, append(words, val)
+		case role == "model":
+			set = &o.Model
+		case role == "cwd":
+			set = &o.Cwd
+		case role == "mode":
+			set = &o.Mode
+		case strings.HasPrefix(role, "mode="):
+			set, val = &o.Mode, strings.TrimPrefix(role, "mode=")
+		case strings.HasPrefix(role, "=") && val != role[1:]:
+			return o, false
+		}
+		if set != nil && *set != "" && *set != val {
+			return o, false
+		}
+		if set != nil {
+			*set = val
+		}
+	}
+	if v, ok := strings.CutSuffix(a.Model, "="); ok && o.Model == "" {
+		o.Model = os.Getenv(v)
+	}
+	o.Prompt = strings.Join(words, " ")
+	return o, started && o.Prompt != ""
+}
+
 var (
-	_ agent.Adapter  = Agent{}
-	_ agent.Driver   = Agent{}
-	_ agent.Conn     = (*Session)(nil)
-	_ agent.Answerer = (*Session)(nil)
+	_ agent.Adapter    = Agent{}
+	_ agent.Driver     = Agent{}
+	_ agent.OnceReader = Agent{}
+	_ agent.Conn       = (*Session)(nil)
+	_ agent.Answerer   = (*Session)(nil)
 )

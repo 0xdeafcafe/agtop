@@ -16,6 +16,7 @@ import (
 // A run rush can print as its program would is hosted; anything else
 // runs the real program.
 func TestParseRun(t *testing.T) {
+	t.Setenv("VIBE_ACTIVE_MODEL", "")
 	hosted := []struct {
 		prog string
 		args []string
@@ -32,6 +33,11 @@ func TestParseRun(t *testing.T) {
 			workRun{kind: "claude", prompt: "say hi", model: "haiku", format: "json"}},
 		{"claude", []string{"-p", "--output-format=stream-json", "--verbose", "--include-partial-messages", "--dangerously-skip-permissions", "hi"},
 			workRun{kind: "claude", prompt: "hi", format: "stream-json", partial: true, mode: "bypassPermissions"}},
+		{"vibe", []string{"-p", "say hi"}, workRun{kind: "vibe", prompt: "say hi", format: "text"}},
+		{"vibe", []string{"--trust", "--auto-approve", "--workdir", "sub", "--prompt=go", "--output", "text"},
+			workRun{kind: "vibe", prompt: "go", mode: "auto-approve", cwd: "sub", format: "text"}},
+		{"kimi", []string{"-p", "go", "-m", "k2"}, workRun{kind: "kimi", prompt: "go", model: "k2", format: "text"}},
+		{"opencode", []string{"run", "-m", "a/b", "fix", "it"}, workRun{kind: "opencode", prompt: "fix it", model: "a/b", format: "text"}},
 	}
 	for _, c := range hosted {
 		got, ok := parseRun(c.prog, c.args)
@@ -63,6 +69,12 @@ func TestParseRun(t *testing.T) {
 		{"claude", []string{"-p", "--resume", "abc", "hi"}},                      // a flag rush doesn't take
 		{"claude", []string{"-p", "--input-format", "stream-json"}},
 		{"copilot", []string{"-p", "hi"}}, // not printed as copilot would, yet
+		{"vibe", []string{"say hi"}},      // interactive, with a prompt
+		{"vibe", []string{"--setup"}},
+		{"vibe", []string{"-p", "hi", "--output", "json"}},                  // every message, as JSON
+		{"vibe", []string{"-p", "hi", "--agent", "plan", "--auto-approve"}}, // two modes at once
+		{"kimi", []string{"-p", "hi", "--yolo"}},                            // a mode rush doesn't know
+		{"opencode", []string{"run"}},
 		{"ls", []string{"-la"}},
 	}
 	for _, c := range real {
@@ -160,6 +172,31 @@ func TestCodexOut(t *testing.T) {
 	c.line(nil, event.TurnEnd{Reason: "error", Err: "boom"})
 	if code := c.finish(); code != 1 || !strings.Contains(o.String(), `{"type":"turn.failed","error":{"message":"boom"}}`) {
 		t.Errorf("failed turn: exit %d, %s", code, o.String())
+	}
+}
+
+// vibe takes its model from a variable set before it.
+func TestParseRunModelFromVariable(t *testing.T) {
+	t.Setenv("VIBE_ACTIVE_MODEL", "devstral")
+	if got, ok := parseRun("vibe", []string{"-p", "hi"}); !ok || got.model != "devstral" {
+		t.Errorf("got %+v %v", got, ok)
+	}
+}
+
+// A one-shot run prints its last answer, or why the turn failed.
+func TestOnceOut(t *testing.T) {
+	var out, errb bytes.Buffer
+	o := &onceOut{stdout: &out, stderr: &errb}
+	o.line(nil, event.Message{Role: "user", Parts: []event.Part{{Kind: event.Text, Text: "hi"}}})
+	o.line(nil, event.Message{Role: "assistant", Parts: []event.Part{{Kind: event.Text, Text: "Looking."}}})
+	o.line(nil, event.Message{Role: "assistant", Parts: []event.Part{{Kind: event.Text, Text: "Hello"}}})
+	o.line(nil, event.TurnEnd{Reason: "done"})
+	if code := o.finish(); code != 0 || out.String() != "Hello\n" || errb.Len() > 0 {
+		t.Errorf("exit %d, out %q, err %q", code, out.String(), errb.String())
+	}
+	o.line(nil, event.TurnEnd{Reason: "error", Err: "no key"})
+	if code := o.finish(); code != 1 || errb.String() != "Error: no key\n" {
+		t.Errorf("failed turn: exit %d, err %q", code, errb.String())
 	}
 }
 

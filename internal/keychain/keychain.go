@@ -29,6 +29,12 @@ func Read(service, account string) ([]byte, error) {
 	return bytes.TrimRight(out, "\n"), nil
 }
 
+// Has is whether service keeps an item for account, found without
+// reading its secret.
+func Has(service, account string) bool {
+	return exec.Command("/usr/bin/security", "find-generic-password", "-s", service, "-a", account).Run() == nil
+}
+
 // Write goes through security's own prompt rather than its arguments
 // where it fits, so the secret doesn't show in the process list; a longer
 // one (a prompt line holds at most 4 KB, and a sign-in with MCP servers'

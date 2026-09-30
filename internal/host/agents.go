@@ -32,7 +32,7 @@ func agentsPrompt() string {
 		if !ok {
 			continue // no stand-in hosts it
 		}
-		if !signedIn(base) {
+		if !signedIn(base) || !hasKey(a) {
 			continue // told of only once it can run
 		}
 		cmd, model := sp.SpawnCommand()
@@ -48,12 +48,19 @@ func agentsPrompt() string {
 		if len(ids) == 0 {
 			ids = localModels(prov)
 		}
-		models := ", " + model + " <model>"
+		what := "<model>"
 		switch {
 		case len(ids) > 0:
-			models = ", " + model + " one of " + strings.Join(ids, ", ")
+			what = "one of " + strings.Join(ids, ", ")
 		case prov == "ollama":
-			models = ", " + model + " <a model from `ollama list`>"
+			what = "<a model from `ollama list`>"
+		}
+		models := ", " + model + " " + what
+		if strings.HasSuffix(model, "=") { // a variable, set before the command
+			models = ", " + model + "<model> before it"
+			if what != "<model>" {
+				models += ", " + what
+			}
 		}
 		lines = append(lines, "- "+prov+": "+agent.ProviderLabel(prov)+"'s models in "+agent.HarnessLabel(k)+", `"+cmd+"`"+models)
 	}
@@ -70,6 +77,14 @@ func agentsPrompt() string {
 func signedIn(a agent.Adapter) bool {
 	ps := agent.ProfilesOf(a)
 	return len(ps) == 0 || SignInIfOut(string(a.Kind()), ps[0]) == nil
+}
+
+// hasKey is whether a finds the key its own program keeps, when it runs
+// on one (agent.KeyChecker).
+func hasKey(a agent.Adapter) bool {
+	kc, ok := a.(agent.KeyChecker)
+	ps := agent.ProfilesOf(a)
+	return !ok || len(ps) == 0 || kc.CheckKey(ps[0]) == nil
 }
 
 // localModels are the models provider prov has on this machine, as its

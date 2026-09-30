@@ -201,3 +201,4 @@ func reads(model string) (agent.Media, bool) {
 func (Adapter) Reads(model string) (agent.Media, bool)      { return reads(model) }
 func (CodexAdapter) Reads(model string) (agent.Media, bool) { return reads(model) }
 func (PiAdapter) Reads(model string) (agent.Media, bool)    { return reads(model) }
+func (VibeAdapter) Reads(model string) (agent.Media, bool)  { return reads(model) }

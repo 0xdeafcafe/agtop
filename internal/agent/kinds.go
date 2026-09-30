@@ -86,7 +86,27 @@ func IsProgram(comm string) bool {
 
 // Spawnable is an adapter whose program a session's shell can run as a
 // run rush hosts (see host's stand-ins): how the run is written, with a
-// "<task>" for its prompt, and the flag that picks its model.
+// "<task>" for its prompt, and the flag that picks its model (a VAR=
+// when a variable set before the command does).
 type Spawnable interface {
 	SpawnCommand() (cmd, modelFlag string)
+}
+
+// Once is a one-shot run a shell asked of an agent's program: one task,
+// answered and printed.
+type Once struct{ Prompt, Model, Mode, Cwd string }
+
+// OnceReader is a Spawnable that reads its program's one-shot runs
+// itself: what args ask for, false when rush can't host the run and
+// print it as the program would.
+type OnceReader interface {
+	ReadOnce(args []string) (Once, bool)
+}
+
+// KeyChecker is an agent that runs only on an API key its own program
+// keeps where rush can't see it (Vibe's, in the keychain or its .env):
+// CheckKey says why profile p can't run yet, nil once it can. It reads
+// the keychain: never on the UI thread.
+type KeyChecker interface {
+	CheckKey(p Profile) error
 }

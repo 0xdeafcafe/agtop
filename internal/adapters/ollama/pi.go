@@ -86,7 +86,7 @@ func (PiAdapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 	if o.Profile.Dir == "" {
 		o.Profile.Dir = piHome()
 	}
-	if err := writePiModels(o.Profile.Dir, piModels(ctx, m), server()); err != nil {
+	if err := writePiModels(o.Profile.Dir, toolModels(ctx, m), server()); err != nil {
 		return nil, err
 	}
 	o.Model, o.Effort = m.Name, ""
@@ -99,9 +99,10 @@ func (PiAdapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 	return piad.Start(ctx, &o)
 }
 
-// piModels are the models Pi is told of: m, picked and loaded, first, then
-// every other one Ollama has that calls tools, for a switch mid-session.
-func piModels(ctx context.Context, m Model) []Model {
+// toolModels are the models a harness is told of: m, picked and loaded,
+// first, then every other one Ollama has that calls tools, for a switch
+// mid-session.
+func toolModels(ctx context.Context, m Model) []Model {
 	out := []Model{m}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

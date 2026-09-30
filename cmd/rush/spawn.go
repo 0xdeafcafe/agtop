@@ -24,11 +24,12 @@ import (
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// rush spawn <program> <args…> is what a session's stand-in for codex or
-// claude runs (see host.WriteShims). A run rush can host (codex exec,
-// claude -p) runs as a rush session, so you can send to it while it
-// works, printing what the program would have. Anything else, or a flag
-// rush can't print faithfully, runs the real program as it was asked.
+// rush spawn <program> <args…> is what a session's stand-in for an
+// agent's program runs (see host.WriteShims). A run rush can host (codex
+// exec, claude -p, vibe -p) runs as a rush session, so you can send to it
+// while it works, printing what the program would have. Anything else, or
+// a flag rush can't print faithfully, runs the real program as it was
+// asked.
 
 // workRun is a run rush can host.
 type workRun struct {
@@ -112,7 +113,12 @@ func parseRun(prog string, args []string) (workRun, bool) {
 	case "claude": // migration: per-agent CLI parsing and output move behind the adapters
 		return claudeRun(args)
 	}
-	return workRun{}, false
+	rd, ok := agent.As[agent.OnceReader](sp.Kind)
+	if !ok {
+		return workRun{}, false
+	}
+	o, ok := rd.ReadOnce(args)
+	return workRun{kind: sp.Kind, prompt: o.Prompt, model: o.Model, mode: o.Mode, cwd: o.Cwd, format: "text"}, ok
 }
 
 const shellSafe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./=:@,+%"
@@ -388,10 +394,13 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	var out printer
-	if base == "codex" {
+	switch base {
+	case "codex":
 		out = &codexOut{r: r, cwd: cwd, stdout: stdout, stderr: stderr}
-	} else {
+	case "claude": // migration: per-agent CLI parsing and output move behind the adapters
 		out = &claudeOut{r: r, stdout: stdout}
+	default:
+		out = &onceOut{stdout: stdout, stderr: stderr}
 	}
 	code := follow(c, out, sig)
 	stopHost(c, started.ID)
@@ -529,6 +538,44 @@ func (o *claudeOut) finish() int {
 	}
 	if o.failed {
 		return 1
+	}
+	return 0
+}
+
+// onceOut prints a hosted one-shot run as the programs rush reads with
+// agent.OnceReader do: the last answer on stdout, or why it failed on
+// stderr.
+type onceOut struct {
+	stdout, stderr io.Writer
+	last, err      string
+}
+
+func (o *onceOut) line(_ []byte, ev any) {
+	switch e := ev.(type) {
+	case event.Message:
+		var text string
+		for _, p := range e.Parts {
+			if p.Kind == event.Text {
+				text += p.Text
+			}
+		}
+		if e.Role == "assistant" && text != "" {
+			o.last = text
+		}
+	case event.TurnEnd:
+		if o.err = ""; e.Reason == "error" {
+			o.err = or(e.Err, "turn failed")
+		}
+	}
+}
+
+func (o *onceOut) finish() int {
+	if o.err != "" {
+		fmt.Fprintln(o.stderr, "Error:", o.err)
+		return 1
+	}
+	if o.last != "" {
+		fmt.Fprintln(o.stdout, o.last)
 	}
 	return 0
 }

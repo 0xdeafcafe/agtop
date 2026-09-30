@@ -19,6 +19,7 @@ import (
 	_ "github.com/0xdeafcafe/rush/internal/adapters/glm"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/ollama"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/pi"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/vibe"
 	"github.com/0xdeafcafe/rush/internal/agent"
 )
 

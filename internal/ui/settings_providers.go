@@ -493,7 +493,11 @@ func (m *Model) providerHead(pr string, w int) []string {
 	if hint := agent.Hint(k); hint != "" && !agent.Runs(k) {
 		out = append(out, label("can't run")+faint(hint))
 	}
-	if !switches(k) {
+	switch why := m.accts.why[string(k)]; {
+	case switches(k):
+	case why != "":
+		out = append(out, label("account")+paint(cRed, "✗ not signed in")+dim(" · "+why))
+	default:
 		out = append(out, label("account")+dim(firstNonEmpty(u.inUse.q.Email, "its own sign-in"))+faint(" · it signs in through its own program"))
 	}
 	q := u.inUse.q

@@ -10,6 +10,7 @@ import (
 	_ "github.com/0xdeafcafe/rush/internal/adapters/glm"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/ollama"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/pi"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/vibe"
 
 	// And the plugins that come with it, as cmd/rush has them.
 	_ "github.com/0xdeafcafe/rush/internal/bundled/clean"
