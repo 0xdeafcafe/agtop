@@ -78,7 +78,7 @@ func fit(s string, w int) string {
 	}
 	sw := cellw.String(s)
 	if sw > w {
-		return ansi.Truncate(s, w, "…")
+		return cellw.Truncate(s, w, "…")
 	}
 	return s + strings.Repeat(" ", w-sw)
 }
@@ -91,7 +91,7 @@ func fitTo(b *strings.Builder, s string, w int, bg string) {
 	}
 	sw := cellw.String(s)
 	if sw > w {
-		writeIn(b, ansi.Truncate(s, w, "…"), bg)
+		writeIn(b, cellw.Truncate(s, w, "…"), bg)
 		return
 	}
 	writeIn(b, s, bg)
@@ -133,7 +133,7 @@ func blanks(n int) string {
 func right(s string, w int) string {
 	sw := cellw.String(s)
 	if sw >= w {
-		return ansi.Truncate(s, w, "…")
+		return cellw.Truncate(s, w, "…")
 	}
 	return strings.Repeat(" ", w-sw) + s
 }

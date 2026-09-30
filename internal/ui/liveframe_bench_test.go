@@ -3,9 +3,16 @@ package ui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/0xdeafcafe/rush/internal/adapters/codex"
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
@@ -94,45 +101,178 @@ func BenchmarkListMany(b *testing.B) {
 	}
 }
 
-// BenchmarkTranscriptFrame is BenchmarkLiveFrame over a real transcript
-// (RUSH_BENCH_TRANSCRIPT) and its subagents, its last turn live. Local only.
-func BenchmarkTranscriptFrame(b *testing.B) {
-	path := os.Getenv("RUSH_BENCH_TRANSCRIPT")
-	if path == "" {
-		b.Skip("RUSH_BENCH_TRANSCRIPT names a transcript")
+// benchPaths are RUSH_BENCH_TRANSCRIPT's transcripts, comma-separated:
+// Claude Code's, or Codex rollouts (under .codex). Local only.
+func benchPaths(b *testing.B) []string {
+	env := os.Getenv("RUSH_BENCH_TRANSCRIPT")
+	if env == "" {
+		b.Skip("RUSH_BENCH_TRANSCRIPT names transcripts")
 	}
 	agent.NeverWait()
-	t := convo.NewTail(path)
-	if _, err := t.Read(); err != nil {
-		b.Fatal(err)
+	return strings.Split(env, ",")
+}
+
+// benchName is a transcript's name in a benchmark's: its id's start and size.
+func benchName(path string) string {
+	fi, _ := os.Stat(path)
+	base := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	base = base[max(0, len(base)-8):]
+	return fmt.Sprintf("%s-%dMB", base, fi.Size()>>20)
+}
+
+// openBench opens a transcript as the pane does (openTail, openHistory)
+// with its subagents' rows read, its last turn live, on a model at 250x70;
+// subs is how long the rows took.
+func openBench(path string) (m *Model, subs time.Duration) {
+	m, _ = benchModel(250, 70)
+	c := m.host
+	if strings.Contains(path, "/.codex/") {
+		c.sess = agentHistory(codex.Kind, agent.Session{Transcript: path}, time.Time{})
+	} else {
+		t := convo.NewTail(path)
+		_, _ = t.Read()
+		c.sess, c.path = t.Sess, path
+		t0 := time.Now()
+		defer func() { subs = time.Since(t0) }()
+		c.subs = convo.ListSubagents(path)
+		if showView(m, "subagents") { // every run's row is read
+			if msg, ok := m.readUnread(c)().(subStatsMsg); ok {
+				c.subTails = msg.tails
+			}
+		}
+		c.view = 0
 	}
-	t.Sess.Turns[len(t.Sess.Turns)-1].Live = true
-	subs := convo.ListSubagents(path)
-	tails := map[string]*convo.Tail{}
-	for _, sa := range subs {
-		st := convo.SubagentStats(sa.Path)
-		_, _ = st.Read()
-		tails[sa.ID] = st
+	if n := len(c.sess.Turns); n > 0 {
+		c.sess.Turns[n-1].Live = true
 	}
-	b.Logf("turns %d, subagents %d", len(t.Sess.Turns), len(subs))
-	for _, view := range []int{0, 1, 2, 3} {
-		m, _ := benchModel(250, 70)
-		c := m.host
-		c.sess, c.bodyBuf, c.subs, c.subTails, c.view = t.Sess, nil, subs, tails, view
+	c.bodyBuf = nil
+	return m, 0
+}
+
+// showView turns the pane to the named view, false when it has none.
+func showView(m *Model, name string) bool {
+	c := m.host
+	i := slices.Index(m.views(c), name)
+	c.view, c.scroll = max(i, 0), 0
+	return i >= 0
+}
+
+// BenchmarkTranscriptLoad is opening a real transcript cold, up to its
+// first frame: read and built off the UI's goroutine and drawn once there
+// (warmed), then the first frame on it. Run with -benchtime=1x.
+func BenchmarkTranscriptLoad(b *testing.B) {
+	for _, path := range benchPaths(b) {
+		b.Run(benchName(path), func(b *testing.B) {
+			var ms0, ms1 runtime.MemStats
+			for b.Loop() {
+				runtime.GC()
+				runtime.ReadMemStats(&ms0)
+				t0 := time.Now()
+				m, subs := openBench(path)
+				read := time.Since(t0) - subs
+				_, paneW, _ := m.layout() // as syncHost warms it
+				m.host.sess.Render(convo.Options{Width: paneW - 3, Now: time.Now(), Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()})
+				warm := time.Since(t0) - read - subs
+				t1 := time.Now()
+				m.View()
+				first := time.Since(t1)
+				runtime.GC()
+				runtime.ReadMemStats(&ms1)
+				b.ReportMetric(float64(read.Milliseconds()), "read-ms")
+				b.ReportMetric(float64(subs.Milliseconds()), "subrows-ms")
+				b.ReportMetric(float64(warm.Milliseconds()), "warm-ms")
+				b.ReportMetric(float64(first.Microseconds())/1000, "firstframe-ms")
+				b.ReportMetric(float64(ms1.TotalAlloc-ms0.TotalAlloc)/(1<<20), "alloc-MB")
+				b.ReportMetric(float64(int64(ms1.HeapInuse)-int64(ms0.HeapInuse))/(1<<20), "heap-MB")
+				b.ReportMetric(float64(len(m.host.sess.Turns)), "turns")
+				b.ReportMetric(float64(len(m.host.subs)), "subagents")
+				runtime.KeepAlive(m)
+			}
+		})
+	}
+}
+
+// BenchmarkTranscriptFrame is BenchmarkLiveFrame over real transcripts,
+// each view's frame on the second's tick and on a fast one.
+func BenchmarkTranscriptFrame(b *testing.B) {
+	for _, path := range benchPaths(b) {
+		m, _ := openBench(path)
+		at := time.Now()
+		paneNow = func() time.Time { return at }
+		for _, view := range []string{"conversation", "overview", "changes", "subagents"} {
+			if !showView(m, view) {
+				continue
+			}
+			m.View()
+			b.Run(benchName(path)+"/"+view+"/tick", func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					m.tick++
+					at = at.Add(time.Second)
+					m.View()
+				}
+			})
+			b.Run(benchName(path)+"/"+view+"/fast", func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					at = at.Add(100 * time.Millisecond)
+					m.View()
+				}
+				if view == "conversation" && !m.host.sess.Fast {
+					b.Log("no fast frames asked for: nothing on the clock")
+				}
+			})
+		}
+		paneNow = time.Now
+	}
+}
+
+// BenchmarkTranscriptScroll pages up a real conversation to its top and
+// down again, a frame a key, and reports the mean and slowest frame. Also
+// the first frame of each other view opened. Run with -benchtime=1x.
+func BenchmarkTranscriptScroll(b *testing.B) {
+	up, down := tea.KeyPressMsg{Code: tea.KeyPgUp}, tea.KeyPressMsg{Code: tea.KeyPgDown}
+	for _, path := range benchPaths(b) {
+		m, _ := openBench(path)
 		m.View()
-		b.Run(m.viewName(c)+"/tick", func(b *testing.B) {
-			b.ReportAllocs()
+		b.Run(benchName(path)+"/pages", func(b *testing.B) {
 			for b.Loop() {
-				m.tick++
-				m.View()
+				c := m.host
+				var total, slowest time.Duration
+				frames := 0
+				frame := func(k tea.KeyPressMsg) {
+					t := time.Now()
+					m.Update(k)
+					m.View()
+					d := time.Since(t)
+					total, slowest, frames = total+d, max(slowest, d), frames+1
+				}
+				for prev := -1; c.scroll != prev; {
+					prev = c.scroll
+					frame(up)
+				}
+				for c.scroll > 0 {
+					frame(down)
+				}
+				b.ReportMetric(float64(frames), "frames")
+				b.ReportMetric(float64(total.Microseconds())/float64(frames)/1000, "mean-ms")
+				b.ReportMetric(float64(slowest.Microseconds())/1000, "max-ms")
 			}
 		})
-		b.Run(m.viewName(c)+"/fast", func(b *testing.B) {
-			b.ReportAllocs()
-			for b.Loop() {
-				m.View()
-			}
-		})
+		for _, view := range []string{"overview", "subagents", "changes"} {
+			b.Run(benchName(path)+"/open-"+view, func(b *testing.B) {
+				for b.Loop() {
+					if !showView(m, view) {
+						b.Skip("no " + view)
+					}
+					t := time.Now()
+					m.View()
+					b.ReportMetric(float64(time.Since(t).Microseconds())/1000, "ms")
+					showView(m, "conversation")
+					m.View()
+				}
+			})
+		}
 	}
 }
 

@@ -601,7 +601,7 @@ func TestLiveLine(t *testing.T) {
 		t.Fatalf("a timer under 5s shows tenths and asks for fast frames (fast %v):\n%s", s.Fast, out)
 	}
 	out = plain(s.Render(Options{Width: 100, Now: at(9)}))
-	if !strings.Contains(out, pick(musings, at(1))+"…  8s") || !strings.Contains(out, "turn 9s") || !strings.Contains(out, "━") || s.Fast {
+	if !strings.Contains(out, pick(musings, at(1))+"…  8s") || !strings.Contains(out, "turn 9s") || !strings.Contains(out, "━") || !s.Fast {
 		t.Fatalf("no thinking line:\n%s", out)
 	}
 	s.Apply(headless.BlockStart{Index: 1, Type: "text"}, at(10))

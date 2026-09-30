@@ -167,10 +167,10 @@ func (m *Model) jobRow(c *hostConn, j *convo.Job, i, w int, lead string, who boo
 		lead += paint(cFaint, "↳") + " "
 	}
 	left := lead + mark + " " + name + " " +
-		paint(cSub, ansi.Truncate(jobLabel(c, j), room, "…")) + whose
+		paint(cSub, cellw.Truncate(jobLabel(c, j), room, "…")) + whose
 	rows := []string{spread(left, right, w)}
 	if last := m.jobTail(c, j, 1); len(last) > 0 {
-		rows = append(rows, ansi.Truncate(strings.Repeat(" ", cellw.String(ansi.Strip(lead)))+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+dim(last[0]), w-2, "…"))
+		rows = append(rows, cellw.Truncate(strings.Repeat(" ", cellw.String(ansi.Strip(lead)))+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+dim(last[0]), w-2, "…"))
 	}
 	if c.sel == "job:"+j.ID {
 		for k := range rows {
@@ -413,7 +413,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			}
 			who := jobWho(c, j)
 			left := "  " + fold + " " + mark + " " + paint(cText+bold, fmt.Sprintf("%-8s", kind)) + " " +
-				who + paint(cSub, ansi.Truncate(label, max(12, w-cellw.String(ansi.Strip(right))-cellw.String(ansi.Strip(who))-18), "…"))
+				who + paint(cSub, cellw.Truncate(label, max(12, w-cellw.String(ansi.Strip(right))-cellw.String(ansi.Strip(who))-18), "…"))
 			rows := []string{spread(left, right, w)}
 			var facts []string
 			if rp, ok := c.sess.RunningPart(j.ToolUseID); ok {
@@ -429,7 +429,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				facts = append(facts, oneLine(s))
 			}
 			if len(facts) > 0 {
-				rows = append(rows, ansi.Truncate("      "+faint(strings.Join(facts, faint(" · "))), w-2, "…"))
+				rows = append(rows, cellw.Truncate("      "+faint(strings.Join(facts, faint(" · "))), w-2, "…"))
 			}
 			// Opened: the whole command, a command a line with how long
 			// each ran; closed, the command on a line.
@@ -438,7 +438,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				body = c.sess.JobLines(j, o, 6)
 			}
 			if len(body) == 0 && cmd != "" {
-				rows = append(rows, ansi.Truncate("      "+faint("$ "+cmd), w-2, "…"))
+				rows = append(rows, cellw.Truncate("      "+faint("$ "+cmd), w-2, "…"))
 			}
 			var followed []string // what a tail -f under it follows
 			if pid := m.jobPID(c, j); pid != 0 && c.open[ref] {
@@ -468,7 +468,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				}
 			}
 			for _, l := range tail {
-				rows = append(rows, ansi.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
+				rows = append(rows, cellw.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
 			}
 			if len(tail) == 0 && c.open[ref] {
 				none := "no output"
@@ -495,7 +495,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 					}
 					rows = append(rows, "      "+faint("from "+c.shownPath(f))+c.tailWhen(f, now))
 					for _, l := range more {
-						rows = append(rows, ansi.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
+						rows = append(rows, cellw.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
 					}
 				}
 			}
@@ -707,7 +707,7 @@ func (m *Model) withWrites(c *hostConn, body []convo.Line, w int) []convo.Line {
 		}
 		pad := faint(railOf(body[i].Text))
 		for _, r := range rows {
-			out = append(out, convo.Line{Text: ansi.Truncate(pad+r, w, "…"), Ref: ref})
+			out = append(out, convo.Line{Text: cellw.Truncate(pad+r, w, "…"), Ref: ref})
 		}
 	}
 	if out == nil {

@@ -394,8 +394,11 @@ func tick() tea.Cmd {
 // fastMsg redraws a timer still showing tenths of a second.
 type fastMsg struct{}
 
+// paneNow is the pane's clock; a benchmark moves it on a tenth a frame.
+var paneNow = time.Now
+
 func (m *Model) fastTick() tea.Cmd {
-	if c := m.host; c == nil || !c.sess.Fast || m.fastPending {
+	if c := m.host; c == nil || !c.sess.Fast || !c.endShown || m.fastPending {
 		return nil
 	}
 	m.fastPending = true

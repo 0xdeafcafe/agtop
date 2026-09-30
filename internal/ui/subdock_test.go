@@ -294,6 +294,7 @@ func TestSubagentDockOrder(t *testing.T) {
 	}
 	// It finishes: the pick takes the run in its place.
 	c.sess.TaskStatus["a2"] = "completed"
+	c.runMemo.ok = false // as the notice's line, read in, would
 	m.runningPreview(c, c.runningSubs(), 100)
 	if c.sel != "run:a1" {
 		t.Fatalf("after it finished, picked %q", c.sel)

@@ -235,12 +235,12 @@ type ToolStat struct {
 
 // Session is everything known about one rush-mode session.
 type Session struct {
-	Turns    []*Turn
+	Turns []*Turn
 	// Fast is whether the last render drew a running timer still showing
 	// tenths: frames every 100ms keep it moving.
 	Fast bool
 	// Hex is whether the hex plugin is on: step output can be seen as bytes.
-	Hex bool
+	Hex      bool
 	Info     host.Info
 	Commands []event.Command
 	Tasks    []Task
@@ -291,7 +291,12 @@ type Session struct {
 	baseFor    string
 	reqIdx     map[string]int
 	reqVer     int // bumped by every request recorded, for costMemo
-	costMemo   struct {
+	applied    int // bumped by every event applied or transcript line taken: Applied
+	ovMemo     struct {
+		key   overviewKey
+		lines []Line
+	}
+	costMemo struct {
 		ver, n int
 		kind   string
 		usd    float64
@@ -386,7 +391,12 @@ func (s *Session) turnFor(now time.Time) *Turn {
 }
 
 // Apply folds one decoded host line (host.Decode's result) into the session.
+// Applied counts the events applied, for a caller's own cache of what it
+// worked out from them.
+func (s *Session) Applied() int { return s.applied }
+
 func (s *Session) Apply(ev any, now time.Time) {
+	s.applied++
 	if !now.IsZero() {
 		if s.First.IsZero() || now.Before(s.First) {
 			s.First = now

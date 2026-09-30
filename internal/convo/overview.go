@@ -3,8 +3,6 @@ package convo
 import (
 	"math"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"fmt"
 	"regexp"
 	"slices"
@@ -192,6 +190,28 @@ func bar(frac float64, w int, c string) string {
 // Overview draws the session's numbers as sections: what's running now,
 // totals, model and effort over time, tools, the cache, and subagents.
 func (s *Session) Overview(o Options) []Line {
+	// Kept for the second: a frame for every message would draw it anew.
+	// ponytail: keyed on Apply and the Info the UI sets; other direct writes aren't seen.
+	i := s.Info
+	k := overviewKey{applied: s.applied, width: o.Width, wide: o.Wide, verb: o.Verbose, pal: palette, sec: o.Now.Unix(),
+		model: i.Model, effort: i.Effort, perm: i.PermissionMode, kind: i.Kind, cost: i.CostUSD, warm: i.CacheWarm.UnixNano(), cwd: i.Cwd + "|" + s.Cwd}
+	if m := &s.ovMemo; m.lines != nil && m.key == k {
+		return m.lines
+	}
+	out := s.overview(o)
+	s.ovMemo.key, s.ovMemo.lines = k, out[:len(out):len(out)] // a caller's append copies
+	return s.ovMemo.lines
+}
+
+type overviewKey struct {
+	applied, width, pal            int
+	wide, verb                     bool
+	sec, warm                      int64
+	model, effort, perm, kind, cwd string
+	cost                           float64
+}
+
+func (s *Session) overview(o Options) []Line {
 	w := min(o.Width, o.rowCap())
 	var out []Line
 	add := func(left, right string) {
@@ -703,7 +723,7 @@ func modelColour(m string) string {
 func fitTo(s string, w int) string {
 	n := cellw.String(stripANSI(s))
 	if n > w {
-		return ansi.Truncate(s, w, "…")
+		return cellw.Truncate(s, w, "…")
 	}
 	return s + blanks(w-n)
 }

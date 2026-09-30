@@ -50,6 +50,10 @@ var (
 // in the old ones isn't used.
 var palette int
 
+// Palette is how many times the colours have changed, for a caller's own
+// cache of what it drew in them.
+func Palette() int { return palette }
+
 func init() { SetColours(theme.Dark, false) }
 
 // SetColours makes the palette for the terminal's ground g. colorBlind
@@ -198,7 +202,7 @@ func row(b, left, right string, width, capw int) string {
 	}
 	lw := cellw.String(left)
 	if lw > room {
-		left = ansi.Truncate(left, max(0, room), "…")
+		left = cellw.Truncate(left, max(0, room), "…")
 		lw = cellw.String(left)
 	}
 	gap := max(0, capw-lw-rw)

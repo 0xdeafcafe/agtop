@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -69,6 +71,7 @@ func (m *Model) refreshSubs() tea.Cmd {
 	if c.path == "" {
 		// No transcript to list runs beside: only the agents the shell ran.
 		c.subs = append(slices.DeleteFunc(c.subs, func(sa convo.Subagent) bool { return strings.HasPrefix(sa.ID, spawnPrefix) }), c.spawnSubs()...)
+		c.runMemo.ok = false
 	}
 	var tails []*convo.Tail
 	add := func(t *convo.Tail) {
@@ -124,6 +127,8 @@ func (m *Model) refreshSubs() tea.Cmd {
 		}
 	}
 	reader, list, gone := c.subReader, &c.subList, m.sessionGone(c)
+	_, paneW, _ := m.layout() // a history read again is drawn here, as warmed does
+	warm := convo.Options{Width: paneW - 3, Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()}
 	return func() tea.Msg {
 		if msg.path != "" {
 			msg.subs = list.List(msg.path)
@@ -137,6 +142,11 @@ func (m *Model) refreshSubs() tea.Cmd {
 			h.at = time.Now()
 			if h.stat() {
 				msg.histSess = agentHistory(h.kind, h.s, time.Time{})
+				msg.histSess.Spawns()
+				if warm.Width > 0 { // else the frame that takes it draws it whole
+					warm.Now = time.Now()
+					msg.histSess.Render(warm)
+				}
 			}
 		}
 		msg.got = make([]fetched, len(tails))
@@ -196,6 +206,7 @@ func (m *Model) onPane(msg paneMsg) tea.Cmd {
 		return nil
 	}
 	c.paneReading = false
+	c.runMemo.ok = false // the runs, and what they say, as read now
 	for id, wt := range msg.wt {
 		if c.subWT == nil {
 			c.subWT = map[string]string{}
@@ -262,11 +273,22 @@ func (m *Model) readUnread(c *hostConn) tea.Cmd {
 	c.subReading = true
 	key := c.key
 	return func() tea.Msg {
+		// Hundreds of runs read one after another took seconds: a few at once.
+		tails := make([]*convo.Tail, len(unread))
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, max(2, runtime.NumCPU()/2))
+		for i, sa := range unread {
+			wg.Go(func() {
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				tails[i] = convo.SubagentStats(sa.Path)
+				_, _ = tails[i].Read()
+			})
+		}
+		wg.Wait()
 		read := make(map[string]*convo.Tail, len(unread))
-		for i := len(unread) - 1; i >= 0; i-- { // newest first
-			t := convo.SubagentStats(unread[i].Path)
-			_, _ = t.Read()
-			read[unread[i].ID] = t
+		for i, sa := range unread {
+			read[sa.ID] = tails[i]
 		}
 		return subStatsMsg{key: key, tails: read}
 	}
@@ -461,7 +483,7 @@ func (c *hostConn) subStateIn(sa convo.Subagent, jobs map[string]*convo.Job) (st
 	var j *convo.Job
 	if jobs == nil {
 		j = c.sess.SubagentJob(sa.ID, sa.ToolUseID)
-	} else if j = jobs[sa.ID]; j == nil && sa.ToolUseID != "" {
+	} else if j = jobs[sa.ID]; j == nil && sa.ToolUseID != "" && len(jobs) > 0 {
 		j = jobs["call:"+sa.ToolUseID]
 	}
 	if j != nil {
@@ -516,6 +538,12 @@ func (c *hostConn) runs() agent.SubagentRuns {
 // runningSubs are the subagent runs still working, the latest started
 // first: one writing doesn't move it, so the dock's rows stay put.
 func (c *hostConn) runningSubs() []convo.Subagent {
+	// Asked several times a frame, of hundreds of runs: kept for the second
+	// unless the session changes, or onPane reads the runs (and drops it).
+	k := runsKey{sess: c.sess, applied: c.sess.Applied(), sec: time.Now().Unix()}
+	if m := &c.runMemo; m.ok && m.key == k {
+		return m.out
+	}
 	var out []convo.Subagent
 	jobs := c.sess.SubagentJobs()
 	for i := len(c.subs) - 1; i >= 0; i-- {
@@ -524,7 +552,16 @@ func (c *hostConn) runningSubs() []convo.Subagent {
 		}
 	}
 	slices.SortStableFunc(out, func(a, b convo.Subagent) int { return cmp.Compare(b.Born, a.Born) })
+	out = out[:len(out):len(out)] // a caller's append copies
+	c.runMemo.key, c.runMemo.out, c.runMemo.ok = k, out, true
 	return out
+}
+
+// runsKey is what runningSubs's answer is kept for.
+type runsKey struct {
+	sess    *convo.Session
+	applied int
+	sec     int64
 }
 
 // cycleSub steps through the conversation and its subagent runs (running
@@ -672,7 +709,7 @@ func (m *Model) subBanner(c *hostConn, w int) string {
 	}
 	// The right side stays; the description gives way.
 	if lw := w - cellw.String(right) - 2; cellw.String(left) > lw {
-		left = ansi.Truncate(paint(cBlue, "▍")+paint(cBlue+bold, "⇉ WATCHING SUBAGENT  ")+paint(cBright+bold, sa.Type)+c.subWhere(sa.ID)+"  "+state+"  "+paint(cSub, oneLine(sa.Description)), max(10, lw), "…")
+		left = cellw.Truncate(paint(cBlue, "▍")+paint(cBlue+bold, "⇉ WATCHING SUBAGENT  ")+paint(cBright+bold, sa.Type)+c.subWhere(sa.ID)+"  "+state+"  "+paint(cSub, oneLine(sa.Description)), max(10, lw), "…")
 	}
 	return onBg(bgSub, spread(left, right, w), w)
 }
@@ -854,6 +891,17 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 			lines = append(lines, convo.Line{Text: fit("  "+paint(cSub+bold, title), w)})
 		}
 		sa := r.sa
+		ref := "sub:" + sa.ID
+		key := subRowKey{sa: sa, t: r.t, status: r.status, where: c.subWhere(sa.ID), w: w, pal: convo.Palette()}
+		if tl := c.subTails[sa.ID]; tl != nil {
+			key.size = tl.Size()
+		}
+		// A finished run's row changes only as its transcript is read or
+		// the pane changes: 239 of them cost milliseconds a frame.
+		if memo, ok := c.subRows[sa.ID]; ok && !r.live && memo.key == key {
+			lines = memo.appendTo(lines, c, o, ref, w)
+			continue
+		}
 		now := time.Now()
 		end := r.t.Last
 		if r.live {
@@ -874,8 +922,7 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		case r.status != "":
 			state = dim(r.status)
 		}
-		ref := "sub:" + sa.ID
-		where := c.subWhere(sa.ID)
+		where := key.where
 		left := "  " + mark + " " + paint(cBlue, "⇉") + " " + paint(cText+bold, sa.Type) + where + "  " + paint(cSub, oneLine(sa.Description))
 		right := state + "   " + dim(took) + "  "
 		top := spread(left, right, w)
@@ -897,23 +944,49 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 			}
 		}
 		if lw := r.t.LastWords(); lw != "" {
-			second += dim("  ·  ") + faint(ansi.Truncate(lw, max(10, w-cellw.String(second)-8), "…"))
+			second += dim("  ·  ") + faint(cellw.Truncate(lw, max(10, w-cellw.String(second)-8), "…"))
 		}
-		if ref == o.Selected {
-			bar := faint("▍")
-			if o.Focused {
-				bar = paint(cOrange, "▍")
+		sr := subRow{key: key, top: top, second: second, topFit: fit(top, w), secondFit: fit(second, w)}
+		if !r.live {
+			if c.subRows == nil {
+				c.subRows = map[string]subRow{}
 			}
-			lines = append(lines,
-				convo.Line{Text: selBG + strings.ReplaceAll(bar+fit(top, w)[1:], reset, reset+selBG) + reset, Ref: ref},
-				convo.Line{Text: selBG + strings.ReplaceAll(fit(second, w), reset, reset+selBG) + reset, Ref: ref})
-		} else if ref == c.subHover {
-			lines = append(lines, convo.Line{Text: hoverLine(top, w), Ref: ref}, convo.Line{Text: hoverLine(second, w), Ref: ref})
-		} else {
-			lines = append(lines, convo.Line{Text: fit(top, w), Ref: ref}, convo.Line{Text: fit(second, w), Ref: ref})
+			c.subRows[sa.ID] = sr
 		}
+		lines = sr.appendTo(lines, c, o, ref, w)
 	}
 	return lines
+}
+
+// subRowKey is everything a finished run's row is drawn from.
+type subRowKey struct {
+	sa            convo.Subagent
+	t             *convo.Session
+	size          int64 // how far its tail has read
+	status, where string
+	w, pal        int
+}
+
+// subRow is a run's two lines as drawn, before they're picked or hovered.
+type subRow struct {
+	key                            subRowKey
+	top, second, topFit, secondFit string
+}
+
+func (r subRow) appendTo(dst []convo.Line, c *hostConn, o convo.Options, ref string, w int) []convo.Line {
+	switch ref {
+	case o.Selected:
+		bar := faint("▍")
+		if o.Focused {
+			bar = paint(cOrange, "▍")
+		}
+		return append(dst,
+			convo.Line{Text: selBG + strings.ReplaceAll(bar+r.topFit[1:], reset, reset+selBG) + reset, Ref: ref},
+			convo.Line{Text: selBG + strings.ReplaceAll(r.secondFit, reset, reset+selBG) + reset, Ref: ref})
+	case c.subHover:
+		return append(dst, convo.Line{Text: hoverLine(r.top, w), Ref: ref}, convo.Line{Text: hoverLine(r.second, w), Ref: ref})
+	}
+	return append(dst, convo.Line{Text: r.topFit, Ref: ref}, convo.Line{Text: r.secondFit, Ref: ref})
 }
 
 // subRunsOn is what a subagent run runs on, as far as its transcript has
@@ -1180,6 +1253,7 @@ type hostConn struct {
 	// the body drawn then (shown, of shownView) is drawn again as it was.
 	scrollOnly bool
 	shownView  string
+	endShown   bool            // the conversation's last screenful is in view: fast frames are for it
 	local      []event.Command // custom commands and skills on disk
 	skills     map[string]bool
 	// cardFocus is set when ↑ has moved the keys from the box onto a card
@@ -1263,18 +1337,24 @@ type hostConn struct {
 	paneKick    bool // a tail was opened: read it now, not on the next tick
 	subReader   agent.SubagentRuns
 	subOpen     string
-	subList     convo.Subagents        // finds the runs, reading each one's meta once
-	subRuns     agent.SubagentRuns     // which runs the transcripts say are still working: subReader's, as last read; see runs
-	subSel      string                 // selection inside the opened subagent
-	subHover    string                 // the run or task under the pointer, or "subback" for the banner
-	runPick     int                    // where the pick last was among the dock's running subagents
-	taskDir     string                 // the session's tasks folder, once found
-	taskDirAt   time.Time              // when it was last looked for
-	taskDirFor  string                 // the conversation it was found for
-	tails       map[string]*jobTailed  // each task's output as last read, by file
-	writes      map[string][]string    // the files each task's command writes, by its tool call
-	jobRows     map[string]jobRowsMemo // a finished task's rows in the background view, by task
-	subHoverAt  time.Time
+	subList     convo.Subagents    // finds the runs, reading each one's meta once
+	subRuns     agent.SubagentRuns // which runs the transcripts say are still working: subReader's, as last read; see runs
+	subSel      string             // selection inside the opened subagent
+	subHover    string             // the run or task under the pointer, or "subback" for the banner
+	subRows     map[string]subRow  // each finished run's row as last drawn, by its id
+	runMemo     struct {
+		key runsKey
+		out []convo.Subagent
+		ok  bool
+	}
+	runPick    int                    // where the pick last was among the dock's running subagents
+	taskDir    string                 // the session's tasks folder, once found
+	taskDirAt  time.Time              // when it was last looked for
+	taskDirFor string                 // the conversation it was found for
+	tails      map[string]*jobTailed  // each task's output as last read, by file
+	writes     map[string][]string    // the files each task's command writes, by its tool call
+	jobRows    map[string]jobRowsMemo // a finished task's rows in the background view, by task
+	subHoverAt time.Time
 	// Agents the session's shell ran, by the step that ran each, and
 	// whether any are being looked for.
 	spawns       map[string]*spawnRun
@@ -1485,9 +1565,12 @@ func (m *Model) syncHost() tea.Cmd {
 func warmed(open tea.Cmd, o convo.Options) tea.Cmd {
 	return func() tea.Msg {
 		msg := open()
-		if hm, ok := msg.(hostOpenMsg); ok && hm.c != nil && hm.c.sess != nil && o.Width > 0 {
-			o.Now = time.Now()
-			hm.c.sess.Render(o)
+		if hm, ok := msg.(hostOpenMsg); ok && hm.c != nil && hm.c.sess != nil {
+			hm.c.sess.Spawns() // each shell step read for an agent it runs, once, here and not on a tick
+			if o.Width > 0 {
+				o.Now = time.Now()
+				hm.c.sess.Render(o)
+			}
 		}
 		return msg
 	}
@@ -1695,7 +1778,7 @@ func (m *Model) rushPane(w, h int) []string {
 
 	// ponytail: turns already drawn keep their views until redrawn after the hex plugin is switched.
 	c.sess.Hex = m.bundledOn["hex"]
-	o := convo.Options{Width: w, Now: time.Now(), Tick: m.tick, Open: c.open, View: c.looks, Verbose: c.verbose,
+	o := convo.Options{Width: w, Now: paneNow(), Tick: m.tick, Open: c.open, View: c.looks, Verbose: c.verbose,
 		Selected: c.sel, Focused: m.paneFocus, Wide: m.hostedAlone()}
 	var body []convo.Line
 	view := m.viewName(c)
@@ -1821,6 +1904,7 @@ func (m *Model) rushPane(w, h int) []string {
 	}
 	end := len(body) - c.scroll
 	start := max(0, end-rows)
+	c.endShown = view == "conversation" && c.scroll < rows
 	// A turn's heading (your message) can take several rows. A window
 	// scrolled up and starting inside one shows it from its first row
 	// instead of cutting its top off; one following the end keeps the end,
@@ -1992,7 +2076,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	// state and what's on the right keep their room.
 	name := oneLine(a.DisplayName)
 	if room := max(12, min(56, (hw-cellw.String(lead+state))/2)); cellw.String(name) > room {
-		name = ansi.Truncate(name, room, "…")
+		name = cellw.Truncate(name, room, "…")
 	}
 	left1 := lead + paint(cBright+bold, name) + "   " + state
 	right := m.barLine(barAgent, 0, x, hw-cellw.String(left1)-4)
@@ -2212,7 +2296,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if total > 0 {
 			count = paint(cSub, fmt.Sprintf("%d/%d", done, total)) + "  "
 		}
-		line(spread("  "+paint(cOrange, ansi.Truncate(working, w-12, "…")), count, w))
+		line(spread("  "+paint(cOrange, cellw.Truncate(working, w-12, "…")), count, w))
 	} else if total > 0 {
 		t := ""
 		if now != nil {
@@ -2289,7 +2373,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			for _, p := range rest {
 				pics.WriteString(" " + queueChip(p))
 			}
-			text = ansi.Truncate(text, max(10, w-8-ansi.StringWidth(pics.String())), "…")
+			text = cellw.Truncate(text, max(10, w-8-ansi.StringWidth(pics.String())), "…")
 			body := paint(cText, text)
 			switch {
 			case host.IsCommand(q[i]):
@@ -2298,7 +2382,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			case i > 0 && host.IsCommand(q[i-1]):
 				body = faint("once it's done ") + body
 			}
-			row := ansi.Truncate("  "+paint(cQueue, strconv.Itoa(i+1))+"  "+body+pics.String(), w, "…")
+			row := cellw.Truncate("  "+paint(cQueue, strconv.Itoa(i+1))+"  "+body+pics.String(), w, "…")
 			if picked && i == pick {
 				row = picked1(row, w, m.paneFocus)
 			}
@@ -2313,9 +2397,9 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	if blocks > 0 {
 		line("") // and one before the box
 	}
-	top := dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…"))
+	top := dim("to ") + paint(cText, cellw.Truncate(oneLine(a.DisplayName), 28, "…"))
 	if sa, ok := m.relaySub(c); ok {
-		top = dim("to the subagent ") + paint(cText, ansi.Truncate(oneLine(sa.Type), 28, "…"))
+		top = dim("to the subagent ") + paint(cText, cellw.Truncate(oneLine(sa.Type), 28, "…"))
 		if c.sess.Info.Inbox {
 			top += dim(", straight, after the step it's on")
 		} else {
@@ -2324,11 +2408,11 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 	} else if m.watchingSub(c) {
 		// A finished subagent takes no messages; the main session does.
-		top = dim("to the main session, ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(", not the subagent")
+		top = dim("to the main session, ") + paint(cText, cellw.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(", not the subagent")
 	}
 	switch {
 	case typingHash(string(c.input)):
-		top = dim("rush command for ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(" · enter runs it")
+		top = dim("rush command for ") + paint(cText, cellw.Truncate(oneLine(a.DisplayName), 28, "…")) + dim(" · enter runs it")
 	case c.client == nil && a.Interactive:
 		top += dim(" · " + a.Where() + ", so it can't take messages here")
 	case c.client == nil && a.Past:
@@ -2546,7 +2630,7 @@ func approvalBody(st *convo.Step, cwd string, w int) []string {
 	switch {
 	case in.Command != "":
 		lines := strings.Split(in.Command, "\n")
-		out = append(out, paint(cBright, "$ ")+paint(cText, ansi.Truncate(lines[0], w-4, "…")))
+		out = append(out, paint(cBright, "$ ")+paint(cText, cellw.Truncate(lines[0], w-4, "…")))
 		if len(lines) > 1 {
 			out = append(out, dim(fmt.Sprintf("  +%d more lines", len(lines)-1)))
 		}
@@ -2560,7 +2644,7 @@ func approvalBody(st *convo.Step, cwd string, w int) []string {
 					out = append(out, dim(fmt.Sprintf("  … %d more", len(ls)-i)))
 					return
 				}
-				out = append(out, paint(col, prefix+" ")+paint(cText, ansi.Truncate(strings.ReplaceAll(l, "\t", "  "), w-4, "…")))
+				out = append(out, paint(col, prefix+" ")+paint(cText, cellw.Truncate(strings.ReplaceAll(l, "\t", "  "), w-4, "…")))
 			}
 		}
 		if len(in.Edits) > 0 && in.Edits[0].Old != "" {
@@ -2579,7 +2663,7 @@ func approvalBody(st *convo.Step, cwd string, w int) []string {
 		why = oneLine(ansi.Strip(st.Approval.Reason))
 	}
 	if why != "" && !strings.Contains(strings.Join(out, " "), why) && !strings.HasSuffix(path, why) {
-		out = append(out, dim(ansi.Truncate(why, w, "…")))
+		out = append(out, dim(cellw.Truncate(why, w, "…")))
 	}
 	return out
 }

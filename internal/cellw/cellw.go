@@ -3,6 +3,8 @@
 package cellw
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/parser"
 )
@@ -30,4 +32,85 @@ func String(s string) int {
 		pstate = state
 	}
 	return w
+}
+
+// Truncate is ansi.Truncate, its widths measured by String: ansi's own
+// measure segments every line into graphemes before it cuts.
+func Truncate(s string, length int, tail string) string {
+	if String(s) <= length {
+		return s
+	}
+	length -= String(tail)
+	if length < 0 {
+		return ""
+	}
+	// ansi v0.11.8's truncate from here.
+	var cluster string
+	var buf strings.Builder
+	curWidth := 0
+	ignoring := false
+	pstate := parser.GroundState // initial state
+	i := 0
+
+	for i < len(s) {
+		state, action := parser.Table.Transition(pstate, s[i])
+		if state == parser.Utf8State {
+			var width int
+			cluster, width = ansi.FirstGraphemeCluster(s[i:], ansi.GraphemeWidth)
+			i += len(cluster)
+			curWidth += width
+
+			if ignoring {
+				continue
+			}
+
+			if curWidth > length && !ignoring {
+				ignoring = true
+				buf.WriteString(tail)
+			}
+
+			if curWidth > length {
+				continue
+			}
+
+			buf.WriteString(cluster)
+
+			pstate = parser.GroundState
+			continue
+		}
+
+		switch action {
+		case parser.PrintAction:
+			if curWidth >= length && !ignoring {
+				ignoring = true
+				buf.WriteString(tail)
+			}
+
+			if ignoring {
+				i++
+				continue
+			}
+
+			curWidth++
+			fallthrough
+		case parser.ExecuteAction:
+			if ignoring {
+				i++
+				continue
+			}
+			fallthrough
+		default:
+			buf.WriteByte(s[i])
+			i++
+		}
+
+		pstate = state
+
+		if curWidth > length && !ignoring {
+			ignoring = true
+			buf.WriteString(tail)
+		}
+	}
+
+	return buf.String()
 }

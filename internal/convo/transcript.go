@@ -293,6 +293,7 @@ func (t *Tail) parse(b []byte) (p parsedLine, ok bool) {
 
 // take applies a parsed line to the Session.
 func (t *Tail) take(p *parsedLine) bool {
+	t.Sess.applied++ // what follows may change it without Apply
 	l := &p.l
 	if !t.before.IsZero() && !l.Timestamp.IsZero() && !l.Timestamp.Before(t.before) {
 		// A transcript is written in order: once well past before (a
@@ -714,13 +715,16 @@ func (t *Tail) applyLight(b []byte) bool {
 			}
 		case "tool_use":
 			call := nativeCall(bl.ID, bl.Name, bl.Input)
-			s.calls[bl.ID] = call
+			// Only what its result is read by: a whole file written or a
+			// prompt, kept for every call of every run, came to megabytes.
+			s.calls[bl.ID] = tool.Call{ID: call.ID, Name: call.Name, Kind: call.Kind}
 			m.Parts = append(m.Parts, event.Part{Kind: event.ToolCall, Call: &call})
 		case "tool_result":
 			call, ok := s.calls[bl.ToolUseID]
 			if !ok {
 				call = tool.Call{ID: bl.ToolUseID}
 			}
+			delete(s.calls, bl.ToolUseID)
 			o := nativeOutput(call, "", bl.IsError, nil)
 			m.Parts = append(m.Parts, event.Part{Kind: event.ToolResult, Output: &o})
 		}

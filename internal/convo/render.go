@@ -991,7 +991,7 @@ func (d *drawer) liveLine() {
 			facts = append(facts, "cache expired, read uncached")
 		}
 	}
-	d.add("", "", pad+"  "+pulseBar(32, d.o.Tick)+"  "+dim(strings.Join(facts, " · ")), "")
+	d.add("", "", pad+"  "+pulseBar(32, d.glide())+"  "+dim(strings.Join(facts, " · ")), "")
 	if r := t.Retry; r != nil {
 		// A request failed and is tried again: the model hasn't stalled,
 		// its API has.
@@ -1007,12 +1007,19 @@ func (d *drawer) air() {
 	d.add("", "", d.spine(), "")
 }
 
+// glide is a bar's phase, a tenth of a second a step, so it glides rather
+// than jumping once a second: it asks for fast frames (Session.Fast).
+func (d *drawer) glide() int {
+	d.s.Fast = true
+	return int(d.o.Now.UnixMilli() / 100)
+}
+
 // pulseBar is compactBar's track with nothing to measure: a short lit run
 // that sweeps back and forth, its leading cell glinting.
 func pulseBar(w, tick int) string {
 	const run = 6
 	span := w - run
-	at := tick % (2 * span)
+	at := (tick%(2*span) + 2*span) % (2 * span)
 	fwd := at < span
 	if !fwd {
 		at = 2*span - at
@@ -1080,7 +1087,7 @@ func (d *drawer) compactingLine() {
 	if d.s.Context > 0 {
 		facts = append(facts, tokens(d.s.Context)+" tokens to boil down")
 	}
-	d.add("", "", pad+"  "+compactBar(frac, 32, d.o.Tick)+"  "+dim(strings.Join(facts, " · ")), "")
+	d.add("", "", pad+"  "+compactBar(frac, 32, d.glide())+"  "+dim(strings.Join(facts, " · ")), "")
 }
 
 // compactBar is a thin bar w cells long, frac of it lit, with a glint that
@@ -2069,7 +2076,7 @@ func (d *drawer) step(st *Step, depth int) {
 		cells = faint("  · ") + cells
 		room := d.cw - cellw.String(lead) - cellw.String(cells) - 1
 		if room >= 12 && cellw.String(label) > room {
-			label = ansi.Truncate(label, room, "…")
+			label = cellw.Truncate(label, room, "…")
 		}
 	}
 	left := lead + label + cells
@@ -3535,6 +3542,10 @@ func (d *drawer) widen(lines []string, lead int) func() {
 		return func() {}
 	}
 	for _, l := range lines {
+		// No wider than its bytes, a tab four: most lines fit on that alone.
+		if len(l)+3*strings.Count(l, "\t")+lead <= cw {
+			continue
+		}
 		if cellw.String(expandTabs(l))+lead > cw {
 			d.cw = d.o.Width
 			break
@@ -3570,7 +3581,7 @@ func (d *drawer) codeRows(s string, w, most int) []string {
 		rows = rows[:len(rows)-1]
 	}
 	if !d.o.Verbose && most > 0 && len(rows) > most {
-		rows = append(rows[:most-1], ansi.Truncate(rows[most-1], w-1, "")+"›")
+		rows = append(rows[:most-1], cellw.Truncate(rows[most-1], w-1, "")+"›")
 	}
 	return CarryStyle(rows)
 }
@@ -3596,7 +3607,7 @@ func diffText(lg *lang, st *hlState, s, c string, w int) string {
 	if !showSpace {
 		return highlight(lg, st, truncateCells(expandTabs(s), w), c, nil)
 	}
-	return ansi.Truncate(paintCode(lg, st, stripANSI(s), c, nil, true), max(w, 4), "›")
+	return cellw.Truncate(paintCode(lg, st, stripANSI(s), c, nil, true), max(w, 4), "›")
 }
 
 // mdTable is whether a Markdown line, past a read's line number, is a
@@ -3663,7 +3674,7 @@ func (d *drawer) figure(st *Step, ref string, indent int) bool {
 		}
 		fill := inner + 2 - cellw.String(head) + 1
 		if fill < 1 {
-			head = ansi.Truncate(head, inner+1, "…")
+			head = cellw.Truncate(head, inner+1, "…")
 			fill = inner + 3 - cellw.String(head)
 		}
 		return pad + head + faint(strings.Repeat("─", max(0, fill))+r)
@@ -3671,7 +3682,7 @@ func (d *drawer) figure(st *Step, ref string, indent int) bool {
 	d.addWide(ref, edge("╭", "╮", glyphColor("◇")+" "+text(title)))
 	for _, r := range rows {
 		if cellw.String(r) > inner {
-			r = ansi.Truncate(r, inner-1, "") + faint("›")
+			r = cellw.Truncate(r, inner-1, "") + faint("›")
 		}
 		d.addWide("", pad+faint("│")+" "+paint(cWhite, r)+blanks(inner-cellw.String(r))+" "+faint("│"))
 	}

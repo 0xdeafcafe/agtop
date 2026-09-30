@@ -298,6 +298,7 @@ func TestLongPasteFolds(t *testing.T) {
 			m, _ := benchModel(120, 40)
 			m.paneFocus = pane
 			m.host.input = nil
+			m.fastPending = true // the live turn's pulse would batch its tick with the paste's command
 			// Whether it names files is asked of the disk first, and the
 			// paste comes back.
 			_, cmd := m.Update(msg)

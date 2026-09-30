@@ -45,3 +45,17 @@ func BenchmarkString(b *testing.B) {
 		}
 	})
 }
+
+func TestTruncateMatchesAnsi(t *testing.T) {
+	r := rand.New(rand.NewSource(2))
+	for n := 0; n < 200000; n++ {
+		s := ""
+		for k := r.Intn(16); k >= 0; k-- {
+			s += pieces[r.Intn(len(pieces))]
+		}
+		w, tail := r.Intn(12), []string{"…", "", "..", "👍"}[r.Intn(4)]
+		if got, want := Truncate(s, w, tail), ansi.Truncate(s, w, tail); got != want {
+			t.Fatalf("%q to %d with %q: %q, want %q", s, w, tail, got, want)
+		}
+	}
+}
