@@ -491,6 +491,29 @@ func unasked(t *Turn) string {
 	return "woke up without a message"
 }
 
+// woke is a turn a task woke, in Claude Code's words: "Background
+// command", and how it ended, " completed" in green or " failed" in red.
+func woke(t *Turn) (noun, how string, ok bool) {
+	kind, status, _ := strings.Cut(t.From, " · ")
+	noun, ok = map[string]string{
+		"background shell": "Background command", "background subagent": "Background agent",
+		"background workflow": "Background workflow", "monitor": "Monitor",
+	}[kind]
+	if !ok || t.Cause == "" {
+		return "", "", false
+	}
+	switch status {
+	case "":
+	case "completed":
+		how = " " + paint(cGreen, status)
+	case "failed":
+		how = " " + paint(cRed, status)
+	default:
+		how = " " + dim(status)
+	}
+	return noun, how, true
+}
+
 // folded is one row: your ask, then how it came out.
 func (d *drawer) folded() {
 	t := d.t
@@ -517,6 +540,9 @@ func (d *drawer) folded() {
 	}
 	if t.From != "" {
 		who = dim("◌ "+t.From+" · ") + sub(ask)
+		if noun, how, ok := woke(t); ok {
+			who = dim(noun+" ") + sub(`"`+ask+`"`) + how
+		}
 	}
 	left := "  " + faint("▸") + " " + d.mark() + " " + dim(fmt.Sprintf("#%d", t.N)) + "  " + who
 	if outcome != "" && outcome != text("") {
@@ -563,8 +589,15 @@ func (d *drawer) open() {
 	}
 	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
 	style, label := func(s string) string { return styledAsk(s, cText+bold) }, dim("you")
+	noun, how, wake := woke(t)
 	if t.From != "" {
 		style, label = sub, dim("◌ "+t.From)
+	}
+	if wake {
+		style, label = func(s string) string { return text(s) }, dim(noun)
+		if ask != "" {
+			ask = `"` + ask + `"`
+		}
 	}
 	rowW := min(headW-len([]rune(stripANSI(label)))+3, capProse)
 	// Open, the message is shown whole, line by line; a word longer than a
@@ -600,6 +633,9 @@ func (d *drawer) open() {
 	}
 	if multi {
 		rows = []string{""}
+	}
+	if wake && len(rows) > 0 {
+		rows[len(rows)-1] += how // a copy: the memo keeps the words alone
 	}
 	for i, r := range rows {
 		if i == 0 {
