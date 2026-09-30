@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	tokens "github.com/0xdeafcafe/rush/internal/agent/usage"
@@ -22,13 +23,20 @@ func TestParseRun(t *testing.T) {
 		args []string
 		want workRun
 	}{
-		{"codex", []string{"exec", "say hi"}, workRun{kind: "codex", prompt: "say hi", format: "text"}},
+		{"codex", []string{"exec", "say hi"}, workRun{kind: "codex", prompt: "say hi", format: "text", stdinNote: "Reading additional input from stdin..."}},
+		{"codex", []string{"exec"}, workRun{kind: "codex", format: "text", stdinNote: "Reading prompt from stdin..."}}, // prompt on stdin
+		{"codex", []string{"exec", "-"}, workRun{kind: "codex", format: "text"}},                                       // and so
+		{"codex", []string{"exec", "--", "-v is a flag"}, workRun{kind: "codex", prompt: "-v is a flag", format: "text", stdinNote: "Reading additional input from stdin..."}},
 		{"codex", []string{"-m", "gpt-5", "exec", "--json", "-o", "/tmp/o", "--skip-git-repo-check", "-C", "sub", "fix it"},
-			workRun{kind: "codex", prompt: "fix it", model: "gpt-5", json: true, lastMsg: "/tmp/o", skipGit: true, cwd: "sub", format: "text"}},
+			workRun{kind: "codex", prompt: "fix it", model: "gpt-5", json: true, lastMsg: "/tmp/o", skipGit: true, cwd: "sub", format: "text",
+				stdinNote: "Reading additional input from stdin..."}},
 		{"codex", []string{"exec", "--full-auto", "-c", "model_reasoning_effort=high", "go"},
-			workRun{kind: "codex", prompt: "go", mode: "auto", effort: "high", format: "text"}},
-		{"codex", []string{"e", "--sandbox=danger-full-access", "go"}, workRun{kind: "codex", prompt: "go", mode: "full-access", format: "text"}},
+			workRun{kind: "codex", prompt: "go", mode: "auto", effort: "high", format: "text", stdinNote: "Reading additional input from stdin..."}},
+		{"codex", []string{"e", "--sandbox=danger-full-access", "go"},
+			workRun{kind: "codex", prompt: "go", mode: "full-access", format: "text", stdinNote: "Reading additional input from stdin..."}},
 		{"claude", []string{"-p", "say hi"}, workRun{kind: "claude", prompt: "say hi", format: "text"}},
+		{"claude", []string{"-p"}, workRun{kind: "claude", format: "text"}}, // prompt on stdin
+		{"claude", []string{"-p", "--model", "haiku", "--", "--help me"}, workRun{kind: "claude", prompt: "--help me", model: "haiku", format: "text"}},
 		{"claude", []string{"say hi", "--print", "--model", "haiku", "--output-format", "json"},
 			workRun{kind: "claude", prompt: "say hi", model: "haiku", format: "json"}},
 		{"claude", []string{"-p", "--output-format=stream-json", "--verbose", "--include-partial-messages", "--dangerously-skip-permissions", "hi"},
@@ -53,16 +61,14 @@ func TestParseRun(t *testing.T) {
 		{"codex", []string{"say hi"}},    // interactive, with a prompt
 		{"codex", []string{"login"}},     // not a run
 		{"codex", []string{"--version"}}, // nor this
-		{"codex", []string{"exec", "-"}}, // prompt on stdin
-		{"codex", []string{"exec"}},      // prompt on stdin
 		{"codex", []string{"exec", "resume", "--last"}},
 		{"codex", []string{"exec", "--output-schema", "s.json", "go"}}, // a flag rush can't print
 		{"codex", []string{"exec", "-c", "sandbox_mode=x", "go"}},
 		{"codex", []string{"exec", "-s", "nope", "go"}},
 		{"codex", []string{"exec", "one", "two"}},
+		{"codex", []string{"exec", "--", "one", "two"}},
 		{"claude", nil},
 		{"claude", []string{"say hi"}}, // interactive
-		{"claude", []string{"-p"}},     // prompt on stdin
 		{"claude", []string{"mcp", "list"}},
 		{"claude", []string{"-p", "--output-format", "stream-json", "hi"}},       // claude says it wants --verbose
 		{"claude", []string{"-p", "--output-format", "json", "--verbose", "hi"}}, // every message, as an array
@@ -173,6 +179,14 @@ func TestCodexOut(t *testing.T) {
 	if code := c.finish(); code != 1 || !strings.Contains(o.String(), `{"type":"turn.failed","error":{"message":"boom"}}`) {
 		t.Errorf("failed turn: exit %d, %s", code, o.String())
 	}
+	// and leaves -o as it was, as exec does.
+	last = filepath.Join(t.TempDir(), "last")
+	c = &codexOut{r: workRun{kind: "codex", lastMsg: last}, stdout: &o, stderr: &o}
+	c.line(nil, event.TurnEnd{Reason: "error", Err: "boom"})
+	c.finish()
+	if _, err := os.Stat(last); err == nil {
+		t.Error("a failed run wrote -o")
+	}
 }
 
 // vibe takes its model from a variable set before it.
@@ -239,5 +253,43 @@ func TestClaudeOut(t *testing.T) {
 	lines[7] = `{"type":"result","is_error":true,"result":"API Error"}`
 	if out, code := feed(workRun{format: "text"}); out != "API Error\n" || code != 1 {
 		t.Errorf("error: %q %d", out, code)
+	}
+}
+
+// A prompt fed on stdin is put together with the one given as its
+// program does: claude on a line after it, codex in a <stdin> block.
+func TestWithStdin(t *testing.T) {
+	cases := []struct {
+		kind, prompt, in, want string
+		ok                     bool
+	}{
+		{"claude", "", "say hi\n", "say hi\n", true},
+		{"claude", "do this", "with this", "do this\nwith this", true},
+		{"claude", "", "  \n", "", false}, // claude says there's no prompt
+		{"codex", "", "  say hi\n\n", "  say hi\n\n", true},
+		{"codex", "do this", "a\nb\n\n", "do this\n\n<stdin>\na\nb\n\n</stdin>", true},
+		{"codex", "do this", "a", "do this\n\n<stdin>\na\n</stdin>", true},
+		{"vibe", "", "say hi", "", false},
+	}
+	for _, c := range cases {
+		got, ok := withStdin(workRun{kind: agent.Kind(c.kind), prompt: c.prompt}, []byte(c.in))
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s %q + %q = %q %v, want %q %v", c.kind, c.prompt, c.in, got, ok, c.want, c.ok)
+		}
+	}
+	if _, ok := withStdin(workRun{kind: "claude"}, bytes.Repeat([]byte("a"), maxStdin)); ok {
+		t.Error("a prompt past what's read is put together")
+	}
+}
+
+// Only a provider riding the program's harness runs in its place.
+func TestRiderOf(t *testing.T) {
+	for _, c := range []struct{ k, prog, want agent.Kind }{
+		{"ollama", "claude", "ollama"}, {"ollama-codex", "codex", "ollama-codex"},
+		{"ollama", "codex", ""}, {"claude", "claude", ""}, {"nope", "claude", ""}, {"", "claude", ""},
+	} {
+		if got := riderOf(c.k, c.prog); got != c.want {
+			t.Errorf("RUSH_AGENT=%s %s rides as %q, want %q", c.k, c.prog, got, c.want)
+		}
 	}
 }

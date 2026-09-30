@@ -2,6 +2,7 @@ package ollama
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
@@ -100,6 +101,10 @@ func (CodexAdapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn
 	o.Flags, o.Model, o.Effort = codexFlags(m, server(), o.Flags), m.Name, ""
 	if o.Profile.Dir == "" {
 		o.Profile.Dir = codexHome()
+	}
+	// Codex refuses a CODEX_HOME that isn't there, and nothing else makes it.
+	if err := os.MkdirAll(o.Profile.Dir, 0o700); err != nil {
+		return nil, err
 	}
 	// The host hands over the adapter's own program, which is ollama's,
 	// unless it was told of a codex to run.

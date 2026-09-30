@@ -40,6 +40,7 @@ type workRun struct {
 	format              string // claude's --output-format: text, json, stream-json
 	lastMsg             string // codex -o
 	skipGit             bool
+	stdinNote           string // what the program says as it reads stdin
 }
 
 // spawnCmd runs rush spawn and returns the exit code.
@@ -54,41 +55,111 @@ func spawnCmd(args []string) int {
 	// programs; the real one run in its place keeps PATH as it was.
 	_ = os.Setenv("PATH", host.WithoutShims(path))
 	r, ok := parseRun(prog, rest)
+	// RUSH_AGENT=ollama claude -p … runs on another provider through the
+	// same harness; its own spawns choose again.
+	rider := riderOf(agent.Kind(os.Getenv("RUSH_AGENT")), agent.Kind(prog))
+	if ok || rider != "" {
+		_ = os.Unsetenv("RUSH_AGENT")
+	}
 	// Run as itself too, the program finds the sign-in rush keeps for it.
-	if a, found := agent.Get(agent.Kind(prog)); found {
+	if a, found := agent.Get(agent.Kind(prog)); found && rider == "" {
 		if ps := agent.ProfilesOf(a); len(ps) > 0 {
 			if err := host.SignInIfOut(prog, ps[0]); err != nil {
 				fmt.Fprintln(os.Stderr, "rush:", err)
 			}
 		}
 	}
-	// RUSH_AGENT=ollama claude -p … runs on another provider through the
-	// same harness; its own spawns choose again.
-	if k := agent.Kind(os.Getenv("RUSH_AGENT")); ok && k != "" {
-		_ = os.Unsetenv("RUSH_AGENT")
-		if a, found := agent.Get(k); found {
-			if _, rides := a.(agent.Rider); rides && harness(k) == r.kind {
-				r.kind = k
-			}
-		}
+	if code, hosted := spawnHosted(prog, rest, path, r, ok && os.Getenv("RUSH_NO_SHIM") == "", rider); hosted {
+		return code
 	}
-	if ok && os.Getenv("RUSH_NO_SHIM") == "" {
-		if k, ok := agent.Get(r.kind); !ok || !agent.Installed(k.Kind()) {
-			return runReal(prog, rest, path, nil)
-		}
-		in, fed := readStdin()
-		if len(in) > 0 {
-			// The program adds what it's fed to the prompt: it does that itself.
-			return runReal(prog, rest, path, io.MultiReader(bytes.NewReader(in), os.Stdin))
-		}
-		if fed && harness(r.kind) == "codex" {
-			fmt.Fprintln(os.Stderr, "Reading additional input from stdin...")
-		}
-		if code, ok := hostRun(r, os.Stdout, os.Stderr); ok {
-			return code
-		}
+	if rider != "" {
+		// The real program would run it on its own provider instead.
+		fmt.Fprintf(os.Stderr, "rush: couldn't run this on %s (RUSH_AGENT=%s): only a run rush can host goes to it\n", agentName(rider), rider)
+		return 1
 	}
 	return runReal(prog, rest, path, nil)
+}
+
+// spawnHosted hosts r when it can (host), with any prompt it's fed on
+// stdin; false when the real program should run instead.
+func spawnHosted(prog string, rest []string, path string, r workRun, can bool, rider agent.Kind) (int, bool) {
+	if !can {
+		return 0, false
+	}
+	if rider != "" {
+		r.kind = rider
+	}
+	if k, ok := agent.Get(r.kind); !ok || !agent.Installed(k.Kind()) {
+		return 0, false
+	}
+	in, fed, waited := readStdin()
+	if len(in) > 0 {
+		p, ok := withStdin(r, in)
+		if !ok && rider != "" {
+			return 0, false
+		}
+		if !ok {
+			// The program adds what it's fed to the prompt: it does that itself.
+			return runReal(prog, rest, path, io.MultiReader(bytes.NewReader(in), os.Stdin)), true
+		}
+		r.prompt = p
+	}
+	if r.prompt == "" {
+		return 0, false // the program says what it wants
+	}
+	if fed && r.stdinNote != "" {
+		fmt.Fprintln(os.Stderr, r.stdinNote)
+	}
+	if waited && harness(r.kind) == "claude" { // migration: per-agent CLI parsing and output move behind the adapters
+		fmt.Fprintln(os.Stderr, "Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.")
+	}
+	return hostRun(r, os.Stdout, os.Stderr)
+}
+
+// riderOf is k when it's a provider riding harness's program, else "".
+func riderOf(k, harnessKind agent.Kind) agent.Kind {
+	if a, found := agent.Get(k); found && k != harnessKind {
+		if _, rides := a.(agent.Rider); rides && harness(k) == harnessKind {
+			return k
+		}
+	}
+	return ""
+}
+
+func agentName(k agent.Kind) string {
+	if a, ok := agent.Get(k); ok {
+		return a.Name()
+	}
+	return string(k)
+}
+
+// maxStdin is the most readStdin takes in; a prompt that long runs the
+// real program, which reads the rest.
+const maxStdin = 1 << 20
+
+// withStdin is r's prompt with what it was fed on stdin, as its program
+// puts them together; false when rush can't say how it would.
+func withStdin(r workRun, in []byte) (string, bool) {
+	s := string(in)
+	if len(in) >= maxStdin || strings.TrimSpace(s) == "" && r.prompt == "" {
+		return "", false
+	}
+	switch harness(r.kind) { // migration: per-agent CLI parsing and output move behind the adapters
+	case "claude":
+		if r.prompt == "" {
+			return s, true
+		}
+		return r.prompt + "\n" + s, true
+	case "codex":
+		if r.prompt == "" {
+			return s, true
+		}
+		if !strings.HasSuffix(s, "\n") {
+			s += "\n"
+		}
+		return r.prompt + "\n\n<stdin>\n" + s + "</stdin>", true
+	}
+	return "", false
 }
 
 // parseRun is the run args ask prog for, when rush can host it and print
@@ -129,6 +200,14 @@ const shellSafe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345678
 func flagArgs(args []string, valued, bare map[string]bool, each func(name, val string) bool, word func(string) bool) bool {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if a == "--" { // the rest are words, a prompt starting with - too
+			for _, w := range args[i+1:] {
+				if !word(w) {
+					return false
+				}
+			}
+			return true
+		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
 			if !word(a) {
 				return false
@@ -206,11 +285,17 @@ func codexRun(args []string) (workRun, bool) {
 		return true
 	})
 	// exec resume and exec review are runs of another kind.
-	if !ok || !sub || len(words) != 1 || words[0] == "-" || words[0] == "resume" || words[0] == "review" || words[0] == "help" {
+	if !ok || !sub || len(words) > 1 || len(words) == 1 && (words[0] == "resume" || words[0] == "review" || words[0] == "help") {
 		return workRun{}, false
 	}
-	r.prompt = words[0]
-	return r, r.prompt != ""
+	// With no prompt, or -, it's all on stdin.
+	switch {
+	case len(words) == 0:
+		r.stdinNote = "Reading prompt from stdin..."
+	case words[0] != "-":
+		r.prompt, r.stdinNote = words[0], "Reading additional input from stdin..."
+	}
+	return r, true
 }
 
 var (
@@ -248,28 +333,30 @@ func claudeRun(args []string) (workRun, bool) {
 	}, func(w string) bool { words = append(words, w); return true })
 	// stream-json wants --verbose (claude says so itself), and json with it
 	// prints every message rather than the result.
-	if !ok || !print || len(words) != 1 || r.format == "stream-json" && !verbose || r.format == "json" && verbose ||
+	if !ok || !print || len(words) > 1 || r.format == "stream-json" && !verbose || r.format == "json" && verbose ||
 		r.partial && r.format != "stream-json" {
 		return workRun{}, false
 	}
-	r.prompt = words[0]
-	return r, r.prompt != ""
+	if len(words) == 1 {
+		r.prompt = words[0] // else it's on stdin
+	}
+	return r, true
 }
 
 // readStdin is what stdin holds when it isn't a terminal, as the programs
 // read it; fed is whether it isn't. Claude Code gives up on it after a
-// few seconds, and so does this.
-func readStdin() (in []byte, fed bool) {
+// few seconds, and so does this: waited is whether it did.
+func readStdin() (in []byte, fed, waited bool) {
 	if term.IsTerminal(os.Stdin.Fd()) {
-		return nil, false
+		return nil, false, false
 	}
 	got := make(chan []byte, 1)
-	go func() { b, _ := io.ReadAll(io.LimitReader(os.Stdin, 1<<20)); got <- b }() // the rest is read by whoever runs
+	go func() { b, _ := io.ReadAll(io.LimitReader(os.Stdin, maxStdin)); got <- b }() // the rest is read by whoever runs
 	select {
 	case b := <-got:
-		return b, true
+		return b, true, false
 	case <-time.After(3 * time.Second):
-		return nil, true
+		return nil, true, true
 	}
 }
 
@@ -352,10 +439,15 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 	}
 	base := harness(r.kind)
 	if base == "codex" && !r.skipGit && !inRepo(cwd) {
+		if r.kind != base { // the real codex would run it on OpenAI
+			fmt.Fprintln(stderr, "Not inside a trusted directory and --skip-git-repo-check was not specified.")
+			return 1, true
+		}
 		return 0, false // codex says why it won't run there
 	}
 	cfg := host.Config{Cwd: cwd, Model: r.model, Effort: r.effort, PermissionMode: r.mode, Prompt: r.prompt,
-		Name: firstWordsOf(r.prompt), Meta: map[string]string{"spawnedBy": or(os.Getenv("RUSH_SESSION"), "shell")}}
+		Name: firstWordsOf(r.prompt), Meta: map[string]string{"spawnedBy": or(os.Getenv("RUSH_SESSION"), "shell")},
+		Owner: os.Getpid()}
 	if string(r.kind) == state.LoginsKind {
 		cfg.Account = state.Load().Config.ActiveAccount().Profile()
 	}
@@ -403,6 +495,12 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 		out = &onceOut{stdout: stdout, stderr: stderr}
 	}
 	code := follow(c, out, sig)
+	if code == hostGone {
+		// Why it went, as the agent that couldn't start said.
+		info, _ := host.ReadInfo(started.ID)
+		fmt.Fprintln(stderr, "rush:", or(info.Error, "the session's host went away"))
+		code = 1
+	}
 	stopHost(c, started.ID)
 	return code, true
 }
@@ -443,6 +541,9 @@ type printer interface {
 	finish() int
 }
 
+// hostGone is what follow returns when the session's host went away.
+const hostGone = -1
+
 // follow reads the session until it has answered and has nothing more
 // to do: its turn over, and nothing you sent it while it ran left.
 // Anything it asks is refused, as the program run this way would.
@@ -457,8 +558,7 @@ func follow(c *host.Client, out printer, sig <-chan os.Signal) int {
 			return 143
 		case l, ok := <-c.Lines:
 			if !ok {
-				fmt.Fprintln(os.Stderr, "rush: the session's host went away")
-				return 1
+				return hostGone
 			}
 			ev, _ := host.Decode(l)
 			out.line(l, ev)
@@ -757,11 +857,11 @@ func (o *codexOut) finish() int {
 			fmt.Fprintln(o.stdout, o.last)
 		}
 	}
+	if o.err != "" {
+		return 1 // and -o is left as it was, as exec leaves it
+	}
 	if o.r.lastMsg != "" {
 		_ = os.WriteFile(o.r.lastMsg, []byte(o.last), 0o644)
-	}
-	if o.err != "" {
-		return 1
 	}
 	return 0
 }

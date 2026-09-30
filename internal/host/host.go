@@ -104,6 +104,9 @@ type Config struct {
 	Profile string `json:"profile,omitempty"`
 	// SystemPrompt is added to the agent's system prompt, after rush's own.
 	SystemPrompt string `json:"systemPrompt,omitempty"`
+	// Owner is the process (rush spawn, standing in for a program) the
+	// session ends with, when it's the one that started the host.
+	Owner int `json:"owner,omitzero"`
 }
 
 // Branch is a path of the conversation that /rewind left: its own
@@ -407,6 +410,9 @@ func Run(id string) error {
 	}
 	go s.accept()
 	go s.watchSock(sock)
+	if cfg.Owner > 0 && cfg.Owner == os.Getppid() {
+		go s.watchOwner(cfg.Owner)
+	}
 	go s.trimLoop()
 	<-s.quit
 	_ = ln.Close()
@@ -425,6 +431,25 @@ func (s *server) watchSock(sock string) {
 			return
 		case <-t.C:
 			if _, err := os.Stat(sock); errors.Is(err, os.ErrNotExist) {
+				_ = s.do(op{Op: "stop"})
+				return
+			}
+		}
+	}
+}
+
+// watchOwner stops the host once the process that started it has gone
+// (it's no longer its parent), even killed with no word to it: the run it
+// stood in for is over.
+func (s *server) watchOwner(owner int) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.quit:
+			return
+		case <-t.C:
+			if os.Getppid() != owner {
 				_ = s.do(op{Op: "stop"})
 				return
 			}

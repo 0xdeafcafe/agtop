@@ -121,7 +121,9 @@ func Start(ctx context.Context, o Options) (*Session, error) {
 	}()
 	if err := s.begin(ctx); err != nil {
 		_ = s.Close()
-		if t := s.stderr.String(); t != "" {
+		// The agent's own answer says why; else what it last said on stderr.
+		var rpcErr *Error
+		if t := s.stderr.String(); t != "" && !errors.As(err, &rpcErr) {
 			err = fmt.Errorf("%w: %s", err, lastLine(t))
 		}
 		return nil, err
