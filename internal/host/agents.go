@@ -32,18 +32,30 @@ func agentsPrompt() string {
 		if !ok {
 			continue // no stand-in hosts it
 		}
+		// One that can't run yet is still told of, with its models, so
+		// asked for by name it's known, and the user told to sign it in.
+		out := ""
 		if !signedIn(base) || !hasKey(a) {
-			continue // told of only once it can run
+			out = "; not signed in, so don't run it: tell the user to sign it in or give it its key, in rush, Settings, " + base.Name()
 		}
 		cmd, model := sp.SpawnCommand()
 		if k != base.Kind() {
 			cmd = "RUSH_AGENT=" + string(k) + " " + cmd
 		}
 		var ids []string
-		if ch, ok := agent.ChoicesOf(k); ok {
-			for _, c := range ch.Models {
-				ids = append(ids, c.ID)
+		ch, _ := agent.ChoicesOf(k)
+		models := ch.Models
+		if ml, ok := base.(agent.ModelLister); ok && len(models) == 0 {
+			if ps := agent.ProfilesOf(base); len(ps) > 0 {
+				models = ml.ListModels(ps[0])
 			}
+		}
+		for _, c := range models {
+			id := c.ID
+			if c.Note != "" { // what it's for, so "a cheap one" finds one
+				id += " (" + strings.ToLower(c.Note[:1]) + strings.TrimSuffix(c.Note[1:], ".") + ")"
+			}
+			ids = append(ids, id)
 		}
 		if len(ids) == 0 {
 			ids = localModels(prov)
@@ -55,21 +67,21 @@ func agentsPrompt() string {
 		case prov == "ollama":
 			what = "<a model from `ollama list`>"
 		}
-		models := ", " + model + " " + what
+		pick := ", " + model + " " + what
 		if strings.HasSuffix(model, "=") { // a variable, set before the command
-			models = ", " + model + "<model> before it"
+			pick = ", " + model + "<model> before it"
 			if what != "<model>" {
-				models += ", " + what
+				pick += ", " + what
 			}
 		}
-		lines = append(lines, "- "+prov+": "+agent.ProviderLabel(prov)+"'s models in "+agent.HarnessLabel(k)+", `"+cmd+"`"+models)
+		lines = append(lines, "- "+prov+": "+agent.ProviderLabel(prov)+"'s models in "+agent.HarnessLabel(k)+", `"+cmd+"`"+pick+out)
 	}
 	if len(lines) == 0 {
 		return ""
 	}
 	return "You can hand work to other agents by running them from your shell; rush hosts each one, signed in, and shows it to the user as your subagent, and its output comes back as the program's own:\n" +
 		strings.Join(lines, "\n") +
-		"\nWhen the user asks for one by name (\"an ollama lane\"), run that line as given. Pick one by what the work needs: a cheaper or local model for routine work, another provider for a second opinion. Treat them as you treat your own subagent types: if one fails to start, use another and tell the user; never debug its sign-in or setup."
+		"\nWhen the user asks for one by name (\"an ollama lane\"), run that line as given; a model named on its own, or by part of its name, is the line whose list has it, run with that model. Pick one by what the work needs: a cheaper or local model for routine work, another provider for a second opinion. Treat them as you treat your own subagent types: if one fails to start, use another and tell the user; never debug its sign-in or setup."
 }
 
 // signedIn is whether a's first profile can run now, rush signing it in

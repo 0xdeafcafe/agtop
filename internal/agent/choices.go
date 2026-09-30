@@ -35,3 +35,10 @@ func ChoicesOf(k Kind) (Choices, bool) {
 	}
 	return c.Choices(), true
 }
+
+// ModelLister is an adapter that reads the models its account offers now
+// from profile p's home: Codex's, which come and go with the account. It
+// reads the disk, so never on the UI.
+type ModelLister interface {
+	ListModels(p Profile) []Choice
+}
