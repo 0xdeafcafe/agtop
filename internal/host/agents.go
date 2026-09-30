@@ -145,7 +145,7 @@ func agentDefs(session agent.Kind) map[string]jsontext.Value {
 				def["description"] = desc + " Not available right now."
 				def["prompt"] = "Reply with only this, word for word: " + name + " can't take work until it's signed in: in rush, Settings, " + r.name + "."
 				def["tools"] = []string{}
-			case r.k == session && r.prov == "claude" && plainModel(c.ID):
+			case r.k == session && r.prov == string(session) && plainModel(c.ID):
 				def = map[string]any{"description": desc, "model": c.ID, "prompt": workPrompt}
 			default:
 				def["prompt"] = relayPrompt(r.command(c.ID))

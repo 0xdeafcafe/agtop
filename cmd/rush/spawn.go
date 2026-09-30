@@ -145,7 +145,7 @@ func withStdin(r workRun, in []byte) (string, bool) {
 		return "", false
 	}
 	switch harness(r.kind) { // migration: per-agent CLI parsing and output move behind the adapters
-	case "claude":
+	case "claude": // migration: as above
 		if r.prompt == "" {
 			return s, true
 		}
