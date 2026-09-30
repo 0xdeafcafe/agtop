@@ -187,7 +187,6 @@ type Model struct {
 	promptFor string
 	listW     int
 	pastes    pastes // long pastes in the main box, shown as chips
-	recall    recall // alt+p going back through the drafts, in the Prompt
 	blurred   bool   // the terminal says rush isn't the focused window
 	// undo is the Prompt's; a Session's box has its own.
 	undo undoStack

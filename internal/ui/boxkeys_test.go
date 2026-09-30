@@ -16,7 +16,11 @@ func TestBoxKeys(t *testing.T) {
 	has := func(pairs []string, words string) bool { return slices.Contains(pairs, words) }
 
 	c.input = []rune("hello")
-	if k := m.boxKeys(c, a, nil); !has(k, "send") || !has(k, "keep as draft") || !has(k, "drafts · sent · cleared") {
+	if k := m.boxKeys(c, a, nil); !has(k, "send") || has(k, "stash") {
+		t.Fatalf("typing, with no stash running: %q", k)
+	}
+	m.hooks = stashRunning("")
+	if k := m.boxKeys(c, a, nil); !has(k, "send") || !has(k, "stash") || !has(k, "stashed · sent · cleared") {
 		t.Fatalf("typing: %q", k)
 	}
 	c.input, c.clearedAt = nil, time.Now()

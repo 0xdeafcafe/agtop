@@ -693,11 +693,6 @@ func TestQueueKeys(t *testing.T) {
 	if key("ctrl+enter") != nil {
 		t.Fatal("nothing to send")
 	}
-	// ctrl+s is the same, for Terminal.app, which keeps ctrl+enter.
-	m.queueLocal("k", "e")
-	if key("ctrl+s") == nil || items() != "" {
-		t.Fatalf("ctrl+s left %s", items())
-	}
 }
 
 func TestQueueHintNoAlt(t *testing.T) {

@@ -5,7 +5,7 @@
 //
 // It sees everything you type in rush, and keeps it only in its data
 // folder, in drafts.json. It has no network and can't start programs.
-// rush's built-in drafts stay as they are; this exists to show the API.
+// rush's own stash is its bundled drafts plugin; this exists to show the API.
 //
 //	cd plugins/examples/autodrafts
 //	mkdir -p ~/.config/rush/plugins/autodrafts

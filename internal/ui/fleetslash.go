@@ -53,7 +53,7 @@ var fleetCommands = []event.Command{
 	{Name: "view", Description: "Agents and the Session side by side, the agent's Session alone, or Agents alone (shift+← →)", ArgumentHint: "<split|agent|list>"},
 	{Name: "dock", Description: "how many lines the agent's card under the list shows", ArgumentHint: "<lines>"},
 	{Name: "native", Description: "open Claude Code's own agents view"},
-	{Name: "drafts", Description: "your drafts, what you sent and what you cleared, to put back in the box (ctrl+r in a Session · alt+s keeps one · alt+p brings it back)"},
+	{Name: "stash", Description: "what you set aside, sent, cleared and replaced, to put back in the box (ctrl+r · ctrl+s sets what's typed aside)"},
 	{Name: "ask", Description: "ask rush about itself, or have it change a setting for you: an agent in rush's own folder, with its guide", ArgumentHint: "[question]"},
 	{Name: "help", Description: "a short guide to rush"},
 	{Name: "update", Description: "install the newest rush, with go install; #reload runs it"},
@@ -63,7 +63,7 @@ var fleetCommands = []event.Command{
 }
 
 // fleetAliases are other names command() answers to.
-var fleetAliases = map[string]string{"optimise": "slim", "optimize": "slim", "trim": "slim", "bloat": "slim", "eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "drafts", "net": "network"}
+var fleetAliases = map[string]string{"optimise": "slim", "optimize": "slim", "trim": "slim", "bloat": "slim", "eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "stash", "drafts": "stash", "net": "network"}
 
 // fleetNeedsAgent are # commands that act on the selected or focused agent;
 // the bar offers them only once one's in view. The rest are rush-wide.

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -91,6 +92,11 @@ func (m *Model) onHooks(msg tea.Msg) tea.Cmd {
 func (m *Model) pluginDo(d plugin.UIDo) tea.Cmd {
 	switch d.Kind {
 	case "notify":
+		if d.Plugin == stashPlugin {
+			// rush's own, in its words: no name before it.
+			m.flash(m.stashSaid(plugin.CleanNotice(d.Text)), d.Tone == "bad")
+			return nil
+		}
 		who := d.Plugin
 		if d.Session != "" {
 			if a := m.agentByKey(d.Session); a != nil {
@@ -103,6 +109,15 @@ func (m *Model) pluginDo(d plugin.UIDo) tea.Cmd {
 		m.setBox(d)
 		return nil
 	case "pick":
+		if d.Plugin == stashPlugin && d.Pick != nil {
+			p := *d.Pick
+			p.About = m.stashSaid(p.About)
+			p.Empty = slices.Clone(p.Empty)
+			for i := range p.Empty {
+				p.Empty[i] = m.stashSaid(p.Empty[i])
+			}
+			d.Pick = &p
+		}
 		m.openPick(d.Plugin, d.Pick)
 		return nil
 	case "send":
@@ -142,6 +157,9 @@ func (m *Model) pluginActions() []keymap.Action {
 	}
 	var out []keymap.Action
 	for _, p := range m.hooks.State().Plugins {
+		if p.Name == stashPlugin {
+			continue // rush's own stash and history keys run these
+		}
 		for _, c := range p.Commands {
 			out = append(out, keymap.Action{ID: keymap.PluginID(p.Name, c.Name), Context: keymap.Any, Title: c.Description, Source: p.Name})
 		}
@@ -172,6 +190,9 @@ func (m *Model) pluginHashCommands() []event.Command {
 	}
 	var out []event.Command
 	for _, p := range m.hooks.State().Plugins {
+		if p.Name == stashPlugin {
+			continue // #stash is rush's own
+		}
 		for _, c := range p.Commands {
 			out = append(out, event.Command{Name: p.Name + "." + c.Name, Description: c.Description + " (" + p.Name + ")"})
 		}

@@ -10,7 +10,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/convo"
-	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 // The question card's grounds: the card itself, the option under the
@@ -436,7 +435,7 @@ type heldBox struct {
 }
 
 // holdForQuestion keeps the box to the question while one waits: whatever
-// was being typed when it came is set aside (and kept as a draft), so the
+// was being typed when it came is set aside, so the
 // box answers the question and nothing else, and it comes back once the
 // question is answered, for the conversation to go on in the order Claude
 // expects.
@@ -445,10 +444,7 @@ func (m *Model) holdForQuestion(c *hostConn) {
 	switch {
 	case asking && c.qHeld == nil:
 		// Held even when empty, or what's typed as the answer would be
-		// taken for a draft on the next pass and set aside too.
-		if len(c.input) > 0 {
-			m.keepDraft(c, state.KindDraft)
-		}
+		// taken for what was there on the next pass and set aside too.
 		c.qHeld = &heldBox{input: c.input, back: c.back, undo: c.undo, editQ: c.editQ, editWas: c.editWas, editHeld: c.editHeld}
 		c.input, c.back, c.anchor, c.undo = nil, 0, 0, undoStack{}
 		c.editQ, c.editWas, c.editHeld = 0, "", false

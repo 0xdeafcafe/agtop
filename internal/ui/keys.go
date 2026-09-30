@@ -14,6 +14,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/actions"
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/plugin"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
@@ -398,7 +399,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		case a == nil:
 			m.flash("select an agent first", true)
 		case !empty && m.inKind == inPrompt:
-			m.flash("finish or clear the draft first (esc)", true)
+			m.flash("finish or clear what's typed first (esc)", true)
 		default:
 			m.startRename(a)
 		}
@@ -407,17 +408,6 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		// What the next session starts as: agent, model and effort.
 		if m.inKind == inPrompt {
 			m.openStartSheet()
-			return nil
-		}
-	case keySaveDraft, keyRecallDraft:
-		// Drafts, in the Prompt or a reply: alt+s keeps what's typed as
-		// one, alt+p brings the latest back, then older ones.
-		if m.inKind == inPrompt || m.inKind == inReply {
-			if s == keySaveDraft {
-				m.savePromptDraft()
-			} else {
-				m.recallPromptDraft()
-			}
 			return nil
 		}
 	case "super+down":
@@ -746,6 +736,9 @@ func (m *Model) submit() tea.Cmd {
 	}
 	m.pastes, m.undo = pastes{}, undoStack{}
 	m.input, m.inKind = m.input[:0], inPrompt
+	if (kind == inPrompt || kind == inReply) && text != "" && !isHashCmd(text) {
+		m.emitBox(plugin.EvInputSent, "", tagged) // for the history's Sent
+	}
 	switch kind {
 	case inRename:
 		if a == nil {
@@ -849,12 +842,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	}
 	m.didStep("hash")
 	switch name {
-	case "drafts":
-		var c *hostConn
-		if m.paneFocus {
-			c = m.host
-		}
-		m.openDrafts(c)
+	case "stash":
+		return m.stashCommand("history")
 	case "tips":
 		o := &m.store.Config.Onboarding
 		if strings.TrimSpace(arg) == "off" {

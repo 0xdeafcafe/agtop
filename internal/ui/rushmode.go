@@ -1261,7 +1261,6 @@ type hostConn struct {
 	askN     int
 	pastes   pastes // long pastes shown as chips
 	undo     undoStack
-	recall   recall // alt+p going back through the drafts
 	arts     []*artifact
 	marks    map[string]bool // files marked reviewed in the changes view
 	full     string          // the changed file shown in full over the changes view
@@ -2515,7 +2514,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		top = dim("typing returns here · ↓ past the last row or esc")
 	}
 	b := box{w: w, focused: typing, topL: top, text: c.input, cursor: max(0, len(c.input)-c.back), anchor: c.anchor - 1,
-		lead: paint(cOrange, "❯ "), holder: draftsHolder("a message for this agent", " · ctrl+r for past drafts"), maxRows: 6}
+		lead: paint(cOrange, "❯ "), holder: "a message for this agent" + m.historyHint(), maxRows: 6}
 	if m.chipHot.box == 1 {
 		b.hot = m.chipHot.at
 	}
@@ -2952,10 +2951,8 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "ctrl+t":
 		m.cycleSendMode(c)
 		return nil
-	case "ctrl+enter", "ctrl+s":
-		// Now, whatever's waiting: the queue, then what's in the box. ctrl+s
-		// is for terminals that never pass ctrl+enter on: macOS's Terminal
-		// takes it to open its own context menu.
+	case "ctrl+enter":
+		// Now, whatever's waiting: the queue, then what's in the box.
 		if !empty {
 			return m.sendPane(c, true)
 		}
@@ -2979,15 +2976,10 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			m.boxVert(c, map[string]int{"shift+up": -1, "shift+down": 1}[s], true)
 			return nil
 		}
+	case "ctrl+s":
+		return m.stashCommand("stash")
 	case "ctrl+r":
-		m.openDrafts(c)
-		return nil
-	case keySaveDraft:
-		m.saveDraft(c)
-		return nil
-	case keyRecallDraft:
-		m.recallDraft(c)
-		return nil
+		return m.stashCommand("history")
 	case "space":
 		if empty && c.sel != "" {
 			c.open[c.sel] = !m.isOpen(c, c.sel)
@@ -2997,7 +2989,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		if !empty && len(c.input) == c.back && !m.zen && !m.hostedAlone() && m.edgePush("pane-left") {
 			m.confirm = &confirmation{
 				question: "Back to the list?",
-				detail:   "your draft stays in this session's box",
+				detail:   "what's typed stays in this session's box",
 				onYes:    func() tea.Cmd { m.leavePane(); return nil },
 				again:    "left",
 			}

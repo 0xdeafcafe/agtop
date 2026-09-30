@@ -24,8 +24,6 @@ var Defaults = []Action{
 	{ID: "list.left", Context: List, Title: "fold the heading", Keys: []string{"left"}},
 	{ID: "list.back", Context: List, Title: "clear, go back, or (twice) quit", Keys: []string{"esc"}},
 	{ID: "list.rename", Context: List, Title: "rename the agent", Keys: []string{"ctrl+r"}},
-	{ID: "list.draft.save", Context: List, Title: "keep what's typed as a draft", Keys: []string{"alt+s"}},
-	{ID: "list.draft.recall", Context: List, Title: "bring back a draft", Keys: []string{"alt+p"}},
 	{ID: "list.start", Context: List, Title: "pick the next session's agent, model and effort", Keys: []string{"alt+m"}},
 	{ID: "list.folder", Context: List, Title: "choose the folder, or move the agent", Keys: []string{"ctrl+l"}},
 	{ID: "list.pr", Context: List, Title: "open the agent's pull request", Keys: []string{"ctrl+y"}},
@@ -49,10 +47,15 @@ var Defaults = []Action{
 	{ID: "list.filter", Context: List, Title: "filter agents by name or what's said", Keys: []string{"alt+f"}},
 	{ID: "list.toggle", Context: List, Title: "Agents beside the Session", Keys: []string{"ctrl+6", "ctrl+^", "ctrl+shift+6"}},
 
+	// The same keys as the list's group-by and rename, which have them back
+	// once the Prompt is empty.
+	{ID: "prompt.stash", Context: Prompt, Title: "set what's typed aside; it comes back after you send", Keys: []string{"ctrl+s"}, Runs: true},
+	{ID: "prompt.history", Context: Prompt, Title: "what you set aside, sent, cleared and replaced", Keys: []string{"ctrl+r"}, Runs: true},
+
 	{ID: "page.prev", Context: Pages, Title: "the page before", Keys: []string{"[", "shift+tab"}},
 	{ID: "page.next", Context: Pages, Title: "the next page", Keys: []string{"]", "tab"}},
 
-	{ID: "session.send", Context: Session, Title: "send now, the queue first", Keys: []string{"ctrl+enter", "ctrl+s"}},
+	{ID: "session.send", Context: Session, Title: "send now, the queue first", Keys: []string{"ctrl+enter"}},
 	{ID: "session.enter", Context: Session, Title: "send, or open what's picked", Keys: []string{"enter"}},
 	{ID: "session.right", Context: Session, Title: "open what's picked", Keys: []string{"right"}},
 	{ID: "session.back", Context: Session, Title: "back: off a row, out of a subagent, to Agents", Keys: []string{"left"}},
@@ -63,9 +66,8 @@ var Defaults = []Action{
 	{ID: "session.pagedown", Context: Session, Title: "scroll down", Keys: []string{"pgdown"}},
 	{ID: "session.bottom", Context: Session, Title: "back to the latest", Keys: []string{"end"}},
 	{ID: "session.toggle", Context: Session, Title: "open or close the row", Keys: []string{"space"}},
-	{ID: "session.drafts", Context: Session, Title: "drafts, sent and cleared", Keys: []string{"ctrl+r"}},
-	{ID: "session.draft.save", Context: Session, Title: "keep what's typed as a draft", Keys: []string{"alt+s"}},
-	{ID: "session.draft.recall", Context: Session, Title: "bring back a draft", Keys: []string{"alt+p"}},
+	{ID: "session.stash", Context: Session, Title: "set what's typed aside, or bring it back; it comes back after you send", Keys: []string{"ctrl+s"}},
+	{ID: "session.history", Context: Session, Title: "what you set aside, sent, cleared and replaced", Keys: []string{"ctrl+r"}},
 	{ID: "session.done", Context: Session, Title: "move the agent to Done", Keys: []string{"alt+d"}},
 	{ID: "session.hold", Context: Session, Title: "hold or release the queue", Keys: []string{"alt+h"}},
 	{ID: "session.rewind", Context: Session, Title: "rewind to the turn, or mark a file reviewed", Keys: []string{"alt+r"}},

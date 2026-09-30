@@ -1,6 +1,6 @@
 # autodrafts
 
-rush's drafts, rebuilt as a plugin. rush already keeps what you type and don't send; this plugin does the same through the [UI hooks](../../skills/write-rush-plugin/references/protocol.md#uievent-notification--needs-events-or-input), to show they're enough for it. rush's built-in drafts stay as they are. Install it to read how it works, not because you need it.
+rush's drafts, rebuilt as a plugin. rush already keeps what you type and don't send; this plugin does the same through the [UI hooks](../../skills/write-rush-plugin/references/protocol.md#uievent-notification--needs-events-or-input), to show they're enough for it. rush's own stash, its bundled `drafts` plugin, stays as it is. Install it to read how it works, not because you need it.
 
 What it does:
 

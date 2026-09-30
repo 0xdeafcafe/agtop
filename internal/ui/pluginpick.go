@@ -61,6 +61,9 @@ func (s *pickSheet) count(tab int) int {
 
 func (s *pickSheet) body(m *Model, w, h int) []string {
 	out := []string{sheetTitle(s.p.Title, s.p.About, w-len(s.plugin)-3) + faint(" · "+s.plugin), ""}
+	if s.plugin == stashPlugin {
+		out[0] = sheetTitle(s.p.Title, s.p.About, w) // rush's own
+	}
 	if len(s.p.Tabs) > 0 {
 		tabs := make([]string, len(s.p.Tabs))
 		for i, t := range s.p.Tabs {

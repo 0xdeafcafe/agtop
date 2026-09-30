@@ -80,7 +80,7 @@ The list is every agent you have, with what it's doing right now: "running pnpm 
 - **Cold cache warning**: sending to a session idle past its prompt cache's hour asks first, since it re-reads the whole context uncached.
 - **Groups** (`ctrl+s`) by status, agent or your own (`ctrl+e`), and **split by project** on top (`ctrl+p`, on by default): inside each section, agents sit together under a line per repository with its branch, commits ahead or behind, uncommitted changes and worktree count; agents in a linked worktree sit under the repository it came from, headed by the worktree's own branch and changes. The top of the list shows both and a click changes either. Pins (`ctrl+t`) are shared with the native view.
 - **Move** (`ctrl+l`) tells the agent to work in another folder or worktree from now on, without stopping it; its row follows it there. With a new session half typed, the same dialog picks where it starts.
-- **Drafts**: `alt+s` keeps what you've typed and clears the box for the next thing; `alt+p` brings the latest back, and again for older ones. `#drafts` has them, with what you sent and what you cleared.
+- **Stash**: `ctrl+s` sets what you've typed aside and clears the box for the next thing; it comes back by itself once you send, or on `ctrl+s` again. `ctrl+r` (or `#stash`) is the history: what you stashed, sent, cleared, and what a put-back replaced, to search and put back with `enter`. Every box is kept until it's sent, even across restarts. In the Prompt these two keys are the stash's only with something typed; empty, they group and rename the list as before. Settings, Plugins, drafts can call it Drafts instead.
 
 ## Providers
 
@@ -208,7 +208,7 @@ The place next to Agents says what's happening across every repo, in three pages
 
 `ctrl+k` opens the command bar: a place, an agent, a Session's view, a turn (`#12`), `Back` to where you jumped from, or a new agent with what you typed. Words search the open conversation and every agent's transcript, and `in:name`, `is:failed`, `file:x` and `turn:10-13` narrow it. `ctrl+f` is the same bar, starting where you are. With many long transcripts, Settings › Interface › *ctrl+k searches transcripts* › *on ctrl+enter* keeps typing to names and commands; `ctrl+enter` then searches the transcripts (`ctrl+j` in terminals that send `ctrl+enter` as `enter`).
 
-`#` runs rush's own commands on the selected agent: `#done` `#go` `#stop` `#restart` `#rm` `#kill` `#clean` `#cd` `#rename` `#group` `#pin` `#pr` `#full` `#sort` `#by` `#split` `#folder` `#with` `#profile` `#account` `#efficiency` `#advisor` `#statusline` `#view` `#width` `#dock` `#drafts` `#hibernate` `#native` `#mackeys` `#tips` `#update` `#ask`. `/` is left to the agent.
+`#` runs rush's own commands on the selected agent: `#done` `#go` `#stop` `#restart` `#rm` `#kill` `#clean` `#cd` `#rename` `#group` `#pin` `#pr` `#full` `#sort` `#by` `#split` `#folder` `#with` `#profile` `#account` `#efficiency` `#advisor` `#statusline` `#view` `#width` `#dock` `#stash` `#hibernate` `#native` `#mackeys` `#tips` `#update` `#ask`. `/` is left to the agent.
 
 `#ask` asks rush about itself: `#ask how do I make finished agents stop sooner?`, or `#ask turn the advisor on`. It starts an agent in rush's own folder with this guide to hand, which answers, points you at the # command that does it, or changes rush's settings for you. rush takes up any change to its `config.json` within a few seconds, whoever makes it.
 
@@ -335,7 +335,7 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `ctrl+p` | split each section by project, or not |
 | `ctrl+n` | the next agent needing you |
 | `alt+g` | tell it to go on |
-| `alt+s` `alt+p` | keep a draft, bring one back |
+| `ctrl+s` `ctrl+r` | stash what's typed or bring it back, the history (in the Prompt, with something typed) |
 | `alt+d` | done |
 | `ctrl+x` | stop; twice on a stopped agent deletes it |
 | `ctrl+l` | move the agent, or pick a new session's folder |
@@ -348,7 +348,7 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 Every key can move. **Settings → Keys** lists every action, where it works (everywhere, the list, a Session) and its keys. Press `enter` on one, then the keys you want. A chord is several, `ctrl+x` then `d` say, ended with `enter`. `a` adds a key, `x` leaves it with none, and `r` puts rush's back. Each `#` command, and each plugin's commands, can have keys too. A key that would take another's asks first. What you change goes in `~/.config/rush/keybindings.json`:
 
 ```json
-{"bindings": {"session.send": ["ctrl+enter"], "command:drafts": ["ctrl+x d"], "list.pr": []}}
+{"bindings": {"session.send": ["ctrl+enter"], "command:stash": ["ctrl+x d"], "list.pr": []}}
 ```
 
 ## What's coming

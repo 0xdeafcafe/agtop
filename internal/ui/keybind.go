@@ -75,6 +75,9 @@ func (m *Model) keyContexts() []keymap.Context {
 	if m.paneFocus && m.host != nil {
 		return []keymap.Context{keymap.Session}
 	}
+	if m.inKind == inPrompt && len(m.input) > 0 {
+		return []keymap.Context{keymap.Prompt, keymap.List}
+	}
 	return []keymap.Context{keymap.List}
 }
 
@@ -131,8 +134,8 @@ func (m *Model) remapKey(k *tea.KeyPressMsg, s *string) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// runAction runs a command action: a # command on the agent in view, or a
-// plugin's command.
+// runAction runs a command action: a # command on the agent in view, a
+// plugin's command, or one of the Prompt's.
 func (m *Model) runAction(id string) tea.Cmd {
 	a := m.selected()
 	if m.paneFocus && m.host != nil {
@@ -143,6 +146,12 @@ func (m *Model) runAction(id string) tea.Cmd {
 	}
 	if rest, ok := strings.CutPrefix(id, "plugin:"); ok {
 		return m.runPluginCommand(rest, a)
+	}
+	switch id {
+	case "prompt.stash":
+		return m.stashCommand("stash")
+	case "prompt.history":
+		return m.stashCommand("history")
 	}
 	return nil
 }

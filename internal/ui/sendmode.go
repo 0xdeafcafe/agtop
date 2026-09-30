@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
@@ -103,15 +104,29 @@ func (m *Model) boxKeys(c *hostConn, a *fleet.Agent, s *convo.Session) []string 
 	if working {
 		pairs = append(pairs, m.boundKey("session.stop"), "stop it")
 	}
+	w, on := m.stash()
 	switch {
-	case typed:
-		pairs = append(pairs, keySaveDraft, "keep as draft")
+	case typed && on:
+		pairs = append(pairs, m.boundKey("session.stash"), w.Verb)
 	case time.Since(c.clearedAt) < 2*time.Minute:
 		pairs = append(pairs, undoHint, "bring back what you cleared")
-	case draftCount() > 0:
-		pairs = append(pairs, keyRecallDraft, "latest draft")
+	case m.hasStash(c.key):
+		pairs = append(pairs, m.boundKey("session.stash"), "your "+w.Noun+" back")
 	}
-	return append(pairs, m.boundKey("session.drafts"), "drafts · sent · cleared")
+	if !on {
+		return pairs
+	}
+	return append(pairs, m.boundKey("session.history"), strings.ToLower(w.Tab)+" · sent · cleared")
+}
+
+// historyHint is what an empty Session box says of the history, when the
+// stash is running.
+func (m *Model) historyHint() string {
+	w, on := m.stash()
+	if !on {
+		return ""
+	}
+	return " · " + m.boundKey("session.history") + ": " + strings.ToLower(w.Tab) + ", sent, cleared"
 }
 
 // sendModeKeys say what enter does in each mode, beside it in the hints.

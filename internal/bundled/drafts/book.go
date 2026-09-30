@@ -1,6 +1,7 @@
-// Package drafts is rush's drafts, as a plugin bundled with it: a message
+// Package drafts is rush's stash, as a plugin bundled with it: a message
 // box is kept until it's sent, a message can be stashed while you send
-// another, and what you sent and cleared can be put back.
+// another, and what you sent, cleared and replaced can be put back. What
+// it's called, Stash or Drafts, is a setting: see Words.
 //
 // book.go is the logic, with no I/O and no clock of its own; plugin.go
 // wires it to rush.
@@ -19,15 +20,51 @@ import (
 
 // Kinds of what's kept.
 const (
-	Kept    = "kept"    // a box's text a put-back replaced
-	Sent    = "sent"    //
-	Cleared = "cleared" // wiped from a box without sending
+	Sent     = "sent"    //
+	Cleared  = "cleared" // wiped from a box without sending
+	Replaced = "kept"    // a box's text a put-back replaced; "kept" on disk
 )
 
-// Tabs are the pick's, in order; the first is the stashes.
-var Tabs = []string{"Stashed", "Kept", "Sent", "Cleared"}
+// Tabs are the pick's, in order, after the first: the stashes, by Words.
+var Tabs = []string{"Sent", "Cleared", "Replaced"}
 
-var kindTab = map[string]int{Kept: 1, Sent: 2, Cleared: 3}
+var kindTab = map[string]int{Sent: 1, Cleared: 2, Replaced: 3}
+
+// Words are what it's called in everything it and rush say, by its called
+// setting.
+type Words struct {
+	Title string // the history's: Stash
+	Tab   string // the stashes' tab: Stashed
+	Verb  string // what the stash key does: stash
+	Did   string // what it did: stashed
+	Noun  string // one set aside: your stash
+}
+
+// Called are the names it can go by; the first is the default.
+var Called = []string{"Stash", "Drafts"}
+
+var words = map[string]Words{
+	"Stash":  {Title: "Stash", Tab: "Stashed", Verb: "stash", Did: "stashed", Noun: "stash"},
+	"Drafts": {Title: "Drafts", Tab: "Drafts", Verb: "keep as a draft", Did: "kept as a draft", Noun: "draft"},
+}
+
+// WordsFor is the words for a called setting, Stash's for any other.
+func WordsFor(called string) Words {
+	if w, ok := words[called]; ok {
+		return w
+	}
+	return words[Called[0]]
+}
+
+// Command is the # command rush opens the history with: #stash.
+func (w Words) Command() string { return "#" + strings.ToLower(w.Title) }
+
+// Fill puts the words in s where it says {title}, {tab}, {verb}, {did},
+// {noun} or {command}.
+func (w Words) Fill(s string) string {
+	return strings.NewReplacer("{title}", w.Title, "{tab}", w.Tab, "{verb}", w.Verb, "{did}", w.Did, "{noun}", w.Noun,
+		"{command}", w.Command()).Replace(s)
+}
 
 // Entry is something typed into a box, kept.
 type Entry struct {
@@ -53,11 +90,16 @@ type Store struct {
 	Stashes map[string]Stash      `json:"stashes,omitempty"`
 	History []Entry               `json:"history,omitempty"` // newest first
 	Seq     int                   `json:"seq,omitzero"`
+	// Imported is that the drafts rush kept itself, before, are taken in.
+	Imported bool `json:"imported,omitzero"`
 }
 
-// Book keeps the store, and says what to do to rush's boxes.
+// Book keeps the store, and says what to do to rush's boxes. What it says
+// names rush's stash key as {aside} and its history key as {history}, for
+// rush to fill in with the keys you have.
 type Book struct {
 	S    Store
+	W    Words
 	keep int // entries kept of each kind
 }
 
@@ -75,7 +117,7 @@ func NewBook(s Store, keep int) *Book {
 	if keep <= 0 {
 		keep = DefaultKeep
 	}
-	return &Book{S: s, keep: keep}
+	return &Book{S: s, W: WordsFor(""), keep: keep}
 }
 
 // ParseKeep reads the keep setting.
@@ -97,13 +139,20 @@ type Set struct {
 	If  string
 }
 
-// Changed notes what a box holds now.
-func (b *Book) Changed(key string, box plugin.Box) {
+// Changed notes what a box holds now, saying whether that's its stash
+// back: a stash goes only once the box is seen holding it, so one rush
+// couldn't put back is never lost.
+func (b *Book) Changed(key string, box plugin.Box) (back bool) {
 	if Empty(box) {
 		delete(b.S.Boxes, key)
-		return
+		return false
 	}
 	b.S.Boxes[key] = box
+	if st, ok := b.S.Stashes[key]; ok && strings.TrimSpace(st.Box.Text) == strings.TrimSpace(box.Text) {
+		delete(b.S.Stashes, key)
+		return true
+	}
+	return false
 }
 
 // Opened is a box coming into view: what it held, if rush's is empty.
@@ -132,7 +181,6 @@ func (b *Book) Sent(key, name, text string, now time.Time) (Set, bool) {
 	if !ok {
 		return Set{}, false
 	}
-	delete(b.S.Stashes, key)
 	return Set{Key: key, Box: st.Box, If: ""}, true
 }
 
@@ -148,6 +196,9 @@ func (b *Book) Cleared(key, name, text string, now time.Time) {
 	}
 }
 
+// said is what the book says, in its words.
+func (b *Book) said(s string) string { return b.W.Fill(s) }
+
 // StashResult is what stashing did.
 type StashResult struct {
 	Set  *Set
@@ -161,55 +212,60 @@ func (b *Book) Stash(key, name string, box plugin.Box, now time.Time) StashResul
 	st, stashed := b.S.Stashes[key]
 	switch {
 	case Empty(box) && !stashed:
-		return StashResult{Said: "nothing to stash: type a message first"}
+		return StashResult{Said: b.said("nothing to {verb} · type a message first")}
 	case Empty(box):
-		delete(b.S.Stashes, key)
-		return StashResult{Set: &Set{Key: key, Box: st.Box, If: box.Text}, Said: "your stashed message is back"}
+		return StashResult{Set: &Set{Key: key, Box: st.Box, If: box.Text}, Said: b.said("your {noun} is back in the box")}
 	case !stashed:
 		b.S.Stashes[key] = Stash{Box: box, Name: name, At: now}
 		delete(b.S.Boxes, key)
-		return StashResult{Set: &Set{Key: key, If: box.Text}, Said: "stashed · it comes back once you send, or on the stash key"}
+		// The Prompt's stash key is the list's own once it's empty.
+		again := "{aside} brings it back now"
+		if key == "" {
+			again = "{history} › {tab} has it"
+		}
+		return StashResult{Set: &Set{Key: key, If: box.Text}, Said: b.said("{did} · it comes back after you send · " + again)}
 	}
 	b.S.Stashes[key] = Stash{Box: box, Name: name, At: now}
-	return StashResult{Set: &Set{Key: key, Box: st.Box, If: box.Text}, Said: "stashed this one, and brought the other back"}
+	return StashResult{Set: &Set{Key: key, Box: st.Box, If: box.Text}, Said: b.said("{did} this one, and your other {noun} is back · {aside} swaps them again")}
 }
 
 // Note is what a box's edge says: whether it has a stash.
 func (b *Book) Note(key string) string {
 	if _, ok := b.S.Stashes[key]; ok {
-		return "stashed · back once you send"
+		return b.said("{did} · back after you send")
 	}
 	return ""
 }
 
 // PutBack puts an item back in the box of key, which holds cur (nil when
 // it isn't the box with the keys: then only an empty one is set). What the
-// box held is kept, so nothing is lost.
-func (b *Book) PutBack(id, key, name string, cur *plugin.Box, now time.Time) (Set, bool) {
+// box held is kept as replaced, so nothing is lost, and said says where.
+func (b *Book) PutBack(id, key, name string, cur *plugin.Box, now time.Time) (set Set, said string, ok bool) {
 	var box plugin.Box
 	switch {
 	case strings.HasPrefix(id, "stash:"):
 		from := strings.TrimPrefix(id, "stash:")
 		st, ok := b.S.Stashes[from]
 		if !ok {
-			return Set{}, false
+			return Set{}, "", false
 		}
 		delete(b.S.Stashes, from)
 		box = st.Box
 	default:
 		i := slices.IndexFunc(b.S.History, func(e Entry) bool { return e.ID == id })
 		if i < 0 {
-			return Set{}, false
+			return Set{}, "", false
 		}
 		box = b.S.History[i].Box
 	}
 	if cur == nil {
-		return Set{Key: key, Box: box, If: ""}, true
+		return Set{Key: key, Box: box, If: ""}, "", true
 	}
 	if !Empty(*cur) {
-		b.add(Kept, key, name, *cur, now)
+		b.add(Replaced, key, name, *cur, now)
+		said = "put back · what the box held is under {history} › Replaced"
 	}
-	return Set{Key: key, Box: box, If: cur.Text}, true
+	return Set{Key: key, Box: box, If: cur.Text}, said, true
 }
 
 // Forget drops an item.
@@ -270,13 +326,13 @@ func Plain(b plugin.Box) string {
 // Pick is the list of what's kept, for the box of key: the stashes, then
 // each kind, newest first.
 func (b *Book) Pick(key string, now time.Time) plugin.Pick {
-	p := plugin.Pick{ID: "history", Title: "Drafts", About: "what you stashed, kept, sent and cleared · enter puts one in the box",
-		Tabs: Tabs, Session: key,
+	p := plugin.Pick{ID: "history", Title: b.W.Title, About: b.said("what you {did}, sent, cleared and replaced · enter puts one in the box"),
+		Tabs: append([]string{b.W.Tab}, Tabs...), Session: key,
 		Actions: []plugin.PickAction{{Key: "enter", Name: "put it in the box"}, {Key: "ctrl+d", Name: "forget it", Stay: true}},
-		Empty: []string{"nothing stashed · the stash key sets a message aside while you send another",
-			"nothing kept · what a box held when you put another back lands here",
+		Empty: []string{b.said("nothing here · {aside} sets what's typed aside while you send another"),
 			"nothing sent yet · the messages you send land here, to use again",
-			"nothing cleared · what you wipe from a box lands here"}}
+			"nothing cleared · what you wipe from a box lands here",
+			"nothing replaced · what a box held when you put another back lands here"}}
 	var stashed []string
 	for k := range b.S.Stashes {
 		stashed = append(stashed, k)
@@ -302,7 +358,7 @@ func (b *Book) Pick(key string, now time.Time) plugin.Pick {
 	case len(stashed) > 0:
 		p.Tab = 0
 	default:
-		p.Tab = 2
+		p.Tab = kindTab[Sent]
 	}
 	return p
 }

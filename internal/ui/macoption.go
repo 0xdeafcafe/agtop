@@ -14,7 +14,7 @@ var optionKeys = map[string]rune{
 	"∑": 'w', "≈": 'x', "¥": 'y', "Ω": 'z',
 }
 
-// macOption is k as the ⌥ key it was on a Mac, so ⌥s keeps a draft
+// macOption is k as the ⌥ key it was on a Mac, so ⌥m picks what starts
 // whether or not the terminal sends Option as Meta.
 // ponytail: US layout only, and those characters can't be typed into rush
 // on a Mac; a setting to turn it off when someone needs them.

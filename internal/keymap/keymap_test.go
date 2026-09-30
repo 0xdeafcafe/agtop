@@ -2,6 +2,7 @@ package keymap
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -185,6 +186,62 @@ func TestOwnDefaultKeysArriveAsPressed(t *testing.T) {
 	for _, k := range []string{".", ">", "ctrl+\\"} {
 		if r := m.Resolve(nil, nil, k); r.Key != k {
 			t.Errorf("%q became %+v", k, r)
+		}
+	}
+}
+
+// The Prompt's keys come first while something's typed, and are run; the
+// list's own have the same keys back once it's empty, or once you move
+// the Prompt's.
+func TestPromptBeforeList(t *testing.T) {
+	acts := []Action{
+		{ID: "list.groupby", Context: List, Keys: []string{"ctrl+s"}},
+		{ID: "prompt.stash", Context: Prompt, Keys: []string{"ctrl+s"}, Runs: true},
+	}
+	m := Build(acts, File{}, nil)
+	if p := m.Problems(); len(p) != 0 {
+		t.Fatal(p)
+	}
+	if r := m.Resolve([]Context{Prompt, List}, nil, "ctrl+s"); r.Run != "prompt.stash" {
+		t.Errorf("typed = %+v", r)
+	}
+	if r := m.Resolve([]Context{List}, nil, "ctrl+s"); r.Key != "ctrl+s" || r.Run != "" {
+		t.Errorf("empty = %+v", r)
+	}
+	m = Build(acts, File{Bindings: map[string][]string{"prompt.stash": {"ctrl+x s"}}}, nil)
+	if r := m.Resolve([]Context{Prompt, List}, nil, "ctrl+s"); r.Key != "ctrl+s" || r.Run != "" {
+		t.Errorf("moved = %+v", r)
+	}
+	if r := m.Resolve([]Context{Prompt, List}, Seq{"ctrl+x"}, "s"); r.Run != "prompt.stash" {
+		t.Errorf("chord = %+v", r)
+	}
+}
+
+// rush's own keys don't clash, and none needs the option key.
+func TestDefaultsBuildClean(t *testing.T) {
+	m := Build(Defaults, File{}, nil)
+	if p := m.Problems(); len(p) != 0 {
+		t.Fatal(p)
+	}
+	for _, c := range Contexts {
+		seen := map[string]string{}
+		for _, a := range Defaults {
+			if !slices.Contains(scope(a.Context), c) {
+				continue
+			}
+			for _, k := range a.Keys {
+				if other, ok := seen[k]; ok {
+					t.Errorf("%s: %s is both %s and %s", c, k, other, a.ID)
+				}
+				seen[k] = a.ID
+			}
+		}
+	}
+	for _, id := range []string{"session.stash", "session.history", "prompt.stash", "prompt.history"} {
+		for _, s := range m.Keys(id) {
+			if strings.Contains(s.String(), "alt+") {
+				t.Errorf("%s on %s", id, s)
+			}
 		}
 	}
 }

@@ -2150,14 +2150,14 @@ func (m *Model) promptLines(w int) []string {
 		b.holder = "a group name · empty clears it"
 	case m.inKind == inReply && a != nil && !a.Rush:
 		b.topL = dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…"))
-		b.holder = draftsHolder("a message for this agent", " · esc leaves reply mode")
+		b.holder = "a message for this agent · esc leaves reply mode"
 	case typingHash(text):
 		b.topL = dim("rush command · enter runs it")
 	default:
 		dirs := m.startDirs()
 		dir := m.startDir()
 		b.topL = dim("in ") + m.dirLabel(dir)
-		b.holder = draftsHolder("describe a task for a new session", "")
+		b.holder = "describe a task for a new session"
 		// What it starts as, so a model or profile is never a surprise;
 		// the folder key goes first when there's no room for both.
 		b.topR = m.startWith(dir, false)
@@ -2209,7 +2209,7 @@ func (m *Model) promptLines(w int) []string {
 		}
 		hint = keysFit(w-4, append(pairs, back, "back to Agents")...)
 	case m.inKind == inReply:
-		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", keySaveDraft, "keep as draft", "?", "guide")
+		hint = keysFit(w-4, "enter", "send", "↑↓", "another agent", "esc", "done", "?", "guide")
 	case m.inKind != inPrompt:
 		hint = keysFit(w-4, "enter", "save", "esc", "cancel")
 		if m.inKind == inRename {
@@ -2218,7 +2218,11 @@ func (m *Model) promptLines(w int) []string {
 	case typingHash(text):
 		hint = keysFit(w-4, "enter", "run it", "esc", "clear", "?", "guide")
 	case len(m.input) > 0:
-		hint = keysFit(w-4, "enter", "spawn agent", keySaveDraft, "keep as draft", "ctrl+l", "folder", "esc", "clear", "?", "guide")
+		pairs := []string{"enter", "spawn agent"}
+		if sw, on := m.stash(); on && m.boundKey("prompt.stash") != "" {
+			pairs = append(pairs, m.boundKey("prompt.stash"), sw.Verb)
+		}
+		hint = keysFit(w-4, append(pairs, "ctrl+l", "folder", "esc", "clear", "?", "guide")...)
 	case m.peeking():
 		back := "esc"
 		if from := m.agentByKey(m.peekFrom); from != nil {
@@ -2495,9 +2499,9 @@ var helpPages = []struct {
 		{"#", "rush commands"},
 		{"/", "Claude commands"},
 		{"⌘z · ctrl+/", "undo in a box, a cleared one too"},
-		{"alt+s", "keep what's typed as a draft, the box cleared"},
-		{"alt+p", "bring back the latest draft · again for older"},
-		{"#drafts", "drafts, sent and cleared · ctrl+r in a Session"},
+		{"ctrl+s", "{verb} · what's typed is back after you send"},
+		{"ctrl+r", "{tab} · sent · cleared · replaced, to put back"},
+		{"{command}", "the same, with the Prompt empty"},
 	}},
 	{"▤ Agents", [][2]string{
 		{"↑↓", "pick one"},
@@ -2535,7 +2539,12 @@ func (m *Model) helpBody() []string {
 	}
 	out := []string{strings.Join(tabs, " "), ""}
 	page := helpPages[m.helpPage]
-	for _, r := range keyRows(page.rows) {
+	w, _ := m.stash()
+	rows := make([][2]string, len(page.rows))
+	for i, r := range page.rows {
+		rows[i] = [2]string{w.Fill(r[0]), w.Fill(r[1])}
+	}
+	for _, r := range keyRows(rows) {
 		out = append(out, r, "")
 	}
 	// Every tab as tall as the tallest, so the box stays put.

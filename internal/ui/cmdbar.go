@@ -704,17 +704,9 @@ func (m *Model) barPlaces(q string) []barItem {
 			return m.attach(a)
 		})
 	}
-	drafts := convo.KeyWord("sent and cleared too · alt+s keeps one, alt+p brings it back")
-	if n := draftCount(); n > 0 {
-		drafts = fmt.Sprintf("%d waiting · ", n) + drafts
-	}
-	add(paint(cSub, "◇"), "Drafts", drafts, "drafts sent cleared history messages typed before", func(m *Model) tea.Cmd {
-		var c *hostConn
-		if m.paneFocus {
-			c = m.host
-		}
-		m.openDrafts(c)
-		return nil
+	w, _ := m.stash()
+	add(paint(cSub, "◇"), w.Title, strings.ToLower(w.Tab)+", sent, cleared and replaced · "+w.Command(), "stash drafts sent cleared replaced history messages typed before", func(m *Model) tea.Cmd {
+		return m.stashCommand("history")
 	})
 	add(paint(cSub, "◇"), "Folder for new sessions", tildify(m.startDir()), "start dir cwd", func(m *Model) tea.Cmd {
 		m.goView(placeAgents)
@@ -1532,16 +1524,11 @@ func glintTick(gen int) tea.Cmd {
 }
 
 // sendNowKey is the key a Session's hints name for sending now: yours if
-// you moved it, else ctrl+enter where the terminal tells it apart and
-// ctrl+s where it can't (or, as macOS's Terminal, keeps it for itself).
+// you moved it, else ctrl+enter. A terminal that can't tell ctrl+enter
+// apart (macOS's Terminal) has none: ctrl+s, which it had, is the stash's.
 func (m *Model) sendNowKey() string {
-	if m.keyMap().Changed("session.send") {
-		if ks := m.keyMap().Keys("session.send"); len(ks) > 0 {
-			return ks[0].String()
-		}
+	if ks := m.keyMap().Keys("session.send"); len(ks) > 0 {
+		return ks[0].String()
 	}
-	if m.keysDisambiguated {
-		return "ctrl+enter"
-	}
-	return "ctrl+s"
+	return "ctrl+enter"
 }

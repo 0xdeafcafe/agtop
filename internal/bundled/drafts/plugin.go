@@ -3,11 +3,14 @@ package drafts
 import (
 	"context"
 	"encoding/json/jsontext"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,16 +23,22 @@ func init() { plugin.RegisterBundle(plugin.Bundle{Manifest: Manifest, Run: Run})
 // Manifest is the drafts plugin's.
 var Manifest = plugin.Manifest{
 	Name: "drafts",
-	Description: "Keeps a message box until it's sent, even across rush restarts; stashes a message while you send another; " +
-		"and puts back what you stashed, sent or cleared. Keeps it all in its data folder.",
+	Description: "Keeps a message box until it's sent, even across rush restarts; sets a message aside while you send another; " +
+		"and puts back what you set aside, sent, cleared or replaced. Keeps it all in its data folder.",
 	Command: []string{"rush"},
 	UI:      []string{plugin.UIEvents, plugin.UIInput, plugin.UINotify},
+	// No keys of its own: rush gives these its stash and history keys,
+	// ctrl+s and ctrl+r, and its #stash.
 	Commands: []plugin.CommandSpec{
-		{Name: "stash", Description: "set the message aside, or bring it back; it comes back by itself once you send", Key: "alt+s"},
-		{Name: "history", Description: "what you stashed, kept, sent and cleared, to put back in the box", Key: "alt+p"},
+		{Name: "stash", Description: "set the message aside, or bring it back; it comes back by itself once you send"},
+		{Name: "history", Description: "what you set aside, sent, cleared and replaced, to put back in the box"},
 	},
-	Settings: []plugin.SettingSpec{{Key: "keep", Title: "Kept of each kind", Type: "choice", Choices: []string{"100", "300", "1000"}, Default: "300",
-		Description: "How many sent, cleared and kept messages it keeps; the oldest go first."}},
+	Settings: []plugin.SettingSpec{
+		{Key: "called", Title: "Called", Type: "choice", Choices: Called, Default: Called[0],
+			Description: "What it's called wherever rush shows it: Stash, or Drafts."},
+		{Key: "keep", Title: "Kept of each kind", Type: "choice", Choices: []string{"100", "300", "1000"}, Default: "300",
+			Description: "How many sent, cleared and replaced messages it keeps; the oldest go first."},
+	},
 	MemoryMB: 64,
 }
 
@@ -84,7 +93,12 @@ func (a *app) handle(_ context.Context, method string, params jsontext.Value) (a
 		_ = jsonx.Unmarshal(params, &in)
 		a.mu.Lock()
 		a.path = filepath.Join(in.DataDir, "drafts.json")
-		a.book = NewBook(load(a.path, in.DataDir), ParseKeep(in.Settings["keep"]))
+		s, took := load(a.path, in.DataDir)
+		a.book = NewBook(s, ParseKeep(in.Settings["keep"]))
+		a.book.W = WordsFor(in.Settings["called"])
+		if took {
+			a.later()
+		}
 		stashed := make([]string, 0, len(a.book.S.Stashes))
 		for k := range a.book.S.Stashes {
 			stashed = append(stashed, k)
@@ -106,7 +120,19 @@ func (a *app) handle(_ context.Context, method string, params jsontext.Value) (a
 		if a.book != nil && a.book.SetKeep(ParseKeep(in.Values["keep"])) {
 			a.later()
 		}
+		renamed := a.book != nil && a.book.W != WordsFor(in.Values["called"])
+		if renamed {
+			a.book.W = WordsFor(in.Values["called"])
+		}
 		a.mu.Unlock()
+		// The notes on the boxes say the new name.
+		if renamed {
+			go func() {
+				for _, k := range a.stashKeys() {
+					a.note(k)
+				}
+			}()
+		}
 		return nil, nil
 	case "ui.event":
 		var ev event
@@ -159,7 +185,9 @@ func (a *app) event(ev event) {
 		if ev.Box != nil {
 			box = *ev.Box
 		}
-		a.book.Changed(key, box)
+		if a.book.Changed(key, box) {
+			go a.note(key)
+		}
 	case plugin.EvInputSent:
 		if set, ok := a.book.Sent(key, name, ev.Text, now); ok {
 			go a.set(ev.UI, set)
@@ -224,7 +252,8 @@ func (a *app) picked(p plugin.Picked) error {
 		a.note(p.Box)
 		return nil
 	case "enter":
-		set, ok := a.book.PutBack(p.Item, p.Box, "", p.Input, now)
+		set, said, ok := a.book.PutBack(p.Item, p.Box, "", p.Input, now)
+		said = a.book.said(said)
 		a.mu.Unlock()
 		if ok {
 			a.set(p.UI, set)
@@ -232,6 +261,7 @@ func (a *app) picked(p plugin.Picked) error {
 			for _, k := range a.stashKeys() {
 				a.note(k)
 			}
+			a.notify(p.UI, p.Box, said)
 		}
 		return nil
 	}
@@ -307,18 +337,24 @@ func (a *app) save() {
 	}
 }
 
-// load reads the store, or on the first run takes in the drafts rush kept
-// itself before they were a plugin.
-func load(path, dataDir string) Store {
-	var s Store
+// load reads the store, and once takes in the drafts rush kept itself
+// before they were a plugin, saying whether it did. Their file is left as
+// it is.
+func load(path, dataDir string) (s Store, took bool) {
 	if b, err := os.ReadFile(path); err == nil {
 		_ = jsonx.Unmarshal(b, &s)
-		return s
+	}
+	if s.Imported {
+		return s, false
 	}
 	// The data folder is <rush's folder>/plugin-data/drafts.
 	old, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(dataDir)), "drafts.json"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return s, false // unreadable for now: tried again next time
+	}
+	s.Imported = true
 	if err != nil {
-		return s
+		return s, true
 	}
 	var was []struct {
 		Text  string    `json:"text"`
@@ -329,20 +365,29 @@ func load(path, dataDir string) Store {
 		Sent  bool      `json:"sent"`
 	}
 	if jsonx.Unmarshal(old, &was) != nil {
-		return s
+		return s, true
+	}
+	// A store from before Imported may have taken them in already.
+	have := map[[2]string]bool{}
+	for _, e := range s.History {
+		have[[2]string{e.Kind, strings.TrimSpace(Plain(e.Box))}] = true
 	}
 	for _, d := range was {
-		kind := map[string]string{"draft": Kept, "sent": Sent, "cleared": Cleared}[d.Kind]
+		// A draft kept on purpose lands with what put-backs replaced.
+		kind := map[string]string{"draft": Replaced, "sent": Sent, "cleared": Cleared}[d.Kind]
 		if kind == "" {
 			kind = Cleared
 			if d.Sent {
 				kind = Sent
 			}
 		}
+		if have[[2]string{kind, strings.TrimSpace(d.Text)}] {
+			continue
+		}
 		s.Seq++
 		s.History = append(s.History, Entry{ID: "h" + strconv.Itoa(s.Seq), Kind: kind, Box: plugin.Box{Text: d.Text, Cursor: len([]rune(d.Text))},
 			Session: d.Agent, Name: d.Name, At: d.At})
 	}
 	slices.SortStableFunc(s.History, func(x, y Entry) int { return y.At.Compare(x.At) })
-	return s
+	return s, true
 }
