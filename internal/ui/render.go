@@ -16,10 +16,10 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 	time.Sleep(500 * time.Millisecond)
 	m.refreshNow()
 	m.drain(m.refreshFolders())
-	// RUSH_RENDER_SELECT picks an agent by name, for checking one pane.
+	// RUSH_RENDER_SELECT picks an agent by name or id, for checking one pane.
 	if want := os.Getenv("RUSH_RENDER_SELECT"); want != "" {
 		for _, a := range m.order {
-			if strings.Contains(strings.ToLower(a.DisplayName), strings.ToLower(want)) {
+			if strings.Contains(strings.ToLower(a.DisplayName), strings.ToLower(want)) || strings.HasPrefix(a.ID, want) {
 				m.sel = a.Key
 				m.preview = true
 				break
@@ -91,7 +91,15 @@ func (m *Model) drain(cmd tea.Cmd) {
 	if cmd == nil {
 		return
 	}
-	switch msg := cmd().(type) {
+	got := make(chan tea.Msg, 1)
+	go func() { got <- cmd() }()
+	var next tea.Msg
+	select {
+	case next = <-got:
+	case <-time.After(3 * time.Second):
+		return // one waiting on what may never come: a quiet host's next line
+	}
+	switch msg := next.(type) {
 	case hostOpenMsg:
 		m.drain(m.onHostOpen(msg))
 	case hostLinesMsg:
