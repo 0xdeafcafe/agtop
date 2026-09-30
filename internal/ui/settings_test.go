@@ -363,3 +363,25 @@ func TestClickingTabs(t *testing.T) {
 		t.Error("a click left of the pages turned one")
 	}
 }
+
+// With the logo hidden the header is three rows of text, and its tabs and
+// pages still click through.
+func TestHiddenLogo(t *testing.T) {
+	m, _ := benchModel(200, 60)
+	m.store.Config.HideLogo = true
+	h := m.header()
+	if len(h) != 3 || m.headH() != 3 || !strings.HasPrefix(ansi.Strip(h[0]), "  rush") || strings.Contains(ansi.Strip(strings.Join(h, "")), "RUSH") {
+		t.Fatalf("header:\n%s", ansi.Strip(strings.Join(h, "\n")))
+	}
+	col := func(line, name string) int {
+		before, _, _ := strings.Cut(ansi.Strip(line), name)
+		return cellw.String(before) + 1
+	}
+	m.setView(placeAgents)
+	if _, ok := m.clickTab(col(h[2], "Settings"), 2); !ok || m.view != placeSettings {
+		t.Fatalf("clicking Settings left the view at %d", m.view)
+	}
+	if _, ok := m.clickTab(col(m.underHead()[0], "Keys"), m.headH()); !ok || m.dialog.page != pageKeys {
+		t.Errorf("clicking Keys: page %d", m.dialog.page)
+	}
+}

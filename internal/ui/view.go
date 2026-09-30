@@ -106,7 +106,7 @@ var (
 // headH is the header's height: clanker's, or three lines when the screen
 // is too narrow for him beside the text.
 func (m *Model) headH() int {
-	if m.w < narrowHead {
+	if m.w < narrowHead || m.store.Config.HideLogo {
 		return 3
 	}
 	return clkH
@@ -125,6 +125,9 @@ func (m *Model) topH() int {
 // under both.
 func (m *Model) underHead() []string {
 	lead := strings.Repeat(" ", 6+clkW) // where the tabs' names start
+	if m.store.Config.HideLogo {
+		lead = "   "
+	}
 	return []string{fit(lead+strings.TrimLeft(m.pages(), " "), m.w), faint(strings.Repeat("─", m.w))}
 }
 
@@ -135,7 +138,10 @@ const narrowHead = 60
 func (m *Model) header() []string {
 	t := m.tally()
 	md := m.mood(t)
-	robot := clanker(m.clkState(md, t))
+	robot, gap := clanker(m.clkState(md, t)), "   "
+	if m.store.Config.HideLogo {
+		robot, gap = make([]string, clkH), ""
+	}
 	var counts []string
 	if t.blocked > 0 {
 		counts = append(counts, paint(cYellow+bold, fmt.Sprintf("● %d needs you", t.blocked)))
@@ -163,13 +169,16 @@ func (m *Model) header() []string {
 		// Only the label fits.
 		var g clkGrid
 		g.sprite(m.clkState(md, t))
+		if m.store.Config.HideLogo {
+			return m.narrowHeader(robot, counts, acct)
+		}
 		return m.narrowHeader(g.lines(), counts, acct)
 	}
 
 	// The right is the top bar you build in /statusline; what's left of
 	// the width after clanker and the counts is its room.
 	x := &barCtx{m: m, t: t}
-	room := func(r, l string) int { return m.w - cellw.String("  "+r+"   "+l) - 4 }
+	room := func(r, l string) int { return m.w - cellw.String("  "+r+gap+l) - 4 }
 	right1 := m.barLine(barTop, 0, x, room(robot[1], left1))
 	right2 := m.barLine(barTop, 1, x, room(robot[2], left2))
 	if !m.loaded {
@@ -177,7 +186,7 @@ func (m *Model) header() []string {
 	}
 
 	line := func(r, l, rt string) string {
-		body := "  " + r + "   " + l
+		body := "  " + r + gap + l
 		gap := m.w - cellw.String(body) - cellw.String(rt) - 2
 		if gap < 2 {
 			return fit(body, m.w)
@@ -197,8 +206,11 @@ func (m *Model) header() []string {
 	if m.hosted != "" || m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil {
 		places = "ctrl+\\"
 	}
-	strip := "  " + robot[3] + "   " + strings.Join(m.tabs(), " ")
+	strip := "  " + robot[3] + gap + strings.Join(m.tabs(), " ")
 	out[3] = withTabHint(strip, places, "places", "", m.w)
+	if m.store.Config.HideLogo {
+		return out[1:4]
+	}
 	return out
 }
 
@@ -258,7 +270,7 @@ func (m *Model) clickTab(x, y int) (tea.Cmd, bool) {
 		return nil, false
 	}
 	tabRow := 3 // under the text beside clanker; the last line of the narrow header
-	if m.w < narrowHead {
+	if m.w < narrowHead || m.store.Config.HideLogo {
 		tabRow = 2
 	}
 	if y == tabRow {

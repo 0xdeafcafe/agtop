@@ -115,6 +115,10 @@ func (m *Model) interfaceSections() []section {
 			m.colored = false
 			m.applyColors()
 		})
+	logo := choiceSetting("Logo", map[bool]string{true: "hidden", false: "shown"}[c.HideLogo],
+		"The rush bottle at the top left.",
+		[][2]string{{"shown", "the bottle beside the counts, five rows tall."}, {"hidden", "text only: the header takes three rows, and the rest goes to the list."}},
+		func(v string) { c.HideLogo = v == "hidden" })
 	spaces := choiceSetting("Spaces and tabs in diffs", map[bool]string{true: "shown", false: "hidden"}[c.ShowWhitespace],
 		"Whether a diff marks its spaces and tabs, as · and →, so a change in indentation shows.",
 		[][2]string{{"hidden", "diffs show text only."}, {"shown", "every space is a faint · and every tab a →."}},
@@ -188,12 +192,12 @@ func (m *Model) interfaceSections() []section {
 				}
 			}))
 	}
-	for _, st := range append([]*setting{&view, &theme, &colours, &spaces, &group, &split, &sortBy, &stack}, ptrs(cols)...) {
+	for _, st := range append([]*setting{&view, &theme, &colours, &logo, &spaces, &group, &split, &sortBy, &stack}, ptrs(cols)...) {
 		st.preview = preview
 	}
 
 	return []section{
-		{title: "Look", rows: []setting{view, theme, colours, spaces}},
+		{title: "Look", rows: []setting{view, theme, colours, logo, spaces}},
 		{title: "Agents list", rows: []setting{group, split, sortBy, stack, enter, search}},
 		{title: "Agents list columns", note: "the figures beside each agent", rows: cols},
 		{title: "Message box", rows: []setting{command, copying, escStop}},
