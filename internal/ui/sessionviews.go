@@ -683,7 +683,7 @@ func (m *Model) paneArgs(c *hostConn) []event.Command {
 	if cmds := argMatches(c); cmds != nil {
 		return cmds
 	}
-	return m.setupArgs(string(c.input), c.back)
+	return m.setupArgs(string(c.input), c.back, func() startOver { return m.sessionStart(c) })
 }
 
 // slashLines draws the picker above the message box.

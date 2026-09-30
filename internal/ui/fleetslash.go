@@ -230,7 +230,7 @@ func (m *Model) promptPicker() ([]event.Command, string) {
 		return cmds, "@"
 	}
 	text := string(m.input)
-	if cmds := m.setupArgs(text, m.back); len(cmds) > 0 {
+	if cmds := m.setupArgs(text, m.back, func() startOver { return m.nextStart(m.startDir()) }); len(cmds) > 0 {
 		return cmds, "/"
 	}
 	if m.back != 0 || !strings.HasPrefix(text, "/") || strings.ContainsAny(text[1:], " \n/") {

@@ -145,8 +145,8 @@ var setupCommands = []event.Command{
 }
 
 // setupArgs are the completions for /agent's or /profile's argument in
-// text; nil for any other text.
-func (m *Model) setupArgs(text string, back int) []event.Command {
+// text, now's marked; nil for any other text.
+func (m *Model) setupArgs(text string, back int, now func() startOver) []event.Command {
 	name, q, ok := strings.Cut(strings.TrimPrefix(text, "/"), " ")
 	if back != 0 || !ok || !strings.HasPrefix(text, "/") || strings.ContainsAny(q, " \n") {
 		return nil
@@ -167,9 +167,9 @@ func (m *Model) setupArgs(text string, back int) []event.Command {
 	}
 	switch name {
 	case "agent":
-		now := m.startName(m.nextStart(m.startDir()))
+		cur := m.startName(now())
 		for _, s := range m.setups() {
-			add(s.name, m.setupNote(s.o), s.name == now)
+			add(s.name, m.setupNote(s.o), s.name == cur)
 			if strings.HasPrefix(q, s.name+":") {
 				for _, e := range effortsOf(s.o.kind) {
 					add(s.name+":"+e.ID, e.ID+" effort · "+e.Note, false)
@@ -177,9 +177,9 @@ func (m *Model) setupArgs(text string, back int) []event.Command {
 			}
 		}
 	case "profile":
-		now := m.startProfile(m.startDir()).Name
+		cur := now().profile
 		for _, p := range m.store.Config.Profiles {
-			add(p.Name, m.profileWords(p), p.Name == now)
+			add(p.Name, m.profileWords(p), p.Name == cur)
 		}
 	default:
 		return nil
