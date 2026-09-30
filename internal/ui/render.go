@@ -38,6 +38,14 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 		// The agents its shell ran, found and read as the ticks would.
 		m.drain(m.refreshSpawns())
 		m.drain(m.refreshSubs())
+		// RUSH_RENDER_VIEW opens one of its views: subagents, changes…
+		if c, want := m.host, os.Getenv("RUSH_RENDER_VIEW"); c != nil && want != "" {
+			for i, v := range m.views(c) {
+				if v == want {
+					c.view = i
+				}
+			}
+		}
 	}
 	for _, k := range keys {
 		if cmd := m.key(k); cmd != nil {

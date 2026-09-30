@@ -948,7 +948,10 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		right := state + "   " + dim(took) + "  "
 		top := spread(left, right, w)
 		tot := r.t.Totals(now)
-		facts := []string{fmt.Sprintf("%d steps", tot.ToolCalls)}
+		var facts []string
+		if tot.ToolCalls > 0 { // one that only answered has none to count
+			facts = append(facts, fmt.Sprintf("%d steps", tot.ToolCalls))
+		}
 		if tot.Requests > 0 {
 			facts = append(facts, "in "+convo.Tokens(tot.In+tot.CacheRead+tot.CacheOut), "out "+convo.Tokens(tot.Out))
 			if c := r.t.Cost(); c > 0 {
@@ -1114,7 +1117,9 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 					trail = dim("  ‹ " + lw)
 				}
 			}
-			facts = append(facts, fmt.Sprintf("%d steps", s.Totals(now).ToolCalls))
+			if n := s.Totals(now).ToolCalls; n > 0 {
+				facts = append(facts, fmt.Sprintf("%d steps", n))
+			}
 			if !s.First.IsZero() {
 				facts = append(facts, dur(now.Sub(s.First).Round(time.Second)))
 			}
