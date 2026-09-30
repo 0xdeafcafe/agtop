@@ -281,6 +281,9 @@ func TestUpcomingAccountInHeader(t *testing.T) {
 	if !strings.Contains(ansi.Strip(m.activeUsage(200)), "home ━──── 10%") {
 		t.Fatalf("header: %q", ansi.Strip(m.activeUsage(200)))
 	}
+	if strings.HasSuffix(strings.TrimSpace(ansi.Strip(m.activeUsage(200))), "│") {
+		t.Fatalf("a divider with no other provider after it: %q", ansi.Strip(m.activeUsage(200)))
+	}
 	m.snap.Logins[1].Quota.Windows[0].Percent = 96
 	if _, ok := m.upcoming(85); ok {
 		t.Fatal("upcoming shown with nowhere to go")

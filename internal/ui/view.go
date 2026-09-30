@@ -474,12 +474,15 @@ func (m *Model) activeUsage(w int) string {
 			return strings.TrimLeft(m.otherMeters(k, w), " ")
 		}
 		others := m.otherMeters(k, 1<<16)
+		if others != "" {
+			others = faint("  │") + others
+		}
 		for _, st := range []struct {
 			cells int
 			when  bool
 		}{{10, true}, {5, true}, {5, false}} {
-			if s := m.usageDetail(u, st.cells, st.when); cellw.String(s+"  │"+others) <= w {
-				return s + faint("  │") + others
+			if s := m.usageDetail(u, st.cells, st.when) + others; cellw.String(s) <= w {
+				return s
 			}
 		}
 		return strings.TrimLeft(meterRow(m.inUseRows(), w), " ")
