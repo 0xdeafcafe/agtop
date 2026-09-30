@@ -1011,6 +1011,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		}
 	case "update":
 		return m.installUpdate()
+	case "reload":
+		return m.reload()
 	case "ask":
 		return m.askRush(arg)
 	case "help":

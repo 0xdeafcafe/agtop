@@ -1,0 +1,35 @@
+package ui
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+// #reload hands the next rush the agent selected and where the keys were,
+// and that rush picks them up once the agent is listed.
+func TestReloadKeepsThePlace(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	m.paneFocus = true
+	sel := m.sel
+	if _, ok := m.Reload(); ok {
+		t.Fatal("no reload asked for")
+	}
+	m.reload()
+	env, ok := m.Reload()
+	if !ok || sel == "" {
+		t.Fatalf("reload %v, sel %q", ok, sel)
+	}
+	k, v, _ := strings.Cut(env, "=")
+	t.Setenv(k, v)
+	n, _ := benchModel(120, 40)
+	n.sel, n.paneFocus = "", false
+	n.takeRestore()
+	if os.Getenv(restoreEnv) != "" {
+		t.Error("the next rush's own children shouldn't inherit it")
+	}
+	n.rebuild()
+	if n.sel != sel || !n.paneFocus {
+		t.Fatalf("restored %q pane %v, want %q", n.sel, n.paneFocus, sel)
+	}
+}

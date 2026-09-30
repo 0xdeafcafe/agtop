@@ -71,6 +71,7 @@ type confirmation struct {
 }
 
 type Model struct {
+	reloadFields // #reload, and what it carries
 	// keys is the keymap in force: see keybind.go.
 	keys keyState
 	// hooks is this window's way to its plugins, which never waits; see
@@ -338,6 +339,7 @@ func newModel(store *state.Store, version string, skipPast bool) *Model {
 	// Nothing is read here, where the first frame waits: the first reading
 	// of the fleet and rush's own status lines land a moment after it.
 	m.snap = &fleet.Snapshot{At: time.Now()}
+	m.takeRestore()
 	m.refresh()
 	m.rebuild()
 	m.onboard = true
@@ -913,6 +915,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.emitHooks()
+		m.watchBinary()
 		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline()}
 		if m.hosted == "" {
 			// autoSwitch too: a session's usage reading arrives with the
@@ -1074,7 +1077,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flash("update: "+msg.err.Error(), true)
 		} else {
 			m.newer = update.Info{}
-			m.flash("rush "+msg.to.Short()+" installed · reopen rush to use it", false)
+			m.rebuiltSaid = true
+			m.flash("rush "+msg.to.Short()+" installed · #reload runs it, sessions carry on", false)
 		}
 		return m, nil
 	case shotMsg:
@@ -1871,6 +1875,7 @@ func (m *Model) rebuild() {
 		}
 		m.lines = append(m.lines, listLine{kind: lineBlank})
 	}
+	m.applyRestore()
 	valid := false
 	for _, l := range m.lines {
 		valid = valid || l.kind == lineSection && sectionKey(l.title) == m.sel || l.kind == lineAgent && l.agent.Key == m.sel

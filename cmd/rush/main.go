@@ -165,10 +165,20 @@ func main() {
 	here := make(chan func(), 1)
 	go func() { here <- menubar.Here() }()
 	var err error
-	profiled(func() { _, err = p.Run() })
+	var last tea.Model
+	profiled(func() { last, err = p.Run() })
 	advisor.Stop() // a pass still running would spend on an answer nobody reads
 	_ = state.Flush()
 	(<-here)()
+	// #reload: the installed rush in this one's place, the terminal already
+	// given back; the sessions' hosts never stopped.
+	if m, ok := last.(*ui.Model); ok && err == nil {
+		if env, ok := m.Reload(); ok {
+			if exe, xerr := os.Executable(); xerr == nil {
+				_ = syscall.Exec(exe, os.Args, append(os.Environ(), env)) // only returns if it failed
+			}
+		}
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rush:", err)
 		os.Exit(1)
