@@ -69,3 +69,31 @@ func QuotasPath() string { return filepath.Join(state.Dir(), "quotas.json") }
 // QuotaKey is where the limits of the account a profile is signed in to
 // are kept.
 func QuotaKey(p agent.Profile) string { return string(p.Kind) + ":" + p.Dir }
+
+// SignInIfOut signs profile p of agent kind in as the first account rush
+// keeps for it, when it's signed in as no one: a run started from a shell
+// then works as the app's own do. It says why not when it can't, and
+// reads and writes the disk.
+func SignInIfOut(kind string, p agent.Profile) error {
+	a, ok := agent.Get(agent.Kind(kind))
+	if !ok || kind == state.LoginsKind {
+		return nil
+	}
+	acc, ok := a.(agent.Accounts)
+	if !ok {
+		return nil
+	}
+	if cur, err := acc.Current(p); err == nil && cur.ID != "" {
+		return nil
+	}
+	kept := state.Load().Config.SignInsOf(kind)
+	if len(kept) == 0 {
+		return nil // it may sign in where rush can't see (a keyring)
+	}
+	for _, s := range kept {
+		if acc.Switch(p, agent.Account{Kind: agent.Kind(kind), ID: s.ID, Name: s.Name, Email: s.Email, Plan: s.Plan}) == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s isn't signed in, and rush keeps no sign-in for it that works: in rush, Settings, %s, press l to sign in again", a.Name(), a.Name())
+}

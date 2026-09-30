@@ -291,6 +291,7 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 	if err := cfg.UseAgent(kind); err != nil {
 		return asJSON, err
 	}
+	_ = host.SignInIfOut(kind, cfg.Account) // its own error says more, if it's still out
 	// Each agent starts with what its own Settings page says, unless told.
 	start := d.StartFor(kind)
 	cfg.Prompt, cfg.Images = prompt, images

@@ -513,21 +513,6 @@ func (c *hostConn) runs() agent.SubagentRuns {
 	return c.subRuns
 }
 
-// inBackground is whether sa was sent off to run beside the turn rather
-// than holding it.
-func (c *hostConn) inBackground(sa convo.Subagent) bool {
-	for _, j := range c.sess.SubagentJobs() {
-		if j.ToolUseID == sa.ToolUseID && j.Background {
-			return true
-		}
-	}
-	// Claude Code doesn't always say: a call that has returned while its
-	// run still works was sent off, not waited on.
-	st := c.sess.Step(sa.ToolUseID)
-	_, live := c.subState(sa)
-	return st != nil && live && st.Status != convo.Running && st.Status != convo.Waiting
-}
-
 // runningSubs are the subagent runs still working, the latest started
 // first: one writing doesn't move it, so the dock's rows stay put.
 func (c *hostConn) runningSubs() []convo.Subagent {
@@ -891,9 +876,6 @@ func (m *Model) subagentList(c *hostConn, o convo.Options) []convo.Line {
 		}
 		ref := "sub:" + sa.ID
 		where := c.subWhere(sa.ID)
-		if r.live && c.inBackground(sa) {
-			where += " " + paint(cQueue, "◐ background")
-		}
 		left := "  " + mark + " " + paint(cBlue, "⇉") + " " + paint(cText+bold, sa.Type) + where + "  " + paint(cSub, oneLine(sa.Description))
 		right := state + "   " + dim(took) + "  "
 		top := spread(left, right, w)
@@ -1011,9 +993,6 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 		hint = keys("↑", "pick one to watch")
 	}
 	title := paint(cBlue, "⇉ ") + paint(cBlue+bold, fmt.Sprintf("%d %s", len(run), what))
-	if n := len(slices.DeleteFunc(slices.Clone(run), func(sa convo.Subagent) bool { return !c.inBackground(sa) })); n > 0 {
-		title += dim(" · ") + paint(cQueue, fmt.Sprintf("%d in background", n))
-	}
 	out := []string{spread(" "+title, hint+"  ", w)}
 	if start > 0 {
 		out = append(out, dim(fmt.Sprintf("  … %d newer", start)))
@@ -1053,9 +1032,6 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 		}
 		right := dim(strings.Join(facts, " · ")) + "  "
 		where := c.subWhere(sa.ID)
-		if c.inBackground(sa) {
-			where += " " + paint(cQueue, "◐ background")
-		}
 		if q := m.localQ[subQKey(c.key, sa.ID)]; q != nil && len(q.items) > 0 {
 			where += " " + paint(cQueue, fmt.Sprintf("✉%d", len(q.items)))
 		}

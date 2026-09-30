@@ -551,6 +551,25 @@ func (m *Model) accountSection(k agent.Kind) (section, bool) {
 	}
 	sec := section{title: "Account", note: "one at a time, shared by all its sessions"}
 	rows := accountsOf(m.accountRows(), k)
+	if why := m.accts.why[string(k)]; why != "" {
+		// Signed in as no one: its sessions fail until it is again.
+		sec.rows = append(sec.rows, setting{
+			label: "not signed in",
+			line: func(w int) string {
+				return paint(cRed, "✗ not signed in") + dim(" · l signs in again")
+			},
+			key: func(s string) (tea.Cmd, bool) {
+				if s == "l" || s == "enter" {
+					return m.addAccount(k), true
+				}
+				return nil, false
+			},
+			keys: []string{"l", "sign in again"},
+			about: func() (string, string, string) {
+				return "Not signed in", agentName(string(k)) + " isn't signed in, so its sessions fail to start or stop at their first request.", why
+			},
+		})
+	}
 	for i := range rows {
 		sec.rows = append(sec.rows, m.accountRow(rows[i]))
 	}
@@ -577,9 +596,6 @@ func (m *Model) accountSection(k agent.Kind) (section, bool) {
 // accountRow is one of an agent's accounts: enter switches to it.
 func (m *Model) accountRow(r acctRow) setting {
 	keys := []string{"enter", "switch to", "a", "add", "r", "rename", "l", "sign in again", "d", "forget"}
-	if r.login == nil {
-		keys = slices.Delete(keys, 6, 8)
-	}
 	if rs := r.q.Resets; rs != nil && rs.Available > 0 {
 		keys = append(keys, "u", "use a reset")
 	}

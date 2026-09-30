@@ -53,6 +53,14 @@ func spawnCmd(args []string) int {
 	// programs; the real one run in its place keeps PATH as it was.
 	_ = os.Setenv("PATH", host.WithoutShims(path))
 	r, ok := parseRun(prog, rest)
+	// Run as itself too, the program finds the sign-in rush keeps for it.
+	if a, found := agent.Get(agent.Kind(prog)); found {
+		if ps := agent.ProfilesOf(a); len(ps) > 0 {
+			if err := host.SignInIfOut(prog, ps[0]); err != nil {
+				fmt.Fprintln(os.Stderr, "rush:", err)
+			}
+		}
+	}
 	// RUSH_AGENT=ollama claude -p … runs on another provider through the
 	// same harness; its own spawns choose again.
 	if k := agent.Kind(os.Getenv("RUSH_AGENT")); ok && k != "" {
@@ -359,6 +367,7 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 			}
 		}
 	}
+	_ = host.SignInIfOut(string(r.kind), cfg.Account) // said once already, above
 	started, err := host.Spawn(cfg)
 	if err != nil {
 		return 0, false
