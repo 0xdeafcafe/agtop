@@ -915,8 +915,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.emitHooks()
-		m.watchBinary()
-		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline()}
+		cmds := []tea.Cmd{tick(), m.watchBinary(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline()}
 		if m.hosted == "" {
 			// autoSwitch too: a session's usage reading arrives with the
 			// snapshot, not with a fetch.

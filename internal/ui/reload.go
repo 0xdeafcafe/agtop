@@ -54,26 +54,32 @@ func (m *Model) applyRestore() {
 }
 
 // watchBinary says, once, that rush was installed again since it started:
-// #reload runs the new one.
-func (m *Model) watchBinary() {
+// #reload runs the new one. The file is looked at off the UI goroutine.
+func (m *Model) watchBinary() tea.Cmd {
 	if m.rebuiltSaid || m.tick%5 != 0 {
-		return
+		return nil
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	fi, err := os.Stat(exe)
-	if err != nil {
-		return
-	}
-	if m.exeAt.IsZero() {
-		m.exeAt = fi.ModTime()
-		return
-	}
-	if fi.ModTime().After(m.exeAt) {
-		m.rebuiltSaid = true
-		m.flash("rush was installed again · #reload runs it, sessions carry on", false)
+	was := m.exeAt
+	return func() tea.Msg {
+		exe, err := os.Executable()
+		if err != nil {
+			return nil
+		}
+		fi, err := os.Stat(exe)
+		if err != nil {
+			return nil
+		}
+		at := fi.ModTime()
+		return applyMsg(func(m *Model) tea.Cmd {
+			switch {
+			case m.exeAt.IsZero():
+				m.exeAt = at
+			case was.Equal(m.exeAt) && at.After(m.exeAt) && !m.rebuiltSaid:
+				m.rebuiltSaid = true
+				m.flash("rush was installed again · #reload runs it, sessions carry on", false)
+			}
+			return nil
+		})
 	}
 }
 
