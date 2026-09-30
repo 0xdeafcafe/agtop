@@ -135,7 +135,7 @@ func (r *signInRun) drain(s *signInSheet) tea.Cmd {
 
 func (r *signInRun) kill() {
 	if r != nil && r.cmd.Process != nil {
-		_ = syscall.Kill(-r.cmd.Process.Pid, syscall.SIGTERM)
+		go syscall.Kill(-r.cmd.Process.Pid, syscall.SIGTERM) //nolint:errcheck // gone already is fine
 	}
 }
 

@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"fmt"
 	"encoding/json/jsontext"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"

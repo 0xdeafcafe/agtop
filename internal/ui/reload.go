@@ -86,6 +86,6 @@ func (m *Model) watchBinary() tea.Cmd {
 // reloadFields are the Model's, kept here with what uses them.
 type reloadFields struct {
 	reloading, restorePane, rebuiltSaid bool
-	restore                              string
-	exeAt                                time.Time
+	restore                             string
+	exeAt                               time.Time
 }

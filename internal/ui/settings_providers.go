@@ -564,7 +564,7 @@ func (m *Model) accountSection(k agent.Kind) (section, bool) {
 		sec.rows = append(sec.rows, setting{
 			label: "not signed in",
 			line: func(w int) string {
-				return paint(cRed, "✗ not signed in") + dim(" · l signs in again")
+				return paint(cRed, "✗ "+agentName(string(k))+" is signed out") + dim(" · l signs it in")
 			},
 			key: func(s string) (tea.Cmd, bool) {
 				if s == "l" || s == "enter" {
@@ -617,7 +617,12 @@ func (m *Model) accountRow(r acctRow) setting {
 			if r.current {
 				mark = paint(cOrange, "● ")
 			}
-			return mark + paint(cText, fit(r.name(), 16)) + dim(fit(r.email(), max(0, min(28, w-72)))) + m.limits(r, 26, 26) + resetsChip(r.q)
+			use := m.limits(r, 26, 26) + resetsChip(r.q)
+			if m.accts.why[string(r.kind)] != "" && !r.current {
+				// Its usage reads stale only because the agent is signed out.
+				use = paint(cYellow, "! ") + dim("signed out · l signs back in to it")
+			}
+			return mark + paint(cText, fit(r.name(), 16)) + dim(fit(r.email(), max(0, min(28, w-72)))) + use
 		},
 		key: func(s string) (tea.Cmd, bool) {
 			switch {

@@ -486,8 +486,8 @@ func TestStartDirSkipsStateFolders(t *testing.T) {
 	for d, want := range map[string]bool{
 		"/Users/x/src/app": true,
 		filepath.Join(state.Dir(), "claude", "a4bb", "projects", "-Users-x-src"): false,
-		"/Users/x/.claude/projects/-Users-x-src-app":                               false,
-		"/var/folders/ab/T/tmp1":                                                   false,
+		"/Users/x/.claude/projects/-Users-x-src-app":                             false,
+		"/var/folders/ab/T/tmp1":                                                 false,
 	} {
 		if workDir(d) != want {
 			t.Errorf("workDir(%s) = %v", d, !want)
