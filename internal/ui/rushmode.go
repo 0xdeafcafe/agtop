@@ -1229,6 +1229,10 @@ type hostConn struct {
 	sess  *convo.Session
 	ready bool // the replay has been drawn at least once
 
+	// clearedAt is when the box was last wiped: its hints say how to
+	// bring that back for a while after.
+	clearedAt time.Time
+
 	view    int
 	sel     string
 	open    map[string]bool
@@ -2501,22 +2505,10 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	b = b.scrolled()
 	c.box, c.boxIdx = b, len(out)
 	out = append(out, b.lines()...)
-	// Keys for what can be done now, most useful first: the box above
-	// already says what enter does, and keysFit drops from the end, bar
-	// the way back, which stays last.
-	var pairs []string
-	switch {
-	case c.client != nil && s.Live() != nil:
-		pairs = append(pairs, "ctrl+x", "stop the turn")
-	case c.client == nil && busy(a):
-		pairs = append(pairs, "ctrl+x", "stop it")
-	}
-	// Drafts: keep what's typed, or bring the latest back.
-	if len(c.input) > 0 {
-		pairs = append(pairs, keySaveDraft, "keep as draft")
-	} else if draftCount() > 0 {
-		pairs = append(pairs, keyRecallDraft, "latest draft")
-	}
+	// Keys for what can be done now, the box's own first: what enter and
+	// sending now do, how it sends while it works, then where what you
+	// kept or cleared went. keysFit drops from the end, bar the way back.
+	pairs := m.boxKeys(c, a, s)
 	if v := m.otherViews(c); v != "" {
 		pairs = append(pairs, "[ ]", v)
 	}

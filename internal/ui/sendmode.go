@@ -1,7 +1,11 @@
 package ui
 
 import (
+	"time"
+
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/convo"
+	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
 // sendMode is how enter sends to a session that's working: into its queue,
@@ -73,4 +77,50 @@ func (m *Model) sendModeTop(c *hostConn) string {
 		top += dim(" · " + m.sendNowKey() + " stops it and sends")
 	}
 	return top
+}
+
+// boxKeys are the Session box's own keys, as they apply now: what enter
+// does, sending now, how it sends while it works, stopping it, and where
+// what's kept or cleared goes.
+func (m *Model) boxKeys(c *hostConn, a *fleet.Agent, s *convo.Session) []string {
+	live := c.client != nil && s.Live() != nil
+	working := live || c.client == nil && busy(a)
+	typed := len(c.input) > 0
+	var pairs []string
+	switch {
+	case typed && live:
+		pairs = append(pairs, "enter", sendModeKeys[m.sendModeOf(c)], m.sendNowKey(), "send now")
+	case typed && working:
+		pairs = append(pairs, "enter", "queue it", m.sendNowKey(), "send now")
+	case typed:
+		pairs = append(pairs, "enter", "send")
+	case len(m.queueOf(c).items) > 0:
+		pairs = append(pairs, m.sendNowKey(), "send the queue now")
+	}
+	if live && len(c.sendModes()) > 1 {
+		pairs = append(pairs, m.boundKey("session.sendmode"), "queue · guide · stop")
+	}
+	if working {
+		pairs = append(pairs, m.boundKey("session.stop"), "stop it")
+	}
+	switch {
+	case typed:
+		pairs = append(pairs, keySaveDraft, "keep as draft")
+	case time.Since(c.clearedAt) < 2*time.Minute:
+		pairs = append(pairs, undoHint, "bring back what you cleared")
+	case draftCount() > 0:
+		pairs = append(pairs, keyRecallDraft, "latest draft")
+	}
+	return append(pairs, m.boundKey("session.drafts"), "drafts · sent · cleared")
+}
+
+// sendModeKeys say what enter does in each mode, beside it in the hints.
+var sendModeKeys = map[sendMode]string{sendQueue: "queue it", sendGuide: "guide it", sendStop: "stop & send"}
+
+// boundKey is the first key bound to action id, as the hints name it.
+func (m *Model) boundKey(id string) string {
+	if ks := m.keyMap().Keys(id); len(ks) > 0 {
+		return ks[0].String()
+	}
+	return ""
 }

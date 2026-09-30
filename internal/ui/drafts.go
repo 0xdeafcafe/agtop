@@ -141,6 +141,7 @@ func (m *Model) wipeBox(c *hostConn) {
 	m.keepDraft(c, state.KindCleared)
 	m.emitBox(plugin.EvInputCleared, c.key, string(c.input))
 	c.input, c.back, c.anchor = nil, 0, 0
+	c.clearedAt = time.Now()
 	m.flash("cleared · "+undoHint+" brings it back · ctrl+r keeps it under Cleared", false)
 }
 
