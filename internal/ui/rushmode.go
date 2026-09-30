@@ -1218,6 +1218,10 @@ func tabStat(c *hostConn, v string) string {
 // host client, the conversation built from what the host sends, and how the
 // pane is being looked at.
 type hostConn struct {
+	// label is where the header's agent label is drawn: its column in the
+	// pane and its width, 0 when it isn't.
+	label [2]int
+
 	// intercepting is a message plugins are looking at before it goes;
 	// intercepted is it going, after they have.
 	intercepting, intercepted bool
@@ -2151,11 +2155,18 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 			conn = paint(cYellow, "cache cold") + "   " + conn
 		}
 	}
-	if tag := m.agentLabel(a, firstNonEmpty(s.Model, info.Model)); hw-cellw.String(conn+tag) > 40 {
+	tag := m.agentLabel(a, c, firstNonEmpty(s.Model, info.Model))
+	shown := hw-cellw.String(conn+tag) > 40
+	if shown {
 		conn = tag + "   " + conn // what it runs as, with room
 	}
 	meta := m.barLine(barAgent, 1, x, hw-cellw.String(indent+conn)-4)
 	row2 := spread(indent+meta, conn+" ", hw)
+	// Where the label is, for a click on it to open the switch sheet.
+	c.label = [2]int{}
+	if at := hw - cellw.String(conn+" "); shown && at-cellw.String(indent+meta) >= 2 {
+		c.label = [2]int{at, cellw.String(tag)}
+	}
 
 	var tabs []string
 	views := m.views(c)
@@ -3710,7 +3721,6 @@ func (m *Model) canResume(a *fleet.Agent) bool {
 // Claude Code headless, with the model, effort and mode from Settings,
 // then whatever with changes.
 func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cmd {
-	d := m.store.Config.Dispatch
 	text, images := m.imgs.resolve(text)
 	if rest, imgs := extractImages(text, m.lookPath); imgs != nil {
 		images, text = append(images, imgs...), rest
@@ -3724,24 +3734,19 @@ func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cm
 		name = host.FreshName(dir)
 	}
 	// Each agent starts with what its own Settings page says, or what
-	// alt+m picked for this one session.
+	// the start sheet picked for this one session.
 	next := m.nextStart(dir)
-	kind, profile := next.kind, m.startProfile(dir).Name
+	kind := next.kind
 	if why := agent.Unreadable(agent.Kind(kind), next.model, images); why != "" {
 		m.flash(why, true)
 		return nil
 	}
+	cfg := m.configAs(next, dir)
+	cfg.Prompt, cfg.Images, cfg.Name, cfg.NameFirst = text, images, name, nameFirst
+	cfg.Profile = cmp.Or(next.profile, m.startProfile(dir).Name)
 	m.imgs = imageRefs{}
 	m.accts.profile = "" // a profile picked with #profile is for one session
-	m.startOver = nil    // and a start picked with alt+m
-	st := d.StartFor(kind)
-	cfg := host.Config{Cwd: dir, Prompt: text, Images: images, Name: name, NameFirst: nameFirst, IdleStop: host.Duration(d.Rest()), Profile: profile,
-		Model: next.model, Effort: next.effort, PermissionMode: st.Mode, Billing: next.billing}
-	if agent.Kind(kind) == loginsKind {
-		// Dispatch's own settings are this agent's, and its account the one
-		// switched in.
-		cfg.Account, cfg.LimitMode, cfg.Lean = m.store.Config.ActiveAccount().Profile(), d.OnLimit, d.Lean
-	}
+	m.startOver = nil    // and a start picked on the sheet
 	for _, f := range with {
 		f(&cfg)
 	}
@@ -3750,13 +3755,29 @@ func (m *Model) startHosted(text, dir string, with ...func(*host.Config)) tea.Cm
 		return nil
 	}
 	m.flash("starting a new session…", false)
-	return func() tea.Msg {
+	// On the account picked for it, which every session of its provider
+	// moves to: rush signs a provider in as one account at a time.
+	return tea.Sequence(m.accountSwitch(agent.Kind(kind), next.account), func() tea.Msg {
 		c, err := host.Spawn(cfg)
 		if err != nil {
 			return doneMsg{err: err}
 		}
 		return hostStartedMsg{id: c.ID, name: cfg.Name, acct: cfg.Account.Name}
+	})
+}
+
+// configAs is a new session in dir as o starts it, with what Settings
+// gives its agent for the rest.
+func (m *Model) configAs(o startOver, dir string) host.Config {
+	d := m.store.Config.Dispatch
+	cfg := host.Config{Cwd: dir, IdleStop: host.Duration(d.Rest()), Model: o.model, Effort: o.effort,
+		PermissionMode: d.StartFor(o.kind).Mode, Billing: o.billing}
+	if agent.Kind(o.kind) == loginsKind {
+		// Dispatch's own settings are this agent's, and its account the one
+		// switched in.
+		cfg.Account, cfg.LimitMode, cfg.Lean = m.store.Config.ActiveAccount().Profile(), d.OnLimit, d.Lean
 	}
+	return cfg
 }
 
 type hostStartedMsg struct{ id, name, acct string }

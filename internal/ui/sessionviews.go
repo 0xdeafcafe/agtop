@@ -389,7 +389,7 @@ func (m *Model) taskLines(c *hostConn, o convo.Options) []convo.Line {
 // They keep Claude Code's / names; rush's other commands take # (see
 // fleetCommands). Claude Code's that rush already does its own way run
 // rush's (/diff opens the changes view, /cd moves the agent, …).
-var rushCommands = []event.Command{
+var rushCommands = append([]event.Command{
 	{Name: "clear", Description: "start this agent afresh, named by your next message; what it had is kept (/rewind)"},
 	{Name: "fork", Description: "carry on in a copy of this conversation, as a new agent (this one stays as it is)", ArgumentHint: "[name]"},
 	{Name: "rewind", Description: "go back to before one of your messages and try again; the path you leave is kept as a branch"},
@@ -409,7 +409,7 @@ var rushCommands = []event.Command{
 	{Name: "export", Description: "the conversation as text: copy it, or save it to a file", ArgumentHint: "[file]"},
 	{Name: "subtask", Description: "send a subagent off with the task; Claude carries on, and reports back when it's done", ArgumentHint: "<task>"},
 	{Name: "handoff", Description: "carry this conversation on with another agent, in a new session (this one stays as it is)", ArgumentHint: "<agent>"},
-}
+}, setupCommands...)
 
 // rushAliases are Claude Code's other names for commands rush does.
 var rushAliases = map[string]string{"bashes": "tasks", "bg": "background", "continue": "resume", "name": "rename",
@@ -677,6 +677,15 @@ func argMatches(c *hostConn) []event.Command {
 	return out
 }
 
+// paneArgs are the completions for a command's argument in session c's
+// box: its /model or /effort, else /agent's or /profile's.
+func (m *Model) paneArgs(c *hostConn) []event.Command {
+	if cmds := argMatches(c); cmds != nil {
+		return cmds
+	}
+	return m.setupArgs(string(c.input), c.back)
+}
+
 // slashLines draws the picker above the message box.
 func (m *Model) slashLines(c *hostConn, w int) []string {
 	if cmds := m.hashMatches(c.input, c.back); len(cmds) > 0 {
@@ -687,7 +696,7 @@ func (m *Model) slashLines(c *hostConn, w int) []string {
 		c.slashSel = max(0, min(c.slashSel, len(cmds)-1))
 		return pickerRows(cmds, c.slashSel, w, "@", func(string) string { return "" }, mentionHow)
 	}
-	cmds := argMatches(c)
+	cmds := m.paneArgs(c)
 	if cmds == nil {
 		if _, _, _, ok := slashWord(c); !ok {
 			return nil
@@ -755,7 +764,7 @@ func (m *Model) slashKey(c *hostConn, s string) (tea.Cmd, bool) {
 	if cmd, used := m.paneHashKey(c, s); used {
 		return cmd, true
 	}
-	if args := argMatches(c); len(args) > 0 {
+	if args := m.paneArgs(c); len(args) > 0 {
 		c.slashSel = max(0, min(c.slashSel, len(args)-1))
 		switch s {
 		case "up":
@@ -877,6 +886,8 @@ func (m *Model) runRushCommand(c *hostConn, text string) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.handoffTo(c, a, arg), true
+	case "agent", "profile":
+		return m.useSetup(c, name, arg, ""), true
 	case "rewind":
 		if a == nil {
 			return nil, true

@@ -230,10 +230,13 @@ func (m *Model) promptPicker() ([]event.Command, string) {
 		return cmds, "@"
 	}
 	text := string(m.input)
+	if cmds := m.setupArgs(text, m.back); len(cmds) > 0 {
+		return cmds, "/"
+	}
 	if m.back != 0 || !strings.HasPrefix(text, "/") || strings.ContainsAny(text[1:], " \n/") {
 		return nil, ""
 	}
-	var list []event.Command
+	list := slices.Clone(setupCommands)
 	for _, f := range m.newSessionCommands() {
 		list = append(list, event.Command{Name: f.Name, Description: f.Description, ArgumentHint: f.ArgumentHint})
 	}

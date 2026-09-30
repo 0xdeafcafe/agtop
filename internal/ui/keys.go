@@ -148,8 +148,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	// ⌥m (shift+tab in the list) picks what the next session starts as wherever the box says so,
 	// the Session focused too; a queued message selected keeps it, to merge.
 	if s == "alt+m" && m.mode == modeList && m.dialog == nil && (m.host == nil || !strings.HasPrefix(m.host.sel, "q:")) {
-		m.openStartSheet()
-		return nil
+		return m.openStartSheet()
 	}
 	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s != "tab" {
 		return m.paneKey(k, s)
@@ -407,8 +406,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "shift+tab", "alt+m":
 		// What the next session starts as: agent, model and effort.
 		if m.inKind == inPrompt {
-			m.openStartSheet()
-			return nil
+			return m.openStartSheet()
 		}
 	case "super+down":
 		// ⌘↓ opens, as in the Finder, into the agent's Session message box,
@@ -790,6 +788,9 @@ func (m *Model) submit() tea.Cmd {
 	}
 	if !strings.HasPrefix(text, "/") {
 		m.didStep("start")
+	}
+	if cmd, ok := m.setupCommand(nil, text, tagged); ok {
+		return cmd
 	}
 	if strings.HasPrefix(text, "/") {
 		if cmd, ok := m.legacyCommand(text); ok {

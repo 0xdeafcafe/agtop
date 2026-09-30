@@ -106,8 +106,9 @@ type Model struct {
 	// account key.
 	quotas    map[string]usage.Quota
 	accts     accountsState
-	startOver *startOver // what the next session starts as, picked with alt+m
-	resumedAt time.Time  // when sessions a limit stopped were last told to carry on
+	startOver *startOver                // what the next session starts as, picked on the start sheet
+	listed    map[string][]agent.Choice // models read from an agent's home (Codex's cache), by kind
+	resumedAt time.Time                 // when sessions a limit stopped were last told to carry on
 
 	sel          string
 	shown        string // the agent last picked, still shown while a folded section is
@@ -1377,6 +1378,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.embedded = true
 			}
 			m.host.txt.on = false // a click elsewhere drops what was dragged over
+			if m.clickLabel(m.host, msg.X, msg.Y) {
+				return m, m.openSwitchSheet(m.host)
+			}
 			if cmd, ok := m.clickCard(m.host, msg.X, msg.Y); ok {
 				return m, cmd
 			}

@@ -93,29 +93,26 @@ func (m *Model) otherMeters(k agent.Kind, w int) string {
 	return meterRow(rows, w)
 }
 
-// label is an account as rush names it: harness:account, or the provider
+// label is an account as rush names it: harness:account, or the harness
 // alone for one with a single sign-in of its own.
 func (r acctRow) label() string {
 	if r.head {
-		return string(r.kind)
+		return setupName(r.kind, "", "")
 	}
-	return string(agent.HarnessOf(r.kind)) + ":" + r.name()
+	return setupName(r.kind, "", r.name())
 }
 
-// agentLabel is what a session runs as: its profile when you made one,
+// agentLabel is what session c runs as: its profile when you made one,
 // else harness:account (codex:alex), and its model unless the header's
 // own model segment shows it.
-func (m *Model) agentLabel(a *fleet.Agent, model string) string {
+func (m *Model) agentLabel(a *fleet.Agent, c *hostConn, model string) string {
 	k := agent.Kind(firstNonEmpty(a.Kind, string(loginsKind)))
-	name := string(agent.HarnessOf(k))
-	if acct := m.accountOf(k); acct != "" {
-		name += ":" + acct
-	}
-	if p := m.sessionProfile(a); !p.Builtin && m.showProfile(p.Name) {
-		name = p.Name
+	o := m.sessionStart(c)
+	if !m.showProfile(o.profile) {
+		o.profile = ""
 	}
 	l := lookOf(k)
-	s := paint(l.colour(), l.glyph) + " " + paint(cText, name)
+	s := paint(l.colour(), l.glyph) + " " + paint(cText, m.startName(o))
 	if model != "" && !m.barLayout(barAgent).Shown("model") {
 		s += dim(" · " + modelWord(string(k), model))
 	}

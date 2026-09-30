@@ -91,12 +91,6 @@ func (c *hostConn) kindOf() agent.Kind {
 	return agent.Kind(firstNonEmpty(c.sess.Info.Kind, string(loginsKind)))
 }
 
-// providerTag is provider k's glyph and short name, in its colour.
-func providerTag(k agent.Kind) string {
-	l := lookOf(k)
-	return paint(l.colour(), l.glyph+" "+kindName(k))
-}
-
 // rowBadge is a session row's mark of its provider: none for Claude Code,
 // so its rows stay as they were; the glyph and kind for any other.
 func rowBadge(a *fleet.Agent) string {
@@ -178,44 +172,15 @@ func runsOn(k agent.Kind, model, effort string) string {
 	return strings.Join(words, " · ")
 }
 
-// providerIn is agent k as its provider in its harness, "Ollama in
-// Codex", or just its name when it's its own harness.
-func providerIn(k agent.Kind) string {
-	if agent.HarnessOf(k) == k {
-		return kindName(k)
-	}
-	return agent.ProviderLabel(agent.ProviderOf(k)) + " in " + agent.HarnessLabel(k)
-}
-
-// startWith is what a new session in dir starts as: its agent, the model
-// and effort that agent's Settings page gives it (the agent's own default
-// when it gives none), and the profile when there's more than one or
-// #profile picked one. Plain is without colour, for text that's matched.
+// startWith is what a new session in dir starts as, as the Prompt's chip
+// says it: its profile or harness:account, its model and effort. Plain
+// is the words alone, for text that's matched.
 func (m *Model) startWith(dir string, plain bool) string {
-	st := m.nextStart(dir)
-	k := st.kind
-	model := "default model"
-	if st.model != "" {
-		model = modelWord(k, st.model)
-	}
-	words := []string{providerIn(agent.Kind(k)), model}
-	if st.effort != "" {
-		words = append(words, st.effort+" effort")
-	}
-	if st.billing == "key" {
-		words = append(words, "API key")
-	}
-	if p := m.startProfile(dir).Name; m.showProfile(p) || m.accts.profile != "" {
-		words = append(words, p)
-	}
+	o := m.nextStart(dir)
 	if plain {
-		return strings.Join(words, " · ")
+		return strings.Join(m.startWords(o), " · ")
 	}
-	words[0] = providerTag(agent.Kind(k))
-	for i := 1; i < len(words); i++ {
-		words[i] = dim(words[i])
-	}
-	return strings.Join(words, faint(" · "))
+	return m.setupChip(o)
 }
 
 // levelWords say what each support level means.

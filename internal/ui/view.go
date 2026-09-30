@@ -2176,8 +2176,10 @@ func (m *Model) promptLines(w int) []string {
 		if folder != "" && cellw.String(b.topL+b.topR+folder)+12 <= w {
 			b.topR = folder + faint(" · ") + b.topR
 		}
-		if change := paint(cSub, convo.KeyWord(m.boundKey("list.start"))) + dim(" change"); cellw.String(b.topL+b.topR+change)+12 <= w {
-			b.topR += faint(" · ") + change
+		if key := m.boundKey("list.start"); key != "" {
+			if change := paint(cSub, convo.KeyWord(key)) + dim(" change"); cellw.String(b.topL+b.topR+change)+12 <= w {
+				b.topR += faint(" · ") + change
+			}
 		}
 	}
 	if m.sessionFocused() {

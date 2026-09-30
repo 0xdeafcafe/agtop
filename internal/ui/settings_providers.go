@@ -991,7 +991,7 @@ func (m *Model) askAPIKey(p string) tea.Cmd {
 			if v == "" {
 				m.flash(name+"'s API key is forgotten", false)
 			} else {
-				m.flash(name+"'s API key is kept in the keychain · alt+m picks it per session", false)
+				m.flash(name+"'s API key is kept in the keychain · /agent picks it per session", false)
 			}
 			return nil
 		})
