@@ -338,6 +338,8 @@ type server struct {
 	// quietWait is set while an idle agent due to move to another account
 	// is being watched for its own work to end: one watch at a time.
 	quietWait bool
+	// queuedAt is when the queue last went from empty to not: see lateQueue.
+	queuedAt time.Time
 	quit      chan struct{}
 	stopOnce  sync.Once
 	// broker reaches the approved plugins' MCP servers.
@@ -1022,6 +1024,10 @@ func (s *server) send(text string, images []string, now bool) error {
 	waiting := s.info.Limit != nil && s.info.Limit.Continue && !s.info.Limit.ResetsAt.IsZero()
 	busy := s.info.State == "working" || s.info.State == "blocked" || waiting
 	if !now && busy {
+		if len(s.info.Queue) == 0 {
+			s.queuedAt = time.Now()
+			time.AfterFunc(queueLate, s.lateQueue)
+		}
 		qi := queueImages(&s.info)
 		s.info.Queue = append(s.info.Queue, text)
 		s.info.QueueImages = trimImages(append(qi, images))
@@ -1043,6 +1049,28 @@ func (s *server) send(text string, images []string, now bool) error {
 	}
 	defer s.mu.Unlock()
 	return s.deliver(text, images, pics)
+}
+
+// queueLate is how long a message queued in a turn waits for it to end
+// before going into it.
+var queueLate = 2 * time.Minute
+
+// lateQueue hands Claude Code what has waited queueLate in a turn that's
+// still going: it takes it at its next tool call. A long turn (one that
+// runs its subagents for an hour) otherwise never ends to take it.
+func (s *server) lateQueue() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cfg.Kind != "" || s.conn == nil || s.info.State != "working" || len(s.info.Queue) == 0 ||
+		s.info.QueueHeld || s.info.Limit != nil || time.Since(s.queuedAt) < queueLate {
+		return
+	}
+	s.sendQueue()
+	if len(s.info.Queue) > 0 { // one per turn: the next waits its turn too
+		s.queuedAt = time.Now()
+		time.AfterFunc(queueLate, s.lateQueue)
+	}
+	s.publish()
 }
 
 // cutsIn is whether a message sent now waits for the turn to be stopped
