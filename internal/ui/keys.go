@@ -144,6 +144,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			return m.embedKey(k)
 		}
 	}
+	// ⌥m picks what the next session starts as wherever the box says so,
+	// the Session focused too; a queued message selected keeps it, to merge.
+	if s == "alt+m" && m.mode == modeList && m.dialog == nil && (m.host == nil || !strings.HasPrefix(m.host.sel, "q:")) {
+		m.openStartSheet()
+		return nil
+	}
 	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s != "tab" {
 		return m.paneKey(k, s)
 	}
