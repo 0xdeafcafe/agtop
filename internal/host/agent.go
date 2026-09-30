@@ -213,6 +213,7 @@ func (s *server) watchAgent(conn agent.Conn) {
 	}
 	s.conn, s.info.ClaudePID, s.info.Background = nil, 0, nil // they went with it
 	s.info.Relogin = false                                    // the next one starts on the account signed in now
+	s.reloginAt = time.Time{}
 	s.pending = map[string]asked{}
 	if s.info.State == "working" || s.info.State == "blocked" || s.info.State == "starting" {
 		// It died mid-turn; the next message resumes it.
