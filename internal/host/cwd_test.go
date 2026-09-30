@@ -30,11 +30,20 @@ func TestFollowCwd(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	follow := func() string {
+	// follow looks, then gives the look (git, off the lock) time to land:
+	// at least 50ms, and up to 5s for it to reach want.
+	follow := func(want string) string {
 		s.mu.Lock()
 		s.followCwd(true)
 		s.mu.Unlock()
-		time.Sleep(50 * time.Millisecond)
+		for end, least := time.Now().Add(5*time.Second), time.Now().Add(50*time.Millisecond); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+			s.mu.Lock()
+			at := s.cfg.Cwd
+			s.mu.Unlock()
+			if at == want && time.Now().After(least) {
+				break
+			}
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.info.Cwd != s.cfg.Cwd {
@@ -43,15 +52,15 @@ func TestFollowCwd(t *testing.T) {
 		return s.cfg.Cwd
 	}
 	write("other", wt)
-	if got := follow(); got != start {
+	if got := follow(start); got != start {
 		t.Fatalf("another session's file moved it to %q", got)
 	}
 	write("s1", filepath.Join(wt, "gone"))
-	if got := follow(); got != start {
+	if got := follow(start); got != start {
 		t.Fatalf("a folder that doesn't exist moved it to %q", got)
 	}
 	write("s1", wt)
-	if got := follow(); got != wt {
+	if got := follow(wt); got != wt {
 		t.Fatalf("cwd %q, want the worktree %q", got, wt)
 	}
 	if b, err := os.ReadFile(filepath.Join(dir(s.cfg.ID), "config.json")); err != nil || !strings.Contains(string(b), wt) {
@@ -60,7 +69,7 @@ func TestFollowCwd(t *testing.T) {
 	// Its shell going back to where the process started, between commands,
 	// is no move: the session stays where it went.
 	write("s1", start)
-	if got := follow(); got != wt {
+	if got := follow(wt); got != wt {
 		t.Fatalf("the shell's reset pulled it back to %q", got)
 	}
 }
