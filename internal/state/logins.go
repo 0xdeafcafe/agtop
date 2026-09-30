@@ -17,6 +17,8 @@ type LoginKeeper interface {
 	FindLogins(cfg Config) (found []FoundLogin, restored *Restored, imported bool, failed error)
 	// RefreshLogin is l's plan, shared through path like every account's.
 	RefreshLogin(path string, cfg Config, l Login, offline bool) usage.Reading
+	// RenewLogin refreshes l's sign-in, unless an agent running on it will.
+	RenewLogin(cfg Config, l Login) error
 	// UsingLogin is the login new sessions run as, in a home of its own;
 	// "" runs them in the agent's home as whoever it's signed in as.
 	UsingLogin(cfg Config) string

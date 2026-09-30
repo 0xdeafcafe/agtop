@@ -164,12 +164,28 @@ func (Adapter) RefreshLogin(path string, cfg state.Config, lg state.Login, offli
 		return claude.RefreshUsage(path, h, offline).Reading()
 	}
 	return claude.RefreshUsageFor(path, lg.UsageKey(), offline, func(ctx context.Context) (claude.Usage, error) {
-		cred, err := state.Vault().Get(lg.ID)
-		if err != nil {
-			return claude.Usage{}, claude.ErrNotSignedIn
-		}
-		return claude.FetchUsageAs(ctx, cred, lg.ID)
+		return claude.RenewKeptOnExpiry(ctx, lg.ID, func() (claude.Usage, error) {
+			cred, err := state.Vault().Get(lg.ID)
+			if err != nil {
+				return claude.Usage{}, claude.ErrNotSignedIn
+			}
+			return claude.FetchUsageAs(ctx, cred, lg.ID)
+		})
 	}).Reading()
+}
+
+// RenewLogin refreshes a login's freshest sign-in, where RefreshLogin
+// reads it: ~/.claude's, its home's, or the vault's.
+func (Adapter) RenewLogin(cfg state.Config, lg state.Login) error { //nolint:gocritic // state.LoginKeeper's signature
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	if root := claude.Active(cfg); claude.SignedInAs(root) == lg.ID {
+		return claude.Renew(ctx, root)
+	}
+	if h := claude.HomeOf(lg.ID); claude.HasHome(h) {
+		return claude.Renew(ctx, h)
+	}
+	return claude.RenewKept(ctx, lg.ID)
 }
 
 // UsingLogin is the login new sessions run as in its home, when it's one

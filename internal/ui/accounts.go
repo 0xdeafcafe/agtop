@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
 	"reflect"
 	"sort"
 	"strings"
@@ -38,6 +39,14 @@ type accountsState struct {
 	// handedOff are the sessions a usage limit stopped that rush handed
 	// to another provider, or tried to, by key: each is handed on once.
 	handedOff map[string]bool
+	// renew is why a login's sign-in couldn't be refreshed, and when, or
+	// "" while it's being refreshed, by login id.
+	renew map[string]renewNote
+}
+
+type renewNote struct {
+	why string
+	at  time.Time
 }
 
 // loginsKind is the provider whose accounts are Config.Logins, switched in
@@ -51,6 +60,9 @@ func (s *accountsState) ready() {
 	}
 	if s.handedOff == nil {
 		s.handedOff = map[string]bool{}
+	}
+	if s.renew == nil {
+		s.renew = map[string]renewNote{}
 	}
 }
 
@@ -390,20 +402,24 @@ func (m *Model) addAccount(k agent.Kind) tea.Cmd {
 		return nil
 	}
 	// Making the sign-in (its home, its command) touches the disk: done
-	// before the terminal is handed over, off the UI goroutine.
-	return func() tea.Msg {
+	// off the UI goroutine.
+	start := func() (*exec.Cmd, func(error) tea.Msg, error) {
 		cmd, done, err := acc.SignIn(p)
 		if err != nil {
-			return acctAddedMsg{kind: k, err: err}
+			return nil, nil, err
 		}
-		return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return cmd, func(err error) tea.Msg {
 			if err != nil {
 				return acctAddedMsg{kind: k, err: err}
 			}
 			a, err := done()
 			return acctAddedMsg{kind: k, a: a, err: err}
-		})()
+		}, nil
 	}
+	if k == "codex" { // prints its link like Claude Code's; gh's asks in the terminal
+		return m.signIn(agentName(string(k)), start)
+	}
+	return inTerminal(start)
 }
 
 // acctAddedMsg is an account just signed in to from Accounts.
@@ -496,6 +512,9 @@ func (m *Model) loginKey(lv fleet.LoginView, s string) tea.Cmd {
 		}
 		return m.switchLogin(lv.Login, "")
 	case "r":
+		if expired(lv.Quota) {
+			return m.renewLogin(lv)
+		}
 		m.ask("rename "+lv.Name, lv.Name, func(v string) tea.Cmd {
 			for i, l := range m.store.Config.Logins {
 				if l.ID == lv.ID {
@@ -552,6 +571,7 @@ func kindName(k agent.Kind) string {
 // its balance, or why there are none.
 func (m *Model) limits(r acctRow, w1, w2 int) string {
 	q := r.q
+	q.Problem = m.problem(r)
 	if len(q.Windows) == 0 {
 		msg := faint("no reading")
 		switch {
@@ -597,6 +617,27 @@ func (m *Model) limits(r acctRow, w1, w2 int) string {
 		out += fit(cell, cw)
 	}
 	return out
+}
+
+// expired is whether a reading failed on an expired sign-in.
+func expired(q usage.Quota) bool { return strings.Contains(q.Problem, usage.Expired) }
+
+// problem is why an account has no fresh reading, as its row says it: a
+// Claude Code login's expired sign-in says r refreshes it, and one just
+// refreshed how that went.
+func (m *Model) problem(r acctRow) string {
+	if r.login == nil {
+		return r.q.Problem
+	}
+	if n, ok := m.accts.renew[r.login.ID]; ok && n.why == "" {
+		return "refreshing the sign-in…"
+	} else if ok && time.Since(n.at) < 2*time.Minute {
+		return "couldn't refresh: " + n.why
+	}
+	if expired(r.q) {
+		return usage.Expired + " · r refreshes it"
+	}
+	return r.q.Problem
 }
 
 // windowLines are a reading's windows, each with when it resets.

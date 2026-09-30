@@ -512,6 +512,9 @@ func (m *Model) renderScreen() string {
 		return m.frame(m.wallBody(m.w-4, m.wallH()), m.wallHint())
 	}
 	if m.dialog != nil {
+		if m.sheet != nil { // a sign-in started from Accounts
+			return m.sheetView(m.frame(m.dialogBody(m.w-6), ""))
+		}
 		return m.frame(m.dialogBody(m.w-6), "")
 	}
 	if m.picker != nil {

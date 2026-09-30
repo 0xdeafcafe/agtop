@@ -128,6 +128,15 @@ func args(pid int) []string {
 	return strings.Split(strings.TrimRight(string(b), "\x00"), "\x00")
 }
 
+// env reads a process's environment from /proc/<pid>/environ.
+func env(pid int) []string {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
+	if err != nil || len(b) == 0 {
+		return nil
+	}
+	return strings.Split(strings.TrimRight(string(b), "\x00"), "\x00")
+}
+
 func CommandLine(pid int) string { return strings.Join(Args(pid), " ") }
 
 func Kill(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) }

@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+// Expired is a reading's Problem when its sign-in has expired, one rush
+// may be able to refresh.
+const Expired = "sign-in expired"
+
 // Window is one limit an account's plan puts on it: Claude's five hours
 // or week, Codex's primary or secondary, Copilot's month of premium
 // requests.

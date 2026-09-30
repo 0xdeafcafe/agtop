@@ -8,5 +8,6 @@ import "syscall"
 func list() []*Proc                          { return nil }
 func fillUsage(*Proc)                        {}
 func args(int) []string                      { return nil }
+func env(int) []string                       { return nil }
 func CommandLine(int) string                 { return "" }
 func Kill(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) }

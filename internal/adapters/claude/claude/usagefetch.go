@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
@@ -22,7 +23,7 @@ func (e *ErrRateLimited) Error() string { return "usage refresh rate-limited" }
 
 var (
 	ErrNotSignedIn = errors.New("not signed in")
-	ErrExpired     = errors.New("sign-in expired; run Claude Code on this account once")
+	ErrExpired     = errors.New(usage.Expired)
 )
 
 // keychainService is where Claude Code keeps an account's sign-in: the

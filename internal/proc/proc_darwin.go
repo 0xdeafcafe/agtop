@@ -125,9 +125,20 @@ func fillUsage(p *Proc) {
 
 // args reads a process's argv through kern.procargs2.
 func args(pid int) []string {
+	a, _ := argsEnv(pid)
+	return a
+}
+
+// env is a process's environment, which kern.procargs2 has after argv.
+func env(pid int) []string {
+	_, e := argsEnv(pid)
+	return e
+}
+
+func argsEnv(pid int) (args, env []string) {
 	b, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil || len(b) < 4 {
-		return nil
+		return nil, nil
 	}
 	argc := int(binary.LittleEndian.Uint32(b[:4]))
 	b = b[4:]
@@ -135,17 +146,24 @@ func args(pid int) []string {
 		b = b[i:]
 	}
 	b = bytes.TrimLeft(b, "\x00")
-	args := make([]string, 0, argc)
+	args = make([]string, 0, argc)
 	for len(args) < argc && len(b) > 0 {
 		i := bytes.IndexByte(b, 0)
 		if i < 0 {
-			args = append(args, string(b))
-			break
+			return append(args, string(b)), nil
 		}
 		args = append(args, string(b[:i]))
 		b = b[i+1:]
 	}
-	return args
+	for len(b) > 0 && b[0] != 0 {
+		i := bytes.IndexByte(b, 0)
+		if i < 0 {
+			break
+		}
+		env = append(env, string(b[:i]))
+		b = b[i+1:]
+	}
+	return args, env
 }
 
 func CommandLine(pid int) string { return strings.Join(Args(pid), " ") }

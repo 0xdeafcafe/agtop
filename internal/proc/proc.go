@@ -89,6 +89,15 @@ func Args(pid int) []string {
 	return args(pid)
 }
 
+// Env is a process's environment, as NAME=value; nil when it can't be
+// read (another user's process).
+func Env(pid int) []string {
+	if Demo != nil {
+		return nil
+	}
+	return env(pid)
+}
+
 func (t *Table) withUsage(_ *Table) *Table { return t }
 
 // Tree is a process and everything under it, in depth-first order.

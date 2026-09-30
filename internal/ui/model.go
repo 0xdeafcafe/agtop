@@ -1154,6 +1154,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.PasteMsg:
+		if s, ok := m.sheet.(*signInSheet); ok {
+			s.paste(msg.Content)
+			return m, nil
+		}
 		if !m.embedded {
 			msg.Content = cleanPaste(msg.Content)
 		}

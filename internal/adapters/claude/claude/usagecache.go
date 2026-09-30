@@ -134,7 +134,7 @@ func RefreshUsage(path string, a Account, offline bool) Usage {
 		key = Login{ID: who}.UsageKey()
 	}
 	return RefreshUsageFor(path, key, offline, func(ctx context.Context) (Usage, error) {
-		u, err := FetchUsage(ctx, a)
+		u, err := orRenew(key, func() (Usage, error) { return FetchUsage(ctx, a) }, func() error { return Renew(ctx, a) })
 		if err == nil && who != "" && u.AccountID != who {
 			// Its sign-in is another account's than it says: the
 			// reading isn't who's. FindLogins puts it right.

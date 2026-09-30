@@ -604,6 +604,9 @@ func (m *Model) accountSection(k agent.Kind) (section, bool) {
 // accountRow is one of an agent's accounts: enter switches to it.
 func (m *Model) accountRow(r acctRow) setting {
 	keys := []string{"enter", "switch to", "a", "add", "r", "rename", "l", "sign in again", "d", "forget"}
+	if r.login != nil && expired(r.q) {
+		keys[5] = "refresh the sign-in"
+	}
 	if rs := r.q.Resets; rs != nil && rs.Available > 0 {
 		keys = append(keys, "u", "use a reset")
 	}

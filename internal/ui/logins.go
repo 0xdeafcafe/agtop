@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -375,28 +376,68 @@ func (m *Model) onSwitched(msg switchedMsg) tea.Cmd {
 	return m.fetchUsage()
 }
 
+// renewLogin refreshes a login's expired sign-in in the background, then
+// reads its usage again; its row says how it went.
+func (m *Model) renewLogin(lv fleet.LoginView) tea.Cmd {
+	k, ok := state.Logins()
+	m.accts.ready()
+	if n, busy := m.accts.renew[lv.ID]; !ok || m.offline || busy && n.why == "" {
+		return nil
+	}
+	m.accts.renew[lv.ID] = renewNote{}
+	cfg, lg, path := m.store.Config, lv.Login, filepath.Join(state.Dir(), "usage.json")
+	return func() tea.Msg {
+		msg := renewedMsg{l: lg, err: k.RenewLogin(cfg, lg)}
+		if msg.err == nil {
+			msg.u = k.RefreshLogin(path, cfg, lg, false)
+		}
+		return msg
+	}
+}
+
+// renewedMsg is a login's sign-in refreshed and its usage read again, or
+// why it couldn't be.
+type renewedMsg struct {
+	l   state.Login
+	u   usage.Reading
+	err error
+}
+
+func (msg renewedMsg) applyTo(m *Model) tea.Cmd {
+	m.accts.ready()
+	if msg.err != nil {
+		m.accts.renew[msg.l.ID] = renewNote{why: msg.err.Error(), at: time.Now()}
+		return nil
+	}
+	delete(m.accts.renew, msg.l.ID)
+	m.flash("refreshed "+msg.l.Name+"'s sign-in", false)
+	m.loader.SetFetched(msg.l.UsageKey(), msg.u)
+	m.refresh()
+	return nil
+}
+
 // addLogin signs in to an account in a folder of its own, then keeps the
 // sign-in in the vault and removes the folder: ~/.claude stays as it is
 // until you switch to it.
 func (m *Model) addLogin(name string) tea.Cmd {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	scratch := agent.Profile{Kind: loginsKind, Name: name, Dir: filepath.Join(state.Dir(), "signin-"+hex.EncodeToString(b))}
 	lg, ok := agent.As[agent.Loginer](loginsKind)
 	k, kok := state.Logins()
 	if !ok || !kok {
 		m.flash(agentName(string(loginsKind))+" can't sign in from rush", true)
 		return nil
 	}
-	return func() tea.Msg { // its command is made off the UI goroutine
-		return tea.ExecProcess(lg.Login(scratch), func(err error) tea.Msg {
+	return m.signIn(agentName(string(loginsKind))+" · "+name, func() (*exec.Cmd, func(error) tea.Msg, error) {
+		b := make([]byte, 4)
+		_, _ = rand.Read(b)
+		scratch := agent.Profile{Kind: loginsKind, Name: name, Dir: filepath.Join(state.Dir(), "signin-"+hex.EncodeToString(b))}
+		return lg.Login(scratch), func(err error) tea.Msg {
 			if err != nil {
 				return addedLoginMsg{name: name, err: err}
 			}
 			l, err := k.AdoptLogin(scratch)
 			return addedLoginMsg{name: name, l: l, err: err}
-		})()
-	}
+		}, nil
+	})
 }
 
 func (m *Model) onAddedLogin(msg addedLoginMsg) tea.Cmd {
