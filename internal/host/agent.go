@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -83,7 +84,16 @@ func (s *server) start() error {
 	// ask like any other.
 	pc := plugin.ForSession()
 	o.Agents = pc.Agents
-	for _, p := range []string{tasksPrompt, agentsPrompt(), pc.Prompt, s.cfg.SystemPrompt} {
+	told := ""
+	if k := agent.Kind(or(s.cfg.Kind, string(agent.LegacyKind))); agent.ReadsAsClaude(k) {
+		// The agents it can hand work to are its own subagent types, by
+		// name; a plugin's of the same name is the plugin's.
+		o.Agents = agentDefs(k)
+		maps.Copy(o.Agents, pc.Agents)
+	} else {
+		told = agentsPrompt()
+	}
+	for _, p := range []string{tasksPrompt, told, pc.Prompt, s.cfg.SystemPrompt} {
 		if p = strings.TrimSpace(p); p != "" {
 			o.Prompt = strings.TrimSpace(o.Prompt + "\n\n" + p)
 		}
