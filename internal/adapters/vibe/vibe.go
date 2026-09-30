@@ -22,7 +22,9 @@ const Kind agent.Kind = "vibe"
 func init() {
 	agent.Register(Adapter{acp.Agent{
 		ID: Kind, Title: "Mistral Vibe", Command: "vibe", ACP: "vibe-acp", Home: ".vibe",
-		More: map[agent.Feature]agent.Support{agent.FeatureQuota: agent.Planned},
+		// Vibe says which plan it's on (its whoami), never how much is left;
+		// a limit shows only as the error it stops a turn with.
+		More: map[agent.Feature]agent.Support{agent.FeatureQuota: agent.No.With("Vibe says its plan, not what's left of it")},
 		// vibe takes its model only from its config, which VIBE_* sets.
 		Once: `vibe -p "<task>"`, Model: "VIBE_ACTIVE_MODEL=",
 		Flags: map[string]string{"-p": "prompt", "--prompt": "prompt", "--workdir": "cwd", "--agent": "mode",
