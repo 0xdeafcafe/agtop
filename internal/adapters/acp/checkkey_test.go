@@ -9,21 +9,21 @@ import (
 )
 
 func TestCheckKey(t *testing.T) {
-	t.Setenv("GEMINI_API_KEY", "")
-	t.Setenv("GOOGLE_API_KEY", "")
-	g, p := Known[0], agent.Profile{Dir: t.TempDir()}
+	t.Setenv("RUSH_TEST_KEY", "")
+	g := Agent{ID: "x", Title: "X", Creds: []string{"oauth_creds.json"}, Keys: []string{"RUSH_TEST_KEY"}}
+	p := agent.Profile{Dir: t.TempDir()}
 	if g.CheckKey(p) == nil {
-		t.Fatal("gemini with no creds and no key reads as signed in")
+		t.Fatal("no creds and no key reads as signed in")
 	}
 	os.WriteFile(filepath.Join(p.Dir, "oauth_creds.json"), []byte("{}"), 0o600)
 	if err := g.CheckKey(p); err != nil {
 		t.Fatalf("signed in with Google: %v", err)
 	}
-	t.Setenv("GEMINI_API_KEY", "k")
+	t.Setenv("RUSH_TEST_KEY", "k")
 	if err := g.CheckKey(agent.Profile{Dir: t.TempDir()}); err != nil {
 		t.Fatalf("with a key: %v", err)
 	}
-	if err := Known[1].CheckKey(agent.Profile{Dir: t.TempDir()}); err != nil {
+	if err := Known[0].CheckKey(agent.Profile{Dir: t.TempDir()}); err != nil {
 		t.Fatalf("kimi has no check: %v", err)
 	}
 }

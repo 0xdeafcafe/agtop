@@ -476,7 +476,7 @@ func TestPatch(t *testing.T) {
 func ptr(s string) *string { return &s }
 
 func TestKnownAgentsRegister(t *testing.T) {
-	for _, k := range []agent.Kind{"gemini", "kimi", "opencode"} {
+	for _, k := range []agent.Kind{"kimi", "opencode"} {
 		a, ok := agent.Get(k)
 		if !ok {
 			t.Errorf("%s isn't registered", k)

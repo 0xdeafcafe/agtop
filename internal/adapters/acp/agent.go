@@ -40,14 +40,9 @@ type Agent struct {
 }
 
 // Known are the ACP agents rush runs. An agent that grows more than ACP
-// gives (history, limits) moves to a package of its own, as Copilot and
-// Vibe have.
+// gives (history, limits) moves to a package of its own, as Copilot,
+// Vibe and Gemini have.
 var Known = []Agent{
-	{ID: "gemini", Title: "Gemini", Command: "gemini", Args: []string{"--experimental-acp"}, Home: ".gemini",
-		Creds: []string{"oauth_creds.json"}, Keys: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
-		SignIn: "run gemini once and pick Sign in with Google (free), or set GEMINI_API_KEY",
-		Once:   `gemini -p "<task>"`, Model: "-m", Flags: map[string]string{"-p": "prompt", "--prompt": "prompt",
-			"-m": "model", "--model": "model", "-o": "=text", "--output-format": "=text"}},
 	{ID: "kimi", Title: "Kimi", Command: "kimi", Args: []string{"acp"}, Home: ".kimi-code", More: plannedLimits,
 		Once: `kimi -p "<task>"`, Model: "-m", Flags: map[string]string{"-p": "prompt", "--prompt": "prompt",
 			"-m": "model", "--model": "model", "--output-format": "=text"}},
