@@ -63,7 +63,7 @@ func TestProjectSplit(t *testing.T) {
 		Trees: map[string]fleet.GitState{wt: {Branch: "fix", Changed: 1}},
 	}}
 	out := ansi.Strip(strings.Join(m.listLines(140, 40), "\n"))
-	for _, s := range []string{"app  main ↑2 ±4  ⎇3 ┄", "⎇ fix  fix ±1"} {
+	for _, s := range []string{"app  main ↑2 ±4  ⎇3 ┄", "⎇ fix  ±1"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("list lacks %q:\n%s", s, out)
 		}
