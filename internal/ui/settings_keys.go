@@ -186,9 +186,9 @@ func (m *Model) keysBody(w int) []string {
 	// and the key line are drawn; the keyboard under the card if that
 	// still leaves the rows room.
 	h := max(4, m.h-len(m.header())-21-len(out))
-	board := w >= kbWide+6 && h-len(kbRows)-1 >= min(len(rows), 10)
+	board := w >= kbWide+6 && h-len(kbRows)-2 >= min(len(rows), 10)
 	if board {
-		h -= len(kbRows) + 1
+		h -= len(kbRows) + 2 // and the line over it, and its legend
 	}
 	from, to := window(len(rows), d.cursor, h)
 	if from > 0 {
@@ -247,18 +247,19 @@ func (m *Model) keysBody(w int) []string {
 			label("Name")+" "+faint(cur.ID+", as keybindings.json calls it"))
 	}
 	if board {
-		// Lit: the key just pressed, else the row under the pointer, else
-		// the cursor's.
+		// Lit: the row under the pointer, else the cursor's; the key just
+		// pressed flashes over them a moment.
 		var lit []keymap.Seq
 		switch {
-		case time.Since(d.triedAt) < 3*time.Second:
-			lit = []keymap.Seq{d.tried}
 		case d.keyHover > 0 && d.keyHover <= len(rows):
 			lit = km.Keys(rows[d.keyHover-1].ID)
 		case cur.ID != "":
 			lit = km.Keys(cur.ID)
 		}
-		on, used := map[string]bool{}, map[string]bool{}
+		hit, on, used := map[string]bool{}, map[string]bool{}, map[string]bool{}
+		if time.Since(d.triedAt) < kbFlash {
+			hit = keyParts(d.tried)
+		}
 		for _, s := range lit {
 			for k := range keyParts(s) {
 				on[k] = true
@@ -272,8 +273,16 @@ func (m *Model) keysBody(w int) []string {
 			}
 		}
 		out = append(out, "")
-		for _, l := range keyboard(on, used) {
-			out = append(out, "    "+l)
+		if t := time.Since(d.boom); t < kbBoomLen {
+			for _, l := range kbBurst(used, t, uint64(d.boom.UnixNano()), w-4) {
+				out = append(out, "    "+l)
+			}
+			out = append(out, "    "+kbCheer(d.boomWord, t))
+		} else {
+			for _, l := range keyboard(hit, on, used) {
+				out = append(out, "    "+l)
+			}
+			out = append(out, "    "+fit(kbLegend(), w-4))
 		}
 	}
 	keys := append([]string{"enter", "new keys", "a", "add a key", "x", "no key", "r", "rush's", "1-" + strconv.Itoa(len(ctxs)) + " ← →", "where"}, pagesKeys...)
@@ -323,6 +332,9 @@ func (m *Model) keysKey(s string) tea.Cmd {
 		return nil
 	}
 	a := rows[d.cursor]
+	if cmd, took := m.typeWord(s); took {
+		return cmd
+	}
 	switch s {
 	case "left", "right", "h", "l":
 		n := len(m.keyPlaces())
@@ -349,6 +361,9 @@ func (m *Model) keysKey(s string) tea.Cmd {
 // takeKey is each key pressed while keys are being taken: every key comes
 // here first, unmapped.
 func (m *Model) takeKey(s string) tea.Cmd {
+	if cmd, took := m.typeWord(s); took {
+		return cmd
+	}
 	kp := &m.keys.page
 	done := func() tea.Cmd {
 		id, seq, adding := kp.taking, kp.pressed, kp.adding
@@ -421,6 +436,7 @@ func (m *Model) practiceKey(s string) tea.Cmd {
 	}
 	d.practiceAt = time.Now()
 	d.tried, d.triedAt = keymap.Seq{s}, d.practiceAt
+	d.keyHover = 0 // the key pressed shows over the row the pointer rests on, till it moves
 	try := func(seq keymap.Seq) bool {
 		if a := m.practiced(seq); len(a) > 0 {
 			d.practice = seq
@@ -438,7 +454,62 @@ func (m *Model) practiceKey(s string) tea.Cmd {
 	} else if !try(keymap.Seq{s}) {
 		d.practice = nil
 	}
+	return tea.Tick(kbFlash, func(time.Time) tea.Msg { return kbFrameMsg{} }) // its flash goes out
+}
+
+// kbFlash is how long the key just pressed stays lit on the keyboard.
+const kbFlash = 600 * time.Millisecond
+
+// kbTypeGap is the longest pause inside a word typed at the keyboard.
+const kbTypeGap = 350 * time.Millisecond
+
+// kbFrameMsg draws Keys again: a flash going out, or a burst's next frame.
+type kbFrameMsg struct{}
+
+func kbFrame() tea.Cmd {
+	return tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg { return kbFrameMsg{} })
+}
+
+// onKbFrame asks for the burst's next frame while it runs.
+func (m *Model) onKbFrame() tea.Cmd {
+	if d := m.dialog; d != nil && time.Since(d.boom) < kbBoomLen {
+		return kbFrame()
+	}
 	return nil
+}
+
+// typeWord takes s as typed toward one of kbWords. Past a word's first
+// letter, a key typed quickly that spells it on is the word's, not the
+// page's (keys a first "a" began taking are dropped), and its last letter
+// sets the keyboard off.
+func (m *Model) typeWord(s string) (tea.Cmd, bool) {
+	d, now := m.dialog, time.Now()
+	if now.Sub(d.typedAt) > kbTypeGap || len(s) != 1 {
+		d.typed = ""
+	}
+	d.typedAt = now
+	if len(s) != 1 {
+		return nil, false
+	}
+	for _, typed := range []string{d.typed + s, s} {
+		for _, w := range kbWords {
+			if !strings.HasPrefix(w, typed) {
+				continue
+			}
+			d.typed = typed
+			if len(typed) == 1 {
+				return nil, false
+			}
+			m.keys.page, m.keys.capture = keysPage{}, nil
+			if typed == w {
+				d.typed, d.boom, d.boomWord = "", now, w
+				return kbFrame(), true
+			}
+			return nil, true
+		}
+	}
+	d.typed = ""
+	return nil, false
 }
 
 // practiced are the actions whose keys are seq, exactly.

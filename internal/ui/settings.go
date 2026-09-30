@@ -99,6 +99,10 @@ type dialog struct {
 	triedAt                time.Time
 	keyHover               int
 	keyTop, keyFrom, keyTo int
+	// typed is a word being typed on Keys, typedAt its last letter; boom
+	// is when one of kbWords set the keyboard off, boomWord which.
+	typed, boomWord string
+	typedAt, boom   time.Time
 
 	input    []rune
 	asking   string // what the input line is for; empty when not typing

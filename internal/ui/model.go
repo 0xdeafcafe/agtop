@@ -1009,6 +1009,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onAddedLogin(msg)
 	case fxTickMsg:
 		return m, m.onFXTick()
+	case kbFrameMsg:
+		return m, m.onKbFrame()
 	case subHoverMsg:
 		// Redraw only if the run rested on is still the one under the pointer.
 		if c := m.host; c == nil || !strings.HasPrefix(c.subHover, "sub:") || time.Since(c.subHoverAt) < subPeekAfter {
