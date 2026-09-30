@@ -330,3 +330,40 @@ func toolSummary(st *Step) string {
 	}
 	return ""
 }
+
+// answered are an asked question's answers, each with its question, read
+// from Claude Code's `"Q"="A", "Q2"="A2". Read the answers…`; nil when
+// they don't read so, and the reply shows as it came.
+func answered(st *Step) [][2]string {
+	var in struct {
+		Questions []struct {
+			Question string `json:"question"`
+		} `json:"questions"`
+	}
+	if len(st.Input) == 0 || jsonx.Unmarshal(st.Input, &in) != nil || len(in.Questions) == 0 {
+		return nil
+	}
+	out, at := st.Output, make([]int, len(in.Questions))
+	for i, q := range in.Questions {
+		from := 0
+		if i > 0 {
+			from = at[i-1] + 1
+		}
+		n := strings.Index(out[from:], `"`+q.Question+`"="`)
+		if n < 0 {
+			return nil
+		}
+		at[i] = from + n
+	}
+	qa := make([][2]string, len(at))
+	for i, q := range in.Questions {
+		seg := out[at[i]+len(q.Question)+4:]
+		if i+1 < len(at) {
+			seg = out[at[i]+len(q.Question)+4 : at[i+1]]
+		} else if n := strings.LastIndex(seg, `". `); n >= 0 {
+			seg = seg[:n+1]
+		}
+		qa[i] = [2]string{q.Question, strings.TrimSuffix(strings.TrimRight(seg, ", "), `"`)}
+	}
+	return qa
+}

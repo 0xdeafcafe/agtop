@@ -370,6 +370,19 @@ func (d *drawer) add(ref, b, left, right string) {
 	d.lines = append(d.lines, Line{Text: row(b, left, right, d.o.Width, d.cw), Ref: ref})
 }
 
+// answers lays out each question asked, quiet, and its answer under it.
+func (d *drawer) answers(qa [][2]string, indent int) {
+	pad := d.spine() + strings.Repeat(" ", indent-1)
+	w := d.cw - indent - 2
+	for i, p := range qa {
+		if i > 0 {
+			d.blank()
+		}
+		d.addRows("", pad, faint("? "), faint(p[0]), w, 0)
+		d.addRows("", pad, paint(cGreen, "→ "), text(p[1]), w, 0)
+	}
+}
+
 // wrapped marks the row just added as carrying on the one before it.
 func (d *drawer) wrapped() { d.lines[len(d.lines)-1].Wrap = true }
 
@@ -2731,6 +2744,10 @@ func (d *drawer) body(st *Step, indent int) {
 		if cmd := stoppedCommand(st); cmd != "" {
 			d.shellBody(st, cmd, indent)
 		}
+		return
+	}
+	if qa := answered(st); st.kind() == tool.Question && qa != nil {
+		d.answers(qa, indent)
 		return
 	}
 	switch v, _ := d.viewOf(st, ref); {
