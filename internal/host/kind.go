@@ -90,10 +90,11 @@ func SignInIfOut(kind string, p agent.Profile) error {
 	if len(kept) == 0 {
 		return nil // it may sign in where rush can't see (a keyring)
 	}
+	var last error
 	for _, s := range kept {
-		if acc.Switch(p, agent.Account{Kind: agent.Kind(kind), ID: s.ID, Name: s.Name, Email: s.Email, Plan: s.Plan}) == nil {
+		if last = acc.Switch(p, agent.Account{Kind: agent.Kind(kind), ID: s.ID, Name: s.Name, Email: s.Email, Plan: s.Plan}); last == nil {
 			return nil
 		}
 	}
-	return fmt.Errorf("%s isn't signed in, and rush keeps no sign-in for it that works: in rush, Settings, %s, press l to sign in again", a.Name(), a.Name())
+	return fmt.Errorf("%s isn't signed in, and rush couldn't sign it in (%v): in rush, Settings, %s, press l to sign in again", a.Name(), last, a.Name())
 }
