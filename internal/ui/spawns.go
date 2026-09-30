@@ -540,7 +540,7 @@ func (c *hostConn) spawnSubs() []convo.Subagent {
 		if r.path == "" {
 			continue
 		}
-		sa := convo.Subagent{ID: spawnPrefix + id, Type: r.sp.Name, Description: firstNonEmpty(oneLineUI(r.sp.Prompt), r.sp.From),
+		sa := convo.Subagent{ID: spawnPrefix + id, Type: r.sp.Name, Description: firstNonEmpty(c.spawnTitle(r.step), oneLineUI(r.sp.Prompt), r.sp.From),
 			Model: r.sp.Model, ToolUseID: r.step, Path: r.path, Born: r.born.UnixNano()}
 		if !r.mod.IsZero() {
 			sa.Mod = r.mod.UnixNano() // noticed as it was read, not asked of the disk
@@ -552,6 +552,17 @@ func (c *hostConn) spawnSubs() []convo.Subagent {
 	}
 	slices.SortFunc(out, func(a, b convo.Subagent) int { return cmp.Or(cmp.Compare(a.Born, b.Born), strings.Compare(a.ID, b.ID)) })
 	return out
+}
+
+// spawnTitle is what the call that ran step's one agent says it's for,
+// its title; a call that ran several leaves each to what it was asked.
+func (c *hostConn) spawnTitle(step string) string {
+	st := c.sess.Step(step)
+	if st == nil || len(c.children(step)) > 1 {
+		return ""
+	}
+	call := st.Call()
+	return oneLineUI(firstNonEmpty(call.Input.Description, call.Title))
 }
 
 // subOfStep is whether sa is the run the conversation's step id draws: a

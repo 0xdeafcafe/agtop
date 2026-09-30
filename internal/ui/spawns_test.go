@@ -56,7 +56,7 @@ func spawnFollowed(t *testing.T, hosted bool) {
 	s.Info.Cwd = cwd
 	s.Apply(host.Sent{Text: "ask claude"}, now.Add(-time.Second))
 	s.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash",
-		Input: []byte(`{"command":"claude -p \"check the parser for off-by-ones\""}`)}}}, now.Add(-time.Second))
+		Input: []byte(`{"command":"claude -p \"check the parser for off-by-ones\"","description":"Parser review"}`)}}}, now.Add(-time.Second))
 	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}}
 	key := "b1"
 	if hosted {
@@ -75,13 +75,13 @@ func spawnFollowed(t *testing.T, hosted bool) {
 		t.Fatalf("found %+v", r)
 	}
 	out := ansi.Strip(joinLines(s.Render(convo.Options{Width: 110, Now: now})))
-	for _, w := range []string{"Claude Code  check the parser for off-by-ones", "1 step", "parse.go"} {
+	for _, w := range []string{"Claude Code  Parser review", "1 step", "parse.go"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("missing %q in\n%s", w, out)
 		}
 	}
 	m.drain(m.refreshSubs())
-	if len(c.subs) != 1 || c.subs[0].ID != spawnPrefix+key || c.subs[0].Type != "Claude Code" {
+	if len(c.subs) != 1 || c.subs[0].ID != spawnPrefix+key || c.subs[0].Type != "Claude Code" || c.subs[0].Description != "Parser review" {
 		t.Fatalf("subs %+v", c.subs)
 	}
 	if _, live := c.subState(c.subs[0]); !live {
@@ -182,6 +182,11 @@ func TestFanOutFollowed(t *testing.T) {
 	}
 	if strings.Contains(out, "perl") {
 		t.Errorf("the wrapper shows:\n%s", out)
+	}
+	for _, sa := range c.spawnSubs() {
+		if !strings.HasPrefix(sa.Description, "review it.") {
+			t.Errorf("one of three is named for them all: %q", sa.Description)
+		}
 	}
 }
 
