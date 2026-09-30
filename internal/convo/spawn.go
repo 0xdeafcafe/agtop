@@ -5,14 +5,15 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
 // Spawn is another agent a shell command ran: claude -p, codex exec,
-// copilot -p. The session it wrote is found and followed by whoever draws
-// the conversation, and handed to SetChild.
+// copilot -p. Read from the command, it's only a hint: whoever draws the
+// conversation finds the sessions it ran and hands them to SetChildren.
 type Spawn struct {
 	Kind   agent.Kind
 	Name   string // what the agent is called: Codex, Claude Code
@@ -292,6 +293,8 @@ func spawnIn(c command, body []string, stdin string) (Spawn, bool) {
 		// codex --search exec.
 		first := !sub && !print && sp.Prompt == "" && sp.From == "" && len(loose) == 0
 		switch {
+		case a == "--help" || a == "-h" || a == "--version":
+			return Spawn{}, false // it reports, wherever it's asked to
 		case spawnNot[a] && sp.Prompt == "" && !sub:
 			return Spawn{}, false
 		case spawnSub[a] && first:
@@ -465,9 +468,6 @@ func (st *Step) Spawn() (Spawn, bool) {
 	return *st.spawn, true
 }
 
-// Child is the session a spawned agent wrote, once SetChild found it.
-func (st *Step) Child() *Session { return st.child }
-
 // Spawns are the steps that started an agent whose session is its own, in
 // order: from the shell, or as a harness's subagent kept apart.
 func (s *Session) Spawns() []*Step {
@@ -484,47 +484,241 @@ func (s *Session) Spawns() []*Step {
 	return out
 }
 
-// SetChild shows child as what st's spawned agent did: its steps are
-// drawn under st's row like a subagent's. Call it again when child grows.
-func (s *Session) SetChild(st *Step, child *Session) {
+// Window is when a shell step could have started an agent: from its start
+// to its end, or its background task's, and a grace after.
+type Window struct {
+	Step     string
+	Command  string
+	From, To time.Time
+}
+
+// Windows are every shell step's, in order; one still running (or its
+// task) runs to now.
+func (s *Session) Windows(now time.Time, grace time.Duration) []Window {
+	var out []Window
+	for _, t := range s.Turns {
+		for _, it := range t.Items {
+			st := it.Step
+			if it.Kind != KStep || st == nil || st.kind() != tool.Shell || st.Start.IsZero() {
+				continue
+			}
+			end := st.End
+			if j := s.jobOf(st.ID); j != nil && j.Background {
+				end = j.End
+			}
+			if st.Status == Running || end.IsZero() || s.JobRunning(st.ID) {
+				end = now
+			}
+			out = append(out, Window{Step: st.ID, Command: st.in().Command, From: st.Start, To: end.Add(grace)})
+		}
+	}
+	return out
+}
+
+func (s *Session) jobOf(stepID string) *Job {
+	for _, j := range s.jobs {
+		if j.ToolUseID == stepID {
+			return j
+		}
+	}
+	return nil
+}
+
+// Child is an agent a step ran whose session is its own: found by the
+// session rush hosted it as, or by its transcript.
+type Child struct {
+	ID    string
+	Spawn Spawn
+	Sess  *Session
+	Live  bool
+	Start time.Time
+}
+
+// SetChildren shows kids as the agents st ran, as subagents are drawn: one
+// is st's own row, several a row each under it. Call it again as they
+// change; with none, st draws as the command it is.
+func (s *Session) SetChildren(st *Step, kids []Child) {
+	st.run, st.fan, st.runLive, st.runEnd, st.child, st.Children = nil, false, false, time.Time{}, nil, nil
+	if len(kids) == 1 {
+		k := kids[0]
+		sp := k.Spawn
+		if hint, ok := st.Spawn(); ok {
+			if sp.Name == "" {
+				sp.Kind, sp.Name = hint.Kind, hint.Name
+			}
+			sp.Prompt, sp.From = firstNonEmpty(sp.Prompt, hint.Prompt), firstNonEmpty(sp.From, hint.From)
+			sp.Model, sp.Dir = firstNonEmpty(sp.Model, hint.Model), firstNonEmpty(sp.Dir, hint.Dir)
+		}
+		st.run, st.child, st.Children, st.runLive = &sp, k.Sess, shownSteps(k.Sess), k.Live
+		if !k.Live {
+			st.runEnd = k.Sess.Last
+		}
+	}
+	if len(kids) > 1 {
+		st.fan = true
+		for _, k := range kids {
+			sp := k.Spawn
+			c := &Step{ID: st.ID + "/" + k.ID, Tool: st.Tool, Kind: tool.Shell, Status: OK, Start: k.Start, run: &sp, child: k.Sess, Children: shownSteps(k.Sess)}
+			if k.Live {
+				c.Status, st.runLive = Running, true
+			} else if c.End = k.Sess.Last; c.End.After(st.runEnd) {
+				st.runEnd = c.End
+			}
+			st.Children = append(st.Children, c)
+		}
+	}
+	st.ranVer++
+	s.touchStep(st)
+	// A turn its task woke is the agents' reply, now they're known.
+	for _, t := range s.Turns {
+		if t.wokeBy != nil && t.wokeBy.ToolUseID == st.ID {
+			s.wake(t)
+		}
+	}
+}
+
+// shownSteps are a session's steps as a subagent's are drawn.
+func shownSteps(sess *Session) []*Step {
 	var kids []*Step
-	for _, t := range child.Turns {
+	for _, t := range sess.Turns {
 		for _, it := range t.Items {
 			if it.Kind == KStep && it.Step != nil && !hidden(it.Step) {
 				kids = append(kids, it.Step)
 			}
 		}
 	}
-	st.child, st.Children = child, kids
-	s.touchStep(st)
+	return kids
 }
+
+// agentSteps are the steps the agents t's commands ran took, counted with
+// its own as a subagent's are.
+func (t *Turn) agentSteps() int {
+	n := 0
+	for _, it := range t.Items {
+		if st := it.Step; it.Kind == KStep && st != nil && st.run != nil {
+			n += len(st.Children)
+		} else if st != nil && st.fan {
+			for _, c := range st.Children {
+				n += len(c.Children)
+			}
+		}
+	}
+	return n
+}
+
+// ranAgents is whether st is drawn as the agents it ran: found, not only
+// read from its command.
+func (st *Step) ranAgents() bool { return st.run != nil || st.fan }
 
 // spawnShown is how many of a running spawned agent's steps show under
 // its row.
 const spawnShown = 4
 
 // spawnLabel is a spawned agent's row, as any subagent's: ⇉, the agent's
-// name, then what it was asked (or what the command says it's for).
+// name, then what the command says it's for (or what it was asked).
 func spawnLabel(sp Spawn, desc string, lbl func(string) string) string {
-	what := oneLine(sp.Prompt)
-	switch {
-	case what == "" && sp.From != "":
-		what = "prompt from " + filepath.Base(sp.From)
-	case what == "":
-		what = desc
+	return glyphColor("⇉") + " " + lbl(sp.Name) + "  " + faint(firstNonEmpty(desc, asked(sp)))
+}
+
+// asked is what a spawned agent was asked, in a line.
+func asked(sp Spawn) string {
+	if what := oneLine(sp.Prompt); what != "" || sp.From == "" {
+		return what
 	}
-	return glyphColor("⇉") + " " + lbl(sp.Name) + "  " + faint(what)
+	return "prompt from " + filepath.Base(sp.From)
+}
+
+// agentsAsked is what the agents st ran were asked, in a line.
+func (st *Step) agentsAsked() string {
+	if st.run != nil {
+		return asked(*st.run)
+	}
+	return plural(len(st.Children), "agent")
 }
 
 // reply is what a subagent said back, drawn as its opened row's body: the
 // last answer of its own session once that's found, else what its call
-// returned (a spawned agent's stdout, or its stderr when that's all).
+// returned (a spawned agent's stdout, or its stderr when that's all). One
+// at work has said nothing back yet, whatever its shell printed.
 func reply(st *Step) string {
 	if st.child != nil {
-		if a := st.child.LastAnswer(1); a != "" {
+		if a := st.child.LastAnswer(1); a != "" || st.runLive || st.Status == Running {
 			return a
 		}
 	}
 	o := st.out()
 	return firstNonEmpty(o.Stdout, o.Stderr, st.Output)
+}
+
+// agentNames are who the agents st ran are, each named once.
+func (st *Step) agentNames() string {
+	if st.run != nil {
+		return st.run.Name
+	}
+	var names []string
+	for _, c := range st.Children {
+		if c.run != nil && !slices.Contains(names, c.run.Name) {
+			names = append(names, c.run.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+// wokeAgents is the step that ran the agents whose task woke the turn, once
+// they're found: the turn is their reply.
+func (d *drawer) wokeAgents() *Step {
+	if j := d.t.wokeBy; j != nil {
+		if a := d.s.byID[j.ToolUseID]; a != nil && a.ranAgents() {
+			return a
+		}
+	}
+	return nil
+}
+
+// replyOf is whether st reads the output of the task that woke its turn,
+// when that ran agents: their reply, which the turn shows as theirs.
+func (d *drawer) replyOf(st *Step) bool {
+	if st.kind() != tool.Read || d.wokeAgents() == nil {
+		return false
+	}
+	j, p := d.t.wokeBy, st.in().Path
+	return p != "" && (p == j.OutputFile || filepath.Base(p) == j.ID+".output")
+}
+
+// replyRows is how much of a reply its card shows until it's opened.
+const replyRows = 8
+
+// replies draws what the agents a step ran said back, a card each, as a
+// subagent's report is drawn: what it was asked on the top edge (the
+// turn's header names who), its reply laid out as Markdown inside.
+func (d *drawer) replies(a *Step, ref string, indent int) {
+	kids := []*Step{a}
+	if a.fan {
+		kids = a.Children
+	}
+	room := min(min(d.cw, capRow)-indent-4, 72)
+	for _, k := range kids {
+		if k.run == nil {
+			continue
+		}
+		head := paint(cBlue, "↩") + " " + faint(firstNonEmpty(asked(*k.run), k.run.Name))
+		if room < 24 {
+			d.add(ref, "", d.spine()+blanks(indent-1)+head, "")
+			continue
+		}
+		// Laid out at the card's width, then taken back to go inside it.
+		n, cw := len(d.lines), d.cw
+		d.cw = room + 2
+		d.markdown(strings.TrimSpace(reply(k)), 1, cSub, false)
+		d.cw = cw
+		var rows []string
+		for _, l := range d.lines[n:] {
+			rows = append(rows, strings.TrimRight(strings.TrimPrefix(l.Text, d.spine()), " "))
+		}
+		d.lines = d.lines[:n]
+		if !d.o.Verbose && !d.o.Open[ref] && len(rows) > replyRows {
+			rows = append(rows[:replyRows-1], faint("⋯ "+plural(len(rows)-replyRows+1, "more line")))
+		}
+		d.box(ref, indent, head, "", rows, "", room, cFaint)
+	}
 }

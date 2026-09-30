@@ -1346,10 +1346,17 @@ type hostConn struct {
 	writes     map[string][]string    // the files each task's command writes, by its tool call
 	jobRows    map[string]jobRowsMemo // a finished task's rows in the background view, by task
 	subHoverAt time.Time
-	// Agents the session's shell ran, by the step that ran each, and
-	// whether any are being looked for.
+	// Agents the session's shell ran: those rush hosted by their rush
+	// session, the rest by the step that ran each. spawnLooking is while
+	// any are looked for, with hostList, which only that touches; hostedAt
+	// is when those rush hosted were last listed, hostNone the ones no
+	// step ran, and spawnsOn the conversation last given them.
 	spawns       map[string]*spawnRun
 	spawnLooking bool
+	hostList     host.Lister
+	hostedAt     time.Time
+	hostNone     map[string]bool
+	spawnsOn     *convo.Session
 
 	// stale is whether the conversation drawn last ran out of time and
 	// shows some of it as drawn before, at another width perhaps: relayout
@@ -2861,7 +2868,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		if empty && s == "enter" && m.viewName(c) == "conversation" {
 			if _, id, ok := strings.Cut(c.sel, ":s:"); ok {
 				for _, sa := range c.subs {
-					if sa.ToolUseID == id {
+					if c.subOfStep(sa, id) {
 						for i, v := range m.views(c) {
 							if v == "subagents" {
 								c.view = i
@@ -4252,6 +4259,18 @@ func (m *Model) stopSub(c *hostConn, sa convo.Subagent, live bool) tea.Cmd {
 		return nil
 	}
 	m.flash("stopping "+sa.Type+" · the turn carries on", false)
+	// One the shell ran that rush hosts is a session of its own to stop.
+	if r := c.spawns[strings.TrimPrefix(sa.ID, spawnPrefix)]; r != nil && r.hosted != "" {
+		id := r.hosted
+		return hostCmd(func() error {
+			hc, err := host.Dial(id)
+			if err != nil {
+				return nil // already gone
+			}
+			defer hc.Close()
+			return hc.Stop()
+		})
+	}
 	cl, id := c.client, sa.ID
 	return hostCmd(func() error { return cl.StopTask(id) })
 }

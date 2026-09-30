@@ -410,7 +410,7 @@ func (d *drawer) meta() string {
 		end = d.o.Now
 	}
 	var parts []string
-	if n := t.Steps(); n > 0 {
+	if n := t.Steps() + t.agentSteps(); n > 0 {
 		parts = append(parts, plural(n, "step"))
 	}
 	if !t.Start.IsZero() {
@@ -494,6 +494,9 @@ func unasked(t *Turn) string {
 // woke is a turn a task woke, in Claude Code's words: "Background
 // command", and how it ended, " completed" in green or " failed" in red.
 func woke(t *Turn) (noun, how string, ok bool) {
+	if t.replied != "" && t.Cause != "" {
+		return "⇉ " + t.replied, " " + dim("replied"), true
+	}
 	kind, status, _ := strings.Cut(t.From, " · ")
 	noun, ok = map[string]string{
 		"background shell": "Background command", "background subagent": "Background agent",
@@ -652,6 +655,10 @@ func (d *drawer) open() {
 		d.shellBody(&Step{}, t.Command, 11)
 	}
 	d.blank()
+	if a := d.wokeAgents(); a != nil {
+		d.replies(a, d.ref+":reply", 4)
+		d.blank()
+	}
 
 	items := t.Items
 	// A running turn keeps its last few steps in view; everything clean
@@ -678,7 +685,7 @@ func (d *drawer) open() {
 		// never folds.
 		if !d.o.Verbose && it.Kind == KStep && i < keep {
 			j := i
-			for j < keep && j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) && !d.testsFailed(items[j].Step) && items[j].Step != d.latest {
+			for j < keep && j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) && !d.testsFailed(items[j].Step) && items[j].Step != d.latest && !d.replyOf(items[j].Step) {
 				j++
 			}
 			if j-i >= 2 {
@@ -702,6 +709,11 @@ func (d *drawer) open() {
 				i = j - 1
 				continue
 			}
+		}
+		// A reply read turns into a card once its agents are found: never kept.
+		if it.Kind == KStep && d.replyOf(it.Step) {
+			d.item(it)
+			continue
 		}
 		d.memoized(items[i:i+1], "", i >= len(items)-freshTail, func() { d.item(it) })
 	}
@@ -905,10 +917,11 @@ func unitPrint(items []*Item) (uint64, bool) {
 	mix := func(v uint64) { h = (h ^ v) * 1099511628211 }
 	var step func(st *Step) bool
 	step = func(st *Step) bool {
-		if st.Status == Running || st.Status == Waiting {
+		if st.Status == Running || st.Status == Waiting || st.runLive {
 			return false
 		}
 		mix(uint64(st.Status))
+		mix(uint64(st.ranVer))
 		mix(uint64(len(st.Input)))
 		mix(uint64(len(st.Output)))
 		mix(uint64(len(st.Result)))
@@ -1194,10 +1207,11 @@ func retryWords(r *event.Retry, since time.Duration) string {
 // ran, or what a tool did.
 func (d *drawer) verb(st *Step) string {
 	switch {
+	case st.run != nil:
+		return st.run.Name
+	case st.fan:
+		return "agents"
 	case st.kind() == tool.Shell:
-		if sp, ok := st.Spawn(); ok {
-			return sp.Name
-		}
 		// A chain that committed or pushed is named for that, not its git add.
 		if cs := d.stepCards(st); len(cs) > 0 {
 			return cs[0].verb()
@@ -1619,12 +1633,13 @@ type stepKey struct {
 	what                byte
 	status              Status
 	out, res, kids, pal int
+	ran                 int   // how often the agents it ran were set
 	gen                 int64 // a card's: the git lookups finished when drawn
 }
 
 func (d *drawer) stepMemo(st *Step, what byte, f func(*Step) string) string {
 	s := d.s
-	k := stepKey{st: st, what: what, status: st.Status, out: len(st.Output), res: len(st.Result), kids: len(st.Children), pal: palette}
+	k := stepKey{st: st, what: what, status: st.Status, out: len(st.Output), res: len(st.Result), kids: len(st.Children), pal: palette, ran: st.ranVer}
 	if v, ok := s.rows[k]; ok {
 		return v
 	}
@@ -2069,7 +2084,11 @@ func hidden(st *Step) bool {
 }
 
 func (d *drawer) statusMark(st *Step) string {
-	switch st.Status {
+	status := st.Status
+	if st.runLive && status == OK {
+		status = Running // its shell returned; the agent it ran works on
+	}
+	switch status {
 	case Running:
 		return paint(cOrange, d.spin(d.o.Tick+len(st.ID)))
 	case OK:
@@ -2097,6 +2116,10 @@ func (d *drawer) step(st *Step, depth int) {
 	}
 	ref := d.ref + ":s:" + st.ID
 	indent := 4 + depth*4
+	// The agents' reply, read from their task's output, is theirs to say.
+	if !d.o.Verbose && d.replyOf(st) {
+		return
+	}
 	if st.Tool == agtools.Show && st.Status != Failed && d.figure(st, ref, indent) {
 		return
 	}
@@ -2148,11 +2171,12 @@ func (d *drawer) step(st *Step, depth int) {
 	d.cards(st, indent+2)
 	d.denial(st, indent+2)
 	// A subagent shows its own steps while it works, or when opened: only
-	// its latest few until it's opened, as its runs go long.
-	if len(st.Children) > 0 && (st.Status == Running || open) {
+	// its latest few until it's opened, as its runs go long. The agents a
+	// command ran show always, every one.
+	if len(st.Children) > 0 && (st.Status == Running || st.runLive || open || st.fan) {
 		kids := st.Children
 		// Open only for being the latest step isn't opened.
-		if !d.o.Verbose && !d.o.Open[ref] && len(kids) > spawnShown {
+		if !d.o.Verbose && !d.o.Open[ref] && !st.fan && len(kids) > spawnShown {
 			d.add("", "", d.spine()+strings.Repeat(" ", indent+3)+faint(fmt.Sprintf("⋯ %s before", plural(len(kids)-spawnShown, "step"))), "")
 			kids = kids[len(kids)-spawnShown:]
 		}
@@ -2193,8 +2217,12 @@ func (d *drawer) cells(st *Step) string {
 			parts = append(parts, paint(cRed, fmt.Sprintf("exit %d", st.Exit)))
 		}
 	}
+	end := st.End
+	if st.runEnd.After(end) {
+		end = st.runEnd
+	}
 	switch {
-	case st.Status == Running && !st.Start.IsZero():
+	case (st.Status == Running || st.runLive) && !st.Start.IsZero():
 		if p := st.runningPart(); p != "" {
 			parts = append(parts, paint(cSub, p))
 		}
@@ -2205,8 +2233,8 @@ func (d *drawer) cells(st *Step) string {
 			ran += faint(" since " + st.Start.Local().Format("15:04"))
 		}
 		parts = append(parts, ran)
-	case !st.End.IsZero() && !st.Start.IsZero() && st.End.Sub(st.Start) >= 100*time.Millisecond:
-		parts = append(parts, took(st.End.Sub(st.Start)))
+	case !end.IsZero() && !st.Start.IsZero() && end.Sub(st.Start) >= 100*time.Millisecond:
+		parts = append(parts, took(end.Sub(st.Start)))
 	}
 	return strings.Join(parts, faint(" · "))
 }
@@ -2262,6 +2290,8 @@ func agentName(st *Step) string {
 
 func glyphFor(st *Step) string {
 	switch {
+	case st.ranAgents():
+		return "⇉"
 	case st.kind() == tool.Shell:
 		return "$"
 	case st.kind() == tool.Edit || st.kind() == tool.Write || st.kind() == tool.Notebook || st.kind() == tool.Delete || st.kind() == tool.Move:
@@ -2335,8 +2365,12 @@ func (d *drawer) label(st *Step) string {
 	lbl := func(s string) string { return paint(base, s) }
 	switch {
 	case st.kind() == tool.Shell:
-		if sp, ok := st.Spawn(); ok {
-			return spawnLabel(sp, oneLine(x.Description), lbl)
+		if st.run != nil {
+			return spawnLabel(*st.run, oneLine(x.Description), lbl)
+		}
+		// Several agents it ran are rows of their own, under what it's for.
+		if st.fan {
+			return glyphColor("⇉") + " " + lbl(firstNonEmpty(oneLine(x.Description), "ran agents"))
 		}
 		cmd := x.Command
 		// What the command is for reads faster than the command; the command
@@ -2654,7 +2688,10 @@ var (
 )
 
 func (d *drawer) summary(st *Step) string {
-	if _, ok := st.Spawn(); ok || st.child != nil {
+	if st.fan {
+		return faint(plural(len(st.Children), "agent"))
+	}
+	if st.run != nil {
 		if n := len(st.Children); n > 0 {
 			return faint(plural(n, "step"))
 		}
@@ -2796,8 +2833,12 @@ func (d *drawer) body(st *Step, indent int) {
 		return
 	}
 	// Any subagent's body is what it said back: a shell-run agent's too.
-	if _, ok := st.Spawn(); ok || st.child != nil {
+	// The agents a command ran are its body, bar in verbose mode.
+	switch {
+	case st.run != nil:
 		d.output(reply(st), indent, st.Status == Failed)
+		return
+	case st.fan && !d.o.Verbose:
 		return
 	}
 	switch v, _ := d.viewOf(st, ref); {

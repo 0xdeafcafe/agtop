@@ -71,11 +71,19 @@ type Step struct {
 	// furthest of them seen.
 	parts map[int]*partRun
 	at    int
-	// The agent the command ran, as of an input spawnAt-1 long, and the
-	// session it wrote, once found.
+	// The agent the command reads as running, as of an input spawnAt-1
+	// long: a hint, until SetChildren says what it ran.
 	spawn   *Spawn
 	spawnAt int
+	// run is the one agent it ran, found, whose session is child; fan is
+	// several, each a step of Children. runLive is while any still works,
+	// runEnd when the last stopped, ranVer how often they were set.
+	run     *Spawn
 	child   *Session
+	fan     bool
+	runLive bool
+	runEnd  time.Time
+	ranVer  int
 	// unit is it as an item of its own, for the unit memo to keep its rows
 	// while the subagent it's under works on.
 	unit []*Item
@@ -162,6 +170,9 @@ type Turn struct {
 	// Command is the command of the shell task that woke it, when it runs
 	// over a line; drawn as a command, not as a message.
 	Command string
+	wokeBy  *Job // the task that woke it, if one did
+	// replied names the agents that task ran, once found: it's their reply.
+	replied string
 	// Streamed counts what Claude has written this turn as it streams
 	// (text, thinking and tool input), for a live token estimate; Thinking
 	// is when the thinking now under way began.
@@ -379,11 +390,8 @@ func (s *Session) turnFor(now time.Time) *Turn {
 	// work, or a replay that starts mid-turn.
 	t := &Turn{N: len(s.Turns) + 1, Live: true, Start: now, steps: map[string]*Step{}}
 	if j := s.woke; j != nil && now.Sub(s.wokeAt) < wakeWindow {
-		t.From, t.Cause = s.wakeFrom(j), firstNonEmpty(j.Label, j.Summary, s.JobCommand(j), j.ID)
-		// A shell task's description is its command, heredoc and all.
-		if k := s.JobKind(j); (k == "shell" || k == "monitor") && strings.Contains(strings.TrimSpace(t.Cause), "\n") {
-			t.Command, t.Cause = strings.TrimSpace(t.Cause), firstLine(t.Cause)
-		}
+		t.wokeBy = j
+		s.wake(t)
 	}
 	s.woke = nil
 	s.Turns = append(s.Turns, t)

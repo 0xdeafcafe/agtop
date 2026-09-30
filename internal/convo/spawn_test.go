@@ -41,6 +41,8 @@ func TestSpawnOf(t *testing.T) {
 		{cmd: "cat > run.sh <<'EOF'\nclaude -p \"hi\"\nEOF\nchmod +x run.sh"},
 		{cmd: `ps -ax | grep 'claude -p'`},
 		{cmd: `claude --version`},
+		{cmd: codexCheck},
+		{cmd: `claude -p --help`},
 		{cmd: `claude mcp list`},
 		{cmd: `codex login`},
 		{cmd: `codex "interactive"`},
@@ -84,7 +86,7 @@ func TestSpawnRow(t *testing.T) {
 	if len(st) != 1 {
 		t.Fatalf("spawns: %d", len(st))
 	}
-	s.SetChild(st[0], child)
+	s.SetChildren(st[0], []Child{{ID: "c", Sess: child}})
 	out := plain(s.Render(Options{Width: 100, Now: at(9)}))
 	for _, want := range []string{"Codex  review the diff for races", "6 steps", "⋯ 2 steps before", "c.go", "f.go"} {
 		if !strings.Contains(out, want) {
@@ -106,7 +108,7 @@ func TestSpawnReplies(t *testing.T) {
 	child := New()
 	child.Apply(host.Sent{Text: "review the diff for races"}, at(1))
 	child.Apply(say("No races found."), at(4))
-	s.SetChild(s.Spawns()[0], child)
+	s.SetChildren(s.Spawns()[0], []Child{{ID: "c", Sess: child}})
 	out := plain(s.Render(Options{Width: 100, Now: at(9), Verbose: true}))
 	if !strings.Contains(out, "No races found.") || strings.Contains(out, "$ codex exec") || strings.Contains(out, "workdir") {
 		t.Errorf("the reply isn't its body:\n%s", out)
@@ -127,5 +129,21 @@ func TestHarnessChildSpawn(t *testing.T) {
 	}
 	if sp, _ := st[0].Spawn(); sp.Child != "trace_bug" || sp.Prompt != "trace_bug" {
 		t.Errorf("spawn %+v", sp)
+	}
+}
+
+// codexCheck only asks codex about itself: a help or version flag anywhere
+// in an agent's arguments is no run of it.
+const codexCheck = "command -v codex; codex --version; codex exec --help | head -40; grep model ~/.codex/config.toml"
+
+// Nor, with no agent found, does it draw as one: it's the shell step it is.
+func TestCheckIsAShellStep(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "is codex set up?"}, at(0))
+	s.Apply(toolUse("b1", "Bash", map[string]any{"command": codexCheck, "description": "Check codex CLI and the astra model"}), at(1))
+	s.Apply(toolResult("b1", "/usr/local/bin/codex\ncodex-cli 0.1", false, nil), at(2))
+	out := plain(s.Render(Options{Width: 100, Now: at(3)}))
+	if strings.Contains(out, "⇉") || !strings.Contains(out, "$ Check codex CLI and the astra model") {
+		t.Errorf("drawn as an agent:\n%s", out)
 	}
 }

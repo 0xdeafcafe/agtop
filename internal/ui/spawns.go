@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"cmp"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -15,24 +19,29 @@ import (
 )
 
 // An agent a session ran from its shell (claude -p, codex exec) wrote a
-// session of its own. rush finds it (by when it started, where, and what
-// it was asked), draws its steps under the command's row, and lists it
-// with the session's subagents.
+// session of its own. rush links it to the step that ran it by evidence:
+// a session rush hosted for this one's shell, begun while the step ran;
+// else, for one rush didn't host, a transcript begun then, asked what the
+// command asks. It draws under the step's row, listed with the subagents.
 
 // spawnPrefix marks a spawned agent among the subagent runs.
 const spawnPrefix = "spawn:"
 
-// spawnEvery is how often a spawned agent not yet found is looked for, and
-// spawnGrace how long after its command ended it still may be.
+// spawnEvery is how often spawned agents are looked for, spawnGrace how
+// long after its command ended a step may still have started one, and
+// spawnSlop how far clocks may disagree on when one began.
 const (
 	spawnEvery = 2 * time.Second
 	spawnGrace = 10 * time.Second
+	spawnSlop  = 3 * time.Second
 )
 
-// spawnRun is a spawned agent's session, once found, and how it's read.
+// spawnRun is a spawned agent's session, once found, and how it's read;
+// until then, a step whose command reads as running one, looked for.
 type spawnRun struct {
+	step   string      // the step that ran it
+	sp     convo.Spawn // who it is and what it was asked
 	kind   agent.Kind
-	prompt string
 	path   string      // its transcript
 	tail   *convo.Tail // Claude Code's, read as it grows
 	hist   *history    // another agent's, read again when it changes
@@ -41,8 +50,10 @@ type spawnRun struct {
 	mod    time.Time // when what it wrote was last seen to change
 	looked time.Time // when it was last looked for, while not found
 	lost   bool      // looked for past its command's end, and not found
-	fresh  bool      // its session was just read again, to give its step
+	fresh  bool      // it changed: its step is given it again
 	hosted string    // the rush session it runs as, when rush hosts it
+	live   bool      // a hosted one's host says it still runs
+	drawn  bool      // as live as its step last drew it
 }
 
 // view is the spawned agent's conversation as a Tail, for the subagent
@@ -54,15 +65,26 @@ func (r *spawnRun) view() *convo.Tail {
 	return &convo.Tail{Sess: r.sess}
 }
 
-// spawnFoundMsg brings the sessions of spawned agents looked for in the
-// background, by the step that ran each; an empty path is one not found.
+// spawnFoundMsg brings the spawned agents looked for in the background:
+// those found by their transcripts, by the step that ran each, and the
+// sessions rush hosted for this one's shell.
 type spawnFoundMsg struct {
 	key    string
 	found  map[string]agent.Session
-	hosted map[string]string // the rush sessions of those rush hosts
+	hosted []hostedRun
+	live   map[string]bool // every hosted one's, by its rush session
+	at     time.Time       // when the hosted ones were listed, if they were
 }
 
-// spawnWant is a spawned agent to look for.
+// hostedRun is a session rush hosted for the session's shell.
+type hostedRun struct {
+	id   string
+	sp   convo.Spawn
+	s    agent.Session
+	live bool
+}
+
+// spawnWant is a spawned agent to look for by its transcript.
 type spawnWant struct {
 	step       string
 	sp         convo.Spawn
@@ -72,37 +94,47 @@ type spawnWant struct {
 }
 
 // refreshSpawns follows the agents the session's shell ran: those found
-// are read as they grow and drawn under their rows; those not yet found
-// are looked for in the background.
+// are read as they grow and drawn under their rows; the rest are looked
+// for in the background.
 func (m *Model) refreshSpawns() tea.Cmd {
 	c := m.host
-	if c == nil || c.sess == nil {
-		return nil
-	}
-	steps := c.sess.Spawns()
-	if len(steps) == 0 {
+	if c == nil || c.sess == nil || c.spawnLooking {
 		return nil
 	}
 	if c.spawns == nil {
 		c.spawns = map[string]*spawnRun{}
 	}
 	now := time.Now()
-	var want []spawnWant
-	taken := map[string]bool{}
-	for _, r := range c.spawns {
-		taken[r.path] = true
+	// Those rush hosted are listed while a step may yet have started one
+	// since the last look, or one of them works on.
+	hosted := false
+	if c.id != "" && now.Sub(c.hostedAt) >= spawnEvery {
+		hosted = c.hostedAt.IsZero()
+		for _, w := range c.sess.Windows(now, spawnGrace) {
+			hosted = hosted || w.To.After(c.hostedAt)
+		}
+		for _, r := range c.spawns {
+			hosted = hosted || r.live
+		}
 	}
-	for _, st := range steps {
+	var want []spawnWant
+	taken, known, has := map[string]bool{}, maps.Clone(c.hostNone), map[string]bool{}
+	if known == nil {
+		known = map[string]bool{}
+	}
+	for _, r := range c.spawns {
+		if r.path != "" {
+			taken[r.path], known[r.hosted], has[r.step] = true, true, true
+		}
+	}
+	for _, st := range c.sess.Spawns() {
 		r := c.spawns[st.ID]
 		if r == nil {
-			r = &spawnRun{}
+			r = &spawnRun{step: st.ID}
 			c.spawns[st.ID] = r
 		}
-		if r.path != "" {
-			continue // read with the pane's transcripts: refreshSubs
-		}
-		if r.lost || c.spawnLooking || now.Sub(r.looked) < spawnEvery {
-			continue
+		if has[st.ID] || r.lost || now.Sub(r.looked) < spawnEvery {
+			continue // one found is read with the pane's transcripts: refreshSubs
 		}
 		// One whose command has ended is looked for until a while after,
 		// and at least once: a past conversation's are looked for as it opens.
@@ -119,70 +151,195 @@ func (m *Model) refreshSpawns() tea.Cmd {
 		sp := c.spawnOf(st)
 		want = append(want, spawnWant{step: st.ID, sp: sp, dir: m.spawnDir(c, sp), parent: c.sessionID(), start: st.Start, end: end})
 	}
-	if len(want) == 0 {
+	if len(want) == 0 && !hosted {
 		return nil
 	}
 	c.spawnLooking = true
-	key := c.key
+	key, parent, list := c.key, c.id, &c.hostList
 	var mine []agent.Profile // the session's own profile, where its spawns likely wrote
 	if a := m.agentByKey(c.key); a != nil {
 		mine = append(mine, a.Acct)
 	}
 	own := c.path
 	return func() tea.Msg {
-		found, hosted := map[string]agent.Session{}, map[string]string{}
+		msg := spawnFoundMsg{key: key, found: map[string]agent.Session{}}
+		if hosted {
+			msg.hosted, msg.live = hostedRuns(list, parent, known)
+			msg.at = now
+			for _, h := range msg.hosted {
+				taken[h.s.Transcript] = true
+			}
+		}
 		for _, w := range want {
 			if s, ok := findSpawn(w, mine, own, taken); ok {
-				found[w.step] = s
+				msg.found[w.step] = s
 				taken[s.Transcript] = true
 			}
 		}
-		// Run through rush's stand-in, it's a rush session: what you
-		// type while you watch it goes to it.
-		if len(found) > 0 {
-			infos := host.List()
-			for i := range infos {
-				for step := range found {
-					if infos[i].SessionID == found[step].ID && infos[i].Meta["spawnedBy"] != "" {
-						hosted[step] = infos[i].ID
-					}
-				}
-			}
-		}
-		return spawnFoundMsg{key: key, found: found, hosted: hosted}
+		return msg
 	}
 }
 
-// onSpawnFound takes in the spawned agents found, and reads each.
+// hostedRuns are the sessions rush hosted for parent's shell not known yet,
+// each with the session its agent writes once it has one, and whether
+// each of them all still runs.
+func hostedRuns(list *host.Lister, parent string, known map[string]bool) (out []hostedRun, live map[string]bool) {
+	live = map[string]bool{}
+	for _, in := range list.List() {
+		if in.Meta["spawnedBy"] != parent {
+			continue
+		}
+		live[in.ID] = in.State != "stopped"
+		if known[in.ID] || in.SessionID == "" || in.StartedAt.IsZero() {
+			continue
+		}
+		cfg, err := host.ReadConfig(in.ID)
+		if err != nil {
+			continue
+		}
+		k := agent.Kind(firstNonEmpty(cfg.Kind, in.Kind, string(agent.LegacyKind)))
+		s, ok := hostedSession(k, cfg, in)
+		if !ok {
+			continue
+		}
+		sp := convo.Spawn{Kind: k, Name: string(k), Prompt: cfg.Prompt, Model: firstNonEmpty(cfg.Model, in.Model), Dir: cfg.Cwd}
+		if a, ok := agent.Get(k); ok {
+			sp.Name = a.Name()
+		}
+		out = append(out, hostedRun{id: in.ID, sp: sp, s: s, live: live[in.ID]})
+	}
+	return out, live
+}
+
+// hostedSession is the session a hosted run's agent writes: where its
+// agent keeps session in's, or else where its own list has it.
+func hostedSession(k agent.Kind, cfg host.Config, in host.Info) (agent.Session, bool) {
+	s := agent.Session{Kind: k, Profile: cfg.Account, ID: in.SessionID, Name: cfg.Prompt, Cwd: cfg.Cwd, CreatedAt: in.StartedAt}
+	s.Transcript = agent.TranscriptPath(k, cfg.Account, cfg.Cwd, in.SessionID)
+	if s.Transcript == "" && agent.ReadsAsClaude(k) {
+		s.Transcript = agent.TranscriptPath(agent.LegacyKind, cfg.Account, cfg.Cwd, in.SessionID)
+	}
+	if s.Transcript != "" {
+		return s, true
+	}
+	a, ok := agent.Get(k)
+	d, isD := a.(agent.Discoverer)
+	if !ok || !isD {
+		return s, false
+	}
+	for _, p := range append([]agent.Profile{cfg.Account}, a.Profiles()...) {
+		for _, f := range append(d.Live(p), d.Past(p)...) {
+			if f.ID == in.SessionID && f.Transcript != "" {
+				f.CreatedAt = in.StartedAt
+				return f, true
+			}
+		}
+	}
+	return s, false
+}
+
+// claim is the step that ran a session of kind k begun at at: of the shell
+// steps whose window holds it, the one whose command names its program,
+// else the latest to start before it; "" when no window holds it.
+func claim(wins []convo.Window, k agent.Kind, at time.Time) string {
+	prog := agent.ProgramOf(k)
+	best, named := "", false
+	var from time.Time
+	for _, w := range wins {
+		if at.Before(w.From.Add(-spawnSlop)) || at.After(w.To) {
+			continue
+		}
+		n := prog != "" && names(w.Command, prog)
+		if best == "" || n && !named || n == named && w.From.After(from) {
+			best, named, from = w.Step, n, w.From
+		}
+	}
+	return best
+}
+
+// names is whether cmd has prog as a word of its own: a path to it too.
+func names(cmd, prog string) bool {
+	return slices.Contains(strings.FieldsFunc(cmd, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("-_.", r)
+	}), prog)
+}
+
+// onSpawnFound takes in the spawned agents found, and reads each: a hosted
+// one under the step whose window holds it, one no window holds under none.
 func (m *Model) onSpawnFound(msg spawnFoundMsg) {
 	c := m.host
 	if c == nil || c.key != msg.key {
 		return
 	}
 	c.spawnLooking = false
-	for id, s := range msg.found {
-		r, st := c.spawns[id], c.sess.Step(id)
-		if r == nil || st == nil || r.path != "" {
-			continue
-		}
-		sp := c.spawnOf(st)
-		r.kind, r.prompt, r.path, r.born, r.hosted = s.Kind, sp.Prompt, s.Transcript, s.CreatedAt, msg.hosted[id]
-		if agent.ReadsAsClaude(s.Kind) {
-			r.tail = convo.NewTail(s.Transcript)
-		} else {
-			r.hist = &history{kind: s.Kind, s: s}
-		}
-		c.paneKick = true // read it now, in the background
-		if m.loader != nil && len(s.ID) >= 8 && s.Profile.Name != "" {
-			// Its row is listed with this session's from now on.
-			m.loader.LinkSpawn(state.Key(s.Profile.Name, "i:"+s.ID[:8]), c.key)
+	if !msg.at.IsZero() {
+		c.hostedAt = msg.at
+	}
+	for _, r := range c.spawns {
+		if live, ok := msg.live[r.hosted]; ok && r.hosted != "" && live != r.live {
+			r.live, r.fresh = live, true
 		}
 	}
+	var wins []convo.Window
+	if len(msg.hosted) > 0 {
+		wins = c.sess.Windows(time.Now(), spawnGrace)
+	}
+	for _, h := range msg.hosted {
+		// Found by its transcript already, it's hosted: what you type goes to it.
+		if r := c.runAt(h.s.Transcript); r != nil {
+			r.hosted, r.live, r.fresh = h.id, h.live, true
+			continue
+		}
+		step := claim(wins, h.sp.Kind, h.s.CreatedAt)
+		if step == "" {
+			// Begun outside every window, it stays so: no later step holds it.
+			if c.hostNone == nil {
+				c.hostNone = map[string]bool{}
+			}
+			c.hostNone[h.id] = true
+			continue
+		}
+		m.followSpawn(c, h.id, &spawnRun{step: step, sp: h.sp, hosted: h.id, live: h.live}, h.s)
+	}
+	for id, s := range msg.found {
+		r, st := c.spawns[id], c.sess.Step(id)
+		if r == nil || st == nil || r.path != "" || c.runAt(s.Transcript) != nil {
+			continue
+		}
+		r.step, r.sp = id, c.spawnOf(st)
+		m.followSpawn(c, id, r, s)
+	}
+}
+
+// followSpawn reads r, found as session s, from now on.
+func (m *Model) followSpawn(c *hostConn, id string, r *spawnRun, s agent.Session) {
+	r.kind, r.path, r.born = s.Kind, s.Transcript, s.CreatedAt
+	if agent.ReadsAsClaude(s.Kind) {
+		r.tail = convo.NewTail(s.Transcript)
+	} else {
+		r.hist = &history{kind: s.Kind, s: s}
+	}
+	c.spawns[id] = r
+	c.paneKick = true // read it now, in the background
+	if m.loader != nil && len(s.ID) >= 8 && s.Profile.Name != "" {
+		// Its row is listed with this session's from now on.
+		m.loader.LinkSpawn(state.Key(s.Profile.Name, "i:"+s.ID[:8]), c.key)
+	}
+}
+
+// runAt is the spawned agent found whose transcript is path, or nil.
+func (c *hostConn) runAt(path string) *spawnRun {
+	for _, r := range c.spawns {
+		if r.path != "" && r.path == path {
+			return r
+		}
+	}
+	return nil
 }
 
 // takeSpawns takes in what the found agents the shell ran have written,
 // read by refreshSubs (grew are the tails that took in something), and
-// draws each under its row when anything has.
+// gives each step its agents again when any of them changed.
 func (m *Model) takeSpawns(c *hostConn, grew map[*convo.Tail]bool, hists []spawnHist) {
 	for _, sh := range hists {
 		if sh.sess != nil {
@@ -190,9 +347,9 @@ func (m *Model) takeSpawns(c *hostConn, grew map[*convo.Tail]bool, hists []spawn
 			sh.r.fresh = true
 		}
 	}
-	for _, st := range c.sess.Spawns() {
-		r := c.spawns[st.ID]
-		if r == nil || r.path == "" {
+	again := map[string]bool{}
+	for _, r := range c.spawns {
+		if r.path == "" {
 			continue
 		}
 		changed := r.fresh
@@ -204,10 +361,41 @@ func (m *Model) takeSpawns(c *hostConn, grew map[*convo.Tail]bool, hists []spawn
 		if changed {
 			r.mod = time.Now()
 		}
-		if r.sess != nil && (changed || st.Child() != r.sess) {
-			c.sess.SetChild(st, r.sess)
+		live := c.runLive(r)
+		if r.sess != nil && (changed || live != r.drawn || c.spawnsOn != c.sess) {
+			again[r.step], r.drawn = true, live
 		}
 	}
+	c.spawnsOn = c.sess
+	for id := range again {
+		if st := c.sess.Step(id); st != nil {
+			c.sess.SetChildren(st, c.children(id))
+		}
+	}
+}
+
+// children are the agents step ran, found and read, as they began.
+func (c *hostConn) children(step string) []convo.Child {
+	var kids []convo.Child
+	for id, r := range c.spawns {
+		if r.step == step && r.path != "" && r.sess != nil {
+			kids = append(kids, convo.Child{ID: id, Spawn: r.sp, Sess: r.sess, Live: c.runLive(r), Start: r.born})
+		}
+	}
+	slices.SortFunc(kids, func(a, b convo.Child) int {
+		return cmp.Or(a.Start.Compare(b.Start), strings.Compare(a.ID, b.ID))
+	})
+	return kids
+}
+
+// runLive is whether a spawned agent works on: a hosted one as its host
+// says, else while the command that ran it, or its background shell, does.
+func (c *hostConn) runLive(r *spawnRun) bool {
+	if r.hosted != "" {
+		return r.live
+	}
+	_, live := c.stepState(r.step)
+	return live
 }
 
 // spawnDir is where a spawned agent ran: the folder its command went to,
@@ -307,8 +495,12 @@ func sameDir(a, b string) bool {
 // spawnJob is whether j is the shell of a spawned agent rush has found:
 // it's listed with the subagents, not as a background command.
 func (c *hostConn) spawnJob(j *convo.Job) bool {
-	r := c.spawns[j.ToolUseID]
-	return r != nil && r.path != ""
+	for _, r := range c.spawns {
+		if r.step == j.ToolUseID && r.path != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // jobKind is what task j is, as the pane shows it: a found spawned
@@ -320,17 +512,15 @@ func (c *hostConn) jobKind(j *convo.Job) string {
 	return c.sess.JobKind(j)
 }
 
-// spawnSubs are the spawned agents found, as subagent runs.
+// spawnSubs are the spawned agents found, as subagent runs, as they began.
 func (c *hostConn) spawnSubs() []convo.Subagent {
 	var out []convo.Subagent
-	for _, st := range c.sess.Spawns() {
-		r := c.spawns[st.ID]
-		if r == nil || r.path == "" {
+	for id, r := range c.spawns {
+		if r.path == "" {
 			continue
 		}
-		sp := c.spawnOf(st)
-		sa := convo.Subagent{ID: spawnPrefix + st.ID, Type: sp.Name, Description: firstNonEmpty(oneLineUI(sp.Prompt), sp.From),
-			Model: sp.Model, ToolUseID: st.ID, Path: r.path, Born: r.born.UnixNano()}
+		sa := convo.Subagent{ID: spawnPrefix + id, Type: r.sp.Name, Description: firstNonEmpty(oneLineUI(r.sp.Prompt), r.sp.From),
+			Model: r.sp.Model, ToolUseID: r.step, Path: r.path, Born: r.born.UnixNano()}
 		if !r.mod.IsZero() {
 			sa.Mod = r.mod.UnixNano() // noticed as it was read, not asked of the disk
 		}
@@ -339,14 +529,35 @@ func (c *hostConn) spawnSubs() []convo.Subagent {
 		}
 		out = append(out, sa)
 	}
+	slices.SortFunc(out, func(a, b convo.Subagent) int { return cmp.Or(cmp.Compare(a.Born, b.Born), strings.Compare(a.ID, b.ID)) })
 	return out
 }
 
-// spawnState is how a spawned agent stands: its command still running, or
-// its background shell; else how the command ended.
+// subOfStep is whether sa is the run the conversation's step id draws: a
+// subagent's call, or one of the agents a command ran (step/run when it
+// ran several, each a row of its own).
+func (c *hostConn) subOfStep(sa convo.Subagent, id string) bool {
+	run, ok := strings.CutPrefix(sa.ID, spawnPrefix)
+	if step, kid, fan := strings.Cut(id, "/"); ok && fan {
+		return sa.ToolUseID == step && run == kid
+	}
+	return sa.ToolUseID == id && (!ok || len(c.children(id)) <= 1)
+}
+
+// spawnState is how a spawned agent stands: a hosted one as its host
+// says; else as the command that ran it, or its background shell, does.
 func (c *hostConn) spawnState(sa convo.Subagent) (status string, live bool) {
+	if r := c.spawns[strings.TrimPrefix(sa.ID, spawnPrefix)]; r != nil && r.hosted != "" {
+		return "", r.live
+	}
+	return c.stepState(sa.ToolUseID)
+}
+
+// stepState is how the command step id ran stands: still running, or its
+// background shell; else how it ended.
+func (c *hostConn) stepState(id string) (status string, live bool) {
 	for _, j := range c.sess.Jobs() {
-		if j.ToolUseID == sa.ToolUseID {
+		if j.ToolUseID == id {
 			if j.Running() {
 				return "", true
 			}
@@ -355,7 +566,7 @@ func (c *hostConn) spawnState(sa convo.Subagent) (status string, live bool) {
 			}
 		}
 	}
-	st := c.sess.Step(sa.ToolUseID)
+	st := c.sess.Step(id)
 	switch {
 	case st == nil:
 		return "", false

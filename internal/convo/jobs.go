@@ -325,15 +325,35 @@ func (s *Session) noteWake(j *Job, now time.Time) {
 	s.woke, s.wokeAt = j, now
 }
 
+// wake says who started t, a turn its task woke: the task, or the agents a
+// shell task ran, once they're found, as a subagent's report back.
+func (s *Session) wake(t *Turn) {
+	j := t.wokeBy
+	t.From, t.Cause, t.Command, t.replied = s.wakeFrom(j), firstNonEmpty(j.Label, j.Summary, s.JobCommand(j), j.ID), "", ""
+	if st := s.byID[j.ToolUseID]; st != nil && st.ranAgents() {
+		t.Cause, t.replied = firstNonEmpty(oneLine(st.in().Description), st.agentsAsked()), st.agentNames()
+	} else if k := s.JobKind(j); (k == "shell" || k == "monitor") && strings.Contains(strings.TrimSpace(t.Cause), "\n") {
+		// A shell task's description is its command, heredoc and all.
+		t.Command, t.Cause = strings.TrimSpace(t.Cause), firstLine(t.Cause)
+	}
+	t.touch()
+}
+
 // wakeFrom is who started a turn a task woke: "background shell ·
 // completed", "monitor · fired".
 func (s *Session) wakeFrom(j *Job) string {
 	kind := s.JobKind(j)
+	if st := s.byID[j.ToolUseID]; st != nil && st.ranAgents() {
+		kind = "subagent"
+		if st.fan {
+			kind = "subagents"
+		}
+	}
 	if kind == "monitor" && j.Running() {
 		return "monitor · fired"
 	}
 	from := kind
-	if kind == "shell" || kind == "subagent" || kind == "workflow" {
+	if kind == "shell" || strings.HasPrefix(kind, "subagent") || kind == "workflow" {
 		from = "background " + kind
 	}
 	if j.Status != "" {

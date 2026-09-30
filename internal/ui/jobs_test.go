@@ -325,7 +325,7 @@ func TestSpawnedJobIsASubagent(t *testing.T) {
 	if !s.JobRunning("t1") || c.jobKind(j) != "shell" || len(c.dockJobs()) != 1 {
 		t.Fatalf("not found yet, it's the shell it is: %q", c.jobKind(j))
 	}
-	c.spawns = map[string]*spawnRun{"t1": {path: "/tmp/rollout.jsonl"}}
+	c.spawns = map[string]*spawnRun{"t1": {step: "t1", path: "/tmp/rollout.jsonl"}}
 	if c.jobKind(j) != "subagent" || len(c.dockJobs()) != 0 {
 		t.Fatalf("found, it's a subagent: %q, %d in the dock", c.jobKind(j), len(c.dockJobs()))
 	}
