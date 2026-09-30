@@ -789,6 +789,9 @@ func (m *Model) submit() tea.Cmd {
 	if cmd, ok := m.sendMentioned(text, tagged); ok {
 		return cmd
 	}
+	if to := m.mentionsIn(text); len(to) > 0 && !isHashCmd(text) {
+		return m.replyTo(to[0], text, tagged) // tagged later in the message: it goes to them all the same
+	}
 	if isHashCmd(text) {
 		return m.command(a, text)
 	}

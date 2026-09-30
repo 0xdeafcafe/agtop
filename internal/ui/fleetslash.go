@@ -277,6 +277,16 @@ func (m *Model) fleetSlashKey(s string) (tea.Cmd, bool) {
 	switch s {
 	case "up", "down":
 		m.slashSel = pickerMove(m.slashSel, len(cmds), s)
+	case "tab", "enter":
+		if lead != "@" {
+			break
+		}
+		m.input, m.back = completeMention(m.input, m.back, pick.Name)
+		m.slashSel = 0
+		return nil, true
+	}
+	switch s {
+	case "up", "down":
 	case "tab":
 		m.input, m.back, m.slashSel = completed(lead, pick, true), 0, 0
 	case "enter":
@@ -305,6 +315,16 @@ func (m *Model) paneHashKey(c *hostConn, s string) (tea.Cmd, bool) {
 	switch s {
 	case "up", "down":
 		c.slashSel = pickerMove(c.slashSel, len(cmds), s)
+	case "tab", "enter":
+		if lead != "@" {
+			break
+		}
+		c.input, c.back = completeMention(c.input, c.back, pick.Name)
+		c.slashSel = 0
+		return nil, true
+	}
+	switch s {
+	case "up", "down":
 	case "tab":
 		c.input, c.back, c.slashSel = completed(lead, pick, true), 0, 0
 	case "enter":

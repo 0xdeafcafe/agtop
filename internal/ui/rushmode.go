@@ -3322,6 +3322,7 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	m.keepSent(c, text)
+	text = m.withMentions(text, c.key)
 	sa, relay := m.relaySub(c)
 	if relay && len(images) == 0 && c.sess.Info.Inbox {
 		// Into its own queue, or with ctrl+enter straight in at its next
