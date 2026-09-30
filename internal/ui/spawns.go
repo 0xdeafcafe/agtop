@@ -261,15 +261,17 @@ func claim(wins []convo.Window, k agent.Kind, at time.Time, subBusy bool) string
 	return best
 }
 
-// subBusy is whether one of c's own subagents was at work at at.
-func (c *hostConn) subBusy(at time.Time) bool {
+// subAt is the step of c's own subagent at work at at, when there's one,
+// and how many were: a run begun then with no step naming it is likely
+// that subagent's (a relay to another agent is), whose shell is c's too.
+func (c *hostConn) subAt(at time.Time) (step string, n int) {
 	t := at.UnixNano()
 	for _, sa := range c.subs {
 		if !strings.HasPrefix(sa.ID, spawnPrefix) && sa.Born <= t+int64(spawnSlop) && t <= sa.Mod+int64(spawnGrace) {
-			return true
+			step, n = sa.ToolUseID, n+1
 		}
 	}
-	return false
+	return step, n
 }
 
 // names is whether cmd has prog as a word of its own: a path to it too.
@@ -305,7 +307,11 @@ func (m *Model) onSpawnFound(msg spawnFoundMsg) {
 			r.hosted, r.live, r.fresh = h.id, h.live, true
 			continue
 		}
-		step := claim(wins, h.sp.Kind, h.s.CreatedAt, c.subBusy(h.s.CreatedAt))
+		sub, subs := c.subAt(h.s.CreatedAt)
+		step := claim(wins, h.sp.Kind, h.s.CreatedAt, subs > 0)
+		if step == "" && subs == 1 && c.sess.Step(sub) != nil {
+			step = sub // under the subagent that ran it
+		}
 		if step == "" {
 			// Begun outside every window, it stays so: no later step holds it.
 			if c.hostNone == nil {
