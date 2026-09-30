@@ -240,8 +240,9 @@ func hostedSession(k agent.Kind, cfg host.Config, in host.Info) (agent.Session, 
 
 // claim is the step that ran a session of kind k begun at at: of the shell
 // steps whose window holds it, the one whose command names its program,
-// else the latest to start before it; "" when no window holds it.
-func claim(wins []convo.Window, k agent.Kind, at time.Time) string {
+// else the latest to start before it; "" when no window holds it, or none
+// names it while a subagent (whose shell is the session's too) works.
+func claim(wins []convo.Window, k agent.Kind, at time.Time, subBusy bool) string {
 	prog := agent.ProgramOf(k)
 	best, named := "", false
 	var from time.Time
@@ -254,7 +255,21 @@ func claim(wins []convo.Window, k agent.Kind, at time.Time) string {
 			best, named, from = w.Step, n, w.From
 		}
 	}
+	if !named && subBusy {
+		return ""
+	}
 	return best
+}
+
+// subBusy is whether one of c's own subagents was at work at at.
+func (c *hostConn) subBusy(at time.Time) bool {
+	t := at.UnixNano()
+	for _, sa := range c.subs {
+		if !strings.HasPrefix(sa.ID, spawnPrefix) && sa.Born <= t+int64(spawnSlop) && t <= sa.Mod+int64(spawnGrace) {
+			return true
+		}
+	}
+	return false
 }
 
 // names is whether cmd has prog as a word of its own: a path to it too.
@@ -290,7 +305,7 @@ func (m *Model) onSpawnFound(msg spawnFoundMsg) {
 			r.hosted, r.live, r.fresh = h.id, h.live, true
 			continue
 		}
-		step := claim(wins, h.sp.Kind, h.s.CreatedAt)
+		step := claim(wins, h.sp.Kind, h.s.CreatedAt, c.subBusy(h.s.CreatedAt))
 		if step == "" {
 			// Begun outside every window, it stays so: no later step holds it.
 			if c.hostNone == nil {

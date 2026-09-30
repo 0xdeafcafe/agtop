@@ -35,6 +35,9 @@ func (m *Model) Frame(w, h int, keys ...tea.KeyPressMsg) string {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
+		// The agents its shell ran, found and read as the ticks would.
+		m.drain(m.refreshSpawns())
+		m.drain(m.refreshSubs())
 	}
 	for _, k := range keys {
 		if cmd := m.key(k); cmd != nil {
@@ -105,5 +108,7 @@ func (m *Model) drain(cmd tea.Cmd) {
 		m.drain(m.onReplay(msg))
 	case applyMsg:
 		m.drain(msg.applyTo(m))
+	case spawnFoundMsg:
+		m.onSpawnFound(msg)
 	}
 }

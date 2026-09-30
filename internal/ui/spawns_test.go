@@ -189,7 +189,7 @@ func TestFanOutFollowed(t *testing.T) {
 func TestClaimOutsideWindows(t *testing.T) {
 	at := time.Now()
 	wins := []convo.Window{{Step: "a", Command: "claude -p hi", From: at.Add(-time.Hour), To: at.Add(-50 * time.Minute)}}
-	if got := claim(wins, "claude", at); got != "" {
+	if got := claim(wins, "claude", at, false); got != "" {
 		t.Errorf("claimed by %q", got)
 	}
 }
@@ -202,11 +202,15 @@ func TestClaimOverlap(t *testing.T) {
 		{Step: "named", Command: "run() { claude -p \"$1\"; }; run hi &", From: at.Add(-time.Minute), To: at.Add(time.Minute)},
 		{Step: "later", Command: "go test ./...", From: at.Add(-time.Second), To: at.Add(time.Minute)},
 	}
-	if got := claim(wins, "claude", at); got != "named" {
+	if got := claim(wins, "claude", at, false); got != "named" {
 		t.Errorf("claimed by %q, want the one naming claude", got)
 	}
 	wins[0].Command = "make lint"
-	if got := claim(wins, "claude", at); got != "later" {
+	if got := claim(wins, "claude", at, false); got != "later" {
 		t.Errorf("claimed by %q, want the later one", got)
+	}
+	// While a subagent works, one no step names may be its: none claims it.
+	if got := claim(wins, "claude", at, true); got != "" {
+		t.Errorf("claimed by %q while a subagent worked", got)
 	}
 }
