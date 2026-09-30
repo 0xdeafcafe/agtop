@@ -157,6 +157,9 @@ type Config struct {
 	TrimRunningTmp bool `json:"trimRunningTmp,omitzero"`
 	// KeepTranscriptsPlain turns off storing idle transcripts compressed.
 	KeepTranscriptsPlain bool `json:"keepTranscriptsPlain,omitzero"`
+	// SubLine is how bright an agent's second line in the list is: "" in
+	// its state's colour, "dim" or "faint".
+	SubLine string `json:"subLine,omitempty"`
 	// HideLogo drops the bottle from the header, which then takes three
 	// rows instead of five.
 	HideLogo bool `json:"hideLogo,omitzero"`

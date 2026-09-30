@@ -127,6 +127,18 @@ func (m *Model) interfaceSections() []section {
 			convo.SetShowWhitespace(c.ShowWhitespace)
 		})
 
+	subLine := choiceSetting("Second line", firstNonEmpty(c.SubLine, "coloured"),
+		"How bright the line under each agent's name is: what it's doing, or what it last said.",
+		[][2]string{
+			{"coloured", "in its state's colour, as bright as the name."},
+			{"dim", "grey, a step back from the name."},
+			{"faint", "a shade above the ground, there when you look for it."},
+		}, func(v string) {
+			c.SubLine = v
+			if v == "coloured" {
+				c.SubLine = ""
+			}
+		})
 	search := choiceSetting("ctrl+k searches transcripts", map[bool]string{true: "on ctrl+enter", false: "as you type"}[c.SearchTranscriptsOnKey],
 		"What the command bar (ctrl+k) looks through as you type.",
 		[][2]string{
@@ -192,13 +204,13 @@ func (m *Model) interfaceSections() []section {
 				}
 			}))
 	}
-	for _, st := range append([]*setting{&view, &theme, &colours, &logo, &spaces, &group, &split, &sortBy, &stack}, ptrs(cols)...) {
+	for _, st := range append([]*setting{&view, &theme, &colours, &logo, &spaces, &group, &split, &sortBy, &stack, &subLine}, ptrs(cols)...) {
 		st.preview = preview
 	}
 
 	return []section{
 		{title: "Look", rows: []setting{view, theme, colours, logo, spaces}},
-		{title: "Agents list", rows: []setting{group, split, sortBy, stack, enter, search}},
+		{title: "Agents list", rows: []setting{group, split, sortBy, stack, subLine, enter, search}},
 		{title: "Agents list columns", note: "the figures beside each agent", rows: cols},
 		{title: "Message box", rows: []setting{command, copying, escStop}},
 	}

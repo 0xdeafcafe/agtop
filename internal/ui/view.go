@@ -1296,7 +1296,8 @@ func (m *Model) listLines(w, h int) []string {
 		keys = append(keys, key)
 		cont = append(cont, false)
 	}
-	for _, l := range m.lines {
+	tag := "" // a worktree's, beside its one agent's name instead of heading it
+	for i, l := range m.lines {
 		switch l.kind {
 		case lineSection:
 			key := sectionKey(l.title)
@@ -1308,13 +1309,22 @@ func (m *Model) listLines(w, h int) []string {
 			}
 			emit(m.projectLine(l, w), key, false)
 		case lineTree:
+			if two && soloTree(m.lines, i) {
+				tag = m.treeTag(l)
+				continue
+			}
 			emit(m.treeLine(l, w), "", false)
 		case lineBlank:
 			emit("", "", false)
 		case lineAgent:
 			sel := l.agent.Key == m.sel
-			rw, pad := w-l.inset, strings.Repeat(" ", l.inset)
-			emit(pad+m.agentLine(l.agent, rw, w, sel, nameCol-len(pad), two), l.agent.Key, sel)
+			inset := l.inset
+			if tag != "" {
+				inset -= rowInset // under its project, as the heading would have been
+			}
+			rw, pad := w-inset, strings.Repeat(" ", inset)
+			emit(pad+m.agentLine(l.agent, rw, w, sel, nameCol-len(pad), two, tag), l.agent.Key, sel)
+			tag = ""
 			if two {
 				emit(pad+m.agentSub(l.agent, rw), l.agent.Key, sel)
 				cont[len(cont)-1] = true
@@ -1645,9 +1655,9 @@ func (m *Model) stacked(w, nameCol int) bool {
 // agentSub is a stacked row's second line: its summary, or where it works
 // when it has nothing to say, hung from the name above so the two read as one.
 func (m *Model) agentSub(a *fleet.Agent, w int) string {
-	room := w - 6
+	room := w - 5
 	if snip, ok := m.filterSnippet(a, room); ok {
-		return "   " + faint("╰ ") + snip
+		return "  " + faint("╰ ") + snip
 	}
 	summary, col, justDone := m.rowSummary(a)
 	text := paint(col, fit(summary, room))
@@ -1657,14 +1667,32 @@ func (m *Model) agentSub(a *fleet.Agent, w int) string {
 	case summary == "":
 		text = faint(fit(m.context(a), room))
 	}
-	return "   " + faint("╰ ") + text
+	switch m.store.Config.SubLine {
+	case "dim":
+		text = dim(ansi.Strip(text))
+	case "faint":
+		text = faint(ansi.Strip(text))
+	}
+	return "  " + faint("╰ ") + text
 }
 
 // agentLine is the first line of a row: marker, name, badges, figures, and
 // the summary too unless the row is stacked. listW is the whole list's
 // width, which says which columns there are, as the header does: a row
 // inset under its project is narrower than the header it sits under.
-func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, stacked bool) string {
+// soloTree is whether the tree line at i heads a single agent.
+func soloTree(lines []listLine, i int) bool {
+	n := 0
+	for _, l := range lines[i+1:] {
+		if l.kind != lineAgent {
+			break
+		}
+		n++
+	}
+	return n == 1
+}
+
+func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, stacked bool, tag string) string {
 	wAct, wCPU, wRAM, wTok, wCost, wTime := m.colWidths(listW)
 	now := m.snap.At
 	live := a.Live()
@@ -1795,6 +1823,9 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	left := paint(nameColor, name)
 	if badges != "" {
 		left += " " + badges
+	}
+	if tag != "" && stacked { // its worktree, which has no heading of its own
+		left += "  " + tag
 	}
 	if (summary != "" || m.hasFilterMatch(a)) && !stacked {
 		left = fit(left, nameCol)
