@@ -90,6 +90,7 @@ func (s *server) start() error {
 		// name; a plugin's of the same name is the plugin's.
 		o.Agents = agentDefs(k)
 		maps.Copy(o.Agents, pc.Agents)
+		told = agentsNote
 	} else {
 		told = agentsPrompt()
 	}

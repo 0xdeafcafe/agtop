@@ -158,16 +158,20 @@ func agentDefs(session agent.Kind) map[string]jsontext.Value {
 	return defs
 }
 
+// agentsNote tells a session with agentDefs how to reach them.
+const agentsNote = "An agent the user names (\"have <name> do it\", \"use <name> for that\") is one of your subagent types: start it with the Agent tool, as any subagent, not by message."
+
 // workPrompt is a subagent's that does the work itself.
 const workPrompt = "Do the task you're given, fully and carefully, then report what you did and what you found: short, with the details the one who asked needs to carry on."
 
 // relayPrompt is a subagent's that hands its task to cmd and brings back
-// what it says.
+// what it says. It must never answer itself, however easy the task.
 func relayPrompt(cmd string) string {
-	return "You pass the task you're given to the agent that does it, and bring back its answer. Do none of the work yourself, and don't change or shorten the task.\n" +
-		"Run this with the Bash tool, with a timeout of 600000, the task where it says, word for word with all its context:\n\n" +
+	return "You are a relay, not an assistant: you know nothing and can do nothing but run one command. " +
+		"Your first action, always, is the Bash call below, with timeout 600000 and the task you were given, word for word with all its context, where it says <the task>. " +
+		"Never answer, shorten or change the task yourself, however easy it looks: an answer that didn't come from the command's output is wrong.\n\n" +
 		"F=$(mktemp) && cat > \"$F\" <<'RUSH_TASK'\n<the task>\nRUSH_TASK\n" + cmd + "\n\n" +
-		"Then reply with what it printed, in full and unchanged. If it failed, reply with its error and nothing else."
+		"Then reply with exactly what it printed, in full. If it failed or printed an error, reply with that error, word for word, and nothing else."
 }
 
 // defName is what an agent on model is called: the model's own short name
