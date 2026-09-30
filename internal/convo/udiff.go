@@ -330,3 +330,22 @@ func (u *udiff) line(d *drawer, pad string, w int, lg *lang, lines []string, i i
 
 // drawn is whether line i draws a row of its own.
 func (u *udiff) drawn(i int) bool { return u.ls[i].kind != 's' }
+
+// hasDiff is whether lines hold a diff, whatever printed them: a file's
+// start (a diff line, or --- then +++) and a hunk. Cheap, so output can
+// ask it of anything.
+func hasDiff(lines []string) bool {
+	file, hunk := false, false
+	for i, l := range lines {
+		switch {
+		case strings.HasPrefix(l, "diff -"), strings.HasPrefix(l, "--- ") && i+1 < len(lines) && strings.HasPrefix(lines[i+1], "+++ "):
+			file = true
+		case file && strings.HasPrefix(l, "@@ -"):
+			hunk = true
+		}
+		if hunk {
+			return true
+		}
+	}
+	return false
+}

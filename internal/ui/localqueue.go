@@ -24,6 +24,7 @@ type localQueue struct {
 	since  time.Time // when the oldest waiting message was queued
 	retry  time.Time // after a failed send, when to try again
 	fails  int
+	at     int // a subagent's steps when its last message went
 }
 
 // queued is a session's queue as the queue view shows it, whichever side
@@ -35,6 +36,9 @@ type queued struct {
 }
 
 func (m *Model) queueOf(c *hostConn) queued {
+	if q, _ := m.subQueue(c); q != nil {
+		return queued{items: q.items, held: q.held, local: true}
+	}
 	if c.client != nil {
 		i := c.sess.Info
 		return queued{items: i.Queue, held: i.QueueHeld, separate: i.QueueSeparate}
@@ -164,6 +168,9 @@ type localQueueFailed struct {
 // editLocal saves an edited queued message back in place.
 func (m *Model) editLocal(c *hostConn, i int, was, text string) {
 	q := m.localQ[c.key]
+	if sq, _ := m.subQueue(c); sq != nil {
+		q = sq
+	}
 	if q == nil {
 		return
 	}

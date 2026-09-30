@@ -33,9 +33,22 @@ type clkState struct {
 // and then. It never moves; what changes is its colours, its cap, and what
 // drifts off it.
 func clanker(s clkState) []string {
+	if clkLast.ok && clkLast.s == s && clkLast.ground == painted && clkLast.green == cGreen {
+		return clkLast.lines
+	}
 	var g clkGrid
 	g.sprite(s)
-	return g.lines()
+	clkLast.s, clkLast.ground, clkLast.green, clkLast.lines, clkLast.ok = s, painted, cGreen, g.lines(), true
+	return clkLast.lines
+}
+
+// clkLast is the last drawing: most frames draw him as the one before.
+var clkLast struct {
+	s      clkState
+	ground theme.Ground
+	green  string
+	lines  []string
+	ok     bool
 }
 
 const (

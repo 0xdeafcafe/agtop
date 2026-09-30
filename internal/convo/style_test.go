@@ -35,7 +35,7 @@ func TestSpinAndMusing(t *testing.T) {
 		t.Errorf("spinners: %q %q %q", Spin("", 3), Spin("codex", 0), Spin("ollama-codex", 1))
 	}
 	t0 := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	if a, b := musing(t0), musing(t0); a != b || a == "" {
+	if a, b := pick(musings, t0), pick(musings, t0); a != b || a == "" {
 		t.Error("the word should hold for the stretch")
 	}
 }

@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"encoding/json/jsontext"
 	"strings"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/gate"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
@@ -52,14 +54,17 @@ func (n *Neutral) Event(ev Event) []event.Event {
 	case Message:
 		return []event.Event{n.message(e)}
 	case PermissionRequest:
-		call := claude.Call(e.ToolUseID, e.Tool, e.Input)
+		input, gated := ungated(e.Tool, e.Input)
+		call := claude.Call(e.ToolUseID, e.Tool, input)
 		n.calls[e.ToolUseID] = call
 		if call.Kind == tool.Question {
 			return []event.Event{question(e)}
 		}
 		out := event.Approval{ID: e.ID, Call: call, Reason: firstOf(e.Reason, e.Description), Path: e.BlockedPath,
 			Options: []event.Option{{ID: "allow", Label: "Allow", Kind: event.AllowOnce}}}
-		if len(e.Suggestions) > 0 && string(e.Suggestions) != "null" {
+		// Always allowing a gated call would allow rush gate run, so
+		// whatever it wraps.
+		if len(e.Suggestions) > 0 && string(e.Suggestions) != "null" && !gated {
 			out.Options = append(out.Options, event.Option{ID: "always", Label: "Always allow", Kind: event.AllowAlways})
 		}
 		out.Options = append(out.Options, event.Option{ID: "deny", Label: "Deny", Kind: event.RejectOnce})
@@ -173,6 +178,26 @@ func (n *Neutral) message(m Message) event.Message {
 		}
 	}
 	return out
+}
+
+// ungated is a Bash call's input as Claude wrote it, before the gate's
+// hook put it under rush gate run, and whether it did.
+func ungated(toolName string, in jsontext.Value) (jsontext.Value, bool) {
+	var m map[string]jsontext.Value
+	var cmd string
+	if toolName != "Bash" || jsonx.Unmarshal(in, &m) != nil || jsonx.Unmarshal(m["command"], &cmd) != nil {
+		return in, false
+	}
+	orig := gate.Unwrap(cmd)
+	if orig == cmd {
+		return in, false
+	}
+	m["command"], _ = jsonx.Marshal(orig)
+	out, err := jsonx.Marshal(m)
+	if err != nil {
+		return in, false
+	}
+	return out, true
 }
 
 // question is an AskUserQuestion request as the question it asks.

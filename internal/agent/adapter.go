@@ -95,6 +95,10 @@ type StartOptions struct {
 	// input on its stdin: what it prints is a message for the (sub)agent
 	// that made the call. An agent that can take one says so (SubagentInbox).
 	Inbox string
+	// BashHook is a command to run before each shell call, the call's hook
+	// input on its stdin; what it prints may rewrite the call. For the
+	// gate: agents without hooks go without.
+	BashHook string
 	// APIKey, when set, pays for the session per token with the
 	// provider's API key rather than out of the subscription signed in.
 	APIKey string

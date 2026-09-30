@@ -171,12 +171,11 @@ var musings = []string{
 	"having a cuppa", "putting the kettle on", "rummaging", "tinkering", "bodging", "waffling",
 	"processing", "inhaling", "taking a deep breath", "rigging", "tying knots",
 	"getting tied up in knots", "tying up loose ends", "unpicking it", "gubbing", "wrangling",
-}
-
-// musing is what the thinking that began at since is called: the same
-// word for the whole stretch, not a new one each frame.
-func musing(since time.Time) string {
-	return musings[int(uint64(since.UnixNano())/1e6%uint64(len(musings)))]
+	"watching the langs", "binding", "experiencing euphoria", "microgurning",
+	"consulting the rubber duck", "staring into the middle distance", "reticulating splines",
+	"asking its mum", "counting sheep", "doing a little jig", "stroking an imaginary beard",
+	"having a biscuit", "reading the manual for once", "pretending to understand",
+	"feeding the hamsters", "spinning up the hamster wheel", "herding cats", "shaking the magic 8-ball",
 }
 
 // row lays left and right out across width cells on background b ("" for
@@ -233,11 +232,15 @@ func writeIn(sb *strings.Builder, s, bg string) {
 	}
 }
 
+// fastUnder is how long a timer shows tenths of a second for, and ticks
+// in them while it runs.
+const fastUnder = 5 * time.Second
+
 func dur(d time.Duration) string {
 	switch {
 	case d < 0:
 		return ""
-	case d < 10*time.Second:
+	case d < fastUnder:
 		return fmt.Sprintf("%.1fs", d.Seconds())
 	case d < time.Minute:
 		return fmt.Sprintf("%ds", int(d.Seconds()))

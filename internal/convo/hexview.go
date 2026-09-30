@@ -52,7 +52,7 @@ func hexRows(lines []string) map[int]string {
 		}
 		at := 0
 		for k, i := range run {
-			out[i] = hexRow(at, dumps[k], lostLead(dumps[k]))
+			out[i] = hexRow(at, dumps[k], lostLead(dumps[k]), 16)
 			at += len(dumps[k])
 		}
 		i = run[len(run)-1]
@@ -125,15 +125,15 @@ func isOctal(s string) bool {
 	return true
 }
 
-// hexRow is sixteen bytes at off as a hex viewer draws them: the offset,
-// the bytes in hex in two eights, then as text. Bytes past ASCII are
-// orange in both; what can't be shown as text is a dim dot, and the byte
-// od lost, when it did, is ?? in red.
-func hexRow(off int, bs []byte, lost int) string {
+// hexRow is up to per bytes at off as a hex viewer draws them: the
+// offset, the bytes in hex in groups of eight, then as text, each coloured
+// by its class. What can't be shown as text is a dot, and the byte od
+// lost, when it did (lost is -1 when not), is ?? in red.
+func hexRow(off int, bs []byte, lost, per int) string {
 	var b strings.Builder
 	b.WriteString(faint(fmt.Sprintf("%08x", off)) + "  ")
-	for i := range 16 {
-		if i == 8 {
+	for i := range per {
+		if i > 0 && i%8 == 0 {
 			b.WriteByte(' ')
 		}
 		switch {
@@ -141,12 +141,8 @@ func hexRow(off int, bs []byte, lost int) string {
 			b.WriteString("   ")
 		case i == lost:
 			b.WriteString(paint(cRed, "??") + " ")
-		case bs[i] >= 0x80:
-			b.WriteString(paint(cOrange, fmt.Sprintf("%02x", bs[i])) + " ")
-		case bs[i] < 0x20 || bs[i] == 0x7f:
-			b.WriteString(dim(fmt.Sprintf("%02x", bs[i])) + " ")
 		default:
-			b.WriteString(paint(cText, fmt.Sprintf("%02x", bs[i])) + " ")
+			b.WriteString(paint(byteInk(bs[i]), fmt.Sprintf("%02x", bs[i])) + " ")
 		}
 	}
 	b.WriteString(" " + faint("│"))
@@ -154,16 +150,30 @@ func hexRow(off int, bs []byte, lost int) string {
 		switch {
 		case i == lost:
 			b.WriteString(paint(cRed, "?"))
-		case c >= 0x80:
-			b.WriteString(paint(cOrange, "·"))
-		case c < 0x20 || c == 0x7f:
-			b.WriteString(faint("·"))
-		default:
+		case c > 0x20 && c < 0x7f || c == ' ':
 			b.WriteString(paint(cText, string(rune(c))))
+		default:
+			b.WriteString(paint(byteInk(c), "·"))
 		}
 	}
 	b.WriteString(faint("│"))
 	return b.String()
+}
+
+// byteInk is a byte's colour by its class: NUL faint, whitespace blue,
+// other control characters dim, past ASCII orange, the rest as text.
+func byteInk(c byte) string {
+	switch {
+	case c == 0:
+		return cFaint
+	case c == ' ' || c >= '\t' && c <= '\r':
+		return cBlue
+	case c < 0x20 || c == 0x7f:
+		return cDim
+	case c >= 0x80:
+		return cOrange
+	}
+	return cText
 }
 
 // lostLead is where in a line macOS's od lost the first byte of a

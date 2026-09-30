@@ -71,7 +71,7 @@ func TestChainOutputAlignsEachPart(t *testing.T) {
 	for _, l := range d.lines {
 		got = append(got, strings.TrimRight(strings.SplitN(stripANSI(l.Text), "▏", 2)[1], " "))
 	}
-	want := []string{"}", "", "func bashOut(st *Step) string {", "internal/convo/model.go:12:Cwd string", "internal/convo/model.go:40:s.Cwd = cwd", "squeeze", "state"}
+	want := []string{"}", "", "func bashOut(st *Step) string {", "internal/convo/model.go", "12  Cwd string", "40  s.Cwd = cwd", "squeeze", "state"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("chain output\n got %q\nwant %q", got, want)
 	}

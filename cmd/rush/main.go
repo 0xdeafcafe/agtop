@@ -47,6 +47,7 @@ const usage = `rush — a lighter agents view for Claude Code
                     questions you can answer from their notification
   rush menubar off take it out again
   rush plugin      sandboxed plugins: list, approve, revoke
+  rush gate        queue intensive programs agents run: run, status
   rush session     start, send to, stop and list rush-mode sessions without
                     the view ("rush session help" for the commands)
   rush open <id> --hosted
@@ -116,6 +117,8 @@ func main() {
 		case "plugin", "plugins":
 			exitIf(pluginCmd(args[1:]))
 			return
+		case "gate":
+			os.Exit(gateCmd(args[1:]))
 		case "plugind":
 			// The plugin broker. rush starts it when a plugin is approved;
 			// it is not meant to be run by hand.

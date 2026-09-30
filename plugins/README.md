@@ -38,6 +38,15 @@ Plugins run under `rush plugind`, one small process rush starts once a plugin is
 
 Some plugins come with rush. Their code is rush's own, so they need no approval and run without the sandbox, on every system, as `rush plugin run <name>`; what they may do in rush's screen and to your sessions is still their manifest's, checked by the broker as for any plugin. Each is on until you turn it off, in Settings, Plugins, or with `rush plugin off <name>` (`on` to turn it back). A plugin you install with the name of a bundled one doesn't run.
 
+**gate** (off until you turn it on) queues intensive programs your agents run, so a handful of sessions don't all start `tsc` at once. Each session rush starts finds a shim for each queued program first on its PATH, whatever the agent, and Claude Code sessions also get a hook that puts a Bash call running one (`npx tsc`, `pnpm exec vitest` too) under `rush gate run`; the program then waits for a slot, and `rush gate status` shows who runs and who waits. `rush gate run [--name N] [--dir D] -- cmd…` does the same by hand. Its settings, in Settings, Plugins:
+
+- **Programs**: the names to queue (default `tsc, tsgo, go, cargo, webpack, vite, vitest, jest, next, rustc`).
+- **Shared across**: one queue per `worktree`, per `repo` with all its worktrees (the default), or for the whole `system`.
+- **At once**: 1 to 8 (default 2). **Between starts**: 0s to 30s (default 5s).
+- **Per program**: `name=scope/at once/between starts`, any part left out, such as `tsc=system/1/10s, go=worktree/4`.
+
+A slot is a locked file, so it frees itself however its holder ends. A program run from inside a queued one (`go vet` under `go test`) doesn't queue again.
+
 ## What a plugin can't do
 
 - **Your files.** It reads its own folder and the system's libraries, and writes only its data folder, `~/.config/rush/plugin-data/<name>`, plus any other paths its manifest names under `read` and `write`.

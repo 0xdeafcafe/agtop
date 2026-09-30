@@ -6,15 +6,18 @@ import (
 	"encoding/json/jsontext"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"time"
 
+	"github.com/0xdeafcafe/rush/internal/actions"
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/agtools"
+	bgate "github.com/0xdeafcafe/rush/internal/bundled/gate"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/0xdeafcafe/rush/internal/netproof"
 	"github.com/0xdeafcafe/rush/internal/plugin"
@@ -63,6 +66,7 @@ func (s *server) start() error {
 	if takesInbox(s.cfg.Kind) {
 		o.Inbox = inboxHook(s.cfg.ID)
 	}
+	o.BashHook = bgate.HookCommand() // "" while the gate is off
 	if s.cfg.Billing == "key" {
 		p := agent.ProviderOf(a.Kind())
 		if o.APIKey = state.APIKey(p); o.APIKey == "" {
@@ -141,14 +145,34 @@ func (s *server) followCwd(now bool) {
 			return
 		}
 		s.mu.Lock()
+		was := s.cfg.Cwd
+		s.mu.Unlock()
+		cwd, move := followTo(was, cwd, actions.RepoRoot)
+		s.mu.Lock()
 		defer s.mu.Unlock()
-		if sid != s.info.SessionID || cwd == s.cfg.Cwd {
+		if !move || sid != s.info.SessionID || was != s.cfg.Cwd {
 			return
 		}
 		s.cfg.Cwd, s.info.Cwd = cwd, cwd
 		s.saveConfig()
 		s.publish()
 	}()
+}
+
+// followTo is where a session in was moves when its agent works in cwd:
+// another checkout's top, or back up to a folder above it in its own. A cd
+// deeper into the same checkout doesn't move it.
+func followTo(was, cwd string, root func(string) string) (string, bool) {
+	top := root(cwd)
+	switch {
+	case cwd == was:
+		return "", false
+	case top != "" && top != root(was):
+		return top, true
+	case top == "" || strings.HasPrefix(was, cwd+string(filepath.Separator)):
+		return cwd, true
+	}
+	return "", false
 }
 
 // pidOf is the agent's process, or 0 when it has none of its own.

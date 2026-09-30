@@ -686,7 +686,7 @@ func (m *Model) barPlaces(q string) []barItem {
 			add(paint(cBlue, "▤"), title, oneLine(m.hostName(c)), "session view "+v, func(m *Model) tea.Cmd {
 				m.goView(placeAgents)
 				if c := m.host; c != nil {
-					c.view, c.memOpen = i, false
+					c.view = i
 				}
 				m.preview, m.paneFocus = true, true
 				return nil

@@ -71,7 +71,7 @@ func TestWatchShellsTimesEachPart(t *testing.T) {
 		rows = append(rows, ansi.Strip(l.Text))
 	}
 	out := strings.Join(rows, "\n")
-	if len(rows) != 3 || !strings.Contains(rows[0], "✓ 2.5s") || !strings.Contains(rows[1], "7.5s") || strings.Contains(rows[2], "✓") {
+	if len(rows) != 3 || !strings.Contains(rows[0], "✓ 2.5s") || !strings.Contains(rows[1], "7s") || strings.Contains(rows[2], "✓") {
 		t.Errorf("each part should say how long it ran, the running one still counting:\n%s", out)
 	}
 }
@@ -151,7 +151,7 @@ func TestPartMarksFillGaps(t *testing.T) {
 	for _, m := range marks {
 		got = append(got, ansi.Strip(m))
 	}
-	if want := "✓ <2.0s|✓ <2.0s|✓ 5.0s|✓ 3.0s"; strings.Join(got, "|") != want {
+	if want := "✓ <2.0s|✓ <2.0s|✓ 5s|✓ 3.0s"; strings.Join(got, "|") != want {
 		t.Fatalf("marks = %q, want %q", strings.Join(got, "|"), want)
 	}
 }

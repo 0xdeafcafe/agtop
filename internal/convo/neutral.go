@@ -177,6 +177,10 @@ func (s *Session) turnEnd(e *event.TurnEnd, now time.Time) {
 	case e.Err != "" || e.Reason == "error":
 		t.Err = firstNonEmpty(firstLine(e.Err), "error")
 	}
+	// The agent's own copy of the error (a limit's, say) is the ✗ row's.
+	if n := len(t.Items); t.Err != "" && n > 0 && t.Items[n-1].Kind == KText && firstLine(strings.TrimSpace(t.Items[n-1].Text)) == t.Err {
+		t.Items = t.Items[:n-1]
+	}
 }
 
 // ensureStep makes a step of a call an approval or question is about,

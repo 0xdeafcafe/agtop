@@ -114,6 +114,11 @@ func (d *drawer) shellShape(cmd string) shape {
 		case prog == "cat" && into == "" && len(nonFlags(plain)) > 0:
 			sh.kind, sh.glyph, sh.what = "read", "◧", files(nonFlags(plain))
 		}
+	case "nl", "bat", "batcat":
+		// nl -ba file, bat file: a read of the file, numbered or not.
+		if f := nonFlags(plain); len(f) > 0 && into == "" {
+			sh.kind, sh.glyph, sh.what = "read", "◧", d.rel(unquote(f[len(f)-1]))
+		}
 	case "sed":
 		// sed -n 'A,Bp' file: a read of lines A to B.
 		if len(plain) >= 3 && plain[0] == "-n" && into == "" {
@@ -509,4 +514,140 @@ func scriptGist(body []string, heredoc bool) string {
 		return "· " + oneLine(l)
 	}
 	return "script"
+}
+
+// shOpens are the words that start a compound command.
+var shOpens = map[string]bool{"while": true, "until": true, "for": true, "if": true, "case": true, "select": true, "function": true}
+
+// compound is whether a command's lines hold a loop, an if, a case, a
+// { } group or a function: a script, whose statements aren't a chain's.
+func compound(lines []shLine) bool {
+	for _, l := range lines {
+		if l.verbatim || l.depth > 0 {
+			continue
+		}
+		w, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(l.text, "&& "), "|| "), " ")
+		if shOpens[w] || w == "{" || strings.HasSuffix(w, "()") {
+			return true
+		}
+	}
+	return false
+}
+
+// scriptLines lays out a compound command's lines as a script is written:
+// a statement a line, deeper inside do, then and { and back out at done,
+// fi and }, else and elif at their if's depth, and do, then and a group's
+// { at the end of the line they belong to.
+func scriptLines(lines []shLine) []shLine {
+	var out []shLine
+	depth := 0
+	add := func(t string, dp int) { out = append(out, shLine{text: t, depth: max(0, dp)}) }
+	join := func(s string) {
+		if n := len(out); n > 0 && !out[n-1].verbatim {
+			out[n-1].text += s
+			return
+		}
+		add(strings.TrimLeft(s, "; "), depth)
+	}
+	var put func(t string)
+	put = func(t string) {
+		if t = strings.TrimSpace(t); t == "" {
+			return
+		}
+		w, rest, _ := strings.Cut(t, " ")
+		switch w {
+		case "do", "then":
+			join("; " + w)
+			depth++
+			put(rest)
+		case "else":
+			add(w, depth-1)
+			put(rest)
+		case "elif":
+			depth--
+			add(t, depth)
+		case "done", "fi", "esac", "}":
+			depth--
+			add(t, depth)
+		case "{":
+			add(w, depth)
+			depth++
+			put(rest)
+		case "&&", "||":
+			if g, ok := strings.CutPrefix(strings.TrimSpace(rest), "{"); ok && (g == "" || g[0] == ' ') {
+				join(" " + w + " {")
+				depth++
+				put(g)
+				return
+			}
+			add(t, depth)
+		default:
+			if w == "function" || strings.HasSuffix(w, "()") {
+				if head, body, ok := strings.Cut(t, "{"); ok {
+					add(strings.TrimSpace(head)+" {", depth)
+					depth++
+					put(body)
+					return
+				}
+			}
+			add(t, depth)
+			if w == "case" {
+				depth++
+			}
+		}
+	}
+	for _, l := range lines {
+		switch {
+		case l.verbatim:
+			out = append(out, l)
+		case l.depth > 0 && len(out) > 0:
+			join(" " + l.text) // a pipe stage goes on its command's line
+		default:
+			put(l.text)
+		}
+	}
+	return out
+}
+
+// What Claude Code says of a command it put in the background, and of the
+// folder it's left in.
+const (
+	bgNotice   = "Command running in background with ID: "
+	bgWritten  = "Output is being written to: "
+	bgNotified = ". You will be notified"
+	cwdNotice  = "Session cwd remains "
+)
+
+// notices draws Claude Code's own lines in s (a command put in the
+// background, the folder it's left in) as short notes, and gives back the
+// rest for output to draw.
+func (d *drawer) notices(s string, indent int) string {
+	if !strings.Contains(s, bgNotice) && !strings.Contains(s, cwdNotice) {
+		return s
+	}
+	pad := d.spine() + strings.Repeat(" ", indent-1)
+	var rest []string
+	for _, l := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(l)
+		switch {
+		case strings.HasPrefix(t, bgNotice):
+			id, after, _ := strings.Cut(t[len(bgNotice):], ".")
+			d.add("", "", pad+dim("↳ running in the background · "+id), "")
+			if _, p, ok := strings.Cut(after, bgWritten); ok {
+				if k := strings.Index(p, bgNotified); k >= 0 {
+					p = p[:k]
+				}
+				p = strings.TrimSuffix(strings.TrimSpace(p), ".")
+				d.addRows("", pad, "  ", d.fileLink(p, faint(p)), d.cw-indent-3, 2)
+			}
+		case strings.HasPrefix(t, cwdNotice):
+			dir := strings.TrimSpace(t[len(cwdNotice):])
+			if strings.TrimSuffix(dir, "/") != strings.TrimSuffix(firstNonEmpty(d.s.Info.Cwd, d.s.Cwd), "/") {
+				d.add("", "", pad+faint("cwd "+d.rel(dir)), "")
+			}
+		default:
+			rest = append(rest, l)
+		}
+	}
+	return strings.Join(rest, "\n")
 }

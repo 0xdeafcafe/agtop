@@ -65,6 +65,9 @@ type confirmation struct {
 	// each do something, labelled yesText and noText; esc still cancels.
 	yesText, noText string
 	onNo            func() tea.Cmd
+	// again is a key that says yes too: the arrow pushed once more past
+	// the edge that asked (edgePush).
+	again string
 }
 
 type Model struct {
@@ -101,7 +104,7 @@ type Model struct {
 	quotas    map[string]usage.Quota
 	accts     accountsState
 	startOver *startOver // what the next session starts as, picked with alt+m
-	resumedAt time.Time // when sessions a limit stopped were last told to carry on
+	resumedAt time.Time  // when sessions a limit stopped were last told to carry on
 
 	sel          string
 	shown        string // the agent last picked, still shown while a folded section is
@@ -216,19 +219,23 @@ type Model struct {
 	onboard      bool // teaching: Getting started and tips
 	cardShown    bool // Getting started was under the list last frame
 
-	lastState map[string]string
-	lastErr   map[string]bool // agents last seen with an error, so one starting is noticed
-	fx        clkFX           // what clanker is reacting to
-	fxOn      bool            // his reaction is ticking
-	fxKick    bool            // a reaction started this update; its ticking needs starting
-	measuring bool            // temp work is being measured in the background
-	clean     cleanup         // the Cleanup view's worktrees, and the tidy-up
-	eff       effState        // the Efficiency place
-	work      workState       // the Projects place and the Agents place's Wall
-	stackFor  int             // the list width a preview decides two-line rows for
-	wall      wallState       // the Wall page
-	reaper    fleet.Reaper    // ends what agents leave running when they stop
-	squeezing bool            // transcripts are being compressed in the background
+	lastState   map[string]string
+	lastErr     map[string]bool // agents last seen with an error, so one starting is noticed
+	fx          clkFX           // what clanker is reacting to
+	fxOn        bool            // his reaction is ticking
+	fastPending bool            // a fastMsg is on its way
+	edgeKey     string          // edgeKey, edgeAt and edgeN are arrow presses into a box's edge: edgePush
+	edgeAt      time.Time
+	edgeN       int
+	fxKick      bool         // a reaction started this update; its ticking needs starting
+	measuring   bool         // temp work is being measured in the background
+	clean       cleanup      // the Cleanup view's worktrees, and the tidy-up
+	eff         effState     // the Efficiency place
+	work        workState    // the Projects place and the Agents place's Wall
+	stackFor    int          // the list width a preview decides two-line rows for
+	wall        wallState    // the Wall page
+	reaper      fleet.Reaper // ends what agents leave running when they stop
+	squeezing   bool         // transcripts are being compressed in the background
 
 	bar     *cmdBar  // the command bar, while it's open
 	barBack *spot    // where the bar last jumped from
@@ -379,8 +386,20 @@ type attachDoneMsg struct {
 	err   error
 }
 
+// tick is every whole second of the clock, so every timer turns together.
 func tick() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return tea.Every(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+
+// fastMsg redraws a timer still showing tenths of a second.
+type fastMsg struct{}
+
+func (m *Model) fastTick() tea.Cmd {
+	if c := m.host; c == nil || !c.sess.Fast || m.fastPending {
+		return nil
+	}
+	m.fastPending = true
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return fastMsg{} })
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -733,9 +752,16 @@ func (m *Model) flash(s string, err bool) {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer uiBusy(msg)()
+	if _, ok := msg.(fastMsg); ok {
+		m.fastPending = false
+		return m, m.fastTick()
+	}
 	if _, ok := msg.(relayoutMsg); ok {
 		m.relayPending = false
 		return m, m.relayout()
+	}
+	if c := m.host; c != nil {
+		c.scrollOnly = false // set again by a message that only scrolls
 	}
 	_, cmd := m.update(msg)
 	m.pinHosted()
@@ -754,7 +780,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if c := m.host; c != nil && c.paneKick && !c.paneReading {
 		c.paneKick, paneCmd = false, m.refreshSubs()
 	}
-	return m, tea.Batch(cmd, copyCmd, fxCmd, paneCmd, m.relayout(), m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd(), m.asks())
+	return m, tea.Batch(cmd, copyCmd, fxCmd, paneCmd, m.fastTick(), m.relayout(), m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd(), m.asks())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -884,7 +910,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.emitHooks()
-		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.watchOnline()}
+		cmds := []tea.Cmd{tick(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline()}
 		if m.hosted == "" {
 			// autoSwitch too: a session's usage reading arrives with the
 			// snapshot, not with a fetch.
@@ -1358,6 +1384,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case tea.MouseWheelDown:
 					c.scroll = max(0, c.scroll-3)
 				}
+				c.scrollOnly = true
 			}
 			return m, nil
 		}

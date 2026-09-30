@@ -596,18 +596,22 @@ func TestLiveLine(t *testing.T) {
 	s := New()
 	s.Apply(host.Sent{Text: "think hard"}, at(0))
 	s.Apply(headless.BlockStart{Index: 0, Type: "thinking"}, at(1))
-	out := plain(s.Render(Options{Width: 100, Now: at(9)}))
-	if !strings.Contains(out, musing(at(1))+"…  8.0s · turn 9.0s") {
+	out := plain(s.Render(Options{Width: 100, Now: at(3)}))
+	if !strings.Contains(out, pick(musings, at(1))+"…  2.0s") || !s.Fast {
+		t.Fatalf("a timer under 5s shows tenths and asks for fast frames (fast %v):\n%s", s.Fast, out)
+	}
+	out = plain(s.Render(Options{Width: 100, Now: at(9)}))
+	if !strings.Contains(out, pick(musings, at(1))+"…  8s") || !strings.Contains(out, "turn 9s") || !strings.Contains(out, "━") || s.Fast {
 		t.Fatalf("no thinking line:\n%s", out)
 	}
 	s.Apply(headless.BlockStart{Index: 1, Type: "text"}, at(10))
 	s.Apply(headless.Delta{Index: 1, Text: strings.Repeat("word ", 800)}, at(10))
 	out = plain(s.Render(Options{Width: 100, Now: at(12)}))
-	if !strings.Contains(out, "writing…  turn 12") {
+	if !strings.Contains(out, pick(writings, at(0))+"…  12s") || strings.Contains(out, "▏\n▏\n▏   ") {
 		t.Fatalf("no writing line:\n%s", out)
 	}
 	s.Apply(headless.Result{Subtype: "success"}, at(13))
-	if out = plain(s.Render(Options{Width: 100, Now: at(14)})); strings.Contains(out, "writing…") {
+	if out = plain(s.Render(Options{Width: 100, Now: at(14)})); strings.Contains(out, pick(writings, at(0))+"…") {
 		t.Fatal("a finished turn has no live line")
 	}
 }

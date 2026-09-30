@@ -20,10 +20,9 @@ import (
 	"github.com/0xdeafcafe/rush/internal/proc"
 )
 
-// What Claude Code runs shows in the dock: a command the turn waits on,
-// once it's run a while, and what runs in the background with its latest
-// output. ↑ picks one; b backgrounds it, x stops it, and ctrl+b
-// backgrounds what the turn waits on without picking.
+// What runs in the background shows in the dock with its latest output; a
+// command the turn waits on shows in the conversation instead. ↑ picks one;
+// x stops it, and ctrl+b backgrounds what the turn waits on.
 func TestJobDock(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "b2.output")
 	os.WriteFile(out, []byte("first line\nnpm warn\nbuilding\r50%\r100%\nlistening on :3000\n\n"), 0o644)
@@ -38,17 +37,17 @@ func TestJobDock(t *testing.T) {
 	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c, paneFocus: true}
 	jobs := c.dockJobs()
-	if len(jobs) != 2 {
-		t.Fatalf("a quick command shows, or a long one doesn't: %d", len(jobs))
+	if len(jobs) != 1 || jobs[0].ID != "b2" {
+		t.Fatalf("only what runs in the background: %d", len(jobs))
 	}
 	got := ansi.Strip(strings.Join(m.jobsPreview(c, jobs, 110), "\n"))
-	for _, want := range []string{"2 running · 1 in the background", "go test ./...", "waiting on it", "npm run dev", "in background", "› listening on :3000", "ctrl+b background"} {
+	for _, want := range []string{"npm run dev", "in background", "› listening on :3000"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("no %q in\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "› ls") {
-		t.Fatalf("a quick command shows:\n%s", got)
+	if strings.Contains(got, "go test") || strings.Contains(got, "› ls") {
+		t.Fatalf("what the turn waits on shows:\n%s", got)
 	}
 
 	// ↑ from the box: the nearest first.
@@ -61,13 +60,6 @@ func TestJobDock(t *testing.T) {
 	}
 	if cmd := m.paneKey(tea.KeyPressMsg{Text: "x"}, "x"); cmd == nil || !strings.Contains(m.status, "stopping the shell") {
 		t.Fatalf("x: cmd %v, status %q", cmd != nil, m.status)
-	}
-	m.moveSel(c, -1)
-	if c.sel != "job:b1" {
-		t.Fatalf("↑↑ picked %q", c.sel)
-	}
-	if cmd := m.paneKey(tea.KeyPressMsg{Text: "b"}, "b"); cmd == nil || !strings.Contains(m.status, "moved the shell to the background") {
-		t.Fatalf("b: cmd %v, status %q", cmd != nil, m.status)
 	}
 	c.sel = ""
 	if cmd := m.paneKey(tea.KeyPressMsg{}, "ctrl+b"); cmd == nil || !strings.Contains(m.status, "to the background") {
@@ -343,8 +335,8 @@ func TestSpawnedJobIsASubagent(t *testing.T) {
 	}
 }
 
-// An opened shell step in the conversation shows what the files its
-// command writes to hold, as the background view does.
+// A running or opened shell step in the conversation shows what the files
+// its command writes to hold, as the background view does.
 func TestConversationShowsWrites(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "test.log"), []byte("ok  pkg/a\nFAIL pkg/b\n"), 0o644)
@@ -363,6 +355,11 @@ func TestConversationShowsWrites(t *testing.T) {
 		if strings.Contains(l.Ref, ":s:b1") {
 			ref = l.Ref
 		}
+	}
+	c.open[ref] = false
+	shut := s.Render(convo.Options{Width: 100, Now: now, Open: c.open})
+	if len(m.withWrites(c, shut, 100)) <= len(shut) {
+		t.Fatal("running, it shows what it writes without being opened")
 	}
 	c.open[ref] = true
 	body = s.Render(convo.Options{Width: 100, Now: now, Open: c.open})

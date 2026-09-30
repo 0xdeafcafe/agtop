@@ -24,10 +24,6 @@ import (
 // ones running, the background view all of them; either lets you stop
 // one, or send one the turn is waiting on into the background.
 
-// jobWait is how long a command the turn waits on runs before the dock
-// offers to background or stop it: quick ones come and go unannounced.
-const jobWait = 3 * time.Second
-
 // dockJobsShown is how many running tasks the dock shows at once.
 const dockJobsShown = 4
 
@@ -36,7 +32,8 @@ const dockJobsShown = 4
 func (c *hostConn) dockJobs() []*convo.Job {
 	var out []*convo.Job
 	for _, j := range c.sess.RunningJobs() {
-		if c.jobKind(j) == "subagent" || !j.Background && time.Since(j.Start) < jobWait {
+		// What the turn waits on shows in the conversation, its logs too.
+		if c.jobKind(j) == "subagent" || !j.Background {
 			continue
 		}
 		out = append(out, j)
@@ -163,11 +160,17 @@ func (m *Model) jobRow(c *hostConn, j *convo.Job, i, w int, lead string, who boo
 		whose = jobWho(c, j)
 	}
 	room := max(12, w-cellw.String(ansi.Strip(right))-cellw.String(ansi.Strip(whose))-12-cellw.String(lead))
-	left := lead + mark + " " + paint(cText+bold, fmt.Sprintf("%-7s", kind)) + " " +
+	// Under a subagent (no who), a task reads as its, not as another run.
+	name := paint(cText+bold, fmt.Sprintf("%-7s", kind))
+	if !who {
+		name = paint(cSub, fmt.Sprintf("%-7s", kind))
+		lead += paint(cFaint, "↳") + " "
+	}
+	left := lead + mark + " " + name + " " +
 		paint(cSub, ansi.Truncate(jobLabel(c, j), room, "…")) + whose
 	rows := []string{spread(left, right, w)}
 	if last := m.jobTail(c, j, 1); len(last) > 0 {
-		rows = append(rows, ansi.Truncate(lead+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+faint(last[0]), w-2, "…"))
+		rows = append(rows, ansi.Truncate(strings.Repeat(" ", cellw.String(ansi.Strip(lead)))+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+dim(last[0]), w-2, "…"))
 	}
 	if c.sel == "job:"+j.ID {
 		for k := range rows {
@@ -314,8 +317,8 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 	w := o.Width
 	var run, done []*convo.Job
 	for _, j := range c.sess.WorkJobs() {
-		if c.spawnJob(j) {
-			continue // a spawned agent: the subagents view has it
+		if c.spawnJob(j) || !j.Background {
+			continue // a spawned agent (the subagents view), or the turn's own (the conversation)
 		}
 		if j.Running() {
 			run = append(run, j)
@@ -520,8 +523,8 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 // jobKey acts on a picked task, and ctrl+b on whatever the turn waits on.
 func (m *Model) jobKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 	if s == "ctrl+b" && c.client != nil {
-		// Only while the dock offers it; otherwise ctrl+b is /btw's.
-		if !slices.ContainsFunc(c.dockJobs(), func(j *convo.Job) bool { return !j.Background }) {
+		// Only while the turn waits on a command; otherwise ctrl+b is /btw's.
+		if !slices.ContainsFunc(c.sess.RunningJobs(), func(j *convo.Job) bool { return !j.Background && c.jobKind(j) != "subagent" }) {
 			return nil, false
 		}
 		if j := m.pickedJob(c); j != nil && !j.Background {
@@ -683,10 +686,14 @@ func (m *Model) withWrites(c *hostConn, body []convo.Line, w int) []convo.Line {
 			continue // not a step, or not its last row
 		}
 		st := c.sess.Step(id)
-		if st == nil || st.Tool != "Bash" || !m.isOpen(c, ref) {
+		if st == nil || st.Tool != "Bash" {
 			continue
 		}
+		// Running, it shows what it writes whether opened or not.
 		running := st.Status == convo.Running || c.sess.JobRunning(id)
+		if !running && !m.isOpen(c, ref) {
+			continue
+		}
 		if !running && (st.End.IsZero() || now.Sub(st.End) > writesFor) {
 			continue
 		}
@@ -1037,4 +1044,41 @@ func firstWord(cmd string) string {
 		}
 	}
 	return cmd
+}
+
+// subUsage is what subagent sa's processes hold now: the shells it runs,
+// or all of a spawned agent's own session. A Claude subagent runs inside
+// the main process, so what it thinks with isn't counted apart.
+func (m *Model) subUsage(c *hostConn, sa convo.Subagent) (mem uint64, cpu float64, n int) {
+	if m.snap == nil || m.snap.Table == nil {
+		return 0, 0, 0
+	}
+	t := m.snap.Table
+	if id, ok := strings.CutPrefix(sa.ID, spawnPrefix); ok {
+		if r := c.spawns[id]; r != nil && r.hosted != "" {
+			for _, a := range m.order {
+				if a.ID == r.hosted && a.PID != 0 {
+					return t.Sum(a.PID, nil)
+				}
+			}
+		}
+	}
+	for _, j := range c.sess.RunningJobs() {
+		if owner, ok := c.jobOwner(j); !ok || owner.ID != sa.ID {
+			continue
+		}
+		if pid := m.jobPID(c, j); pid != 0 {
+			jm, jc, jn := t.Sum(pid, nil)
+			mem, cpu, n = mem+jm, cpu+jc, n+jn
+		}
+	}
+	return mem, cpu, n
+}
+
+// usageText is b of memory, cpu and n processes, coloured as the list has them.
+func usageText(b uint64, cpu float64, n int) string {
+	if n == 0 {
+		return ""
+	}
+	return cpuColor(cpu, fmt.Sprintf("%.0f%% cpu", cpu)) + dim(" · ") + memColor(b, mem(b)) + dim(fmt.Sprintf(" · %d procs", n))
 }

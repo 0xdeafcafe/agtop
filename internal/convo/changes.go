@@ -107,11 +107,7 @@ type Tree struct {
 	Root  string
 	Files []TreeFile
 	Err   string
-	// Total is the branch's whole diff, committed or not, against where it
-	// forked from the default branch; Base is that branch, "" off one.
-	Base               string
-	TotalAdd, TotalDel int
-	at                 time.Time
+	at    time.Time
 }
 
 // Stat is the lines added and deleted in the working tree.
@@ -199,38 +195,7 @@ func readTree(dir string) *Tree {
 		}
 	}
 	sort.Slice(t.Files, func(i, j int) bool { return t.Files[i].Path < t.Files[j].Path })
-	t.Base, t.TotalAdd, t.TotalDel = branchTotal(root)
 	return t
-}
-
-// branchTotal is the lines added and deleted since HEAD forked from the
-// default branch, the working tree included; "" when HEAD is on it.
-func branchTotal(root string) (base string, add, del int) {
-	ref := "origin/HEAD"
-	if out, err := git(root, "rev-parse", "--abbrev-ref", "origin/HEAD"); err == nil {
-		ref = strings.TrimSpace(string(out))
-	} else if _, err := git(root, "rev-parse", "--verify", "-q", "main"); err == nil {
-		ref = "main"
-	} else {
-		ref = "master"
-	}
-	mb, err := git(root, "merge-base", "HEAD", ref)
-	if err != nil {
-		return "", 0, 0
-	}
-	fork := strings.TrimSpace(string(mb))
-	if head, _ := git(root, "rev-parse", "HEAD"); strings.TrimSpace(string(head)) == fork {
-		return "", 0, 0
-	}
-	out, _ := git(root, "diff", fork, "--numstat", "-z", "--no-renames")
-	for _, rec := range strings.Split(string(out), "\x00") {
-		if f := strings.SplitN(rec, "\t", 3); len(f) == 3 {
-			a, _ := strconv.Atoi(f[0])
-			d, _ := strconv.Atoi(f[1])
-			add, del = add+a, del+d
-		}
-	}
-	return ref, add, del
 }
 
 // realPath resolves symlinks (macOS's /tmp is /private/tmp), so the same

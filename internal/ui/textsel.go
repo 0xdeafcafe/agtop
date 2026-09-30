@@ -237,6 +237,10 @@ func selectedText(lines []convo.Line, a, b cell, w int) string {
 				seg = " " + string(rs[1:])
 			}
 		}
+		// An output's rail sits after its indent: layout, not text.
+		if t := strings.TrimLeft(seg, " "); strings.HasPrefix(t, "▏") {
+			seg = seg[:len(seg)-len(t)] + strings.TrimPrefix(t, "▏")
+		}
 		seg = strings.TrimRight(seg, " ")
 		if lines[r].Wrap && r > a.row && len(out) > 0 {
 			prev := out[len(out)-1]

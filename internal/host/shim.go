@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	bgate "github.com/0xdeafcafe/rush/internal/bundled/gate"
+	"github.com/0xdeafcafe/rush/internal/gate"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
@@ -59,12 +61,13 @@ func WriteShims() string {
 	return d
 }
 
-// WithoutShims is path with the stand-ins' folder taken out.
+// WithoutShims is path with the stand-ins' folder, and the gate's, taken
+// out.
 func WithoutShims(path string) string {
-	d := filepath.Clean(ShimDir())
+	d, g := filepath.Clean(ShimDir()), filepath.Clean(gate.BinDir())
 	var keep []string
 	for _, p := range filepath.SplitList(path) {
-		if p != "" && filepath.Clean(p) != d {
+		if p != "" && filepath.Clean(p) != d && filepath.Clean(p) != g {
 			keep = append(keep, p)
 		}
 	}
@@ -85,8 +88,12 @@ func (s *server) shimEnv() []string {
 	sh.WriteString("export RUSH_SESSION=" + quote(s.cfg.ID) + "\n")
 	if os.Getenv("RUSH_NO_SHIM") == "" {
 		if d := WriteShims(); d != "" {
-			env = append(env, "PATH="+d+string(filepath.ListSeparator)+WithoutShims(os.Getenv("PATH")))
-			sh.WriteString("export PATH=" + quote(d) + "\":$PATH\"\n")
+			// The gate's shims come next: whichever agent it is, a queued
+			// program it runs waits its turn.
+			bgate.WriteShims()
+			g := gate.BinDir()
+			env = append(env, "PATH="+d+string(filepath.ListSeparator)+g+string(filepath.ListSeparator)+WithoutShims(os.Getenv("PATH")))
+			sh.WriteString("export PATH=" + quote(d) + ":" + quote(g) + "\":$PATH\"\n")
 			// Other agents run commands in a login zsh, whose profile puts
 			// PATH in its own order: the stand-ins go first again after it.
 			if z := writeZsh(d); z != "" && !agent.ReadsAsClaude(agent.Kind(s.cfg.Kind)) {
@@ -114,7 +121,8 @@ func writeZsh(shims string) string {
 	if os.MkdirAll(z, 0o700) != nil {
 		return ""
 	}
-	first := "path=(" + quote(shims) + " ${path:#" + quote(shims) + "})\n"
+	g := gate.BinDir()
+	first := "path=(" + quote(shims) + " " + quote(g) + " ${${path:#" + quote(shims) + "}:#" + quote(g) + "})\n"
 	for _, f := range zshFiles {
 		last := ""
 		if f == ".zshenv" || f == ".zshrc" || f == ".zlogin" {

@@ -44,6 +44,9 @@ type Options struct {
 	Selected string
 	Focused  bool
 	Marks    map[string]bool // files you've marked reviewed in the changes view
+	// View is the view a step's output was switched to, by ref: ViewText,
+	// ViewPretty, ViewHex or ViewImage; absent means the one it opens in.
+	View map[string]string
 	// Wide lets rows run the whole width, past capRow: for a session shown
 	// alone on a wide screen, where the right edge is the screen's.
 	Wide bool
@@ -96,11 +99,12 @@ func (s *Session) Render(o Options) []Line { return s.RenderInto(o, nil) }
 // every frame reuses one slice instead of allocating the whole session's
 // lines each time. The result is only good until the next call.
 func (s *Session) RenderInto(o Options, buf []Line) []Line {
+	s.Fast = false
 	if o.Width < 20 {
 		o.Width = 20
 	}
 	s.memoTurn()
-	folds := foldsByTurn(o.Open)
+	folds := foldsByTurn(o.Open, o.View)
 	latest := s.latest()
 	if cap(s.parts) < len(s.Turns) {
 		s.parts = make([][]Line, len(s.Turns))
@@ -129,16 +133,20 @@ func (s *Session) RenderInto(o Options, buf []Line) []Line {
 	return out
 }
 
-// foldsByTurn groups the fold overrides by the turn they're in, each
-// turn's sorted, so a turn's cache key names only its own.
-func foldsByTurn(open map[string]bool) map[string]string {
-	if len(open) == 0 {
+// foldsByTurn groups the fold and view overrides by the turn they're in,
+// each turn's sorted, so a turn's cache key names only its own.
+func foldsByTurn(open map[string]bool, views map[string]string) map[string]string {
+	if len(open) == 0 && len(views) == 0 {
 		return nil
 	}
 	by := map[string][]string{}
 	for k, v := range open {
 		t, _, _ := strings.Cut(k, ":")
 		by[t] = append(by[t], k+"="+strconv.FormatBool(v))
+	}
+	for k, v := range views {
+		t, _, _ := strings.Cut(k, ":")
+		by[t] = append(by[t], k+"~"+v)
 	}
 	out := make(map[string]string, len(by))
 	for t, fs := range by {
@@ -192,20 +200,22 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	if v, ok := o.Open[ref]; ok {
 		open = v
 	}
-	d := drawer{s: s, t: t, o: o, ref: ref, cw: min(o.Width, o.rowCap())}
+	var mine *Step
 	for _, it := range t.Items {
 		if latest != nil && it.Step == latest {
-			d.latest = latest
+			mine = latest
 		}
 	}
 	key := s.cacheKey(t, o, ref, open, folds)
-	if d.latest != nil {
-		key.latest = d.latest.ID
+	if mine != nil {
+		key.latest = mine.ID
 	}
 	c, ok := s.cache[t]
 	if ok && c.key == key {
 		return c.lines
 	}
+	// Built only on a miss: it escapes, so every turn every frame allocated.
+	d := &drawer{s: s, t: t, o: o, ref: ref, cw: min(o.Width, o.rowCap()), latest: mine}
 	if ok && s.over() {
 		s.stale = true
 		return c.lines // as it was drawn: another render redraws it
@@ -302,6 +312,9 @@ type drawer struct {
 	spans []span
 	// subject is whether the next line of a git log's message is its title.
 	subject bool
+	// view is what the output being drawn was switched to: ViewText or
+	// ViewPretty, or "" to draw it as it opens.
+	view string
 	// latest is the session's newest step when it's in this turn: it
 	// shows opened, and never folds into a run.
 	latest *Step
@@ -682,6 +695,8 @@ func (d *drawer) notice(it *Item) {
 		col, mark = cYellow, "●"
 	case "error":
 		col, mark = cRed, "●"
+	case "ok":
+		col, mark = cGreen, "✓"
 	}
 	for k, r := range wrap(oneLine(it.Text), min(d.cw-10, capProse)) {
 		lead := paint(col, mark) + " "
@@ -899,41 +914,39 @@ func (d *drawer) compacted(it *Item) {
 
 // liveLine ends a running turn with what Claude is doing right now, how
 // long the turn has run and roughly how much it has written, so a quiet
-// stretch (thinking, a long answer being composed) never looks stalled.
+// stretch (thinking, a long answer being composed) never looks stalled:
+// its name and how long on one row, a pulse and the facts under it.
 func (d *drawer) liveLine() {
 	t := d.t
 	if !d.s.compacting.IsZero() {
 		d.compactingLine()
 		return
 	}
-	verb, since, gap, waiting := musing(t.Start), time.Time{}, false, false
+	verb, since, waiting := pick(openings, t.Start), t.Start, false
 	if n := len(t.Items); n > 0 {
 		switch last := t.Items[n-1]; {
 		case last.Kind == KThinking && !t.Thinking.IsZero():
-			verb, since, gap = musing(t.Thinking), t.Thinking, true
+			verb, since = pick(musings, t.Thinking), t.Thinking
 		case last.Kind == KText && d.s.streaming == last:
-			verb = "writing"
+			verb = pick(writings, t.Start)
 		case last.Kind == KStep && last.Step.Status == Running:
 			return // the step's own row is spinning
 		case last.Kind == KStep && !last.Step.End.IsZero():
 			// Its steps are done and their results sent back: the model
 			// is working out what's next, and nothing shows until it says.
-			verb, since, gap, waiting = musing(last.Step.End), last.Step.End, true, true
+			verb, since, waiting = pick(waitings, last.Step.End), last.Step.End, true
 		}
 	}
-	if gap {
-		d.add("", "", d.spine(), "")
-	}
-	line := paint(cOrange, d.spin(d.o.Tick)+" "+verb+"…")
-	var facts []string
-	if waiting {
-		facts = append(facts, waitingWord)
-	}
+	pad := d.spine() + "   "
+	d.air()
+	head := paint(cOrange+bold, d.spin(d.o.Tick)+" "+verb+"…")
 	if !since.IsZero() {
-		facts = append(facts, dur(d.o.Now.Sub(since)))
+		head += "  " + paint(cOrange, d.since(since))
 	}
-	if !t.Start.IsZero() {
-		facts = append(facts, "turn "+dur(d.o.Now.Sub(t.Start)))
+	d.add("", "", pad+head, "")
+	var facts []string
+	if !t.Start.IsZero() && since != t.Start {
+		facts = append(facts, "turn "+d.since(t.Start))
 	}
 	if t.Streamed > 0 {
 		facts = append(facts, "↓ "+tokens(t.Streamed/4)+" tokens")
@@ -948,40 +961,131 @@ func (d *drawer) liveLine() {
 			facts = append(facts, "cache expired, read uncached")
 		}
 	}
-	if len(facts) > 0 {
-		line += dim("  " + strings.Join(facts, " · "))
-	}
-	d.add("", "", d.spine()+"   "+line, "")
+	d.add("", "", pad+"  "+pulseBar(32, d.o.Tick)+"  "+dim(strings.Join(facts, " · ")), "")
 	if r := t.Retry; r != nil {
 		// A request failed and is tried again: the model hasn't stalled,
 		// its API has.
-		d.add("", "", d.spine()+"     "+paint(cYellow, "↻ "+retryWords(r, d.o.Now.Sub(t.RetryAt))), "")
+		d.add("", "", pad+"  "+paint(cYellow, "↻ "+retryWords(r, d.o.Now.Sub(t.RetryAt))), "")
 	}
 }
 
-// compactingLine is a compaction under way: a bar of how far through it
-// is likely to be and roughly how long is left. Nothing says how far it
-// has got, so both are estimates, from how long this session's last one
-// took for its size, else from the context's size alone.
+// air is a row of space above what follows, unless the last row is one.
+func (d *drawer) air() {
+	if n := len(d.lines); n > 0 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) == strings.TrimSpace(stripANSI(d.spine())) {
+		return
+	}
+	d.add("", "", d.spine(), "")
+}
+
+// pulseBar is compactBar's track with nothing to measure: a short lit run
+// that sweeps back and forth, its leading cell glinting.
+func pulseBar(w, tick int) string {
+	const run = 6
+	span := w - run
+	at := tick % (2 * span)
+	fwd := at < span
+	if !fwd {
+		at = 2*span - at
+	}
+	var b strings.Builder
+	b.WriteString(faint(strings.Repeat("─", at)))
+	for i := range run {
+		if lead := fwd && i == run-1 || !fwd && i == 0; lead {
+			b.WriteString(paint(cYellow, "━"))
+		} else {
+			b.WriteString(paint(cOrange, "━"))
+		}
+	}
+	b.WriteString(faint(strings.Repeat("─", w-at-run)))
+	return b.String()
+}
+
+// pick is one of words for the stretch that began at since: the same for
+// the whole of it, not a new one each frame.
+func pick(words []string, since time.Time) string {
+	return words[int(uint64(since.UnixNano())/1e6%uint64(len(words)))]
+}
+
+// openings are a turn before the model has said anything; waitings, it
+// reading back what its steps did; writings, it composing its answer.
+var (
+	openings = []string{
+		"waiting for the agent", "waking it up", "getting its bearings", "reading the room",
+		"finding its feet", "rolling up its sleeves", "clearing its throat", "warming up",
+		"pulling up the cuck chair", "stretching its legs", "finding its glasses",
+		"switching it off and on again",
+	}
+	waitings = []string{
+		"working out what's next", "reading the results", "chewing it over", "weighing it up",
+		"taking stock", "joining the dots", "sizing it up", "having a think", "watching the langs",
+		"watching from the cuck chair", "checking its working", "squinting at the output",
+		"blaming the compiler", "reading the tea leaves", "nodding knowingly",
+	}
+	writings = []string{
+		"writing", "scribbling", "putting pen to paper", "drafting", "typing away",
+		"jotting it down", "spinning a yarn", "writing it up", "licking the pencil",
+		"writing its memoirs", "embellishing slightly",
+	}
+)
+
+// compactingLine is a compaction under way: what it's up to, a bar of how
+// far through it is likely to be and roughly how long is left. Nothing
+// says how far it has got, so both are estimates, from how long this
+// session's last one took for its size, else from the context's size.
 func (d *drawer) compactingLine() {
 	since := d.o.Now.Sub(d.s.compacting)
 	est := compactEstimate(max(d.s.Context, 1), d.s.compactRate)
 	frac := min(0.95, float64(since)/float64(est))
-	const w = 20
-	fill := int(frac * w)
-	bar := paint(cOrange, strings.Repeat("▰", fill)) + faint(strings.Repeat("▱", w-fill))
-	facts := []string{fmt.Sprintf("%d%%", int(frac*100)), dur(since)}
+	pad := d.spine() + "   "
+	d.air()
+	d.add("", "", pad+paint(cOrange+bold, d.spin(d.o.Tick)+" "+compaction(d.s.compacting)+"…")+
+		"  "+paint(cOrange, fmt.Sprintf("%d%%", int(frac*100))), "")
+	var facts []string
 	if left := est - since; left > 0 {
 		facts = append(facts, "~"+dur(left.Round(time.Second))+" left")
 	} else {
 		facts = append(facts, "taking longer than expected")
 	}
+	facts = append(facts, dur(since)+" in")
 	if d.s.Context > 0 {
-		facts = append(facts, tokens(d.s.Context)+" tokens to summarise")
+		facts = append(facts, tokens(d.s.Context)+" tokens to boil down")
 	}
-	d.add("", "", d.spine(), "")
-	d.add("", "", d.spine()+"   "+paint(cOrange, d.spin(d.o.Tick)+" compacting the context  ")+bar+dim("  "+strings.Join(facts, " · ")), "")
+	d.add("", "", pad+"  "+compactBar(frac, 32, d.o.Tick)+"  "+dim(strings.Join(facts, " · ")), "")
 }
+
+// compactBar is a thin bar w cells long, frac of it lit, with a glint that
+// runs along the lit part so it never looks stuck.
+func compactBar(frac float64, w, tick int) string {
+	fill := int(frac * float64(w))
+	var b strings.Builder
+	glint := -1
+	if fill > 0 {
+		glint = tick % (fill + 8) // off the end for a moment between runs
+	}
+	for i := range fill {
+		if i == glint {
+			b.WriteString(paint(cYellow, "━"))
+		} else {
+			b.WriteString(paint(cOrange, "━"))
+		}
+	}
+	if fill < w {
+		b.WriteString(paint(cOrange, "╸") + faint(strings.Repeat("─", w-fill-1)))
+	}
+	return b.String()
+}
+
+// compactions are what a compaction is called, one for the whole of it:
+// in the musings' voice.
+var compactions = []string{
+	"compacting the context", "boiling it all down", "sitting on the suitcase", "vacuum-packing",
+	"writing the cliff notes", "squeezing the sponge", "folding the laundry", "tidying the attic",
+	"cramming it in the loft", "taking the minutes", "reducing the stock", "packing it into a flask",
+	"rolling up the maps", "wringing it out", "making a précis", "putting it in a nutshell",
+}
+
+// compaction is what the compaction that began at since is called.
+func compaction(since time.Time) string { return pick(compactions, since) }
 
 // compactEstimate is how long compacting tokens is likely to take: at the
 // rate the session's last one went, else about 20s and a second more for
@@ -992,10 +1096,6 @@ func compactEstimate(tokens int, rate time.Duration) time.Duration {
 	}
 	return 20*time.Second + time.Duration(tokens/4000)*time.Second
 }
-
-// waitingWord is what the live line says, after its word for it, between
-// a step's end and the model's next words.
-const waitingWord = "working out what's next"
 
 // retryWords say a retry: which attempt, why, and when the next goes.
 func retryWords(r *event.Retry, since time.Duration) string {
@@ -1678,11 +1778,13 @@ func (d *drawer) fileLink(p, s string) string {
 
 // abs is p from the session's folder when it's relative; nothing when
 // there's no folder to take it from.
-func (d *drawer) abs(p string) string {
+func (d *drawer) abs(p string) string { return d.s.abs(p) }
+
+func (s *Session) abs(p string) string {
 	if p == "" || filepath.IsAbs(p) || strings.HasPrefix(p, "~/") {
 		return p
 	}
-	base := firstNonEmpty(d.s.Info.Cwd, d.s.Cwd)
+	base := firstNonEmpty(s.Info.Cwd, s.Cwd)
 	if base == "" {
 		return ""
 	}
@@ -1957,7 +2059,11 @@ func (d *drawer) step(st *Step, depth int) {
 			d.errorLine(st, indent+4, ref)
 		}
 	} else {
-		d.add(ref, "", left, "")
+		hint := ""
+		if open {
+			hint = d.viewHint(st, ref)
+		}
+		d.add(ref, "", left, hint)
 	}
 	// What it did comes after what it ran, when that's open. A picture it
 	// read shows either way, as a card would.
@@ -1989,7 +2095,7 @@ func (d *drawer) cells(st *Step) string {
 	if st.Status == Waiting {
 		wait := ""
 		if !st.Start.IsZero() {
-			wait = faint(" · ") + dim(dur(d.o.Now.Sub(st.Start)))
+			wait = faint(" · ") + dim(d.since(st.Start))
 		}
 		return paint(cYellow, "waiting on you") + wait
 	}
@@ -2015,7 +2121,7 @@ func (d *drawer) cells(st *Step) string {
 		if p := st.runningPart(); p != "" {
 			parts = append(parts, paint(cSub, p))
 		}
-		ran := paint(cOrange, dur(d.o.Now.Sub(st.Start)))
+		ran := paint(cOrange, d.since(st.Start))
 		// One running a while says when it started, to tell stuck from slow
 		// against the clock.
 		if d.o.Now.Sub(st.Start) >= 30*time.Second {
@@ -2098,6 +2204,16 @@ func glyphColor(g string) string {
 	return faint(g)
 }
 
+// since is how long ago t was, for a timer still running; one under
+// fastUnder asks for frames more often than every second (Session.Fast).
+func (d *drawer) since(t time.Time) string {
+	x := d.o.Now.Sub(t)
+	if x < fastUnder {
+		d.s.Fast = true
+	}
+	return dur(x)
+}
+
 // rel shortens a path to the session's folder when it's inside it, looking
 // through symlinks such as macOS's /tmp → /private/tmp.
 func (d *drawer) rel(p string) string {
@@ -2106,7 +2222,20 @@ func (d *drawer) rel(p string) string {
 			return r
 		}
 	}
-	return p
+	return shortAbs(p)
+}
+
+// shortAbs is a path outside the session as it reads best: home as ~, and
+// the middle of a long one left out so its file's name still shows.
+func shortAbs(p string) string {
+	if h, err := os.UserHomeDir(); err == nil && h != "" && strings.HasPrefix(p, h+"/") {
+		p = "~" + p[len(h):]
+	}
+	parts := strings.Split(p, "/")
+	if len(p) <= 48 || len(parts) <= 4 {
+		return p
+	}
+	return strings.Join(append(parts[:2:2], append([]string{"…"}, parts[len(parts)-2:]...)...), "/")
 }
 
 func (d *drawer) label(st *Step) string {
@@ -2564,8 +2693,19 @@ func (d *drawer) body(st *Step, indent int) {
 	// Code read from files shows highlighted.
 	d.lg, d.byPath = nil, false
 	d.resetHL()
-	defer func() { d.lg, d.byPath, d.spans = nil, false, nil }()
+	defer func() { d.lg, d.byPath, d.spans, d.view = nil, false, nil, "" }()
 	x := st.in()
+	ref := d.ref + ":s:" + st.ID
+	switch v, _ := d.viewOf(st, ref); {
+	case v == ViewHex:
+		if cmd := strings.TrimSpace(x.Command); st.kind() == tool.Shell && cmd != "" {
+			d.shellBody(st, cmd, indent)
+		}
+		d.hexBody(st, indent)
+		return
+	case v == ViewPretty || v == ViewText && d.o.View[ref] == ViewText:
+		d.view = v
+	}
 	switch {
 	case st.kind() == tool.Read:
 		d.lg = langFor(x.Path)
@@ -2600,7 +2740,7 @@ func (d *drawer) body(st *Step, indent int) {
 		}
 		if r := st.out(); r.Stdout != "" || r.Stderr != "" {
 			d.output(r.Stdout, indent, st.Status == Failed && r.Stderr == "")
-			d.spans = nil
+			d.spans, d.view = nil, "" // the views are of stdout
 			if strings.TrimSpace(r.Stderr) != "" {
 				if strings.TrimSpace(r.Stdout) != "" {
 					d.add("", "", d.spine()+strings.Repeat(" ", indent-1)+faint(fmt.Sprintf("stderr · %d lines", countLines(r.Stderr))), "")
@@ -2618,7 +2758,11 @@ func (d *drawer) body(st *Step, indent int) {
 	if _, ok := classified(st); ok && !d.o.Verbose {
 		return
 	}
-	d.output(strings.TrimLeft(exitRe.ReplaceAllString(toolErrTag.Replace(st.Output), ""), "\n"), indent, st.Status == Failed)
+	out := st.Output
+	if d.view == ViewPretty && st.kind() == tool.Read {
+		out = unnumbered(out)
+	}
+	d.output(strings.TrimLeft(exitRe.ReplaceAllString(toolErrTag.Replace(out), ""), "\n"), indent, st.Status == Failed)
 }
 
 // pictures draws the images a step read or was given back, each a small
@@ -2659,7 +2803,14 @@ func (d *drawer) pictures(st *Step, indent int) bool {
 func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 	pad := d.spine() + strings.Repeat(" ", indent-1)
 	room := d.cw - indent - 4
-	marks := d.partMarks(st, len(segments(cmd)))
+	raw := shellLines(cmd)
+	// A script (a loop, an if, a group) reads as one: its statements aren't
+	// a chain's commands, with a time and a running marker each.
+	script := compound(raw)
+	var marks []string
+	if !script {
+		marks = d.partMarks(st, len(segments(cmd)))
+	}
 	if marks != nil {
 		room -= 10
 	}
@@ -2673,7 +2824,10 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 	// out in the margin so the commands line up.
 	var lines []shLine
 	gutter := 2
-	for _, l := range shellLines(cmd) {
+	if script {
+		lines, raw = scriptLines(raw), nil
+	}
+	for _, l := range raw {
 		if n := len(lines); n > 0 && strings.HasPrefix(l.text, "| ") && !lines[n-1].verbatim && cellw.String(lines[n-1].text)+1+cellw.String(l.text)+lines[n-1].depth*2 <= room {
 			lines[n-1].text += " " + l.text
 			continue
@@ -2699,12 +2853,12 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 				mark = marks[part]
 			}
 		}
-		now := part == st.at && st.parts[part] != nil && st.parts[part].end.IsZero() && d.s.live(st)
+		now := !script && part == st.at && st.parts[part] != nil && st.parts[part].end.IsZero() && d.s.live(st)
 		lead := faint("$") + blank[1:] // the command, not each line of a heredoc
 		if i > 0 {
 			lead = blank
 		}
-		if op := l.text[:min(3, len(l.text))]; !l.verbatim && (op == "&& " || op == "|| ") {
+		if op := l.text[:min(3, len(l.text))]; !script && !l.verbatim && (op == "&& " || op == "|| ") {
 			lead, l.text = paint(cOrange, op[:2])+" ", l.text[3:]
 		}
 		if !l.verbatim && strings.Contains(l.text, "<<") {
@@ -2723,6 +2877,10 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 		}
 		hang := strings.Repeat(" ", l.depth*2)
 		colored := quietTint(expandTabs(l.text))
+		if script && !l.verbatim {
+			var st hlState // each statement stands alone: a quote can't open across lines
+			colored = highlight(langSh, &st, expandTabs(l.text), cSub, nil)
+		}
 		if now && !l.verbatim {
 			colored = paint(cText+bold, expandTabs(l.text))
 			if lead == blank {
@@ -2867,15 +3025,24 @@ func (d *drawer) errorLine(st *Step, indent int, ref string) {
 // verbose mode, tinted red when it's a failure.
 func (d *drawer) output(s string, indent int, failed bool) {
 	s = collapseCR(strings.TrimRight(s, "\n"))
+	s = d.notices(s, indent)
 	if strings.TrimSpace(s) == "" {
 		return
 	}
 	// JSON a tool printed (an API's answer, a --json flag, an MCP result)
 	// is laid out and coloured, however it came.
-	isJSON := false
-	if !failed && d.lg == nil && !d.byPath {
+	// Switched to pretty, it's laid out however it came; switched to text,
+	// JSON stays as it came, coloured.
+	isJSON, hl := false, langJSON
+	if p, lg, ok := prettyText(s); ok && d.view == ViewPretty {
+		s, isJSON, hl, d.hs = p, true, lg, hlState{}
+		d.lg, d.byPath, d.spans = nil, false, nil
+	} else if !failed && d.lg == nil && !d.byPath {
 		if p, ok := prettyJSON(s); ok {
-			s, isJSON, d.hs = p, true, hlState{}
+			isJSON, d.hs = true, hlState{}
+			if d.view != ViewText {
+				s = p
+			}
 		}
 	}
 	lines := strings.Split(s, "\n")
@@ -2913,7 +3080,18 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	if !failed && len(spanOf) > 0 {
 		ud = parseDiff(lines, func(i int) bool { return i < len(spanOf) && d.spans[spanOf[i]].diff })
 	}
+	// A diff the command didn't say it prints (git -C, gh pr diff, a pipe
+	// rush can't read) is found in the output; the lines around it stay as
+	// they are.
+	found := false
+	if ud == nil && !failed && !isJSON && hasDiff(lines) {
+		ud = parseDiff(lines, func(int) bool { return true })
+		found = ud != nil
+	}
 	diffLine := func(i int, l string) bool {
+		if found {
+			return ud.line(d, pad+edge, w, d.lg, lines, i)
+		}
 		if ud == nil || i >= len(spanOf) || !d.spans[spanOf[i]].diff {
 			return false
 		}
@@ -2931,7 +3109,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		if i < len(spanOf) {
 			lg, byPath = d.spans[spanOf[i]].lg, d.spans[spanOf[i]].byPath
 		}
-		if failed || lg == nil && !byPath || i < len(spanOf) && d.spans[spanOf[i]].diff {
+		if failed || lg == nil && !byPath || i < len(spanOf) && d.spans[spanOf[i]].diff || found && ud.ls[i].kind != 0 {
 			return 0, "", nil
 		}
 		n, path := codePrefix(l)
@@ -2953,10 +3131,11 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		}
 		return g * 2
 	}
-	// A hit whose path would leave its code a sliver puts the path above it
-	// instead, and isn't lined up with the rest.
-	headed := func(path string, pw int) bool { return path != "" && pw > w/2 }
+	// A hit's path goes above it once per file, as rg --heading has it, so
+	// no gutter is as wide as the longest path; its line numbers line up
+	// with its own file's only.
 	prefixW, shared := make([]int, 2*len(d.spans)+2), make([]int, 2*len(d.spans)+2)
+	numW := map[string]int{}
 	for g := range shared {
 		shared[g] = -1
 	}
@@ -2973,8 +3152,10 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			continue
 		}
 		g := group(i, n)
-		if pw := cellw.String(l[:n]); !headed(path, pw) {
-			prefixW[g] = max(prefixW[g], pw)
+		if path != "" {
+			numW[path] = max(numW[path], len(strconv.Itoa(lineNo(l[:n]))))
+		} else {
+			prefixW[g] = max(prefixW[g], cellw.String(l[:n]))
 		}
 		ind := len(l[n:]) - len(strings.TrimLeft(l[n:], " "))
 		if no := lineNo(l[:n]); n > 0 && no > 0 {
@@ -2991,7 +3172,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 		}
 	}
 	last := -1
-	head := "" // the path last put above its matches, when prefixes are too wide to go beside them
+	head := "" // the path last put above its hits
 	var hex map[int]string
 	if !failed && !isJSON {
 		hex = hexRows(lines)
@@ -3029,14 +3210,15 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			if sh > 0 && len(body)-len(strings.TrimLeft(body, " ")) >= sh {
 				body = body[sh:]
 			}
-			if headed(path, cellw.String(l[:n])) {
-				// Long paths would leave the code a sliver at the edge: each
-				// file's path goes above its matches, and they're numbered.
+			if lg == langMD && d.hs.fence == nil && !mdTable(body) {
+				body = squeeze(body) // prose isn't lined up in columns: a gap is a gap
+			}
+			if path != "" {
 				if path != head {
 					put(b, "", paint(cSub, path))
 					head = path
 				}
-				pre = fmt.Sprintf("%5d  ", lineNo(l[:n]))
+				pre = fmt.Sprintf("%*d  ", numW[path], lineNo(l[:n]))
 			}
 			put(b, faint(pre), highlight(lg, &d.hs, body, cOut, nil))
 			return
@@ -3046,7 +3228,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			return
 		}
 		if isJSON {
-			put(b, "", highlight(langJSON, &d.hs, l, cOut, nil))
+			put(b, "", highlight(hl, &d.hs, l, cOut, nil))
 			return
 		}
 		c := cOut
@@ -3320,27 +3502,23 @@ func (d *drawer) addRows(b, pad, lead, body string, w, most int) {
 	}
 }
 
-// codeRows wraps a highlighted line of code to rows w cells wide, keeping
-// its colours across the breaks. Past most rows the rest is cut, unless
-// verbose or most is 0.
+// codeRows wraps a highlighted line to rows w cells wide, at a space or
+// after a hyphen where it can, keeping its colours across the breaks. Past
+// most rows the rest is cut, unless verbose or most is 0.
 func (d *drawer) codeRows(s string, w, most int) []string {
 	w = max(w, 4)
-	n := cellw.String(s)
-	if n <= w {
+	if cellw.String(s) <= w {
 		return []string{s}
 	}
-	if d.o.Verbose || most <= 0 {
-		most = n
+	rows := strings.Split(ansi.Wrap(s, w, "-"), "\n")
+	for len(rows) > 1 && strings.TrimSpace(ansi.Strip(rows[len(rows)-1])) == "" {
+		rows[len(rows)-2] += rows[len(rows)-1] // a row of style codes alone
+		rows = rows[:len(rows)-1]
 	}
-	var rows []string
-	for at := 0; at < n; at += w {
-		if len(rows) == most-1 && at+w < n {
-			rows = append(rows, ansi.Truncate(ansi.Cut(s, at, n), w, "›"))
-			break
-		}
-		rows = append(rows, ansi.Cut(s, at, min(at+w, n)))
+	if !d.o.Verbose && most > 0 && len(rows) > most {
+		rows = append(rows[:most-1], ansi.Truncate(rows[most-1], w-1, "")+"›")
 	}
-	return rows
+	return CarryStyle(rows)
 }
 
 // collapseCR keeps only the last state of lines redrawn with carriage
@@ -3366,6 +3544,21 @@ func diffText(lg *lang, st *hlState, s, c string, w int) string {
 	}
 	return ansi.Truncate(paintCode(lg, st, stripANSI(s), c, nil, true), max(w, 4), "›")
 }
+
+// mdTable is whether a Markdown line, past a read's line number, is a
+// table's row: its columns are lined up on purpose.
+func mdTable(l string) bool {
+	return strings.HasPrefix(strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(l), "0123456789")), "|")
+}
+
+// squeeze keeps a line's indentation and makes each wider gap after it two
+// spaces.
+func squeeze(s string) string {
+	t := strings.TrimLeft(s, " ")
+	return s[:len(s)-len(t)] + wideGap.ReplaceAllString(t, "  ")
+}
+
+var wideGap = regexp.MustCompile(`   +`)
 
 func expandTabs(s string) string { return strings.ReplaceAll(stripANSI(s), "\t", "    ") }
 

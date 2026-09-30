@@ -9,8 +9,7 @@ import (
 )
 
 // overviewSections are the Overview's own rows past the session's report:
-// the pages it published, and what its agent reads as memory. Enter on a
-// memory file opens the memory view on it; esc comes back.
+// the pages it published, and a link to the Memory tab.
 func (m *Model) overviewSections(c *hostConn, o convo.Options) []convo.Line {
 	w := o.Width
 	var out []convo.Line
@@ -26,17 +25,24 @@ func (m *Model) overviewSections(c *hostConn, o convo.Options) []convo.Line {
 		out = append(out, m.artifactLines(c, o)[2:]...) // past its own heading
 	}
 	if canScreen(c, "memory") {
+		// A link to the Memory tab, with what it costs.
 		files := m.memoryOf(c)
 		var up int64
 		for _, f := range files {
 			up += f.Up
 		}
-		head("Memory", fmt.Sprintf("≈%s tokens every session · %d files · enter opens one", efficiency.Tokens(up), len(files)))
-		var when map[string]string
-		if c.memInfo != nil {
-			when = c.memInfo.When
+		head("Memory", "")
+		row := "    " + paint(cBlue, "→ ") + paint(cText, fmt.Sprintf("%d files", len(files))) + dim(fmt.Sprintf(" · ≈%s tokens every session", efficiency.Tokens(up)))
+		right := dim("enter opens the Memory tab") + "  "
+		if c.sel == "go:memory" {
+			bar := faint("▍")
+			if o.Focused {
+				bar = paint(cOrange, "▍")
+			}
+			out = append(out, convo.Line{Text: selBG + strings.ReplaceAll(bar+fit(spread(row, right, w), w)[1:], reset, reset+selBG) + reset, Ref: "go:memory"})
+		} else {
+			out = append(out, convo.Line{Text: fit(spread(row, right, w), w), Ref: "go:memory"})
 		}
-		out = append(out, memRows(files, when, c.sel, w, o, memNothing(c, files))...)
 	}
 	return out
 }

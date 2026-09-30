@@ -175,7 +175,7 @@ func TestWaitingLine(t *testing.T) {
 	s.Apply(event.Message{Role: "user", Parts: []event.Part{{Kind: event.ToolResult, Output: &tool.Output{CallID: "c1", Text: "ok", Exit: &exit}}}}, at(4))
 	s.Apply(event.Retry{Attempt: 2, Max: 10, Delay: 8e9, Status: 529}, at(10))
 	out := plain(s.Render(Options{Width: 120, Now: at(12)}))
-	for _, want := range []string{waitingWord + " · 8.0s", "~182k tokens in", "↻ retrying · the API is overloaded · attempt 2 of 10 · next in 6.0s"} {
+	for _, want := range []string{pick(waitings, at(4)) + "…  8s", "~182k tokens in", "↻ retrying · the API is overloaded · attempt 2 of 10 · next in 6s"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}
@@ -195,11 +195,12 @@ func TestCompactingLine(t *testing.T) {
 	s.Apply(event.Status{Busy: true, Text: "compacting"}, at(10))
 	out := plain(s.Render(Options{Width: 140, Now: at(70)}))
 	// 400k tokens: about 20s + 100s; a minute in is half way.
-	if !strings.Contains(out, "compacting the context") || !strings.Contains(out, "50% · 1m 00s · ~1m 00s left · 400k tokens to summarise") {
+	name := compaction(at(10))
+	if !strings.Contains(out, name+"…  50%") || !strings.Contains(out, "╸") || !strings.Contains(out, "~1m 00s left · 1m 00s in · 400k tokens to boil down") {
 		t.Fatalf("no compacting line:\n%s", out)
 	}
 	s.Apply(event.Compacted{Trigger: "auto", Before: 400_000, After: 10_000}, at(90))
-	if out := plain(s.Render(Options{Width: 140, Now: at(91)})); strings.Contains(out, "compacting the context") {
+	if out := plain(s.Render(Options{Width: 140, Now: at(91)})); strings.Contains(out, name+"…") {
 		t.Fatalf("done, the bar goes:\n%s", out)
 	}
 	if got := compactEstimate(200_000, s.compactRate); got != 40*time.Second {

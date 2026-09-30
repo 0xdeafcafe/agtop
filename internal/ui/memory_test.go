@@ -100,15 +100,15 @@ func TestMemoryView(t *testing.T) {
 	c := &hostConn{kind: "claude", sess: convo.New(), open: map[string]bool{}, mem: files, memAt: time.Now()}
 	c.memInfo = &report
 	if !m.showView(c, "memory") || m.viewName(c) != "memory" {
-		t.Fatal("memory opens from the Overview")
+		t.Fatal("memory has its own tab")
 	}
 	c.sel = "mem:" + note
-	listed := false
+	linked := false
 	for _, l := range m.overviewSections(c, convo.Options{Width: 100, Now: time.Now()}) {
-		listed = listed || l.Ref == "mem:"+note
+		linked = linked || l.Ref == "go:memory"
 	}
-	if !listed {
-		t.Fatal("the Overview's Memory section lists the files")
+	if !linked {
+		t.Fatal("the Overview links to the Memory tab")
 	}
 	var out string
 	for _, l := range m.memoryLines(c, convo.Options{Width: 100, Now: time.Now()}, 50) {

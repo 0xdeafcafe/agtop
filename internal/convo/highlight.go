@@ -163,7 +163,18 @@ func langFor(name string) *lang {
 type hlState struct {
 	block bool
 	str   string // what closes the string still open
+	fence *lang  // a Markdown fence's language, while in it
+	in    inner  // what the fenced code left open
 }
+
+// inner is what a fenced block's code carries from line to line: a value,
+// so copies of a state never share it.
+type inner struct {
+	block bool
+	str   string
+}
+
+func (st hlState) inner() inner { return inner{st.block, st.str} }
 
 // emph is a span of a line (byte offsets) drawn on its own background, as
 // the changed words of a diff's line, and the background to return to.
@@ -239,9 +250,15 @@ func paintCode(l *lang, st *hlState, s, base string, em *emph, marked bool) stri
 		out(0, len(s), base)
 		return end(&b, inEm, em)
 	}
+	paintLine(l, st, s, base, out)
+	return end(&b, inEm, em)
+}
+
+// paintLine draws a line of code in l through out, going on from st.
+func paintLine(l *lang, st *hlState, s, base string, out func(i, j int, c string)) {
 	if l.md {
 		markdown(st, s, base, out)
-		return end(&b, inEm, em)
+		return
 	}
 	i := 0
 	// What the last line left open.
@@ -251,7 +268,7 @@ func paintCode(l *lang, st *hlState, s, base string, em *emph, marked bool) stri
 			i, st.block = k+len(l.shut), false
 		} else {
 			out(0, len(s), hlComment)
-			return end(&b, inEm, em)
+			return
 		}
 	}
 	if st.str != "" {
@@ -260,7 +277,7 @@ func paintCode(l *lang, st *hlState, s, base string, em *emph, marked bool) stri
 			i, st.str = k+len(st.str), ""
 		} else {
 			out(0, len(s), hlStr)
-			return end(&b, inEm, em)
+			return
 		}
 	}
 	for i < len(s) {
@@ -364,7 +381,6 @@ func paintCode(l *lang, st *hlState, s, base string, em *emph, marked bool) stri
 			i = j
 		}
 	}
-	return end(&b, inEm, em)
 }
 
 // markdown draws a line of Markdown: a heading, a quote, a rule and a
@@ -376,11 +392,21 @@ func markdown(st *hlState, s, base string, out func(i, j int, c string)) {
 	if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
 		switch fence := t[:3]; st.str {
 		case "":
-			st.str = fence
+			st.str, st.fence, st.in = fence, nil, inner{}
+			if tag := strings.Fields(strings.Trim(t, "`~")); len(tag) > 0 {
+				st.fence = langFor(tag[0])
+			}
 		case fence:
-			st.str = ""
+			st.str, st.fence = "", nil
 		}
 		out(0, len(s), hlComment)
+		return
+	}
+	if st.str != "" && st.fence != nil {
+		// A fenced block in its own language, from where its last line left it.
+		in := hlState{block: st.in.block, str: st.in.str}
+		paintLine(st.fence, &in, s, base, out)
+		st.in = in.inner()
 		return
 	}
 	if st.str != "" {

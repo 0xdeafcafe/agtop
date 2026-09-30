@@ -50,6 +50,7 @@ func TestShellShape(t *testing.T) {
 		{"sed -n '/^## 12/,$p' /work/design.md | head -60", "read", "◧", "design.md", ""},
 		{"cat a.go b.go", "read", "◧", "a.go, b.go", ""},
 		{"tail -n 20 /tmp/log.txt", "read", "◧", "/tmp/log.txt", ""},
+		{"nl -ba src/a.ts | sed -n 1,40p", "read", "◧", "src/a.ts", ""},
 		{`grep -n "m\.scroll" internal/ui/*.go | grep -v _test`, "search", "⌕", `m\.scroll in internal/ui/*.go`, ""},
 		{`rg -g '*.go' -e foo`, "search", "⌕", "foo", ""},
 		{`grep -n "langFor\|heredocLang" *.go`, "search", "⌕", "langFor|heredocLang in *.go", ""},
@@ -113,8 +114,8 @@ func TestChainOutputHighlighted(t *testing.T) {
 	}
 }
 
-// A search's hits start their code in one column, each file's brought
-// left: indentation from different files has nothing to line up.
+// A search's hits each go under their file's path, each file's code
+// brought left: indentation from different files has nothing to line up.
 func TestSearchHitsAligned(t *testing.T) {
 	s := New()
 	s.Info.Cwd = "/work"
@@ -125,11 +126,36 @@ func TestSearchHitsAligned(t *testing.T) {
 	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
 	var got []string
 	for _, l := range d.lines {
-		if t := stripANSI(l.Text); strings.Contains(t, ".go:") {
-			got = append(got, strings.TrimSpace(strings.TrimLeft(t, " ▏")))
+		if _, t, ok := strings.Cut(stripANSI(l.Text), "▏"); ok {
+			got = append(got, strings.TrimRight(t, " "))
 		}
 	}
-	want := []string{"render.go:2267:      lg := x", "../ui/docstyle.go:35:if x {"}
+	want := []string{"render.go", "2267  lg := x", "../ui/docstyle.go", "35  if x {"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("hits = %q, want %q", got, want)
+	}
+}
+
+// A chain's hits put each file's path on a row of its own and each hit's
+// text just after its line number; bare hits keep a gutter as narrow as
+// their own numbers.
+func TestSearchHitsHeadedByFile(t *testing.T) {
+	s := New()
+	s.Info.Cwd = "/work"
+	d := &drawer{s: s, t: &Turn{}, o: Options{Width: 100, Verbose: true, Open: map[string]bool{}}, cw: 100}
+	cmd := "ls services/langevals/tests | head\ngrep -n \"langevals\" a.md | head -3\ngit grep -n \"langevals\" -- 'dev/docs/adr/*' | head -5"
+	in, _ := jsonx.Marshal(map[string]string{"command": cmd})
+	p := "dev/docs/adr/004-docker-dev-environment.md"
+	out := "conftest.py\n10:langevals runs here\n19:and here\n" + p + ":26:The langevals image\n" + p + ":104:more langevals\n"
+	res, _ := jsonx.Marshal(map[string]string{"stdout": out})
+	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
+	var got []string
+	for _, l := range d.lines {
+		if _, t, ok := strings.Cut(stripANSI(l.Text), "▏"); ok {
+			got = append(got, strings.TrimRight(t, " "))
+		}
+	}
+	want := []string{"conftest.py", "10:langevals runs here", "19:and here", p, " 26  The langevals image", "104  more langevals"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("hits = %q, want %q", got, want)
 	}
@@ -248,21 +274,15 @@ func TestSearchHitsEachLeft(t *testing.T) {
 		"internal/ui/rushmode.go:1615:\tcase \"background\":\n"
 	res, _ := jsonx.Marshal(map[string]string{"stdout": out})
 	d.body(&Step{Tool: "Bash", Input: in, Result: res, Status: OK}, 4)
-	col := -1
+	var got []string
 	for _, l := range d.lines {
-		txt := stripANSI(l.Text)
-		i := strings.Index(txt, ".go:")
-		if i < 0 {
-			continue
+		if _, t, ok := strings.Cut(stripANSI(l.Text), "▏"); ok {
+			got = append(got, strings.TrimRight(t, " "))
 		}
-		c := len(txt) - len(strings.TrimLeft(txt[i+4:], "0123456789: ")) // where the code starts
-		if col >= 0 && c != col {
-			t.Errorf("code starts at %d, not %d: %q", c, col, txt)
-		}
-		col = c
 	}
-	if col < 0 {
-		t.Fatal("no hits drawn")
+	want := []string{"internal/ui/jobs.go", "119  hint = keys(\"b\", \"background\")", "internal/ui/rushmode.go", "  44  v = append(v, \"background\")", "1615  case \"background\":"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("hits = %q, want %q", got, want)
 	}
 }
 

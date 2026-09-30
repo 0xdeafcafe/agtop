@@ -50,12 +50,19 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 		// Taken out of the model's context, not only refused.
 		ho.Flags = append(ho.Flags, "--disallowedTools", strings.Join(o.Without, ","))
 	}
+	hooks := map[string]any{}
 	if o.Inbox != "" {
 		// After each tool call, a message waiting for the agent that made
 		// it goes into that agent's own context: the one way into a
 		// running subagent that isn't the main session's SendMessage.
 		h := []map[string]any{{"matcher": "*", "hooks": []map[string]any{{"type": "command", "command": o.Inbox, "timeout": 10}}}}
-		b, _ := jsonx.Marshal(map[string]any{"hooks": map[string]any{"PostToolUse": h, "PostToolUseFailure": h}})
+		hooks["PostToolUse"], hooks["PostToolUseFailure"] = h, h
+	}
+	if o.BashHook != "" {
+		hooks["PreToolUse"] = []map[string]any{{"matcher": "Bash", "hooks": []map[string]any{{"type": "command", "command": o.BashHook, "timeout": 10}}}}
+	}
+	if len(hooks) > 0 {
+		b, _ := jsonx.Marshal(map[string]any{"hooks": hooks})
 		ho.Flags = append(ho.Flags, "--settings", string(b))
 	}
 	ho.Flags = append(ho.Flags, o.Flags...)

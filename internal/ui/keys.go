@@ -304,6 +304,15 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return m.loadPreview()
 		}
 	case "right":
+		if !empty && a != nil && !strings.HasPrefix(m.sel, "§") && m.cursorPos() == len(m.input) && m.edgePush("list-right") {
+			m.confirm = &confirmation{
+				question: "Open " + a.DisplayName + "?",
+				detail:   "what you typed stays in this box",
+				onYes:    func() tea.Cmd { return m.focusPane(a) },
+				again:    "right",
+			}
+			return nil
+		}
 		if empty && a != nil && !strings.HasPrefix(m.sel, "§") {
 			return m.focusPane(a)
 		}
@@ -1094,6 +1103,9 @@ func (m *Model) relaunch(a *fleet.Agent, to agent.Profile) tea.Cmd {
 
 func (m *Model) confirmKey(s string) tea.Cmd {
 	c := m.confirm
+	if c.again != "" && s == c.again {
+		s = "y"
+	}
 	switch s {
 	case "y", "enter":
 		m.confirm = nil

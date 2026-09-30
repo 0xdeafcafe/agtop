@@ -82,12 +82,19 @@ func TestHighlightMarkdown(t *testing.T) {
 	}
 	st = hlState{}
 	highlight(langMD, &st, "```go", cText, nil)
-	if got := highlight(langMD, &st, "# not a heading", cText, nil); !strings.HasPrefix(got, hlStr) {
-		t.Errorf("a fence's inside should be code: %q", got)
+	if got := highlight(langMD, &st, "# not a heading", cText, nil); strings.Contains(got, hlKw) {
+		t.Errorf("a fence's inside isn't Markdown: %q", got)
+	}
+	if got := highlight(langMD, &st, "return nil", cText, nil); !strings.Contains(got, hlKw+"return") {
+		t.Errorf("a go fence's inside should be Go: %q", got)
 	}
 	highlight(langMD, &st, "```", cText, nil)
 	if st.str != "" {
 		t.Error("the fence should close")
+	}
+	highlight(langMD, &st, "```", cText, nil)
+	if got := highlight(langMD, &st, "# plain", cText, nil); !strings.HasPrefix(got, hlStr) {
+		t.Errorf("a fence with no language should be plain code: %q", got)
 	}
 }
 

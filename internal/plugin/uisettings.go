@@ -98,6 +98,10 @@ func checkSetting(s SettingSpec, v string) error {
 // manifest you approved offers it and allows the value.
 func SetSetting(name, key, value string) error {
 	a, ok := Approvals()[name]
+	if b, bundled := BundleNamed(name); bundled {
+		// A bundled plugin's name is its own, as in Enabled.
+		a, ok = Approval{Manifest: b.Manifest}, true
+	}
 	if !ok {
 		return fmt.Errorf("%s is not approved", name)
 	}

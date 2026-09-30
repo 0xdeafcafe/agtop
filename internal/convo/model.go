@@ -228,6 +228,9 @@ type ToolStat struct {
 // Session is everything known about one rush-mode session.
 type Session struct {
 	Turns    []*Turn
+	// Fast is whether the last render drew a running timer still showing
+	// tenths: frames every 100ms keep it moving.
+	Fast bool
 	Info     host.Info
 	Commands []event.Command
 	Tasks    []Task
@@ -393,6 +396,9 @@ func (s *Session) Apply(ev any, now time.Time) {
 		// agent's init said the one it started on.
 		if md := ev.Info.Model; md != "" && md != s.Info.Model {
 			s.Model = md
+		}
+		if note := limitChange(s.Info, ev.Info); note != "" {
+			s.notice(note, "ok", now)
 		}
 		s.Info = ev.Info
 		s.syncJobs(ev.Info, now)
@@ -589,6 +595,20 @@ func (s *Session) call(c *tool.Call, parent *Step, t *Turn, sub bool, now time.T
 		t.Items = append(t.Items, &Item{Kind: KStep, Step: st})
 	}
 	s.tasksFromInput(st)
+}
+
+// limitChange is what to say when a limit that stopped the session lifts,
+// or it moves to another login; empty when neither happened.
+func limitChange(was, now host.Info) string {
+	switch {
+	case was.ID == "":
+		return "" // the first info, not a change
+	case was.Account != "" && now.Account != "" && now.Account != was.Account:
+		return "now on " + now.Account + " · was " + was.Account
+	case was.Limit != nil && now.Limit == nil:
+		return "limit lifted · carries on"
+	}
+	return ""
 }
 
 // notice adds something Claude Code said to you (not the model) to the

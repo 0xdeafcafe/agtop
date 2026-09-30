@@ -157,6 +157,13 @@ func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
 			c.sel = fmt.Sprintf("q:%d", min(i, len(items)-1))
 		}
 	}
+	if sq, sa := m.subQueue(c); sq != nil {
+		sq.items = items
+		if op == "send" {
+			return tellSub(c, sa.Type, sa.ID, was)
+		}
+		return nil
+	}
 	if c.client == nil {
 		q := m.localQ[c.key]
 		q.items = items
@@ -184,6 +191,10 @@ func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
 
 // holdQueue holds the queue or lets it go.
 func (m *Model) holdQueue(c *hostConn, on bool) tea.Cmd {
+	if sq, _ := m.subQueue(c); sq != nil {
+		sq.held = on
+		return nil
+	}
 	if c.client == nil {
 		q := m.localQueueOf(c.key)
 		q.held, q.fails, q.retry = on, 0, time.Time{}
@@ -198,6 +209,9 @@ func (m *Model) holdQueue(c *hostConn, on bool) tea.Cmd {
 // in the box) after it, as one message: whether the agent is working,
 // waiting on you or the queue is held, and in the order you wrote them.
 func (m *Model) sendQueueNow(c *hostConn, extra string) tea.Cmd {
+	if sq, sa := m.subQueue(c); sq != nil {
+		return m.sendSubQueueNow(c, sq, sa, extra)
+	}
 	queued := m.queueOf(c).items
 	items := slices.Clone(queued)
 	if extra != "" {
@@ -960,14 +974,6 @@ func (m *Model) rushScreen(c *hostConn, a *fleet.Agent, screen string) (tea.Cmd,
 
 // showView switches the Session to one of its views by name.
 func (m *Model) showView(c *hostConn, name string) bool {
-	c.memOpen = false
-	if name == "memory" {
-		if !canScreen(c, "memory") || !m.showView(c, "overview") {
-			return false
-		}
-		c.memOpen = true
-		return true
-	}
 	for i, v := range m.views(c) {
 		if v == name {
 			c.view = i
