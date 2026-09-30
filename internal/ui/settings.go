@@ -92,6 +92,13 @@ type dialog struct {
 	// last one came, to tell a chord from a fresh key.
 	practice   keymap.Seq
 	practiceAt time.Time
+	// tried is the last key pressed on Keys, bound or not, lit on the
+	// keyboard a moment. keyHover is the row under the pointer, plus one;
+	// keyTop, keyFrom and keyTo are where Keys drew its rows, to find it.
+	tried                  keymap.Seq
+	triedAt                time.Time
+	keyHover               int
+	keyTop, keyFrom, keyTo int
 
 	input    []rune
 	asking   string // what the input line is for; empty when not typing

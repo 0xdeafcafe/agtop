@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/keymap"
 )
 
@@ -118,7 +119,7 @@ func (m *Model) keysBody(w int) []string {
 
 	var out []string
 	short := m.h < 36 // no room to explain
-	for _, l := range wrap("What each key does, by where it works. Pick one and press enter to give it keys of your own; they replace rush's for it. Yours are kept in "+tildify(keymap.Path())+".", w-4) {
+	for _, l := range wrap("What each key does, by where it works. Press any key to find what it does; the keyboard lights the keys of the row you're on or pointing at. Pick one and press enter to give it keys of your own; yours are kept in "+tildify(keymap.Path())+".", w-4) {
 		if short {
 			break
 		}
@@ -163,30 +164,41 @@ func (m *Model) keysBody(w int) []string {
 	}
 	out = append(out, strings.Join(strip, "     "), "  "+faint(contextWhere(ctx)), "")
 
-	// The table.
-	titleW := max(24, min(52, w-40))
-	out = append(out, "    "+faint(fit("DOES", titleW)+"    KEYS"))
+	// The table: keys first, lined up, so the eye runs down them; what
+	// they do after, every other row shaded.
+	practicing := ""
+	if len(m.practiced(d.practice)) > 0 {
+		practicing = d.practice.String()
+	}
+	keysOf := func(a keymap.Action) string {
+		if kp := m.keysTaking(); kp != nil && kp.taking == a.ID {
+			return paint(cOrange, "press keys…")
+		}
+		return keyCaps(km.Keys(a.ID), practicing)
+	}
+	keysW := 8
+	for _, a := range rows {
+		keysW = max(keysW, cellw.String(keysOf(a)))
+	}
+	keysW = min(keysW, max(12, min(30, w/3)))
+	out = append(out, "    "+faint(fit("KEYS", keysW)+"   DOES"))
 	// What's left of the screen once the header, the card under the table
-	// and the key line are drawn.
+	// and the key line are drawn; the keyboard under the card if that
+	// still leaves the rows room.
 	h := max(4, m.h-len(m.header())-21-len(out))
+	board := w >= kbWide+6 && h-len(kbRows)-1 >= min(len(rows), 10)
+	if board {
+		h -= len(kbRows) + 1
+	}
 	from, to := window(len(rows), d.cursor, h)
 	if from > 0 {
 		out = append(out, "    "+faint("↑ "+strconv.Itoa(from)+" more"))
 	} else {
 		out = append(out, "")
 	}
-	practicing := ""
-	if len(m.practiced(d.practice)) > 0 {
-		practicing = d.practice.String()
-	}
+	d.keyTop, d.keyFrom, d.keyTo = len(out), from, to
 	for i := from; i < to; i++ {
 		a := rows[i]
-		var keys string
-		if kp := m.keysTaking(); kp != nil && kp.taking == a.ID {
-			keys = paint(cOrange, " press keys…")
-		} else {
-			keys = keyCaps(km.Keys(a.ID), practicing)
-		}
 		title := paint(cText, a.Title)
 		if a.Source != "" {
 			title += faint("  " + a.Source)
@@ -195,10 +207,13 @@ func (m *Model) keysBody(w int) []string {
 		if km.Changed(a.ID) {
 			mark = paint(cBlue, "• ")
 		}
-		line := mark + fit(title, titleW) + "    " + keys
-		if i == d.cursor {
+		line := mark + fit(keysOf(a), keysW) + "   " + title
+		switch {
+		case i == d.cursor:
 			out = append(out, highlight(paint(cOrange, "▍")+" "+line, w))
-		} else {
+		case i == d.keyHover-1, (i-from)%2 == 1:
+			out = append(out, hoverBG+strings.ReplaceAll(fit("  "+line, w), reset, reset+hoverBG)+reset)
+		default:
 			out = append(out, "  "+line)
 		}
 	}
@@ -230,6 +245,36 @@ func (m *Model) keysBody(w int) []string {
 		}
 		out = append(out, label("Works")+" "+dim(contextWhere(cur.Context)),
 			label("Name")+" "+faint(cur.ID+", as keybindings.json calls it"))
+	}
+	if board {
+		// Lit: the key just pressed, else the row under the pointer, else
+		// the cursor's.
+		var lit []keymap.Seq
+		switch {
+		case time.Since(d.triedAt) < 3*time.Second:
+			lit = []keymap.Seq{d.tried}
+		case d.keyHover > 0 && d.keyHover <= len(rows):
+			lit = km.Keys(rows[d.keyHover-1].ID)
+		case cur.ID != "":
+			lit = km.Keys(cur.ID)
+		}
+		on, used := map[string]bool{}, map[string]bool{}
+		for _, s := range lit {
+			for k := range keyParts(s) {
+				on[k] = true
+			}
+		}
+		for _, a := range rows {
+			for _, s := range km.Keys(a.ID) {
+				for k := range keyParts(s) {
+					used[k] = true
+				}
+			}
+		}
+		out = append(out, "")
+		for _, l := range keyboard(on, used) {
+			out = append(out, "    "+l)
+		}
 	}
 	keys := append([]string{"enter", "new keys", "a", "add a key", "x", "no key", "r", "rush's", "1-" + strconv.Itoa(len(ctxs)) + " ← →", "where"}, pagesKeys...)
 	return append(out, "", keysFit(w, keys...))
@@ -375,6 +420,7 @@ func (m *Model) practiceKey(s string) tea.Cmd {
 		d.practice = nil
 	}
 	d.practiceAt = time.Now()
+	d.tried, d.triedAt = keymap.Seq{s}, d.practiceAt
 	try := func(seq keymap.Seq) bool {
 		if a := m.practiced(seq); len(a) > 0 {
 			d.practice = seq
@@ -387,7 +433,9 @@ func (m *Model) practiceKey(s string) tea.Cmd {
 		}
 		return false
 	}
-	if !try(append(slices.Clone(d.practice), s)) && !try(keymap.Seq{s}) {
+	if seq := append(slices.Clone(d.practice), s); try(seq) {
+		d.tried = seq
+	} else if !try(keymap.Seq{s}) {
 		d.practice = nil
 	}
 	return nil
@@ -422,4 +470,18 @@ func (m *Model) practicedPrefix(seq keymap.Seq) bool {
 		}
 	}
 	return false
+}
+
+// keysHover finds the row of Keys under the pointer at y, reporting
+// whether that changed.
+func (m *Model) keysHover(y int) bool {
+	d := m.dialog
+	i := y - m.headH() - 4 - d.keyTop + d.keyFrom // under the header, the pages and the page's name
+	hover := 0
+	if i >= d.keyFrom && i < d.keyTo {
+		hover = i + 1
+	}
+	changed := hover != d.keyHover
+	d.keyHover = hover
+	return changed
 }

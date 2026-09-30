@@ -1295,6 +1295,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		hover := m.hover
 		changed := on != m.divHover
 		changed = m.hoverChip(msg.X, msg.Y) || changed
+		if m.dialog != nil && m.dialog.page == pageKeys && m.sheet == nil {
+			changed = m.keysHover(msg.Y) || changed
+		}
 		// The pointer coming onto the Session gives it the keys, once as it
 		// crosses: tab back to Agents holds while the pointer stays put.
 		if focused := m.paneFocus; !wasOver && msg.Button == tea.MouseNone && msg.X > m.listW+1 {
