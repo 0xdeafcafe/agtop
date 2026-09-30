@@ -202,3 +202,10 @@ func TestIsLimit(t *testing.T) {
 		t.Error("an overload read as a limit")
 	}
 }
+
+// The view draws LimitContinue as rush's own row by how it starts.
+func TestLimitContinueKeepsItsOpening(t *testing.T) {
+	if !strings.HasPrefix(LimitContinue, "continue: you're on another account now, with room") {
+		t.Fatal("convo.switched no longer knows LimitContinue")
+	}
+}

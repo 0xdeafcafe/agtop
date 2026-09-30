@@ -256,6 +256,9 @@ func (s *server) onAgentEvent(conn agent.Conn, ev event.Event) {
 		}
 		s.began = true
 	case event.Message:
+		if e.Role == "assistant" {
+			s.waiting = time.Time{}
+		}
 		s.onMessage(conn, e)
 	case event.Approval:
 		s.options[e.ID] = e.Options
@@ -392,6 +395,9 @@ func (s *server) onTurnEnd(conn agent.Conn, e event.TurnEnd) {
 	s.began = true
 	s.followCwd(true)
 	s.info.CostUSD += TurnCost(&s.spent, e.Cost)
+	if strings.TrimSpace(e.Text) != "" {
+		s.waiting = time.Time{} // it said something: ours was answered
+	}
 	s.askContext()
 	if s.stalled(e) {
 		s.publish()

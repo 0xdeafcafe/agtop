@@ -505,6 +505,15 @@ func unasked(t *Turn) string {
 
 // woke is a turn a task woke, in Claude Code's words: "Background
 // command", and how it ended, " completed" in green or " failed" in red.
+// switched is whether t is rush carrying a session on after moving it to
+// an account with room (host.LimitContinue), drawn as rush's, not yours.
+func switched(t *Turn) bool {
+	return strings.HasPrefix(t.Prompt, "continue: you're on another account now, with room")
+}
+
+// switchedAsk is what such a turn says instead of rush's words to the agent.
+const switchedAsk = "moved to an account with room · carrying on"
+
 func woke(t *Turn) (noun, how string, ok bool) {
 	if t.replied != "" && t.Cause != "" {
 		return "⇉ " + t.replied, " " + dim("replied"), true
@@ -558,6 +567,9 @@ func (d *drawer) folded() {
 		if noun, how, ok := woke(t); ok {
 			who = dim(noun+" ") + sub(`"`+ask+`"`) + how
 		}
+	}
+	if switched(t) {
+		who = dim("↻ rush ") + paint(cOrange, switchedAsk)
 	}
 	left := "  " + faint("▸") + " " + d.mark() + " " + d.num("  ") + who
 	if outcome != "" && outcome != text("") {
@@ -616,6 +628,9 @@ func (d *drawer) open() {
 		if ask != "" {
 			ask = `"` + ask + `"`
 		}
+	}
+	if switched(t) {
+		style, label, ask = func(s string) string { return paint(cOrange, s) }, dim("↻ rush"), switchedAsk
 	}
 	rowW := min(headW-len([]rune(stripANSI(label)))+3, capProse)
 	// Open, the message is shown whole, line by line; a word longer than a

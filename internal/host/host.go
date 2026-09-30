@@ -335,6 +335,9 @@ type server struct {
 	wake      *time.Timer    // a scheduled continue or retry
 	gen       int            // bumped by every send; a stale timer does nothing
 	idle      *time.Timer
+	// waiting is when a message went to the agent that it hasn't begun
+	// answering: zero once it has (see stillWorking).
+	waiting time.Time
 	// stopping is closed once an agent being stopped has gone; a new one
 	// waits for it, so two never run the same conversation.
 	stopping chan struct{}
@@ -867,12 +870,16 @@ func (s *server) answered(id string) {
 }
 
 // stillWorking is whether an idle agent has work of its own going: tasks
-// in the background, or a question you asked it (a side question takes a
-// model call). The context reading asked at each turn's end comes back
-// well inside the rest, so it isn't waited on. Called with mu held.
+// in the background, a side question, or a message it hasn't begun
+// answering (a restarted agent can end a turn on a notice it had queued
+// before it reaches ours). The context reading isn't waited on, as it
+// comes back well inside the rest. Called with mu held.
 func (s *server) stillWorking() bool {
-	return len(s.info.Background) > 0 || s.asking > 0
+	return len(s.info.Background) > 0 || s.asking > 0 || !s.waiting.IsZero() && time.Since(s.waiting) < unansweredFor
 }
+
+// unansweredFor is how long a sent message keeps an idle agent up.
+const unansweredFor = time.Minute
 
 // armIdle rests the agent once it has been idle for IdleStop. Called with
 // mu held.
@@ -1272,6 +1279,7 @@ func (s *server) deliver(text string, images, pics []string) error {
 	s.info.State = "working"
 	s.info.Detail = ""
 	s.publish()
+	s.waiting = time.Now()
 	return s.conn.Send(agent.Input{Text: text, Images: pics})
 }
 
