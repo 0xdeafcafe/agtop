@@ -239,6 +239,9 @@ type Loader struct {
 	subs    map[string]subsEntry
 	quick   bool // this load leaves out what can wait: see LoadQuick
 	fetched map[string]usage.Reading
+	// burns are each login's last reading a minute or more old, to tell
+	// how fast it's filling (usage.Follow).
+	burns map[string]usage.Quota
 	// UsagePath is the readings every rush process and session shares;
 	// usageMod is its time when last read.
 	UsagePath string

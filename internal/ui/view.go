@@ -17,7 +17,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
-	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/0xdeafcafe/rush/internal/theme"
 )
 
@@ -466,7 +465,7 @@ func (m *Model) activeUsage() string {
 			l := lookOf(next.kind)
 			fill := min(5, max(0, int(n/20+0.5)))
 			meter := paint(usageColor(n), strings.Repeat("━", fill)) + faint(strings.Repeat("─", 5-fill))
-			parts = append(parts, faint("↪ at "+pct(state.SwitchAt)+" ")+paint(l.colour(), l.glyph)+" "+paint(cText, next.name())+" "+meter+" "+paint(usageColor(n), pct(n)))
+			parts = append(parts, faint("↪ at "+pct(u.SwitchPoint("", usage.Lead, m.snap.At))+" ")+paint(l.colour(), l.glyph)+" "+paint(cText, next.name())+" "+meter+" "+paint(usageColor(n), pct(n)))
 		}
 		s := m.usageTag() + "  " + strings.Join(parts, "   ")
 		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > 3*usage.Every {

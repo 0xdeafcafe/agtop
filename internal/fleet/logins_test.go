@@ -31,10 +31,11 @@ func TestNextLogin(t *testing.T) {
 		want    string // "" for no switch
 	}{
 		{"room left", []LoginView{loginAt("a", true, 60, 40), loginAt("b", false, 0, 0)}, false, ""},
-		{"5h nearly out", []LoginView{loginAt("a", true, 96, 40), loginAt("b", false, 10, 20)}, false, "b"},
-		{"7d nearly out", []LoginView{loginAt("a", true, 10, 97), loginAt("b", false, 10, 20)}, false, "b"},
+		{"idle at 96% runs on", []LoginView{loginAt("a", true, 96, 40), loginAt("b", false, 10, 20)}, false, ""},
+		{"5h nearly out", []LoginView{loginAt("a", true, 99, 40), loginAt("b", false, 10, 20)}, false, "b"},
+		{"7d nearly out", []LoginView{loginAt("a", true, 10, 99), loginAt("b", false, 10, 20)}, false, "b"},
 		{"most room wins", []LoginView{loginAt("a", true, 99, 40), loginAt("b", false, 50, 20), loginAt("c", false, 5, 30)}, false, "c"},
-		{"others nearly out too", []LoginView{loginAt("a", true, 96, 40), loginAt("b", false, 95, 20)}, false, ""},
+		{"others nearly out too", []LoginView{loginAt("a", true, 99, 40), loginAt("b", false, 95, 20)}, false, ""},
 		{"out, the others nearly", []LoginView{loginAt("a", true, 100, 27), loginAt("b", false, 98, 12), loginAt("c", false, 0, 97)}, false, "c"},
 		{"out, the others too", []LoginView{loginAt("a", true, 100, 27), loginAt("b", false, 100, 12)}, false, ""},
 		{"stopped, the others nearly out", []LoginView{loginAt("a", true, 90, 40), loginAt("b", false, 97, 20)}, true, "b"},

@@ -143,7 +143,7 @@ func nextAccount(accts []acctRow) (acctRow, string, bool) {
 
 // nearlyOut is whether a fresh reading says the account is nearly out.
 func nearlyOut(q usage.Quota) bool {
-	return len(q.Windows) > 0 && time.Since(q.FetchedAt) < fresh && q.Used("") >= state.SwitchAt
+	return len(q.Windows) > 0 && time.Since(q.FetchedAt) < fresh && q.NearlyOut("", usage.Lead, time.Now())
 }
 
 // spillTo says when new sessions move on from the default profile's

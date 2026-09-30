@@ -48,7 +48,7 @@ func TestPickFollowsRoom(t *testing.T) {
 	if k := m.startKindIn("/x"); k != "zcodex" {
 		t.Fatalf("with room, new sessions run %q", k)
 	}
-	m.quotas["zcodex:a2"] = m.quotas["zcodex:a1"] // both at 97%
+	m.quotas["zcodex:a2"] = m.quotas["zcodex:a1"] // both at 99%
 	if k := m.startKindIn("/x"); k != "zplain" {
 		t.Fatalf("mixing with zcodex out, new sessions run %q", k)
 	}

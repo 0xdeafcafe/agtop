@@ -23,6 +23,63 @@ type Window struct {
 	Used, Limit float64 // when the provider counts: 212 of 300 requests
 	ResetsAt    time.Time
 	Scope       Scope
+	// Burn is how fast it's been filling lately, in percent an hour,
+	// from the reading before (Follow); zero until there's one.
+	Burn float64 `json:",omitzero"`
+}
+
+// Lead is how far ahead rush looks for an account filling up: past the
+// next reading, and the turns already under way on it when it switches.
+const Lead = 2 * Every
+
+// Rate is how fast w fills, in percent an hour: its recent burn, or its
+// average since it began when that's faster.
+func (w Window) Rate(now time.Time) float64 {
+	r := w.Burn
+	if w.Span > 0 && !w.ResetsAt.IsZero() {
+		if gone := w.Span - w.ResetsAt.Sub(now); gone >= 10*time.Minute {
+			r = max(r, w.Percent/gone.Hours())
+		}
+	}
+	return r
+}
+
+// NearlyOut is whether a window that limits model fills within lead:
+// 99% full already, or full before then as fast as it fills.
+func (q Quota) NearlyOut(model string, lead time.Duration, now time.Time) bool {
+	for _, w := range q.Windows {
+		if w.Scope.Covers(model) && (w.Percent >= 99 || w.Percent+w.Rate(now)*lead.Hours() >= 100) {
+			return true
+		}
+	}
+	return false
+}
+
+// SwitchPoint is how full the tightest window for model gets before
+// NearlyOut says so: 99%, or sooner the faster it fills.
+func (q Quota) SwitchPoint(model string, lead time.Duration, now time.Time) float64 {
+	w, _ := q.Tightest(model)
+	return max(0, min(99, 100-w.Rate(now)*lead.Hours()))
+}
+
+// Follow is next with each window's recent burn worked out from prev, an
+// earlier reading of the same account.
+func Follow(prev, next Quota) Quota {
+	dt := next.FetchedAt.Sub(prev.FetchedAt)
+	ws := make([]Window, len(next.Windows))
+	for i, w := range next.Windows {
+		p, ok := prev.Window(w.ID)
+		switch {
+		case !ok || w.Percent < p.Percent: // new, or reset since
+		case dt < time.Minute:
+			w.Burn = p.Burn // too close together to tell
+		default:
+			w.Burn = (p.Burn + (w.Percent-p.Percent)/dt.Hours()) / 2
+		}
+		ws[i] = w
+	}
+	next.Windows = ws
+	return next
 }
 
 // Scope is which models a window limits. The zero Scope limits them all.

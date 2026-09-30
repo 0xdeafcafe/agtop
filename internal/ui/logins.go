@@ -298,7 +298,7 @@ func (m *Model) switchLogin(to state.Login, why string) tea.Cmd {
 func (m *Model) hasRoom() bool {
 	for _, l := range m.snap.Logins {
 		if l.Current {
-			return time.Since(l.Quota.FetchedAt) < 3*usage.Every && l.Quota.Used("") < state.SwitchAt
+			return time.Since(l.Quota.FetchedAt) < 3*usage.Every && !l.Quota.NearlyOut("", usage.Lead, time.Now())
 		}
 	}
 	return false

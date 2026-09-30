@@ -23,6 +23,9 @@ type LoginView struct {
 func (l *Loader) logins(cfg state.Config, root AccountView, now time.Time) []LoginView {
 	var out []LoginView
 	var using string
+	if l.burns == nil {
+		l.burns = map[string]usage.Quota{}
+	}
 	if k, ok := state.Logins(); ok {
 		using = k.UsingLogin(cfg)
 	}
@@ -44,7 +47,10 @@ func (l *Loader) logins(cfg state.Config, root AccountView, now time.Time) []Log
 			v.Usage.Plan, v.Usage.Role, v.Usage.Billing, v.Usage.OrgType, v.Usage.Extra = root.Usage.Plan, root.Usage.Role, root.Usage.Billing, root.Usage.OrgType, root.Usage.Extra
 		}
 		v.Usage = v.Usage.Since(now)
-		v.Quota = v.Usage.Quota(lg.UsageKey())
+		v.Quota = usage.Follow(l.burns[lg.ID], v.Usage.Quota(lg.UsageKey()))
+		if prev := l.burns[lg.ID]; v.Quota.FetchedAt.Sub(prev.FetchedAt) >= time.Minute {
+			l.burns[lg.ID] = v.Quota // the reading its next is measured from
+		}
 		out = append(out, v)
 	}
 	return out
@@ -74,7 +80,7 @@ func NextLogin(logins []LoginView, stopped bool) (LoginView, bool) {
 	}
 	used := cur.Quota.Used("")
 	fresh := time.Since(cur.Quota.FetchedAt) < 3*usage.Every
-	if !stopped && !(fresh && used >= state.SwitchAt) {
+	if !stopped && !(fresh && cur.Quota.NearlyOut("", usage.Lead, time.Now())) {
 		return LoginView{}, false
 	}
 	sort.SliceStable(others, func(i, j int) bool { return others[i].Quota.Used("") < others[j].Quota.Used("") })

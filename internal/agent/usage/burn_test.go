@@ -1,0 +1,34 @@
+package usage
+
+import (
+	"testing"
+	"time"
+)
+
+func TestSwitchesAsItFills(t *testing.T) {
+	now := time.Now()
+	read := func(pct float64, ago time.Duration) Quota {
+		// A week six days in: well under 1% an hour on average.
+		return Quota{FetchedAt: now.Add(-ago), Windows: []Window{{ID: "seven_day", Percent: pct, Span: 7 * 24 * time.Hour, ResetsAt: now.Add(24 * time.Hour)}}}
+	}
+	// Slow: it runs to 99%.
+	slow := Follow(read(96.9, 30*time.Minute), read(97, 0))
+	if slow.NearlyOut("", Lead, now) {
+		t.Fatalf("switched at 97%% filling %.0f%%/h", slow.Windows[0].Rate(now))
+	}
+	if got := slow.SwitchPoint("", Lead, now); got < 97 || got > 99 {
+		t.Fatalf("slow switch point %.1f", got)
+	}
+	if !read(99, 0).NearlyOut("", Lead, now) {
+		t.Fatal("99% isn't nearly out")
+	}
+	// Fast: 30% in 10 minutes, so 85% won't last the lead.
+	fast := Follow(read(55, 10*time.Minute), read(85, 0))
+	if !fast.NearlyOut("", Lead, now) {
+		t.Fatalf("85%% filling %.0f%%/h isn't nearly out", fast.Windows[0].Rate(now))
+	}
+	// A reset since the last reading isn't a burn.
+	if w := Follow(read(90, 10*time.Minute), read(2, 0)).Windows[0]; w.Burn != 0 {
+		t.Fatalf("burn across a reset: %v", w.Burn)
+	}
+}

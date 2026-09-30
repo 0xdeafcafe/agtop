@@ -95,7 +95,7 @@ func accountsModel(t *testing.T) (*Model, *[]string) {
 		{Kind: "zcodex", ID: "a1", Name: "one", Email: "one@example.com"},
 		{Kind: "zcodex", ID: "a2", Name: "two", Email: "two@example.com"},
 	}
-	m.quotas = map[string]usage.Quota{"zcodex:a1": win(97), "zcodex:a2": win(20)}
+	m.quotas = map[string]usage.Quota{"zcodex:a1": win(99), "zcodex:a2": win(20)}
 	m.accts.ready()
 	m.accts.now["zcodex"] = "a1"
 	m.rebuild()
@@ -185,7 +185,7 @@ func TestAccountsSwitchOnLimit(t *testing.T) {
 	cfg.SetDefaultProfile("claude")
 	cmd := m.checkLimits()
 	if cmd == nil {
-		t.Fatal("no switch at 97%")
+		t.Fatal("no switch at 99%")
 	}
 	for _, msg := range flatten(cmd) {
 		if am, ok := msg.(acctMsg); ok {
