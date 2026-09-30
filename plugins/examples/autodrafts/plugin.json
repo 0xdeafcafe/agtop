@@ -5,7 +5,7 @@
   "command": ["autodrafts"],
   "ui": ["events", "input", "notify"],
   "commands": [
-    {"name": "restore", "description": "put back the newest draft kept for this box (again for the one before)", "key": "alt+b"},
+    {"name": "restore", "description": "put back the newest draft kept for this box (again for the one before)", "key": "ctrl+] b"},
     {"name": "list", "description": "say how many drafts are kept for this box"}
   ],
   "settings": [

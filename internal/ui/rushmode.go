@@ -2575,11 +2575,11 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if c.subBack || m.hostedAlone() {
 			back = "back to the conversation"
 		}
-		hint = keysFit(w-4, "enter", "send to the main session", "esc · ←", back, "alt+↑↓", "other runs", "↑", "pick a step", "ctrl+f", "find in chat", "ctrl+o", "show all")
+		hint = keysFit(w-4, "enter", "send to the main session", "esc · ←", back, "shift+↑↓", "other runs", "↑", "pick a step", "ctrl+f", "find in chat", "ctrl+o", "show all")
 		if _, ok := m.relaySub(c); ok {
-			hint = keysFit(w-4, "enter", "send to the subagent", "ctrl+x", "stop this subagent", "esc · ←", back, "alt+↑↓", "other runs", "↑", "pick a step", "ctrl+f", "find in chat")
+			hint = keysFit(w-4, "enter", "send to the subagent", "ctrl+x", "stop this subagent", "esc · ←", back, "shift+↑↓", "other runs", "↑", "pick a step", "ctrl+f", "find in chat")
 		} else if _, live, _ := m.pickedSub(c); live {
-			hint = keysFit(w-4, "enter", "send to the main session", "ctrl+x", "stop this subagent", "esc · ←", back, "alt+↑↓", "other runs", "↑", "pick a step", "ctrl+f", "find in chat")
+			hint = keysFit(w-4, "enter", "send to the main session", "ctrl+x", "stop this subagent", "esc · ←", back, "shift+↑↓", "other runs", "↑", "pick a step", "ctrl+f", "find in chat")
 		}
 	}
 	if c.sel != "" {
@@ -2591,7 +2591,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			hint = keysFit(w-4, "o", "open the file", "enter · space", "open or close", "↑↓", "pick a step", "esc", "done picking")
 		}
 		if selTurn(c) != nil {
-			hint = keysFit(w-4, "alt+r", "rewind to here", "alt+f", "fork from here", "enter · space", "open or close", "↑↓", "pick", "esc", "done picking")
+			hint = keysFit(w-4, m.boundKey("session.rewind"), "rewind to here", m.boundKey("session.fork"), "fork from here", "enter · space", "open or close", "↑↓", "pick", "esc", "done picking")
 		}
 		// A running command picked in the conversation: x stops it.
 		if id := m.pickedShell(c); id != "" && strings.Contains(c.sel, ":s:") {
@@ -2617,7 +2617,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			hint = m.docHint(c.memEd, w-4)
 		}
 		if changedFile(c.sel) != "" && m.viewName(c) == "changes" {
-			hint = keysFit(w-4, "alt+v", "the file in full", "enter · space", "open or close", "↑↓", "pick", "esc", "done picking")
+			hint = keysFit(w-4, m.boundKey("session.full"), "the file in full", "enter · space", "open or close", "↑↓", "pick", "esc", "done picking")
 		}
 		if m.fullFile(c) {
 			hint = keysFit(w-4, "↑↓ · pgup pgdn", "scroll", "esc", "back to the changes")

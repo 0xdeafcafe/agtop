@@ -33,7 +33,7 @@ rush update     # fresh bottle
 
 ## what it does
 
-- **the list**: all your agents, what each one's doing in words ("running pnpm test") and what it's costing you in tokens, dollars, cpu and ram. anything that's died, hit a limit or is sat waiting on a question floats to the top, `alt+g` tells it to crack on, and `ctrl+x` is the safeword (say it twice to a stopped agent and it's gone for good).
+- **the list**: all your agents, what each one's doing in words ("running pnpm test") and what it's costing you in tokens, dollars, cpu and ram. anything that's died, hit a limit or is sat waiting on a question floats to the top, `ctrl+b` tells it to crack on, and `ctrl+x` is the safeword (say it twice to a stopped agent and it's gone for good).
 - **sessions**: steps fold away, code's highlighted, and when a bash chain hangs it tells you which command it's stuck on - `k` is the safety shears, cutting that one loose so the rest of the chain carries on. every hunk in a diff knows which turn wrote it too.
 - **overview**: what's going on across your repos right now, and everything that happened today.
 - **efficiency**: where your tokens are going, and whether rtk, serena and the rest of the token savers are doing anything for you. there's also an opt-in advisor where haiku does the digging and opus checks its homework, for about $0.30 a pass.

@@ -73,7 +73,7 @@ func (m *Model) undoKey(c *hostConn, s string) bool {
 	case isUndo(s):
 		buf, back, ok = c.undo.undo(c.input, c.back)
 		if !ok {
-			m.flash("nothing to undo · ctrl+r has what you typed before", false)
+			m.flash(m.stashSaid("nothing to undo · {history} has what you typed before"), false)
 		}
 	case isRedo(s):
 		buf, back, ok = c.undo.redo(c.input, c.back)

@@ -2169,14 +2169,14 @@ func (m *Model) promptLines(w int) []string {
 			if m.startInTree {
 				other = filepath.Base(a.Root)
 			}
-			folder = paint(cSub, convo.KeyWord("alt+l")) + dim(" start in "+other)
+			folder = paint(cSub, convo.KeyWord(m.boundKey("list.worktree"))) + dim(" start in "+other)
 		} else if len(dirs) <= 1 {
 			folder = ""
 		}
 		if folder != "" && cellw.String(b.topL+b.topR+folder)+12 <= w {
 			b.topR = folder + faint(" · ") + b.topR
 		}
-		if change := paint(cSub, convo.KeyWord("alt+m")) + dim(" change"); cellw.String(b.topL+b.topR+change)+12 <= w {
+		if change := paint(cSub, convo.KeyWord(m.boundKey("list.start"))) + dim(" change"); cellw.String(b.topL+b.topR+change)+12 <= w {
 			b.topR += faint(" · ") + change
 		}
 	}
@@ -2251,7 +2251,7 @@ func (m *Model) promptLines(w int) []string {
 			pairs = append(pairs, rename, "rename")
 		}
 		if a != nil && (a.Halted() || a.YourTurn(m.snap.At)) {
-			pairs = append([]string{"alt+g", a.ContinueText()}, pairs...)
+			pairs = append([]string{m.boundKey("list.go"), a.ContinueText()}, pairs...)
 		}
 		if m.newer.Version != "" && !m.updating {
 			pairs = append([]string{"#update", "new rush"}, pairs...)
@@ -2487,7 +2487,8 @@ func roleName(r fleet.Role) string {
 	}
 }
 
-// helpPages are the guide's tabs: a key and what it does.
+// helpPages are the guide's tabs: a key and what it does. @id is the key
+// action id has now.
 var helpPages = []struct {
 	name string
 	rows [][2]string
@@ -2495,12 +2496,12 @@ var helpPages = []struct {
 	{"✦ Start", [][2]string{
 		{"enter", "start an agent"},
 		{"ctrl+l", "pick its folder"},
-		{"alt+l", "new sessions from a worktree agent: its worktree or main checkout"},
+		{"@list.worktree", "new sessions from a worktree agent: its worktree or main checkout"},
 		{"#", "rush commands"},
 		{"/", "Claude commands"},
 		{"⌘z · ctrl+/", "undo in a box, a cleared one too"},
-		{"ctrl+s", "{verb} · what's typed is back after you send"},
-		{"ctrl+r", "{tab} · sent · cleared · replaced, to put back"},
+		{"@prompt.stash", "{verb} · what's typed is back after you send"},
+		{"@prompt.history", "{tab} · sent · cleared · replaced, to put back"},
 		{"{command}", "the same, with the Prompt empty"},
 	}},
 	{"▤ Agents", [][2]string{
@@ -2509,13 +2510,13 @@ var helpPages = []struct {
 		{"enter", "rename or open it, as you chose"},
 		{"ctrl+r", "rename it · tab the next"},
 		{"ctrl+n", "next one needing you"},
-		{"#done", "put it away"},
+		{"@list.done", "put it away"},
 		{"ctrl+x", "stop it"},
 		{"ctrl+p", "split the list by project"},
 	}},
 	{"◈ Around", [][2]string{
 		{"ctrl+z", "zen"},
-		{"alt+w", "the default profile or provider"},
+		{"@profile.pick", "the default profile or provider"},
 		{"< > · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
 		{"[ ]", "a Session's views, with nothing typed"},
 		{"[ ]", "a place's pages, or a sheet's tabs"},
@@ -2542,7 +2543,11 @@ func (m *Model) helpBody() []string {
 	w, _ := m.stash()
 	rows := make([][2]string, len(page.rows))
 	for i, r := range page.rows {
-		rows[i] = [2]string{w.Fill(r[0]), w.Fill(r[1])}
+		k := r[0]
+		if id, ok := strings.CutPrefix(k, "@"); ok {
+			k = m.boundKey(id)
+		}
+		rows[i] = [2]string{w.Fill(k), w.Fill(r[1])}
 	}
 	for _, r := range keyRows(rows) {
 		out = append(out, r, "")

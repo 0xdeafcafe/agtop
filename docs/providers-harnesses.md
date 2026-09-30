@@ -44,7 +44,7 @@ help a decision.
 ## Starting and switching
 
 - The input shows what the next session starts as, as a chip.
-- The start sheet (alt+m): Profile, or Provider/Account > Harness > Model >
+- The start sheet (shift+tab, or alt+m): Profile, or Provider/Account > Harness > Model >
   Effort. Only valid combinations. For that session only; defaults untouched.
 - Commands, with autocomplete everywhere:
   - `/profile <name>`

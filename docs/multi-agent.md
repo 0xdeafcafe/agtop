@@ -259,7 +259,7 @@ Track B as built (2026-09-29):
 - **Starting.** The Prompt, `#with`, `#profile <name>` (for the next session only), `rush session start --profile` and hand-offs all go through `ProfileFor`. The profile's name is kept on `host.Config` and `host.Info`, and so on `fleet.Agent`, so a resumed session keeps it.
 - **At a limit.** `wait` leaves a stopped session alone (no account switch, no continue after one); `account` switches as before; `handoff` hands it, once, to the next provider in its profile with room that declares `FeatureHandoffIn`, through `agent.Handoff`, in the same folder and profile.
 - **Seen everywhere.** Each provider has a glyph and colour (`ui/providers.go`). The top bar says the provider, account and profile new sessions start on; a session's header says what it runs on; rows of sessions on other providers carry the provider's glyph. Accounts and Agents show each provider's support level and feature grid.
-- **Settings › Profiles** creates, renames and deletes profiles, orders their providers, sets `mix` and `onLimit`, and adds folder rules (from the selected session's folder). `alt+w` switches the default profile, or which provider is first in it, from anywhere.
+- **Settings › Profiles** creates, renames and deletes profiles, orders their providers, sets `mix` and `onLimit`, and adds folder rules (from the selected session's folder). `ctrl+]` then `w` (or `alt+w`) switches the default profile, or which provider is first in it, from anywhere.
 
 ## Adding the agents
 

@@ -9,7 +9,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
-// listFilterState is the Agents view's own filter, opened with alt+f: it
+// listFilterState is the Agents view's own filter, opened with ctrl+] f: it
 // narrows the list to agents whose name or transcript matches what's typed,
 // highlighting the match. Names match at once; what was said is searched in
 // the background the same way the command bar's own search does, so a

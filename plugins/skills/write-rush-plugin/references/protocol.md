@@ -274,7 +274,7 @@ With `"box": {…}` instead of `text`, it sets the whole box as `ui.command` sho
 
 ### `ui.box.note` — needs `ui` `input`
 
-`{"session": "…", "text": "stashed · alt+s brings it back", "tone": "dim"}`: a short note, at most 60 characters, on the bottom edge of that session's message box, or with `session` `""` the Prompt's; the tones are as for `ui.status.set`. Empty `text` takes it off. It goes when the plugin stops. Returns `{}`.
+`{"session": "…", "text": "stashed · ctrl+p brings it back", "tone": "dim"}`: a short note, at most 60 characters, on the bottom edge of that session's message box, or with `session` `""` the Prompt's; the tones are as for `ui.status.set`. Empty `text` takes it off. It goes when the plugin stops. Returns `{}`.
 
 ### `ui.pick`
 

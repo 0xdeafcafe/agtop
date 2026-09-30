@@ -70,17 +70,17 @@ Getting started sits at the foot of the list until you've tried the basics, tick
 
 The list is every agent you have, with what it's doing right now: "running pnpm test", "reading view.go", "searching for PrettyModel". Working agents stand out; idle, stopped and done ones step back. Each row carries its provider's glyph and colour, so a Codex session doesn't pass for a Claude one.
 
-- **Needs you** comes first: an agent whose turn died says why, with a ✗ ("session limit · resets 5am"), and one with a question waits there too. One that finished without asking waits in **Your turn**. `alt+g` tells either to go on. A turn that died on the network or a flaky API ("Connection dropped", "Response stalled mid-stream") is told to continue by itself once the API can be reached.
+- **Needs you** comes first: an agent whose turn died says why, with a ✗ ("session limit · resets 5am"), and one with a question waits there too. One that finished without asking waits in **Your turn**. `ctrl+b` tells either to go on. A turn that died on the network or a flaky API ("Connection dropped", "Response stalled mid-stream") is told to continue by itself once the API can be reached.
 - **Cost, tokens and time** for each agent, estimated from its transcript at list prices (subagents included), and today's spend per account.
 - **CPU and RAM** for everything an agent started, not just the agent itself.
 - **Preview** (`{` or `}`): the agent's own screen, live, or what it's doing, its last message and its process tree. Type to reply without opening it.
 - **Open** (`enter`) connects to the running session through the daemon, like the native view. `ctrl+]` comes back.
 - **Agents that run agents**: when a session runs `claude -p`, `codex exec` or another agent's program from its shell, the row reads as that agent, with what it was asked and its latest steps. It's listed with the session's subagents rather than as a stray row of its own.
-- **Done** (`alt+d`) moves an agent out of the way and stops its process if it's idle. A message resumes it. Nothing is merged or deleted.
+- **Done** (`ctrl+d`) moves an agent out of the way and stops its process if it's idle. A message resumes it. Nothing is merged or deleted.
 - **Cold cache warning**: sending to a session idle past its prompt cache's hour asks first, since it re-reads the whole context uncached.
 - **Groups** (`ctrl+s`) by status, agent or your own (`ctrl+e`), and **split by project** on top (`ctrl+p`, on by default): inside each section, agents sit together under a line per repository with its branch, commits ahead or behind, uncommitted changes and worktree count; agents in a linked worktree sit under the repository it came from, headed by the worktree's own branch and changes. The top of the list shows both and a click changes either. Pins (`ctrl+t`) are shared with the native view.
 - **Move** (`ctrl+l`) tells the agent to work in another folder or worktree from now on, without stopping it; its row follows it there. With a new session half typed, the same dialog picks where it starts.
-- **Stash**: `ctrl+s` sets what you've typed aside and clears the box for the next thing; it comes back by itself once you send, or on `ctrl+s` again. `ctrl+r` (or `#stash`) is the history: what you stashed, sent, cleared, and what a put-back replaced, to search and put back with `enter`. Every box is kept until it's sent, even across restarts. In the Prompt these two keys are the stash's only with something typed; empty, they group and rename the list as before. Settings, Plugins, drafts can call it Drafts instead.
+- **Stash**: `ctrl+p` sets what you've typed aside and clears the box for the next thing; it comes back by itself once you send, or on `ctrl+p` again. `ctrl+r` (or `#stash`) is the history: what you stashed, sent, cleared, and what a put-back replaced, to search and put back with `enter`. Every box is kept until it's sent, even across restarts. In the Prompt these two keys are the stash's only with something typed; empty, they split and rename the list as before. In a Session `ctrl+s` sends now, as `ctrl+enter` does. Settings, Plugins, drafts can call it Drafts instead.
 
 ## Providers
 
@@ -141,7 +141,7 @@ A provider can run in more than one harness, the program around the model. Ollam
 
 A session gets the profile picked for it (`#profile <name>`, or `rush session start --profile`), else the one for the longest folder rule its folder falls under, else the default. It keeps that profile when it's resumed. If rush had made a Default profile from your old default agent that did no more than that agent, it gave way to that provider's own profile, and folders that named it moved with it.
 
-`alt+w`, from anywhere, lists every profile, each provider's own first: pick one to make it the default. Settings › Providers does the rest: new profiles, renaming and deleting them, the order of their providers and where each runs, what happens when accounts run low, and folders (`+ add a folder` starts from the selected session's folder).
+`ctrl+]` then `w`, from anywhere, lists every profile, each provider's own first: pick one to make it the default. Settings › Providers does the rest: new profiles, renaming and deleting them, the order of their providers and where each runs, what happens when accounts run low, and folders (`+ add a folder` starts from the selected session's folder).
 
 ## Sessions
 
@@ -155,7 +155,7 @@ An agent run in rush mode (headless, hosted by rush) opens in a Session beside t
     </td>
     <td width="50%" valign="top">
       <img src="screenshots/session-code.webp" alt="A failed step opened, its script and error"><br>
-      <b>A step, opened</b>. The script it ran and the error it hit. Drag to select and copy; <code>alt+c</code> copies Claude's answer as written.
+      <b>A step, opened</b>. The script it ran and the error it hit. Drag to select and copy; <code>ctrl+]</code> then <code>c</code> copies Claude's answer as written.
     </td>
   </tr>
   <tr>
@@ -334,13 +334,15 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 | `ctrl+s` | group by status, agent, your groups |
 | `ctrl+p` | split each section by project, or not |
 | `ctrl+n` | the next agent needing you |
-| `alt+g` | tell it to go on |
-| `ctrl+s` `ctrl+r` | stash what's typed or bring it back, the history (in the Prompt, with something typed) |
-| `alt+d` | done |
+| `ctrl+b` | tell it to go on |
+| `ctrl+p` `ctrl+r` | stash what's typed or bring it back, the history (in the Prompt, with something typed) |
+| `ctrl+d` | done |
+| `shift+tab` | what the next session starts as: agent, model, effort |
 | `ctrl+x` | stop; twice on a stopped agent deletes it |
 | `ctrl+l` | move the agent, or pick a new session's folder |
 | `ctrl+z` | Zen |
-| `alt+w` | the default profile |
+| `ctrl+]` then a letter | what ⌥ and the letter do: `w` the default profile, `f` filter the list, `l` a worktree agent's worktree or checkout; in a Session `h` hold the queue, `r` rewind (or mark a file reviewed), `f` fork, `v` the file in full, `c` copy |
+| `shift+↑` `shift+↓` | in a Session with nothing typed, the subagent runs |
 | `#` | rush's commands |
 | `/` | the agent's commands and skills |
 | `?` | the guide |

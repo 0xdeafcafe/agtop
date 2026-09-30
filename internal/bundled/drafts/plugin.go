@@ -28,7 +28,7 @@ var Manifest = plugin.Manifest{
 	Command: []string{"rush"},
 	UI:      []string{plugin.UIEvents, plugin.UIInput, plugin.UINotify},
 	// No keys of its own: rush gives these its stash and history keys,
-	// ctrl+s and ctrl+r, and its #stash.
+	// ctrl+p and ctrl+r, and its #stash.
 	Commands: []plugin.CommandSpec{
 		{Name: "stash", Description: "set the message aside, or bring it back; it comes back by itself once you send"},
 		{Name: "history", Description: "what you set aside, sent, cleared and replaced, to put back in the box"},
