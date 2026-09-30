@@ -1490,8 +1490,20 @@ func ctxBar(pct float64) string {
 // drops the least useful first, so names keep their room: RUNNING and CPU
 // under 96 columns, TOKENS under 76, RAM under 64, cost under 44 (the pane
 // header has it).
-func colWidths(w int) (act, cpu, ram, tok, cost int) {
-	act, cpu, ram, tok, cost = wAct, wCPU, wRAM, wTok, wCost
+// Age is TIME's with its two spaces, and a column you've hidden is 0.
+func (m *Model) colWidths(w int) (act, cpu, ram, tok, cost, age int) {
+	act, cpu, ram, tok, cost, age = wAct, wCPU, wRAM, wTok, wCost, wAge+2
+	defer func() {
+		c := m.store.Config
+		for _, p := range []struct {
+			col string
+			w   *int
+		}{{"running", &act}, {"cpu", &cpu}, {"ram", &ram}, {"tokens", &tok}, {"cost", &cost}, {"time", &age}} {
+			if !c.Shows(p.col) {
+				*p.w = 0
+			}
+		}
+	}()
 	if w < 96 {
 		act, cpu = 0, 0
 	}
@@ -1511,7 +1523,7 @@ func (m *Model) columnHeader(w int) string {
 	if f := m.listFilter; f != nil {
 		return m.listFilterHeader(f, w)
 	}
-	wAct, wCPU, wRAM, wTok, wCost := colWidths(w)
+	wAct, wCPU, wRAM, wTok, wCost, wTime := m.colWidths(w)
 	nameCol := m.nameColumn(w)
 	sortBy := m.store.Config.SortBy
 	if sortBy == "" {
@@ -1543,8 +1555,8 @@ func (m *Model) columnHeader(w int) string {
 	if !m.stacked(w, nameCol) {
 		left += dim("LATEST")
 	}
-	rightW := wAct + wCPU + wRAM + wTok + wCost + wAge + 3
-	cols := dim(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("TOKENS", "tokens", wTok) + col("COST", "cost", wCost) + col("TIME", "time", wAge+2) + " "
+	rightW := wAct + wCPU + wRAM + wTok + wCost + wTime + 1
+	cols := dim(right1("RUNNING", wAct)) + col("CPU", "cpu", wCPU) + col("RAM", "ram", wRAM) + col("TOKENS", "tokens", wTok) + col("COST", "cost", wCost) + col("TIME", "time", wTime) + " "
 	gap := w - cellw.String(left) - rightW
 	if gap < 1 {
 		return fit(left, w)
@@ -1597,8 +1609,8 @@ func (m *Model) nameColumn(w int) int {
 	}
 	if w < 96 {
 		// A narrow list is mostly names: give them what the columns leave.
-		act, cpu, ram, tok, cost := colWidths(w)
-		return max(12, min(widest, w-6-act-cpu-ram-tok-cost-wAge-3))
+		act, cpu, ram, tok, cost, age := m.colWidths(w)
+		return max(12, min(widest, w-4-act-cpu-ram-tok-cost-age-3))
 	}
 	return max(20, min(widest, (w-30)*2/5))
 }
@@ -1614,8 +1626,8 @@ func (m *Model) stacked(w, nameCol int) bool {
 	if at := m.store.Config.StackPercent(); at > 0 && share*100 <= m.w*at {
 		return true
 	}
-	act, cpu, ram, tok, cost := colWidths(w)
-	return w-3-(act+cpu+ram+tok+cost+wAge+3)-nameCol-2 < 20
+	act, cpu, ram, tok, cost, age := m.colWidths(w)
+	return w-3-(act+cpu+ram+tok+cost+age+1)-nameCol-2 < 20
 }
 
 // agentSub is a stacked row's second line: its summary, or where it works
@@ -1641,7 +1653,7 @@ func (m *Model) agentSub(a *fleet.Agent, w int) string {
 // width, which says which columns there are, as the header does: a row
 // inset under its project is narrower than the header it sits under.
 func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, stacked bool) string {
-	wAct, wCPU, wRAM, wTok, wCost := colWidths(listW)
+	wAct, wCPU, wRAM, wTok, wCost, wTime := m.colWidths(listW)
 	now := m.snap.At
 	live := a.Live()
 	marker := " "
@@ -1733,10 +1745,13 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 		}
 		right = act + blanks(wCPU+wRAM) + tokCell(false) + faint(right1(cost, wCost))
 	}
-	if live {
-		right += dim(right1(dur(a.Elapsed(now)), wAge+2)) + " "
-	} else {
-		right += faint(right1(age(a.Age(now)), wAge+2)) + " "
+	switch {
+	case wTime == 0:
+		right += " "
+	case live:
+		right += dim(right1(dur(a.Elapsed(now)), wTime)) + " "
+	default:
+		right += faint(right1(age(a.Age(now)), wTime)) + " "
 	}
 
 	// Bold is for what wants you: the selection and an agent that needs you.

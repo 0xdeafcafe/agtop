@@ -4,6 +4,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/cellw"
 
 	"fmt"
+	"slices"
 
 	"github.com/0xdeafcafe/rush/internal/convo"
 )
@@ -168,13 +169,41 @@ func (m *Model) interfaceSections() []section {
 		}
 		return list
 	}
-	for _, st := range []*setting{&view, &theme, &colours, &spaces, &group, &split, &sortBy, &stack} {
+	var cols []setting
+	for _, col := range [][3]string{
+		{"running", "RUNNING", "the subagents and shells each agent has going."},
+		{"cpu", "CPU", "how busy everything each agent started is."},
+		{"ram", "RAM", "the memory everything each agent started holds."},
+		{"tokens", "TOKENS", "how full each agent's context is."},
+		{"cost", "COST", "what each agent has spent."},
+		{"time", "TIME", "how long each has run, or since it last did."},
+	} {
+		shown := map[bool]string{true: "shown", false: "hidden"}[c.Shows(col[0])]
+		cols = append(cols, choiceSetting(col[1], shown, "The "+col[1]+" column: "+col[2]+" A narrow list drops some by itself.",
+			[][2]string{{"shown", "when the list is wide enough for it."}, {"hidden", "never: its room goes to names and words."}},
+			func(v string) {
+				c.HideColumns = slices.DeleteFunc(c.HideColumns, func(h string) bool { return h == col[0] })
+				if v == "hidden" {
+					c.HideColumns = append(c.HideColumns, col[0])
+				}
+			}))
+	}
+	for _, st := range append([]*setting{&view, &theme, &colours, &spaces, &group, &split, &sortBy, &stack}, ptrs(cols)...) {
 		st.preview = preview
 	}
 
 	return []section{
 		{title: "Look", rows: []setting{view, theme, colours, spaces}},
 		{title: "Agents list", rows: []setting{group, split, sortBy, stack, enter, search}},
+		{title: "Agents list columns", note: "the figures beside each agent", rows: cols},
 		{title: "Message box", rows: []setting{command, copying, escStop}},
 	}
+}
+
+func ptrs(ss []setting) []*setting {
+	out := make([]*setting, len(ss))
+	for i := range ss {
+		out[i] = &ss[i]
+	}
+	return out
 }

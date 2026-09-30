@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -133,8 +134,11 @@ type Config struct {
 	// StackAt is the share of the screen, in percent, at or under which
 	// the list's rows take two lines; 0 is the default, negative only
 	// when too narrow for one, 100 always. See StackPercent.
-	StackAt   int `json:"stackAt,omitzero"`
-	Hibernate struct {
+	StackAt int `json:"stackAt,omitzero"`
+	// HideColumns are the agents list's figures you've turned off:
+	// "running", "cpu", "ram", "tokens", "cost", "time".
+	HideColumns []string `json:"hideColumns,omitempty"`
+	Hibernate   struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`
 	// ActiveMinutes is how long a stopped agent stays in the list's Active
@@ -847,6 +851,9 @@ func (c *CostCache[T]) Save() error {
 // WriteJSON writes v to path as indented JSON, all at once: a reader sees
 // the old file or the new one, never half of either.
 func WriteJSON(path string, v any) error { return writeJSON(path, v) }
+
+// Shows is whether the agents list shows column col.
+func (c Config) Shows(col string) bool { return !slices.Contains(c.HideColumns, col) } //nolint:gocritic // Config goes by value, as everywhere in state
 
 // StackPercent is StackAt with its default: 42, and 0 when turned off.
 func (c *Config) StackPercent() int {
