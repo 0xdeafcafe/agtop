@@ -1,6 +1,9 @@
 package agent
 
-import "time"
+import (
+	"runtime"
+	"time"
+)
 
 // RunState is how a session's transcripts say a subagent run stands.
 type RunState int
@@ -69,3 +72,8 @@ func FollowRuns(k Kind) (SubagentRuns, bool) {
 	}
 	return f.SubagentRuns(), true
 }
+
+// SubagentCap is how many subagents a session may run at once, by the
+// machine: they wait on the API, and rush's gate queues their heavy tools.
+// ponytail: fixed at spawn; a harness's own setting overrides it.
+func SubagentCap() int { return max(20, runtime.NumCPU()*4) }

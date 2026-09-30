@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -88,6 +89,9 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 	if o.APIKey != "" {
 		// Ahead of the login signed in: paid per token.
 		ho.Env = append(ho.Env, "ANTHROPIC_API_KEY="+o.APIKey)
+	}
+	if os.Getenv(subagentCapEnv) == "" {
+		ho.Env = append(ho.Env, subagentCapEnv+"="+strconv.Itoa(agent.SubagentCap()))
 	}
 	ho.Env = append(append(ho.Env, headless.CheckpointEnv), o.Env...)
 	if o.Tap != nil {
@@ -469,3 +473,5 @@ func (c *conn) Close() error                   { return c.s.Stop(3 * time.Second
 func (Adapter) RunsSession(args []string, sessionID string) bool {
 	return headless.RunsSession(args, sessionID)
 }
+
+const subagentCapEnv = "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"

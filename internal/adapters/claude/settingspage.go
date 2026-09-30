@@ -29,6 +29,7 @@ func (Adapter) SettingsPage() agent.SettingsPage {
 		EnvKey: "env",
 		Env: []agent.EnvSetting{
 			{Label: "Subagent model", Name: "CLAUDE_CODE_SUBAGENT_MODEL", What: "The model subagents use, whatever the main session runs", Choices: []string{"haiku", "sonnet", "opus"}},
+			{Label: "Max subagents", Name: "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", What: "How many subagents a session may run at once; rush picks by the machine when unset", Choices: []string{"20", "40", "80"}},
 			{Label: "Max output tokens", Name: "CLAUDE_CODE_MAX_OUTPUT_TOKENS", What: "The longest single reply Claude may write", Choices: []string{"32000", "64000", "128000"}},
 			{Label: "Bash timeout", Name: "BASH_DEFAULT_TIMEOUT_MS", What: "How long a shell command may run before it's stopped", Choices: []string{"120000", "300000", "600000"},
 				Means: map[string]string{"120000": "2 minutes.", "300000": "5 minutes.", "600000": "10 minutes."}},

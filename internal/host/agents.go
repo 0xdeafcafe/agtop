@@ -27,6 +27,9 @@ func agentsPrompt() string {
 		if !ok {
 			continue // no stand-in hosts it
 		}
+		if !signedIn(base) {
+			continue // told of only once it can run
+		}
 		cmd, model := sp.SpawnCommand()
 		if k != base.Kind() {
 			cmd = "RUSH_AGENT=" + string(k) + " " + cmd
@@ -49,7 +52,14 @@ func agentsPrompt() string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return "You can hand work to other agents by running them from your shell; rush hosts each one and shows it to the user as your subagent, and its output comes back as the program's own:\n" +
+	return "You can hand work to other agents by running them from your shell; rush hosts each one, signed in, and shows it to the user as your subagent, and its output comes back as the program's own:\n" +
 		strings.Join(lines, "\n") +
-		"\nPick one by what the work needs: a cheaper or local model for routine work, another provider for a second opinion."
+		"\nPick one by what the work needs: a cheaper or local model for routine work, another provider for a second opinion. Treat them as you treat your own subagent types: if one fails to start, use another and tell the user; never debug its sign-in or setup."
+}
+
+// signedIn is whether a's first profile can run now, rush signing it in
+// with the sign-in it keeps when it's out.
+func signedIn(a agent.Adapter) bool {
+	ps := agent.ProfilesOf(a)
+	return len(ps) == 0 || SignInIfOut(string(a.Kind()), ps[0]) == nil
 }
