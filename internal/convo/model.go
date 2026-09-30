@@ -231,6 +231,8 @@ type Session struct {
 	// Fast is whether the last render drew a running timer still showing
 	// tenths: frames every 100ms keep it moving.
 	Fast bool
+	// Hex is whether the hex plugin is on: step output can be seen as bytes.
+	Hex bool
 	Info     host.Info
 	Commands []event.Command
 	Tasks    []Task

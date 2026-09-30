@@ -1713,6 +1713,8 @@ func (m *Model) rushPane(w, h int) []string {
 	dock := m.paneDock(a, c, w, h)
 	bodyH := max(3, h-len(head)-len(dock))
 
+	// ponytail: turns already drawn keep their views until redrawn after the hex plugin is switched.
+	c.sess.Hex = m.bundledOn["hex"]
 	o := convo.Options{Width: w, Now: time.Now(), Tick: m.tick, Open: c.open, View: c.looks, Verbose: c.verbose,
 		Selected: c.sel, Focused: m.paneFocus, Wide: m.hostedAlone()}
 	var body []convo.Line

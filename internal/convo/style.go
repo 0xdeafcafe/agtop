@@ -172,6 +172,8 @@ var musings = []string{
 	"processing", "inhaling", "taking a deep breath", "rigging", "tying knots",
 	"getting tied up in knots", "tying up loose ends", "unpicking it", "gubbing", "wrangling",
 	"watching the langs", "binding", "experiencing euphoria", "microgurning",
+	"implicating", "golden godding", "consulting bird law", "applying the D.E.N.N.I.S. system",
+	"wildcarding", "fighting the Nightman", "rum hamming", "boiling denim",
 	"consulting the rubber duck", "staring into the middle distance", "reticulating splines",
 	"asking its mum", "counting sheep", "doing a little jig", "stroking an imaginary beard",
 	"having a biscuit", "reading the manual for once", "pretending to understand",

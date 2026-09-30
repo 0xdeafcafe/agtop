@@ -47,6 +47,8 @@ Some plugins come with rush. Their code is rush's own, so they need no approval 
 
 A slot is a locked file, so it frees itself however its holder ends. A program run from inside a queued one (`go vet` under `go test`) doesn't queue again.
 
+**hex** (off until you turn it on) adds a hex view of what agents' steps print and read: `v` on a step cycles to its bytes, coloured by kind, with an ASCII column, and binary output opens in it. With it off, `v` still switches between text, pretty and image.
+
 ## What a plugin can't do
 
 - **Your files.** It reads its own folder and the system's libraries, and writes only its data folder, `~/.config/rush/plugin-data/<name>`, plus any other paths its manifest names under `read` and `write`.

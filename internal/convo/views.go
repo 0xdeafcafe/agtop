@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -44,8 +45,21 @@ func (s *Session) NextView(ref, cur string) string {
 	return vs[0]
 }
 
-// views are the ways st's output can be seen, and the one it opens in.
+// views are the ways st's output can be seen, and the one it opens in:
+// hex only while the hex plugin is on (Session.Hex).
 func (s *Session) views(st *Step) ([]string, string) {
+	vs, auto := s.allViews(st)
+	if s.Hex {
+		return vs, auto
+	}
+	vs = slices.DeleteFunc(slices.Clone(vs), func(v string) bool { return v == ViewHex })
+	if auto == ViewHex {
+		auto = ViewText
+	}
+	return vs, auto
+}
+
+func (s *Session) allViews(st *Step) ([]string, string) {
 	if st == nil || !viewable(st) {
 		return nil, ""
 	}

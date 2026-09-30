@@ -81,6 +81,10 @@ func TestStepViewCycles(t *testing.T) {
 	st := &Step{ID: "b1", Tool: "Bash", Input: in, Result: res, Status: OK}
 	s.byID["b1"] = st
 	ref := "t1:s:b1"
+	if v := s.NextView(ref, ""); v != ViewText {
+		t.Fatalf("with the hex plugin off, pretty goes to text, not %q", v)
+	}
+	s.Hex = true
 	var seen []string
 	for v := ""; ; {
 		v = s.NextView(ref, v)
