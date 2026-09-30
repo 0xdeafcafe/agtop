@@ -293,3 +293,24 @@ func TestRiderOf(t *testing.T) {
 		}
 	}
 }
+
+// A Claude run started from a Claude session's shell takes the session's
+// permission mode; another agent's session gives it none.
+func TestParentMode(t *testing.T) {
+	t.Setenv("RUSH_HOME", t.TempDir())
+	d := filepath.Join(host.Root(), "p1")
+	os.MkdirAll(d, 0o700)
+	os.WriteFile(filepath.Join(d, "config.json"), []byte(`{"id":"p1","kind":"claude"}`), 0o600)
+	os.WriteFile(filepath.Join(d, "info.json"), []byte(`{"id":"p1","permissionMode":"auto"}`), 0o600)
+	t.Setenv("RUSH_SESSION", "p1")
+	if got := parentMode("claude"); got != "auto" {
+		t.Errorf("claude from a claude session: %q", got)
+	}
+	if got := parentMode("codex"); got != "" {
+		t.Errorf("codex from a claude session: %q", got)
+	}
+	t.Setenv("RUSH_SESSION", "")
+	if got := parentMode("claude"); got != "" {
+		t.Errorf("outside rush: %q", got)
+	}
+}

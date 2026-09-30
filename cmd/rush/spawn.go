@@ -445,6 +445,9 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 		}
 		return 0, false // codex says why it won't run there
 	}
+	if r.mode == "" && r.kind == base {
+		r.mode = parentMode(r.kind)
+	}
 	cfg := host.Config{Cwd: cwd, Model: r.model, Effort: r.effort, PermissionMode: r.mode, Prompt: r.prompt,
 		Name: firstWordsOf(r.prompt), Meta: map[string]string{"spawnedBy": or(os.Getenv("RUSH_SESSION"), "shell")},
 		Owner: os.Getpid()}
@@ -503,6 +506,25 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 	}
 	stopHost(c, started.ID)
 	return code, true
+}
+
+// parentMode is the permission mode of the rush session whose shell this
+// runs in, when it's the same agent's: a run it starts works for it, with
+// its trust, not stuck on prompts no one sees. "" otherwise.
+func parentMode(k agent.Kind) string {
+	id := os.Getenv("RUSH_SESSION")
+	if id == "" {
+		return ""
+	}
+	cfg, err := host.ReadConfig(id)
+	if err != nil || agent.Kind(or(cfg.Kind, string(agent.LegacyKind))) != k {
+		return ""
+	}
+	info, err := host.ReadInfo(id)
+	if err != nil {
+		return ""
+	}
+	return info.PermissionMode
 }
 
 // stopHost ends the session's host, as the program would have ended: by
