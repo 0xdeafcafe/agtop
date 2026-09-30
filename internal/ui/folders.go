@@ -214,18 +214,20 @@ func gitShort(s fleet.GitState) string {
 	if s.Err != "" {
 		return faint("git failed")
 	}
-	var b strings.Builder
-	b.WriteString(dim(s.Branch))
+	var parts []string
+	if s.Branch != "" {
+		parts = append(parts, dim(s.Branch))
+	}
 	if s.Ahead > 0 {
-		b.WriteString(" " + paint(cOrange, fmt.Sprintf("↑%d", s.Ahead)))
+		parts = append(parts, paint(cOrange, fmt.Sprintf("↑%d", s.Ahead)))
 	}
 	if s.Behind > 0 {
-		b.WriteString(" " + paint(cYellow, fmt.Sprintf("↓%d", s.Behind)))
+		parts = append(parts, paint(cYellow, fmt.Sprintf("↓%d", s.Behind)))
 	}
 	if s.Changed > 0 {
-		b.WriteString(" " + dim(fmt.Sprintf("±%d", s.Changed)))
+		parts = append(parts, dim(fmt.Sprintf("±%d", s.Changed)))
 	}
-	return b.String()
+	return strings.Join(parts, " ")
 }
 
 // baseShort is where a worktree's branch came from, and how far it's
@@ -250,9 +252,16 @@ func baseShort(s fleet.GitState) string {
 
 // treeLine heads a linked worktree's rows under its project.
 func (m *Model) treeLine(l listLine, w int) string {
-	s := "     " + faint("⎇ ") + paint(cBlue, filepath.Base(l.root))
+	name := filepath.Base(l.root)
+	s := "     " + faint("⎇ ") + paint(cBlue, name)
 	if st, ok := m.folders.byRoot[l.title].Trees[l.root]; ok {
-		s += "  " + gitShort(st) + baseShort(st)
+		if strings.ReplaceAll(st.Branch, "/", "-") == name {
+			st.Branch = "" // the folder is named for it: once is enough
+		}
+		if g := gitShort(st); g != "" {
+			s += "  " + g
+		}
+		s += baseShort(st)
 	} else if m.folders.byRoot[l.title].Root != "" || m.folders.looking > 0 {
 		s += "  " + faint("…")
 	}

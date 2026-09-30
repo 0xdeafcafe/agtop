@@ -22,3 +22,18 @@ func TestWorktreeRowSaysWhatItHas(t *testing.T) {
 		t.Errorf("row %q repeats the name as its branch", got)
 	}
 }
+
+// A worktree folder named for its branch says the name once in the list.
+func TestTreeLineNamesOnce(t *testing.T) {
+	m := &Model{}
+	root := "/r/.worktrees/feat-slack-migration"
+	m.folders.byRoot = map[string]fleet.Folder{"/r": {Trees: map[string]fleet.GitState{root: {Branch: "feat/slack-migration", Changed: 1, Base: "origin/main"}}}}
+	got := ansi.Strip(m.treeLine(listLine{title: "/r", root: root}, 120))
+	if strings.Contains(got, "feat/slack-migration") || !strings.Contains(got, "feat-slack-migration  ±1 from origin/main") {
+		t.Fatalf("row %q", got)
+	}
+	m.folders.byRoot["/r"].Trees[root] = fleet.GitState{Branch: "other", Changed: 1}
+	if got := ansi.Strip(m.treeLine(listLine{title: "/r", root: root}, 120)); !strings.Contains(got, "feat-slack-migration  other ±1") {
+		t.Fatalf("another branch is still named: %q", got)
+	}
+}
