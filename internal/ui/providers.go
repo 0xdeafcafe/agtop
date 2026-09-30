@@ -124,27 +124,6 @@ func providerName(p string) string {
 	return kindName(agent.Kind(p))
 }
 
-// sessionTag is what a session's header says it runs on: the provider's
-// glyph and the harness running it, the account it's signed in as, the
-// provider when it isn't the harness's own name, and its profile when
-// there's more than one and it isn't just the provider's own.
-func (m *Model) sessionTag(a *fleet.Agent) string {
-	k := agent.Kind(a.Kind)
-	prov := agent.ProviderOf(k)
-	harness := agentName(string(agent.HarnessOf(k)))
-	parts := []string{paint(lookOf(k).colour(), lookOf(k).glyph+" "+harness)}
-	if acct := m.accountOf(k); acct != "" {
-		parts = append(parts, dim(acct))
-	}
-	if n := providerName(prov); n != harness {
-		parts = append(parts, dim(n))
-	}
-	if p := m.sessionProfile(a).Name; m.showProfile(p) && !strings.EqualFold(p, prov) {
-		parts = append(parts, faint(p))
-	}
-	return strings.Join(parts, faint(" · "))
-}
-
 // accountOf is the account provider k is signed in as, when rush keeps
 // more than the one: a Claude Code login, or another agent's sign-in.
 func (m *Model) accountOf(k agent.Kind) string {

@@ -405,11 +405,11 @@ func roughly(d time.Duration) string {
 	return fmt.Sprintf("%dd", int(d.Round(24*time.Hour).Hours()/24))
 }
 
-// usageMeter is one plan window: a bar of what's used, coloured by how it
-// is going, with a tick for how far through the window we are, so being
-// ahead of pace shows at a glance; then the percentage and when it resets.
-func usageMeter(label string, pct float64, resets time.Time, window time.Duration, now time.Time) string {
-	const w = 10
+// usageMeter is one plan window: a bar of cells of what's used, coloured
+// by how it is going, with a tick for how far through the window we are,
+// so being ahead of pace shows at a glance; then the percentage and, with
+// when, when it resets.
+func usageMeter(label string, pct float64, resets time.Time, window time.Duration, now time.Time, w int, when bool) string {
 	pace := -1.0 // share of the window gone, when we know when it ends
 	if !resets.IsZero() && resets.After(now) {
 		pace = 1 - float64(resets.Sub(now))/float64(window)
@@ -421,13 +421,13 @@ func usageMeter(label string, pct float64, resets time.Time, window time.Duratio
 	case pct >= 50 || (pace >= 0 && pct/100 > pace+0.1):
 		c = cYellow // high, or burning faster than the window allows
 	}
-	fill := min(w, max(0, int(pct/100*w+0.5)))
+	fill := min(w, max(0, int(pct/100*float64(w)+0.5)))
 	if pct > 0 && fill == 0 {
 		fill = 1
 	}
 	tick := -1
 	if pace >= 0 {
-		tick = min(w-1, int(pace*w))
+		tick = min(w-1, int(pace*float64(w)))
 	}
 	var b strings.Builder
 	for i := range w {
@@ -442,14 +442,20 @@ func usageMeter(label string, pct float64, resets time.Time, window time.Duratio
 			b.WriteString(faint("─"))
 		}
 	}
-	return dim(label+" ") + b.String() + " " + paint(c, fmt.Sprintf("%.0f%%", pct)) + resetIn(resets, now, window > 24*time.Hour)
+	s := dim(label+" ") + b.String() + " " + paint(c, fmt.Sprintf("%.0f%%", pct))
+	if when {
+		s += resetIn(resets, now, window > 24*time.Hour)
+	}
+	return s
 }
 
 // activeUsage is the current account's plan usage, with when each window
 // resets, quiet unless it is high, and near a switch the account rush
-// moves on to next with its usage. It doesn't say whose: the header does,
-// beside it.
-func (m *Model) activeUsage() string {
+// moves on to next with its usage; then every other provider's, a mini
+// meter each. It doesn't say whose: the header does, beside it. Short of
+// room in w, the detail halves its bars, then drops its reset times, then
+// goes, before another provider's meter is left out.
+func (m *Model) activeUsage(w int) string {
 	for _, av := range m.snap.Accounts {
 		if !av.Current {
 			continue
@@ -463,33 +469,46 @@ func (m *Model) activeUsage() string {
 		if q, ok := m.startQuota(); ok {
 			u = q // new sessions run another agent: its account's
 		}
-		var parts []string
-		for _, w := range u.Windows {
-			parts = append(parts, usageMeter(w.Label, w.Percent, w.ResetsAt, w.Span, m.snap.At))
+		k := agent.Kind(m.startKind())
+		if len(u.Windows) == 0 {
+			return strings.TrimLeft(m.otherMeters(k, w), " ")
 		}
-		if len(parts) == 0 {
-			return ""
-		}
-		if next, ok := m.upcoming(u.Used("")); ok {
-			// Where sessions go at the switch: glyph, name, and a short
-			// bar of its tightest window, in the meters' own style.
-			n := next.q.Used("")
-			l := lookOf(next.kind)
-			fill := min(5, max(0, int(n/20+0.5)))
-			meter := paint(usageColor(n), strings.Repeat("━", fill)) + faint(strings.Repeat("─", 5-fill))
-			parts = append(parts, faint("↪ at "+pct(u.SwitchPoint("", usage.Lead, m.snap.At))+" ")+paint(l.colour(), l.glyph)+" "+paint(cText, next.name())+" "+meter+" "+paint(usageColor(n), pct(n)))
-		}
-		s := m.usageTag() + "  " + strings.Join(parts, "   ")
-		if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > 3*usage.Every {
-			when := u.FetchedAt.Local().Format("15:04")
-			if m.snap.At.Sub(u.FetchedAt) > 20*time.Hour {
-				when = u.FetchedAt.Local().Format("Mon 15:04")
+		others := m.otherMeters(k, 1<<16)
+		for _, st := range []struct {
+			cells int
+			when  bool
+		}{{10, true}, {5, true}, {5, false}} {
+			if s := m.usageDetail(u, st.cells, st.when); cellw.String(s+"  │"+others) <= w {
+				return s + faint("  │") + others
 			}
-			s += faint(" as of " + when)
 		}
-		return s
+		return strings.TrimLeft(meterRow(m.inUseRows(), w), " ")
 	}
 	return ""
+}
+
+// usageDetail is activeUsage's own account, its meters cells wide.
+func (m *Model) usageDetail(u usage.Quota, cells int, when bool) string {
+	var parts []string
+	for _, win := range u.Windows {
+		parts = append(parts, usageMeter(win.Label, win.Percent, win.ResetsAt, win.Span, m.snap.At, cells, when))
+	}
+	if next, ok := m.upcoming(u.Used("")); ok {
+		// Where sessions go at the switch: glyph, name, and a short
+		// bar of its tightest window, in the meters' own style.
+		n := next.q.Used("")
+		l := lookOf(next.kind)
+		parts = append(parts, faint("↪ at "+pct(u.SwitchPoint("", usage.Lead, m.snap.At))+" ")+paint(l.colour(), l.glyph)+" "+paint(cText, next.name())+" "+miniBar(n)+" "+paint(usageColor(n), pct(n)))
+	}
+	s := m.usageTag() + "  " + strings.Join(parts, "   ")
+	if !u.FetchedAt.IsZero() && m.snap.At.Sub(u.FetchedAt) > 3*usage.Every {
+		when := u.FetchedAt.Local().Format("15:04")
+		if m.snap.At.Sub(u.FetchedAt) > 20*time.Hour {
+			when = u.FetchedAt.Local().Format("Mon 15:04")
+		}
+		s += faint(" as of " + when)
+	}
+	return s
 }
 
 func (m *Model) render() string {

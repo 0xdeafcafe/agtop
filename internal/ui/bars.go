@@ -36,6 +36,8 @@ type barCtx struct {
 	t tally
 	a *fleet.Agent
 	c *hostConn
+	// room is what's left of the line's width where a segment starts.
+	room int
 }
 
 const (
@@ -47,8 +49,8 @@ var topSegs = []barSeg{
 	{"today", "Spend today", "what every account has spent today", func(x *barCtx) string {
 		return paint(cText, money(x.t.today)) + dim(" today")
 	}},
-	{"usage", "Plan usage", "the account in use: its 5-hour and weekly limits, and when they reset", func(x *barCtx) string {
-		return x.m.activeUsage()
+	{"usage", "Plan usage", "the account in use: its 5-hour and weekly limits, and when they reset; then every other provider's, the least room first", func(x *barCtx) string {
+		return x.m.activeUsage(x.room)
 	}},
 	{"accounts", "Every account", "each account's shortest limit, of every agent, when there are several", func(x *barCtx) string {
 		var parts []string
@@ -352,6 +354,7 @@ func (m *Model) barLine(which, i int, x *barCtx, w int) string {
 	var parts, ids []string
 	for _, id := range l.Lines[i] {
 		if s, ok := findBarSeg(which, id); ok {
+			x.room = w - ansi.StringWidth(strings.Join(append(parts, ""), dim(sep)))
 			if p := s.draw(x); p != "" {
 				parts, ids = append(parts, p), append(ids, id)
 			}

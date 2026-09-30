@@ -2101,6 +2101,10 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	case info.ClaudePID == 0:
 		state = dim("◦ idle · resting")
 	}
+	kind := agent.Kind(firstNonEmpty(a.Kind, string(loginsKind)))
+	if low := m.lowNote(kind); low != "" {
+		state += "   " + paint(cYellow, low)
+	}
 	// Filling the screen, it's the only thing there to name, and what's on
 	// the right lines up with the conversation's own right edge.
 	alone := m.paneAlone()
@@ -2148,8 +2152,8 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 			conn = paint(cYellow, "cache cold") + "   " + conn
 		}
 	}
-	if tag := m.sessionTag(a); hw-cellw.String(conn+tag) > 72 {
-		conn = tag + "   " + conn // its provider, account and profile, with room
+	if tag := m.agentLabel(a, firstNonEmpty(s.Model, info.Model)); hw-cellw.String(conn+tag) > 40 {
+		conn = tag + "   " + conn // what it runs as, with room
 	}
 	meta := m.barLine(barAgent, 1, x, hw-cellw.String(indent+conn)-4)
 	row2 := spread(indent+meta, conn+" ", hw)
