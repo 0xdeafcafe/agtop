@@ -33,14 +33,11 @@ func shimScript(exe, program string) []byte {
 // WriteShims puts a stand-in for every registered agent's program in
 // ShimDir, and is the folder, or "" when it can't.
 func WriteShims() string {
-	exe, err := os.Executable()
-	if err != nil {
+	d := ShimDir()
+	exe := bgate.ExeFor(d) // never a scratch build: every agent here runs them
+	if exe == "" {
 		return ""
 	}
-	if r, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = r
-	}
-	d := ShimDir()
 	if os.MkdirAll(d, 0o700) != nil {
 		return ""
 	}

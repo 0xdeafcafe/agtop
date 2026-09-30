@@ -30,3 +30,15 @@ func TestOffHasNoRules(t *testing.T) {
 		t.Fatalf("rules while off: %v", r)
 	}
 }
+
+// A test's own build runs the stand-ins it writes into a temp folder,
+// but never the ones a real folder keeps for every agent.
+func TestScratchBuildsKeepToScratch(t *testing.T) {
+	if got := ExeFor(t.TempDir()); got != Exe() {
+		t.Errorf("into a temp folder: %q, want this build %q", got, Exe())
+	}
+	home, _ := os.UserHomeDir()
+	if got := ExeFor(filepath.Join(home, "Library", "Caches", "agtop", "shims")); got == Exe() || scratch(got) {
+		t.Errorf("into a real folder: %q, a scratch build", got)
+	}
+}

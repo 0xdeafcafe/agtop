@@ -10,6 +10,7 @@ import (
 	"encoding/json/jsontext"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -62,11 +63,11 @@ func Rules() map[string]gate.Rule {
 // WriteShims makes gate.BinDir hold a shim for each program the gate
 // queues, and nothing else: none when it's off.
 func WriteShims() {
-	exe := Exe()
+	d := gate.BinDir()
+	exe := ExeFor(d)
 	if exe == "" {
 		return
 	}
-	d := gate.BinDir()
 	if os.MkdirAll(d, 0o700) != nil {
 		return
 	}
@@ -102,6 +103,42 @@ func Exe() string {
 		exe = r
 	}
 	return exe
+}
+
+// ExeFor is the rush a stand-in written into dir runs: the running one,
+// unless that's a scratch build (a test's, go run's, one in the temp
+// folder) and dir outlives it; then the rush on PATH, or "" for none.
+func ExeFor(dir string) string {
+	exe := Exe()
+	if !scratch(exe) || scratch(dir) {
+		return exe
+	}
+	p, err := exec.LookPath("rush")
+	if err != nil {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		p = r
+	}
+	if scratch(p) {
+		return ""
+	}
+	return p
+}
+
+// scratch is whether path is somewhere that comes and goes: the temp
+// folder, or go's build cache.
+func scratch(path string) bool {
+	tmp := os.TempDir()
+	if r, err := filepath.EvalSymlinks(tmp); err == nil {
+		tmp = r
+	}
+	for _, d := range []string{tmp, "/tmp", "/private/tmp"} {
+		if strings.HasPrefix(path, filepath.Clean(d)+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return strings.Contains(path, string(filepath.Separator)+"go-build")
 }
 
 // HookCommand is Claude Code's PreToolUse hook for Bash while the gate is
