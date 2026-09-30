@@ -92,6 +92,9 @@ func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 	if o.APIKey != "" {
 		o.Env, o.Flags = append(o.Env, "OPENAI_API_KEY="+o.APIKey), append(KeyFlags(), o.Flags...)
 	}
+	if o.Subagents > 0 {
+		o.Flags = append([]string{"-c", "agents.max_threads=" + strconv.Itoa(o.Subagents)}, o.Flags...)
+	}
 	c, err := Start(ctx, o)
 	if err != nil {
 		return nil, err

@@ -90,8 +90,8 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 		// Ahead of the login signed in: paid per token.
 		ho.Env = append(ho.Env, "ANTHROPIC_API_KEY="+o.APIKey)
 	}
-	if os.Getenv(subagentCapEnv) == "" {
-		ho.Env = append(ho.Env, subagentCapEnv+"="+strconv.Itoa(agent.SubagentCap()))
+	if o.Subagents > 0 && os.Getenv(subagentCapEnv) == "" {
+		ho.Env = append(ho.Env, subagentCapEnv+"="+strconv.Itoa(o.Subagents))
 	}
 	ho.Env = append(append(ho.Env, headless.CheckpointEnv), o.Env...)
 	if o.Tap != nil {

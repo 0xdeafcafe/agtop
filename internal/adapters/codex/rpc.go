@@ -76,9 +76,7 @@ func spawn(binary, home string, env, flags []string, handle func(*client, messag
 			}
 		}
 	}
-	// Its subagents capped by the machine, as Claude Code's are; flags after
-	// have the last word.
-	cmd := exec.Command(binary, append([]string{"app-server", "-c", "agents.max_threads=" + strconv.Itoa(agent.SubagentCap())}, flags...)...)
+	cmd := exec.Command(binary, append([]string{"app-server"}, flags...)...)
 	cmd.Env = append(os.Environ(), env...)
 	if home != "" {
 		cmd.Env = append(cmd.Env, "CODEX_HOME="+home)

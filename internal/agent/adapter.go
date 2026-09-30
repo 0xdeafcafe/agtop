@@ -108,6 +108,9 @@ type StartOptions struct {
 	// Lean starts it without its non-essential network traffic, where it
 	// can.
 	Lean bool
+	// Subagents is how many subagents it may run at once, where its
+	// harness caps them; 0 leaves the harness's own.
+	Subagents int
 	// Tools are MCP servers rush serves in process for the session.
 	Tools []ToolServer
 	// Agents are subagents to offer it, by name, each defined in its
