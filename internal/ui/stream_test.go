@@ -227,8 +227,13 @@ func TestFollowingKeepsTheEnd(t *testing.T) {
 		if c.scroll != 0 {
 			continue
 		}
-		if last := c.rowBody[len(c.rowBody)-1]; last != len(c.shown)-1 {
-			t.Fatalf("%d asks, %d lines: the last row drawn is %d of %d", reps, n, last, len(c.shown))
+		// The room before the box comes after it, so the last transcript row.
+		last := -1
+		for _, i := range c.rowBody {
+			last = max(last, i)
+		}
+		if want := c.transcriptRows - c.shownBase - 1; last != want {
+			t.Fatalf("%d asks, %d lines: the last row drawn is %d of %d", reps, n, last, want)
 		}
 	}
 }

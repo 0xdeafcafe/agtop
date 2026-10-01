@@ -2781,8 +2781,15 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		out = append(out, dockCard(bgQueue, cSub, rows, w+1)...)
 	}
 	cards()
-	if blocks > 0 {
-		line("") // and one before the box
+	// And room before the box. In a conversation it scrolls with the
+	// transcript, so the last of it can pass under the box when you scroll
+	// up but never ends flush against it.
+	pad := min(blocks, 1)
+	if m.viewName(c) == "conversation" && !m.zen {
+		pad = 2
+	}
+	for range pad {
+		line("")
 	}
 	c.auxRows = len(out)
 	w = fullW
