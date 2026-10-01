@@ -1849,7 +1849,7 @@ func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 	m.host = msg.c
 	if d, ok := m.rewound[msg.key]; ok && m.host.client != nil {
 		delete(m.rewound, msg.key)
-		m.host.input, m.host.back = []rune(d), 0
+		m.host.input, m.host.back = m.host.pastes.unfold(d), 0
 		m.paneFocus = true
 	}
 	if c := m.host; c.client == nil {
@@ -4803,8 +4803,8 @@ func (m *Model) questionKey(c *hostConn, req *event.Question, s string, empty bo
 	}
 	if s == "enter" {
 		if !empty {
-			text := strings.TrimSpace(string(c.input))
-			c.input, c.back = c.input[:0], 0
+			text := c.pastes.out(c.input, false)
+			c.input, c.back, c.pastes = c.input[:0], 0, pastes{}
 			return m.answerQuestion(c, req, qs, text), true
 		}
 		if q.MultiSelect && anyPicked(picked) {

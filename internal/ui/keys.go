@@ -766,8 +766,8 @@ func (m *Model) keepGoing(a *fleet.Agent) tea.Cmd {
 }
 
 func (m *Model) submit() tea.Cmd {
-	text := strings.TrimSpace(m.pastes.expand(string(m.input), false))
-	tagged := strings.TrimSpace(m.pastes.expand(string(m.input), true)) // for rush sessions
+	text := m.pastes.out(m.input, false)
+	tagged := m.pastes.out(m.input, true) // for rush sessions
 	kind := m.inKind
 	a := m.selected()
 	if kind == inRename || kind == inGroup {

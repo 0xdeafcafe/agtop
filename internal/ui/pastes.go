@@ -62,6 +62,12 @@ func (p *pastes) expand(s string, tagged bool) string {
 	})
 }
 
+// out is a box's text as it goes out: each chip the text it stands for,
+// tagged or not as expand does, trimmed. Every send reads a box through it.
+func (p *pastes) out(buf []rune, tagged bool) string {
+	return strings.TrimSpace(p.expand(string(buf), tagged))
+}
+
 // unfold is a sent message back in a box: each tagged paste a chip again.
 func (p *pastes) unfold(s string) []rune {
 	return []rune(strings.TrimSpace(convo.EachPaste(s, p.add)))

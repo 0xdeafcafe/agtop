@@ -480,7 +480,7 @@ type interceptedMsg struct {
 func (m *Model) interceptSend(c *hostConn, now bool) tea.Cmd {
 	was := string(c.input)
 	c.intercepting = true
-	req := plugin.Intercept{Hook: "before-send", Session: m.uiSession(m.agentByKey(c.key)), Text: strings.TrimSpace(c.pastes.expand(was, false))}
+	req := plugin.Intercept{Hook: "before-send", Session: m.uiSession(m.agentByKey(c.key)), Text: c.pastes.out(c.input, false)}
 	key := c.key
 	return m.hooks.Intercept(req, func(r plugin.InterceptResult) tea.Msg { return interceptedMsg{key: key, was: was, now: now, r: r} })
 }
