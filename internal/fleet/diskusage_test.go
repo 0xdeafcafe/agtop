@@ -1,10 +1,13 @@
 package fleet
 
 import (
+	"fmt"
+	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // However the platform walks a folder, it counts what statUsage does: every
@@ -25,6 +28,10 @@ func TestDirUsageMatchesStat(t *testing.T) {
 	}
 	os.Symlink(filepath.Join(dir, "b"), filepath.Join(dir, "link"))
 	os.Symlink("/", filepath.Join(dir, "root"))
+	dirs := []TempDir{{Path: dir}, {Path: filepath.Join(dir, "missing")}, {Path: filepath.Join(dir, "link")}}
+	if got, want := DiskUsageBackground(dirs), DiskUsage(dirs); got != want {
+		t.Fatalf("background %d, foreground %d", got, want)
+	}
 	want, got := statUsage(dir), dirUsage(dir)
 	if want == 0 || got != want {
 		t.Fatalf("dirUsage %d, statUsage %d", got, want)
@@ -46,4 +53,41 @@ func BenchmarkDirUsage(b *testing.B) {
 			statUsage(dir)
 		}
 	})
+}
+
+// Run both paths against the same tree, excluding fixture creation from CPU
+// and allocation measurements. CPU/wall shows the background duty cycle.
+func BenchmarkDiskUsagePacing(b *testing.B) {
+	dir := b.TempDir()
+	for i := range 2000 {
+		sub := filepath.Join(dir, fmt.Sprint(i))
+		if err := os.Mkdir(sub, 0700); err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sub, "file"), []byte("data"), 0600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	dirs := []TempDir{{Path: dir}}
+	for _, tc := range []struct {
+		name string
+		walk func([]TempDir) int64
+	}{
+		{"foreground", DiskUsage}, {"background", DiskUsageBackground},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			var before, after unix.Rusage
+			unix.Getrusage(unix.RUSAGE_SELF, &before)
+			start := time.Now()
+			for b.Loop() {
+				if tc.walk(dirs) == 0 {
+					b.Fatal("empty size")
+				}
+			}
+			elapsed := time.Since(start)
+			unix.Getrusage(unix.RUSAGE_SELF, &after)
+			cpu := after.Utime.Nano() + after.Stime.Nano() - before.Utime.Nano() - before.Stime.Nano()
+			b.ReportMetric(float64(cpu)/float64(elapsed)*100, "cpu-percent")
+		})
+	}
 }

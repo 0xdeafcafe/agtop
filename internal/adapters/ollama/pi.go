@@ -41,7 +41,7 @@ func (PiAdapter) Provider() string { return string(Kind) }
 // piFeatures are Pi's, less what a local model or rush's own folder
 // hasn't.
 var piFeatures = map[agent.Feature]agent.Support{
-	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes.With("the whole session, not from a message"),
+	agent.FeatureRun: agent.Yes, agent.FeaturePrompt: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes.With("the whole session, not from a message"),
 	agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes.With("any model Ollama has that calls tools"),
 	agent.FeatureImages: agent.Yes.With("on models that take them"), agent.FeatureCompact: agent.Yes.With("at the window the model was loaded with"),
 	agent.FeatureQuestions: agent.Yes.With("an extension's select and confirm"),
@@ -114,7 +114,7 @@ func toolModels(ctx context.Context, m Model) []Model {
 		if n == m.Name {
 			continue
 		}
-		if o, err := show(ctx, n); err == nil && o.Can("tools") {
+		if o, err := show(ctx, n); err == nil && o.CanCode() {
 			out = append(out, o)
 		}
 	}

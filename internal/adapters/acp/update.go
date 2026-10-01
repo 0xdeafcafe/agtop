@@ -3,8 +3,11 @@ package acp
 import (
 	"encoding/base64"
 	"encoding/json/jsontext"
+	"regexp"
+	"slices"
 	"strings"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
@@ -16,8 +19,11 @@ type call struct {
 	acpKind string
 	content []toolContent
 	locs    []location
-	sent    bool // its ToolCall message has gone out
-	done    bool // and its ToolResult
+	sent    bool   // its ToolCall message has gone out
+	done    bool   // and its ToolResult
+	effect  string // what Vibe says the tool does
+	task    string // the task it started, once it has
+	ended   bool   // and that task has ended
 }
 
 // notified takes the agent's notifications.
@@ -55,6 +61,9 @@ func (s *Session) update(raw jsontext.Value) {
 		var c chunk
 		if jsonx.Unmarshal(raw, &c) != nil {
 			return
+		}
+		if u.SessionUpdate == "user_message_chunk" {
+			s.taskNotices(c.Content.Text)
 		}
 		role, kind := "assistant", event.Text
 		switch u.SessionUpdate {
@@ -195,11 +204,14 @@ func (s *Session) track(tc toolCall) *call {
 	}
 	if tc.Kind != nil {
 		c.acpKind = *tc.Kind
-		c.c.Kind = kindOf(c.acpKind)
+	}
+	if tc.Meta != nil && tc.Meta.EffectKind != "" {
+		c.effect = tc.Meta.EffectKind
 	}
 	if raw := tc.RawInput; len(raw) > 0 && string(raw) != "null" {
-		c.c.Raw = append(jsontext.Value(nil), raw...)
+		c.c.Raw = mergeRaw(c.c.Raw, raw)
 	}
+	c.c.Kind = callKind(c.acpKind, c.effect, c.c.Raw)
 	if tc.Content != nil {
 		c.content = tc.Content
 	}
@@ -210,6 +222,9 @@ func (s *Session) track(tc toolCall) *call {
 		c.c.Name = c.acpKind
 	}
 	c.c.Input = readInput(c.c.Kind, c.c.Raw, c.locs, c.content)
+	if c.c.Kind == tool.Subagent && findsChildren(s.o.Adapter) {
+		c.c.Input.Child = c.c.ID
+	}
 	if c.sent && (tc.Title != nil || tc.Kind != nil || len(tc.RawInput) > 0 || tc.Content != nil || tc.Locations != nil) {
 		s.emit(event.CallUpdated{Call: c.c})
 	}
@@ -219,12 +234,143 @@ func (s *Session) track(tc toolCall) *call {
 		cc := c.c
 		s.emit(event.Message{Role: "assistant", Model: s.model(), Parts: []event.Part{{Kind: event.ToolCall, Call: &cc}}})
 	}
+	// A subagent the turn waits on is a task from when its prompt is known
+	// until its call ends.
+	if in := c.c.Input; c.c.Kind == tool.Subagent && !in.Background && c.task == "" && !c.done && in.Prompt != "" {
+		c.task = c.c.ID
+		s.emit(event.TaskStarted{ID: c.task, CallID: c.c.ID, Kind: event.SubagentTask, Label: firstOf(in.Description, strings.SplitN(in.Prompt, "\n", 2)[0]), Agent: in.Agent})
+	}
 	if st := deref(tc.Status); !c.done && (st == "completed" || st == "failed") {
 		c.done = true
 		out := readOutput(c.c.ID, st == "failed", c.content, tc.RawOutput)
 		s.emit(event.Message{Role: "user", Parts: []event.Part{{Kind: event.ToolResult, Output: out}}})
+		if c.task != "" && !c.c.Input.Background {
+			c.ended = true
+			s.emit(event.TaskDone{ID: c.task, CallID: c.c.ID, Status: st})
+		}
+		s.backgrounded(c, out.Text)
+		s.taskNotices(out.Text)
 	}
 	return c
+}
+
+// findsChildren is whether the agent named finds a subagent's own run by
+// the call that started it (Kimi's agents/agent-N wire).
+func findsChildren(adapter string) bool {
+	a, ok := agent.Get(agent.Kind(adapter))
+	if !ok {
+		return false
+	}
+	_, ok = a.(agent.ChildFinder)
+	return ok
+}
+
+// callKind is what a call does: ACP's kind, or a subagent, which ACP has
+// no kind for. Agents send one as other or think: Vibe says so in _meta,
+// the rest give it a prompt and what it's for or what agent runs it.
+func callKind(acpKind, effect string, raw jsontext.Value) tool.Kind {
+	k := kindOf(acpKind)
+	if k != tool.Other && k != tool.Think {
+		return k
+	}
+	if effect == "subagent" {
+		return tool.Subagent
+	}
+	var m map[string]any
+	_ = jsonx.Unmarshal(raw, &m)
+	if _, ok := m["prompt"].(string); ok && (m["description"] != nil || m["subagent_type"] != nil || m["agent_type"] != nil) {
+		return tool.Subagent
+	}
+	return k
+}
+
+// mergeRaw is a call's input with a later one's over it: Copilot asks
+// permission with less of the input than the call had.
+func mergeRaw(old, nw jsontext.Value) jsontext.Value {
+	var a, b map[string]jsontext.Value
+	if jsonx.Unmarshal(old, &a) != nil || jsonx.Unmarshal(nw, &b) != nil || a == nil || b == nil {
+		return append(jsontext.Value(nil), nw...)
+	}
+	for k, v := range b {
+		a[k] = v
+	}
+	out, err := jsonx.Marshal(a)
+	if err != nil {
+		return append(jsontext.Value(nil), nw...)
+	}
+	return out
+}
+
+// startedRe finds the task a background call's result says it started:
+// Kimi's "task_id: bash-1", Copilot's "started in background with
+// shellId: 0".
+var startedRe = regexp.MustCompile(`(?m)^task_id: (\S+)$|started in background with shellId: ([^>\s]+)`)
+
+// endedRe finds the tasks a message says ended: Kimi's notification of
+// one, or what Copilot says of a shell it reads back.
+var endedRe = regexp.MustCompile(`<notification [^>]*type="task\.(\w+)"[^>]*source_id="([^"]+)"|<shellId: ([^>\s]+) completed with exit code (\d+)>`)
+
+// backgrounded starts the task a background call says it started.
+func (s *Session) backgrounded(c *call, result string) {
+	if !c.c.Input.Background || c.task != "" {
+		return
+	}
+	m := startedRe.FindStringSubmatch(result)
+	if m == nil {
+		return
+	}
+	c.task = m[1] + m[2]
+	in := c.c.Input
+	s.emit(event.TaskStarted{ID: c.task, CallID: c.c.ID, Kind: taskKind(c), Label: firstOf(in.Description, in.Command), Agent: in.Agent, Background: true})
+	s.emitBackground()
+}
+
+// taskNotices ends the background tasks text says have ended.
+func (s *Session) taskNotices(text string) {
+	for _, m := range endedRe.FindAllStringSubmatch(text, -1) {
+		id, status := m[2], m[1]
+		if id == "" {
+			id, status = m[3], "completed"
+			if m[4] != "0" {
+				status = "failed"
+			}
+		}
+		for _, c := range s.calls {
+			if c.task == id && c.c.Input.Background && !c.ended {
+				c.ended = true
+				s.emit(event.TaskDone{ID: id, CallID: c.c.ID, Status: status})
+				s.emitBackground()
+			}
+		}
+	}
+}
+
+// emitBackground lists the background tasks still running.
+func (s *Session) emitBackground() {
+	list := []event.BackgroundTask{}
+	for _, c := range s.calls {
+		if c.task != "" && c.c.Input.Background && !c.ended {
+			list = append(list, event.BackgroundTask{ID: c.task, Kind: taskKind(c), Label: firstOf(c.c.Input.Description, c.c.Input.Command)})
+		}
+	}
+	slices.SortFunc(list, func(a, b event.BackgroundTask) int { return strings.Compare(a.ID, b.ID) })
+	s.emit(event.Background{Tasks: list})
+}
+
+func taskKind(c *call) event.TaskKind {
+	if c.c.Kind == tool.Subagent {
+		return event.SubagentTask
+	}
+	return event.ShellTask
+}
+
+func firstOf(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func deref(p *string) string {
@@ -296,7 +442,17 @@ func readInput(k tool.Kind, raw jsontext.Value, locs []location, content []toolC
 	if in.Command == "" {
 		in.Command = str("cmd")
 	}
+	// Kimi's run_in_background, Copilot's async mode.
+	bg := m["run_in_background"] == true || m["mode"] == "async" || m["mode"] == "background"
 	switch k {
+	case tool.Shell:
+		in.Background = bg
+	case tool.Subagent:
+		in.Background = bg
+		if in.Prompt == "" {
+			in.Prompt = str("task") // Vibe's
+		}
+		in.Agent = str("subagent_type", "agent_type", "subagent_name", "agent")
 	case tool.Search:
 		if in.Pattern == "" {
 			in.Pattern = str("query")
@@ -373,7 +529,7 @@ func readOutput(id string, failed bool, content []toolContent, raw jsontext.Valu
 			return ""
 		}
 		out.Stdout, out.Stderr = get("stdout"), get("stderr")
-		out.Text = get("output", "content", "result", "error")
+		out.Text = get("output", "content", "result", "response", "error")
 		if out.Text == "" {
 			out.Text = strings.TrimSpace(out.Stdout + "\n" + out.Stderr)
 		}

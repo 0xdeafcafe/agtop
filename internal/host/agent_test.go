@@ -25,7 +25,7 @@ func (fakeAgent) Kind() agent.Kind   { return "fake" }
 func (fakeAgent) Name() string       { return "Fake" }
 func (fakeAgent) Level() agent.Level { return agent.LevelPreview }
 func (fakeAgent) Features() map[agent.Feature]agent.Support {
-	return map[agent.Feature]agent.Support{agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureRewind: agent.Yes}
+	return map[agent.Feature]agent.Support{agent.FeatureRun: agent.Yes, agent.FeaturePrompt: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureRewind: agent.Yes}
 }
 func (fakeAgent) Profiles() []agent.Profile { return nil }
 
@@ -75,7 +75,7 @@ func (c *fakeConn) Close() error          { c.once.Do(func() { close(c.events) }
 
 func TestHostRunsAnyAgent(t *testing.T) {
 	home := filepath.Dir(setup(t))
-	cfg, err := Spawn(Config{Kind: "fake", Cwd: home, Account: agent.Profile{Kind: "fake", Name: "fake", Dir: home}, Prompt: "hi", IdleStop: Duration(300 * time.Millisecond)})
+	cfg, err := Spawn(Config{Owner: os.Getpid(), Kind: "fake", Cwd: home, Account: agent.Profile{Kind: "fake", Name: "fake", Dir: home}, Prompt: "hi", IdleStop: Duration(300 * time.Millisecond)})
 	if err != nil {
 		t.Fatal(err)
 	}

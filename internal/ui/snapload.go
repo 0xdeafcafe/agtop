@@ -57,7 +57,7 @@ func (m *Model) onSnap(msg snapMsg) tea.Cmd {
 		m.sel = k
 		m.rebuild()
 	}
-	return m.watchShells()
+	return tea.Batch(m.watchShells(), m.loadRooms())
 }
 
 // refreshNow reads the fleet on the calling goroutine: for --render and
@@ -71,6 +71,7 @@ func (m *Model) refreshNow() {
 	if m.hosted == "" {
 		sb = m.sidebarFiles.Load()
 	}
+	m.rooms.list = m.rooms.lister.List()
 	m.applySnap(m.loader.Load(true), sb)
 }
 

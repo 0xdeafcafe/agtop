@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -31,69 +30,96 @@ func TestKeyParts(t *testing.T) {
 	}
 }
 
-// Keys draws the keyboard under its table when there's room, and the row
-// under the pointer is the one drawn at that line.
-func TestKeysKeyboardAndHover(t *testing.T) {
-	m, _ := benchModel(130, 64)
-	m.setView(placeSettings)
-	m.setSettingsPage(pageKeys)
-	lines := strings.Split(m.frame(m.dialogBody(m.w-6), ""), "\n")
-	if !slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(ansi.Strip(l), "q   w   e   r") }) {
-		t.Fatal("no keyboard on a tall screen")
-	}
-	rows := m.keyRows()
-	for y, l := range lines {
-		if strings.Contains(ansi.Strip(l), rows[2].Title) {
-			m.keysHover(y)
+// The action table stays primary at all terminal sizes and its hit targets
+// follow its actual rendered rows, including when the list is scrolled.
+func TestKeysPageResponsive(t *testing.T) {
+	for _, size := range [][2]int{{130, 64}, {100, 30}, {80, 24}, {58, 24}, {64, 24}, {44, 24}} {
+		m, _ := benchModel(size[0], size[1])
+		m.setView(placeSettings)
+		m.setSettingsPage(pageKeys)
+		m.showKey("session.last")
+		body := m.dialogBody(m.w - 6)
+		text := ansi.Strip(strings.Join(body, "\n"))
+		for _, want := range []string{"ACTION", "BINDING", "Edit binding", "Add alternative", "Unbind", "Reset default", "change context"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%v missing %q:\n%s", size, want, text)
+			}
 		}
-	}
-	if m.dialog.keyHover != 3 {
-		t.Errorf("hovering %q's line found row %d", rows[2].Title, m.dialog.keyHover-1)
-	}
-	m.keysHover(0)
-	if m.dialog.keyHover != 0 {
-		t.Error("the header hovered a row")
-	}
-	m, _ = benchModel(130, 30)
-	m.setView(placeSettings)
-	m.setSettingsPage(pageKeys)
-	if strings.Contains(ansi.Strip(m.frame(m.dialogBody(m.w-6), "")), "q   w   e   r") {
-		t.Error("a keyboard on a short screen, where the rows need the room")
+		if strings.Contains(text, "q   w   e   r") {
+			t.Fatal("keyboard diagram should not consume action rows")
+		}
+		for _, line := range body {
+			if ansi.StringWidth(line) > m.w-6 {
+				t.Fatalf("%v overflow: %q", size, ansi.Strip(line))
+			}
+		}
+		if len(body) > m.h-len(m.header())-4 {
+			t.Fatalf("%v clips footer: %d lines", size, len(body))
+		}
+		lines := strings.Split(m.frame(body, ""), "\n")
+		selected := m.keyRows()[m.dialog.cursor]
+		found := false
+		for y, l := range lines {
+			if strings.Contains(l, selBG) {
+				found = true
+				m.keysHover(y)
+				if m.dialog.keyHover != m.dialog.cursor+1 {
+					t.Fatalf("%v hover %d != selected %d", size, m.dialog.keyHover, m.dialog.cursor+1)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("%v selected action not visible: %s", size, selected.Title)
+		}
+		m.keysHover(0)
+		if m.dialog.keyHover != 0 {
+			t.Fatal("header hovered an action")
+		}
 	}
 }
 
-// Typing poppers or alex on Keys bursts the keyboard, and the letters that
-// would add, clear or reset a key only spell the word.
-func TestKeyboardBursts(t *testing.T) {
-	for _, word := range kbWords {
-		t.Setenv("RUSH_HOME", t.TempDir())
-		m, _ := benchModel(130, 64)
-		m.setView(placeSettings)
-		m.setSettingsPage(pageKeys)
-		id := m.keyRows()[m.dialog.cursor].ID
-		m.setKeys(keymap.File{Bindings: map[string][]string{id: {"ctrl+x z"}}})
-		pressKeys(m, strings.Split(word, "")...)
-		if m.dialog.boom.IsZero() || m.keys.page.taking != "" || m.keys.capture != nil {
-			t.Fatalf("%s: boom %v, taking %q", word, m.dialog.boom, m.keys.page.taking)
+// Previously the hidden animation intercepted chord letters. Recording a
+// shortcut now treats every letter literally, while practice still finds it.
+func TestKeysCaptureAndPracticeWithoutAnimation(t *testing.T) {
+	t.Setenv("RUSH_HOME", t.TempDir())
+	m, _ := benchModel(100, 30)
+	m.setView(placeSettings)
+	m.setSettingsPage(pageKeys)
+	m.showKey("list.pr")
+	pressKeys(m, "enter", "ctrl+alt+z", "a", "l")
+	if got := m.keyMap().KeyText("list.pr"); got != "ctrl+alt+z a l" {
+		t.Fatalf("chord capture lost letters: %q", got)
+	}
+	m.showKey("session.last")
+	m.practiceKey("ctrl+alt+z")
+	m.practiceKey("a")
+	m.practiceKey("l")
+	if got := m.keyRows()[m.dialog.cursor].ID; got != "list.pr" {
+		t.Fatalf("practice selected %s", got)
+	}
+}
+
+func TestKeysPageShowsFullSelectionAndProblem(t *testing.T) {
+	m, _ := benchModel(58, 30)
+	m.setView(placeSettings)
+	m.setSettingsPage(pageKeys)
+	m.showKey("session.send")
+	text := ansi.Strip(strings.Join(m.keysBody(m.w-6), " "))
+	text = strings.Join(strings.Fields(text), " ")
+	a := m.keyRows()[m.dialog.cursor]
+	if !strings.Contains(text, a.Title) {
+		t.Fatalf("full action is missing: %s", text)
+	}
+	for _, seq := range m.keyMap().Keys(a.ID) {
+		if !strings.Contains(text, seq.String()) {
+			t.Fatalf("alternative %s is missing: %s", seq.String(), text)
 		}
-		if got := m.keys.file.Bindings[id]; len(got) != 1 || got[0] != "ctrl+x z" {
-			t.Errorf("%s changed %s's keys: %v", word, id, got)
-		}
-		for _, at := range []time.Duration{0, 300 * time.Millisecond, time.Second, 2 * time.Second, 3 * time.Second} {
-			m.dialog.boom = time.Now().Add(-at)
-			body := m.dialogBody(m.w - 6)
-			for _, l := range body[len(body)-9:] { // the keyboard, its cheer and the keys line
-				if ansi.StringWidth(l) > m.w-6 {
-					t.Fatalf("%s at %v: a line past the page: %q", word, at, ansi.Strip(l))
-				}
-			}
-			if !strings.Contains(ansi.Strip(strings.Join(body, "\n")), strings.ToUpper(word[:1])+" ") {
-				t.Errorf("%s at %v: no cheer", word, at)
-			}
-		}
-		m.dialog.boom = time.Now().Add(-kbBoomLen)
-		if out := ansi.Strip(strings.Join(m.dialogBody(m.w-6), "\n")); !strings.Contains(out, "q   w   e   r") || !strings.Contains(out, "bound here") {
-			t.Errorf("%s: the keyboard isn't back together:\n%s", word, out)
-		}
+	}
+	m.setKeys(keymap.File{Bindings: map[string][]string{"missing.action": {"ctrl+z"}}})
+	text = ansi.Strip(strings.Join(m.keysBody(m.w-6), " "))
+	text = strings.Join(strings.Fields(text), " ")
+	problem := strings.Join(strings.Fields(m.keyMap().Problems()[0].String()), " ")
+	if !strings.Contains(text, problem) {
+		t.Fatalf("invalid binding explanation is missing: %s", text)
 	}
 }

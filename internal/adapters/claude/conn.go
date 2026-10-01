@@ -67,6 +67,14 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 		ho.Flags = append(ho.Flags, "--settings", string(b))
 	}
 	ho.Flags = append(ho.Flags, o.Flags...)
+	if len(o.Carry) > 0 && !o.Resume && !o.Fork && o.SessionID != "" {
+		// Another agent's conversation, resumed as this one's own.
+		if err := acct.WriteCarried(o.Dir, o.SessionID, o.Carry); err != nil {
+			return nil, err
+		}
+		o.Resume = true
+		c.carried = o.SessionID
+	}
 	if o.Resume {
 		ho.Resume = o.SessionID
 	} else {
@@ -138,11 +146,12 @@ func relayOnly(l []byte) bool {
 
 // conn is a running claude -p as an agent.Conn.
 type conn struct {
-	s      *headless.Session
-	events chan event.Event
-	tools  []agent.ToolServer
-	initID string
-	acct   claude.Account
+	s       *headless.Session
+	events  chan event.Event
+	tools   []agent.ToolServer
+	initID  string
+	carried string // imported history acknowledged by initialize
+	acct    claude.Account
 	// root is whether it was started for ~/.claude and runs in the
 	// home of the login in use then.
 	root bool
@@ -265,6 +274,10 @@ func (c *conn) own(ev headless.Event) bool {
 			return true
 		}
 		if e.ID == c.initID && e.Error == "" {
+			if c.carried != "" {
+				c.events <- event.Init{SessionID: c.carried}
+				c.carried = ""
+			}
 			var cmds event.Commands
 			for _, k := range headless.Commands(e) {
 				cmds.List = append(cmds.List, event.Command(k))

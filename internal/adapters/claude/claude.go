@@ -33,6 +33,11 @@ func (Adapter) Maker() string { return "Anthropic" }
 // KeyEnv is where Claude Code reads an Anthropic API key from.
 func (Adapter) KeyEnv() string { return "ANTHROPIC_API_KEY" }
 
+// Speaks is the one API Claude Code talks to, and Words what else it's
+// typed as (#new cc@ollama).
+func (Adapter) Speaks() string  { return "Anthropic's API" }
+func (Adapter) Words() []string { return []string{"cc", "claudecode"} }
+
 // ClaudeTranscripts: its transcripts are Claude Code's own.
 func (Adapter) ClaudeTranscripts() {}
 
@@ -40,10 +45,16 @@ func (Adapter) ClaudeTranscripts() {}
 // ~/.claude/local.
 func (Adapter) Program() (string, []string) { return "claude", []string{".claude/local"} }
 
+// Published is @anthropic-ai/claude-code, which updates itself with
+// claude update.
+func (Adapter) Published() agent.Published {
+	return agent.Published{NPM: "@anthropic-ai/claude-code", Update: []string{"update"}}
+}
+
 // features: Claude Code does everything rush does, bar sessions on
 // Anthropic's servers.
 var features = map[agent.Feature]agent.Support{
-	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
+	agent.FeatureRun: agent.Yes, agent.FeaturePrompt: agent.Yes, agent.FeaturePort: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
 	agent.FeatureRewind: agent.Yes, agent.FeatureInterrupt: agent.Yes, agent.FeatureGuide: agent.Yes.With("at its next step"), agent.FeatureModel: agent.Yes,
 	agent.FeatureEffort: agent.Yes, agent.FeatureModes: agent.Yes, agent.FeaturePlan: agent.Yes,
 	agent.FeatureImages: agent.Yes, agent.FeatureQuestions: agent.Yes, agent.FeatureSubagents: agent.Yes,
@@ -127,6 +138,7 @@ var (
 	_ agent.Pricer            = Adapter{}
 	_ agent.Commander         = Adapter{}
 	_ agent.ClaudeTranscripts = Adapter{}
+	_ agent.SkillRooter       = Adapter{}
 	_ agent.Answerer          = (*conn)(nil)
 	_ agent.Responder         = (*conn)(nil)
 	_ agent.Asker             = (*conn)(nil)

@@ -28,7 +28,8 @@ var cli = acp.Agent{ID: Kind, Title: "GLM", Command: "zcode-acp-server",
 	More: map[agent.Feature]agent.Support{agent.FeatureQuota: agent.Yes.With("the GLM Coding Plan's")}}
 
 func (Adapter) Kind() agent.Kind { return Kind }
-func (Adapter) Name() string     { return "GLM" }
+func (Adapter) Name() string     { return "ZCode" }
+func (Adapter) Maker() string    { return "GLM" }
 
 // KeyEnv is where Z.ai's API key is read from.
 func (Adapter) KeyEnv() string { return "ZAI_API_KEY" }

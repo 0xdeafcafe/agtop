@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json/jsontext"
+	"path"
 	"strings"
 	"time"
 
@@ -64,7 +65,18 @@ func (c *Conn) notification(m message) []event.Event {
 	thread := c.thread
 	c.mu.Unlock()
 	if p.ThreadID != "" && thread != "" && p.ThreadID != thread {
-		return []event.Event{c.other(m)} // a subagent's thread
+		// A subagent's thread: its turns are its task's.
+		var out []event.Event
+		if p.Turn != nil {
+			out = c.kidTurn(m.Method, p.ThreadID, p.Turn.ID, p.Turn.Status)
+		}
+		if m.Method == "thread/tokenUsage/updated" && p.TokenUsage != nil {
+			out = append(out, c.kidTokens(p.ThreadID, p.TokenUsage.Last.usage())...)
+		}
+		if m.Method == "item/started" {
+			out = append(out, c.kidTool(p.ThreadID, p.Item)...)
+		}
+		return append(out, c.other(m))
 	}
 	switch m.Method {
 	case "thread/started":
@@ -89,7 +101,7 @@ func (c *Conn) notification(m message) []event.Event {
 		if p.Turn.DurationMs != nil {
 			end.Duration = time.Duration(*p.Turn.DurationMs) * time.Millisecond
 		}
-		var out []event.Event
+		out := c.detach() // what still runs outlives the turn
 		if e := p.Turn.Error; e != nil {
 			end.Err = e.Message
 			if string(e.CodexErrorInfo) == `"usageLimitExceeded"` {
@@ -203,18 +215,25 @@ func (c *Conn) itemStarted(raw jsontext.Value) []event.Event {
 		return nil
 	}
 	switch it.Type {
+	case "contextCompaction":
+		return []event.Event{event.Status{Busy: true, Text: "compacting"}}
 	case "agentMessage":
-		return c.openItem(it.ID, event.Text)
+		return append(c.detach(), c.openItem(it.ID, event.Text)...)
 	case "reasoning":
-		return c.openItem(it.ID, event.Thinking)
+		return append(c.detach(), c.openItem(it.ID, event.Thinking)...)
 	}
+	var out []event.Event
 	if call, ok := callOf(it, raw); ok {
 		c.mu.Lock()
 		c.calls[it.ID] = call
 		c.mu.Unlock()
-		return []event.Event{c.callMessage(call)}
+		c.started(it)
+		out = append(out, c.callMessage(call))
 	}
-	return nil
+	if it.Type == "subAgentActivity" && it.Kind == "started" {
+		out = append(out, c.adopt(it.AgentThreadID, it.ID, path.Base(it.AgentPath))...)
+	}
+	return out
 }
 
 func (c *Conn) callMessage(call tool.Call) event.Message {
@@ -259,7 +278,8 @@ func (c *Conn) itemCompleted(raw jsontext.Value) []event.Event {
 		out = append(out, c.callMessage(call)) // web searches say what they searched only at the end
 	}
 	o := outputOf(it, raw)
-	return append(out, event.Message{Role: "user", ID: it.ID + ":result", Parts: []event.Part{{Kind: event.ToolResult, Output: &o}}})
+	out = append(out, event.Message{Role: "user", ID: it.ID + ":result", Parts: []event.Part{{Kind: event.ToolResult, Output: &o}}})
+	return append(out, c.finished(it)...)
 }
 
 // request keeps a server request for the user to answer, or answers it

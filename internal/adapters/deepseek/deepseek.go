@@ -27,7 +27,8 @@ type Adapter struct{}
 var cli = acp.Agent{ID: Kind, Title: "DeepSeek", Command: "dsh", Args: []string{"--profile", "acp"}, Home: ".dsh"}
 
 func (Adapter) Kind() agent.Kind { return Kind }
-func (Adapter) Name() string     { return "DeepSeek" }
+func (Adapter) Name() string     { return "dsh" }
+func (Adapter) Maker() string    { return "DeepSeek" }
 
 // KeyEnv is where DeepSeek's API key is read from.
 func (Adapter) KeyEnv() string { return "DEEPSEEK_API_KEY" }

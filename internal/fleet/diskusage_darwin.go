@@ -12,11 +12,13 @@ import (
 // hands back the name, type and allocated size of a folder's worth of
 // entries, where statUsage makes a call for every file. A temp folder with
 // a million files in it walks three times as fast.
-func dirUsage(dir string) int64 {
+func dirUsage(dir string) int64 { return dirUsagePaced(dir, nil) }
+
+func dirUsagePaced(dir string, pace *diskPacer) int64 {
 	buf := make([]byte, 128<<10)
-	n, ok := bulkUsage(dir, buf)
+	n, ok := bulkUsage(dir, buf, pace)
 	if !ok {
-		return statUsage(dir) // a file system without it
+		return statUsagePaced(dir, pace) // a file system without it
 	}
 	return n
 }
@@ -48,13 +50,15 @@ var usageAttrs = attrList{bitmapCount: unix.ATTR_BIT_MAP_COUNT,
 // when the folder's file system can't answer getattrlistbulk. buf is
 // reused all the way down: a folder's entries are taken from it before
 // the folders under it are walked.
-func bulkUsage(dir string, buf []byte) (n int64, ok bool) {
+func bulkUsage(dir string, buf []byte, pace *diskPacer) (n int64, ok bool) {
+	pace.yield()
 	fd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return 0, true
 	}
 	var subs []string
 	for {
+		pace.yield()
 		r, _, e := syscall.Syscall6(unix.SYS_GETATTRLISTBULK, uintptr(fd), uintptr(unsafe.Pointer(&usageAttrs)),
 			uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), 0, 0)
 		if e == unix.EINTR {
@@ -85,7 +89,7 @@ func bulkUsage(dir string, buf []byte) (n int64, ok bool) {
 	}
 	unix.Close(fd)
 	for _, s := range subs {
-		m, _ := bulkUsage(dir+"/"+s, buf)
+		m, _ := bulkUsage(dir+"/"+s, buf, pace)
 		n += m
 	}
 	return n, true

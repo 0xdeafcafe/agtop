@@ -363,8 +363,8 @@ func TestDropGoesWhereItFalls(t *testing.T) {
 	}
 }
 
-// The pointer coming onto the Session gives it the keys as it crosses;
-// moving about inside it doesn't take them back after tab.
+// The pointer coming onto the Session or Agents gives it the keys as it
+// crosses; moving about inside one doesn't take them back after tab.
 func TestPointerOntoSessionFocusesIt(t *testing.T) {
 	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c, listW: 40, mode: modeList}
@@ -381,9 +381,15 @@ func TestPointerOntoSessionFocusesIt(t *testing.T) {
 	if m.paneFocus {
 		t.Fatal("moving within the Session took the keys back from Agents")
 	}
+	m.update(tea.MouseMotionMsg{X: 60, Y: 5})
 	m.update(tea.MouseMotionMsg{X: 10, Y: 5})
 	if m.paneFocus {
-		t.Fatal("the pointer leaving the Session moved the keys")
+		t.Fatal("the pointer onto Agents didn't give it the keys")
+	}
+	m.paneFocus = true // tab to the Session
+	m.update(tea.MouseMotionMsg{X: 12, Y: 6})
+	if !m.paneFocus {
+		t.Fatal("moving within Agents took the keys back from the Session")
 	}
 }
 

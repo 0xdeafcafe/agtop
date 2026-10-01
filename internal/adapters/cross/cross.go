@@ -35,6 +35,9 @@ type Pair struct {
 	// rush's own in models.json, speaking api, with models to offer.
 	piProvider, piAPI string
 	models            []string
+	// plan runs the provider on the plan the harness is signed in to (Pi's
+	// own /login), in the harness's own folder, with no key at all.
+	plan bool
 }
 
 // pairs are every provider in a harness it speaks to.
@@ -45,6 +48,8 @@ var pairs = []Pair{
 	{kind: "glm-claude", name: "GLM in Claude Code", provider: "glm", harness: claudead.Kind, url: "https://api.z.ai/api/anthropic"},
 	{kind: "anthropic-pi", name: "Anthropic in Pi", provider: string(claudead.Kind), harness: piad.Kind, piProvider: "anthropic"},
 	{kind: "openai-pi", name: "OpenAI in Pi", provider: "codex", harness: piad.Kind, piProvider: "openai"},
+	{kind: "anthropic-plan-pi", name: "Anthropic plan in Pi", provider: string(claudead.Kind), harness: piad.Kind, piProvider: "anthropic", plan: true},
+	{kind: "openai-plan-pi", name: "OpenAI plan in Pi", provider: "codex", harness: piad.Kind, piProvider: "openai-codex", plan: true},
 	{kind: "deepseek-pi", name: "DeepSeek in Pi", provider: "deepseek", harness: piad.Kind, url: "https://api.deepseek.com/v1",
 		piProvider: "rush-deepseek", piAPI: "openai-completions", models: []string{"deepseek-chat", "deepseek-reasoner"}},
 	{kind: "glm-pi", name: "GLM in Pi", provider: "glm", harness: piad.Kind, url: "https://api.z.ai/api/coding/paas/v4",
@@ -61,6 +66,7 @@ func (p Pair) Kind() agent.Kind  { return p.kind }
 func (p Pair) Name() string      { return p.name }
 func (p Pair) Rides() agent.Kind { return p.harness }
 func (p Pair) Provider() string  { return p.provider }
+func (p Pair) OnPlan() bool      { return p.plan }
 
 // Program is the harness's: it runs wherever that's installed.
 func (p Pair) Program() (string, []string) {
@@ -83,6 +89,14 @@ func (p Pair) Features() map[agent.Feature]agent.Support {
 	out[agent.FeatureSwitch] = agent.No.With("one API key, kept in Settings › Providers")
 	out[agent.FeatureSignIn] = agent.No.With("an API key, not a sign-in")
 	out[agent.FeatureEffort] = agent.No.With("as the provider serves it")
+	if p.plan {
+		out[agent.FeatureQuota] = agent.No.With("your plan's, which Pi doesn't report")
+		out[agent.FeatureSwitch] = agent.No.With("the one Pi's /login signed in")
+		out[agent.FeatureSignIn] = agent.No.With("Pi's own /login, in Pi")
+	}
+	if p.harness == claudead.Kind {
+		out[agent.FeatureRewind] = agent.No.With("provider-specific transcript branching and file rewind are not integrated")
+	}
 	return out
 }
 
@@ -97,11 +111,20 @@ func (p Pair) Profiles() []agent.Profile {
 }
 
 // home is the harness's folder for the pair: apart from your own, so it
-// reads none of your plugins, and its sessions never mix with them.
-func (p Pair) home() string { return filepath.Join(state.Dir(), string(p.kind)) }
+// reads none of your plugins, and its sessions never mix with them. On a
+// plan it's Pi's own, where its /login keeps the sign-in.
+func (p Pair) home() string {
+	if p.plan {
+		return piad.Home()
+	}
+	return filepath.Join(state.Dir(), string(p.kind))
+}
 
 // Start runs the harness on the provider's API, with its key.
 func (p Pair) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, error) { //nolint:gocritic // agent.Driver's signature
+	if p.plan {
+		return p.startOnPlan(ctx, o)
+	}
 	key := firstNonEmpty(o.APIKey, state.APIKey(p.provider))
 	if key == "" {
 		return nil, fmt.Errorf("%s has no API key: add one in Settings › Providers", agent.ProviderLabel(p.provider))
@@ -123,6 +146,19 @@ func (p Pair) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, erro
 	if o.Model == "" && len(p.models) > 0 {
 		o.Model = p.models[0]
 	}
+	o.Flags = append([]string{"--provider", p.piProvider}, o.Flags...)
+	return piad.Start(ctx, &o)
+}
+
+// startOnPlan runs Pi on the provider's plan its /login signed in to,
+// with the provider's key variable emptied so a key never pays instead.
+func (p Pair) startOnPlan(ctx context.Context, o agent.StartOptions) (agent.Conn, error) { //nolint:gocritic // as Start
+	if o.Profile.Dir == "" {
+		o.Profile.Dir = p.home()
+	}
+	o.APIKey, o.Effort = "", ""
+	o.Binary = agent.Path(p.harness)
+	o.Env = append(append([]string(nil), o.Env...), agent.KeyEnv(p.provider)+"=")
 	o.Flags = append([]string{"--provider", p.piProvider}, o.Flags...)
 	return piad.Start(ctx, &o)
 }

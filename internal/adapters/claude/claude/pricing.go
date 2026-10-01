@@ -33,7 +33,16 @@ var prices = []struct {
 	{"claude-3-5-haiku", Price{0.8, 4, 0}},
 }
 
+// aliases are the models Claude Code's --model aliases run now.
+// ponytail: by hand; move them when Claude Code's aliases move.
+var aliases = map[string]string{
+	"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-4-5", "fable": "claude-fable-5-1",
+}
+
 func PriceFor(model string) (Price, bool) {
+	if full, ok := aliases[strings.TrimSuffix(model, "[1m]")]; ok {
+		model = full
+	}
 	best, bestLen := Price{}, -1
 	for _, e := range prices {
 		if strings.HasPrefix(model, e.prefix) && len(e.prefix) > bestLen {

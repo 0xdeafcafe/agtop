@@ -18,7 +18,7 @@ import (
 // under the step's row, and under a folded run of steps too, so it shows
 // without opening anything.
 type card struct {
-	kind string // "commit", "push", "pr", "tests", "merge", "discard"
+	kind string // "commit", "push", "pr", "tests", "build", "merge", "discard"
 
 	// A commit: git's own report of it, and the message it was given.
 	sha, branch, subject string
@@ -35,6 +35,7 @@ type card struct {
 	num, url, state, title, head, base string
 
 	// A test run that failed: the tally, and each failure with what it said.
+	// A build that failed: its errors, each where it is.
 	passed, failed, skipped int
 	fails                   []failure
 
@@ -97,7 +98,7 @@ func (c card) tone() tone {
 			return toneNone
 		}
 		return toneMade
-	case "tests":
+	case "tests", "build":
 		return toneLost
 	case "merge":
 		// Conflicts, or a rebase stopped part way: yours to finish.
@@ -124,6 +125,8 @@ func (c card) verb() string {
 		return "gh pr create"
 	case c.kind == "tests":
 		return "tests"
+	case c.kind == "build":
+		return c.what
 	case c.kind == "merge", c.kind == "discard":
 		return "git " + strings.Fields(c.what)[0]
 	}
@@ -149,6 +152,7 @@ type pushed struct {
 var (
 	gitVerb    = regexp.MustCompile(`\bgit\s+(?:-[Cc]\s+\S+\s+)*(commit|cherry-pick|revert|push|merge|rebase|pull|reset|branch|stash|clean|checkout|restore)\b`)
 	ghVerb     = regexp.MustCompile(`\bgh\s+pr\s+(create|merge)\b`)
+	buildVerb  = regexp.MustCompile(`\b(?:go (?:build|install|vet)|(?:vue-)?tsc|nx|(?:npm|pnpm|yarn|bun) (?:run )?(?:build|dev|start|typecheck)\S*)\b`)
 	testVerb   = regexp.MustCompile(`\b(?:(?:go|cargo|npm|pnpm|yarn|bun|deno|make|mix|dotnet) (?:run )?test\S*|pytest|jest|vitest|rspec)\b`)
 	commitHead = regexp.MustCompile(`^\[(.+?) ([0-9a-f]{7,40})\] (.*)$`)
 	commitStat = regexp.MustCompile(`^ (\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?`)
@@ -239,7 +243,8 @@ func cardsOf(st *Step) []card {
 		verbs = append(verbs, "pr "+m[1])
 	}
 	tests := testVerb.MatchString(blankHeredocs(cmd))
-	if len(verbs) == 0 && !tests {
+	build := buildVerb.FindString(blankHeredocs(cmd))
+	if len(verbs) == 0 && !tests && build == "" {
 		return nil
 	}
 	out := stripANSI(bashOut(st))
@@ -282,6 +287,14 @@ func cardsOf(st *Step) []card {
 	cs = append(cs, discardCards(lines, calls, st.Status == OK)...)
 	if tests {
 		if c, ok := testCard(out, lines); ok {
+			cs = append(cs, c)
+		}
+	}
+	// A test run that didn't build already says why.
+	if build != "" && !slices.ContainsFunc(cs, func(c card) bool {
+		return c.kind == "tests" && slices.ContainsFunc(c.fails, func(f failure) bool { return f.build })
+	}) {
+		if c, ok := buildCard(build, lines); ok {
 			cs = append(cs, c)
 		}
 	}
@@ -980,6 +993,72 @@ func testCard(out string, lines []string) (card, bool) {
 	return c, c.failed > 0 || len(c.fails) > 0
 }
 
+var (
+	tscParen  = regexp.MustCompile(`^(\S+?)\((\d+),\d+\): error TS\d+: (.*)$`)
+	tscPretty = regexp.MustCompile(`^(\S+?):(\d+):\d+ - error TS\d+: (.*)$`)
+	tscFound  = regexp.MustCompile(`^Found (\d+) errors?\b`)
+	esbuildE  = regexp.MustCompile(`^\s*[✘X] \[ERROR\] (.*?)(?:\s+\[plugin .*\])?$`)
+	esbuildAt = regexp.MustCompile(`^\s+(\S+:\d+):\d+:\s*$`)
+	webpackE  = regexp.MustCompile(`^ERROR in (\S+?)(?: (\d+):\d+(?:-\d+)?)?$`)
+	nxFailed  = regexp.MustCompile(`^\s*-\s+(\S+:\S+)\s*$`)
+)
+
+// buildCard reads a build or type check that failed: Go's compiler and
+// vet, tsc, esbuild and vite, webpack, and the tasks nx says failed. Each
+// error is a row, where it is first. A build that went is no card.
+func buildCard(verb string, lines []string) (card, bool) {
+	c := card{kind: "build", what: verb}
+	seen := map[string]bool{}
+	add := func(file, line, msg string) {
+		at := ""
+		if file != "" {
+			at = file[strings.LastIndexByte(file, '/')+1:] + ":" + line + ": "
+		}
+		if msg = strings.TrimSpace(msg); msg != "" && !seen[at+msg] {
+			seen[at+msg] = true
+			c.fails = append(c.fails, failure{msg: at + msg})
+		}
+	}
+	nx := false
+	for i, l := range lines {
+		switch {
+		case goErrLine.MatchString(l) && strings.Contains(l, ".go:"):
+			add("", "", srcLoc.ReplaceAllString(l, "$1: "))
+		case tscParen.MatchString(l):
+			m := tscParen.FindStringSubmatch(l)
+			add(m[1], m[2], m[3])
+		case tscPretty.MatchString(l):
+			m := tscPretty.FindStringSubmatch(l)
+			add(m[1], m[2], m[3])
+		case tscFound.MatchString(l):
+			c.failed, _ = strconv.Atoi(tscFound.FindStringSubmatch(l)[1])
+		case esbuildE.MatchString(l):
+			msg := esbuildE.FindStringSubmatch(l)[1]
+			file, line := "", ""
+			for _, n := range lines[i+1 : min(len(lines), i+4)] {
+				if m := esbuildAt.FindStringSubmatch(n); m != nil {
+					file, line, _ = strings.Cut(m[1], ":")
+					break
+				}
+			}
+			add(file, line, msg)
+		case webpackE.MatchString(l) && i+1 < len(lines):
+			m := webpackE.FindStringSubmatch(l)
+			if m[2] == "" {
+				add("", "", strings.TrimPrefix(m[1], "./")+": "+lines[i+1])
+			} else {
+				add(m[1], m[2], lines[i+1])
+			}
+		case strings.Contains(l, "Failed tasks:"):
+			nx = true
+		case nx && nxFailed.MatchString(l):
+			c.fails = append(c.fails, failure{name: nxFailed.FindStringSubmatch(l)[1], build: true})
+		}
+	}
+	c.failed = max(c.failed, len(c.fails))
+	return c, len(c.fails) > 0
+}
+
 // dedent is lines less the indentation they share, blank ends dropped.
 func dedent(lines []string) string {
 	shared := -1
@@ -1010,11 +1089,12 @@ func (d *drawer) stepCards(st *Step) []card {
 		return nil
 	}
 	s := d.s
-	k := stepKey{st: st, what: 'c', status: st.Status, out: len(st.Output), res: len(st.Result), gen: lookupsGen.Load()}
+	k := stepKey{st: st, what: 'c', status: st.Status, out: len(st.Output), res: len(st.Result)}
 	if v, ok := s.cards[k]; ok {
 		return v
 	}
 	v, ok := s.cardsOld[k]
+	waits := lookupWaits.Load()
 	if !ok {
 		v = cardsOf(st)
 		if cs, ok := d.gitCommits(st); ok {
@@ -1024,7 +1104,7 @@ func (d *drawer) stepCards(st *Step) []card {
 			v = withMerge(v, &g)
 		}
 	}
-	if s.cards != nil {
+	if s.cards != nil && lookupWaits.Load() == waits { // kept once git has answered
 		s.cards[k] = v
 	}
 	return v
@@ -1134,6 +1214,10 @@ func (d *drawer) card(c card, indent int) {
 		}
 		headR = dim(strings.Join(tally, " · "))
 		rows = failRows(c.fails, room)
+	case "build":
+		headL = glyph("✗") + paint(cLost, plural(c.failed, "error"))
+		headR = dim(c.what)
+		rows = failRows(c.fails, room)
 	case "merge":
 		g, verb := "⇣", c.what+"d"
 		switch c.what {
@@ -1208,6 +1292,17 @@ func (d *drawer) card(c card, indent int) {
 		default:
 			foot = paint(cLostQ, "git can't bring this back")
 		}
+	}
+	if c.kind == "tests" || c.kind == "build" {
+		pad := d.spine() + blanks(indent-1)
+		d.add("", bgFailure, pad+headL, headR)
+		for _, line := range rows {
+			d.add("", bgFailure, pad+line, "")
+		}
+		if foot != "" {
+			d.add("", bgFailure, pad+dim(foot), "")
+		}
+		return
 	}
 	d.box("", indent, headL, headR, rows, foot, room, frame)
 }
@@ -1289,11 +1384,11 @@ func failRows(fs []failure, w int) []string {
 		for j, l := range msg[:min(len(msg), keep)] {
 			r := lead
 			if loc := srcLoc.FindStringSubmatch(l); loc != nil {
-				r += faint(loc[1]) + " "
+				r += paint(cBlue, loc[1]) + " "
 				l = l[len(loc[0]):]
 			}
 			l = expandTabs(l)
-			r += blanks(len(l)-len(strings.TrimLeft(l, " "))) + dim(oneLine(l))
+			r += blanks(len(l)-len(strings.TrimLeft(l, " "))) + sub(oneLine(l))
 			if j == keep-1 && len(msg) > keep {
 				r = ansi.Truncate(r, w-1, "") + faint("…")
 			}
@@ -1351,38 +1446,37 @@ func cardText(title string, body []string, w int) []string {
 	return append(rows, bl...)
 }
 
-// box draws a card's frame in colour frame, inner cells inside: head on the top edge, left
-// and right, rows inside, foot on the bottom edge. The top edge is row ref.
+// box draws a card as lines under the turn's rule, not a frame: its head
+// with the right side flush right, its rows, its foot. A rail in colour
+// frame runs down them when there's more than the head: ╭ on the head,
+// ╰ on the last. The head is row ref.
 func (d *drawer) box(ref string, indent int, headL, headR string, rows []string, foot string, inner int, frame string) {
-	line := func(s string) string { return paint(frame, s) }
 	pad := d.spine() + blanks(indent-1)
-	edge := func(l, r, left, right string) string {
-		w := inner + 2 // between the corners
-		head := line("─")
-		if left != "" {
-			head += " " + left + " "
-		}
-		tail := ""
-		if right != "" {
-			tail = " " + right + " " + line("─")
-		}
-		if cellw.String(head)+cellw.String(tail) > w {
-			tail = ""
-		}
-		if cellw.String(head) > w {
-			head = ansi.Truncate(head, w-1, "") + faint("…")
-		}
-		fill := w - cellw.String(head) - cellw.String(tail)
-		return pad + line(l) + head + line(strings.Repeat("─", max(0, fill))) + tail + line(r)
-	}
-	d.add(ref, "", edge("╭", "╮", headL, headR), "")
+	body := make([]string, 0, len(rows)+1)
 	for _, r := range rows {
 		if cellw.String(r) > inner {
 			r = ansi.Truncate(r, inner-1, "") + faint("…")
 		}
-		d.add("", "", pad+line("│")+" "+r+blanks(inner-cellw.String(r))+" "+line("│"), "")
+		body = append(body, r)
 	}
-	d.add("", "", edge("╰", "╯", "", foot), "")
+	if foot != "" {
+		body = append(body, dim(foot))
+	}
+	rail := func(i int) string {
+		switch {
+		case len(body) == 0:
+			return " "
+		case i < 0:
+			return paint(frame, "╭")
+		case i == len(body)-1:
+			return paint(frame, "╰")
+		}
+		return paint(frame, "│")
+	}
+	d.add(ref, "", pad+rail(-1)+" "+headL, headR)
+	for i, r := range body {
+		d.add("", "", pad+rail(i)+" "+r, "")
+	}
 }
 
 func shortSHA(s string) string {
@@ -1400,7 +1494,7 @@ func (d *drawer) testsFailed(st *Step) bool {
 	return d.stepMemo(st, 't', func(st *Step) string {
 		cs := d.stepCards(st)
 		for i := range cs {
-			if cs[i].kind == "tests" {
+			if cs[i].kind == "tests" || cs[i].kind == "build" {
 				return "failed"
 			}
 		}

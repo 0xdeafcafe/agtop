@@ -22,7 +22,7 @@ import (
 )
 
 // A running subagent shows in the dock with what it's doing and what it
-// just did; ↑ from the box picks it, enter watches it and ← comes back to
+// just did; ↑ from the box picks it, space watches it and ← comes back to
 // its row.
 func TestSubagentDock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent-a1.jsonl")
@@ -52,15 +52,15 @@ func TestSubagentDock(t *testing.T) {
 	if c.sel != "run:a1" {
 		t.Fatalf("↑ picked %q", c.sel)
 	}
-	m.paneKey(tea.KeyPressMsg{}, "enter")
+	m.paneKey(tea.KeyPressMsg{}, "space")
 	m.drain(m.refreshSubs()) // the run opened is read in the background
 	if c.subOpen != "a1" || m.viewName(c) != "subagents" {
-		t.Fatalf("enter: open %q in %s", c.subOpen, m.viewName(c))
+		t.Fatalf("space: open %q in %s", c.subOpen, m.viewName(c))
 	}
 	// Watching, it's plain whose conversation this is, where typing goes,
 	// and how to get back.
 	banner := ansi.Strip(m.subBanner(c, 120))
-	for _, w := range []string{"WATCHING SUBAGENT", "Explore", "find the pane", "running", "2 steps", "esc back to the conversation"} {
+	for _, w := range []string{"main session › Explore", "running", "2 steps", "▸✻ Explore", "shift+↑↓ siblings", "esc up"} {
 		if !strings.Contains(banner, w) {
 			t.Errorf("banner missing %q: %s", w, banner)
 		}
@@ -73,7 +73,7 @@ func TestSubagentDock(t *testing.T) {
 		t.Fatal("banner stays after leaving")
 	}
 	// esc leaves it too.
-	m.paneKey(tea.KeyPressMsg{}, "enter")
+	m.paneKey(tea.KeyPressMsg{}, "space")
 	c.sel = ""
 	m.paneKey(tea.KeyPressMsg{}, "esc")
 	if c.subOpen != "" || m.viewName(c) != "conversation" {
@@ -179,14 +179,14 @@ func TestSubagentHover(t *testing.T) {
 	}
 	o.Width = 160
 	side := func() string {
-		m.subagentLines(c, o)
+		m.subPreviewLines(c, o, 30)
 		// A run picked is read in the background, then drawn. The Update
 		// above let go of c (the snapshot has no agent "k"), so it's put back.
 		m.host, c.paneReading = c, false
 		m.drain(m.refreshSubs())
 		var b strings.Builder
-		for _, l := range m.subagentLines(c, o) {
-			b.WriteString(ansi.Strip(l.Text) + "\n")
+		for _, l := range m.subPreviewLines(c, o, 30) {
+			b.WriteString(ansi.Strip(l) + "\n")
 		}
 		return b.String()
 	}
@@ -213,7 +213,7 @@ func TestPaneHeaderAlone(t *testing.T) {
 	m.View()
 	a := m.focused()
 	head := m.paneHeader(a, m.host, 150)
-	row1, row3 := ansi.Strip(head[0]), ansi.Strip(head[2])
+	row1, row3 := ansi.Strip(head[paneTitleRow]), ansi.Strip(head[paneTabsRow])
 	if strings.Contains(row1, "SESSION") {
 		t.Errorf("label shows alone: %q", row1)
 	}
@@ -501,3 +501,4 @@ func TestSubagentsTasksUnderIt(t *testing.T) {
 		t.Fatalf("↑↑↑ picked %q", c.sel)
 	}
 }
+

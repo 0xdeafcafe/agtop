@@ -675,6 +675,9 @@ func (s *Session) LastWords() string {
 func (s *Session) Doing() (string, time.Time) {
 	if !s.light {
 		if st := s.lastStep(func(st *Step) bool { return st.Status == Running }); st != nil {
+			if sp := st.toolRun(); sp != nil {
+				return "asking " + sp.Name, st.Start
+			}
 			return firstNonEmpty(tool.Doing(st.Call()), st.Tool), st.Start
 		}
 		return "", time.Time{}
@@ -698,7 +701,11 @@ func (s *Session) Did() []string {
 		var out []string
 		s.lastStep(func(st *Step) bool {
 			if st.Status != Running && st.Status != Waiting {
-				out = append(out, firstNonEmpty(tool.Doing(st.Call()), st.Tool))
+				if sp := st.toolRun(); sp != nil {
+					out = append(out, "asked "+sp.Name)
+				} else {
+					out = append(out, firstNonEmpty(tool.Doing(st.Call()), st.Tool))
+				}
 			}
 			return len(out) == 3
 		})

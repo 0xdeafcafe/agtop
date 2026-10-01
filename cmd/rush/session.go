@@ -29,7 +29,8 @@ const sessionUsage = `rush session: run rush-mode sessions without the view
   --agent is the agent to run: claude, codex, copilot, gemini, kimi, opencode
   or vibe. Without it, the session's profile picks: --profile names one,
   else the folder's rule or the default profile says.
-  rush session send <id> [--now] [--image PATH]...   message text on stdin
+  rush session send <id> [--now] [--image PATH]...   message text on stdin; into the
+        turn under way, or with --now stopping it
   rush session interrupt <id>
   rush session stop <id>
   rush session info <id> [--json]
@@ -402,20 +403,11 @@ func sessionSend(args []string, stdin io.Reader, stdout io.Writer) error {
 			images[i] = abs
 		}
 	}
-	if info, err := host.ReadInfo(id); err != nil || !host.Alive(info.HostPID) {
-		// Asleep: the message resumes it, as sending from the view does.
-		cfg, err := host.ReadConfig(id)
-		if err != nil {
-			return fmt.Errorf("session %s has no saved config to resume from: %w", id, err)
-		}
-		d := state.Load().Config.Dispatch
-		cfg.Resume, cfg.Prompt, cfg.Images = true, text, images
-		cfg.Lean, cfg.IdleStop = d.Lean, host.Duration(d.Rest())
-		if _, err := host.Spawn(cfg); err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "resumed %s with the message\n", id)
-		return nil
+	exchange := outgoingExchange(id, "message", text, images)
+	was, readErr := host.ReadInfo(id)
+	resumed := readErr != nil || was.Sleeping || !host.Alive(was.HostPID)
+	if err := host.Ensure(id); err != nil {
+		return err
 	}
 	c, err := host.Dial(id)
 	if err != nil {
@@ -424,22 +416,38 @@ func sessionSend(args []string, stdin io.Reader, stdout io.Writer) error {
 	defer c.Close()
 	// The host replays the conversation first and ends the replay with its
 	// info: what comes after that answers this send.
-	if err := awaitLine(c, 10*time.Second, func(ev any) bool { _, ok := ev.(host.InfoEvent); return ok }); err != nil {
+	peerProto := 0
+	if err := awaitLine(c, 10*time.Second, func(ev any) bool {
+		i, ok := ev.(host.InfoEvent)
+		if ok {
+			peerProto = i.Info.Proto
+		}
+		return ok
+	}); err != nil {
 		return err
 	}
+	if exchange != nil && peerProto < 8 {
+		fmt.Fprintln(stdout, "warning: receiver runs an older host; agent attribution needs a host restart")
+		exchange = nil
+	}
+	// Into the turn under way, not after it: another agent's message
+	// shouldn't wait on the queue. Idle, or where the agent can't take one
+	// mid-turn, the host sends it as any message.
 	switch {
-	case len(images) > 0:
+	case exchange != nil:
+		err = c.SendExchange(*exchange, now)
+	case now && len(images) > 0:
 		err = c.SendImages(text, images, now)
 	case now:
 		err = c.SendNow(text)
 	default:
-		err = c.Send(text)
+		err = c.SendGuide(text, images)
 	}
 	if err != nil {
 		return err
 	}
 	var failed error
-	_ = awaitLine(c, 5*time.Second, func(ev any) bool {
+	waitErr := awaitLine(c, 5*time.Second, func(ev any) bool {
 		switch e := ev.(type) {
 		case host.ErrorEvent:
 			failed = errors.New(e.Error)
@@ -447,14 +455,32 @@ func sessionSend(args []string, stdin io.Reader, stdout io.Writer) error {
 		case host.Sent:
 			return true
 		case host.InfoEvent:
+			if exchange != nil {
+				for _, queued := range e.Info.QueueExchanges {
+					if queued != nil && queued.ID == exchange.ID {
+						return true
+					}
+				}
+				return false
+			}
 			return len(e.Info.Queue) > 0 && e.Info.Queue[len(e.Info.Queue)-1] == text
 		}
 		return false
 	})
+	if waitErr != nil {
+		return waitErr
+	}
 	if failed != nil {
 		return failed
 	}
-	fmt.Fprintf(stdout, "sent to %s\n", id)
+	if err := mirrorOutgoing(exchange); err != nil {
+		fmt.Fprintf(stdout, "warning: delivered to %s, but sender transcript update failed: %v\n", id, err)
+	}
+	if resumed {
+		fmt.Fprintf(stdout, "resumed %s with the message\n", id)
+	} else {
+		fmt.Fprintf(stdout, "sent to %s\n", id)
+	}
 	return nil
 }
 

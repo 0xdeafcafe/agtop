@@ -44,6 +44,12 @@ func openHistory(a *fleet.Agent) tea.Cmd {
 	key, id, rush := a.Key, a.ID, a.Rush
 	h := &history{kind: agent.Kind(a.Kind), s: agent.Session{ID: a.SessionID, Name: a.DisplayName, Transcript: a.History,
 		State: a.State, Remote: a.Remote, Profile: agent.Profile{Kind: agent.Kind(a.Kind), Dir: a.Acct.Dir}}}
+	if h.s.Transcript == "" {
+		h.s.Transcript = agent.TranscriptPath(h.kind, h.s.Profile, a.Cwd, h.s.ID)
+	}
+	if rush {
+		h.hostID = id
+	}
 	return func() tea.Msg {
 		// A stopped rush session's folder is its host's to say.
 		if rush && h.s.Profile.Dir == "" {
@@ -53,6 +59,9 @@ func openHistory(a *fleet.Agent) tea.Cmd {
 		}
 		// Its end first; the pane's next read takes in the whole of it.
 		sess := agentHistoryTail(h.kind, h.s)
+		if h.hostID != "" {
+			sess.RestoreExchanges(host.ReadExchanges(h.hostID))
+		}
 		if !sess.Partial {
 			h.stat()
 		}
@@ -63,11 +72,12 @@ func openHistory(a *fleet.Agent) tea.Cmd {
 // history is where a pane read another agent's session from, and how the
 // file stood then.
 type history struct {
-	kind agent.Kind
-	s    agent.Session
-	mod  time.Time
-	size int64
-	at   time.Time // when it was last read
+	hostID string // Rush journal identity, empty for native history
+	kind   agent.Kind
+	s      agent.Session
+	mod    time.Time
+	size   int64
+	at     time.Time // when it was last read
 	// follow reads it on from where it last got to, when its adapter can.
 	follow func() ([]event.Event, error)
 }
@@ -75,7 +85,12 @@ type history struct {
 // read is the session as its history tells it now: through a follower,
 // which reads only what's new, when the adapter has one; nil once stop is
 // set. Only one read of h runs at a time.
-func (h *history) read(stop *atomic.Bool) *convo.Session {
+func (h *history) read(stop *atomic.Bool) (result *convo.Session) {
+	defer func() {
+		if result != nil && h.hostID != "" {
+			result.RestoreExchanges(host.ReadExchanges(h.hostID))
+		}
+	}()
 	if h.follow == nil && !h.s.Remote {
 		if f, ok := agent.As[agent.HistoryFollower](h.kind); ok {
 			h.follow = f.FollowHistory(h.s, stop)

@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/rush/internal/actions"
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
 )
@@ -22,7 +24,7 @@ type tempMsg map[string]fleet.TempSize
 // measureTemp walks the temp folders of the agents whose temp work may have
 // changed, in the background and one batch at a time: never-measured ones
 // once, finished ones again only after they've done something, running ones
-// every minute (longer for ones slow to walk).
+// every ten minutes (longer for ones slow to walk).
 func (m *Model) measureTemp() tea.Cmd {
 	if m.measuring || m.tick%5 != 1 {
 		return nil
@@ -32,21 +34,35 @@ func (m *Model) measureTemp() tea.Cmd {
 		return nil
 	}
 	m.measuring = true
-	// Copies, for the command: where their temp work is is worked out
-	// there too (it asks the system for the user's id).
-	agents := make([]fleet.Agent, len(due))
-	for i, a := range due {
-		agents[i] = *a
+	return m.nextTemp(due)
+}
+
+// Publish each size as soon as it is ready. A huge cache must not hold
+// every smaller session's measurement until the whole batch completes.
+func (m *Model) nextTemp(due []*fleet.Agent) tea.Cmd {
+	if len(due) == 0 {
+		m.measuring = false
+		return nil
 	}
+	a := *due[0]
 	return func() tea.Msg {
-		out := make(tempMsg, len(agents))
-		for i := range agents {
-			at := time.Now() // before the walk: anything written during it is measured next time
-			n := fleet.DiskUsage(agents[i].TempDirs())
-			out[agents[i].Key] = fleet.TempSize{Bytes: n, At: at, Took: time.Since(at)}
-		}
-		return out
+		at := time.Now()
+		n := fleet.DiskUsageBackground(a.TempDirs())
+		return tempMeasuredMsg{key: a.Key, size: fleet.TempSize{Bytes: n, At: at, Took: time.Since(at)}, remaining: due[1:]}
 	}
+}
+
+type tempMeasuredMsg struct {
+	remaining []*fleet.Agent
+	key       string
+	size      fleet.TempSize
+}
+
+func (m *Model) onTempMeasured(msg tempMeasuredMsg) tea.Cmd {
+	m.onTemp(tempMsg{msg.key: msg.size})
+	// Finish the captured queue so frequently changing sessions cannot starve old ones.
+	m.measuring = len(msg.remaining) > 0
+	return m.nextTemp(msg.remaining)
 }
 
 func (m *Model) onTemp(msg tempMsg) {
@@ -205,4 +221,102 @@ func (m *Model) markDone(a *fleet.Agent) tea.Cmd {
 	}
 	m.confirm = c
 	return nil
+}
+
+// askClose is the one way to close an agent, esc twice in its Session or
+// ctrl+x: y hides it (stopped, gone from the list for good; its
+// conversation kept on disk), z stops it and keeps it in the list, r
+// restarts it, s switches its harness or model, x deletes it for good.
+func (m *Model) askClose(a *fleet.Agent) tea.Cmd {
+	if a == nil {
+		return nil
+	}
+	if isRoomRow(a) {
+		return m.askHideRoom(a)
+	}
+	c := &confirmation{question: "Hide " + a.DisplayName + "?", yesText: "hide", onYes: func() tea.Cmd { return m.closeAgent(a) }}
+	switch {
+	case a.Past:
+		c.question, c.onYes = a.DisplayName+" is a past conversation", nil
+	case a.Interactive:
+		c.detail = "hides it from the list · it runs in its terminal: this ends that · transcript kept"
+	default:
+		c.detail = "y hides it from the list and stops it · z just stops it and keeps it in the list · transcript kept on disk"
+	}
+	// A stop, not a hide: the run ends, the agent stays in the list, its
+	// transcript stays. It comes before restart, so the gentlest reads first.
+	if !a.Past && (a.PID != 0 || (a.Live() && a.Worker != nil)) {
+		c.more = append(c.more, confirmChoice{"z", "stop, keep it", func() tea.Cmd { return m.stopAgent(a) }})
+	}
+	if !a.Past && !a.Interactive {
+		c.more = append(c.more, confirmChoice{"r", "restart", func() tea.Cmd { return m.restart(a, "") }})
+	}
+	if h := m.host; h != nil && h.key == a.Key && h.client != nil {
+		c.more = append(c.more, confirmChoice{"s", "switch harness or model", func() tea.Cmd { return m.openSwitchSheet(h) }})
+	}
+	if _, ok := agent.As[agent.Remover](agent.Kind(a.Kind)); ok && !a.Interactive {
+		c.more = append(c.more, confirmChoice{"x", "delete for good", func() tea.Cmd {
+			return cmdErr("deleted "+a.DisplayName, func() error { return removeOutside(a) })
+		}})
+	}
+	if c.onYes == nil && len(c.more) == 0 {
+		m.flash(a.DisplayName+" is a past conversation: nothing runs to close", false)
+		return nil
+	}
+	m.confirm = c
+	return nil
+}
+
+// closeAgent hides a for good and stops it; one in a terminal is ended there.
+// The hide is in the overlay, so no reading lists it again; its transcript stays.
+func (m *Model) closeAgent(a *fleet.Agent) tea.Cmd {
+	next := ""
+	if m.sel == a.Key {
+		next = m.neighbour(a.Key)
+	}
+	m.store.Hide(a.Key)
+	_ = m.store.SaveOverlay()
+	m.refresh()
+	if next != "" {
+		m.sel = next
+	}
+	m.flash("hidden: "+a.DisplayName, false)
+	return m.stopRun(a, "")
+}
+
+// stopAgent ends a's run and leaves it in the list: a stop, not a hide. The
+// run stops but the agent keeps its place and its transcript, so it comes
+// back with a message; it is a pause, not a delete.
+func (m *Model) stopAgent(a *fleet.Agent) tea.Cmd {
+	if a.PID == 0 && !a.Live() {
+		m.flash(a.DisplayName+" isn't running", false)
+		return nil
+	}
+	m.flash("stopping "+a.DisplayName+"\u2026", false)
+	return m.stopRun(a, "stopped "+a.DisplayName)
+}
+
+// stopRun ends a's run as its own kind needs: a terminal session gets a
+// SIGTERM, a rush session its own stop, an outside one its stop. msg is the
+// flash on success, "" for none (a hide has said its own).
+func (m *Model) stopRun(a *fleet.Agent, msg string) tea.Cmd {
+	if a.Interactive {
+		pid := a.PID
+		return cmdErr(msg, func() error { return actions.Terminate(pid) })
+	}
+	switch {
+	case a.PID == 0:
+		return nil
+	case a.Rush:
+		id := a.ID
+		return cmdErr(msg, func() error {
+			c, err := host.Dial(id)
+			if err != nil {
+				return nil // already gone
+			}
+			defer c.Close()
+			return c.Stop()
+		})
+	}
+	return cmdErr(msg, func() error { return stopOutside(a) })
 }

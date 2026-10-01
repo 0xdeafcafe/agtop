@@ -20,27 +20,34 @@ import (
 // fleetCommands are rush's # commands, the ones command() runs. A hint in
 // <> needs an argument; one in [] can go without.
 var fleetCommands = []event.Command{
+	{Name: "expand", Description: "open all conversation turns; tool details keep their own folds"},
+	{Name: "collapse", Description: "preview older turns, keeping the latest turn open"},
+	{Name: "model", Description: "choose the current session’s model", ArgumentHint: "[model]"},
+	{Name: "effort", Description: "choose the current session’s reasoning effort", ArgumentHint: "[level]"},
+	{Name: "agent", Description: "choose model, effort, permissions and harness (Shift+Tab)", ArgumentHint: "[agent]"},
 	{Name: "done", Description: "move the agent to Done (alt+d); its idle process stops"},
+	{Name: "room", Description: "a full-screen group chat: fresh agents argue a topic to a verdict, and you're in it", ArgumentHint: "[new|topic]"},
+	{Name: "community", Description: "shared agent help: questions, replies and resolved threads", ArgumentHint: "[new|thread-id]"},
 	{Name: "go", Description: "tell the agent to keep going (alt+g); after an error, to continue"},
 	{Name: "stop", Description: "stop the agent"},
 	{Name: "rm", Description: "delete the session, and its worktree when that's safe"},
 	{Name: "kill", Description: "kill the agent and everything it started"},
+	{Name: "perm", Description: "choose session permissions (also in Shift+Tab)", ArgumentHint: "[mode]"},
+	{Name: "yolo", Description: "explicitly enable this harness’s supported bypass permission mode"},
 	{Name: "compact", Description: "compact this session with a model of your choosing: its own (keeps the cache), a cheaper Claude, or a local Ollama one"},
 	{Name: "slim", Description: "what this session carries every request and never uses (MCP servers, subagents, skills): drop them for it alone, or compact it (#optimise)"},
-	{Name: "restart", Description: "restart the agent's Claude Code on the account in use, resuming the conversation; text is sent first (#rs)", ArgumentHint: "[message]"},
+	{Name: "restart", Description: "restart the agent on the account in use, resuming its conversation (#rs)", ArgumentHint: "[message]"},
 	{Name: "clean", Description: "delete the agent's temp work; all does every finished agent", ArgumentHint: "[all]"},
 	{Name: "cd", Description: "tell the agent to work in another folder from now on", ArgumentHint: "[path]"},
 	{Name: "rename", Description: "rename the agent, or type the new name", ArgumentHint: "[name]"},
 	{Name: "group", Description: "put the agent in a group; empty clears it", ArgumentHint: "[name]"},
-	{Name: "pin", Description: "pin the agent in Claude Code's list, or unpin it"},
+	{Name: "pin", Description: "pin or unpin the agent in its harness"},
 	{Name: "pr", Description: "open the agent's pull request"},
 	{Name: "full", Description: "open a Claude Code agent full screen, in Claude Code"},
 	{Name: "rush", Description: "move the agent into rush mode (a terminal one is copied, not stopped)"},
-	{Name: "sort", Description: "sort agents by " + strings.Join(sortModes, ", "), ArgumentHint: "<by>"},
-	{Name: "split", Description: "split each section of the list by project, or not; alone, turns it on or off", ArgumentHint: "[project|none]"},
-	{Name: "by", Description: "group agents by " + strings.Join(groupModes, ", ") + ", or plugin:<name> for a plugin's sections", ArgumentHint: "<group>"},
 	{Name: "folder", Description: "choose the folder new sessions start in"},
-	{Name: "with", Description: "the agent new sessions run by default, of those installed; alone says which", ArgumentHint: "[agent]"},
+	{Name: "new", Description: "start an agent on any harness, provider, model and effort, once; defaults stay as they are", ArgumentHint: "[harness@provider[:account]] [model] [effort] [task]"},
+	{Name: "with", Description: "what the next session starts as, once: #new without a task", ArgumentHint: "[harness@provider[:account]] [model] [effort]"},
 	{Name: "profile", Description: "the profile the next session starts under: which providers it runs, and what it does at a limit; alone says which", ArgumentHint: "[name]"},
 	{Name: "efficiency", Description: "where tokens go, and the savers that cut them (#eff, #savers)", ArgumentHint: "[timeline|savers|findings]"},
 	{Name: "advisor", Description: "let Haiku look over your agents' figures now and then for what would save tokens or time, with Opus checking; now looks at once", ArgumentHint: "[on|off|now]"},
@@ -48,29 +55,26 @@ var fleetCommands = []event.Command{
 	{Name: "statusline", Description: "build the top bar, the agent header and Claude Code's status line"},
 	{Name: "network", Description: "whether the API answers, the network rush is on and how fast it moves, and what waits for it (#net)"},
 	{Name: "account", Description: "switch to another account, of any agent; alone opens Accounts", ArgumentHint: "[name]"},
-	{Name: "hibernate", Description: "stop finished agents after this many idle minutes; 0 turns it off", ArgumentHint: "<minutes>"},
-	{Name: "width", Description: "the list's share of the screen; alone goes back to rush's", ArgumentHint: "[n%]"},
 	{Name: "view", Description: "Agents and the Session side by side, the agent's Session alone, or Agents alone (shift+← →)", ArgumentHint: "<split|agent|list>"},
-	{Name: "dock", Description: "how many lines the agent's card under the list shows", ArgumentHint: "<lines>"},
 	{Name: "native", Description: "open Claude Code's own agents view"},
 	{Name: "stash", Description: "what you set aside, sent, cleared and replaced, to put back in the box (ctrl+r · ctrl+s sets what's typed aside)"},
 	{Name: "ask", Description: "ask rush about itself, or have it change a setting for you: an agent in rush's own folder, with its guide", ArgumentHint: "[question]"},
 	{Name: "help", Description: "a short guide to rush"},
 	{Name: "update", Description: "install the newest rush, with go install; #reload runs it"},
-	{Name: "reload", Description: "run the installed rush in this one's place, where you were; sessions carry on"},
+	{Name: "reload", Description: "run the installed rush in this one's place, where you were; sessions carry on; all reloads the other rush views first", ArgumentHint: "[all]"},
 	{Name: "tips", Description: "Getting started and tips from the top; off puts them away", ArgumentHint: "[off]"},
 	{Name: "quit", Description: "leave rush"},
 }
 
 // fleetAliases are other names command() answers to.
-var fleetAliases = map[string]string{"optimise": "slim", "optimize": "slim", "trim": "slim", "bloat": "slim", "eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "stash", "drafts": "stash", "net": "network"}
+var fleetAliases = map[string]string{"permissions": "perm", "optimise": "slim", "optimize": "slim", "trim": "slim", "bloat": "slim", "eff": "efficiency", "savers": "efficiency", "tokens": "efficiency", "undone": "done", "delete": "rm", "move": "cd", "exit": "quit", "rs": "restart", "history": "stash", "drafts": "stash", "net": "network"}
 
 // fleetNeedsAgent are # commands that act on the selected or focused agent;
 // the bar offers them only once one's in view. The rest are rush-wide.
 var fleetNeedsAgent = map[string]bool{
 	"done": true, "go": true, "stop": true, "rm": true, "kill": true, "restart": true,
 	"clean": true, "cd": true, "rename": true, "group": true,
-	"pin": true, "pr": true, "full": true, "rush": true,
+	"pin": true, "pr": true, "full": true, "rush": true, "compact": true, "slim": true,
 }
 
 // isHashCmd is whether text is a # command: # and a letter, so a Markdown
@@ -100,12 +104,6 @@ func isFleetCommand(name string) bool {
 // of them is in use now.
 func (m *Model) fleetArgs(name string) (opts []string, now string) {
 	switch name {
-	case "sort":
-		return sortModes, m.store.Config.SortBy
-	case "split":
-		return []string{"project", "none"}, map[bool]string{true: "project", false: "none"}[m.splitProjects()]
-	case "by":
-		return m.groupModes(), m.store.Config.GroupBy
 	case "account":
 		// Every account of every installed agent, those of the agent new
 		// sessions run first.
@@ -183,8 +181,11 @@ func (m *Model) hashMatches(in []rune, back int) []event.Command {
 		return nil
 	}
 	name, q, hasArg := strings.Cut(text[1:], " ")
+	if hasArg && (name == "new" || name == "with") {
+		return m.newArgs(name, q)
+	}
 	if !hasArg {
-		return filterCommands(strings.ToLower(name), append(slices.Clip(fleetCommands), m.pluginHashCommands()...))
+		return filterCommands(strings.ToLower(name), append(m.availableFleetCommands(), m.pluginHashCommands()...))
 	}
 	opts, now := m.fleetArgs(name)
 	if strings.Contains(q, " ") {
@@ -391,4 +392,41 @@ func (m *Model) legacyCommand(text string) (tea.Cmd, bool) {
 		m.flash("rush's commands start with # now: #"+name+" · / starts a session with one of Claude's", false)
 	}
 	return cmd, true
+}
+
+// Commands offered here must be meaningful for the agent currently targeted.
+func (m *Model) availableFleetCommands() []event.Command {
+	a := m.selected()
+	if m.paneFocus && m.host != nil {
+		a = m.agentByKey(m.host.key)
+	}
+	var out []event.Command
+	for _, c := range fleetCommands {
+		if fleetNeedsAgent[c.Name] && a == nil {
+			continue
+		}
+		if a != nil {
+			k := agent.Kind(a.Kind)
+			if !agentCanRun(k, c.Name) {
+				continue
+			}
+			if (c.Name == "native" || c.Name == "full") && !agent.Supports(k, agent.FeatureScreen) {
+				continue
+			}
+			if c.Name == "full" && (a.Rush || a.Interactive || a.Past) {
+				continue
+			}
+			if c.Name == "pin" {
+				if _, ok := agent.As[agent.Pinner](a.Acct.Kind); !ok {
+					continue
+				}
+			}
+			if c.Name == "slim" && (m.host == nil || m.host.key != a.Key || m.host.client == nil || m.host.sess.Usage == nil) {
+				continue
+			}
+
+		}
+		out = append(out, c)
+	}
+	return out
 }

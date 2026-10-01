@@ -122,8 +122,8 @@ func TestMemoryView(t *testing.T) {
 	}
 
 	// Enter hands the keys to the editor; esc hands them back.
-	if _, used := m.memoryKey(c, tea.KeyPressMsg{}, "enter"); !used || !c.memEdit || c.memEd.path != note {
-		t.Fatal("enter should edit the picked file")
+	if _, used := m.memoryKey(c, tea.KeyPressMsg{}, "space"); !used || !c.memEdit || c.memEd.path != note {
+		t.Fatal("space should edit the picked file")
 	}
 	if _, used := m.memoryKey(c, tea.KeyPressMsg{}, "esc"); !used || c.memEdit {
 		t.Fatal("esc should leave the editor")

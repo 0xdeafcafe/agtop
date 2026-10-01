@@ -54,7 +54,11 @@ func tune(m Model, base string, flags []string) (env, out []string) {
 	}
 	out = append([]string(nil), flags...)
 	if !has(out, "--tools") {
-		out = append(out, "--tools", leanTools)
+		tools := leanTools
+		if skilled(m) {
+			tools += ",Skill"
+		}
+		out = append(out, "--tools", tools)
 	}
 	// The date, git status and the like go after the prompt rather than in
 	// it, so Ollama's cache of the prompt holds from one session to the next.
@@ -63,6 +67,14 @@ func tune(m Model, base string, flags []string) (env, out []string) {
 	}
 	return env, out
 }
+
+// skillWindow is the context a model needs to be given skills: their
+// list is thousands of tokens more to read before every answer.
+// ponytail: one threshold; a per-model setting if it's wrong for one.
+const skillWindow = 128 * 1024
+
+// skilled is whether m is big enough to be given Claude Code's skills.
+func skilled(m Model) bool { return window(m) >= skillWindow }
 
 // window is the context m has: what the server loaded it with, else what
 // it was trained to; 0 when neither is known.
@@ -87,15 +99,25 @@ func has(flags []string, f string) bool {
 // which Claude Code does everything with. It's loaded before it returns,
 // so what it was loaded with is known and the first turn doesn't wait.
 func pick(ctx context.Context, want string) (Model, error) {
+	if err := EnsureRunning(ctx); err != nil {
+		return Model{}, err
+	}
 	info, err := choose(ctx, want)
 	if err != nil {
 		return Model{}, err
 	}
-	if !info.Can("tools") {
+	if info.Can("decision") {
+		return Model{}, fmt.Errorf("%s is a decision classifier, not a coding model", info.Name)
+	}
+	if !info.CanCode() {
 		return Model{}, fmt.Errorf("%s can't call tools, and a coding agent does all its work with them: try `ollama pull %s`", info.Name, suggest)
 	}
 	lctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
+	info, err = configuredModel(lctx, info)
+	if err != nil {
+		return Model{}, err
+	}
 	if err := load(lctx, info.Name); err != nil {
 		return Model{}, err
 	}
@@ -104,6 +126,7 @@ func pick(ctx context.Context, want string) (Model, error) {
 			info.Context, info.VRAM = l.Context, l.VRAM
 		}
 	}
+	knownModels.Store(info.Name, info)
 	return info, nil
 }
 
@@ -127,7 +150,10 @@ func choose(ctx context.Context, want string) (Model, error) {
 	}
 	var models []Model
 	for _, n := range all {
-		if m, err := show(ctx, n); err == nil && m.Can("tools") {
+		if strings.HasPrefix(n, "rush-context-") {
+			continue
+		}
+		if m, err := show(ctx, n); err == nil && m.CanCode() {
 			m.VRAM = in[n].VRAM
 			models = append(models, m)
 		}

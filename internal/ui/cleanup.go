@@ -216,10 +216,15 @@ func (m *Model) tidyDone() tea.Cmd {
 	}
 	now := time.Now()
 	agents := m.agentCopies()
-	var tempDue []*fleet.Agent
+	after := m.store.Config.CleanupAfter()
+	var tempDue, stale []*fleet.Agent
 	for _, a := range agents {
-		if a.Temp >= tempShown && m.dueIn([]string{a.Key}, now) == 0 {
+		switch {
+		case a.Temp >= tempShown && m.dueIn([]string{a.Key}, now) == 0:
 			tempDue = append(tempDue, a)
+		case a.Rush && a.PID == 0 && m.untouched(a, now) >= after:
+			// Stopped, done or not: the tmp folder rush gave it goes.
+			stale = append(stale, a)
 		}
 	}
 	due := map[string]bool{} // agent keys whose work is due
@@ -259,6 +264,19 @@ func (m *Model) tidyDone() tea.Cmd {
 			left := fleet.DiskUsage(a.TempDirs())
 			msg.temp[a.Key] = fleet.TempSize{Bytes: left, At: at, Took: time.Since(at)}
 			msg.freed += before - left
+		}
+		for _, a := range stale {
+			emptied, err := fleet.CleanStaleTemp(a, after, now)
+			if err != nil && msg.failed == nil {
+				msg.failed = err
+			}
+			if !emptied {
+				continue
+			}
+			at := time.Now()
+			left := fleet.DiskUsage(a.TempDirs())
+			msg.temp[a.Key] = fleet.TempSize{Bytes: left, At: at, Took: time.Since(at)}
+			msg.freed += max(0, a.Temp-left)
 		}
 		return msg
 	}

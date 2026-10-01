@@ -76,12 +76,22 @@ func argNow(c *hostConn, name string, opts []agent.Choice) (now string, known bo
 // setArg switches the session's /name to id, "" (or "default") for the
 // agent's own default.
 func (m *Model) setArg(c *hostConn, name, id string) tea.Cmd {
+	if c.client == nil && c.sleeping {
+		return m.wakeHostThen(c, func(m *Model, next *hostConn) tea.Cmd { return m.setArg(next, name, id) })
+	}
 	if c.client == nil {
 		m.flash("/"+name+" works in rush-mode sessions · /rush moves this one over", true)
 		return nil
 	}
 	if id == "default" {
 		id = ""
+	}
+	if name == "model" && agent.ProviderOf(sessionAgent(c)) == "ollama" {
+		o := m.sessionStart(c)
+		if o.model != id {
+			o.model = id
+			return m.switchSession(c, o)
+		}
 	}
 	if c.picked == nil {
 		c.picked = map[string]string{}
@@ -125,7 +135,10 @@ type choiceSheet struct {
 // openChoices opens the list for /name, reporting whether the agent has one.
 func (m *Model) openChoices(c *hostConn, name string) bool {
 	opts := argOptions(c, name)
-	if opts == nil {
+	if name == "model" {
+		opts = m.models(string(sessionAgent(c)))
+	}
+	if name != "model" && name != "effort" {
 		return false
 	}
 	s := &choiceSheet{conn: c.key, name: name, now: -1,
@@ -135,6 +148,15 @@ func (m *Model) openChoices(c *hostConn, name string) bool {
 		// One the list doesn't have still shows, to stay on.
 		s.opts = append(s.opts, agent.Choice{ID: run, Note: "running now"})
 		now, known = run, true
+	}
+	if known && now != "" {
+		found := false
+		for _, o := range s.opts {
+			found = found || o.ID == now
+		}
+		if !found {
+			s.opts = append(s.opts, agent.Choice{ID: now, Note: "selected for this session"})
+		}
 	}
 	for i, o := range s.opts {
 		if known && o.ID == now {
@@ -151,6 +173,22 @@ func (s *choiceSheet) body(m *Model, w, h int) []string {
 	about := "for this session, from the next turn"
 	if s.name == "effort" {
 		about = "for this session, from the next start"
+	}
+	if c := m.sheetConn(s.conn); c != nil {
+		if s.name == "model" {
+			for _, o := range m.models(string(sessionAgent(c))) {
+				found := false
+				for _, old := range s.opts {
+					found = found || old.ID == o.ID
+				}
+				if !found {
+					s.opts = append(s.opts, o)
+				}
+			}
+		}
+		if c.client == nil && !c.sleeping {
+			about = "native session · r brings its conversation into rush to change settings"
+		}
 	}
 	out := []string{sheetTitle(strings.ToUpper(s.name[:1])+s.name[1:], about, w), ""}
 	label := func(o agent.Choice) string { return firstNonEmpty(o.ID, "default") }
@@ -182,7 +220,18 @@ func (s *choiceSheet) key(m *Model, _ tea.KeyPressMsg, k string) tea.Cmd {
 		s.cur = pickerMove(s.cur, len(s.opts), "up")
 	case "down", "tab":
 		s.cur = pickerMove(s.cur, len(s.opts), "down")
+	case "r":
+		if c := m.sheetConn(s.conn); c != nil && c.client == nil && !c.sleeping {
+			if a := m.agentByKey(c.key); a != nil {
+				m.sheet = nil
+				return m.moveToRush(a)
+			}
+		}
 	case "enter":
+		if c := m.sheetConn(s.conn); c != nil && c.client == nil && !c.sleeping {
+			m.flash("Native session · press r to bring its conversation into rush first", true)
+			return nil
+		}
 		m.sheet = nil
 		if c := m.sheetConn(s.conn); c != nil {
 			return m.setArg(c, s.name, s.opts[s.cur].ID)

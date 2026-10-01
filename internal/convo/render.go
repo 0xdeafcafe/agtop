@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/cellw"
@@ -35,15 +36,25 @@ type Line struct {
 }
 
 // Options say how to draw.
+type HistoryMode int
+
+const (
+	HistoryAuto HistoryMode = iota
+	HistoryOpen
+	HistoryCompact
+)
+
 type Options struct {
-	Width    int
-	Now      time.Time
-	Tick     int
-	Open     map[string]bool // fold overrides by ref; absent means the default
-	Verbose  bool            // ctrl+o: open everything, trim nothing
-	Selected string
-	Focused  bool
-	Marks    map[string]bool // files you've marked reviewed in the changes view
+	History      HistoryMode
+	Width        int
+	HideActivity bool // the pane places activity separately, outside scroll storage
+	Now          time.Time
+	Tick         int
+	Open         map[string]bool // fold overrides by ref; absent means the default
+	Verbose      bool            // ctrl+o: open everything, trim nothing
+	Selected     string
+	Focused      bool
+	Marks        map[string]bool // files you've marked reviewed in the changes view
 	// View is the view a step's output was switched to, by ref: ViewText,
 	// ViewPretty, ViewHex or ViewImage; absent means the one it opens in.
 	View map[string]string
@@ -67,31 +78,32 @@ func (o Options) rowCap() int {
 
 const (
 	capRow   = 124 // numbers never drift further right than this
-	capProse = 100 // prose wraps here however wide the pane
-	gutter   = 4   // where narration, steps and the answer all start
+	capProse = 120 // prose wraps here however wide the pane
+	gutter   = 4   // room for tool status and nested group rails
 )
 
 type cached struct {
 	key   cacheKey
 	lines []Line
 	fast  bool // it drew a timer showing tenths: it's keyed to the tenth
+	waits bool // it read a lookup not yet in: it's keyed to lookupsGen
 }
 
 // cacheKey is everything that affects a turn's drawing: its content, the
 // width, its folds, the selection inside it, and for a live turn the clock.
 type cacheKey struct {
-	width, ver int
-	wide       bool
-	pal        int // the palette it was drawn in
-	open, verb bool
-	folds, sel string
-	focused    bool
-	tick       int
-	now        int64
-	tenth      int64 // the clock to a tenth, while a timer shows them
-	gen        int64 // lookups finished: a commit card or thumbnail may read differently
-	clock      bool
-	latest     string // the session's newest step, when it's in this turn
+	width, ver   int
+	wide         bool
+	pal          int // the palette it was drawn in
+	open, verb   bool
+	hideActivity bool
+	folds, sel   string
+	tick         int
+	now          int64
+	tenth        int64 // the clock to a tenth, while a timer shows them
+	gen          int64 // lookups finished: a commit card or thumbnail may read differently
+	clock        bool
+	latest       string // the session's newest step, when it's in this turn
 }
 
 // Render draws every turn, oldest first.
@@ -107,7 +119,7 @@ func (s *Session) RenderInto(o Options, buf []Line) []Line {
 	}
 	s.memoTurn()
 	folds := foldsByTurn(o.Open, o.View)
-	latest := s.latest()
+	latest, latestIn := s.latestAt()
 	if cap(s.parts) < len(s.Turns) {
 		s.parts = make([][]Line, len(s.Turns))
 	}
@@ -120,8 +132,12 @@ func (s *Session) RenderInto(o Options, buf []Line) []Line {
 	// when there's only time for some.
 	n := 0
 	for i := len(s.Turns) - 1; i >= 0; i-- {
-		recent := i >= len(s.Turns)-2
-		parts[i] = s.turn(s.Turns[i], o, recent, folds, latest)
+		recent := o.History != HistoryCompact || i == len(s.Turns)-1
+		var mine *Step
+		if s.Turns[i] == latestIn {
+			mine = latest
+		}
+		parts[i] = s.turn(s.Turns[i], o, recent, folds, mine)
 		n += len(parts[i])
 	}
 	out := buf[:0]
@@ -164,15 +180,21 @@ func foldsByTurn(open map[string]bool, views map[string]string) map[string]strin
 // latest is the newest step the session has drawn at the top level, which
 // shows opened until a newer one takes its place.
 func (s *Session) latest() *Step {
+	st, _ := s.latestAt()
+	return st
+}
+
+// latestAt is latest and the turn it's in.
+func (s *Session) latestAt() (*Step, *Turn) {
 	for i := len(s.Turns) - 1; i >= 0; i-- {
 		items := s.Turns[i].Items
 		for j := len(items) - 1; j >= 0; j-- {
 			if it := items[j]; it.Kind == KStep && !hidden(it.Step) {
-				return it.Step
+				return it.Step, s.Turns[i]
 			}
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // StepOpen is whether a step's row draws opened when nothing's overridden
@@ -183,6 +205,10 @@ func (s *Session) StepOpen(ref string, verbose bool) bool {
 	}
 	st := s.latest()
 	if st == nil {
+		return false
+	}
+	d := drawer{s: s}
+	if name, _, _ := d.skillInfo(st); name != "" {
 		return false
 	}
 	for _, t := range s.Turns {
@@ -196,20 +222,16 @@ func (s *Session) StepOpen(ref string, verbose bool) bool {
 	return false
 }
 
-func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string, latest *Step) []Line {
+// turn draws t, or gives it as last drawn when nothing it reads changed.
+// mine is the session's newest step when it's in t.
+func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string, mine *Step) []Line {
 	if t.ref == "" {
 		t.ref = "t" + strconv.Itoa(t.N)
 	}
 	ref := t.ref
-	open := recent || t.Live || t.Err != ""
+	open := recent || t.Live || t.Err != "" || waiting(t)
 	if v, ok := o.Open[ref]; ok {
 		open = v
-	}
-	var mine *Step
-	for _, it := range t.Items {
-		if latest != nil && it.Step == latest {
-			mine = latest
-		}
 	}
 	key := s.cacheKey(t, o, ref, open, folds)
 	if mine != nil {
@@ -218,6 +240,9 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	c, ok := s.cache[t]
 	if ok && c.fast && key.clock {
 		key.tenth = o.Now.UnixMilli() / 100
+	}
+	if ok && !c.waits {
+		key.gen = c.key.gen // a lookup landing can't change what read none
 	}
 	if ok && c.key == key {
 		s.Fast = s.Fast || c.fast // its tenths still tick
@@ -237,8 +262,10 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	// the clock redraws every frame, and only what runs in it is drawn
 	// anew; one laid out for a new width can be, a slice a render.
 	if open && !noUnitMemo {
-		d.unit = &unitKey{base: s.Info.Cwd + "|" + s.Cwd, folds: key.folds, sel: key.sel, focused: key.focused, width: o.Width, cw: d.cw, verb: o.Verbose, pal: palette, gen: key.gen, spine: d.spine()}
+		d.unit = &unitKey{base: s.Info.Cwd + "|" + s.Cwd, folds: key.folds, sel: key.sel, width: o.Width, cw: d.cw, verb: o.Verbose, pal: palette, gen: lookupsGen.Load(), spine: d.spine()}
 	}
+	key.gen = lookupsGen.Load()
+	waits := lookupWaits.Load()
 	fastBefore := s.Fast
 	s.Fast = false // set again if this turn draws a timer in tenths
 	if open {
@@ -247,11 +274,8 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 		d.folded()
 		s.drew = true
 	}
-	// An open turn ends with a plain gap (the running turn's rail ends
-	// with it); folded turns stack row on row.
-	if open {
-		d.lines = append(d.lines, Line{Text: row("", "", "", d.o.Width, d.cw)})
-	}
+	d.lines = squeezed(d.lines)
+	// An open turn draws its own gap above; previews provide their own.
 	fast := s.Fast
 	s.Fast = s.Fast || fastBefore
 	if d.stale {
@@ -261,7 +285,7 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	if fast && key.clock {
 		key.tenth = o.Now.UnixMilli() / 100
 	}
-	s.cache[t] = cached{key: key, lines: d.lines, fast: fast}
+	s.cache[t] = cached{key: key, lines: d.lines, fast: fast, waits: d.waits || lookupWaits.Load() != waits}
 	return d.lines
 }
 
@@ -277,9 +301,16 @@ func (s *Session) over() bool {
 func (s *Session) Stale() bool { return s.stale }
 
 func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[string]string) cacheKey {
-	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, folds: folds[ref], pal: palette, gen: lookupsGen.Load()}
-	if o.Selected == ref || strings.HasPrefix(o.Selected, ref) && strings.HasPrefix(o.Selected[len(ref):], ":") {
-		k.sel, k.focused = o.Selected, o.Focused
+	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, hideActivity: o.HideActivity, folds: folds[ref] + folds["exchange"], pal: palette, gen: lookupsGen.Load()}
+	exchangeSelected := false
+	if strings.HasPrefix(o.Selected, "exchange:") {
+		parts := strings.Split(o.Selected, ":")
+		if len(parts) >= 3 {
+			exchangeSelected = s.exchanges[parts[1]+":"+parts[2]].turn == t
+		}
+	}
+	if exchangeSelected || o.Selected == ref || strings.HasPrefix(o.Selected, ref) && strings.HasPrefix(o.Selected[len(ref):], ":") {
+		k.sel = o.Selected // focus draws no differently
 	}
 	if t.Live || waiting(t) {
 		k.clock, k.tick, k.now = true, o.Tick, o.Now.Unix()
@@ -305,6 +336,10 @@ func waiting(t *Turn) bool {
 }
 
 type drawer struct {
+	docked bool // live activity shown independently of the transcript
+	// rule is whether the turn being drawn has its rule in the gutter: an
+	// open turn does; an answer drawn for a panel doesn't.
+	rule  bool
 	s     *Session
 	t     *Turn
 	o     Options
@@ -339,6 +374,7 @@ type drawer struct {
 	// it's drawn folded. above is the
 	// last row as a unit's key has it, while it's known: see rowAbove.
 	unit  *unitKey
+	waits bool // a unit copied from the memo read a lookup not yet in
 	above int8
 	// stale is whether a unit was copied as drawn another way, past the
 	// render's budget: the turn isn't kept then.
@@ -349,28 +385,38 @@ type drawer struct {
 // however long a render has taken: they're what's on screen.
 const freshTail = 24
 
+// spine is column 0, the gutter: the turn's one quiet rule, or the cursor's
+// brighter mark on a selected row. It never changes colour with the turn.
 func (d *drawer) spine() string {
-	switch {
-	case d.t.Live:
-		return spineLive
-	case d.t.Err != "":
-		return spineErr
+	if d.rule {
+		return spineBar
 	}
 	return " "
 }
 
-// add appends a row; a selected row gets the selection surface and marker.
+// add appends a row; the selected one gets the cursor in the gutter.
 func (d *drawer) add(ref, b, left, right string) {
 	if ref != "" && ref == d.o.Selected {
-		b = bgSelU
-		mark := faint("▍")
-		if d.o.Focused {
-			b, mark = bgSel, paint(cOrange, "▍")
-		}
-		// The marker takes column 0, where the spine would be.
-		left = mark + strings.TrimPrefix(left, d.spine())
+		left = cursor() + strings.TrimPrefix(left, d.spine())
 	}
 	d.lines = append(d.lines, Line{Text: row(b, left, right, d.o.Width, d.cw), Ref: ref})
+}
+
+// squeezed drops a blank row that follows another: markdown and tool output
+// bring runs of them, and a row is only ever left clear once. A row that is
+// something's own (a message's fill) stays.
+func squeezed(ls []Line) []Line {
+	out := ls[:0]
+	prev := false
+	for _, l := range ls {
+		blank := l.Ref == "" && strings.Trim(stripANSI(l.Text), " ▏│") == ""
+		if blank && prev {
+			continue
+		}
+		prev = blank
+		out = append(out, l)
+	}
+	return out
 }
 
 // answers lays out each question asked, quiet, and its answer under it.
@@ -393,26 +439,16 @@ func (d *drawer) blank() {
 	d.lines = append(d.lines, Line{Text: row("", d.spine(), "", d.o.Width, d.cw)})
 }
 
-// num is the turn's number and then gap, or nothing while only the
-// session's end is read: its numbers would change once the rest is.
-func (d *drawer) num(gap string) string {
-	if d.s.Partial {
-		return ""
-	}
-	return dim(fmt.Sprintf("#%d", d.t.N)) + gap
-}
-
+// mark is how a turn ended, when that's worth a glyph and a space: a stop
+// or a failure. A turn that went fine says nothing.
 func (d *drawer) mark() string {
-	t := d.t
-	switch {
-	case t.Live:
-		return paint(cOrange, "✻")
+	switch t := d.t; {
 	case t.Stopped:
-		return dim("⏹")
+		return dim("⏹ ")
 	case t.Err != "":
-		return paint(cRed, "✗")
+		return paint(cRed, "✗ ")
 	}
-	return paint(cGreen, "✓")
+	return ""
 }
 
 func (d *drawer) meta() string {
@@ -425,7 +461,7 @@ func (d *drawer) meta() string {
 	if n := t.Steps() + t.agentSteps(); n > 0 {
 		parts = append(parts, plural(n, "step"))
 	}
-	if !t.Start.IsZero() {
+	if !t.Start.IsZero() && end.Sub(t.Start) >= 100*time.Millisecond {
 		parts = append(parts, dur(end.Sub(t.Start)))
 	}
 	if m := money(t.Cost); m != "" {
@@ -470,10 +506,10 @@ var clipboardRe = regexp.MustCompile(`^clipboard-\d{8}-(\d{2})(\d{2})\d{2}(?:\.\
 
 // imageChips lays images out as chips, as many to a row as fit in w, a
 // chip never broken across rows.
-func imageChips(names []string, w int) []string {
+func imageChips(names []string, w int, refs ...string) []string {
 	var rows []string
 	row, n := "", 0
-	for _, name := range names {
+	for i, name := range names {
 		cw := 2 + len([]rune(name))
 		if n > 0 && n+3+cw > w {
 			rows, row, n = append(rows, row), "", 0
@@ -481,7 +517,11 @@ func imageChips(names []string, w int) []string {
 		if n > 0 {
 			row, n = row+"   ", n+3
 		}
-		row, n = row+paint(cBlue, "▣ ")+paint(cText, name), n+cw
+		chip := paint(cBlue, "▣ ") + paint(cText, name)
+		if len(refs) > 0 {
+			chip = "\x1b]8;;rush:message/" + refs[0] + "/image/" + strconv.Itoa(i+1) + "\x1b\\" + chip + "\x1b]8;;\x1b\\"
+		}
+		row, n = row+chip, n+cw
 	}
 	if n > 0 {
 		rows = append(rows, row)
@@ -538,66 +578,15 @@ func woke(t *Turn) (noun, how string, ok bool) {
 	return noun, how, true
 }
 
-// folded is one row: your ask, then how it came out.
-func (d *drawer) folded() {
+// head is the start of a turn, open or folded: a gap, then what you said in
+// its box, in full, or the line for what woke it. It's drawn the same
+// either way, so folding a turn never moves it.
+func (d *drawer) head() {
 	t := d.t
-	ask := oneLine(FoldPastes(t.Prompt))
-	if ask == "" && len(t.Images) > 0 {
-		ask = strings.Join(imageNames(t.Images), " ")
-	}
-	if ask == "" {
-		ask = unasked(t)
-	}
-	outcome := t.Outcome()
-	if t.Err != "" {
-		outcome = paint(cRed, t.Err)
-	} else {
-		outcome = text(outcome)
-	}
-	askW := max(16, d.cw*2/5)
-	if w := len([]rune(ask)); w > askW {
-		ask = string([]rune(ask)[:askW-1]) + "…"
-	}
-	who := styledAsk(ask, cSub)
-	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
-		who = dim("◌ " + unasked(t))
-	}
-	if t.From != "" {
-		who = dim("◌ "+t.From+" · ") + sub(ask)
-		if noun, how, ok := woke(t); ok {
-			who = dim(noun+" ") + sub(`"`+ask+`"`) + how
-		}
-	}
-	if switched(t) {
-		who = dim("↻ rush ") + paint(cOrange, switchedAsk)
-	}
-	left := "  " + faint("▸") + " " + d.mark() + " " + d.num("  ") + who
-	if outcome != "" && outcome != text("") {
-		left += "  " + dim("→") + " " + outcome
-	}
-	d.add(d.ref, "", left, dim(d.meta()))
-}
-
-func (d *drawer) open() {
-	t := d.t
-	band := bgWell
-	switch {
-	case t.Live:
-		band = bgLive
-	case t.Err != "":
-		band = bgErr
-	}
-	right := d.num("")
-	if m := d.meta(); m != "" {
-		if right != "" {
-			right += "  "
-		}
-		if t.Live {
-			right += paint(cOrange, m)
-		} else {
-			right += dim(m)
-		}
-	}
+	d.hooks()
+	d.rule = true
+	// A gap above, outside the turn's rule.
+	d.lines = append(d.lines, Line{Text: row("", "", "", d.o.Width, d.cw)})
 	// Images show as the box showed them, unless the words already place
 	// them ([Image #1]).
 	var imgs []string
@@ -617,74 +606,25 @@ func (d *drawer) open() {
 	if multi {
 		ask = ""
 	}
-	headW := max(20, d.cw-11-len([]rune(stripANSI(right)))-2)
-	style, label := func(s string) string { return styledAsk(s, cText+bold) }, dim("you")
 	noun, how, wake := woke(t)
-	if t.From != "" {
-		style, label = sub, dim("◌ "+t.From)
-	}
-	if wake {
-		style, label = func(s string) string { return text(s) }, dim(noun)
-		if ask != "" {
-			ask = `"` + ask + `"`
+	yours := t.From == "" && !wake && !switched(t) && (strings.TrimSpace(t.Prompt) != "" || len(imgs) > 0 || multi)
+	if yours {
+		ask = strings.TrimSpace(t.Prompt) // pastes show as themselves
+		if multi {
+			ask = ""
 		}
-	}
-	if switched(t) {
-		style, label, ask = func(s string) string { return paint(cOrange, s) }, dim("↻ rush"), switchedAsk
-	}
-	rowW := min(headW-len([]rune(stripANSI(label)))+3, capProse)
-	// Open, the message is shown whole, line by line; a word longer than a
-	// row, a pasted URL say, is broken across rows. A running turn draws it
-	// every frame, so it's kept as drawn.
-	var rows []string
-	mk := memoKey{text: ask, style: "ask:" + t.From, n: rowW}
-	if ls, ok := d.s.memoGet(mk); ok {
-		for _, l := range ls {
-			rows = append(rows, l.Text)
-		}
+		d.userBox(d.ref, "", ask, imgs, SentImages(t.Pictures, t.Images), multi)
 	} else {
-		for i, l := range strings.Split(strings.TrimSpace(ask), "\n") {
-			if l = strings.TrimSpace(l); l == "" {
-				if i > 0 && rows[len(rows)-1] != "" {
-					rows = append(rows, "")
-				}
-				continue
-			}
-			rows = append(rows, wrap(style(oneLine(l)), rowW)...)
-		}
-		ls := make([]Line, len(rows))
-		for i, r := range rows {
-			ls[i].Text = r
-		}
-		d.s.memoPut(mk, ls)
-	}
-	if strings.TrimSpace(t.Prompt) == "" && t.From == "" {
-		rows, label = []string{dim(unasked(t))}, dim("◌")
-		if imgs != nil {
-			rows, label, imgs = imageChips(imgs, rowW), dim("you"), nil
-		}
+		d.otherAsk(ask, noun, how, wake)
 	}
 	if multi {
-		rows = []string{""}
+		d.shellBody(&Step{}, t.Command, gutter+1)
 	}
-	if wake && len(rows) > 0 {
-		rows[len(rows)-1] += how // a copy: the memo keeps the words alone
-	}
-	for i, r := range rows {
-		if i == 0 {
-			d.add(d.ref, band, d.spine()+" "+faint("▾")+" "+d.mark()+" "+label+"  "+r, right)
-		} else {
-			d.add(d.ref, band, d.spine()+"          "+r, "")
-			d.wrapped()
-		}
-	}
-	for _, r := range imageChips(imgs, min(d.cw-11, capProse)) {
-		d.add(d.ref, band, d.spine()+"          "+r, "")
-	}
-	if multi {
-		d.shellBody(&Step{}, t.Command, 11)
-	}
-	d.blank()
+}
+
+func (d *drawer) open() {
+	d.head()
+	t := d.t
 	if a := d.wokeAgents(); a != nil {
 		d.replies(a, d.ref+":reply", 4)
 		d.blank()
@@ -731,10 +671,12 @@ func (d *drawer) open() {
 					}
 					// Opened: every step of the run, under a row that folds
 					// it back, and nothing after it refolds.
-					d.add(runRef, "", d.spine()+blanks(gutter-1)+faint("▾ "+plural(len(run), "step")), "")
-					for _, x := range run {
-						d.step(x.Step, 0)
-					}
+					d.railed(gutter-2, true, func() {
+						d.add(runRef, "", d.spine()+blanks(gutter-1)+faint("▾ hide "+plural(len(run), "step")), "")
+						for _, x := range run {
+							d.step(x.Step, 0)
+						}
+					})
 				})
 				i = j - 1
 				continue
@@ -747,18 +689,22 @@ func (d *drawer) open() {
 		}
 		d.memoized(items[i:i+1], "", i >= len(items)-freshTail, func() { d.item(it) })
 	}
-	if t.Live {
+	if t.Live && !d.o.HideActivity {
 		d.liveLine()
 	}
 	switch {
 	case t.Stopped:
 		d.add("", "", d.spine()+"   "+dim("⏹ stopped"), "")
 	case t.Err != "" && !t.Live:
-		d.add("", bgErr, d.spine()+"   "+paint(cRed, "✗ "+t.Err), dim("your next message picks it up"))
+		d.add("", "", d.spine()+blanks(gutter-1)+paint(cRed, "✗ "+t.Err), dim("your next message picks it up"))
 	}
 	// The rail stops at the last thing drawn, never on an empty row.
 	for n := len(d.lines); n > 1 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) == strings.TrimSpace(stripANSI(d.spine())) && d.lines[n-1].Ref == ""; n-- {
 		d.lines = d.lines[:n-1]
+	}
+	// What the turn cost, once it's done: one dim line at its foot.
+	if m := d.meta(); m != "" && !t.Live && t.Steps()+t.agentSteps() > 0 {
+		d.add("", "", d.spine(), dim(m)+"  ")
 	}
 }
 
@@ -772,7 +718,7 @@ func (d *drawer) item(it *Item) {
 			// Narration is the thread you read: set apart from the
 			// steps around it, which stay close together.
 			d.gap()
-			d.prose(it.Text, gutter, cSub)
+			d.prose(it.Text, 2, cSub)
 			d.gap()
 		}
 	case KThinking:
@@ -788,6 +734,8 @@ func (d *drawer) item(it *Item) {
 		d.compacted(it)
 	case KNotice:
 		d.notice(it)
+	case KExchange:
+		d.exchange(it)
 	case KInterject:
 		d.interject(it)
 	case KStep:
@@ -818,28 +766,11 @@ func (d *drawer) notice(it *Item) {
 	}
 }
 
-// interject is what you said mid-turn: it stands out from the steps
-// around it, a band like the turn's own heading, with room either side.
+// interject is what you said mid-turn: a box like the turn's own, with room
+// either side.
 func (d *drawer) interject(it *Item) {
-	rows := imageChips(imageNames(it.Images), min(d.cw-14, capProse))
-	if strings.TrimSpace(it.Text) != "" {
-		rows = append(wrap(styledAsk(oneLine(it.Text), cText+bold), min(d.cw-14, capProse)), rows...)
-	}
-	if n := len(d.lines); n > 0 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) != strings.TrimSpace(stripANSI(d.spine())) {
-		d.blank()
-	}
-	bar := paint(cOrange, "▍")
-	for k, r := range rows {
-		lead, right := paint(cOrange+bold, "you")+"  ", dim("mid-turn")
-		if k > 0 {
-			lead, right = "     ", ""
-		}
-		d.add("", bgLive, d.spine()+"  "+bar+" "+lead+r, right)
-		if k > 0 {
-			d.wrapped()
-		}
-	}
-	d.blank()
+	d.gap()
+	d.userBox(d.t.messageRef(it), "", strings.TrimSpace(it.Text), imageNames(it.Images), SentImages(it.Pictures, it.Images), false)
 }
 
 // unitKey names a finished part of a running turn as drawn: an item, or a
@@ -860,7 +791,7 @@ type unitKey struct {
 	hsN             int
 	// How the turn is drawn: set once for it.
 	folds, sel, spine, base string
-	focused, verb           bool
+	verb                    bool
 	width, cw, pal          int
 	gen                     int64
 }
@@ -875,6 +806,7 @@ type unitDrawn struct {
 	hs              hlState
 	hsPath          string
 	hsN             int
+	waits           bool // it read a lookup not yet in: it's keyed to lookupsGen
 }
 
 // memoized draws items with draw, or copies how they were last drawn when
@@ -901,6 +833,9 @@ func (d *drawer) memoized(items []*Item, ref string, tail bool, draw func()) {
 	k.above = d.rowAbove()
 	k.worked, k.subject, k.hs, k.hsPath, k.hsN = d.worked, d.subject, d.hs, d.hsPath, d.hsN
 	u := items[0].drawn
+	if u != nil && !u.waits {
+		k.gen = u.key.gen // a lookup landing can't change what read none
+	}
 	if u != nil && u.key != k && !tail && d.s.over() {
 		d.stale = true
 		d.lines = append(d.lines, u.lines...)
@@ -909,9 +844,10 @@ func (d *drawer) memoized(items []*Item, ref string, tail bool, draw func()) {
 		return
 	}
 	if u == nil || u.key != k {
-		from := len(d.lines)
+		from, waits := len(d.lines), lookupWaits.Load()
+		k.gen = lookupsGen.Load()
 		draw()
-		u = &unitDrawn{key: k, lines: append([]Line(nil), d.lines[from:]...), worked: d.worked, subject: d.subject, hs: d.hs, hsPath: d.hsPath, hsN: d.hsN}
+		u = &unitDrawn{key: k, lines: append([]Line(nil), d.lines[from:]...), worked: d.worked, subject: d.subject, hs: d.hs, hsPath: d.hsPath, hsN: d.hsN, waits: lookupWaits.Load() != waits}
 		d.above = 0
 		u.above = d.rowAbove()
 		items[0].drawn = u
@@ -919,6 +855,7 @@ func (d *drawer) memoized(items []*Item, ref string, tail bool, draw func()) {
 	} else {
 		d.lines = append(d.lines, u.lines...)
 		d.worked, d.subject, d.hs, d.hsPath, d.hsN = u.worked, u.subject, u.hs, u.hsPath, u.hsN
+		d.waits = d.waits || u.waits
 	}
 	d.above = u.above
 }
@@ -974,7 +911,7 @@ func unitPrint(items []*Item) (uint64, bool) {
 			if !step(it.Step) {
 				return 0, false
 			}
-		case KText, KThinking, KInterject:
+		case KText, KThinking, KInterject, KExchange:
 			// Streamed text only grows: its length and how it ends say
 			// how far it's got.
 			mix(uint64(len(it.Text)))
@@ -1032,14 +969,22 @@ func (d *drawer) liveLine() {
 		return
 	}
 	verb, since, waiting := pick(openings, t.Start), t.Start, false
+	toolActive := false
 	if n := len(t.Items); n > 0 {
 		switch last := t.Items[n-1]; {
 		case last.Kind == KThinking && !t.Thinking.IsZero():
 			verb, since = pick(musings, t.Thinking), t.Thinking
 		case last.Kind == KText && d.s.streaming == last:
 			verb = pick(writings, t.Start)
-		case last.Kind == KStep && last.Step.Status == Running:
-			return // the step's own row is spinning
+		case last.Kind == KStep && (last.Step.Status == Running || d.docked && last.Step.Status == Waiting):
+			if !d.docked {
+				return // the step's own row is spinning
+			}
+			toolActive = true
+			verb, since = "running "+oneLine(last.Step.Tool), last.Step.Start
+			if last.Step.Status == Waiting {
+				verb = "waiting for approval"
+			}
 		case last.Kind == KStep && !last.Step.End.IsZero():
 			// Its steps are done and their results sent back: the model
 			// is working out what's next, and nothing shows until it says.
@@ -1075,7 +1020,7 @@ func (d *drawer) liveLine() {
 		// A request failed and is tried again: the model hasn't stalled,
 		// its API has.
 		d.add("", "", pad+"  "+paint(cYellow, "↻ "+retryWords(r, d.o.Now.Sub(t.RetryAt))), "")
-	} else if quiet := d.o.Now.Sub(latest(t.Heard, t.Start)); !t.Start.IsZero() && quiet >= stallAfter {
+	} else if quiet := d.o.Now.Sub(latest(t.Heard, t.Start)); !toolActive && !t.Start.IsZero() && quiet >= stallAfter {
 		d.add("", "", pad+"  "+paint(cYellow, "⚠ stalled · nothing from the model for "+d.since(d.o.Now.Add(-quiet))+
 			" · stop the turn and send again"), "")
 	}
@@ -1108,7 +1053,7 @@ func (d *drawer) glide() int {
 	return int(d.o.Now.UnixMilli() / 100)
 }
 
-// pulseBar is compactBar's track with nothing to measure: a short lit run
+// pulseBar is a track with nothing to measure: a short lit run
 // that sweeps back and forth, its leading cell glinting.
 func pulseBar(w, tick int) string {
 	const run = 6
@@ -1159,49 +1104,44 @@ var (
 	}
 )
 
-// compactingLine is a compaction under way: what it's up to, a bar of how
-// far through it is likely to be and roughly how long is left. Nothing
-// says how far it has got, so both are estimates, from how long this
-// session's last one took for its size, else from the context's size.
+// compactingLine is a compaction under way, in the working line's place
+// and shape: its name and how long on one row, a run of dots under it.
+// Nothing says how far a summary has got, so a time left shows only once
+// this session has timed one (compactRate); a guess would only mislead.
 func (d *drawer) compactingLine() {
-	since := d.o.Now.Sub(d.s.compacting)
-	est := compactEstimate(max(d.s.Context, 1), d.s.compactRate)
-	frac := min(0.95, float64(since)/float64(est))
 	pad := d.spine() + "   "
 	d.air()
 	d.add("", "", pad+paint(cOrange+bold, d.spin(d.o.Tick)+" "+compaction(d.s.compacting)+"…")+
-		"  "+paint(cOrange, fmt.Sprintf("%d%%", int(frac*100))), "")
+		"  "+paint(cOrange, d.since(d.s.compacting)), "")
+	frac := -1.0
 	var facts []string
-	if left := est - since; left > 0 {
-		facts = append(facts, "~"+dur(left.Round(time.Second))+" left")
-	} else {
-		facts = append(facts, "taking longer than expected")
-	}
-	facts = append(facts, dur(since)+" in")
 	if d.s.Context > 0 {
 		facts = append(facts, tokens(d.s.Context)+" tokens to boil down")
-	}
-	d.add("", "", pad+"  "+compactBar(frac, 32, d.glide())+"  "+dim(strings.Join(facts, " · ")), "")
-}
-
-// compactBar is a thin bar w cells long, frac of it lit, with a glint that
-// runs along the lit part so it never looks stuck.
-func compactBar(frac float64, w, tick int) string {
-	fill := int(frac * float64(w))
-	var b strings.Builder
-	glint := -1
-	if fill > 0 {
-		glint = tick % (fill + 8) // off the end for a moment between runs
-	}
-	for i := range fill {
-		if i == glint {
-			b.WriteString(paint(cYellow, "━"))
-		} else {
-			b.WriteString(paint(cOrange, "━"))
+		if d.s.compactRate > 0 {
+			est := max(5*time.Second, d.s.compactRate*time.Duration(d.s.Context))
+			since := d.o.Now.Sub(d.s.compacting)
+			frac = min(0.95, float64(since)/float64(est))
+			if left := est - since; left > 0 {
+				facts = append(facts, "~"+dur(left.Round(time.Second))+" left, as the last one went")
+			} else {
+				facts = append(facts, "longer than the last one")
+			}
 		}
 	}
-	if fill < w {
-		b.WriteString(paint(cOrange, "╸") + faint(strings.Repeat("─", w-fill-1)))
+	d.add("", "", pad+"  "+dotsBar(frac, 16, d.glide()/2)+"  "+dim(strings.Join(facts, " · ")), "")
+}
+
+// dotsBar is w dots, frac of them lit; with nothing to measure (frac < 0)
+// a run of three walks along them instead.
+func dotsBar(frac float64, w, tick int) string {
+	at, fill := tick%(w+3), int(frac*float64(w))
+	var b strings.Builder
+	for i := range w {
+		if frac >= 0 && i < fill || frac < 0 && i <= at && i > at-3 {
+			b.WriteString(paint(cOrange, "▰"))
+		} else {
+			b.WriteString(faint("▱"))
+		}
 	}
 	return b.String()
 }
@@ -1217,16 +1157,6 @@ var compactions = []string{
 
 // compaction is what the compaction that began at since is called.
 func compaction(since time.Time) string { return pick(compactions, since) }
-
-// compactEstimate is how long compacting tokens is likely to take: at the
-// rate the session's last one went, else about 20s and a second more for
-// every 4k tokens, as Claude Code's summaries of a full context go.
-func compactEstimate(tokens int, rate time.Duration) time.Duration {
-	if rate > 0 {
-		return max(5*time.Second, rate*time.Duration(tokens))
-	}
-	return 20*time.Second + time.Duration(tokens/4000)*time.Second
-}
 
 // retryWords say a retry: which attempt, why, and when the next goes.
 func retryWords(r *event.Retry, since time.Duration) string {
@@ -1252,8 +1182,8 @@ func retryWords(r *event.Retry, since time.Duration) string {
 // ran, or what a tool did.
 func (d *drawer) verb(st *Step) string {
 	switch {
-	case st.run != nil:
-		return st.run.Name
+	case st.agentRun() != nil:
+		return st.agentRun().Name
 	case st.fan:
 		return "agents"
 	case st.kind() == tool.Shell:
@@ -1326,7 +1256,7 @@ func (d *drawer) run(ref string, items []*Item) {
 		}
 		names = append(names, g)
 	}
-	left := d.spine() + blanks(gutter-1) + faint("▸ "+plural(len(items), "step")+": ") + dim(strings.Join(names, ", "))
+	left := d.spine() + blanks(gutter-1) + faint("▸ show "+plural(len(items), "step")+": ") + dim(strings.Join(names, ", "))
 	left += faint(" · all ok")
 	if !first.IsZero() && !last.IsZero() && last.Sub(first) >= 100*time.Millisecond {
 		left += faint(" · ") + took(last.Sub(first))
@@ -1335,10 +1265,11 @@ func (d *drawer) run(ref string, items []*Item) {
 	d.add(ref, "", left, "")
 }
 
-// gap is a blank row, unless the last row already is one or there is none.
+// gap is a blank row, unless the last row already is one, ends a fill, or
+// there is none.
 func (d *drawer) gap() {
-	if n := len(d.lines); n > 0 && !d.isBlank(n-1) {
-		d.blank()
+	if n := len(d.lines); n > 0 && !d.isBlank(n-1) && !strings.Contains(d.lines[n-1].Text, bgUser) {
+		d.blank() // what you said is filled: it ends itself
 	}
 }
 
@@ -1355,12 +1286,9 @@ func (d *drawer) prose(s string, indent int, c string) {
 // answer is the turn's final words: the conversation axis, full text colour,
 // with light markdown.
 func (d *drawer) answer(s string) {
-	// After work, the answer stands two rows clear of it.
+	// After work, the answer stands a row clear of it.
 	d.gap()
-	if d.worked {
-		d.blank()
-	}
-	d.markdown(strings.TrimRight(s, " \t\n"), 4, cText, true)
+	d.markdown(strings.TrimRight(s, " \t\n"), 2, cText, true)
 }
 
 // markdown draws text indent columns in, in colour c, with light markdown:
@@ -1380,7 +1308,11 @@ func (d *drawer) markdown(s string, indent int, c string, keepBlank bool) {
 				end++
 			}
 			if end-li >= 2 {
+				// A table stands a row clear of what's around it, even
+				// where paragraphs close up.
+				d.gap()
 				d.table(lines[li:end], pad, min(d.cw-indent-1, d.o.rowCap()), c)
+				d.gap()
 				li = end - 1
 				continue
 			}
@@ -1403,6 +1335,7 @@ func (d *drawer) markdown(s string, indent int, c string, keepBlank bool) {
 			continue
 		case strings.HasPrefix(trim, "#"):
 			items = items[:0]
+			d.gap() // a heading starts a section, a row clear of the last
 			d.add("", "", pad+paint(strong(c), strings.TrimSpace(strings.TrimLeft(trim, "#"))), "")
 			continue
 		}
@@ -1554,8 +1487,8 @@ func (d *drawer) code(lines []string, tag, pad string) {
 
 var tableSep = regexp.MustCompile(`^:?-{2,}:?$`)
 
-// table draws markdown table rows as aligned columns: the header bold over
-// a rule, cells shortened when the table is wider than the room.
+// Tables use compact columns; short mappings become labelled lines.
+// Cells wrap within the available width without per-row borders.
 func (d *drawer) table(rows []string, pad string, w int, col string) {
 	var cells [][]string
 	head := -1
@@ -1583,49 +1516,91 @@ func (d *drawer) table(rows []string, pad string, w int, col string) {
 	if cols == 0 {
 		return
 	}
+	// Short two-column mappings read more naturally as a compact list.
+	if cols == 2 && len(cells) <= 5 {
+		for ri, cells := range cells {
+			key := mdMarks.Replace(cells[0])
+			value := ""
+			if len(cells) > 1 {
+				value = mdMarks.Replace(cells[1])
+			}
+			line := paint(cBlue, key) + dim(" · ") + paint(col, value)
+			if ri == head {
+				line = paint(cBlue+bold, key) + dim(" · ") + paint(cBlue+bold, value)
+			}
+			for _, part := range wrap(line, max(1, w)) {
+				d.add("", "", pad+part, "")
+			}
+		}
+		return
+	}
+	// When even one character per column cannot fit, retain every cell as
+	// wrapped text instead of clipping columns off the terminal edge.
+	if 3*cols-2 > w {
+		for ri, cells := range cells {
+			ink := col
+			if ri == head {
+				ink = cBlue + bold
+			}
+			line := paint(ink, mdMarks.Replace(strings.Join(cells, " · ")))
+			for _, part := range wrap(line, max(1, w)) {
+				d.add("", "", pad+part, "")
+			}
+		}
+		return
+	}
 	width := make([]int, cols)
 	for _, r := range cells {
 		for i, c := range r {
 			width[i] = max(width[i], cellw.String(mdMarks.Replace(c)))
 		}
 	}
-	// Too wide: take room from the widest column until it fits.
-	gap := 3
-	for total := sum(width) + gap*(cols-1); total > w; total = sum(width) + gap*(cols-1) {
+	chrome := 2 * (cols - 1)
+	for total := sum(width) + chrome; total > w; total = sum(width) + chrome {
 		i := 0
 		for j := range width {
 			if width[j] > width[i] {
 				i = j
 			}
 		}
-		if width[i] <= 6 {
+		if width[i] <= 1 {
 			break
 		}
 		width[i]--
 	}
 	for ri, r := range cells {
-		var b strings.Builder
+		parts := make([][]string, cols)
+		height := 1
 		for i := range cols {
-			c := ""
+			value := ""
 			if i < len(r) {
-				c = mdMarks.Replace(r[i]) // inline marks only: a cell may start "#" or "-"
+				value = mdMarks.Replace(r[i])
 			}
-			c = truncateCells(c, width[i])
-			switch {
-			case ri == head:
-				b.WriteString(paint(strong(col), c))
-			default:
-				b.WriteString(paint(col, c))
-			}
-			if i < cols-1 {
-				b.WriteString(blanks(width[i] - cellw.String(c) + gap))
-			}
+			parts[i] = strings.Split(strings.TrimRight(ansi.Wrap(value, max(1, width[i]), ""), "\n"), "\n")
+			height = max(height, len(parts[i]))
 		}
-		d.add("", "", pad+b.String(), "")
-		if ri == head {
-			d.add("", "", pad+faint(strings.Repeat("─", min(w, sum(width)+gap*(cols-1)))), "")
+		for line := range height {
+			var b strings.Builder
+			for i := range cols {
+				value := ""
+				if line < len(parts[i]) {
+					value = strings.TrimRight(parts[i][line], " ")
+				}
+				ink := col
+				if ri == head {
+					ink = cBlue + bold
+				} else if i == 0 {
+					ink = cSub + bold
+				}
+				b.WriteString(paint(ink, value))
+				if i < cols-1 {
+					b.WriteString(blanks(max(0, width[i]-cellw.String(value)) + 2))
+				}
+			}
+			d.add("", "", pad+b.String(), "")
 		}
 	}
+
 }
 
 func sum(xs []int) int {
@@ -1678,8 +1653,7 @@ type stepKey struct {
 	what                byte
 	status              Status
 	out, res, kids, pal int
-	ran                 int   // how often the agents it ran were set
-	gen                 int64 // a card's: the git lookups finished when drawn
+	ran                 int // how often the agents it ran were set
 }
 
 func (d *drawer) stepMemo(st *Step, what byte, f func(*Step) string) string {
@@ -1779,7 +1753,7 @@ func URLIn(s string) string {
 	return ""
 }
 
-var pastedRe = regexp.MustCompile(`(?s)\s*<pasted_content id="[^"]*">\n?(.*?)\n?</pasted_content(?: id="[^"]*")?>\s*`)
+var pastedRe = regexp.MustCompile(`(?s)\s*<pasted_content(?: id="[^"]*")?>\n?(.*?)\n?</pasted_content(?: id="[^"]*")?>\s*`)
 
 // EachPaste replaces each paste Claude Code marks in a message, the text
 // between <pasted_content> tags, with what f makes of it.
@@ -2140,7 +2114,7 @@ func (d *drawer) statusMark(st *Step) string {
 		if d.testsFailed(st) {
 			return paint(cRed, "✗")
 		}
-		return paint(cOKq, "✓")
+		return dim("✓")
 	case Failed:
 		return paint(cRed, "✗")
 	case Waiting:
@@ -2160,12 +2134,15 @@ func (d *drawer) step(st *Step, depth int) {
 		return
 	}
 	ref := d.ref + ":s:" + st.ID
-	indent := 4 + depth*4
+	indent := gutter + depth*2
 	// The agents' reply, read from their task's output, is theirs to say.
 	if !d.o.Verbose && d.replyOf(st) {
 		return
 	}
 	if st.Tool == agtools.Show && st.Status != Failed && d.figure(st, ref, indent) {
+		return
+	}
+	if d.skillStep(st, ref, indent) {
 		return
 	}
 	if messageTool(st.Tool) {
@@ -2175,10 +2152,11 @@ func (d *drawer) step(st *Step, depth int) {
 	// How it came out follows the label, so the eye never has to cross the
 	// pane for it; the label gives way first when the row is too long.
 	lead := d.spine() + strings.Repeat(" ", indent-1) + d.statusMark(st) + " "
-	label, cells := d.stepMemo(st, 'l', d.label), d.cells(st)
+	label := d.stepMemo(st, 'l', d.label)
+	cells, right := d.cells(st)
 	if cells != "" {
 		cells = faint("  · ") + cells
-		room := d.cw - cellw.String(lead) - cellw.String(cells) - 1
+		room := d.cw - cellw.String(lead) - cellw.String(cells) - cellw.String(right) - 3
 		if room >= 12 && cellw.String(label) > room {
 			label = cellw.Truncate(label, room, "…")
 		}
@@ -2191,10 +2169,13 @@ func (d *drawer) step(st *Step, depth int) {
 		open = v
 	}
 	// A failure shows just its error until you open it for everything.
-	// It and its row share a red surface, so the two read as one.
+	background := ""
+	if st.Status == Failed || d.testsFailed(st) {
+		background = bgFailure
+	}
 	brief := st.Status == Failed && !open
 	if brief {
-		d.add(ref, bgErr, left, "")
+		d.add(ref, background, left, right)
 		// A card says what went wrong better than a line of the output.
 		if len(d.stepCards(st)) == 0 {
 			d.errorLine(st, indent+4, ref)
@@ -2204,7 +2185,10 @@ func (d *drawer) step(st *Step, depth int) {
 		if open {
 			hint = d.viewHint(st, ref)
 		}
-		d.add(ref, "", left, hint)
+		if hint != "" && right != "" {
+			hint += faint(" · ")
+		}
+		d.add(ref, background, left, hint+right)
 	}
 	// What it did comes after what it ran, when that's open. A picture it
 	// read shows either way, as a card would.
@@ -2220,33 +2204,38 @@ func (d *drawer) step(st *Step, depth int) {
 	// command ran show always, every one.
 	if len(st.Children) > 0 && (st.Status == Running || st.runLive || open || st.fan) {
 		kids := st.Children
-		// Open only for being the latest step isn't opened.
-		if !d.o.Verbose && !d.o.Open[ref] && !st.fan && len(kids) > spawnShown {
-			d.add("", "", d.spine()+strings.Repeat(" ", indent+3)+faint(fmt.Sprintf("⋯ %s before", plural(len(kids)-spawnShown, "step"))), "")
-			kids = kids[len(kids)-spawnShown:]
-		}
-		for _, c := range kids {
-			// Each a unit of its own: a working subagent's done steps are
-			// drawn once, not every frame its parent's clock ticks.
-			if c.unit == nil {
-				c.unit = []*Item{{Kind: KStep, Step: c}}
+		// The rows under a step that ran them hang on a rail from its glyph.
+		d.railed(indent, false, func() {
+			// Open only for being the latest step isn't opened.
+			if !d.o.Verbose && !d.o.Open[ref] && !st.fan && len(kids) > spawnShown {
+				d.add("", "", d.spine()+blanks(indent+1)+faint(fmt.Sprintf("⋯ %s before", plural(len(kids)-spawnShown, "step"))), "")
+				kids = kids[len(kids)-spawnShown:]
 			}
-			d.memoized(c.unit, "", true, func() { d.step(c, depth+1) })
-		}
+			for _, c := range kids {
+				// Each a unit of its own: a working subagent's done steps are
+				// drawn once, not every frame its parent's clock ticks.
+				if c.unit == nil {
+					c.unit = []*Item{{Kind: KStep, Step: c}}
+				}
+				d.memoized(c.unit, "", true, func() { d.step(c, depth+1) })
+			}
+		})
 	}
 }
 
-func (d *drawer) cells(st *Step) string {
+// cells is what a step's row says after its label, and on the right how
+// long it took, dim.
+func (d *drawer) cells(st *Step) (string, string) {
 	var parts []string
 	if st.Status == Waiting {
 		wait := ""
 		if !st.Start.IsZero() {
-			wait = faint(" · ") + dim(d.since(st.Start))
+			wait = dim(d.since(st.Start)) + "  "
 		}
-		return paint(cYellow, "waiting on you") + wait
+		return paint(cYellow, "waiting on you"), wait
 	}
 	if blocked(st) {
-		return paint(cRed, "blocked by the harness")
+		return paint(cRed, "blocked by the harness"), ""
 	}
 	// A card under the row says it better.
 	if s := d.stepMemo(st, 's', d.summary); s != "" && len(d.stepCards(st)) == 0 {
@@ -2262,7 +2251,7 @@ func (d *drawer) cells(st *Step) string {
 			parts = append(parts, paint(cRed, fmt.Sprintf("exit %d", st.Exit)))
 		}
 	}
-	end := st.End
+	end, right := st.End, ""
 	if st.runEnd.After(end) {
 		end = st.runEnd
 	}
@@ -2271,31 +2260,23 @@ func (d *drawer) cells(st *Step) string {
 		if p := st.runningPart(); p != "" {
 			parts = append(parts, paint(cSub, p))
 		}
-		ran := paint(cOrange, d.since(st.Start))
+		right = dim(d.since(st.Start))
 		// One running a while says when it started, to tell stuck from slow
 		// against the clock.
 		if d.o.Now.Sub(st.Start) >= 30*time.Second {
-			ran += faint(" since " + st.Start.Local().Format("15:04"))
+			right += faint(" since " + st.Start.Local().Format("15:04"))
 		}
-		parts = append(parts, ran)
 	case !end.IsZero() && !st.Start.IsZero() && end.Sub(st.Start) >= 100*time.Millisecond:
-		parts = append(parts, took(end.Sub(st.Start)))
+		right = took(end.Sub(st.Start))
 	}
-	return strings.Join(parts, faint(" · "))
+	if right != "" {
+		right += "  "
+	}
+	return strings.Join(parts, faint(" · ")), right
 }
 
-// took is how long something finished took, warmer the longer: a
-// minute or more yellow, five orange, so the slow stretches of a long
-// turn stand out as it scrolls by.
-func took(d time.Duration) string {
-	switch {
-	case d >= 5*time.Minute:
-		return paint(cOrange, dur(d))
-	case d >= time.Minute:
-		return paint(cYellow, dur(d))
-	}
-	return faint(dur(d))
-}
+// took is how long something finished took: dim, whatever it was.
+func took(d time.Duration) string { return dim(dur(d)) }
 
 // --- labels ---
 
@@ -2335,7 +2316,7 @@ func agentName(st *Step) string {
 
 func glyphFor(st *Step) string {
 	switch {
-	case st.ranAgents():
+	case st.ranAgents() || st.toolRun() != nil:
 		return "⇉"
 	case st.kind() == tool.Shell:
 		return "$"
@@ -2359,8 +2340,16 @@ func glyphFor(st *Step) string {
 	return "•"
 }
 
-// glyphColor is a step's glyph: faint, like the row it leads.
+// Tool categories use a small accent; ordinary shell output stays neutral.
 func glyphColor(g string) string {
+	switch g {
+	case "◧", "⇉", "↗":
+		return paint(cBlue, g)
+	case "⌕":
+		return paint(cYellow, g)
+	case "✎", "✦":
+		return paint(cOrange, g)
+	}
 	return faint(g)
 }
 
@@ -2409,9 +2398,16 @@ func (d *drawer) label(st *Step) string {
 	}
 	lbl := func(s string) string { return paint(base, s) }
 	switch {
-	case st.kind() == tool.Shell:
+	case st.kind() == tool.Shell || st.toolRun() != nil:
 		if st.run != nil {
 			return spawnLabel(*st.run, oneLine(x.Description), lbl)
+		}
+		if sp := st.toolRun(); sp != nil {
+			named := *sp
+			if named.Model != "" {
+				named.Name += " · " + agent.ModelName(named.Kind, named.Model)
+			}
+			return spawnLabel(named, firstLine(sp.Prompt), lbl)
 		}
 		// Several agents it ran are rows of their own, under what it's for.
 		if st.fan {
@@ -2736,7 +2732,7 @@ func (d *drawer) summary(st *Step) string {
 	if st.fan {
 		return faint(plural(len(st.Children), "agent"))
 	}
-	if st.run != nil {
+	if st.agentRun() != nil {
 		if n := len(st.Children); n > 0 {
 			return faint(plural(n, "step"))
 		}
@@ -2883,6 +2879,10 @@ func (d *drawer) body(st *Step, indent int) {
 	case st.run != nil:
 		d.output(reply(st), indent, st.Status == Failed)
 		return
+	case st.toolRun() != nil:
+		d.brief(st.toolRun().Prompt, indent)
+		d.output(reply(st), indent, st.Status == Failed)
+		return
 	case st.fan && !d.o.Verbose:
 		return
 	}
@@ -2933,9 +2933,10 @@ func (d *drawer) body(st *Step, indent int) {
 			d.spans, d.view = nil, "" // the views are of stdout
 			if strings.TrimSpace(r.Stderr) != "" {
 				if strings.TrimSpace(r.Stdout) != "" {
-					d.add("", "", d.spine()+strings.Repeat(" ", indent-1)+faint(fmt.Sprintf("stderr · %d lines", countLines(r.Stderr))), "")
+					// A heading, not a fold: every line of it follows.
+					d.add("", "", d.spine()+strings.Repeat(" ", indent-1)+paint(cRed, "stderr"), "")
 				}
-				d.output(r.Stderr, indent, st.Exit != 0)
+				d.output(strings.TrimLeft(r.Stderr, "\n"), indent, true) // red, whatever it exited with
 			}
 			return
 		}
@@ -3208,11 +3209,31 @@ func (d *drawer) errorLine(st *Step, indent int, ref string) {
 		right = dim("enter shows all")
 	}
 	w := d.cw - indent - 20
-	d.add(ref, bgErr, pad+faint("▸ ")+paint(cRed, truncateCells(hit, max(20, w))), right)
+	d.add(ref, "", pad+faint("▸ ")+dim(truncateCells(hit, max(20, w))), right)
 }
 
 // output draws text in a well: head and tail when it's long, all of it in
 // verbose mode, tinted red when it's a failure.
+// brief draws what a relayed agent was asked: a few lines, the rest behind
+// the same ctrl+o as any long output.
+func (d *drawer) brief(prompt string, indent int) {
+	lines := strings.Split(strings.TrimSpace(prompt), "\n")
+	show := len(lines)
+	if !d.o.Verbose && show > briefRows {
+		show = briefRows
+	}
+	pad := d.spine() + strings.Repeat(" ", indent-1)
+	for _, l := range lines[:show] {
+		d.add("", bgWell, pad+faint("▏")+" "+dim(expandTabs(l)), "")
+	}
+	if show < len(lines) {
+		d.add("", bgWell, pad+dim(fmt.Sprintf("… %d more lines ", len(lines)-show))+faint("·")+" "+paint(cOrange+bold, "ctrl+o")+dim(" shows all"), "")
+	}
+}
+
+// briefRows is how much of a relayed agent's task shows until it's opened.
+const briefRows = 4
+
 func (d *drawer) output(s string, indent int, failed bool) {
 	s = collapseCR(strings.TrimRight(s, "\n"))
 	s = d.notices(s, indent)
@@ -3237,9 +3258,6 @@ func (d *drawer) output(s string, indent int, failed bool) {
 	}
 	lines := strings.Split(s, "\n")
 	b, edge := bgWell, faint("▏")
-	if failed {
-		b, edge = bgErr, paint(cRed, "▎")
-	}
 	pad := d.spine() + strings.Repeat(" ", indent-1)
 	defer d.widen(lines, indent+2)()
 	w := d.cw - indent - 2
@@ -3421,11 +3439,7 @@ func (d *drawer) output(s string, indent int, failed bool) {
 			put(b, "", highlight(hl, &d.hs, l, cOut, nil))
 			return
 		}
-		c := cOut
-		if failed && errRe.MatchString(l) {
-			c = cRed
-		}
-		put(b, "", paint(c, l))
+		put(b, "", paint(cOut, l))
 	}
 	more := func(n int) {
 		d.resetHL() // what follows the gap doesn't go on from what came before it
@@ -3853,17 +3867,23 @@ func Drawing(st *Step) []string {
 // addWide is add for a row that may use the pane's whole width rather than
 // stopping where numbers line up.
 func (d *drawer) addWide(ref, left string) {
-	b := ""
 	if ref != "" && ref == d.o.Selected {
-		b = bgSelU
-		mark := faint("▍")
-		if d.o.Focused {
-			b, mark = bgSel, paint(cOrange, "▍")
-		}
-		left = mark + strings.TrimPrefix(left, d.spine())
+		left = cursor() + strings.TrimPrefix(left, d.spine())
 	}
-	d.lines = append(d.lines, Line{Text: row(b, left, "", d.o.Width, d.o.Width), Ref: ref})
+	d.lines = append(d.lines, Line{Text: row("", left, "", d.o.Width, d.o.Width), Ref: ref})
 }
 
 // noUnitMemo draws every unit anew, for tests to compare against.
 var noUnitMemo bool
+
+// messageLinks gives paste and image chips a route into the full-message viewer.
+func messageLinks(s, ref string) string {
+	link := func(chip string) string { return "\x1b]8;;rush:message/" + ref + "\x1b\\" + chip + "\x1b]8;;\x1b\\" }
+	s = PasteChipRe.ReplaceAllStringFunc(s, link)
+	return messageImageRe.ReplaceAllStringFunc(s, func(chip string) string {
+		id := messageImageRe.FindStringSubmatch(chip)[1]
+		return "\x1b]8;;rush:message/" + ref + "/image/" + id + "\x1b\\" + chip + "\x1b]8;;\x1b\\"
+	})
+}
+
+var messageImageRe = regexp.MustCompile(`\[Image #(\d+)[^\]]*\]`)

@@ -186,25 +186,64 @@ func TestWaitingLine(t *testing.T) {
 	}
 }
 
-// A compaction under way shows as a bar with a rough time left, and the
-// next is judged by how long this one took.
+// A compaction under way takes the working line's place: dots, how long
+// it's run, and a time left only once this session has timed one.
 func TestCompactingLine(t *testing.T) {
 	s := New()
 	s.Apply(host.Sent{Text: "go on"}, at(0))
 	s.Apply(event.Context{Tokens: 400_000}, at(1))
 	s.Apply(event.Status{Busy: true, Text: "compacting"}, at(10))
 	out := plain(s.Render(Options{Width: 140, Now: at(70)}))
-	// 400k tokens: about 20s + 100s; a minute in is half way.
 	name := compaction(at(10))
-	if !strings.Contains(out, name+"…  50%") || !strings.Contains(out, "╸") || !strings.Contains(out, "~1m 00s left · 1m 00s in · 400k tokens to boil down") {
+	if !strings.Contains(out, name+"…  1m 00s") || !strings.Contains(out, "▰") || !strings.Contains(out, "400k tokens to boil down") {
 		t.Fatalf("no compacting line:\n%s", out)
+	}
+	if strings.Contains(out, "left") || strings.Contains(out, "%") {
+		t.Fatalf("an untimed compaction guessed how long it has:\n%s", out)
 	}
 	s.Apply(event.Compacted{Trigger: "auto", Before: 400_000, After: 10_000}, at(90))
 	if out := plain(s.Render(Options{Width: 140, Now: at(91)})); strings.Contains(out, name+"…") {
-		t.Fatalf("done, the bar goes:\n%s", out)
+		t.Fatalf("done, the dots go:\n%s", out)
 	}
-	if got := compactEstimate(200_000, s.compactRate); got != 40*time.Second {
-		t.Errorf("the next half as big should take half as long: %s", got)
+	// 80s for 400k: the next, of 200k, should take about 40s.
+	s.Apply(event.Context{Tokens: 200_000}, at(100))
+	s.Apply(event.Status{Busy: true, Text: "compacting"}, at(100))
+	if out := plain(s.Render(Options{Width: 140, Now: at(110)})); !strings.Contains(out, "~30s left, as the last one went") {
+		t.Fatalf("a timed compaction should say what's left:\n%s", out)
+	}
+}
+
+// /compact, and the summary an external compaction starts afresh with,
+// are rush's rows, not your messages; the summary is the divider's.
+func TestCompactAsksAreNotYours(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "/compact"}, at(0))
+	if tn := s.Live(); tn.Prompt != "" || tn.Cause != "/compact" {
+		t.Fatalf("/compact drawn as yours: %+v", tn)
+	}
+	s.Apply(event.TurnEnd{Reason: "done"}, at(1))
+	s.Apply(host.Sent{Text: CompactedPrompt("Claude haiku", "did X, doing Y")}, at(2))
+	tn := s.Live()
+	if tn.Prompt != "" || len(tn.Items) != 1 || tn.Items[0].Kind != KCompact || tn.Items[0].Text != "did X, doing Y" {
+		t.Fatalf("summary drawn as yours: %+v", tn)
+	}
+	out := plain(s.Render(Options{Width: 120, Now: at(3)}))
+	if !strings.Contains(out, "context compacted") || !strings.Contains(out, "by Claude haiku") || strings.Contains(out, "did X") {
+		t.Fatalf("no divider:\n%s", out)
+	}
+}
+
+// A compaction rush runs itself, with no turn running, shows in the dock.
+func TestDockShowsRushCompaction(t *testing.T) {
+	s := New()
+	s.Context = 50_000
+	s.MarkCompacting(at(0))
+	if out := plain(s.Activity(Options{Width: 100, Now: at(5)})); !strings.Contains(out, compaction(at(0))+"…  5s") || !s.Fast {
+		t.Fatalf("no dock line: %q", out)
+	}
+	s.MarkCompacting(time.Time{})
+	if len(s.Activity(Options{Width: 100, Now: at(6)})) != 0 {
+		t.Fatal("done, the dock line stays")
 	}
 }
 

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -44,11 +45,19 @@ func (m *Model) watchShells() tea.Cmd {
 			if p == nil || !shellComm(p.Comm) {
 				continue
 			}
-			cmd := proc.CommandLine(k)
-			if !strings.Contains(cmd, " eval ") {
-				continue // an MCP server or hook run through a shell, not a Bash call
+			args := proc.Args(k)
+			command := shellCommand(args)
+			cmd := strings.Join(args, " ")
+			if command == "" {
+				continue
 			}
-			shells = append(shells, convo.Shell{Cmd: cmd, Start: p.Start, Kids: shellKids(tab, k, 0)})
+			// Native eval wrappers retain their existing hook-rewrite matching.
+			// Other shells require an exact command match in WatchShells, so an
+			// MCP server or hook cannot acquire a tool call by timing alone.
+			if strings.Contains(cmd, " eval ") {
+				command = ""
+			}
+			shells = append(shells, convo.Shell{Cmd: cmd, Command: command, Start: p.Start, Kids: shellKids(tab, k, 0)})
 		}
 		return shellsMsg{key: key, shells: shells}
 	}
@@ -187,4 +196,23 @@ func (m *Model) killPart(c *hostConn, id string) tea.Cmd {
 		}
 		return errors.Join(errs...)
 	})
+}
+
+// shellCommand reads argv, not a flattened command line: spaces and quotes in
+// the script are significant. Interactive shells and script-file launches do
+// not provide a command we can safely associate with a tool call.
+func shellCommand(args []string) string {
+	if len(args) < 3 || !shellComm(filepath.Base(args[0])) {
+		return ""
+	}
+	for i := 1; i < len(args)-1; i++ {
+		arg := args[i]
+		if arg == "--" || !strings.HasPrefix(arg, "-") {
+			return ""
+		}
+		if !strings.HasPrefix(arg, "--") && strings.Contains(arg, "c") {
+			return args[i+1]
+		}
+	}
+	return ""
 }

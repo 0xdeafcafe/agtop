@@ -26,8 +26,8 @@ func TestSettingsPagesBrackets(t *testing.T) {
 	m.setSettingsPage(pageProviders)
 	n := len(m.settingsPages())
 	m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
-	if m.dialog.page != pageGeneral {
-		t.Fatalf("] went to page %d, not General", m.dialog.page)
+	if m.dialog.page != pageHarnesses {
+		t.Fatalf("] went to page %d, not Harnesses", m.dialog.page)
 	}
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
@@ -91,7 +91,7 @@ func TestStartForKind(t *testing.T) {
 func TestSettingsProvidersOnePage(t *testing.T) {
 	m, _ := accountsModel(t)
 	m.setView(placeSettings)
-	if n := len(m.settingsPages()); n != pagePlugins+1 {
+	if n := len(m.settingsPages()); n != pageUpdates+1 {
 		t.Fatalf("%d pages: a provider has a page of its own again", n)
 	}
 	m.setSettingsPage(pageProviders)
@@ -146,7 +146,7 @@ func TestSettingsProvidersOnePage(t *testing.T) {
 func TestSettingsProfiles(t *testing.T) {
 	m, _ := accountsModel(t)
 	m.setView(placeSettings)
-	m.setSettingsPage(pageProviders)
+	m.setSettingsPage(pageProfiles)
 	cfg := &m.store.Config
 	editing := func() (state.Profile, bool) { return cfg.ProfileNamed(m.provPicked().profile) }
 	press := func(keys ...string) {
@@ -296,9 +296,9 @@ func TestSettingPreviewsTheList(t *testing.T) {
 	m.store.Config.SetView("list") // the list alone, wide enough for one-line rows
 	m.full, m.preview = false, false
 	m.setView(placeSettings)
-	m.setSettingsPage(pageGeneral)
+	m.setSettingsPage(pageAppearance)
 	var stack setting
-	for i, r := range flat(m.generalSections()) {
+	for i, r := range flat(m.interfaceSections()) {
 		if r.label == "Two-line rows" {
 			m.dialog.cursor, stack = i, r
 		}
@@ -323,8 +323,8 @@ func TestSpacesPreviewShowsASession(t *testing.T) {
 	m, _ := benchModel(200, 60)
 	m.store.Config.SetView("split")
 	m.setView(placeSettings)
-	m.setSettingsPage(pageGeneral)
-	for i, r := range flat(m.generalSections()) {
+	m.setSettingsPage(pageAppearance)
+	for i, r := range flat(m.interfaceSections()) {
 		if r.label == "Spaces and tabs in diffs" {
 			m.dialog.cursor = i
 		}
@@ -356,7 +356,7 @@ func TestClickingTabs(t *testing.T) {
 	if _, ok := m.clickTab(col(m.underHead()[0], "Keys"), m.headH()); !ok || m.dialog.page != pageKeys {
 		t.Errorf("clicking Keys: page %d", m.dialog.page)
 	}
-	if _, ok := m.clickTab(2, m.headH()); ok {
+	if _, ok := m.clickTab(0, m.headH()); ok {
 		t.Error("a click left of the pages turned one")
 	}
 }

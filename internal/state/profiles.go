@@ -116,7 +116,7 @@ func (p Profile) ID(provider string) string {
 
 // KindOf is the agent that runs provider under this profile.
 func (p Profile) KindOf(provider string) string {
-	if k, ok := agent.KindFor(provider, p.Harness(provider)); ok {
+	if k, ok := agent.KindFor(p.ID(provider), p.Harness(provider)); ok {
 		return string(k)
 	}
 	return provider // no adapter for it: stays as named, and isn't installed

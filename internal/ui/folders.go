@@ -185,7 +185,7 @@ func (m *Model) rootIsRepo(root string) bool {
 // under the section's so it reads as a heading, not a row: its name and
 // what git says of it in short, under every section it heads.
 func (m *Model) projectLine(l listLine, w int) string {
-	s := "   " + paint(cBlue, l.title)
+	s := "  " + paint(cBlue, l.title)
 	if g := m.folderShort(l.root); g != "" {
 		s += "  " + g
 	}
@@ -252,7 +252,7 @@ func baseShort(s fleet.GitState) string {
 
 // treeLine heads a linked worktree's rows under its project.
 func (m *Model) treeLine(l listLine, w int) string {
-	s := "     " + m.treeTag(l)
+	s := "    " + m.treeTag(l)
 	if cellw.String(s)+2 > w {
 		return fit(s, w)
 	}

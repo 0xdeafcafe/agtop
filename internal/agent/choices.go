@@ -21,6 +21,9 @@ type Choices struct {
 type Choice struct {
 	ID   string
 	Note string
+	// Context is a model's context window in tokens, when its lister
+	// knows it; 0 when not.
+	Context int64
 }
 
 // ChoicesOf are what agent k says a new session can start with.
@@ -41,4 +44,17 @@ func ChoicesOf(k Kind) (Choices, bool) {
 // reads the disk, so never on the UI.
 type ModelLister interface {
 	ListModels(p Profile) []Choice
+}
+
+// SkillRooter is an adapter whose skills another agent can read: the
+// folders of <name>/SKILL.md skills it has in cwd. It reads the disk.
+type SkillRooter interface {
+	SkillRoots(p Profile, cwd string) []string
+}
+
+// RunnerSnapshot provides previously discovered runner metadata without launching
+// a CLI or contacting a provider. Session startup must not wait on discovery of
+// an unrelated harness. Settings remains responsible for refreshing the catalog.
+type RunnerSnapshot interface {
+	RunnerSnapshot() (models []Choice, ready bool)
 }

@@ -33,3 +33,21 @@ func TestMarkdownOutputFences(t *testing.T) {
 		}
 	}
 }
+
+// Narration closes up its paragraphs but not around a heading or a table,
+// and a table too wide for the room wraps its cells instead of cutting them.
+func TestProseTableWraps(t *testing.T) {
+	d := &drawer{s: New(), t: &Turn{}, o: Options{Width: 60, Open: map[string]bool{}}, cw: 60}
+	d.prose("Intro.\n## Head\n| Where | The fix |\n|---|---|\n| a/very/long/path/to/some/file.ts | keep only the generic type and let each module own its own |\nAfter.", gutter, cSub)
+	var got []string
+	for _, l := range d.lines {
+		got = append(got, strings.TrimSpace(stripANSI(l.Text)))
+	}
+	all := strings.Join(got, "\n")
+	if strings.Contains(all, "›") || !strings.Contains(all, "its own") {
+		t.Errorf("cells should wrap, not be cut:\n%s", all)
+	}
+	if !strings.Contains(all, "Intro.\n\nHead") || !strings.Contains(all, "\n\nAfter.") {
+		t.Errorf("a heading and a table should stand a row clear:\n%s", all)
+	}
+}

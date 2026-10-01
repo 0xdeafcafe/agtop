@@ -192,6 +192,9 @@ func readHead(path string, n int) ([]byte, int64, error) {
 		}()
 	}
 	hd := h.(head)
+	if hd.err == errNotYet {
+		lookupWaits.Add(1)
+	}
 	return hd.bs, hd.size, hd.err
 }
 
@@ -219,6 +222,7 @@ func realDir(dir string) (string, bool) {
 	if r != "" {
 		return r.(string), true
 	}
+	lookupWaits.Add(1)
 	if !looked {
 		go func() {
 			r, err := filepath.EvalSymlinks(dir)

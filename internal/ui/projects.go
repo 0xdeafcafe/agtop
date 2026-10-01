@@ -418,7 +418,7 @@ func (m *Model) projectList(w int) []workRow {
 	// What's no project's: temp work, and processes.
 	var temp int64
 	for _, a := range m.snap.Agents {
-		if a.PID == 0 && a.Temp >= tempShown {
+		if a.Temp >= tempShown {
 			temp += a.Temp
 		}
 	}
@@ -494,7 +494,7 @@ func (m *Model) projectDetail(p *project, w int) []workRow {
 	}
 	switch {
 	case !p.repo:
-		text(dim("◇ not a repository"))
+		text(dim("◇ not a repository") + dim(" · ") + paint(cSub, m.peekLine(p.key, now)))
 	case !known:
 		text(faint("asking git…"))
 	default:
@@ -506,7 +506,17 @@ func (m *Model) projectDetail(p *project, w int) []workRow {
 	}
 	// Agents, each with where it works.
 	text("")
-	text(psection("Agents", strconv.Itoa(len(p.agents)), w))
+	goes := 0
+	for _, a := range p.agents {
+		if m.canGo(a, now) {
+			goes++
+		}
+	}
+	meta := strconv.Itoa(len(p.agents))
+	if goes > 0 {
+		meta += fmt.Sprintf(" · %d can go: stopped, untouched %s, nothing left only in them · x closes one", goes, age(m.goesAfter()))
+	}
+	text(psection("Agents", meta, w))
 	text(thead(" WHERE", 20, "   AGENT", 30, "DOING", 10))
 	for _, a := range p.agents {
 		where := dim("main checkout")
@@ -514,7 +524,10 @@ func (m *Model) projectDetail(p *project, w int) []workRow {
 			where = paint(cBlue, "⎇ ") + paint(cSub, filepath.Base(t))
 		}
 		line := " " + fit(where, 19) + m.workSession(a, w-20, now)
-		if a.Temp >= tempShown {
+		switch {
+		case m.canGo(a, now):
+			line = fit(line, w-24) + "  " + paint(cGreen, "✓ can go")
+		case a.Temp >= tempShown:
 			line = fit(line, w-24) + "  " + m.tempStatus(a, now)
 		}
 		rows = append(rows, workRow{id: "a" + a.Key, a: a, owner: p.key, line: line})
@@ -539,7 +552,7 @@ func (m *Model) projectDetail(p *project, w int) []workRow {
 			}
 			wrows = append(wrows, workRow{id: "w" + t, wt: &wt, owner: p.key, line: line})
 		}
-		meta := strconv.Itoa(len(trees))
+		meta = strconv.Itoa(len(trees))
 		if size > 0 {
 			meta += " · " + disk(size)
 		}
@@ -549,19 +562,18 @@ func (m *Model) projectDetail(p *project, w int) []workRow {
 		rows = append(rows, wrows...)
 	}
 	// What agents keep as scratch in it: .claude/tmp.
-	var scratch []string
+	var scratch []workRow
 	for _, d := range agentTmpDirs(p.key) {
 		if n, ok := m.clean.agentTmp[d]; ok {
 			nw, bw, sw, zw := wtCols(w)
-			scratch = append(scratch, fit(kindMark(kindTemp)+" "+paint(cSub, strings.TrimPrefix(d, p.key+"/")), nw+bw+sw)+dim(right(disk(n), zw)))
+			line := fit(kindMark(kindTemp)+" "+paint(cSub, strings.TrimPrefix(d, p.key+"/")), nw+bw) + fit(dim(m.peekLine(d, now)), sw) + dim(right(disk(n), zw))
+			scratch = append(scratch, workRow{id: "e" + d, path: &pathRow{path: d, scratch: p}, owner: p.key, line: line})
 		}
 	}
 	if len(scratch) > 0 {
 		text("")
-		text(psection("Agents' scratch", "", w))
-		for _, l := range scratch {
-			text(l)
-		}
+		text(psection("Agents' scratch", "files agents kept while they worked here · x empties it", w))
+		rows = append(rows, scratch...)
 	}
 	if known && len(f.Recent) > 0 {
 		text("")
@@ -645,9 +657,12 @@ func (m *Model) worktreeLine(t string, st fleet.GitState, wt fleet.Worktree, run
 func (m *Model) tempRows(w int) []workRow {
 	now := m.snap.At
 	const nameW, sizeW = 40, 9
-	rows := []workRow{{line: dim("Scratch agents leave behind. Deleting it loses none of their work.")}, {}, {line: thead("  WHAT", nameW, "     SIZE", sizeW, "   WHEN IT GOES", 20)}}
+	rows := []workRow{{line: dim("Session scratch and caches, including running and older sessions. Stop a running session before cleaning its files.")}, {}, {line: thead("  WHAT", nameW, "     SIZE", sizeW, "   STATUS / LOCATION", 20)}}
 	row := func(name, size, status string) string {
 		return kindMark(kindTemp) + " " + fit(name, nameW-2) + dim(right(size, sizeW)) + "   " + status
+	}
+	if m.measuring {
+		rows = append(rows, workRow{line: dim("measuring session storage… sizes appear as each folder finishes")})
 	}
 	n := len(rows)
 	if s := m.clean.tmp; !s.Checked.IsZero() && s.Items > 0 {
@@ -659,16 +674,31 @@ func (m *Model) tempRows(w int) []workRow {
 	}
 	var temp []*fleet.Agent
 	for _, a := range m.snap.Agents {
-		if a.PID == 0 && a.Temp >= tempShown {
+		if a.Temp >= tempShown {
 			temp = append(temp, a)
 		}
 	}
 	sort.SliceStable(temp, func(i, j int) bool { return temp[i].Temp > temp[j].Temp })
 	for _, a := range temp {
-		rows = append(rows, workRow{id: "T" + a.Key, temp: a, line: row(paint(cSub, oneLine(a.DisplayName)), disk(a.Temp), m.tempStatus(a, now))})
+		open := m.work.opened[a.Key]
+		mark := " ▸"
+		if open {
+			mark = " ▾"
+		}
+		rows = append(rows, workRow{id: "T" + a.Key, temp: a, line: row(paint(cSub, oneLine(a.DisplayName))+dim(mark), disk(a.Temp), m.tempStatus(a, now))})
+		who := sessionEnded(a, now)
+		if k, ok := agent.Get(agent.Kind(a.Kind)); ok {
+			who = dim(k.Name()+" · ") + who
+		}
+		for _, d := range a.TempDirs() {
+			rows = append(rows, workRow{line: fit(dim("    "+tildify(d.Path)), nameW+sizeW+1) + "   " + who})
+		}
+		if open {
+			rows = append(rows, m.tempEntryRows(a, nameW, sizeW, now)...)
+		}
 	}
-	if len(rows) == n {
-		return []workRow{{line: dim("nothing left behind in /tmp or by finished agents")}}
+	if len(rows) == n && !m.measuring {
+		return []workRow{{line: dim("no measured scratch in /tmp or session temp folders")}}
 	}
 	return rows
 }
@@ -677,7 +707,7 @@ func (m *Model) tempRows(w int) []workRow {
 func (m *Model) tempStatus(a *fleet.Agent, now time.Time) string {
 	switch due := m.dueIn([]string{a.Key}, now); {
 	case a.PID != 0:
-		return dim(disk(a.Temp) + " temp")
+		return paint(cYellow, "running · stop before cleaning")
 	case due == 0:
 		return paint(cGreen, "at the next tidy-up")
 	case due > 0:
@@ -788,7 +818,7 @@ func (m *Model) projectsBody() []string {
 	var title, meta string
 	switch p := m.pickedProject(); {
 	case m.work.projSel == paneTemp:
-		title, meta = kindMark(kindTemp)+" "+paint(cText+bold, "Temporary"), dim("/tmp and finished agents' temp work")
+		title, meta = kindMark(kindTemp)+" "+paint(cText+bold, "Temporary"), dim("/tmp and all sessions’ temp work")
 	case m.work.projSel == paneSystem:
 		title, meta = paint(cText+bold, "System"), dim("processes no project owns")
 	case p != nil:
@@ -842,14 +872,25 @@ func (m *Model) projectsHint() string {
 	case r.tmp:
 		return keysFit(w, append([]string{"↑↓", "move", "x", "clear untouched…", "c", "clean up", "r", "look again"}, append(tabs, "esc", "back")...)...)
 	case r.temp != nil:
-		return keysFit(w, append([]string{"↑↓", "move", "x", "delete it…", "X", "every finished agent's…"}, append(tabs, "esc", "back")...)...)
+		open := "open it"
+		if m.work.opened[r.temp.Key] {
+			open = "close it"
+		}
+		return keysFit(w, append([]string{"↑↓", "move", "enter", open, "x", "delete all of it…", "X", "every finished agent's…"}, append(tabs, "esc", "back")...)...)
+	case r.path != nil:
+		x := "delete it…"
+		if r.path.scratch != nil {
+			x = "empty it…"
+		}
+		return keysFit(w, append([]string{"↑↓", "move", "x", x}, append(tabs, "←", "back")...)...)
 	case r.proj != nil || r.pane:
 		return keysFit(w, append([]string{"↑↓", "move", "enter", "into it", "c", "clean up"}, append(tabs, "esc", "back")...)...)
 	case r.a != nil:
-		k := []string{"↑↓", "move", "enter", "open", "ctrl+y", "its PR", "ctrl+b", "keep going"}
+		k := []string{"↑↓", "move", "enter", "open", "x", "close it…"}
 		if r.a.Temp >= tempShown && r.a.PID == 0 {
-			k = append(k, "x", "remove temp work")
+			k = append(k, "t", "remove temp work")
 		}
+		k = append(k, "ctrl+y", "its PR", "ctrl+b", "keep going")
 		return keysFit(w, append(k, "←", "the list", "esc", "back")...)
 	}
 	return keysFit(w, append(tabs, "esc", "back")...)
@@ -903,7 +944,9 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 		case r.tmp:
 			return m.askClearScratch()
 		case r.temp != nil:
-			return m.askClean(r.temp)
+			return m.openTemp(r.temp)
+		case r.path != nil:
+			return m.askRemovePath(*r.path)
 		}
 	case "ctrl+y":
 		return m.openPR(r.a)
@@ -919,7 +962,13 @@ func (m *Model) projectsKey(s string) tea.Cmd {
 			return m.askClearScratch()
 		case r.temp != nil:
 			return m.askClean(r.temp)
-		case r.a != nil && r.a.Temp >= tempShown:
+		case r.path != nil:
+			return m.askRemovePath(*r.path)
+		case r.a != nil:
+			return m.askClose(r.a)
+		}
+	case "t":
+		if r.a != nil && r.a.Temp >= tempShown {
 			return m.askClean(r.a)
 		}
 	case "!":

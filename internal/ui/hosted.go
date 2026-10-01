@@ -182,29 +182,13 @@ func canInterrupt(c *hostConn) bool {
 	return c != nil && c.client != nil && c.sess.Live() != nil && time.Since(c.stopArmed) > 2*time.Second && agent.Supports(sessionAgent(c), agent.FeatureInterrupt)
 }
 
-// askStopTurn is esc on a running turn: it asks first, unless you said not
-// to ask again (Settings › Interface turns the question back on).
-func (m *Model) askStopTurn(c *hostConn) tea.Cmd {
-	stop := func() tea.Cmd {
-		c.stopArmed = time.Now()
-		m.flash("stopping the turn", false)
-		return hostCmd(func() error { return c.client.Interrupt() })
-	}
-	if m.store.Config.StopTurnUnasked {
-		return stop()
-	}
-	m.confirm = &confirmation{
-		question: "Stop the current message?",
-		detail:   "interrupts the turn · the session keeps running",
-		onYes:    stop,
-		onBang: func() tea.Cmd {
-			m.store.Config.StopTurnUnasked = true
-			_ = m.store.SaveConfig()
-			return stop()
-		},
-		bangText: "yes, and don't ask again",
-	}
-	return nil
+// stopTurn is esc on a running turn: it stops at once, and esc again
+// asks whether to close, restart or switch it.
+func (m *Model) stopTurn(c *hostConn) tea.Cmd {
+	c.stopArmed = time.Now()
+	m.escAt, m.escKey = time.Now(), c.key
+	m.flash("stopping the turn · esc again to close, restart or switch it", false)
+	return hostCmd(func() error { return c.client.Interrupt() })
 }
 
 // hostedAwayKey is a key in hosted while the message box doesn't have the
@@ -215,7 +199,7 @@ func (m *Model) hostedAwayKey(s string) (tea.Cmd, bool) {
 	switch s {
 	case "esc":
 		if canInterrupt(m.host) {
-			return m.askStopTurn(m.host), true
+			return m.stopTurn(m.host), true
 		}
 		return nil, true
 	case "enter", "right":

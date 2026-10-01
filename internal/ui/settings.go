@@ -13,16 +13,11 @@ import (
 	"github.com/0xdeafcafe/rush/internal/settingsfile"
 )
 
-// Settings is a place of pages, and [ and ] go between them, as in every
-// place with pages. Providers is each installed provider, your profiles
-// and the folders that pick them, a list with everything about the one
-// picked beside it: its accounts, limits, the harnesses it runs in, what
-// its new sessions start with, what it does at a limit and what rush can
-// do with it. General is the rest.
-//
-// Most pages are forms: sections of settings, each of which says what it
-// does and what its values mean, drawn and driven here. Providers draws
-// itself, with a form beside its list.
+// Settings keeps whose models you pay for (Providers: accounts, key,
+// limits, models), the programs that run them (Harnesses) and how work is
+// routed between them (Profiles) apart; docs/providers-harnesses.md has
+// the model. General and Appearance separate session behavior from
+// workspace preferences. All pages share the settings shell.
 
 // page is one page of Settings: a form, or one that draws itself.
 type page struct {
@@ -43,18 +38,26 @@ type page struct {
 // The pages, in order.
 const (
 	pageProviders = iota
+	pageHarnesses
+	pageProfiles
 	pageGeneral
+	pageAppearance
 	pageKeys
 	pagePlugins
+	pageUpdates
 )
 
 // settingsPages are Settings' pages.
 func (m *Model) settingsPages() []page {
 	return []page{
-		providersPage,
+		providersPage(),
+		harnessesPage(),
+		profilesPage(),
 		{name: "General", form: (*Model).generalSections},
+		{name: "Appearance", form: (*Model).interfaceSections},
 		{name: "Keys", body: (*Model).keysBody, key: (*Model).keysKey, rows: (*Model).keysLen},
 		pluginsPage(),
+		updatesPage(),
 	}
 }
 
@@ -63,10 +66,7 @@ func (m *Model) settingsPages() []page {
 func (m *Model) openAgentSettings(k agent.Kind) {
 	m.setView(placeSettings)
 	m.setSettingsPage(pageProviders)
-	id := agent.ProviderOf(k)
-	if agent.Split(id) && agent.KeyOnly(k) {
-		id = agent.KeyOf(id)
-	}
+	id, _ := agent.RouteOf(k, false)
 	m.openItem(provItem{provider: id})
 }
 
@@ -78,8 +78,17 @@ type dialog struct {
 
 	// pick is the line of Providers' list shown beside it; inside is
 	// whether the cursor is in what it shows rather than in the list.
-	pick     int
-	inside   bool
+	pick            int
+	inside          bool
+	modelsRead      *pending[map[string][]agent.Choice]
+	modelsApplied   bool
+	modelKind       agent.Kind // the agent Harnesses shows
+	harnessInside   bool
+	harnessReturn   int
+	catalogScroll   int
+	catalogGeometry catalogGeometry
+	formGeometry    settingsGeometry
+
 	advanced bool // a provider shows its agent's advanced sections
 	keyCtx   int  // which of keymap.Contexts Keys shows
 
@@ -122,8 +131,9 @@ func (m *Model) openDialog(p int) {
 func (m *Model) loadDialog() {
 	d := m.dialog
 	d.agents = m.agentDefs(loginsKind)
-	if d.page == pageProviders {
+	if d.page == pageProviders || d.page == pageHarnesses || d.page == pageProfiles {
 		agent.Recheck() // an agent installed since shows at once
+		d.modelsRead = goPending(readSettingsModels)
 	}
 	if d.page == pagePlugins {
 		d.pluginsRead = goPending(readPlugins)
@@ -184,6 +194,9 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 			return cmd
 		}
 	}
+	if cmd, used := m.settingsNavigation(s); used {
+		return cmd
+	}
 	switch s {
 	case "esc", "q", "ctrl+g", "ctrl+a":
 		m.setView(placeAgents)
@@ -224,14 +237,13 @@ func (m *Model) dialogEdit(k tea.KeyPressMsg, s string) {
 // dialogBody renders the page at width w.
 func (m *Model) dialogBody(w int) []string {
 	p := m.curPage()
-	out := []string{paint(cText+bold, p.name)}
-	if p.form == nil {
-		return append(append(out, ""), p.body(m, w)...)
+	m.dialog.formGeometry = settingsGeometry{}
+	out := m.settingsHeading(w)
+	if p.form != nil {
+		return append(out, m.settingsForm(p.form(m), p.keys, w, m.settingsHeight()-len(out))...)
 	}
-	if p.head != nil {
-		out = append(out, p.head(m, w)...)
-	}
-	return append(out, m.formBody(p.form(m), p.keys, w)...)
+	body := p.body(m, w)
+	return append(out, body...)
 }
 
 // pagesKeys are the keys every page ends its key line with.
@@ -281,6 +293,9 @@ func (st setting) shown() string {
 
 // now is what the value means, in a sentence.
 func (st setting) now() string {
+	if st.value == "" && len(st.choices) == 0 && !st.typed {
+		return ""
+	}
 	if s := st.means[st.value]; s != "" {
 		return st.shown() + ": " + s
 	}
@@ -319,7 +334,7 @@ func cycle(s setting, dir int) tea.Cmd {
 func (m *Model) formKey(secs []section, s string) tea.Cmd {
 	d := m.dialog
 	rows := flat(secs)
-	if d.cursor >= len(rows) {
+	if d.cursor < 0 || d.cursor >= len(rows) {
 		return nil
 	}
 	st := rows[d.cursor]
@@ -327,6 +342,9 @@ func (m *Model) formKey(secs []section, s string) tea.Cmd {
 		if cmd, used := st.key(s); used {
 			return cmd
 		}
+	}
+	if !st.typed && len(st.choices) < 2 {
+		return nil
 	}
 	changed := func(cmd tea.Cmd) tea.Cmd {
 		_ = m.store.SaveConfig()
@@ -352,14 +370,6 @@ func (m *Model) formKey(secs []section, s string) tea.Cmd {
 	return nil
 }
 
-// formBody draws a form's sections, About for the highlighted row, and
-// the keys.
-func (m *Model) formBody(secs []section, pageKeys []string, w int) []string {
-	cur := rowAt(secs, m.dialog.cursor)
-	out := append(m.formRows(secs, m.dialog.cursor, w), m.about(cur, w)...)
-	return append(out, "", m.formKeys(cur, pageKeys, w))
-}
-
 // rowAt is a form's row i, or none.
 func rowAt(secs []section, i int) setting {
 	if rows := flat(secs); i >= 0 && i < len(rows) {
@@ -379,7 +389,7 @@ func (m *Model) formRows(secs []section, cur, w int) []string {
 			valueW = max(valueW, cellw.String(st.shown()))
 		}
 	}
-	labelW, valueW = min(labelW, 32), min(valueW, max(12, min(40, w-labelW-24)))
+	labelW, valueW = min(labelW, 44), min(valueW, max(12, min(40, w-labelW-24)))
 	var out []string
 	i := 0
 	for _, sec := range secs {
@@ -389,7 +399,7 @@ func (m *Model) formRows(secs []section, cur, w int) []string {
 			if sec.note != "" {
 				title += faint(" · " + sec.note)
 			}
-			out = append(out, title)
+			out = append(out, ansi.Truncate(title, max(0, w), "…"))
 		}
 		for _, st := range sec.rows {
 			out = append(out, m.settingRow(i == cur, st, labelW, valueW, w))
@@ -402,28 +412,60 @@ func (m *Model) formRows(secs []section, cur, w int) []string {
 // formKeys is the key line for row cur of a form.
 func (m *Model) formKeys(cur setting, pageKeys []string, w int) string {
 	keys := []string{}
-	if cur.line == nil && len(cur.choices) > 0 {
-		keys = append(keys, "←→", "change")
+	if cur.line == nil && len(cur.choices) > 1 {
+		change := "←→"
+		if len(pageKeys) > 0 && strings.HasPrefix(pageKeys[0], "←") {
+			change = "→ space" // the page's ← goes back
+		}
+		keys = append(keys, change, "change")
 	}
 	if cur.typed {
 		keys = append(keys, "enter", "type it")
 	}
 	keys = append(keys, cur.keys...)
-	return keysFit(w, append(append(keys, pageKeys...), pagesKeys...)...)
+	all := append(append(keys, pageKeys...), pagesKeys...)
+	seen := map[string]bool{}
+	keys = nil
+	for i := 0; i+1 < len(all); i += 2 {
+		if !seen[all[i]] {
+			seen[all[i]] = true
+			keys = append(keys, all[i], all[i+1])
+		}
+	}
+	return keysFit(w, keys...)
 }
 
 // settingRow is always one line, the highlighted one too, so moving the
 // highlight never shifts the page; About explains it.
 func (m *Model) settingRow(on bool, st setting, labelW, valueW, w int) string {
+	labelW = min(labelW, max(8, (w-10)/2))
+	valueW = min(valueW, max(1, w-labelW-8))
 	var line string
 	if st.line != nil {
 		line = st.line(w - 4)
-	} else {
-		line = fit(st.label, labelW) + faint("‹ ") + paint(cText, fit(st.shown(), valueW)) + faint(" › ")
-		if room := w - cellw.String(line) - 6; room > 12 {
-			line += faint(ansi.Truncate(st.means[st.value], room, "…"))
+	} else if len(st.choices) < 2 && !st.typed {
+		if st.key != nil {
+			key := "enter"
+			if len(st.keys) > 0 {
+				key = st.keys[0]
+			}
+			line = paint(cText, st.label)
+			if st.value != "" {
+				line = paint(cText, fit(st.label, labelW)) + paint(cText, st.value)
+			}
+			line += "  " + paint(cOrange, "["+key+"]")
+		} else {
+			value := st.value
+			if len(st.choices) == 1 {
+				value = st.shown()
+			}
+			line = paint(cSub, fit(st.label, labelW)) + paint(cText, value)
 		}
+	} else {
+		line = fit(st.label, max(1, labelW-1)) + " " + faint("‹ ") + paint(cText, fit(st.shown(), valueW)) + faint(" › ")
+
 	}
+	line = ansi.Truncate(line, max(0, w-2), "…")
 	if on {
 		return highlight(paint(cOrange, "▍")+" "+line, w)
 	}
@@ -445,9 +487,13 @@ func (m *Model) about(st setting, w int) []string {
 			body = append(body, "  "+paint(col, l))
 		}
 	}
-	add(cSub, what)
-	add(cText, now)
-	out := []string{"", rule("About "+title, "", w)}
+	if what != "" {
+		add(cSub, what)
+	}
+	if now != "" {
+		add(cText, now)
+	}
+	out := []string{"", ansi.Truncate(rule("About "+title, "", w), max(0, w), "…")}
 	for i := range aboutLines {
 		if i < len(body) {
 			out = append(out, body[i])

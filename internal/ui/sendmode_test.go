@@ -24,7 +24,7 @@ func TestSendModeCycles(t *testing.T) {
 		t.Fatalf("modes went %s", got)
 	}
 	m.cycleSendMode(c)
-	if top := ansi.Strip(m.sendModeTop(c)); !strings.Contains(top, "enter guides") || !strings.Contains(top, "ctrl+t guide") {
+	if top := ansi.Strip(m.sendModeTop(c)); !strings.Contains(top, "coalescing") || !strings.Contains(top, "stop & send") || strings.Contains(top, "to ") {
 		t.Fatalf("border %q", top)
 	}
 }

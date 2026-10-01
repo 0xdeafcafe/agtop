@@ -90,7 +90,7 @@ var errNoStats = fmt.Errorf("no record kept: %w", fs.ErrNotExist)
 func (m *Model) openInfo(c *hostConn, tab int) tea.Cmd {
 	k := &infoSheet{conn: c.key, tab: tab}
 	for t := range infoTabs {
-		if need := infoTabNeeds[t]; need == "" || canScreen(c, need) {
+		if need := infoTabNeeds[t]; need == "" || canScreen(c, need) || (t == infoContext && c.sess.Context > 0) {
 			k.shown = append(k.shown, t)
 		}
 	}
@@ -129,7 +129,7 @@ func (m *Model) openInfo(c *hostConn, tab int) tea.Cmd {
 	}
 	m.sheet = k
 	// A fresh count of the context, from a host that can.
-	if cl := c.client; cl != nil && c.sess.Info.Proto >= 2 && slices.Contains(k.shown, infoContext) {
+	if cl := c.client; cl != nil && c.sess.Info.Proto >= 2 && canScreen(c, "context") {
 		go func() { _ = cl.AskContext() }()
 	}
 	return k.read.wait()
@@ -216,7 +216,7 @@ func (k *infoSheet) body(m *Model, w, h int) []string {
 	}
 	program := "its program"
 	if a != nil {
-		program = agentName(a.Kind)
+		program = harnessName(a.Kind)
 	}
 	out := []string{sheetTitle(name, "the agent, its account, and "+program, w), "", sheetTabs(names, slices.Index(k.shown, k.tab)), ""}
 	if c == nil || a == nil {
@@ -263,7 +263,7 @@ func sessionID(c *hostConn, a *fleet.Agent) string {
 func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 	s, now := c.sess, time.Now()
 	k := sessionAgent(c)
-	name, program := agentName(string(k)), firstNonEmpty(agent.ProgramOf(k), "agent")
+	name, program := harnessName(string(k)), firstNonEmpty(agent.ProgramOf(k), "agent")
 	out := []string{infoHead("Session")}
 	out = append(out, infoRow("name", paint(cText+bold, firstNonEmpty(s.Info.Name, a.DisplayName, a.Name)), w))
 	state := firstNonEmpty(s.Info.State, a.State)
@@ -281,6 +281,9 @@ func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 	switch {
 	case c.client != nil:
 		conn = paint(cOrange, "rush") + dim(fmt.Sprintf(" · host pid %d", s.Info.HostPID))
+		if s.Info.Stale(m.upd.installed) {
+			conn += paint(cYellow, " · older rush than the installed one")
+		}
 		if s.Info.ClaudePID != 0 {
 			conn += dim(fmt.Sprintf(" · %s pid %d", program, s.Info.ClaudePID))
 		} else {

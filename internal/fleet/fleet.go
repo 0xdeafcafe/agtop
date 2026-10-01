@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -260,6 +261,7 @@ type Loader struct {
 	// pastRows are past conversations' rows as last made, and spendVer
 	// counts each agent's spend updates, so an unchanged row is reused.
 	pastRows map[string]pastRow
+	idleRows map[string]idleHostedRow
 	// pastKeys are the built-in agent's past conversations' row keys.
 	pastKeys pastKeys
 	// others are other agents' past sessions, by profile folder.
@@ -600,6 +602,17 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 
 	seen := map[string]bool{}
 	hosted := l.hosts.List()
+	if len(l.idleRows) > 0 {
+		present := make(map[string]bool, len(hosted))
+		for _, info := range hosted {
+			present[info.ID] = true
+		}
+		for id := range l.idleRows {
+			if !present[id] {
+				delete(l.idleRows, id)
+			}
+		}
+	}
 	// Claude Code processes rush's own hosts run: they register as
 	// sessions too, but they're the rush agents, not agents of their own.
 	ours := map[string]bool{}
@@ -693,7 +706,8 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			// A job's worktree, not its cwd, is where it actually runs:
 			// Claude Code doesn't always move cwd to match once a job's
 			// given a worktree.
-			a.Repo, a.Branch = l.gitFor(firstNonEmpty(j.WorktreePath, j.Cwd), now)
+			a.Cwd = jobCwd(*j)
+			a.Repo, a.Branch = l.gitFor(a.Cwd, now)
 			if a.Branch == "" && j.WorktreeBranch != "" {
 				// Claude Code's own record of the branch it made the
 				// worktree on, for before the checkout exists to read;
@@ -781,6 +795,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 			if a.Spend.Dir != "" {
 				dir = a.Spend.Dir
 			}
+			a.Cwd = dir
 			a.Repo, a.Branch = l.gitFor(dir, now)
 			a.Subs, a.Subagents = l.subagents(p.Kind, key, j.TranscriptPath, false, now) // listed only while its process runs
 			l.sample(tab, a)
@@ -836,6 +851,9 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 	}
 	spawned = l.hostedSpawns(hosted, snap.Agents, spawned)
 	snap.Agents = l.foldSpawns(tab, snap.Agents, spawned, parents)
+	if len(ov.Hidden) > 0 { // every route above ends here: one filter for all of them
+		snap.Agents = slices.DeleteFunc(snap.Agents, func(a *Agent) bool { _, h := ov.Hidden[a.Key]; return h })
+	}
 	if len(snap.Accounts) > 0 {
 		snap.Logins = l.logins(cfg, snap.Accounts[0], now)
 	}
@@ -897,7 +915,7 @@ func isProgram(k agent.Kind, comm string) bool {
 // hostedAgent is a rush session's row, with what you've set on it.
 func (l *Loader) hostedAgent(p agent.Profile, info host.Info, tab *proc.Table, now time.Time) *Agent { //nolint:gocritic // host.Info goes by value, as the hosts list it
 	ov := l.store.Overlay
-	a := l.hosted(p, info, tab, now)
+	a := l.hostedBase(p, info, tab, now)
 	if n := ov.Names[a.Key]; n != "" {
 		a.DisplayName = n
 	}
@@ -907,14 +925,11 @@ func (l *Loader) hostedAgent(p agent.Profile, info host.Info, tab *proc.Table, n
 		a.Seen = true
 	}
 	a.Spend = l.spend[a.Key]
-	if a.Spend.Dir != "" {
-		a.Repo, a.Branch = l.gitFor(a.Spend.Dir, now) // info.Cwd is only where it started
-	}
-	if a.Job.TranscriptPath != "" {
-		// Its host says whether Claude Code runs: when neither runs, nor
-		// does anything Claude Code started.
-		gone := a.PID == 0 || info.Proto >= 3 && info.ClaudePID == 0 && info.State != "working"
-		a.Subs, a.Subagents = l.subagents(a.Acct.Kind, a.Key, a.TranscriptPath, gone, now)
+	// The host follows runtime cwd changes. An asynchronous transcript scan
+	// may still describe its old checkout; never let that move this row.
+	if a.Cwd == "" && a.Spend.Dir != "" {
+		a.Cwd = a.Spend.Dir
+		a.Repo, a.Branch = l.gitFor(a.Cwd, now)
 	}
 	// A transcript is priced call by call, subagents and all; the host's
 	// own figure is only for agents that leave none. (Older hosts summed
@@ -977,6 +992,9 @@ func (l *Loader) hosted(p agent.Profile, info host.Info, tab *proc.Table, now ti
 		ID: info.ID, Account: p.Name, Name: name, State: st, Detail: info.Detail, Needs: info.Needs,
 		Cwd: info.Cwd, SessionID: info.SessionID, CreatedAt: info.StartedAt, UpdatedAt: info.UpdatedAt,
 	}
+	if !info.IdleSince.IsZero() {
+		j.UpdatedAt = info.IdleSince // a restart while it waits isn't a finish
+	}
 	if info.Kind == string(p.Kind) {
 		j.TranscriptPath = l.transcriptOf(p, info.Cwd, info.SessionID)
 	}
@@ -1019,7 +1037,10 @@ func (l *Loader) hosted(p agent.Profile, info host.Info, tab *proc.Table, now ti
 		j.Detail = "stopped mid-turn · your next message resumes it"
 	}
 	a := &Agent{Job: j, Key: state.Key(p.Name, "a:"+info.ID), Acct: agent.Profile{Kind: agent.Kind(info.Kind), Name: p.Name, Dir: p.Dir}, DisplayName: name, Rush: true, Kind: info.Kind, Profile: info.Profile}
-	if info.State != "stopped" && info.HostPID > 0 && (tab == nil || tab.Procs[info.HostPID] != nil) {
+	// A sleeping host has gone; its pid is the one it had. Trusted on the
+	// loads that don't sample processes, it pulled the row into Active
+	// every other refresh.
+	if info.State != "stopped" && !info.Sleeping && info.HostPID > 0 && (tab == nil || tab.Procs[info.HostPID] != nil) {
 		a.PID = info.HostPID
 	}
 	a.Repo, a.Branch = l.gitFor(info.Cwd, now)
@@ -1592,4 +1613,18 @@ func (l *Loader) saveLinks() {
 		}
 	}
 	l.linksDirty = false
+}
+
+// jobCwd keeps a nested working folder when it belongs to the recorded worktree.
+func jobCwd(j agent.Job) string {
+	if j.WorktreePath == "" {
+		return j.Cwd
+	}
+	if j.Cwd != "" {
+		rel, err := filepath.Rel(j.WorktreePath, j.Cwd)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return j.Cwd
+		}
+	}
+	return j.WorktreePath
 }

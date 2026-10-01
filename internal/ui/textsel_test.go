@@ -51,7 +51,7 @@ func TestSelectedTextJoinsWrappedRows(t *testing.T) {
 	}
 
 	// Starting mid-row takes from there, dragging backwards the same.
-	col := strings.Index(ansi.Strip(lines[first].Text), "logo")
+	col := ansi.StringWidth(ansi.Strip(lines[first].Text)[:strings.Index(ansi.Strip(lines[first].Text), "logo")])
 	got = selectedText(lines, cell{row: first + 1, col: 3}, cell{row: first, col: col}, w)
 	if !strings.HasPrefix(got, "logo is now") || strings.Contains(got, "\n") {
 		t.Errorf("mid-row drag: %q", got)

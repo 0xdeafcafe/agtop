@@ -119,7 +119,7 @@ func inState(s string) func(any) bool {
 
 func TestHostLifecycle(t *testing.T) {
 	bin := setup(t)
-	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Prompt: "say hi", Binary: bin, IdleStop: Duration(300 * time.Millisecond)})
+	cfg, err := Spawn(Config{Owner: os.Getpid(), Cwd: filepath.Dir(bin), Prompt: "say hi", Binary: bin, IdleStop: Duration(300 * time.Millisecond)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestHostLifecycle(t *testing.T) {
 		t.Errorf("idle: %+v", idle)
 	}
 
-	// Idle past IdleStop: Claude Code goes, the host stays.
+	// This CLI-owned host stays for its owner after the agent rests.
 	next(t, c, func(ev any) bool { i, ok := ev.(InfoEvent); return ok && i.Info.ClaudePID == 0 })
 
 	// A second client is replayed the conversation without stream deltas.
@@ -580,11 +580,13 @@ func TestRewindKeepsBranches(t *testing.T) {
 	if b := s.cfg.Branches; s.cfg.SessionID != "old" || len(b) != 1 || b[0].SessionID != "cut" {
 		t.Fatalf("after switching back: %s %+v", s.cfg.SessionID, b)
 	}
-	// Before the first message: a fresh conversation, nothing to resume.
+	// Before the first message (/clear): a fresh conversation, nothing to
+	// resume, and no cache of its own to call cold.
+	s.info.CacheWarm, s.info.ContextTokens = time.Now().Add(-time.Hour), 9000
 	if err := s.rewind("fresh", false, &Branch{From: 1, Turns: 5}); err != nil {
 		t.Fatal(err)
 	}
-	if s.began || s.cfg.Resume || len(s.cfg.Branches) != 2 {
+	if s.began || s.cfg.Resume || len(s.cfg.Branches) != 2 || !s.info.CacheWarm.IsZero() || s.info.ContextTokens != 0 {
 		t.Fatalf("fresh: began %v cfg %+v", s.began, s.cfg)
 	}
 }
@@ -803,7 +805,10 @@ func TestCompactedKeepsName(t *testing.T) {
 	s := &server{cfg: Config{ID: "cp", Kind: "fake", SessionID: "old", Resume: true, Cwd: "/work/app", Name: "fix the upload", Account: agent.Profile{Kind: "fake", Name: "fake", Dir: t.TempDir()}}, began: true,
 		conn: &inputConn{fakeConn: fakeConn{events: make(chan event.Event, 1)}}, clients: map[*conn]struct{}{}}
 	s.info.State, s.info.Name = "idle", "fix the upload"
-	s.do(op{Op: "compacted", Text: "new", Message: "summary: it was all about uploads", Branch: &Branch{From: 1, Turns: 4}})
+	s.info.SessionID, s.info.UpdatedAt = "old", time.Now()
+	if err := s.do(op{Op: "compacted_checked", Text: "new", Message: "summary: it was all about uploads", Branch: &Branch{From: 1, Turns: 4}, ExpectedSession: s.info.SessionID, ExpectedUpdatedAt: s.info.UpdatedAt}); err != nil {
+		t.Fatal(err)
+	}
 	if s.cfg.SessionID != "new" || s.info.Name != "fix the upload" || s.cfg.NameFirst || len(s.cfg.Branches) != 1 || s.cfg.Branches[0].SessionID != "old" {
 		t.Fatalf("after compacting: session %q name %q, to name %v, branches %+v", s.cfg.SessionID, s.info.Name, s.cfg.NameFirst, s.cfg.Branches)
 	}

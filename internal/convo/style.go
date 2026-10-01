@@ -33,18 +33,18 @@ var (
 // Surfaces. The ground is the terminal's own background, so nothing here
 // paints a slab over a themed terminal; only raised or tinted rows get one.
 var (
-	bgWell string // finished turn heading, output, diffs
-	bgLive string // heading of the running turn
-	bgErr  string // failed output, a turn that crashed
-	bgSel  string // selection where your keys go
-	bgSelU string // selection on the other side
-	bgAdd  string
-	bgDel  string
+	bgWell    string // output, diffs: none, only what you said has a ground
+	bgUser    string // what you said: one step off the terminal's ground
+	bgFailure string // a quiet full-row tint for failures
+	bgAdd     string
+	bgDel     string
 	// A diff line's changed words, a step brighter than the line.
 	bgAddHi, bgDelHi string
-
-	spineLive, spineErr string
 )
+
+// spineBar is the one thin rule down a turn's left edge, the same quiet
+// colour for every turn: running, done or failed.
+var spineBar string
 
 // palette is how many times the colours have changed, so a cached drawing
 // in the old ones isn't used.
@@ -74,8 +74,11 @@ func SetColours(g theme.Ground, colorBlind bool) {
 		ctxInk[name] = accent(c)
 	}
 	cWarnQ = quiet(theme.RGB{R: 168, G: 136, B: 82}, yellow)
-	bgWell, bgLive = surface(0x1a, 0x18, 0x16), surface(0x21, 0x18, 0x14)
-	bgSel, bgSelU = surface(0x2c, 0x28, 0x24), surface(0x1f, 0x1d, 0x1a)
+	bgUser = surface(0x1a, 0x18, 0x16)
+	bgFailure = surface(0x2a, 0x1a, 0x1a)
+	if colorBlind {
+		bgFailure = surface(0x2c, 0x24, 0x16)
+	}
 
 	green, red := theme.RGB{R: 127, G: 191, B: 138}, theme.RGB{R: 224, G: 104, B: 92}
 	if colorBlind {
@@ -86,18 +89,13 @@ func SetColours(g theme.Ground, colorBlind bool) {
 		cLost, cLostQ = accent(lost), quiet(theme.RGB{R: 160, G: 74, B: 12}, lost)
 		bgAdd, bgDel = surface(0x10, 0x2a, 0x3c), surface(0x30, 0x24, 0x0e)
 		bgAddHi, bgDelHi = surface(0x1a, 0x46, 0x64), surface(0x52, 0x3a, 0x10)
-		bgErr = surface(0x30, 0x24, 0x10)
 	} else {
 		cGreen, cRed, cOKq = accent(green), accent(red), quiet(theme.RGB{R: 95, G: 138, B: 104}, green)
 		cLost, cLostQ = accent(red), quiet(theme.RGB{R: 170, G: 86, B: 76}, red)
 		bgAdd, bgDel = surface(0x16, 0x30, 0x1a), surface(0x3a, 0x17, 0x14)
 		bgAddHi, bgDelHi = surface(0x22, 0x52, 0x2b), surface(0x62, 0x24, 0x1e)
-		bgErr = surface(0x2a, 0x17, 0x15)
 	}
-	// The running turn's spine is grey: rush's orange beside red reads as
-	// broken, and the spinner already says it's working.
-	spineLive, spineErr = paint(cDim, "▏"), paint(cRed, "▏")
-
+	spineBar = paint(cFaint, "▏")
 	hlKw, hlStr = accent(theme.RGB{R: 204, G: 153, B: 205}), accent(theme.RGB{R: 163, G: 190, B: 140})
 	hlNum, hlFn = accent(theme.RGB{R: 222, G: 165, B: 132}), accent(theme.RGB{R: 137, G: 180, B: 222})
 	hlType = accent(theme.RGB{R: 120, G: 190, B: 175})
@@ -111,6 +109,10 @@ var (
 	yellow = theme.RGB{R: 229, G: 181, B: 103}
 	blue   = theme.RGB{R: 143, G: 179, B: 217}
 )
+
+// cursor is the keyboard's mark in the gutter: one thin neutral stroke, the
+// same whoever has focus, so a row is never lit by where you clicked.
+func cursor() string { return paint(cSub, "▏") }
 
 func paint(c, s string) string {
 	if s == "" {

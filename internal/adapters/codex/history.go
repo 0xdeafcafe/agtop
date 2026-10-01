@@ -38,22 +38,37 @@ func (Adapter) History(s agent.Session, before time.Time) ([]event.Event, error)
 
 // HistoryTail is History read from the rollout's first line, the thread's
 // meta, then the first whole line of its last most bytes on.
-func (Adapter) HistoryTail(s agent.Session, most int64) ([]event.Event, bool, error) { //nolint:gocritic // as History
+func (a Adapter) HistoryTail(s agent.Session, most int64) ([]event.Event, bool, error) {
+	return a.HistoryTailBefore(s, most, time.Time{})
+}
+
+func (Adapter) HistoryTailBefore(s agent.Session, most int64, before time.Time) ([]event.Event, bool, error) {
 	f, err := openRollout(s)
 	if err != nil {
 		return nil, false, err
 	}
 	defer f.Close()
 	st, err := f.Stat()
-	if err != nil || st.Size() <= most {
-		evs, err := readRollout(f, time.Time{})
+	if err != nil {
+		return nil, false, err
+	}
+	end := st.Size()
+	if !before.IsZero() {
+		var known bool
+		end, known = rolloutCutoff(f, end, before)
+		if !known {
+			evs, err := readRollout(io.NewSectionReader(f, 0, st.Size()), before)
+			return evs, false, err
+		}
+	}
+	most = max(1, most)
+	if end <= most {
+		evs, err := readRollout(io.NewSectionReader(f, 0, end), before)
 		return evs, false, err
 	}
-	// Its meta, and the first turn_context a few lines on, which says the
-	// model the thread's init has, as a whole read finds it.
 	var head []byte
 	n := 0
-	_ = readHeadLines(io.NewSectionReader(f, 0, st.Size()-most), func(b []byte) bool {
+	_ = readHeadLines(io.NewSectionReader(f, 0, end-most), func(b []byte) bool {
 		n++
 		context := n > 1 && bytes.Contains(b[:min(len(b), 160)], []byte(`"type":"turn_context"`))
 		if n == 1 || context {
@@ -61,15 +76,84 @@ func (Adapter) HistoryTail(s agent.Session, most int64) ([]event.Event, bool, er
 		}
 		return !context && n < 64
 	})
-	// A byte early: the line cut short runs to the first newline, which is
-	// that byte when the cut fell between two lines.
-	end := bufio.NewReader(io.NewSectionReader(f, st.Size()-most-1, most+1))
-	if _, err := end.ReadBytes('\n'); err != nil {
-		return nil, false, err
+	tail := bufio.NewReader(io.NewSectionReader(f, end-most-1, most+1))
+	for {
+		_, err := tail.ReadSlice('\n')
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if err != nil && err != io.EOF {
+			return nil, false, err
+		}
+		break
 	}
-	evs, err := readRollout(io.MultiReader(bytes.NewReader(head), end), time.Time{})
+	evs, err := readRollout(io.MultiReader(bytes.NewReader(head), tail), before)
 	return evs, true, err
 }
+
+// rolloutCutoff binary-searches Codex's chronological envelope timestamps.
+// Only short envelope prefixes are decoded, never the messages/tool outputs.
+// Unrecognized envelopes fall back to the full correctness-preserving reader.
+func rolloutCutoff(f *os.File, size int64, before time.Time) (int64, bool) {
+	buf := make([]byte, 64<<10)
+	next := func(at int64) int64 {
+		if at == 0 {
+			return 0
+		}
+		at--
+		for at < size {
+			n, _ := f.ReadAt(buf[:min(int64(len(buf)), size-at)], at)
+			if n == 0 {
+				return size
+			}
+			if i := bytes.IndexByte(buf[:n], '\n'); i >= 0 {
+				return at + int64(i) + 1
+			}
+			at += int64(n)
+		}
+		return size
+	}
+	lo, hi := int64(0), size
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		at := next(mid)
+		if at >= size {
+			hi = mid
+			continue
+		}
+		n, _ := f.ReadAt(buf[:min(int64(512), size-at)], at)
+		prefix := buf[:n]
+		key := bytes.Index(prefix, []byte(`"timestamp"`))
+		payload := bytes.Index(prefix, []byte(`"payload"`))
+		if key < 0 || (payload >= 0 && payload < key) {
+			return 0, false
+		}
+		v := bytes.TrimSpace(prefix[key+len(`"timestamp"`):])
+		if len(v) == 0 || v[0] != ':' {
+			return 0, false
+		}
+		v = bytes.TrimSpace(v[1:])
+		if len(v) == 0 || v[0] != '"' {
+			return 0, false
+		}
+		j := bytes.IndexByte(v[1:], '"')
+		if j < 0 {
+			return 0, false
+		}
+		stamp := parseTime(string(v[1 : j+1]))
+		if stamp.IsZero() {
+			return 0, false
+		}
+		if stamp.Before(before) {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return next(lo), true
+}
+
+var _ agent.HistoryTailBeforeReader = Adapter{}
 
 // FollowHistory reads s's rollout a line at a time, as it grows: each
 // read goes on from the last whole line the one before took.

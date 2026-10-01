@@ -198,12 +198,12 @@ func TestJobCrashed(t *testing.T) {
 	s.Job("b2").OutputFile = out
 	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: s, open: map[string]bool{}}
 	m := &Model{snap: &fleet.Snapshot{}, host: c}
-	if got := ansi.Strip(strings.Join(m.jobsPreview(c, s.RunningJobs(), 120), "\n")); !strings.Contains(got, "crashed?") {
+	if got := ansi.Strip(strings.Join(m.jobsPreview(c, s.RunningJobs(), 120), "\n")); !strings.Contains(got, "error in recent output") {
 		t.Fatalf("no crash called out:\n%s", got)
 	}
 	os.Chtimes(out, now, now) // still writing: it may be restarting
 	c.tails = nil
-	if got := ansi.Strip(strings.Join(m.jobsPreview(c, s.RunningJobs(), 120), "\n")); strings.Contains(got, "crashed?") {
+	if got := ansi.Strip(strings.Join(m.jobsPreview(c, s.RunningJobs(), 120), "\n")); strings.Contains(got, "error in recent output") {
 		t.Fatalf("called crashed while still writing:\n%s", got)
 	}
 }

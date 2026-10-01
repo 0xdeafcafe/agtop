@@ -72,6 +72,9 @@ func thumbOf(k thumbKey, img *event.ImageData) ([]string, bool) {
 			lookupsGen.Add(1)
 		}()
 	}
+	if !t.done {
+		lookupWaits.Add(1)
+	}
 	return t.rows, t.done && t.rows != nil
 }
 
@@ -88,7 +91,11 @@ func thumbable(path string) bool {
 // it can't be read: in half blocks, or when fine in quadrants, twice as
 // many pixels across. It decodes, so it's for off the UI goroutine.
 func Preview(path string, w, h int, fine bool) []string {
-	img := &event.ImageData{Path: path}
+	return PreviewImage(&event.ImageData{Path: path}, w, h, fine)
+}
+
+// PreviewImage draws a file or embedded image off the UI goroutine.
+func PreviewImage(img *event.ImageData, w, h int, fine bool) []string {
 	if fine {
 		return quadrants(readThumb(img, 2*w, 4*h))
 	}

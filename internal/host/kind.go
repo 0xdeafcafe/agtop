@@ -55,6 +55,9 @@ func (cfg *Config) UseAgent(kind string) error {
 func Installed() []agent.Adapter {
 	var out []agent.Adapter
 	for _, a := range agent.InstalledAll() {
+		if agent.CurrentKind(a.Kind()) != a.Kind() {
+			continue
+		}
 		if _, ok := a.(agent.Driver); ok && agent.Runs(a.Kind()) && len(agent.ProfilesOf(a)) > 0 {
 			out = append(out, a)
 		}

@@ -1,5 +1,10 @@
 package agent
 
+// TranscriptLocator locates saved history without promising rewind or fork.
+type TranscriptLocator interface {
+	TranscriptPath(p Profile, cwd, sid string) string
+}
+
 // Brancher is an agent whose conversation rush can copy for a fork that
 // remembers only part of it, or that runs in another folder: the copy is
 // resumed as a session of its own.
@@ -15,7 +20,7 @@ type Brancher interface {
 // TranscriptPath is where agent k keeps session sid's conversation in
 // cwd, in profile p; empty when k can't say.
 func TranscriptPath(k Kind, p Profile, cwd, sid string) string {
-	if b, ok := As[Brancher](k); ok {
+	if b, ok := As[TranscriptLocator](k); ok {
 		return b.TranscriptPath(p, cwd, sid)
 	}
 	return ""

@@ -123,7 +123,7 @@ func TestCardUnderFoldedRun(t *testing.T) {
 		s.Apply(e, at(i))
 	}
 	out := plain(s.Render(Options{Width: 100, Now: at(20)}))
-	for _, w := range []string{"▸ 2 steps: git commit, go build", "● abc1234 · main", "+20 −5 · 3 files", "│ feat: cards", "│ A commit shows what it was."} {
+	for _, w := range []string{"▸ show 2 steps: git commit, go build", "● abc1234 · main", "+20 −5 · 3 files", "│ feat: cards", "╰ A commit shows what it was."} {
 		if !strings.Contains(out, w) {
 			t.Errorf("missing %q in\n%s", w, out)
 		}
@@ -136,8 +136,41 @@ func TestCardUnderFoldedRun(t *testing.T) {
 		t.Errorf("the row shouldn't repeat the card's subject:\n%s", out)
 	}
 	// Too narrow for a card: the row alone.
-	if out := plain(s.Render(Options{Width: 24, Now: at(20)})); strings.Contains(out, "╭") {
+	if out := plain(s.Render(Options{Width: 24, Now: at(20)})); strings.Count(out, "╭") > 1 { // the one box is your message
 		t.Errorf("no card at width 24:\n%s", out)
+	}
+}
+
+func TestBuildCards(t *testing.T) {
+	for _, c := range []struct {
+		name, cmd, out string
+		want           []card
+	}{
+		{"go build", "go build ./... 2>&1 | tail",
+			"# github.com/x/convo\ninternal/convo/shell.go:448:6: redirRe redeclared in this block\n\tinternal/convo/shell.go:40:2: other declaration of redirRe\n",
+			[]card{{kind: "build", what: "go build", failed: 1, fails: []failure{{msg: "shell.go:448: redirRe redeclared in this block"}}}}},
+		{"go install", "go install ./cmd/rush", "# x\ncmd/rush/main.go:12:2: undefined: foo\n",
+			[]card{{kind: "build", what: "go install", failed: 1, fails: []failure{{msg: "main.go:12: undefined: foo"}}}}},
+		{"tsc", "pnpm exec tsc --noEmit",
+			"src/a.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\nsrc/lib/b.ts:9:1 - error TS2304: Cannot find name 'x'.\n\nFound 2 errors in 2 files.\n",
+			[]card{{kind: "build", what: "tsc", failed: 2, fails: []failure{{msg: "a.ts:3: Type 'string' is not assignable to type 'number'."}, {msg: "b.ts:9: Cannot find name 'x'."}}}}},
+		{"vite", "pnpm build",
+			"✘ [ERROR] Expected \";\" but found \"}\"\n\n    src/main.ts:4:2:\n      4 │   }\n",
+			[]card{{kind: "build", what: "pnpm build", failed: 1, fails: []failure{{msg: "main.ts:4: Expected \";\" but found \"}\""}}}}},
+		{"webpack", "npm run start", "ERROR in ./src/app.tsx 12:4\nModule not found: Error: Can't resolve './x'\n",
+			[]card{{kind: "build", what: "npm run start", failed: 1, fails: []failure{{msg: "app.tsx:12: Module not found: Error: Can't resolve './x'"}}}}},
+		{"nx", "npx nx run-many -t build",
+			" NX   Ran target build for 3 projects (4s)\n\n   ✖  1/3 failed\n\n Failed tasks:\n\n - web:build\n",
+			[]card{{kind: "build", what: "nx", failed: 1, fails: []failure{{name: "web:build", build: true}}}}},
+		{"a build that went is no card", "go build ./...", "", nil},
+		{"a test build failure is the tests card's", "go build ./... && go test ./internal/convo",
+			"# github.com/x/convo\ninternal/convo/shell.go:448:6: redirRe redeclared in this block\nFAIL\tgithub.com/x/convo [build failed]\n",
+			[]card{{kind: "tests", what: "test", failed: 1, fails: []failure{{name: "convo", msg: "shell.go:448: redirRe redeclared in this block", build: true}}}}},
+	} {
+		got := cardsOf(bashStep(c.cmd, c.out, "", Failed))
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s:\n got %+v\nwant %+v", c.name, got, c.want)
+		}
 	}
 }
 
@@ -285,7 +318,7 @@ func TestFailedTestsRow(t *testing.T) {
 		s.Apply(e, at(i))
 	}
 	got := plain(s.Render(Options{Width: 100, Now: at(20)}))
-	for _, w := range []string{"✗ $ Run the tests", "✗ 2 failed", "│ TestFold", "│   convo_test.go:170 missing \"▸ 2 steps\" in", "│       ▸ 3 steps: git add, go build", "│   cards_test.go:55 push"} {
+	for _, w := range []string{"✗ $ Run the tests", "✗ 2 failed", "TestFold", "  convo_test.go:170 missing \"▸ 2 steps\" in", "      ▸ 3 steps: git add, go build", "  cards_test.go:55 push"} {
 		if !strings.Contains(got, w) {
 			t.Errorf("missing %q in\n%s", w, got)
 		}

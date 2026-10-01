@@ -31,7 +31,7 @@ func (m *Model) openSkills(c *hostConn, a *fleet.Agent) {
 	ad, ok := agent.Get(sessionAgent(c))
 	_, lists := ad.(agent.Commander)
 	if !ok || !lists || !canScreen(c, "skills") {
-		m.flash(agentName(string(sessionAgent(c)))+" has no skills or commands rush lists", true)
+		m.flash(harnessName(string(sessionAgent(c)))+" has no skills or commands rush lists", true)
 		return
 	}
 	m.sheet = &skillSheet{conn: c.key, agent: a.Key}

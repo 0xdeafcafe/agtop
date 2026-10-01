@@ -48,16 +48,19 @@ func scratchRoot(k agent.Kind) string {
 
 // DiskUsage is how much disk the folders take, counted as du does
 // (allocated blocks), without following links.
-func DiskUsage(dirs []TempDir) int64 {
+func DiskUsage(dirs []TempDir) int64 { return diskUsage(dirs, nil) }
+
+func diskUsage(dirs []TempDir, pace *diskPacer) int64 {
 	var n int64
 	for _, d := range dirs {
+		pace.yield()
 		var st unix.Stat_t
 		if unix.Lstat(d.Path, &st) != nil {
 			continue
 		}
 		n += st.Blocks * 512
 		if st.Mode&unix.S_IFMT == unix.S_IFDIR {
-			n += dirUsage(d.Path)
+			n += dirUsagePaced(d.Path, pace)
 		}
 	}
 	return n
@@ -94,6 +97,53 @@ func CleanTemp(a *Agent) error {
 	return nil
 }
 
+// RemoveTempEntry deletes one thing in one of a's temp folders, the rest
+// kept. It refuses while a runs, and anything not directly in one of them.
+func RemoveTempEntry(a *Agent, path string) error {
+	if a.PID != 0 {
+		return fmt.Errorf("%s is still running; stop it first", a.DisplayName)
+	}
+	path = filepath.Clean(path)
+	for _, d := range a.TempDirs() {
+		if root := scratchRoot(a.Acct.Kind); filepath.Base(d.Path) != "tmp" && (root == "" || filepath.Dir(filepath.Dir(d.Path)) != root) {
+			continue
+		}
+		if filepath.Dir(path) == filepath.Clean(d.Path) {
+			return os.RemoveAll(path)
+		}
+	}
+	return fmt.Errorf("won't delete %s: it isn't in %s's temp work", path, a.DisplayName)
+}
+
+// CleanStaleTemp empties the tmp folder rush gave a session whose host is
+// gone, once nothing at its top has changed for idle: something a stopped
+// session left running may still use what changed since. Only that folder,
+// never its agent's scratch elsewhere. It says whether it emptied it.
+func CleanStaleTemp(a *Agent, idle time.Duration, now time.Time) (bool, error) {
+	if !a.Rush || a.PID != 0 || a.ID == "" {
+		return false, nil
+	}
+	dir := host.TempDir(a.ID)
+	if filepath.Base(dir) != "tmp" {
+		return false, fmt.Errorf("won't delete %s", dir)
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil || len(ents) == 0 {
+		return false, nil
+	}
+	for _, e := range ents {
+		if fi, err := e.Info(); err != nil || now.Sub(fi.ModTime()) < idle {
+			return false, nil
+		}
+	}
+	for _, e := range ents {
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
+}
+
 // TempSize is an agent's temp work as last measured.
 type TempSize struct {
 	Bytes int64     `json:"bytes"`
@@ -104,10 +154,10 @@ type TempSize struct {
 }
 
 // every is how long a running agent's temp work goes before it's
-// measured again: a minute, or longer for one whose last walk was long,
+// measured again: ten minutes, or longer for one whose last walk was long,
 // so walking never takes more than a sliver of a core.
 func (e TempSize) every() time.Duration {
-	return min(max(time.Minute, e.Took*tempShare), 2*time.Hour)
+	return min(max(10*time.Minute, e.Took*tempShare), 2*time.Hour)
 }
 
 // tempShare is how much longer than a walk took it waits before the next:
@@ -167,8 +217,9 @@ func (t *TempSizes) Load() {
 }
 
 // Due are the agents whose temp work should be measured: never measured,
-// busy since, or running and not measured for a while (a minute, longer
-// for one that's slow to walk).
+// busy since, or running and not measured for a while (ten minutes, longer
+// for one that's slow to walk). A stopped one isn't walked again until it
+// does something: the tidy-up empties what rush gave it.
 func (t *TempSizes) Due(agents []*Agent, now time.Time) []*Agent {
 	t.mu.Lock()
 	defer t.mu.Unlock()

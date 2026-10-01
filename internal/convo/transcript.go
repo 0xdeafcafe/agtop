@@ -160,8 +160,9 @@ type tline struct {
 	Content       jsontext.Value `json:"content"`
 	Level         string         `json:"level"`
 	Attachment    struct {
-		Type    string         `json:"type"`
-		Content jsontext.Value `json:"content"`
+		Type      string         `json:"type"`
+		HookEvent string         `json:"hookEvent"`
+		Content   jsontext.Value `json:"content"`
 	} `json:"attachment"`
 	Compact struct {
 		Trigger    string `json:"trigger"`
@@ -351,7 +352,9 @@ type parsedLine struct {
 	// A user line: what you typed, when it's that.
 	text     string
 	images   []string
+	pictures []*event.ImageData
 	prompt   bool
+	hooks    []Hook // what a start hook added
 	content  jsontext.Value
 	notice   string // a system line's text
 	ev       any    // a message as the stream would carry it
@@ -379,6 +382,9 @@ func (t *Tail) parse(b []byte) (p parsedLine, ok bool) {
 		_ = jsonx.Unmarshal(l.Message, &m)
 		p.content = m.Content
 		if p.text, p.images, p.prompt = prompt(m.Content); p.prompt {
+			if len(p.images) > 0 {
+				p.pictures = promptPictures(m.Content)
+			}
 			break
 		}
 		fallthrough
@@ -390,6 +396,9 @@ func (t *Tail) parse(b []byte) (p parsedLine, ok bool) {
 		}
 	case "attachment":
 		p.text, p.prompt = told(l.Attachment.Type, l.Attachment.Content)
+		if k := l.Attachment.Type; k == "hook_success" || k == "hook_additional_context" {
+			p.hooks = hookNotes(k, l.Attachment.HookEvent, l.Attachment.Content)
+		}
 	}
 	// What's been decoded isn't kept twice.
 	l.Message, l.ToolUseResult, l.Content, l.Attachment.Content = nil, nil, nil, nil
@@ -465,7 +474,12 @@ func (t *Tail) take(p *parsedLine) bool {
 				text = text2
 				s.noteTask(p.content)
 			}
-			s.Apply(host.Sent{Text: text, Images: images}, at)
+			e := s.sent(host.Sent{Text: text, Images: images}, at, false)
+			if e.item != nil {
+				e.item.Pictures = p.pictures
+			} else {
+				e.turn.Pictures = p.pictures
+			}
 			if injected {
 				s.Turns[len(s.Turns)-1].From = from
 			}
@@ -494,6 +508,10 @@ func (t *Tail) take(p *parsedLine) bool {
 		// A message rush's inbox handed over mid-turn: yours, as you sent it.
 		if p.prompt {
 			s.Apply(host.Sent{Text: p.text}, at)
+		}
+		if len(p.hooks) > 0 {
+			s.addHooks(p.hooks)
+			return true
 		}
 		return p.prompt
 	}
@@ -861,4 +879,26 @@ func (t *Tail) applyLight(b []byte) bool {
 	}
 	s.Apply(m, at)
 	return true
+}
+
+// promptPictures decodes attachments once, while a history line is read off the UI.
+func promptPictures(raw jsontext.Value) []*event.ImageData {
+	var blocks []struct {
+		Type   string `json:"type"`
+		Source struct {
+			Data      []byte `json:"data"`
+			MediaType string `json:"media_type"`
+			URL       string `json:"url"`
+		} `json:"source"`
+	}
+	if jsonx.Unmarshal(raw, &blocks) != nil {
+		return nil
+	}
+	var out []*event.ImageData
+	for _, b := range blocks {
+		if b.Type == "image" {
+			out = append(out, &event.ImageData{Data: b.Source.Data, MediaType: b.Source.MediaType, Path: b.Source.URL})
+		}
+	}
+	return out
 }

@@ -36,7 +36,8 @@ func TestListFilterByName(t *testing.T) {
 		t.Fatalf("only the matching agent should be listed, got %v", m.order)
 	}
 	frame := ansi.Strip(m.listView())
-	if !strings.Contains(frame, "agent number 22 doing things") {
+	// Long names may shorten to preserve the harness badge.
+	if !strings.Contains(frame, "agent number 22") || !strings.Contains(frame, "Claude Code") {
 		t.Fatalf("the matching agent should still show:\n%s", frame)
 	}
 	if strings.Contains(frame, "agent number 3 doing things") {

@@ -2,9 +2,10 @@ package ui
 
 import (
 	"os"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/0xdeafcafe/rush/internal/instances"
 )
 
 // restoreEnv carries what was picked across #reload: whether the
@@ -16,6 +17,19 @@ const restoreEnv = "RUSH_RESTORE"
 func (m *Model) reload() tea.Cmd {
 	m.reloading = true
 	return m.quit()
+}
+
+// ReloadMsg is #reload asked for from outside (SIGUSR1, sent by `rush
+// reload`): the same path, on the UI goroutine.
+func ReloadMsg() tea.Msg {
+	return applyMsg(func(m *Model) tea.Cmd { return m.reload() })
+}
+
+// reloadAll is #reload all: the other views are told, off the UI goroutine,
+// then this one reloads like #reload.
+func (m *Model) reloadAll() tea.Cmd {
+	tell := func() tea.Msg { instances.Reload(os.Getpid()); return nil }
+	return tea.Sequence(tell, m.reload())
 }
 
 // Reload is what the next rush starts with, when #reload asked for one.
@@ -53,39 +67,18 @@ func (m *Model) applyRestore() {
 	}
 }
 
-// watchBinary says, once, that rush was installed again since it started:
-// #reload runs the new one. The file is looked at off the UI goroutine.
+// watchBinary looks at the installed rush every 30 seconds, off the UI
+// goroutine: see watchHosts.
 func (m *Model) watchBinary() tea.Cmd {
-	if m.rebuiltSaid || m.tick%5 != 0 {
+	if m.tick%30 != 3 {
 		return nil
 	}
-	was := m.exeAt
-	return func() tea.Msg {
-		exe, err := os.Executable()
-		if err != nil {
-			return nil
-		}
-		fi, err := os.Stat(exe)
-		if err != nil {
-			return nil
-		}
-		at := fi.ModTime()
-		return applyMsg(func(m *Model) tea.Cmd {
-			switch {
-			case m.exeAt.IsZero():
-				m.exeAt = at
-			case was.Equal(m.exeAt) && at.After(m.exeAt) && !m.rebuiltSaid:
-				m.rebuiltSaid = true
-				m.flash("rush was installed again · #reload runs it, sessions carry on", false)
-			}
-			return nil
-		})
-	}
+	return m.watchHosts(false)
 }
 
 // reloadFields are the Model's, kept here with what uses them.
 type reloadFields struct {
 	reloading, restorePane, rebuiltSaid bool
+	rebuilt                             bool // a newer rush than this one is installed
 	restore                             string
-	exeAt                               time.Time
 }

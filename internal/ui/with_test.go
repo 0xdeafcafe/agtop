@@ -5,18 +5,31 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/0xdeafcafe/rush/internal/adapters/gemini"
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/fleet"
-	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-func TestOtherAgentsAreMarked(t *testing.T) {
+func TestEveryHarnessIsNamed(t *testing.T) {
 	m := &Model{}
-	if b := m.badges(&fleet.Agent{Kind: "codex"}); !strings.Contains(b, "codex") {
-		t.Errorf("a Codex session's badges = %q", b)
+	for kind, want := range map[string]string{"claude": "Claude Code", "": "Claude Code", "codex": "Codex", "kimi": "Kimi", "vibe": "Vibe", "gemini": "Gemini", "ollama": "Claude Code · Ollama"} {
+		if b := m.badges(&fleet.Agent{Kind: kind}, true); !strings.Contains(b, want) {
+			t.Errorf("%s badge=%q, want %s", kind, b, want)
+		}
 	}
-	if b := m.badges(&fleet.Agent{Kind: "claude"}); b != "" {
-		t.Errorf("a Claude Code session's badges = %q, want none", b)
+}
+
+func TestLongAgentTitlePreservesHarnessIdentity(t *testing.T) {
+	m, _ := benchModel(180, 40)
+	a := m.snap.Agents[0]
+	a.DisplayName = strings.Repeat("long title ", 30)
+	a.Kind = "claude"
+	m.host.sess.Info.Kind = "kimi"
+	for _, stacked := range []bool{false, true} {
+		got := m.agentLine(a, 100, 100, true, 60, stacked, "")
+		if !strings.Contains(got, "Kimi") || strings.Contains(got, "Claude Code") {
+			t.Fatalf("identity lost or stale (stacked=%v): %s", stacked, got)
+		}
 	}
 }
 
@@ -34,20 +47,21 @@ func (installedAgent) Profiles() []agent.Profile {
 }
 func (installedAgent) Start(context.Context, agent.StartOptions) (agent.Conn, error) { return nil, nil }
 
+// #with is #new without a task: the next session, once, and never a
+// default.
 func TestWith(t *testing.T) {
 	t.Setenv("RUSH_HOME", t.TempDir())
-	m := &Model{store: &state.Store{}}
-	d := &m.store.Config.Dispatch
-	m.withAgent("nosuch")
-	if d.Kind != "" {
-		t.Errorf("an unknown agent was taken: %q", d.Kind)
+	m, _ := benchModel(120, 40)
+	before := m.store.Config.DefaultAgent()
+	m.withAgent("nosuch@nowhere")
+	if m.startOver != nil {
+		t.Errorf("an unknown route was taken: %+v", m.startOver)
 	}
-	m.withAgent("Installed")
-	if d.Kind != "installed" {
-		t.Errorf("#with installed = %q", d.Kind)
+	m.withAgent("codex@openai-sub")
+	if m.startOver == nil || m.startOver.kind != "codex" {
+		t.Fatalf("#with codex@openai-sub = %+v", m.startOver)
 	}
-	m.withAgent("claude")
-	if d.Kind != "claude" {
-		t.Errorf("#with claude = %q", d.Kind)
+	if m.store.Config.DefaultAgent() != before {
+		t.Errorf("#with changed the default to %s", m.store.Config.DefaultAgent())
 	}
 }

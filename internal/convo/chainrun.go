@@ -10,13 +10,13 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
-// Shell is the shell Claude Code runs a Bash call in, as the process table
-// has it: its command line, which holds the call's command, when it
-// started and what it has running under it.
+// Shell is a shell invocation observed under a harness process. Command is
+// the exact -c argument when available; Cmd retains native wrapper metadata.
 type Shell struct {
-	Cmd   string
-	Start time.Time
-	Kids  []ShellProc
+	Cmd     string
+	Command string
+	Start   time.Time
+	Kids    []ShellProc
 }
 
 // ShellProc is a process under a Bash call's shell, and its own children.
@@ -84,7 +84,7 @@ func (s *Session) WatchShells(shells []Shell, now time.Time) {
 		q := "'" + strings.ReplaceAll(st.in().Command, "'", `'\''`) + "'"
 		found := false
 		for i, sh := range shells {
-			if !used[i] && strings.Contains(sh.Cmd, q) {
+			if !used[i] && (sh.Command != "" && sh.Command == st.in().Command || sh.Command == "" && strings.Contains(sh.Cmd, q)) {
 				used[i], found = true, true
 				st.watch(sh, now)
 				break
@@ -97,7 +97,7 @@ func (s *Session) WatchShells(shells []Shell, now time.Time) {
 	for _, st := range left {
 		best := -1
 		for i, sh := range shells {
-			if used[i] || st.Start.IsZero() {
+			if used[i] || st.Start.IsZero() || sh.Command != "" {
 				continue
 			}
 			if sh.Start.After(st.Start.Add(-2*time.Second)) && (best < 0 || sh.Start.Before(shells[best].Start)) {
@@ -381,7 +381,7 @@ func (s *Session) JobLines(j *Job, o Options, indent int) []Line {
 // it's a chain seen running.
 func (s *Session) RunningPart(id string) (RunningPart, bool) {
 	st := s.Step(id)
-	if st == nil || !s.live(st) {
+	if st == nil || !s.live(st) || st.toolRun() != nil {
 		return RunningPart{}, false
 	}
 	k := -1

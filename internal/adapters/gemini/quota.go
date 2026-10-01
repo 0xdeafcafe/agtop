@@ -67,8 +67,7 @@ type quotaResponse struct {
 func (Adapter) Quota(ctx context.Context, p agent.Profile, _ agent.Account) (usage.Quota, error) {
 	dir := p.Dir
 	if dir == "" {
-		h, _ := os.UserHomeDir()
-		dir = filepath.Join(h, ".gemini")
+		dir = geminiHome()
 	}
 	var c struct {
 		AccessToken string `json:"access_token"`

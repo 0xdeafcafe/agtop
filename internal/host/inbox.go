@@ -72,14 +72,20 @@ func (s *server) unread(sub string) {
 		return
 	}
 	qi := queueImages(&s.info)
+	qe := queueExchanges(&s.info)
 	s.info.Queue = append(s.info.Queue, "I sent this to your subagent "+sub+", but it finished before it read it:\n\n"+strings.TrimSpace(string(b)))
 	s.info.QueueImages = trimImages(append(qi, nil))
+	s.info.QueueExchanges = trimExchanges(append(qe, nil))
 	if s.info.State == "idle" && !s.info.QueueHeld {
 		s.sendQueue()
 		return
 	}
 	s.publish()
 }
+
+// MainInbox is the inbox file for the main session itself: slipped into
+// its turn at its next tool call, without stopping it.
+const MainInbox = "main"
 
 // TellNote heads what the hook hands over. The transcript keeps it, so a
 // view can show what follows it as your message.
@@ -92,8 +98,11 @@ func Inbox(dir string, in io.Reader, out io.Writer) error {
 		Event   string `json:"hook_event_name"`
 		AgentID string `json:"agent_id"`
 	}
-	if err := jsonx.Decode(in, &h); err != nil || h.AgentID == "" || strings.ContainsAny(h.AgentID, `/\.`) {
-		return err // the main session's own calls: its messages go the usual way
+	if err := jsonx.Decode(in, &h); err != nil || strings.ContainsAny(h.AgentID, `/\.`) {
+		return err
+	}
+	if h.AgentID == "" {
+		h.AgentID = MainInbox // the main session's own call
 	}
 	// Taken by renaming, so two calls at once can't both hand it over.
 	p, taking := filepath.Join(dir, h.AgentID), filepath.Join(dir, "."+h.AgentID+".taking")

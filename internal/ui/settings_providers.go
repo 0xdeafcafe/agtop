@@ -12,46 +12,47 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
-	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// Providers is a list and, beside it, everything about the line picked.
-// The list is each installed provider in the default profile's order,
-// Anthropic's and OpenAI's subscriptions apart from their API keys, with
-// the account it's on and its tightest limit; then the profiles you made;
-// then the folders that pick one. A provider shows its accounts or key,
-// the harnesses it runs in (which you use, and the default), what its
-// sessions start with in each, what it does at a limit, and under all of
-// it what rush can do with it in its default harness. A profile of yours
-// shows its providers, their order and its policy; a folder the profile
-// it gives. enter goes into what's shown and esc back to the list; on a
-// narrow terminal the two take turns.
+// Providers is a list and, beside it, everything about the line picked:
+// each installed provider in the default profile's order, Anthropic's and
+// OpenAI's subscriptions apart from their API keys. A provider shows its
+// accounts or key, the harnesses it runs in (★ where new sessions start),
+// what they start with, what it does at a limit, and under all of it what
+// rush can do with it and its models. Profiles is the same shell over the
+// profiles you made and the folders that pick one.
 
-var providersPage = page{
-	name: "Providers",
-	pre: func(m *Model, s string) (tea.Cmd, bool) {
-		d := m.dialog
-		if d.inside && (s == "esc" || s == "q") {
-			d.inside, d.cursor = false, d.pick
-			return nil, true
-		}
-		return nil, false
-	},
-	body: (*Model).providersBody,
-	key:  (*Model).providersKey,
-	rows: func(m *Model) int {
-		if m.dialog.inside {
-			return len(flat(m.provForm(m.provPicked())))
-		}
-		return len(m.provItems())
-	},
+func providersPage() page {
+	return page{
+		name: "Providers",
+		pre: func(m *Model, s string) (tea.Cmd, bool) {
+			d := m.dialog
+			if d.inside && (s == "esc" || s == "q" || s == "backspace") {
+				d.inside, d.cursor = false, d.pick
+				d.catalogScroll = 0
+				return nil, true
+			}
+			return m.catalogKey(s, d.inside)
+		},
+		body: (*Model).providersBody,
+		key:  (*Model).providersKey,
+		rows: func(m *Model) int {
+			if m.dialog.inside {
+				return len(flat(m.provForm(m.provPicked())))
+			}
+			return len(m.provItems())
+		},
+	}
+
 }
 
-// provListW is the list's width, when there's room for what's picked
-// beside it.
-const provListW = 36
+func profilesPage() page {
+	p := providersPage()
+	p.name = "Profiles"
+	return p
+}
 
 // provItem is a line of Providers' list: one of these is set.
 type provItem struct {
@@ -61,8 +62,11 @@ type provItem struct {
 	add      string // "profile" or "folder": its group's + line
 }
 
-// provItems are Providers' lines.
+// provItems are the lines of the page showing: Providers' or Profiles'.
 func (m *Model) provItems() []provItem {
+	if m.dialog != nil && m.dialog.page == pageProfiles {
+		return m.profileItems()
+	}
 	var out []provItem
 	for _, ad := range m.agentOrder() {
 		pr := agent.ProviderOf(ad.Kind())
@@ -76,6 +80,13 @@ func (m *Model) provItems() []provItem {
 			}
 		}
 	}
+	return out
+}
+
+// profileItems are Profiles' lines: your profiles, then the folders that
+// pick one.
+func (m *Model) profileItems() []provItem {
+	var out []provItem
 	cfg := m.store.Config
 	for _, p := range cfg.Profiles {
 		if !ownProfile(p.Name) {
@@ -133,6 +144,9 @@ func provName(id string) string {
 	p, _ := agent.Billed(id)
 	name := agent.ProviderLabel(p)
 	if !agent.Split(p) && agent.KeyEnv(p) == "" && name != agentName(p) {
+		if strings.HasPrefix(agentName(p), name+" ") {
+			return agentName(p)
+		}
 		return name + " " + agentName(p)
 	}
 	return name
@@ -225,31 +239,14 @@ func sameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
-// provLeft is ← inside what's picked: a row's own use of it, else, on a
-// row with no choices to go back through, back out to the list, as esc.
-func (m *Model) provLeft(secs []section, s string) (tea.Cmd, bool) {
-	d := m.dialog
-	row := rowAt(secs, d.cursor)
-	if row.key != nil {
-		if cmd, used := row.key(s); used {
-			return cmd, true
-		}
-	}
-	if len(row.choices) > 0 {
-		return nil, false
-	}
-	d.inside, d.cursor = false, d.pick
-	return nil, true
-}
-
 func (m *Model) providersKey(s string) tea.Cmd {
 	d := m.dialog
 	if d.inside {
 		secs := m.provForm(m.provPicked())
 		if s == "left" || s == "h" {
-			if cmd, used := m.provLeft(secs, s); used {
-				return cmd
-			}
+			// Back out, as esc: going back never changes a setting; → and space do.
+			d.inside, d.cursor = false, d.pick
+			return nil
 		}
 		return m.formKey(secs, s)
 	}
@@ -270,8 +267,14 @@ func (m *Model) providersKey(s string) tea.Cmd {
 			m.addFolder("")
 		default:
 			d.pick, d.cursor, d.inside = d.cursor, 0, true
+			if it.provider != "" {
+				return m.loadModels(string(m.provKind(it.provider))) // for its Models, off the UI
+			}
 		}
 	case "n":
+		if d.page != pageProfiles {
+			m.setSettingsPage(pageProfiles)
+		}
 		m.newProfile()
 	case "*", "space":
 		if name := it.provider + it.profile; name != "" {
@@ -340,56 +343,57 @@ func (m *Model) listKeys(it provItem) []string {
 
 func (m *Model) providersBody(w int) []string {
 	d := m.dialog
-	it := m.provPicked()
-	wide := w >= 100
-	dw := w
-	if wide {
-		dw = w - provListW - 3
+	items := m.provItems()
+	var catalog []section
+	for _, it := range items {
+		group, label := "Providers", provLabel(it.provider)
+		if it.provider != "" {
+			pr, _ := agent.Billed(it.provider)
+			label = glyph(agent.Kind(pr)) + " " + label
+		}
+		switch {
+		case it.profile != "":
+			group, label = "Profiles", m.profileMark(it.profile)+it.profile
+		case it.folder != "":
+			group, label = "Folders", tildify(it.folder)
+		case it.add == "profile":
+			group, label = "Profiles", "+ New profile"
+		case it.add == "folder":
+			group, label = "Folders", "+ Add folder"
+		}
+		if len(catalog) == 0 || catalog[len(catalog)-1].title != group {
+			catalog = append(catalog, section{title: group})
+		}
+		catalog[len(catalog)-1].rows = append(catalog[len(catalog)-1].rows, setting{label: label})
 	}
-	secs := m.provForm(it)
-	cur := -1
+	picked := d.cursor
 	if d.inside {
-		cur = d.cursor
+		picked = d.pick
 	}
-	detail := append(m.provHead(it, dw), m.formRows(secs, cur, dw)...)
-	keys := keysFit(w, append(m.listKeys(it), pagesKeys...)...)
-	if d.inside {
-		row := rowAt(secs, d.cursor)
-		detail = append(detail, m.about(row, dw)...)
-		back := []string{"esc", "back"}
-		if len(row.choices) == 0 {
-			back[0] = "← esc"
+	picked = max(0, min(picked, len(items)-1))
+	it := items[picked]
+	return m.catalogBody(catalog, picked, d.inside, true, w, func(dw int) ([]string, int) {
+		secs := m.provForm(it)
+		cur := -1
+		if d.inside {
+			cur = d.cursor
 		}
-		keys = m.formKeys(row, back, w)
-	}
-	if it.provider != "" {
-		detail = append(detail, m.canDo(it.provider, dw)...)
-	}
-	for i, l := range detail {
-		if cellw.String(ansi.Strip(l)) > dw {
-			detail[i] = ansi.Truncate(l, dw-1, "…")
+		head := m.provHead(it, dw)
+		rows := append(head, m.formRows(secs, cur, dw)...)
+		cursor := m.frameCursor(rows)
+		indices := formLineIndices(secs, len(head), len(rows))
+		if d.inside {
+			rows = append(rows, m.about(rowAt(secs, cur), dw)...)
 		}
-	}
-	out := []string{m.provTotals(), ""}
-	switch {
-	case wide:
-		list := m.provList(provListW)
-		for i := range max(len(list), len(detail)) {
-			l, r := "", ""
-			if i < len(list) {
-				l = list[i]
-			}
-			if i < len(detail) {
-				r = detail[i]
-			}
-			out = append(out, fit(l, provListW)+faint(" │ ")+r)
+		if it.provider != "" {
+			rows = append(rows, m.canDo(it.provider, dw)...)
 		}
-	case d.inside:
-		out = append(out, detail...)
-	default:
-		out = append(out, m.provList(w)...)
-	}
-	return append(out, "", keys)
+		for len(indices) < len(rows) {
+			indices = append(indices, -1)
+		}
+		d.catalogGeometry.allDetails = indices
+		return rows, cursor
+	})
 }
 
 // provTotals is every provider's spend and sessions summed, and which
@@ -411,106 +415,6 @@ func (m *Model) provTotals() string {
 		s += faint("   ·   ") + paint(cYellow, "→ ") + dim("new sessions run ") + paint(cText, agentName(sp)) + dim(" for now: the first's accounts are nearly out")
 	}
 	return s
-}
-
-// provList is the list, w wide: the cursor's line highlighted, or the
-// one gone into marked.
-func (m *Model) provList(w int) []string {
-	d := m.dialog
-	var out []string
-	group := ""
-	for i, it := range m.provItems() {
-		g := ""
-		switch {
-		case it.profile != "" || it.add == "profile":
-			g = "your profiles"
-		case it.folder != "" || it.add == "folder":
-			g = "folders"
-		}
-		if g != group {
-			out = append(out, "", faint("── "+g+" "+strings.Repeat("─", max(0, w-len(g)-4))))
-			group = g
-		}
-		for j, l := range m.provLine(it, w-2) {
-			switch {
-			case d.inside && i == d.pick && j == 0:
-				out = append(out, paint(cOrange, "▸ ")+l)
-			case !d.inside && i == d.cursor:
-				out = append(out, highlight(paint(cOrange, "▍")+" "+l, w))
-			default:
-				out = append(out, "  "+l)
-			}
-		}
-	}
-	return out
-}
-
-// provLine is a line of the list, w wide: a provider's is two.
-func (m *Model) provLine(it provItem, w int) []string {
-	switch {
-	case it.provider != "":
-		pr, key := agent.Billed(it.provider)
-		u := m.useOf(m.provKind(it.provider))
-		q := u.inUse.q
-		meter := faint("—")
-		switch win, ok := q.Tightest(""); {
-		case key && !m.store.Config.HasAPIKey(pr):
-			meter = paint(cYellow, "no key")
-		case key:
-			meter = dim("per token")
-		case ok:
-			meter = bar(win.Percent) + " " + paint(cText, fmt.Sprintf("%3.0f%%", win.Percent))
-		case q.Balance != "":
-			meter = paint(cText, q.Balance)
-		case q.Problem != "":
-			meter = paint(cYellow, "! no reading")
-		}
-		name := paint(cText+bold, provName(it.provider))
-		if star := m.profileMark(it.provider); strings.TrimSpace(star) != "" {
-			name += " " + strings.TrimSpace(star)
-		}
-		first := glyph(agent.Kind(pr)) + " " + fit(name, w-18) + right(meter, 15)
-		// Under it, only what's worth a line: the account, how many more
-		// and how many are nearly out, and what it spent today.
-		var more []string
-		if b := billWord(it.provider); b != "" {
-			more = append(more, dim(b))
-		}
-		if !key {
-			on := u.inUse.name()
-			if u.inUse.head {
-				on = u.inUse.q.Email // its own sign-in, unnamed, says nothing
-			}
-			if on != "" {
-				more = append(more, dim(on))
-			}
-			if u.accts > 1 {
-				more = append(more, faint(fmt.Sprintf("%d more", u.accts-1)))
-			}
-			if u.out > 0 {
-				more = append(more, paint(cYellow, fmt.Sprintf("%d nearly out", u.out)))
-			}
-		}
-		if v := m.spentToday(it.provider); v > 0 {
-			more = append(more, dim(money(v)+" today"))
-		}
-		if len(more) == 0 {
-			return []string{fit(first, w)}
-		}
-		return []string{fit(first, w), fit("  "+strings.Join(more, faint(" · ")), w)}
-	case it.profile != "":
-		p, _ := m.store.Config.ProfileNamed(it.profile)
-		return []string{fit(m.profileMark(it.profile)+paint(cText+bold, it.profile)+"  "+faint(m.profileAgents(p)), w)}
-	case it.folder != "":
-		to := ""
-		if r, ok := m.store.Config.RuleFor(state.ExpandHome(it.folder)); ok {
-			to = r.Profile
-		}
-		return []string{fit(paint(cText, tildify(state.ExpandHome(it.folder)))+faint(" → ")+dim(to), w)}
-	case it.add == "profile":
-		return []string{faint("+ new profile")}
-	}
-	return []string{faint("+ add a folder")}
 }
 
 // provHead is what's above the form of the line picked, w wide.
@@ -602,7 +506,7 @@ func (m *Model) providerHead(id string, w int) []string {
 // feature by feature, and what the model it starts with takes.
 func (m *Model) canDo(id string, w int) []string {
 	k := m.provKind(id)
-	model := m.store.Config.Dispatch.StartFor(string(k)).Model
+	model := m.startOn(id, string(k)).model
 	if p, ok := m.store.Config.ProfileNamed(id); ok && p.Model != "" {
 		model = p.Model
 	}
@@ -612,7 +516,41 @@ func (m *Model) canDo(id string, w int) []string {
 	if model != "" {
 		out = append(out, "  "+paint(cText, model)+"  "+modelTakes(k, model))
 	}
+	if models := m.agentModels(k); len(models) > 0 {
+		out = append(out, "", rule("Models", "context · price per million tokens in / out", w))
+		for _, c := range models {
+			out = append(out, modelLine(k, c, w))
+		}
+	}
 	return out
+}
+
+// modelLine is one model agent k offers: its name, context window and
+// price, each where rush knows it, then what it's for.
+func modelLine(k agent.Kind, c agent.Choice, w int) string {
+	var facts []string
+	n := c.Context
+	if windower, ok := agent.As[agent.ContextWindower](k); ok && n == 0 {
+		n = windower.ContextWindow(c.ID)
+	}
+	if n > 0 {
+		facts = append(facts, tokens(n))
+	}
+	if pr, ok := agent.As[agent.Pricer](k); ok {
+		in, okIn := pr.Cost(c.ID, usage.TokenUsage{Input: 1_000_000})
+		out, okOut := pr.Cost(c.ID, usage.TokenUsage{Output: 1_000_000})
+		switch {
+		case okIn && okOut && in == 0 && out == 0:
+			facts = append(facts, "free")
+		case okIn && okOut:
+			facts = append(facts, fmt.Sprintf("$%g / $%g", in, out))
+		}
+	}
+	line := "  " + paint(cText, fit(c.ID, 24)) + " " + dim(fit(strings.Join(facts, " · "), 22))
+	if room := w - 50; room > 12 && c.Note != "" {
+		line += " " + faint(ansi.Truncate(c.Note, room, "…"))
+	}
+	return line
 }
 
 // featureGrid is what rush can do with agent k, feature by feature, in as
@@ -658,8 +596,8 @@ func featureGrid(k agent.Kind, key bool, w int) []string {
 }
 
 // providerForm is provider id's accounts, the harnesses it runs in, what
-// its sessions start with in each you use, what it does at a limit and
-// its folders, then what its default harness adds.
+// its sessions start with in the default one, what it does at a limit
+// and its folders, then what its default harness adds.
 func (m *Model) providerForm(id string) []section {
 	cfg := &m.store.Config
 	k := m.provKind(id)
@@ -668,20 +606,15 @@ func (m *Model) providerForm(id string) []section {
 	if acct, ok := m.accountSection(k); ok && !paysByKey(id) {
 		secs = append(secs, acct)
 	}
+	if auth, ok := m.nativeAuthSection(k); ok {
+		secs = append(secs, auth)
+	}
 	secs = append(secs, m.harnessSection(id))
-	var used []agent.Kind
-	for _, hk := range agent.RunsFor(id) {
-		if hk != k && agent.Runs(hk) && cfg.Uses(id, string(agent.HarnessOf(hk))) {
-			used = append(used, hk)
-		}
+	st := m.startSection(id, k)
+	if pr, _ := agent.Billed(id); pr == "ollama" {
+		st.rows = append(st.rows, m.ollamaModelSettings(m.startOn(id, string(k)).model)...)
 	}
-	for _, hk := range append([]agent.Kind{k}, used...) {
-		st := m.startSection(hk)
-		if len(used) > 0 {
-			st.title = "In " + agent.HarnessLabel(hk) + ", new sessions start with"
-		}
-		secs = append(secs, st)
-	}
+	secs = append(secs, st)
 	own := m.profileForm(p) // at a limit, and its folders
 	if _, key := agent.Billed(id); key {
 		own = own[1:] // a key has no limit to reach
@@ -690,57 +623,54 @@ func (m *Model) providerForm(id string) []section {
 	return append(secs, m.agentSections(k)[1:]...)
 }
 
-// harnessSection is every harness provider id can run in: which you
-// use, and the default, ★, where its new sessions start.
+// harnessSection is every harness provider id runs in, ★ the one new
+// sessions start in; Harnesses says why the rest can't.
 func (m *Model) harnessSection(id string) section {
 	cfg := &m.store.Config
 	sec := section{title: "Harnesses", note: "where its sessions can run; ★ is where new ones start"}
 	def := agent.HarnessOf(m.provKind(id))
-	for _, k := range agent.RunsFor(id) {
-		h, hn := agent.HarnessOf(k), agent.HarnessLabel(k)
-		use := h == def || cfg.Uses(id, string(h))
+	for _, h := range agent.HarnessKinds() {
+		k, warn, why := agent.Compat(id, h)
+		if k == "" {
+			continue
+		}
+		hn := agent.HarnessLabel(h)
 		sec.rows = append(sec.rows, setting{
 			label: hn,
 			line: func(int) string {
-				mark, now := "  ", faint("not used")
+				mark, now := "  ", faint("enter makes it the default")
 				switch {
-				case !agent.Runs(k):
-					now = faint("not installed")
+				case why != "":
+					now = faint(why)
 				case h == def:
 					mark, now = paint(cOrange, "★ "), dim("the default")
-				case use:
-					now = dim("used")
+				case warn != "":
+					now = paint(cYellow, "⚠ ") + dim(warn)
 				}
 				return mark + glyph(h) + " " + paint(cText, fit(hn, 14)) + levelChip(k) + " " + now
 			},
 			key: func(s string) (tea.Cmd, bool) {
-				switch {
-				case s == "*" && agent.Runs(k):
-					cfg.SetUses(id, string(def), true) // the old default stays in use
-					cfg.SetUses(id, string(h), false)
-					cfg.SetRunsIn(id, string(h))
-				case (s == "enter" || s == "space") && h != def && agent.Runs(k):
-					cfg.SetUses(id, string(h), !use)
-				case s == "enter" || s == "space" || s == "*":
-					return nil, true
-				default:
+				if s != "*" && s != "enter" && s != "space" {
 					return nil, false
 				}
-				_ = m.store.SaveConfig()
+				if why == "" && h != def {
+					cfg.SetRunsIn(id, string(h))
+					_ = m.store.SaveConfig()
+				}
 				return nil, true
 			},
-			keys: []string{"enter", "use or not", "*", "make default"},
+			keys: []string{"enter", "make default"},
 			about: func() (string, string, string) {
-				what := provLabel(id) + " in " + hn + ": " + levelWords[agent.LevelOf(k)] + ". A session can start in any harness you use; new ones start in the default, ★."
+				what := provLabel(id) + " in " + hn + ": " + levelWords[agent.LevelOf(k)] + ". #new " + agent.HarnessWord(h) + "@" + agent.ProviderWord(id) + " starts one here once; new ones start in the default, ★."
 				switch {
-				case !agent.Runs(k):
-					return hn, what, hn + " isn't installed here."
+				case why != "":
+					return hn, what, why + "."
 				case h == def:
 					return hn, what, "The default: new " + provLabel(id) + " sessions start here."
-				case use:
-					return hn, what, "Used besides the default: enter stops using it, * makes it the default."
+				case warn != "":
+					return hn, what, "It " + warn + ", on that harness's own sign-in. enter makes it the default."
 				}
-				return hn, what, "Not used: enter uses it too, * makes it the default."
+				return hn, what, "enter makes it the default."
 			},
 		})
 	}

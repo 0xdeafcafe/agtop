@@ -153,7 +153,7 @@ func FindWorktrees(agents []*Agent) []Worktree {
 // and how much disk it takes. It can take seconds on a big checkout.
 func (w *Worktree) Check() {
 	if w.checkGit() {
-		w.Size = DiskUsage([]TempDir{{Path: w.Path}})
+		w.Size = DiskUsageBackground([]TempDir{{Path: w.Path}})
 	}
 }
 
@@ -334,8 +334,10 @@ func mainCheckout(dir string, seen map[string]string) string {
 		}
 		break
 	}
-	for _, d := range walked {
-		seen[d] = main
+	if main != "" {
+		for _, d := range walked {
+			seen[d] = main
+		}
 	}
 	return main
 }

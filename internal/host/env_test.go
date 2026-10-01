@@ -17,7 +17,7 @@ func TestConfigEnvReachesClaude(t *testing.T) {
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Prompt: "one", Binary: bin, IdleStop: Duration(200 * time.Millisecond),
+	cfg, err := Spawn(Config{Owner: os.Getpid(), Cwd: filepath.Dir(bin), Prompt: "one", Binary: bin, IdleStop: Duration(200 * time.Millisecond),
 		Env: []string{"RUSH_TEST_MARK=card-42"}})
 	if err != nil {
 		t.Fatal(err)

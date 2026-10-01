@@ -42,11 +42,11 @@ func (CodexAdapter) Provider() string { return string(Kind) }
 // codexFeatures are Codex's, less what a local model or rush's own
 // folder hasn't: no account, no limits, and nothing to sign in to.
 var codexFeatures = map[agent.Feature]agent.Support{
-	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
+	agent.FeatureRun: agent.Yes, agent.FeaturePrompt: agent.Yes, agent.FeaturePort: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
 	agent.FeatureInterrupt: agent.Yes, agent.FeatureModel: agent.Yes.With("any model Ollama has that calls tools"),
 	agent.FeatureModes:  agent.Yes.With("read-only, auto, full-access"),
 	agent.FeatureImages: agent.Yes.With("on models that take them"), agent.FeatureQuestions: agent.Yes,
-	agent.FeatureContext:   agent.Yes.With("how full it is, not what fills it"),
+	agent.FeatureContext: agent.Yes.With("how full it is, not what fills it"), agent.FeatureCompact: agent.Yes,
 	agent.FeatureHandoffIn: agent.Yes, agent.FeatureLive: agent.Yes, agent.FeatureHistory: agent.Yes,
 	agent.FeaturePricing: agent.Yes.With("free: it runs on this machine"),
 	agent.FeatureEffort:  agent.No.With("a model thinks or doesn't, as it was made"),

@@ -38,7 +38,7 @@ func (m *Model) interfaceSections() []section {
 	enter.unset = "ask"
 	group := choiceSetting("Group by", firstNonEmpty(c.GroupBy, "status"), "How agents are sorted into sections.", [][2]string{
 		{"status", "Active first: what needs you, your turn, working and idle, and what stopped recently (Settings › General); the rest of the last day under Today, older ones under Earlier."},
-		{"agent", "one section per coding agent (Claude Code, Codex, Copilot…), handy when you run several."},
+		{"agent", "one section per harness (Claude Code, Codex, Copilot…), handy when you run several."},
 		{"group", "your own sections; put an agent in one with /group <name>. Ungrouped agents fall back to status."},
 	}, func(v string) { c.GroupBy = v })
 	group.choices = m.groupModes() // plugins arrange the list too
@@ -62,6 +62,27 @@ func (m *Model) interfaceSections() []section {
 			{"tokens", "biggest context first, by its newest message's tokens."},
 			{"time", "longest-running first."},
 		}, func(v string) { c.SortBy = v })
+	width := ""
+	if c.SideWidth > 0 {
+		width = fmt.Sprintf("%.0f%%", c.SideWidth*100)
+	}
+	listWidth := choiceSetting("List width", width,
+		"The list's share of the screen beside a Session. Dragging its edge, or shift+← →, changes it too.",
+		[][2]string{
+			{"", "rush's choice, by the screen's width."},
+			{"25%", "a quarter of the screen."},
+			{"33%", "a third of the screen."},
+			{"50%", "half the screen."},
+		}, func(v string) {
+			var pct float64
+			fmt.Sscanf(v, "%g%%", &pct)
+			c.SideWidth = pct / 100
+		})
+	listWidth.unset = "rush's"
+	dock := choiceSetting("Card lines", fmt.Sprint(m.dockLines()),
+		"How many lines of the agent's latest words its card under the list shows.",
+		[][2]string{{"3", "three lines."}, {"6", "six lines."}, {"10", "ten lines."}, {"15", "fifteen lines."}},
+		func(v string) { fmt.Sscanf(v, "%d", &c.DockLines) })
 	stackAt := ""
 	switch {
 	case c.StackAt < 0:
@@ -153,6 +174,14 @@ func (m *Model) interfaceSections() []section {
 			{"sends", "sends the message as it is; a command typed in part is still completed."},
 		}, func(v string) { c.EnterSendsCommand = v == "sends" })
 
+	rowKey := choiceSetting("Open a picked row with", firstNonEmpty(c.RowKey, "enter and space"),
+		"The key that opens or closes the conversation row you've picked. Whichever it is, nothing you've typed is sent while a row is picked.",
+		[][2]string{
+			{"enter and space", "either opens or closes it."},
+			{"enter", "enter does; space says so."},
+			{"space", "space does; enter says so."},
+		}, func(v string) { c.RowKey = map[bool]string{true: "", false: v}[v == "enter and space"] })
+
 	copying := choiceSetting("Copy on select", map[bool]string{true: "on", false: "off"}[c.CopiesOnSelect()],
 		"Whether text you drag over, in a conversation or a message box, goes to the clipboard as you let go.",
 		[][2]string{
@@ -162,13 +191,6 @@ func (m *Model) interfaceSections() []section {
 			on := v == "on"
 			c.CopyOnSelect = &on
 		})
-
-	escStop := choiceSetting("esc on a running turn", map[bool]string{true: "stops it", false: "asks first"}[c.StopTurnUnasked],
-		"What esc does in a conversation while the agent is working on a message.",
-		[][2]string{
-			{"asks first", "asks whether to stop the message: y stops it, ! stops it and stops asking."},
-			{"stops it", "stops the message straight away."},
-		}, func(v string) { c.StopTurnUnasked = v == "stops it" })
 
 	// What a setting changes, as it will look: the Agents list and, where
 	// there's room, a Session beside it, as the split layout sets them.
@@ -208,11 +230,19 @@ func (m *Model) interfaceSections() []section {
 		st.preview = preview
 	}
 
+	minimap := choiceSetting("Conversation minimap", map[bool]string{true: "hidden", false: "shown"}[c.HideMinimap],
+		"A miniature of the conversation along its right edge. Click or drag to scroll. Hidden automatically in narrow panes.",
+		[][2]string{{"shown", "coloured text shapes and a shaded viewport; click or drag to navigate."}, {"hidden", "all available width goes to the conversation."}},
+		func(v string) { c.HideMinimap = v == "hidden" })
+	pictures := choiceSetting("Pictures", map[bool]string{true: "pixelated", false: "sharp"}[c.PixelPictures],
+		"How images in the conversation are drawn. Sharp needs a terminal with Kitty graphics (Ghostty, Kitty); elsewhere they're always pixelated.",
+		[][2]string{{"sharp", "full detail where the terminal can show it."}, {"pixelated", "coloured blocks, softer and quieter."}},
+		func(v string) { c.PixelPictures = v == "pixelated"; convo.SetPixelPictures(c.PixelPictures) })
 	return []section{
-		{title: "Look", rows: []setting{view, theme, colours, logo, spaces}},
-		{title: "Agents list", rows: []setting{group, split, sortBy, stack, subLine, enter, search}},
+		{title: "Look", rows: []setting{view, theme, colours, logo, spaces, minimap, pictures}},
+		{title: "Agents list", rows: []setting{group, split, sortBy, listWidth, dock, stack, subLine, enter, search}},
 		{title: "Agents list columns", note: "the figures beside each agent", rows: cols},
-		{title: "Message box", rows: []setting{command, copying, escStop}},
+		{title: "Message box", rows: []setting{command, rowKey, copying}},
 	}
 }
 

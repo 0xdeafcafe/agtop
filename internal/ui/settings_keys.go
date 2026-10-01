@@ -87,8 +87,12 @@ func contextWhere(c keymap.Context) string {
 		return "in the Agents list and the Prompt under it"
 	case keymap.Session:
 		return "in an agent's Session: its conversation and message box"
+	case keymap.Prompt:
+		return "in the Agents prompt while a draft is typed"
+	case keymap.Pages:
+		return "on Settings, Efficiency, Projects and Wall pages"
 	case keymap.Any:
-		return "#commands, from the list or a Session: none has a key until you give it one"
+		return "in the Agents list or a Session"
 	}
 	return ""
 }
@@ -100,72 +104,57 @@ func (m *Model) keysLen() int { return len(m.keyRows()) }
 // being practiced.
 func keyCaps(seqs []keymap.Seq, lit string) string {
 	if len(seqs) == 0 {
-		return faint("no key")
+		return paint(cText, "Unbound")
 	}
 	var out []string
 	for _, s := range seqs {
-		out = append(out, keycap(s.String(), lit != "" && s.String() == lit))
+		out = append(out, strings.ReplaceAll(keycap(s.String(), lit != "" && s.String() == lit), cSub, cText))
 	}
-	return strings.Join(out, faint(" or "))
+	return strings.Join(out, paint(cText, " or "))
+}
+
+// keysControls wraps whole controls; none disappear when the page is narrow.
+func keysControls(w int, pairs ...string) []string {
+	var out []string
+	line := ""
+	for i := 0; i+1 < len(pairs); i += 2 {
+		item := paint(cText+bold, pairs[i]) + " " + paint(cText, pairs[i+1])
+		if line != "" && cellw.String(line)+3+cellw.String(item) > w {
+			out = append(out, line)
+			line = ""
+		}
+		if line != "" {
+			line += " · "
+		}
+		line += item
+	}
+	if line != "" {
+		out = append(out, line)
+	}
+	return out
 }
 
 func (m *Model) keysBody(w int) []string {
-	d := m.dialog
-	km := m.keyMap()
-	ctxs := m.keyPlaces()
-	ctx := m.keyContext()
-	rows := m.keyRows()
+	d, km := m.dialog, m.keyMap()
+	ctxs, ctx, rows := m.keyPlaces(), m.keyContext(), m.keyRows()
 	d.cursor = min(d.cursor, max(0, len(rows)-1))
-
-	var out []string
-	short := m.h < 36 // no room to explain
-	for _, l := range wrap("What each key does, by where it works. Press any key to find what it does; the keyboard lights the keys of the row you're on or pointing at. Pick one and press enter to give it keys of your own; yours are kept in "+tildify(keymap.Path())+".", w-4) {
-		if short {
-			break
-		}
-		out = append(out, dim(l))
+	budget := max(1, m.h-len(m.header())-6) // frame chrome plus page title
+	out := []string{paint(cText+bold, ctx.Title()) + dim(" · "+strconv.Itoa(d.keyCtx+1)+"/"+strconv.Itoa(len(ctxs))) + "  " + paint(cText, "← → change context")}
+	guidance := wrap(paint(cText, contextWhere(ctx)), w)
+	out = append(out, guidance...)
+	footer := keysControls(w, "enter", "Edit binding", "a", "Add alternative", "x", "Unbind", "r", "Reset default")
+	footer = append(footer, keysControls(w, "↑ ↓", "Select action", "[ ]", "Settings page", "esc", "Back")...)
+	if len(rows) > 0 {
+		a := rows[d.cursor]
+		detail := wrap(paint(cText, a.Title)+" · "+keyCaps(km.Keys(a.ID), ""), w)
+		footer = append(detail, footer...)
 	}
-	if p := km.Problems(); len(p) > 0 {
-		out = append(out, "", paint(cYellow, "! ")+paint(cText, "keybindings.json has bindings rush can't use:"))
-		for i, pr := range p {
-			if i == 3 {
-				out = append(out, faint("    … and "+strconv.Itoa(len(p)-3)+" more"))
-				break
-			}
-			out = append(out, "    "+dim(pr.String()))
-		}
+	if budget >= 20 {
+		footer = append([]string{dim("Try a shortcut to find its action. • marks a custom binding.")}, footer...)
 	}
-
-	// Where: a numbered strip, like Agents'.
-	var strip []string
-	for i, c := range ctxs {
-		n := 0
-		yours := 0
-		for _, a := range km.Actions() {
-			if a.Context == c {
-				n++
-				if km.Changed(a.ID) {
-					yours++
-				}
-			}
-		}
-		name := dim(c.Title())
-		if c == ctx {
-			name = paint(cOrange, "▸") + paint(cText+bold, c.Title())
-		}
-		count := faint(" " + strconv.Itoa(n))
-		if yours > 0 {
-			count += paint(cBlue, " •"+strconv.Itoa(yours))
-		}
-		strip = append(strip, faint(strconv.Itoa(i+1)+" ")+name+count)
+	if problems := km.Problems(); len(problems) > 0 {
+		out = append(out, wrap(paint(cYellow, strconv.Itoa(len(problems))+" invalid bindings: "+problems[0].String()), w)...)
 	}
-	if !short {
-		out = append(out, "")
-	}
-	out = append(out, strings.Join(strip, "     "), "  "+faint(contextWhere(ctx)), "")
-
-	// The table: keys first, lined up, so the eye runs down them; what
-	// they do after, every other row shaded.
 	practicing := ""
 	if len(m.practiced(d.practice)) > 0 {
 		practicing = d.practice.String()
@@ -176,117 +165,42 @@ func (m *Model) keysBody(w int) []string {
 		}
 		return keyCaps(km.Keys(a.ID), practicing)
 	}
-	keysW := 8
-	for _, a := range rows {
-		keysW = max(keysW, cellw.String(keysOf(a)))
+	keyW := min(30, max(12, w/3))
+	actionW := max(8, w-keyW-5)
+	out = append(out, paint(cText+bold, "  "+fit("ACTION", actionW)+"   BINDING"))
+	// On very short screens preserve the action and editing controls first.
+	if len(out)+len(footer)+2 > budget && len(out) > 2 {
+		out = append(out[:1], out[len(out)-1])
 	}
-	keysW = min(keysW, max(12, min(30, w/3)))
-	out = append(out, "    "+faint(fit("KEYS", keysW)+"   DOES"))
-	// What's left of the screen once the header, the card under the table
-	// and the key line are drawn; the keyboard under the card if that
-	// still leaves the rows room.
-	h := max(4, m.h-len(m.header())-21-len(out))
-	board := w >= kbWide+6 && h-len(kbRows)-2 >= min(len(rows), 10)
-	if board {
-		h -= len(kbRows) + 2 // and the line over it, and its legend
+	if len(out)+len(footer)+2 > budget && len(footer) > 2 {
+		footer = footer[len(footer)-(max(1, budget-len(out)-2)):]
 	}
-	from, to := window(len(rows), d.cursor, h)
-	if from > 0 {
-		out = append(out, "    "+faint("↑ "+strconv.Itoa(from)+" more"))
-	} else {
-		out = append(out, "")
-	}
+	// Reserve footer space first. The action window gets everything remaining.
+	n := max(1, budget-len(out)-len(footer)-1)
+	from, to := window(len(rows), d.cursor, n)
 	d.keyTop, d.keyFrom, d.keyTo = len(out), from, to
 	for i := from; i < to; i++ {
 		a := rows[i]
-		title := paint(cText, a.Title)
-		if a.Source != "" {
-			title += faint("  " + a.Source)
-		}
 		mark := "  "
 		if km.Changed(a.ID) {
 			mark = paint(cBlue, "• ")
 		}
-		line := mark + fit(keysOf(a), keysW) + "   " + title
+		line := mark + fit(paint(cText, a.Title), actionW) + "   " + fit(keysOf(a), keyW)
 		switch {
 		case i == d.cursor:
-			out = append(out, highlight(paint(cOrange, "▍")+" "+line, w))
-		case i == d.keyHover-1, (i-from)%2 == 1:
-			out = append(out, hoverBG+strings.ReplaceAll(fit("  "+line, w), reset, reset+hoverBG)+reset)
-		default:
-			out = append(out, "  "+line)
+			line = highlight(line, w)
+		case i == d.keyHover-1:
+			line = hoverBG + strings.ReplaceAll(fit(line, w), reset, reset+hoverBG) + reset
 		}
+		out = append(out, line)
 	}
-	if to < len(rows) {
-		out = append(out, "    "+faint("↓ "+strconv.Itoa(len(rows)-to)+" more"))
-	} else {
-		out = append(out, "")
+	rangeText := strconv.Itoa(from+1) + "–" + strconv.Itoa(to) + " of " + strconv.Itoa(len(rows)) + " actions"
+	out = append(out, dim(rangeText))
+	out = append(out, footer...)
+	for i := range out {
+		out[i] = fit(out[i], w)
 	}
-
-	// The one under the cursor, or the keys being taken for it.
-	var cur keymap.Action
-	if d.cursor < len(rows) {
-		cur = rows[d.cursor]
-	}
-	label := func(s string) string { return "    " + dim(fit(s, 12)) }
-	out = append(out, "")
-	if cur.ID != "" {
-		out = append(out, rule(cur.Title, "", w), "", label("Keys")+keyCaps(km.Keys(cur.ID), ""))
-		if km.Changed(cur.ID) {
-			def := faint("none")
-			if len(cur.Keys) > 0 {
-				var seqs []keymap.Seq
-				for _, k := range cur.Keys {
-					seqs = append(seqs, keymap.Seq(strings.Fields(k)))
-				}
-				def = keyCaps(seqs, "")
-			}
-			out = append(out, label("rush's")+def+paint(cBlue, "   • yours now: r puts these back"))
-		}
-		out = append(out, label("Works")+" "+dim(contextWhere(cur.Context)),
-			label("Name")+" "+faint(cur.ID+", as keybindings.json calls it"))
-	}
-	if board {
-		// Lit: the row under the pointer, else the cursor's; the key just
-		// pressed flashes over them a moment.
-		var lit []keymap.Seq
-		switch {
-		case d.keyHover > 0 && d.keyHover <= len(rows):
-			lit = km.Keys(rows[d.keyHover-1].ID)
-		case cur.ID != "":
-			lit = km.Keys(cur.ID)
-		}
-		hit, on, used := map[string]bool{}, map[string]bool{}, map[string]bool{}
-		if time.Since(d.triedAt) < kbFlash {
-			hit = keyParts(d.tried)
-		}
-		for _, s := range lit {
-			for k := range keyParts(s) {
-				on[k] = true
-			}
-		}
-		for _, a := range rows {
-			for _, s := range km.Keys(a.ID) {
-				for k := range keyParts(s) {
-					used[k] = true
-				}
-			}
-		}
-		out = append(out, "")
-		if t := time.Since(d.boom); t < kbBoomLen {
-			for _, l := range kbBurst(used, t, uint64(d.boom.UnixNano()), w-4) {
-				out = append(out, "    "+l)
-			}
-			out = append(out, "    "+kbCheer(d.boomWord, t))
-		} else {
-			for _, l := range keyboard(hit, on, used) {
-				out = append(out, "    "+l)
-			}
-			out = append(out, "    "+fit(kbLegend(), w-4))
-		}
-	}
-	keys := append([]string{"enter", "new keys", "a", "add a key", "x", "no key", "r", "rush's", "1-" + strconv.Itoa(len(ctxs)) + " ← →", "where"}, pagesKeys...)
-	return append(out, "", keysFit(w, keys...))
+	return out
 }
 
 // keysModal asks for the keys being taken in a box over base.
@@ -332,9 +246,6 @@ func (m *Model) keysKey(s string) tea.Cmd {
 		return nil
 	}
 	a := rows[d.cursor]
-	if cmd, took := m.typeWord(s); took {
-		return cmd
-	}
 	switch s {
 	case "left", "right", "h", "l":
 		n := len(m.keyPlaces())
@@ -361,9 +272,6 @@ func (m *Model) keysKey(s string) tea.Cmd {
 // takeKey is each key pressed while keys are being taken: every key comes
 // here first, unmapped.
 func (m *Model) takeKey(s string) tea.Cmd {
-	if cmd, took := m.typeWord(s); took {
-		return cmd
-	}
 	kp := &m.keys.page
 	done := func() tea.Cmd {
 		id, seq, adding := kp.taking, kp.pressed, kp.adding
@@ -460,57 +368,10 @@ func (m *Model) practiceKey(s string) tea.Cmd {
 // kbFlash is how long the key just pressed stays lit on the keyboard.
 const kbFlash = 600 * time.Millisecond
 
-// kbTypeGap is the longest pause inside a word typed at the keyboard.
-const kbTypeGap = 350 * time.Millisecond
-
-// kbFrameMsg draws Keys again: a flash going out, or a burst's next frame.
+// kbFrameMsg expires the practice highlight; no animation loop is needed.
 type kbFrameMsg struct{}
 
-func kbFrame() tea.Cmd {
-	return tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg { return kbFrameMsg{} })
-}
-
-// onKbFrame asks for the burst's next frame while it runs.
-func (m *Model) onKbFrame() tea.Cmd {
-	if d := m.dialog; d != nil && time.Since(d.boom) < kbBoomLen {
-		return kbFrame()
-	}
-	return nil
-}
-
-// typeWord takes s as typed toward one of kbWords. Past a word's first
-// letter, a key typed quickly that spells it on is the word's, not the
-// page's (keys a first "a" began taking are dropped), and its last letter
-// sets the keyboard off.
-func (m *Model) typeWord(s string) (tea.Cmd, bool) {
-	d, now := m.dialog, time.Now()
-	if now.Sub(d.typedAt) > kbTypeGap || len(s) != 1 {
-		d.typed = ""
-	}
-	d.typedAt = now
-	if len(s) != 1 {
-		return nil, false
-	}
-	for _, typed := range []string{d.typed + s, s} {
-		for _, w := range kbWords {
-			if !strings.HasPrefix(w, typed) {
-				continue
-			}
-			d.typed = typed
-			if len(typed) == 1 {
-				return nil, false
-			}
-			m.keys.page, m.keys.capture = keysPage{}, nil
-			if typed == w {
-				d.typed, d.boom, d.boomWord = "", now, w
-				return kbFrame(), true
-			}
-			return nil, true
-		}
-	}
-	d.typed = ""
-	return nil, false
-}
+func (m *Model) onKbFrame() tea.Cmd { return nil }
 
 // practiced are the actions whose keys are seq, exactly.
 func (m *Model) practiced(seq keymap.Seq) []keymap.Action {

@@ -3,6 +3,9 @@ package convo
 import (
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/0xdeafcafe/rush/internal/agent/event"
 )
 
 // PlainText is the conversation as plain text for another model to
@@ -57,6 +60,37 @@ Be specific (paths, names, numbers). Leave out chatter and anything finished tha
 
 // CompactedPrompt is the fresh conversation's first message.
 func CompactedPrompt(by, summary string) string {
-	return "This conversation was compacted by " + by + " to make room. Here is the summary of everything before this point:\n\n" +
-		summary + "\n\nTake this as what you know of the work so far. Reply only \"ready\" and wait for my next message."
+	return compactedHead + by + compactedMid + summary + compactedTail
+}
+
+const (
+	compactedHead = "This conversation was compacted by "
+	compactedMid  = " to make room. Here is the summary of everything before this point:\n\n"
+	compactedTail = "\n\nTake this as what you know of the work so far. Reply only \"ready\" and wait for my next message."
+)
+
+// Compacting is whether a compaction is under way.
+func (s *Session) Compacting() bool { return !s.compacting.IsZero() }
+
+// MarkCompacting says rush began compacting it at at, or, given the zero
+// time, that it's done: the working line shows it as Claude Code's own.
+func (s *Session) MarkCompacting(at time.Time) { s.compacting = at }
+
+// compactAsk draws a turn that asks for a compaction as rush's, not a
+// message of yours: /compact, or the summary a fresh conversation starts
+// from, which becomes its compaction divider (ctrl+o shows it).
+func compactAsk(t *Turn) {
+	p := strings.TrimSpace(t.Prompt)
+	if p == "/compact" || strings.HasPrefix(p, "/compact ") {
+		t.Prompt, t.Cause = "", p
+		return
+	}
+	rest, ok := strings.CutPrefix(p, compactedHead)
+	by, rest, ok2 := strings.Cut(rest, compactedMid)
+	summary, _, _ := strings.Cut(rest, compactedTail)
+	if !ok || !ok2 {
+		return
+	}
+	t.Prompt, t.Cause = "", "carried on from a summary"
+	t.Items = append(t.Items, &Item{Kind: KCompact, Text: summary, Compact: &event.Compacted{Trigger: "by " + by}})
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +58,10 @@ func (m Model) Can(c string) bool {
 	}
 	return false
 }
+
+// CanCode excludes decision classifiers whose base model may still
+// advertise tools, although the fine-tune only returns choice letters.
+func (m Model) CanCode() bool { return m.Can("tools") && !m.Can("decision") }
 
 // client has no timeout of its own: loading a model takes as long as it
 // takes, so each caller bounds its own.
@@ -164,7 +170,8 @@ func show(ctx context.Context, name string) (Model, error) {
 // load puts model name in memory, so the first turn doesn't wait on it
 // and the context it's loaded with can be read back.
 func load(ctx context.Context, name string) error {
-	return call(ctx, http.MethodPost, "/api/generate", map[string]string{"model": name}, nil)
+	var response struct{ Done bool }
+	return call(ctx, http.MethodPost, "/api/generate", map[string]any{"model": name, "stream": false}, &response)
 }
 
 // shown is whether each model /api/show has told of reads images.
@@ -202,3 +209,47 @@ func (Adapter) Reads(model string) (agent.Media, bool)      { return reads(model
 func (CodexAdapter) Reads(model string) (agent.Media, bool) { return reads(model) }
 func (PiAdapter) Reads(model string) (agent.Media, bool)    { return reads(model) }
 func (VibeAdapter) Reads(model string) (agent.Media, bool)  { return reads(model) }
+
+// listed caches listModels for a minute: sessions starting ask it too.
+var listed struct {
+	sync.Mutex
+	at  time.Time
+	out []agent.Choice
+}
+
+// listModels are the models this machine's Ollama has that can call
+// tools, the likeliest first, each with its size and whether it's loaded.
+// It asks the server, so never on the UI.
+func listModels() []agent.Choice {
+	listed.Lock()
+	defer listed.Unlock()
+	if time.Since(listed.at) < time.Minute {
+		return listed.out
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	models, err := InstalledModels(ctx)
+	if err != nil {
+		return nil
+	}
+	models = slices.DeleteFunc(models, func(m Model) bool { return !m.CanCode() })
+	sort.SliceStable(models, func(i, j int) bool { return rank(models[i]) > rank(models[j]) })
+	out := make([]agent.Choice, 0, len(models))
+	for _, m := range models {
+		note := strings.Join(slices.DeleteFunc([]string{m.Family, m.Params, m.Quant}, func(s string) bool { return s == "" }), " ")
+		if m.Can("vision") {
+			note += ", reads images"
+		}
+		if m.VRAM > 0 {
+			note += ", loaded"
+		}
+		out = append(out, agent.Choice{ID: m.Name, Note: note, Context: int64(window(m))})
+	}
+	listed.at, listed.out = time.Now(), out
+	return out
+}
+
+func (Adapter) ListModels(agent.Profile) []agent.Choice      { return listModels() }
+func (CodexAdapter) ListModels(agent.Profile) []agent.Choice { return listModels() }
+func (PiAdapter) ListModels(agent.Profile) []agent.Choice    { return listModels() }
+func (VibeAdapter) ListModels(agent.Profile) []agent.Choice  { return listModels() }

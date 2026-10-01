@@ -21,6 +21,9 @@ const lowAt = 80
 
 // inUseRows are each provider's account in use, or its one sign-in.
 func (m *Model) inUseRows() []acctRow {
+	if m.drawing && m.accountFrame.inUseOK {
+		return m.accountFrame.inUse
+	}
 	var out []acctRow
 	heads := map[agent.Kind]acctRow{}
 	found := map[agent.Kind]bool{}
@@ -38,6 +41,9 @@ func (m *Model) inUseRows() []acctRow {
 		if !found[k] {
 			out = append(out, heads[k]) // no account of it kept, or none in use
 		}
+	}
+	if m.drawing {
+		m.accountFrame.inUse, m.accountFrame.inUseOK = out, true
 	}
 	return out
 }
@@ -97,22 +103,32 @@ func (m *Model) otherMeters(k agent.Kind, w int) string {
 // alone for one with a single sign-in of its own.
 func (r acctRow) label() string {
 	if r.head {
-		return setupName(r.kind, "", "")
+		return setupLabel(r.kind, "", "")
 	}
-	return setupName(r.kind, "", r.name())
+	return setupLabel(r.kind, "", r.name())
 }
 
 // agentLabel is what session c runs as: its profile when you made one,
 // else harness:account (codex:alex), and its model unless the header's
 // own model segment shows it.
 func (m *Model) agentLabel(a *fleet.Agent, c *hostConn, model string) string {
-	k := agent.Kind(firstNonEmpty(a.Kind, string(loginsKind)))
+	k := sessionAgent(c)
+	if k == "" {
+		k = agent.Kind(firstNonEmpty(a.Kind, string(loginsKind)))
+	}
 	o := m.sessionStart(c)
 	if !m.showProfile(o.profile) {
 		o.profile = ""
 	}
 	l := lookOf(k)
-	s := paint(l.colour(), l.glyph) + " " + paint(cText, m.startName(o))
+	name := harnessName(string(k))
+	if account := firstNonEmpty(o.account, m.accountOf(k)); account != "" && account != "default" {
+		name += " · " + account
+	}
+	if o.profile != "" {
+		name += " · " + o.profile
+	}
+	s := paint(l.colour(), l.glyph) + " " + paint(cText, name)
 	if model != "" && !m.barLayout(barAgent).Shown("model") {
 		s += dim(" · " + modelWord(string(k), model))
 	}
@@ -123,6 +139,21 @@ func (m *Model) agentLabel(a *fleet.Agent, c *hostConn, model string) string {
 // that account is running low: how full its tightest window is, and the
 // account, of any provider, with the most room.
 func (m *Model) lowNote(k agent.Kind) string {
+	if m.drawing {
+		for _, n := range m.accountFrame.notes {
+			if n.kind == k {
+				return n.text
+			}
+		}
+	}
+	text := m.lowNoteNow(k)
+	if m.drawing {
+		m.accountFrame.notes = append(m.accountFrame.notes, accountFrameNote{kind: k, text: text})
+	}
+	return text
+}
+
+func (m *Model) lowNoteNow(k agent.Kind) string {
 	var cur acctRow
 	ok := false
 	for _, r := range m.inUseRows() {
@@ -130,7 +161,10 @@ func (m *Model) lowNote(k agent.Kind) string {
 			cur, ok = r, true
 		}
 	}
-	if !ok {
+	now := time.Now()
+	// Most accounts have no quota reading or enough room. Do not construct
+	// every alternative account just to have switchNote return nothing.
+	if !ok || switchNote(cur.q, nil, now) == "" {
 		return ""
 	}
 	var others []acctRow
@@ -141,7 +175,7 @@ func (m *Model) lowNote(k agent.Kind) string {
 		}
 		others = append(others, r)
 	}
-	return switchNote(cur.q, others, time.Now())
+	return switchNote(cur.q, others, now)
 }
 
 // switchNote is lowNote's words: nothing while q has room or its reading

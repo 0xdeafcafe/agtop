@@ -363,6 +363,9 @@ func readStdin() (in []byte, fed, waited bool) {
 // realProgram is where prog is on path, past the stand-ins.
 func realProgram(prog, path string) string {
 	shims := filepath.Clean(host.ShimDir())
+	if resolved, err := filepath.EvalSymlinks(shims); err == nil {
+		shims = resolved
+	}
 	for _, d := range filepath.SplitList(host.WithoutShims(path)) {
 		p := filepath.Join(d, prog)
 		fi, err := os.Stat(p)
@@ -375,8 +378,11 @@ func realProgram(prog, path string) string {
 		return p
 	}
 	if k, ok := agent.ProgramKind(prog); ok {
-		if p := agent.Path(k); p != "" && filepath.Dir(p) != shims {
-			return p
+		if p := agent.Path(k); p != "" {
+			resolved, err := filepath.EvalSymlinks(p)
+			if err == nil && filepath.Dir(resolved) != shims {
+				return p
+			}
 		}
 	}
 	return ""
@@ -469,9 +475,17 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 		}
 	}
 	_ = host.SignInIfOut(string(r.kind), cfg.Account) // said once already, above
+	request := outgoingExchange("", "request", r.prompt, nil)
+	cfg.PromptExchange = request
 	started, err := host.Spawn(cfg)
 	if err != nil {
 		return 0, false
+	}
+	if request != nil {
+		request.Receiver = exchangePeer(started.ID)
+		if err := mirrorOutgoing(request); err != nil {
+			fmt.Fprintln(stderr, "rush: could not record delegated task:", err)
+		}
 	}
 	dial := host.Dial
 	if base == "claude" { // migration: per-agent CLI parsing and output move behind the adapters
@@ -497,12 +511,20 @@ func hostRun(r workRun, stdout, stderr io.Writer) (int, bool) {
 	default:
 		out = &onceOut{stdout: stdout, stderr: stderr}
 	}
+	var captured *exchangePrinter
+	if request != nil {
+		captured = &exchangePrinter{printer: out}
+		out = captured
+	}
 	code := follow(c, out, sig)
 	if code == hostGone {
 		// Why it went, as the agent that couldn't start said.
 		info, _ := host.ReadInfo(started.ID)
 		fmt.Fprintln(stderr, "rush:", or(info.Error, "the session's host went away"))
 		code = 1
+	}
+	if captured != nil {
+		recordReturn(request, started.ID, captured.text, code)
 	}
 	stopHost(c, started.ID)
 	return code, true

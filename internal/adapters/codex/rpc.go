@@ -217,9 +217,10 @@ func (c *client) initialize(ctx context.Context) (string, error) {
 	var res struct {
 		UserAgent string `json:"userAgent"`
 	}
+	// Experimental for thread/backgroundTerminals/terminate, how rush stops a background shell.
 	params := map[string]any{
 		"clientInfo":   map[string]any{"name": "rush", "title": "rush", "version": "0"},
-		"capabilities": map[string]any{"experimentalApi": false, "requestAttestation": false},
+		"capabilities": map[string]any{"experimentalApi": true, "requestAttestation": false},
 	}
 	if err := c.call(ctx, "initialize", params, &res); err != nil {
 		return "", err

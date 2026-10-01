@@ -21,7 +21,7 @@ func stopOutside(a *fleet.Agent) error {
 	if a.PID != 0 {
 		return actions.Terminate(a.PID)
 	}
-	return fmt.Errorf("%s can't stop %s", agentName(a.Kind), a.DisplayName)
+	return fmt.Errorf("%s can't stop %s", harnessName(a.Kind), a.DisplayName)
 }
 
 // removeOutside deletes a session its agent keeps.
@@ -29,7 +29,7 @@ func removeOutside(a *fleet.Agent) error {
 	if r, ok := agent.As[agent.Remover](agent.Kind(a.Kind)); ok {
 		return r.Remove(a.Acct, a.ID)
 	}
-	return fmt.Errorf("%s keeps its sessions itself: rush can't delete them", agentName(a.Kind))
+	return fmt.Errorf("%s keeps its sessions itself: rush can't delete them", harnessName(a.Kind))
 }
 
 // replyOutside sends text to a session of agent k's background service;
@@ -38,5 +38,5 @@ func replyOutside(k agent.Kind, p agent.Profile, id, text string) error {
 	if r, ok := agent.As[agent.Replier](k); ok {
 		return r.Reply(p, id, text)
 	}
-	return fmt.Errorf("%s takes no messages from outside it", agentName(string(k)))
+	return fmt.Errorf("%s takes no messages from outside it", harnessName(string(k)))
 }

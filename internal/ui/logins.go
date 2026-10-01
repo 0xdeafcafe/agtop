@@ -423,10 +423,10 @@ func (m *Model) addLogin(name string) tea.Cmd {
 	lg, ok := agent.As[agent.Loginer](loginsKind)
 	k, kok := state.Logins()
 	if !ok || !kok {
-		m.flash(agentName(string(loginsKind))+" can't sign in from rush", true)
+		m.flash(harnessName(string(loginsKind))+" can't sign in from rush", true)
 		return nil
 	}
-	return m.signIn(agentName(string(loginsKind))+" · "+name, func() (*exec.Cmd, func(error) tea.Msg, error) {
+	return m.signIn(harnessName(string(loginsKind))+" · "+name, func() (*exec.Cmd, func(error) tea.Msg, error) {
 		b := make([]byte, 4)
 		_, _ = rand.Read(b)
 		scratch := agent.Profile{Kind: loginsKind, Name: name, Dir: filepath.Join(state.Dir(), "signin-"+hex.EncodeToString(b))}

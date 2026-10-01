@@ -84,7 +84,9 @@ func Spawn(cfg Config) (Config, error) {
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		if c, err := net.Dial("unix", SockPath(cfg.ID)); err == nil {
 			_ = c.Close()
-			return cfg, nil
+			if info, err := ReadInfo(cfg.ID); err == nil && info.HostPID == pid {
+				return cfg, nil
+			}
 		}
 		select {
 		case <-exited:
@@ -127,11 +129,14 @@ func lastLine(s string) string {
 }
 
 // ReadInfo reads a session's last published info. A session whose host has
-// gone is reported stopped.
+// gone is reported stopped, unless it deliberately went to sleep.
 func ReadInfo(id string) (Info, error) {
 	info, err := readInfoFile(id)
 	if err == nil && !alive(info.HostPID) {
-		info.State, info.ClaudePID = "stopped", 0
+		info.ClaudePID = 0
+		if !info.Sleeping {
+			info.State = "stopped"
+		}
 	}
 	return info, err
 }
@@ -188,7 +193,10 @@ func (l *Lister) List() []Info {
 		}
 		info := c.info
 		if info.State != "stopped" && !alive(info.HostPID) {
-			info.State, info.ClaudePID = "stopped", 0
+			info.ClaudePID = 0
+			if !info.Sleeping {
+				info.State = "stopped"
+			}
 		}
 		out = append(out, info)
 	}
@@ -222,8 +230,9 @@ type ErrorEvent struct{ Error string }
 
 // Sent is a message a client sent, echoed so every client shows it.
 type Sent struct {
-	Text   string
-	Images []string // names of attached images
+	Exchange *event.Exchange // nil for user input; carries agent origin for echo reconciliation
+	Text     string
+	Images   []string // names of attached images
 }
 
 // Stamp is when the output that follows it happened.
@@ -253,19 +262,20 @@ func Decode(line []byte) (any, error) {
 		return nativeLine(line)
 	}
 	var head struct {
-		Type      string         `json:"type"`
-		Info      Info           `json:"info"`
-		RequestID string         `json:"request_id"`
-		Error     string         `json:"error"`
-		Sent      bool           `json:"agtop_sent"`
-		Images    []string       `json:"agtop_images"`
-		Message   jsontext.Value `json:"message"`
-		Commands  []wireCommand  `json:"commands"`
-		Context   *usage.Context `json:"context"`
-		ID        string         `json:"id"`
-		Reply     jsontext.Value `json:"reply"`
-		T         int64          `json:"t"`
-		Ev        jsontext.Value `json:"ev"`
+		Type      string          `json:"type"`
+		Info      Info            `json:"info"`
+		RequestID string          `json:"request_id"`
+		Error     string          `json:"error"`
+		Sent      bool            `json:"agtop_sent"`
+		Exchange  *event.Exchange `json:"agtop_exchange"`
+		Images    []string        `json:"agtop_images"`
+		Message   jsontext.Value  `json:"message"`
+		Commands  []wireCommand   `json:"commands"`
+		Context   *usage.Context  `json:"context"`
+		ID        string          `json:"id"`
+		Reply     jsontext.Value  `json:"reply"`
+		T         int64           `json:"t"`
+		Ev        jsontext.Value  `json:"ev"`
 	}
 	if err := jsonx.Unmarshal(line, &head); err != nil {
 		return nil, err
@@ -301,7 +311,7 @@ func Decode(line []byte) (any, error) {
 			Content string `json:"content"`
 		}
 		_ = jsonx.Unmarshal(head.Message, &m)
-		return Sent{Text: m.Content, Images: head.Images}, nil
+		return Sent{Text: m.Content, Images: head.Images, Exchange: head.Exchange}, nil
 	}
 	return nativeLine(line)
 }
@@ -467,6 +477,16 @@ func (c *Client) Compacted(sessionID, prompt string, left Branch) error {
 	return c.do(op{Op: "compacted", Text: sessionID, Message: prompt, Branch: &left})
 }
 
+// CompactedIfUnchanged replaces only the idle conversation used to make the
+// summary. Protocol 9 checks the snapshot under the host's mutex.
+func (c *Client) CompactedIfUnchanged(sessionID, prompt string, left Branch, expected Info) error {
+	if expected.Proto < 9 {
+		return errors.New("restart this session's host to use external compaction safely")
+	}
+	return c.do(op{Op: "compacted_checked", Text: sessionID, Message: prompt, Branch: &left,
+		ExpectedSession: expected.SessionID, ExpectedUpdatedAt: expected.UpdatedAt})
+}
+
 // Restart ends a session's host and starts it again on this rush's
 // binary, with change applied to its config first: how a host from an
 // older rush gets what's new. The session must be idle.
@@ -530,4 +550,14 @@ func (c *Client) Close() error {
 		return nil
 	}
 	return c.c.Close()
+}
+
+// SendExchange sends an agent-origin message, retaining origin through queues.
+func (c *Client) SendExchange(e event.Exchange, now bool) error {
+	return c.do(op{Op: "send", Text: e.Text, Images: e.Images, Now: now, Guide: !now, Exchange: &e})
+}
+
+// RecordExchange records the other side of an exchange without prompting it.
+func (c *Client) RecordExchange(e event.Exchange) error {
+	return c.do(op{Op: "exchange", Exchange: &e})
 }

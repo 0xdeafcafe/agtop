@@ -143,10 +143,14 @@ func TestAccountsGroupedByAgent(t *testing.T) {
 		}
 	}
 	plain := ansi.Strip(strings.Join(body, "\n"))
-	for _, want := range []string{"✻ Claude Code", "★ all", "one@example.com", "ZGone"} {
+	for _, want := range []string{"✻ Claude Code", "one@example.com", "ZGone"} {
 		if strings.Contains(plain, want) != (want != "ZGone") {
 			t.Errorf("want %q shown %v in:\n%s", want, want != "ZGone", plain)
 		}
+	}
+	m.setSettingsPage(pageProfiles) // the default profile is marked on Profiles
+	if plain := ansi.Strip(strings.Join(m.providersBody(150), "\n")); !strings.Contains(plain, "★ all") {
+		t.Errorf("Profiles doesn't mark the default:\n%s", plain)
 	}
 }
 

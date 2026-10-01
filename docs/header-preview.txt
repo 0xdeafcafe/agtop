@@ -1,0 +1,29 @@
+HEADER COLOUR PATTERNS — 60% TO 100%
+
+First 60%: normal header, unchanged.
+Rightmost 40%: static block clusters. A = harness hue, B = model/provider hue.
+Letters show the colour mask, not literal text. Lowercase = softer colour.
+Header text stays above the pattern. No animation, flashing or random redraws.
+
+                                60%                                    100%
+                                 |----------------------------------------|
+1. BLOOM + DISSOLVE (restored existing pattern, widened to 40%)
+                                 |  a  aa AAA AA  aBBB BBB bb   b  .        |
+                                 |    aa AAAA A  BBB BBBB  b b .           |
+   Sparse start; connected islands; a soft, broken fade near the edge.
+
+2. GROW TO THE EDGE
+                                 |  . a  aa AA AAA aBB BBB BBBB BBBBBBBBBBB|
+                                 |    a aa  AAA AAA BBBB BB BBBBBBBBBBBBBB|
+   Gradually denser; colour continues off the right edge.
+
+3. BRANCHING CLUSTERS
+                                 |    aaAAAA     aBBB B     bbb           |
+                                 |  aa  AA  AAAaaBBB  BBBbbb   bb         |
+                                 |       aa AAA     BBBB    bb           |
+   Larger connected blocky shapes, with offshoots and empty pockets.
+
+Recommendation: 1 for a quieter header; 3 for the stronger "growing blocks" look.
+Current implementation: 1, restored and widened from 70–100% to 60–100%.
+The pattern spans all four header rows in four-cell-wide, two-row-tall blocks.
+Tabs in the plain left portion keep their own active/hover colours.

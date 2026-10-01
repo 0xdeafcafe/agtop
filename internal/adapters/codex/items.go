@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json/jsontext"
+	"path"
 	"regexp"
 	"strings"
 
@@ -26,6 +27,7 @@ type threadItem struct {
 	AggregatedOutput *string         `json:"aggregatedOutput"`
 	ExitCode         *int            `json:"exitCode"`
 	Status           string          `json:"status"`
+	ProcessID        string          `json:"processId"` // its terminal, which can outlive the call
 
 	Changes []fileUpdate `json:"changes"` // fileChange
 
@@ -52,6 +54,10 @@ type threadItem struct {
 	Prompt    string   `json:"prompt"` // collabAgentToolCall
 	Receivers []string `json:"receiverThreadIds"`
 	Model     string   `json:"model"`
+
+	Kind          string `json:"kind"` // subAgentActivity: started, interacted, interrupted, completed
+	AgentThreadID string `json:"agentThreadId"`
+	AgentPath     string `json:"agentPath"`
 }
 
 type commandAction struct {
@@ -125,7 +131,7 @@ func callOf(it threadItem, raw jsontext.Value) (tool.Call, bool) {
 			}
 		}
 	case "mcpToolCall":
-		c.Name, c.Kind = it.Tool, tool.MCP
+		c.Name, c.Kind = "mcp__"+it.Server+"__"+it.Tool, tool.MCP // as Claude Code names them
 		c.Input.Server, c.Input.Tool = it.Server, it.Tool
 		c.Raw = it.Arguments
 	case "dynamicToolCall":
@@ -148,14 +154,53 @@ func callOf(it threadItem, raw jsontext.Value) (tool.Call, bool) {
 	case "imageView":
 		c.Name, c.Kind, c.Input.Path = "view_image", tool.Read, it.Path
 	case "collabAgentToolCall":
-		c.Name, c.Kind, c.Input.Prompt, c.Input.Agent = it.Tool, tool.Subagent, it.Prompt, it.Model
-		if it.Tool == "spawnAgent" && len(it.Receivers) > 0 {
-			c.Input.Child = it.Receivers[0]
+		to := ""
+		if len(it.Receivers) > 0 {
+			to = it.Receivers[0]
+		}
+		switch it.Tool {
+		case "spawnAgent":
+			c.Name, c.Kind, c.Input.Prompt, c.Input.Agent, c.Input.Child = it.Tool, tool.Subagent, it.Prompt, it.Model, to
+		case "sendInput", "sendMessage", "followupTask", "resumeAgent":
+			asClaude(&c, "SendMessage", map[string]any{"to": to, "message": it.Prompt})
+		case "interruptAgent", "closeAgent":
+			asClaude(&c, "TaskStop", map[string]any{"task_id": to})
+		case "listAgents":
+			asClaude(&c, "ListAgents", map[string]any{})
+		default: // wait
+			asClaude(&c, "TaskOutput", map[string]any{"task_id": or(to, "its subagents")})
+		}
+	case "subAgentActivity":
+		// Codex 0.155 says its agent tools this way: the thread, by its task.
+		task := path.Base(it.AgentPath)
+		switch it.Kind {
+		case "started":
+			c.Name, c.Kind, c.Input.Child, c.Input.Description = "spawn_agent", tool.Subagent, it.AgentThreadID, task
+		case "interacted":
+			asClaude(&c, "SendMessage", map[string]any{"to": task})
+		case "interrupted":
+			asClaude(&c, "TaskStop", map[string]any{"task_id": task})
+		default: // completed: its turn ended, which its task says
+			return tool.Call{}, false
 		}
 	default:
 		return tool.Call{}, false
 	}
 	return c, true
+}
+
+// asClaude makes c a call to Claude Code's tool name, with its input, so
+// it's drawn as that: a message, a stop, a check on its agents.
+func asClaude(c *tool.Call, name string, in map[string]any) {
+	c.Name, c.Kind = name, tool.Other
+	c.Raw, _ = jsonx.Marshal(in)
+}
+
+func or(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // outputOf is what a finished tool call item returned.
@@ -228,7 +273,11 @@ func userMessage(it threadItem) event.Message {
 		case "localImage":
 			m.Parts = append(m.Parts, event.Part{Kind: event.Image, Image: &event.ImageData{Path: p.Path}})
 		case "image":
-			m.Parts = append(m.Parts, event.Part{Kind: event.Text, Text: p.URL})
+			img := dataImage(p.URL)
+			if img == nil {
+				img = &event.ImageData{Path: p.URL}
+			}
+			m.Parts = append(m.Parts, event.Part{Kind: event.Image, Image: img})
 		}
 	}
 	return m

@@ -427,6 +427,9 @@ func (m *Model) clickCard(c *hostConn, x, y int) (tea.Cmd, bool) {
 
 // cardBtnAt is the key of the card's button at x, y on screen; "" off them.
 func (m *Model) cardBtnAt(c *hostConn, x, y int) string {
+	if c.panelClip[1] > 0 && (y < c.panelClip[0] || y >= c.panelClip[1]) {
+		return ""
+	}
 	for _, b := range c.btns {
 		bx, by := m.paneX()+b.x, c.dockY+c.cardTop+b.y
 		if x >= bx && x < bx+b.w && y >= by && y < by+3 {

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
@@ -94,5 +97,48 @@ func TestProjectShowsSizes(t *testing.T) {
 		if !strings.Contains(page, s) {
 			t.Errorf("%q missing:\n%s", s, page)
 		}
+	}
+}
+
+// An agent untouched for hours says it can go, and x asks to close it; a
+// session's temp work opens thing by thing, and x deletes just one.
+func TestProjectsSayWhatCanGo(t *testing.T) {
+	t.Setenv("RUSH_HOME", t.TempDir())
+	now := time.Now()
+	m := &Model{store: &state.Store{}, snap: &fleet.Snapshot{At: now}, w: 160, h: 40}
+	old := &fleet.Agent{Key: "old", Root: "/src/alpha", Repo: "/src/alpha", DisplayName: "probe-codex"}
+	old.UpdatedAt = now.Add(-5 * time.Hour)
+	m.snap.Agents = []*fleet.Agent{old}
+	m.work.projSel = "p/src/alpha"
+	if page := ansi.Strip(strings.Join(m.projectsBody(), "\n")); !strings.Contains(page, "can go") {
+		t.Fatalf("no 'can go' for an agent untouched 5h:\n%s", page)
+	}
+	m.projectsKey("enter")
+	m.projectsKey("x")
+	if m.confirm == nil || !strings.Contains(m.confirm.question, "Hide") {
+		t.Fatalf("x on an agent didn't ask to hide it: %+v", m.confirm)
+	}
+
+	m.confirm = nil
+	gone := &fleet.Agent{Key: "gone", Rush: true, DisplayName: "gone", Temp: 2 << 20}
+	gone.ID = "gone"
+	dir := host.TempDir(gone.ID)
+	for _, d := range []string{"cache", "build"} {
+		if err := os.MkdirAll(filepath.Join(dir, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.snap.Agents = []*fleet.Agent{gone}
+	m.pickInProjects(paneTemp)
+	m.projectsKey("enter") // into Temporary, on the session
+	m.projectsKey("enter") // opens it
+	page := ansi.Strip(strings.Join(m.projectsBody(), "\n"))
+	if !strings.Contains(page, "cache/") || !strings.Contains(page, "build/") || !strings.Contains(page, "ended") {
+		t.Fatalf("opened temp work doesn't list its things or when it ended:\n%s", page)
+	}
+	m.projectsKey("down")
+	m.projectsKey("x")
+	if m.confirm == nil || !strings.Contains(m.confirm.detail, "the rest of it stays") {
+		t.Fatalf("x on one thing didn't ask to delete just it: %+v", m.confirm)
 	}
 }

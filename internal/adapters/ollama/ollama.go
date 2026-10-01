@@ -8,6 +8,7 @@ package ollama
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 
 	claudead "github.com/0xdeafcafe/rush/internal/adapters/claude"
@@ -36,7 +37,7 @@ func (Adapter) Program() (string, []string) {
 // separate folder hides: its sessions aren't in ~/.claude for fleet to
 // find, and there are no limits or accounts, only this machine.
 var features = map[agent.Feature]agent.Support{
-	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
+	agent.FeatureRun: agent.Yes, agent.FeaturePrompt: agent.Yes, agent.FeaturePort: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
 	agent.FeatureInterrupt: agent.Yes, agent.FeatureGuide: agent.Yes.With("at its next step"), agent.FeatureModel: agent.Yes.With("any model Ollama has that calls tools"),
 	agent.FeatureModes: agent.Yes, agent.FeatureCompact: agent.Yes.With("at the window the model was loaded with"),
 	agent.FeatureImages:    agent.Yes.With("on models that take them"),
@@ -79,6 +80,9 @@ func (Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 	if o.Profile.Dir == "" {
 		o.Profile.Dir = home()
 	}
+	if skilled(m) {
+		linkSkills(o.Profile.Dir, o.Dir)
+	}
 	// The host hands over the adapter's own program, which is ollama's,
 	// unless it was told of a claude to run.
 	if o.Binary == "" || filepath.Base(o.Binary) == "ollama" {
@@ -94,3 +98,26 @@ var (
 	_ agent.Pricer     = Adapter{}
 	_ agent.Rider      = Adapter{}
 )
+
+// linkSkills links each skill Claude Code has in cwd into dir's skills
+// folder, where Claude Code on Ollama reads them; links from before go
+// first, so a skill removed since goes too. The first of a name wins.
+func linkSkills(dir, cwd string) {
+	skills := filepath.Join(dir, "skills")
+	old, _ := os.ReadDir(skills)
+	for _, e := range old {
+		if e.Type()&os.ModeSymlink != 0 {
+			_ = os.Remove(filepath.Join(skills, e.Name()))
+		}
+	}
+	ps := agent.ProfilesOf(claudead.Adapter{})
+	if len(ps) == 0 || os.MkdirAll(skills, 0o755) != nil {
+		return
+	}
+	for _, root := range (claudead.Adapter{}).SkillRoots(ps[0], cwd) {
+		found, _ := filepath.Glob(filepath.Join(root, "*", "SKILL.md"))
+		for _, f := range found {
+			_ = os.Symlink(filepath.Dir(f), filepath.Join(skills, filepath.Base(filepath.Dir(f))))
+		}
+	}
+}

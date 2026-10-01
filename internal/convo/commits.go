@@ -67,6 +67,9 @@ var (
 	// lookupsGen counts finished lookups, commits and thumbnails, so what
 	// was drawn before one finished is drawn again.
 	lookupsGen atomic.Int64
+	// lookupWaits counts answers of "not yet" from those lookups: a drawing
+	// during which it moved waits on one, so only it redraws as gen moves.
+	lookupWaits atomic.Int64
 	// Only a few lookups at once: a long transcript asks about every
 	// commit it made the first time it's drawn.
 	lookupSlots = make(chan struct{}, 4)
@@ -120,6 +123,9 @@ func lookup(q commitQuery) ([]card, bool) {
 			lookups.Unlock()
 			lookupsGen.Add(1)
 		}()
+	}
+	if !l.done {
+		lookupWaits.Add(1)
 	}
 	if !l.done || l.cards == nil {
 		return nil, false

@@ -53,6 +53,13 @@ type workState struct {
 	projIn bool
 	inPos  int
 	inSel  string
+	// peeks are folders' tops as last looked at, sizes what each thing in
+	// an opened temp folder measured, and opened the sessions whose temp
+	// folders Temporary shows thing by thing (projects_paths.go).
+	peeks  map[string]pathInfo
+	sizes  map[string]int64
+	opened map[string]bool
+	lists  map[string]tempList
 
 	tls     map[string]agent.Timeline    // by transcript path; the loader's alone
 	views   map[string][]agent.Happening // by agent key
@@ -154,11 +161,12 @@ type workRow struct {
 	tmp   bool         // the /tmp row
 	temp  *fleet.Agent // a finished agent's temp work
 	pane  bool         // Temporary or System in the Projects list
+	path  *pathRow     // a thing on disk x deletes on its own
 	owner string       // the project an agent or worktree row is inside
 }
 
 func (r workRow) pickable() bool {
-	return r.id != "" && (r.proj != nil || r.a != nil || r.wt != nil || r.proc != nil || r.tmp || r.temp != nil || r.pane)
+	return r.id != "" && (r.proj != nil || r.a != nil || r.wt != nil || r.proc != nil || r.tmp || r.temp != nil || r.pane || r.path != nil)
 }
 
 // workSession is a session in Projects: its state, then how far through

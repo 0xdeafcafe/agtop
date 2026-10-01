@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/0xdeafcafe/rush/internal/theme"
@@ -27,16 +28,17 @@ var (
 	otherLook = look{"◇", theme.RGB{R: 143, G: 179, B: 217}}
 	// looks are the rest, by kind.
 	looks = map[agent.Kind]look{
-		"codex":    {"◎", theme.RGB{R: 94, G: 199, B: 160}},  // OpenAI's green
-		"copilot":  {"◈", theme.RGB{R: 178, G: 150, B: 230}}, // GitHub's purple
-		"deepseek": {"◆", theme.RGB{R: 116, G: 146, B: 255}}, // DeepSeek's blue
-		"glm":      {"▲", theme.RGB{R: 96, G: 196, B: 222}},  // Z.ai's cyan
-		"gemini":   {"✦", theme.RGB{R: 138, G: 180, B: 248}}, // Gemini's sparkle
-		"kimi":     {"◐", theme.RGB{R: 200, G: 200, B: 214}}, // Moonshot's moon
-		"vibe":     {"■", theme.RGB{R: 245, G: 165, B: 60}},  // Mistral's amber
-		"ollama":   {"◉", theme.RGB{R: 232, G: 232, B: 226}}, // Ollama's white llama
-		"opencode": {"▣", theme.RGB{R: 186, G: 182, B: 176}},
-		"pi":       {"π", theme.RGB{R: 230, G: 190, B: 120}},
+		"codex":       {"◎", theme.RGB{R: 94, G: 199, B: 160}},  // OpenAI's green
+		"copilot":     {"◈", theme.RGB{R: 178, G: 150, B: 230}}, // GitHub's purple
+		"deepseek":    {"◆", theme.RGB{R: 116, G: 146, B: 255}}, // DeepSeek's blue
+		"glm":         {"▲", theme.RGB{R: 96, G: 196, B: 222}},  // Z.ai's cyan
+		"antigravity": {"✦", theme.RGB{R: 138, G: 180, B: 248}},
+		"gemini":      {"✦", theme.RGB{R: 138, G: 180, B: 248}}, // Gemini's sparkle
+		"kimi":        {"◐", theme.RGB{R: 200, G: 200, B: 214}}, // Moonshot's moon
+		"vibe":        {"■", theme.RGB{R: 245, G: 165, B: 60}},  // Mistral's amber
+		"ollama":      {"◉", theme.RGB{R: 232, G: 232, B: 226}}, // Ollama's white llama
+		"opencode":    {"▣", theme.RGB{R: 186, G: 182, B: 176}},
+		"pi":          {"π", theme.RGB{R: 230, G: 190, B: 120}},
 	}
 )
 
@@ -53,7 +55,10 @@ func lookOf(k agent.Kind) look {
 		return l
 	}
 	// A provider in another's harness looks like the provider: Ollama in
-	// Pi is Ollama's.
+	// Pi is Ollama's, and Anthropic's plan in Pi is Claude Code's.
+	if agent.Kind(agent.ProviderOf(k)) == loginsKind {
+		return builtinLook
+	}
 	if l, ok := looks[agent.Kind(agent.ProviderOf(k))]; ok {
 		return l
 	}
@@ -62,6 +67,17 @@ func lookOf(k agent.Kind) look {
 
 // colour is the look's colour on the terminal's ground, as an accent.
 func (l look) colour() string { return painted.Accent(l.rgb).FG() }
+
+// harnessBorder is a quiet grey carrying just enough of the harness hue to
+// identify the session without turning its frame into another accent.
+func harnessBorder(k agent.Kind) string {
+	grey := theme.RGB{R: 94, G: 89, B: 82}
+	tint := theme.Mix(grey, lookOf(agent.HarnessOf(k)).rgb, .22)
+	return painted.Ink(tint).FG()
+}
+
+// A message between agents marks each end with its glyph.
+func init() { convo.SetPeerMark(func(k string) string { return glyph(agent.Kind(k)) }) }
 
 // glyph is provider k's glyph in its colour.
 func glyph(k agent.Kind) string {
@@ -91,15 +107,20 @@ func (c *hostConn) kindOf() agent.Kind {
 	return agent.Kind(firstNonEmpty(c.sess.Info.Kind, string(loginsKind)))
 }
 
-// rowBadge is a session row's mark of its provider: none for Claude Code,
-// so its rows stay as they were; the glyph and kind for any other.
-func rowBadge(a *fleet.Agent) string {
-	k := agent.Kind(a.Kind)
-	if unmarked(k) {
-		return ""
-	}
+// rowBadge names every harness, including legacy Claude sessions. A model
+// provider is included when it runs through another harness (such as Ollama).
+// Unless full, a row shows only the harness glyph, so the title keeps the width.
+func rowBadge(a *fleet.Agent, full bool) string {
+	k := agent.Migrated(a.Kind)
 	l := lookOf(k)
-	return paint(l.colour(), l.glyph+" "+string(k))
+	if !full {
+		return paint(l.colour(), l.glyph)
+	}
+	label := harnessName(string(k))
+	if agent.HarnessOf(k) != k {
+		label += " · " + providerName(agent.ProviderOf(k))
+	}
+	return paint(l.colour(), l.glyph+" "+label)
 }
 
 // showProfile is whether a profile's name is worth showing: it isn't the
@@ -225,7 +246,7 @@ func (m *Model) chain(p state.Profile) string {
 func (m *Model) notInstalled() string {
 	var out []string
 	for _, a := range agent.All() {
-		if !agent.Installed(a.Kind()) {
+		if agent.CurrentKind(a.Kind()) == a.Kind() && !agent.Installed(a.Kind()) {
 			out = append(out, glyph(a.Kind())+" "+dim(a.Name())+faint(" "+agent.LevelOf(a.Kind()).String()))
 		}
 	}

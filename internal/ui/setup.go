@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -18,9 +19,9 @@ import (
 
 // A setup is what a session runs as: whose models and how they're paid
 // for, the harness that runs them, the account, the model and the
-// effort. rush names one the same way everywhere, <harness>:<account>
-// (codex:alex), and /agent takes that name, an effort after it if you
-// like (codex:alex:high).
+// effort. rush shows one as Provider (Harness) · account (OpenAI (Codex) · alex),
+// and /agent takes it as <provider>-<harness>:<account> (openai-codex:alex),
+// an effort after it if you like (openai-codex:alex:high).
 
 // harnessWord is the harness agent k runs in, as a setup's name starts:
 // claudecode, codex, pi.
@@ -32,11 +33,44 @@ func harnessWord(k agent.Kind) string {
 	return string(h)
 }
 
-// setupName is what rush calls a setup: <harness>:<account>. A provider
-// in another's harness stands in for the account (pi:ollama,
-// pi:claude-key), and key for its own provider's API key; with neither,
-// it's the harness alone.
+// setupWord is agent k as one word to type, as agent.Label says it:
+// openai-codex, ollama-pi, opencode.
+func setupWord(k agent.Kind) string {
+	p, h := nameWord(agent.ProviderLabel(agent.ProviderOf(k))), harnessWord(k)
+	if p == h {
+		return p
+	}
+	return p + "-" + h
+}
+
+// setupName is what /agent calls a setup: <provider>-<harness>, then
+// :<account>, or :key for its provider's API key; openai-codex:alex.
 func setupName(k agent.Kind, billing, account string) string {
+	w := setupWord(k)
+	switch {
+	case billing == state.BillingKey || agent.KeyOnly(k):
+		return w + ":key"
+	case account != "" && agent.HarnessOf(k) == k:
+		return w + ":" + nameWord(account)
+	}
+	return w
+}
+
+// setupLabel is a setup as it's shown: OpenAI (Codex) · alex, Anthropic
+// (Pi) · API key.
+func setupLabel(k agent.Kind, billing, account string) string {
+	switch {
+	case billing == state.BillingKey || agent.KeyOnly(k):
+		return agent.Label(k) + " · API key"
+	case account != "" && agent.HarnessOf(k) == k:
+		return agent.Label(k) + " · " + account
+	}
+	return agent.Label(k)
+}
+
+// oldSetupName is a setup's name before provider words: <harness>:<account>,
+// pi:ollama. /agent still takes it.
+func oldSetupName(k agent.Kind, billing, account string) string {
 	w, p := harnessWord(k), agent.ProviderOf(k)
 	switch {
 	case agent.HarnessOf(k) != k:
@@ -76,13 +110,13 @@ func (m *Model) setups() []setup {
 			o := m.startDefaults(k)
 			o.billing = billingOf(r.id, kk)
 			if key || agent.HarnessOf(kk) != kk {
-				out = append(out, setup{setupName(kk, o.billing, ""), []string{r.id, k}, o})
+				out = append(out, setup{setupName(kk, o.billing, ""), []string{r.id, k, oldSetupName(kk, o.billing, "")}, o})
 				continue
 			}
-			out = append(out, setup{setupName(kk, "", ""), []string{p}, o})
+			out = append(out, setup{setupName(kk, "", ""), []string{p, oldSetupName(kk, "", "")}, o})
 			for _, a := range accountsOf(rows, kk) {
 				o.account = a.name()
-				out = append(out, setup{setupName(kk, "", o.account), []string{p + ":" + nameWord(o.account)}, o})
+				out = append(out, setup{setupName(kk, "", o.account), []string{p + ":" + nameWord(o.account), oldSetupName(kk, "", o.account)}, o})
 			}
 		}
 	}
@@ -201,7 +235,7 @@ func (m *Model) startName(o startOver) string {
 		return o.profile
 	}
 	k := agent.Kind(o.kind)
-	return setupName(k, o.billing, cmp.Or(o.account, m.accountOf(k)))
+	return setupLabel(k, o.billing, cmp.Or(o.account, m.accountOf(k)))
 }
 
 // startWords are o in words: its name, model and effort.
@@ -280,7 +314,7 @@ func (m *Model) sessionStart(c *hostConn) startOver {
 	if !picked {
 		effort = c.sess.Effort()
 	}
-	o := startOver{kind: string(k), account: m.accountOf(k), model: model, effort: effort}
+	o := startOver{kind: string(k), account: m.accountOf(k), model: model, effort: effort, mode: c.sess.Info.PermissionMode, modeSet: true}
 	if agent.KeyOnly(k) || c.sess.Info.Billing == string(usage.Metered) {
 		o.billing, o.account = state.BillingKey, ""
 	}
@@ -295,13 +329,18 @@ func (m *Model) sessionStart(c *hostConn) startOver {
 // inPlace is whether a session running as from can switch to to without
 // a new session: the same agent, paid the same way.
 func inPlace(from, to startOver) bool {
-	return from.kind == to.kind && from.billing == to.billing
+	return from.kind == to.kind && from.billing == to.billing &&
+		(agent.ProviderOf(agent.Kind(to.kind)) != "ollama" || from.model == to.model)
 }
 
 // switchSession switches session c to o: its model, effort and account in
 // place when it stays on the same agent, paid the same way; else its
 // conversation is handed on to a new session that starts as o.
 func (m *Model) switchSession(c *hostConn, o startOver) tea.Cmd {
+	return m.switchSessionMessage(c, o, "")
+}
+
+func (m *Model) switchSessionMessage(c *hostConn, o startOver, message string) tea.Cmd {
 	a := m.agentByKey(c.key)
 	if a == nil {
 		return nil
@@ -312,7 +351,29 @@ func (m *Model) switchSession(c *hostConn, o startOver) tea.Cmd {
 			m.flash(m.startName(o)+" can't take a conversation on from another", true)
 			return nil
 		}
-		return m.handOver(a, o)
+		if a.Rush && c.sess != nil && !handoffQuiet(c.sess.Info) {
+			m.flash("switch harness between turns · finish or stop this turn and send or clear queued messages first", true)
+			draft := string(c.input)
+			if draft == "" {
+				draft = message
+			}
+			if draft != "" {
+				return func() tea.Msg {
+					return applyMsg(func(*Model) tea.Cmd {
+						if len(c.input) == 0 {
+							c.input = []rune(draft)
+							c.back = 0
+						}
+						return nil
+					})
+				}
+			}
+			return nil
+		}
+		return m.handOverMessage(a, o, message)
+	}
+	if c.client == nil && c.sleeping {
+		return m.wakeHostThen(c, func(m *Model, next *hostConn) tea.Cmd { return m.switchSessionMessage(next, o, message) })
 	}
 	if c.client == nil {
 		m.flash("switching works in rush-mode sessions · /rush moves this one over", true)
@@ -320,6 +381,14 @@ func (m *Model) switchSession(c *hostConn, o startOver) tea.Cmd {
 	}
 	var cmds []tea.Cmd
 	var said []string
+	if o.modeSet && o.mode != from.mode && !permissionKnown(sessionAgent(c), c, o.mode) {
+		m.flash("This harness does not offer permission mode "+o.mode, true)
+		return nil
+	}
+	if o.modeSet && o.mode != from.mode {
+		cmds = append(cmds, m.setPermission(c, o.mode))
+		said = append(said, "permission change requested")
+	}
 	if o.model != from.model {
 		cmds = append(cmds, m.setArg(c, "model", o.model))
 		said = append(said, cmp.Or(modelWord(o.kind, o.model), "its default model"))
@@ -332,33 +401,98 @@ func (m *Model) switchSession(c *hostConn, o startOver) tea.Cmd {
 		cmds = append(cmds, cmd)
 		said = append(said, o.account+" for every "+agent.HarnessLabel(agent.Kind(o.kind))+" session, this one's too")
 	}
+	if message != "" {
+		// Sequence preserves model/account changes before sending the instruction.
+		cmds = append(cmds, hostCmd(func() error { return c.client.Send(message) }))
+	}
 	if len(said) == 0 {
 		m.flash("already "+m.startName(o), false)
-		return nil
+		return tea.Sequence(cmds...)
 	}
 	m.flash(m.startName(o)+" · "+strings.Join(said, " · "), false)
-	return tea.Batch(cmds...)
+	return tea.Sequence(cmds...)
 }
 
 // handOver carries a's conversation on in a new session that starts as
-// o, in the same folder; a is left as it is.
+// o, in the same folder. An agent that takes it whole (FeaturePort) has
+// it as its own history and waits for your next message, and a rush
+// session a stops and goes to Done: a swap. Else it starts on a summary
+// of it, and a is left as it is.
 func (m *Model) handOver(a *fleet.Agent, o startOver) tea.Cmd {
+	return m.handOverMessage(a, o, "")
+}
+
+func (m *Model) handOverMessage(a *fleet.Agent, o startOver, message string) tea.Cmd {
+	whole := agent.Supports(agent.Kind(o.kind), agent.FeaturePort)
 	cfg := m.configAs(o, a.Cwd)
 	cfg.Name, cfg.Profile = a.DisplayName+" · on "+m.startName(o), o.profile
+	if whole {
+		cfg.Name = a.DisplayName
+	}
 	if err := cfg.UseAgent(o.kind); err != nil {
 		m.flash(err.Error(), true)
 		return nil
 	}
 	conv := m.conversationLater(a)
+	retire, oldID := "", a.ID
+	if whole && a.Rush {
+		retire = a.Key
+	}
 	m.flash("handing "+a.DisplayName+" to "+m.startName(o)+"…", false)
 	return tea.Sequence(m.accountSwitch(agent.Kind(o.kind), o.account), func() tea.Msg {
-		in := agent.Handoff(conv())
-		cfg.Prompt, cfg.Images = in.Text, in.Images
+		var sourceStamp time.Time
+		if retire != "" {
+			info, err := host.ReadInfo(oldID)
+			if err != nil {
+				return doneMsg{err: err}
+			}
+			if !handoffQuiet(info) {
+				return doneMsg{err: fmt.Errorf("source session is busy or has queued messages; switch after it finishes")}
+			}
+			sourceStamp = info.UpdatedAt
+		}
+		c := conv()
+		if whole {
+			cfg.Carry = c.History
+			if len(cfg.Carry) == 0 {
+				// There is no history to confirm; keep the empty source available.
+				retire = ""
+			}
+			cfg.SystemPrompt = strings.TrimSpace(cfg.SystemPrompt + "\n\n" + agent.Carried(c))
+		} else {
+			in := agent.Handoff(c)
+			cfg.Prompt, cfg.Images = in.Text, in.Images
+		}
+		if message != "" {
+			if whole {
+				cfg.Prompt = message
+			} else {
+				cfg.Prompt += "\n\nThe user's next instruction:\n" + message
+			}
+		}
 		hc, err := host.Spawn(cfg)
 		if err != nil {
 			return doneMsg{err: err}
 		}
-		return hostStartedMsg{id: hc.ID, name: cfg.Name}
+		if retire != "" {
+			if err := waitCarried(hc.ID); err != nil {
+				return doneMsg{err: fmt.Errorf("destination %s did not confirm the handoff; source kept available: %w", hc.ID, err)}
+			}
+			// Another client may have sent the source work while the new
+			// harness was starting. Leave it available when that happened.
+			info, err := host.ReadInfo(oldID)
+			if err != nil || !handoffQuiet(info) || !info.UpdatedAt.Equal(sourceStamp) {
+				retire = ""
+			} else if old, err := host.Dial(oldID); err == nil {
+				if err := old.Stop(); err != nil {
+					retire = ""
+				}
+				old.Close()
+			} else {
+				retire = ""
+			}
+		}
+		return hostStartedMsg{id: hc.ID, name: cfg.Name, retire: retire}
 	})
 }
 
@@ -406,7 +540,7 @@ func (m *Model) useSetup(c *hostConn, name, arg, msg string) tea.Cmd {
 		}
 	}
 	if c != nil {
-		return m.switchSession(c, o)
+		return m.switchSessionMessage(c, o, msg)
 	}
 	m.startOver = &o
 	if msg != "" {
@@ -449,5 +583,5 @@ func afterWords(s string, n int) string {
 // which opens the sheet to switch it.
 func (m *Model) clickLabel(c *hostConn, x, y int) bool {
 	lx := m.paneX() + c.label[0]
-	return !m.zenFull() && c.label[1] > 0 && y == m.paneTop+1 && x >= lx && x < lx+c.label[1]
+	return !m.zenFull() && c.label[1] > 0 && y == m.paneTop+paneMetaRow && x >= lx && x < lx+c.label[1]
 }

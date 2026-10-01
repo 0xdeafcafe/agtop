@@ -2,6 +2,7 @@
 package adapters_test
 
 import (
+	_ "github.com/0xdeafcafe/rush/internal/adapters/antigravity"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -27,12 +28,16 @@ import (
 // implements are the features that are an interface: an adapter has the
 // feature exactly when it has the interface.
 var implements = map[agent.Feature]func(agent.Adapter) bool{
-	agent.FeatureRun:      func(a agent.Adapter) bool { _, ok := a.(agent.Driver); return ok },
-	agent.FeatureLive:     func(a agent.Adapter) bool { _, ok := a.(agent.Discoverer); return ok },
-	agent.FeatureHistory:  func(a agent.Adapter) bool { _, ok := a.(agent.HistoryReader); return ok },
-	agent.FeatureQuota:    func(a agent.Adapter) bool { _, ok := a.(agent.QuotaSource); return ok },
-	agent.FeatureSwitch:   func(a agent.Adapter) bool { _, ok := a.(agent.Accounts); return ok },
-	agent.FeatureSignIn:   func(a agent.Adapter) bool { _, ok := a.(agent.Accounts); return ok },
+	agent.FeatureRun:     func(a agent.Adapter) bool { _, ok := a.(agent.Driver); return ok },
+	agent.FeatureLive:    func(a agent.Adapter) bool { _, ok := a.(agent.Discoverer); return ok },
+	agent.FeatureHistory: func(a agent.Adapter) bool { _, ok := a.(agent.HistoryReader); return ok },
+	agent.FeatureQuota:   func(a agent.Adapter) bool { _, ok := a.(agent.QuotaSource); return ok },
+	agent.FeatureSwitch:  func(a agent.Adapter) bool { _, ok := a.(agent.Accounts); return ok },
+	agent.FeatureSignIn: func(a agent.Adapter) bool {
+		_, accounts := a.(agent.Accounts)
+		_, native := a.(agent.Authenticator)
+		return accounts || native
+	},
 	agent.FeaturePricing:  func(a agent.Adapter) bool { _, ok := a.(agent.Pricer); return ok },
 	agent.FeatureCommands: func(a agent.Adapter) bool { _, ok := a.(agent.Commander); return ok },
 }
@@ -46,6 +51,11 @@ func TestFeaturesMatchInterfaces(t *testing.T) {
 	for _, a := range agent.All() {
 		for f, has := range implements {
 			yes := agent.Supports(a.Kind(), f)
+			// Discoverer also lists saved transcripts; implementing Past need
+			// not claim that external live processes can be tracked.
+			if f == agent.FeatureLive && !yes && agent.Supports(a.Kind(), agent.FeatureHistory) {
+				continue
+			}
 			if yes != has(a) {
 				t.Errorf("%s: %s declared %v, but its interface implemented is %v", a.Kind(), f, agent.FeatureOf(a.Kind(), f).Is, has(a))
 			}
@@ -156,7 +166,7 @@ func featureConsts(t *testing.T, fset *token.FileSet, path string) map[agent.Fea
 func TestLevels(t *testing.T) {
 	want := map[agent.Kind]agent.Level{
 		"claude": agent.LevelFull, "codex": agent.LevelTested, "copilot": agent.LevelTested,
-		"deepseek": agent.LevelPreview, "glm": agent.LevelPreview, "kimi": agent.LevelPreview,
+		"deepseek": agent.LevelPreview, "glm": agent.LevelPreview, "kimi": agent.LevelTested,
 		"vibe": agent.LevelPreview, "gemini": agent.LevelPreview, "opencode": agent.LevelPreview,
 	}
 	for k, l := range want {
@@ -177,5 +187,20 @@ func TestLegacyKindAndPrograms(t *testing.T) {
 	}
 	if !agent.IsProgram("/opt/homebrew/bin/claude") || !agent.IsProgram("codex") || agent.IsProgram("zsh") {
 		t.Error("agents' programs aren't told from others")
+	}
+}
+
+// A rewind control must have both file restoration and transcript branching.
+func TestRewindRequiresWorkingInterfaces(t *testing.T) {
+	for _, a := range agent.All() {
+		if !agent.Supports(a.Kind(), agent.FeatureRewind) {
+			continue
+		}
+		if _, ok := a.(agent.Rewinder); !ok {
+			t.Errorf("%s advertises rewind without file restoration", a.Kind())
+		}
+		if _, ok := a.(agent.Brancher); !ok {
+			t.Errorf("%s advertises rewind without transcript branching", a.Kind())
+		}
 	}
 }

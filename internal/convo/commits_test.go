@@ -152,7 +152,7 @@ func TestGitMerge(t *testing.T) {
 		got = append(got, strings.TrimRight(stripANSI(l.Text), " "))
 	}
 	drawn := strings.Join(got, "\n")
-	for _, want := range []string{"⇣ merged feat ─", "│ ●─╮ " + c.made[:7] + "  merge commit", "│ │ ● " + c.came[0].sha[:7] + "  feat: 6", "│ │ ┊ +2 more", "│ ● │ ", "into main ─╯"} {
+	for _, want := range []string{"⇣ merged feat", "│ ●─╮ " + c.made[:7] + "  merge commit", "│ │ ● " + c.came[0].sha[:7] + "  feat: 6", "│ │ ┊ +2 more", "│ ● │ ", "╰ into main"} {
 		if !strings.Contains(drawn, want) {
 			t.Errorf("drawn merge lacks %q:\n%s", want, drawn)
 		}

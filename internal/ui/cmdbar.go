@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
@@ -73,7 +73,8 @@ type barItem struct {
 	glyph   string // painted
 	title   string // plain; lit where the query matched
 	lit     []int  // rune indexes of title to light
-	meta    string // plain, dim at the right
+	meta    string // plain, dim, in a column after the title
+	tail    string // plain, dim, short, at the right edge: state, age, turn
 	score   int
 	run     func(m *Model) tea.Cmd
 }
@@ -334,7 +335,10 @@ func (m *Model) barMsg(msg tea.Msg) (tea.Cmd, bool) {
 		if m.bar == nil {
 			return nil, false
 		}
-		m.closeBar() // a click anywhere puts it away
+		if cmd, ok := m.overlayClick(msg.X, msg.Y); ok && msg.Button == tea.MouseLeft {
+			return cmd, true // a row picked, or outside it: put away
+		}
+		m.closeBar()
 		return nil, true
 	case tea.MouseWheelMsg:
 		if b := m.bar; b != nil && len(b.items) > 0 {
@@ -577,14 +581,48 @@ func (m *Model) barRebuild() {
 		}
 		add(sc.label, pages, 20)
 	default:
-		if !filtered {
-			// Untyped, a few of each: the rest are a letter or two away.
-			add("Go to", m.barPlaces(name), 6)
-			add("Agents", m.barAgents(name, ""), map[bool]int{true: 5, false: 8}[name == ""])
-			add("Commands", m.barCommands(name), 8)
+		_, turnErr := strconv.Atoi(strings.TrimPrefix(raw, "#"))
+		switch {
+		case filtered:
+		case strings.HasPrefix(raw, "#") && turnErr != nil:
+			// # is for commands: none of them clutter the bar until asked for.
+			title := "Commands"
+			if a := m.focused(); a != nil {
+				title += " · on " + oneLine(a.DisplayName)
+			}
+			add(title, m.barCommands(name), 40)
+		default:
+			// Agents first, by what they need of you; places once typed for,
+			// but for starting one and going back.
+			places := m.barPlaces(name)
+			if name == "" {
+				groups := m.barAgentGroups()
+				for _, g := range groups {
+					add(g.title, g.items, max(3, 12/max(1, len(groups))))
+				}
+				places = slices.DeleteFunc(places, func(it barItem) bool { return it.title != "Back" && it.title != "Start an agent" })
+				add("Go to", places, 2)
+				break
+			}
+			// Typed: whichever matches best comes first.
+			agents, goTo := m.barAgents(name, ""), places
+			best := func(its []barItem) int {
+				top := -1 << 30
+				for _, it := range its {
+					top = max(top, it.score)
+				}
+				return top
+			}
+			if best(goTo) > best(agents) {
+				add("Go to", goTo, 8)
+				add("Agents", agents, 10)
+			} else {
+				add("Agents", agents, 10)
+				add("Go to", goTo, 8)
+			}
 		}
-		if c := m.host; c != nil && in == "" {
-			add("This session · "+oneLine(m.hostName(c)), m.barTurns(c, q), 50)
+		if c := m.host; c != nil && in == "" && (!strings.HasPrefix(raw, "#") || turnErr == nil) {
+			add("This session · "+oneLine(m.hostName(c)), m.barTurns(c, q), map[bool]int{true: 4, false: 50}[raw == ""])
 		}
 		// Anything else typed can be a new agent's task (#12 is a turn).
 		if raw != "" && !filtered && !strings.HasPrefix(raw, "#") {
@@ -741,11 +779,11 @@ func (m *Model) barPlaces(q string) []barItem {
 func (m *Model) barCommands(q string) []barItem {
 	var items []barItem
 	a := m.focused()
-	for _, cmd := range append(append([]event.Command{}, fleetCommands...), m.pluginHashCommands()...) {
+	for _, cmd := range append(m.availableFleetCommands(), m.pluginHashCommands()...) {
 		if fleetNeedsAgent[cmd.Name] && a == nil {
 			continue
 		}
-		if it, ok := matchItem(barItem{glyph: paint(cSub, "#"), title: "#" + cmd.Name, meta: convo.KeyWord(cmd.Description), run: func(m *Model) tea.Cmd {
+		if it, ok := matchItem(barItem{glyph: paint(cSub, "›"), title: "#" + cmd.Name, meta: convo.KeyWord(cmd.Description), run: func(m *Model) tea.Cmd {
 			m.toPrompt()
 			m.input, m.back = completed("#", cmd, false), 0
 			if !needsArg(cmd) {
@@ -810,16 +848,43 @@ func (m *Model) barAgents(q, group string) []barItem {
 			repo = filepath.Base(repo)
 		}
 		where := strings.Trim(repo+" · "+a.Branch, " ·")
-		meta := where
-		if s := agentState(a, now); s != "" {
-			meta = strings.Trim(where+"  "+s, " ")
-		}
-		it := barItem{glyph: agentGlyph(a), title: oneLine(a.DisplayName), meta: meta, run: func(m *Model) tea.Cmd { return m.goAgent(a) }}
+		it := barItem{glyph: agentGlyph(a), title: oneLine(a.DisplayName), meta: where, tail: agentState(a, now), run: func(m *Model) tea.Cmd { return m.goAgent(a) }}
 		if it, ok := matchItem(it, q, a.Repo+" "+a.Branch+" "+a.Group+" "+a.State); ok {
 			items = append(items, it)
 		}
 	}
 	return items
+}
+
+type barGroup struct {
+	title string
+	items []barItem
+}
+
+// barAgentGroups are the agents in sections by what they need of you:
+// needing you, working, idle, then earlier ones.
+func (m *Model) barAgentGroups() []barGroup {
+	order := []string{"Needs you", "Working", "Idle", "Earlier"}
+	by := map[string][]barItem{}
+	for _, it := range m.barAgents("", "") {
+		g := "Earlier"
+		switch it.tail {
+		case "needs you", "waiting":
+			g = "Needs you"
+		case "working":
+			g = "Working"
+		case "idle":
+			g = "Idle"
+		}
+		by[g] = append(by[g], it)
+	}
+	var out []barGroup
+	for _, g := range order {
+		if len(by[g]) > 0 {
+			out = append(out, barGroup{g, by[g]})
+		}
+	}
+	return out
 }
 
 func agentGlyph(a *fleet.Agent) string {
@@ -868,7 +933,7 @@ func (m *Model) barTurns(c *hostConn, q string) []barItem {
 		for _, t := range c.sess.Turns {
 			if t.N == n {
 				ref := fmt.Sprintf("t%d", n)
-				items = append(items, barItem{glyph: paint(cSub, "›"), title: oneLine(t.Prompt), meta: fmt.Sprintf("#%d", n), score: 1000, run: func(m *Model) tea.Cmd {
+				items = append(items, barItem{glyph: paint(cSub, "›"), title: oneLine(t.Prompt), tail: fmt.Sprintf("#%d", n), score: 1000, run: func(m *Model) tea.Cmd {
 					m.jumpInPane(ref)
 					return nil
 				}})
@@ -891,7 +956,7 @@ func (m *Model) barTurns(c *hostConn, q string) []barItem {
 				meta = strings.TrimSpace(age(time.Since(t.Start)) + " ago  " + meta)
 			}
 			ref := fmt.Sprintf("t%d", t.N)
-			items = append(items, barItem{glyph: paint(cSub, "›"), title: text, meta: meta, run: func(m *Model) tea.Cmd {
+			items = append(items, barItem{glyph: paint(cSub, "›"), title: text, tail: meta, run: func(m *Model) tea.Cmd {
 				m.jumpInPane(ref)
 				return nil
 			}})
@@ -901,7 +966,7 @@ func (m *Model) barTurns(c *hostConn, q string) []barItem {
 	words := convo.Words(q)
 	for _, h := range c.sess.Search(q) {
 		ref := h.Ref
-		items = append(items, barItem{glyph: whoGlyph(h.Who), title: homeless(h.Snippet), lit: litWords(homeless(h.Snippet), words), meta: fmt.Sprintf("#%d %s", h.Turn, h.Who), run: func(m *Model) tea.Cmd {
+		items = append(items, barItem{glyph: whoGlyph(h.Who), title: homeless(h.Snippet), lit: litWords(homeless(h.Snippet), words), tail: fmt.Sprintf("#%d %s", h.Turn, h.Who), run: func(m *Model) tea.Cmd {
 			m.jumpInPane(ref)
 			return nil
 		}})
@@ -935,8 +1000,7 @@ func (m *Model) barTranscripts(words []string) []barItem {
 	for _, f := range m.bar.found {
 		for _, h := range f.hits {
 			f, h := f, h
-			meta := fmt.Sprintf("%s  #%d", fit(f.name, 24), h.Turn)
-			items = append(items, barItem{glyph: whoGlyph(h.Who), title: homeless(h.Snippet), lit: litWords(homeless(h.Snippet), words), meta: strings.TrimRight(meta, " "), run: func(m *Model) tea.Cmd {
+			items = append(items, barItem{glyph: whoGlyph(h.Who), title: homeless(h.Snippet), lit: litWords(homeless(h.Snippet), words), meta: oneLine(f.name), tail: fmt.Sprintf("#%d", h.Turn), run: func(m *Model) tea.Cmd {
 				return m.goFound(f, h, q)
 			}})
 		}
@@ -1235,6 +1299,13 @@ func (m *Model) barBox(w, h int) []string {
 		text string
 		item int // -1 for a heading
 	}
+	// Metas line up in one column, just past the longest title that has one.
+	col := 0
+	for _, it := range b.items {
+		if it.meta != "" {
+			col = max(col, cellw.String(oneLine(it.title)))
+		}
+	}
 	var rows []row
 	for i, it := range b.items {
 		if i == 0 || it.section != b.items[i-1].section {
@@ -1243,7 +1314,7 @@ func (m *Model) barBox(w, h int) []string {
 			}
 			rows = append(rows, row{m.barHeading(it.section, inner), -1})
 		}
-		rows = append(rows, row{barRow(it, inner, i == b.cursor), i})
+		rows = append(rows, row{barRow(it, inner, col, i == b.cursor), i})
 	}
 	if len(b.items) == 0 {
 		rows = append(rows, row{"", -1}, row{dim("  nothing matches"), -1})
@@ -1287,7 +1358,7 @@ func barHolder(sc barScope) string {
 	case "place":
 		return "a page of " + sc.label
 	}
-	return "Go to a place, an agent or a turn · search every transcript"
+	return "go to an agent, a place or a turn · # for commands"
 }
 
 // barHint is the row of keys under the results: it says what ctrl+f and
@@ -1305,7 +1376,7 @@ func (m *Model) barHint(w int) string {
 		pairs = append(pairs, "ctrl+f", "just "+b.scopes[0].label)
 	}
 	if b.scope().kind == "" {
-		pairs = append(pairs, "tab", "next section")
+		pairs = append(pairs, "#", "commands", "tab", "next section")
 	}
 	if b.scope().transcripts() {
 		pairs = append(pairs, "in:name is:failed", "narrow")
@@ -1346,19 +1417,27 @@ func (m *Model) barHeading(section string, w int) string {
 	return rule(section, meta, w)
 }
 
-// barRow is one result: its glyph, the title lit where it matched, and its
-// meta at the right edge.
-func barRow(it barItem, w int, sel bool) string {
-	meta := dim(it.meta)
-	mw := min(cellw.String(meta), w/2)
-	if mw > 0 {
-		meta = ansi.Truncate(meta, mw, "…")
+// barRow is one result in columns: its glyph, the title lit where it
+// matched, its meta in a column of its own, and a short tail at the right
+// edge, so the eye runs down each rather than across the box.
+func barRow(it barItem, w, col int, sel bool) string {
+	tail := ""
+	if it.tail != "" {
+		tail = "  " + dim(it.tail)
 	}
-	tw := w - 4 - mw - 2
+	tw := w - 3 - cellw.String(tail)
+	if it.meta != "" {
+		tw = min(tw, max(12, min(col, w*9/20)))
+	}
 	title := litTitle(oneLine(it.title), it.lit, tw)
 	line := " " + it.glyph + " " + title
-	pad := w - cellw.String(line) - mw
-	line += strings.Repeat(" ", max(1, pad)) + meta
+	if it.meta != "" {
+		line += strings.Repeat(" ", max(2, 3+tw-cellw.String(line)+2))
+		if mw := w - cellw.String(line) - cellw.String(tail); mw > 3 {
+			line += ansi.Truncate(dim(it.meta), mw, "…")
+		}
+	}
+	line += strings.Repeat(" ", max(0, w-cellw.String(line)-cellw.String(tail))) + tail
 	if sel {
 		return highlight(paint(cOrange, "▍")+line[1:], w)
 	}
@@ -1415,9 +1494,10 @@ func (m *Model) overlayBar(base string) string {
 	box = append(box, e.line(e.h-1, "╰", "╯", "", m.barStatus()))
 	top := max(1, min(m.h/8, len(lines)-len(box)-1))
 	left := (m.w - bw - 2) / 2
+	m.keepOverlay(left, top, bw, len(box), left+2, top+1)
 	plain := make([]string, len(lines))
 	for y := range lines {
-		plain[y] = ansi.Strip(fit(lines[y], m.w))
+		plain[y] = unplace(ansi.Strip(fit(lines[y], m.w)))
 		lines[y] = faint(plain[y])
 	}
 	// The shadow: two cells right of the frame and one row under it, the

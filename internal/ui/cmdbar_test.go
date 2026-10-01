@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -81,20 +82,20 @@ func TestBarFindsAnAgentAndATurn(t *testing.T) {
 	var turns []string
 	for _, it := range m.bar.items {
 		if strings.HasPrefix(it.section, "This session") {
-			turns = append(turns, it.meta)
+			turns = append(turns, it.tail)
 		}
 	}
 	if len(turns) == 0 || !strings.HasSuffix(turns[0], "#301") {
 		t.Fatalf("turns: %v", turns)
 	}
 	for i, it := range m.bar.items {
-		if strings.HasPrefix(it.section, "This session") && strings.HasSuffix(it.meta, "#290") {
+		if strings.HasPrefix(it.section, "This session") && strings.HasSuffix(it.tail, "#299") {
 			m.bar.cursor = i
 		}
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.host.sel != "t290" || !m.host.open["t290"] {
-		t.Fatalf("didn't open turn 290: sel %q", m.host.sel)
+	if m.host.sel != "t299" || !m.host.open["t299"] {
+		t.Fatalf("didn't open turn 299: sel %q", m.host.sel)
 	}
 	// #250 goes straight to turn 250.
 	m.Update(ctrlK())
@@ -325,8 +326,13 @@ func TestBarFindInGroup(t *testing.T) {
 func TestBarStartsAnAgent(t *testing.T) {
 	m, _ := benchModel(120, 40)
 	m.Update(ctrlK())
-	if it := m.bar.items[0]; it.title != "Start an agent" {
-		t.Fatalf("untyped, the first row is %q, not Start an agent", it.title)
+	// Untyped, agents come first, by what they need of you; starting one
+	// is still a row away.
+	if it := m.bar.items[0]; it.section == "Go to" {
+		t.Fatalf("untyped, the first row is %q, not an agent", it.title)
+	}
+	if !slices.ContainsFunc(m.bar.items, func(it barItem) bool { return it.title == "Start an agent" }) {
+		t.Fatal("untyped, there's no Start an agent")
 	}
 	typeBar(m, "zqxj fix the flaky test")
 	var start *barItem
@@ -349,6 +355,7 @@ func TestBarStartsAnAgent(t *testing.T) {
 	m.closeBar()
 	m.paneFocus = true
 	m.Update(ctrlK())
+	m.bar.cursor = slices.IndexFunc(m.bar.items, func(it barItem) bool { return it.title == "Start an agent" })
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.bar != nil || m.paneFocus || m.view != 0 || m.inKind != inPrompt {
 		t.Fatalf("Start an agent didn't put the keys in the Prompt: paneFocus %v view %d", m.paneFocus, m.view)
@@ -411,13 +418,13 @@ func TestBarCommands(t *testing.T) {
 
 	// A command needing an argument goes into the Prompt to type it; one
 	// that doesn't runs at once, the way typing it would.
-	for _, it := range m.barCommands("hibernate") {
-		if it.title == "#hibernate" {
+	for _, it := range m.barCommands("view") {
+		if it.title == "#view" {
 			it.run(m)
 		}
 	}
-	if string(m.input) != "#hibernate " || m.inKind != inPrompt {
-		t.Fatalf("#hibernate should wait in the Prompt for its minutes: %q", string(m.input))
+	if string(m.input) != "#view " || m.inKind != inPrompt {
+		t.Fatalf("#view should wait in the Prompt for its layout: %q", string(m.input))
 	}
 	m.input, m.inKind = m.input[:0], inPrompt
 	for _, it := range m.barCommands("help") {

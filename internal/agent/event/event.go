@@ -16,7 +16,15 @@ import (
 type Event interface{ event() }
 
 // Init arrives once the session is ready.
+type PermissionMode struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 type Init struct {
+	ModeID    string           // stable permission mode ID, when distinct from its display name
+	Modes     []PermissionMode // choices reported by the running harness
 	SessionID string
 	Model     string
 	Cwd       string
@@ -217,6 +225,13 @@ type Context struct {
 	Tokens, Window int
 }
 
+// StartNotice is context the harness gave the agent as its session began.
+// It is shown compactly above the first turn, as Claude Code's start hooks are.
+type StartNotice struct {
+	Event string
+	Text  string
+}
+
 // TaskKind is what a task beside the turn is.
 type TaskKind int
 
@@ -318,6 +333,7 @@ func (Quota) event()             {}
 func (Limited) event()           {}
 func (Billing) event()           {}
 func (Context) event()           {}
+func (StartNotice) event()       {}
 func (Retry) event()             {}
 func (TaskStarted) event()       {}
 func (TaskUpdated) event()       {}

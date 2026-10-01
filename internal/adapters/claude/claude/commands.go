@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -103,6 +104,23 @@ func pluginRoots(configDir, cwd string) []string {
 		}
 	}
 	return roots
+}
+
+// SkillRoots are the folders of <name>/SKILL.md skills Claude Code at
+// configDir reads in cwd, less the project's own: the user's, synced ones
+// and each plugin's. Another agent reads them for the same skills.
+func SkillRoots(configDir, cwd string) []string {
+	roots := []string{filepath.Join(configDir, "skills")}
+	synced, _ := filepath.Glob(filepath.Join(configDir, "skills", "synced", "*"))
+	roots = append(roots, synced...)
+	for _, r := range pluginRoots(configDir, cwd) {
+		roots = append(roots, filepath.Join(r, "skills"))
+	}
+	slices.Sort(roots)
+	return slices.DeleteFunc(slices.Compact(roots), func(d string) bool {
+		st, err := os.Stat(d)
+		return err != nil || !st.IsDir()
+	})
 }
 
 func pluginName(root string) string {

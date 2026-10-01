@@ -198,7 +198,8 @@ func (l rolloutLimits) snapshot() rateLimitSnapshot {
 type eventMsg struct {
 	Type string `json:"type"`
 
-	Item jsontext.Value `json:"item"` // item_completed
+	Item   jsontext.Value `json:"item"`    // item_completed
+	TurnID string         `json:"turn_id"` // task_started, task_complete, item_completed
 
 	DurationMs *int64 `json:"duration_ms"` // task_complete, turn_aborted
 	Error      *struct {
@@ -338,8 +339,10 @@ type tagged struct {
 type replay struct {
 	out []event.Event
 
-	turn  []tagged
-	items bool // the turn has item_completed records
+	turn   []tagged
+	items  bool   // the turn has item_completed records
+	turnID string // the last turn started, and whether it still runs
+	inTurn bool
 
 	meta      bool
 	init      event.Init
@@ -350,6 +353,7 @@ type replay struct {
 	tokens    usage.TokenUsage
 	context   *event.Context
 	lastQuota string
+	prompted  bool // the first user-authored prompt has been seen
 }
 
 // line reads one rollout line.
@@ -429,7 +433,9 @@ func (r *replay) eventMsg(l rolloutLine) {
 	switch m.Type {
 	case "task_started":
 		r.tokens, r.context = usage.TokenUsage{}, nil
+		r.turnID, r.inTurn = m.TurnID, true
 	case "task_complete", "turn_aborted":
+		r.inTurn = false
 		end := event.TurnEnd{Reason: "done", Tokens: r.tokens, Turns: 1}
 		if m.Type == "turn_aborted" {
 			end.Reason = m.Reason
@@ -475,12 +481,15 @@ func (r *replay) eventMsg(l rolloutLine) {
 		}
 	case "item_completed":
 		r.items = true
-		r.add(fromItem, r.item(m.Item)...)
+		// An item that completes after its turn ended ran beside the turns after it.
+		outlived := m.TurnID != "" && r.turnID != "" && (m.TurnID != r.turnID || !r.inTurn)
+		r.add(fromItem, r.item(m.Item, outlived)...)
 	}
 }
 
-// item is what one completed item means as events.
-func (r *replay) item(raw jsontext.Value) []event.Event {
+// item is what one completed item means as events. A command that
+// outlived its turn ran in the background.
+func (r *replay) item(raw jsontext.Value, outlived bool) []event.Event {
 	var it rolloutItem
 	if jsonx.Unmarshal(raw, &it) != nil {
 		return nil
@@ -528,6 +537,7 @@ func (r *replay) item(raw jsontext.Value) []event.Event {
 		return []event.Event{event.Other{Adapter: "codex", Type: "item/" + it.Type, Raw: raw}}
 	}
 	call, _ := callOf(t, raw)
+	call.Input.Background = outlived && t.Type == "commandExecution"
 	out := outputOf(t, raw)
 	return []event.Event{r.assistant(call.ID, event.Part{Kind: event.ToolCall, Call: &call}), result(out)}
 }
@@ -573,8 +583,24 @@ func (r *replay) responseItem(raw jsontext.Value) {
 	case "message":
 		switch ri.Role {
 		case "user":
+			if !r.prompted {
+				for _, c := range ri.Content {
+					if c.Type == "input_text" && startupContext(c.Text) {
+						r.add(fromBoth, event.StartNotice{Event: "SessionStart", Text: c.Text})
+					}
+				}
+			}
 			if m, ok := userPrompt(ri); ok {
+				r.prompted = true
 				r.add(fromResponse, m)
+			}
+		case "developer":
+			if !r.prompted {
+				for _, c := range ri.Content {
+					if c.Type == "input_text" && strings.TrimSpace(c.Text) != "" {
+						r.add(fromBoth, event.StartNotice{Event: "SessionStart", Text: c.Text})
+					}
+				}
 			}
 		case "assistant":
 			var b []string
@@ -586,7 +612,7 @@ func (r *replay) responseItem(raw jsontext.Value) {
 			if len(b) > 0 {
 				r.add(fromResponse, r.assistant(ri.ID, event.Part{Kind: event.Text, Text: strings.Join(b, "\n")}))
 			}
-		} // developer messages are Codex's instructions to the model
+		}
 	case "reasoning":
 		var b []string
 		for _, s := range ri.Summary {
@@ -639,16 +665,16 @@ func userPrompt(ri responseItem) (event.Message, bool) {
 			if img := dataImage(c.ImageURL); img != nil {
 				m.Parts = append(m.Parts, event.Part{Kind: event.Image, Image: img})
 			} else if c.ImageURL != "" {
-				m.Parts = append(m.Parts, event.Part{Kind: event.Text, Text: c.ImageURL})
+				m.Parts = append(m.Parts, event.Part{Kind: event.Image, Image: &event.ImageData{Path: c.ImageURL}})
 			}
 		}
 	}
 	for _, p := range m.Parts {
-		if p.Kind == event.Text {
+		if p.Kind == event.Text || p.Kind == event.Image {
 			return m, true
 		}
 	}
-	return m, false // images alone are the labels Codex puts around them
+	return m, false
 }
 
 // injected is whether a user message's text is context Codex adds rather
@@ -681,6 +707,11 @@ func injected(text string) bool {
 	return strings.HasSuffix(s, "</"+tag+">")
 }
 
+func startupContext(text string) bool {
+	s := strings.TrimSpace(text)
+	return injected(s) && !strings.HasPrefix(s, "<image") && s != "</image>" && !strings.HasPrefix(s, "<turn_aborted")
+}
+
 // dataImage is a data: URL's image.
 func dataImage(url string) *event.ImageData {
 	rest, ok := strings.CutPrefix(url, "data:")
@@ -708,6 +739,32 @@ func outputText(raw jsontext.Value) string {
 	var parts []contentItem
 	_ = jsonx.Unmarshal(raw, &parts)
 	return texts(parts)
+}
+
+// agentCall is one of Codex's agent tools as the Claude Code tool it is
+// like. What it said is kept encrypted, so only a plain message is shown.
+func agentCall(c tool.Call, ri responseItem) tool.Call {
+	var a struct {
+		Target  string `json:"target"`
+		Message string `json:"message"`
+	}
+	_ = jsonx.Unmarshal([]byte(ri.Arguments), &a)
+	if strings.HasPrefix(a.Message, "gAAAA") {
+		a.Message = ""
+	}
+	switch ri.Name {
+	case "send_message", "resume_agent":
+		asClaude(&c, "SendMessage", map[string]any{"to": a.Target, "message": a.Message})
+	case "followup_task":
+		asClaude(&c, "SendMessage", map[string]any{"to": a.Target, "message": a.Message, "summary": "a follow-up task"})
+	case "interrupt_agent", "close_agent":
+		asClaude(&c, "TaskStop", map[string]any{"task_id": a.Target})
+	case "list_agents":
+		asClaude(&c, "ListAgents", map[string]any{})
+	default: // wait_agent
+		asClaude(&c, "TaskOutput", map[string]any{"task_id": "its subagents"})
+	}
+	return c
 }
 
 // responseCall is a function or custom tool call as the model made it.
@@ -759,6 +816,8 @@ func responseCall(ri responseItem) tool.Call {
 		if a.Type == "" {
 			c.Input.Agent = a.Model
 		}
+	case "send_message", "followup_task", "resume_agent", "interrupt_agent", "close_agent", "wait_agent", "list_agents":
+		return agentCall(c, ri)
 	}
 	if ri.Namespace != "" {
 		c.Name = ri.Namespace + "." + ri.Name

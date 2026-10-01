@@ -6,7 +6,7 @@
 // connects is sent what the session has said so far, then everything live,
 // and can send messages, answer permission prompts, interrupt or stop. When
 // the session goes idle the host stops the agent and resumes the
-// conversation on the next message, so an idle agent costs only the host.
+// conversation on the next message. Once quiet, the per-session host exits too.
 package host
 
 import (
@@ -57,15 +57,16 @@ type Config struct {
 	Without []string `json:"without,omitempty"`
 	// From is the conversation this one continues, for showing its history
 	// (a fork's own transcript may start empty).
-	From           string        `json:"from,omitempty"`
-	Account        agent.Profile `json:"account"` // as {"name", "configDir"}: see wireConfig
-	Cwd            string        `json:"cwd"`
-	Name           string        `json:"name,omitempty"`
-	Model          string        `json:"model,omitempty"`
-	Effort         string        `json:"effort,omitempty"`
-	PermissionMode string        `json:"permissionMode,omitempty"`
-	Flags          []string      `json:"flags,omitempty"`
-	Prompt         string        `json:"prompt,omitempty"` // first message
+	From           string          `json:"from,omitempty"`
+	Account        agent.Profile   `json:"account"` // as {"name", "configDir"}: see wireConfig
+	Cwd            string          `json:"cwd"`
+	Name           string          `json:"name,omitempty"`
+	Model          string          `json:"model,omitempty"`
+	Effort         string          `json:"effort,omitempty"`
+	PermissionMode string          `json:"permissionMode,omitempty"`
+	Flags          []string        `json:"flags,omitempty"`
+	PromptExchange *event.Exchange `json:"promptExchange,omitempty"`
+	Prompt         string          `json:"prompt,omitempty"` // first message
 	// NameFirst names the session from the first message sent to it, for
 	// one started without one (by /clear, say).
 	NameFirst bool     `json:"nameFirst,omitzero"`
@@ -104,6 +105,9 @@ type Config struct {
 	Profile string `json:"profile,omitempty"`
 	// SystemPrompt is added to the agent's system prompt, after rush's own.
 	SystemPrompt string `json:"systemPrompt,omitempty"`
+	// Carry is another agent's conversation, for the agent to take as its
+	// own history when it first starts (agent.StartOptions.Carry).
+	Carry []agent.Line `json:"carry,omitempty"`
 	// Owner is the process (rush spawn, standing in for a program) the
 	// session ends with, when it's the one that started the host.
 	Owner int `json:"owner,omitzero"`
@@ -140,9 +144,10 @@ type Info struct {
 	Without   []string `json:"without,omitempty"` // what the agent goes without: see Config.Without
 	// Inbox is whether its running subagents can be sent messages
 	// straight (Client.Tell), not only through the main session.
-	Inbox          bool    `json:"inbox,omitzero"`
-	PermissionMode string  `json:"permissionMode,omitempty"`
-	CostUSD        float64 `json:"costUsd,omitzero"`
+	Inbox           bool                   `json:"inbox,omitzero"`
+	PermissionMode  string                 `json:"permissionMode,omitempty"`
+	PermissionModes []event.PermissionMode `json:"permissionModes,omitempty"`
+	CostUSD         float64                `json:"costUsd,omitzero"`
 	// Billing is how its requests are paid for: plan, overage or metered
 	// (usage.Billing); empty until the agent says.
 	Billing string `json:"billing,omitempty"`
@@ -151,7 +156,8 @@ type Info struct {
 	Queue []string `json:"queue,omitempty"`
 	// QueueImages are the images attached to each queued message, by its
 	// place in Queue; nil when none has any.
-	QueueImages [][]string `json:"queueImages,omitempty"`
+	QueueImages    [][]string        `json:"queueImages,omitempty"`
+	QueueExchanges []*event.Exchange `json:"queueExchanges,omitempty"`
 	// QueueHeld pauses sending the queue; QueueSeparate sends one queued
 	// message per turn instead of the whole queue as one.
 	QueueHeld     bool `json:"queueHeld,omitzero"`
@@ -166,6 +172,9 @@ type Info struct {
 	Error     string    `json:"error,omitempty"`
 	StartedAt time.Time `json:"startedAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// IdleSince is when it last went idle: a turn's end, not a restart
+	// or a change of detail while it waits.
+	IdleSince time.Time `json:"idleSince,omitzero"`
 	// RewoundAt is when /rewind last switched it to an earlier point of
 	// the conversation: everything before it is in the transcript.
 	RewoundAt time.Time `json:"rewoundAt"`
@@ -175,7 +184,8 @@ type Info struct {
 	ReplayFrom time.Time `json:"replayFrom"`
 	// Proto is what the host can do, so a newer rush can tell a host from
 	// an older one (0) that needs restarting to do it: see Proto.
-	Proto int `json:"proto,omitzero"`
+	Proto    int  `json:"proto,omitzero"`
+	Sleeping bool `json:"sleeping,omitempty"` // clean idle exit; explicit input wakes the saved session
 	// Kind is the agent it runs: empty is Claude Code.
 	Kind string `json:"kind,omitempty"`
 	// Profile is the config's: the profile it was started under.
@@ -198,6 +208,9 @@ type Info struct {
 	// follows a switch. A host from before homes stays on ~/.claude's
 	// sign-in, and has to be replaced to move.
 	Homes bool `json:"homes,omitzero"`
+	// Exe is the rush binary the host started from: a newer one installed
+	// since means the host is on an older rush (see Info.Stale).
+	Exe BinStamp `json:"exe,omitzero"`
 }
 
 // Task is one thing running in the background.
@@ -215,7 +228,7 @@ type Task struct {
 // 6 Claude Code's sessions as rush's own events too, to a client that
 // says it reads them, 7 steering with a queued message (queue_send's
 // guide). A client sends its build's in the hello.
-const Proto = 7
+const Proto = 10 // idle host sleep; 9 added guarded compaction; 8 added exchanges
 
 // Limit describes a usage limit that stopped the session.
 type Limit struct {
@@ -263,9 +276,8 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// DefaultIdleStop is how long an idle session keeps Claude Code running:
-// only a moment, since starting it again takes about a second and the
-// prompt cache isn't lost, while a running one holds 150-200 MB.
+// DefaultIdleStop is the quiet interval before releasing an agent runtime.
+// The saved conversation survives; its host can exit once no work needs it.
 const DefaultIdleStop = 3 * time.Second
 
 // Root holds one directory per session.
@@ -312,6 +324,7 @@ type server struct {
 	conn    agent.Conn
 	options map[string][]event.Option
 	began   bool      // the conversation has a transcript to resume
+	untold  string    // rush's prompt, for the first message of an agent without a system prompt
 	cwdAt   time.Time // when followCwd last looked
 	// startCwd is where the agent's process was started: its shell goes
 	// back there between commands from anywhere outside it.
@@ -338,6 +351,7 @@ type server struct {
 	limited   *event.Limited // the limit that stopped this turn, if one did
 	wake      *time.Timer    // a scheduled continue or retry
 	gen       int            // bumped by every send; a stale timer does nothing
+	idleGen   uint64         // invalidates callbacks already running when their timer is stopped
 	idle      *time.Timer
 	// waiting is when a message went to the agent that it hasn't begun
 	// answering: zero once it has (see stillWorking).
@@ -356,6 +370,9 @@ type server struct {
 	stopOnce sync.Once
 	// broker reaches the approved plugins' MCP servers.
 	broker plugin.Broker
+	// lastSaid is what the agent last said this turn: a spawned agent's answer.
+	lastSaid string
+	watchdog subagentWatchdog
 }
 
 var lowGC sync.Once
@@ -400,14 +417,53 @@ func Run(id string) error {
 		quit: make(chan struct{}),
 		info: Info{ID: cfg.ID, Kind: cfg.Kind, SessionID: cfg.SessionID, Account: cfg.Account.Name, Cwd: cfg.Cwd, Name: cfg.Name,
 			HostPID: os.Getpid(), State: "idle", Proto: Proto, Model: cfg.Model, Effort: cfg.Effort, Without: cfg.Without, PermissionMode: cfg.PermissionMode,
-			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta, Profile: cfg.Profile, Homes: true, Inbox: takesInbox(cfg.Kind)},
+			StartedAt: now, UpdatedAt: now, StartedBy: cfg.StartedBy, Meta: cfg.Meta, Profile: cfg.Profile, Homes: true, Inbox: takesInbox(cfg.Kind), Exe: ExeStamp()},
+	}
+	if old, err := readInfoFile(id); err == nil {
+		if old.State == "idle" {
+			// Restarted while it waits, it went idle when it did before.
+			s.info.IdleSince = old.IdleSince
+			if s.info.IdleSince.IsZero() {
+				s.info.IdleSince = old.UpdatedAt // from a host before IdleSince
+			}
+		}
+		s.restoreSleepingInfo(old)
+		s.restoreQueue(old)
+		cfg = s.cfg
 	}
 	s.publish()
+	if !cfg.Resume && !cfg.Fork && cfg.Name != "" && cfg.Name == NameFrom(cfg.Prompt) {
+		s.mu.Lock()
+		s.retitle(cfg.Name, cfg.Prompt)
+		s.mu.Unlock()
+	}
 	if cfg.Prompt != "" || len(cfg.Images) > 0 {
-		if err := s.send(cfg.Prompt, cfg.Images, false); err != nil {
+		if err := s.sendExchange(cfg.Prompt, cfg.Images, false, cfg.PromptExchange); err != nil {
 			return err
 		}
 	}
+	// Imported history must be accepted by the harness before the source
+	// session can be retired, even when no new prompt was supplied.
+	if cfg.Carry != nil && cfg.Prompt == "" && len(cfg.Images) == 0 {
+		s.mu.Lock()
+		err := s.start()
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	if len(s.info.Queue) > 0 {
+		if s.info.Limit != nil {
+			s.scheduleContinue()
+		} else if !s.info.QueueHeld && s.info.State == "idle" {
+			s.sendQueue()
+		}
+	}
+	if s.info.State == "idle" {
+		s.armIdle()
+	}
+	s.mu.Unlock()
 	go s.accept()
 	go s.watchSock(sock)
 	if cfg.Owner > 0 && cfg.Owner == os.Getppid() {
@@ -915,35 +971,13 @@ func (s *server) armIdle() {
 	if s.idle != nil {
 		s.idle.Stop()
 	}
-	conn := s.conn
-	s.idle = time.AfterFunc(time.Duration(s.cfg.IdleStop), func() {
-		// Work it left running in the background (a test run, a build, a
-		// subagent, a monitor) would be cut off, and never reported back,
-		// as would a question it's still answering: rest once it's done.
-		s.mu.Lock()
-		busy := s.stillWorking()
-		s.mu.Unlock()
-		if conn != nil && (busy || runsShells(pidOf(conn))) {
-			s.mu.Lock()
-			if s.conn == conn && s.info.State == "idle" {
-				s.armIdle()
-			}
-			s.mu.Unlock()
-			return
-		}
-		s.mu.Lock()
-		stop := conn != nil && s.conn == conn && s.info.State == "idle"
-		if stop {
-			s.detach()
-			s.publish()
-		}
-		s.mu.Unlock()
-		if stop {
-			stopAgent(conn)
-			// Idle until the next message: give back what the turn used.
-			debug.FreeOSMemory()
-		}
-	})
+	s.idleGen++
+	generation := s.idleGen
+	delay := time.Duration(s.cfg.IdleStop)
+	if delay <= 0 {
+		delay = DefaultIdleStop
+	}
+	s.idle = time.AfterFunc(delay, func() { s.rest(generation) })
 }
 
 // relogin follows the profile being signed in as another account. A
@@ -1052,6 +1086,12 @@ const MovedContinue = "continue: you're on another account now, with room, as th
 // mu held.
 func (s *server) publish() {
 	s.info.UpdatedAt = time.Now()
+	switch {
+	case s.info.State != "idle":
+		s.info.IdleSince = time.Time{}
+	case s.info.IdleSince.IsZero():
+		s.info.IdleSince = s.info.UpdatedAt
+	}
 	b, _ := jsonx.Marshal(s.info)
 	tmp := filepath.Join(dir(s.cfg.ID), "info.json.tmp")
 	if os.WriteFile(tmp, b, 0o600) == nil {
@@ -1069,6 +1109,9 @@ func (s *server) publish() {
 // send delivers a message, or queues it, images and all, while the agent
 // is busy.
 func (s *server) send(text string, images []string, now bool) error {
+	return s.sendExchange(text, images, now, nil)
+}
+func (s *server) sendExchange(text string, images []string, now bool, exchange *event.Exchange) error {
 	// Images are looked at before taking the lock: they can be megabytes.
 	var pics []string
 	for _, p := range images {
@@ -1079,9 +1122,14 @@ func (s *server) send(text string, images []string, now bool) error {
 		pics = append(pics, pic)
 	}
 	s.mu.Lock()
+	if s.info.Sleeping {
+		s.mu.Unlock()
+		return errors.New("session is sleeping; reconnect before sending")
+	}
 	if n := NameFrom(text); s.cfg.NameFirst && n != "" {
 		s.cfg.NameFirst, s.cfg.Name, s.info.Name = false, n, n
 		s.saveConfig()
+		s.retitle(n, text)
 	}
 	waiting := s.info.Limit != nil && s.info.Limit.Continue && !s.info.Limit.ResetsAt.IsZero()
 	busy := s.info.State == "working" || s.info.State == "blocked" || waiting
@@ -1091,8 +1139,10 @@ func (s *server) send(text string, images []string, now bool) error {
 			time.AfterFunc(queueLate, s.lateQueue)
 		}
 		qi := queueImages(&s.info)
+		qe := queueExchanges(&s.info)
 		s.info.Queue = append(s.info.Queue, text)
 		s.info.QueueImages = trimImages(append(qi, images))
+		s.info.QueueExchanges = trimExchanges(append(qe, exchange))
 		if s.pics == nil {
 			s.pics = map[string]string{}
 		}
@@ -1106,7 +1156,7 @@ func (s *server) send(text string, images []string, now bool) error {
 	if len(s.info.Queue) > 0 && (now || !s.info.QueueHeld) && (!busy || s.cutsIn()) {
 		// After what's waiting, never ahead of it: a message with images
 		// went first here, and one sent while idle went round it.
-		s.cutIn(text, images, pics, len(s.info.Queue))
+		s.cutInExchange(text, images, pics, len(s.info.Queue), exchange)
 		if !busy {
 			s.sendQueue()
 			s.publish()
@@ -1118,13 +1168,13 @@ func (s *server) send(text string, images []string, now bool) error {
 		return conn.Interrupt()
 	}
 	if now && s.cutsIn() {
-		s.cutIn(text, images, pics, 0)
+		s.cutInExchange(text, images, pics, 0, exchange)
 		conn := s.conn
 		s.mu.Unlock()
 		return conn.Interrupt()
 	}
 	defer s.mu.Unlock()
-	return s.deliver(text, images, pics)
+	return s.deliverExchange(text, images, pics, exchange)
 }
 
 // queueLate is how long a message queued in a turn waits for it to end
@@ -1162,9 +1212,14 @@ func (s *server) cutsIn() bool {
 // ends. pics are the images as read to send, or nil when they already
 // were. Called with mu held.
 func (s *server) cutIn(text string, images, pics []string, at int) {
+	s.cutInExchange(text, images, pics, at, nil)
+}
+func (s *server) cutInExchange(text string, images, pics []string, at int, exchange *event.Exchange) {
 	qi := queueImages(&s.info)
+	qe := queueExchanges(&s.info)
 	s.info.Queue = slices.Insert(slices.Clone(s.info.Queue), at, text)
 	s.info.QueueImages = trimImages(slices.Insert(qi, at, images))
+	s.info.QueueExchanges = trimExchanges(slices.Insert(qe, at, exchange))
 	for i, p := range pics {
 		if s.pics == nil {
 			s.pics = map[string]string{}
@@ -1196,6 +1251,9 @@ func trimImages(qi [][]string) [][]string {
 // deliverQueued sends queued text with its images, from where they were
 // read when queued. Called with mu held.
 func (s *server) deliverQueued(text string, images []string) error {
+	return s.deliverQueuedExchange(text, images, nil)
+}
+func (s *server) deliverQueuedExchange(text string, images []string, exchange *event.Exchange) error {
 	pics := make([]string, 0, len(images))
 	for _, p := range images {
 		pic, ok := s.pics[p]
@@ -1204,7 +1262,7 @@ func (s *server) deliverQueued(text string, images []string) error {
 		}
 		pics = append(pics, pic)
 	}
-	if err := s.deliver(text, images, pics); err != nil {
+	if err := s.deliverExchange(text, images, pics, exchange); err != nil {
 		return err
 	}
 	for _, p := range images {
@@ -1218,14 +1276,27 @@ func (s *server) deliverQueued(text string, images []string) error {
 // queue. Called with mu held.
 func (s *server) sendQueue() {
 	q, qi, all := s.info.Queue, s.info.QueueImages, queueImages(&s.info)
+	qe := queueExchanges(&s.info)
 	n := queueCut(q, s.info.QueueSeparate)
+	for i, e := range qe[:n] {
+		if e != nil {
+			n = max(1, i)
+			break
+		}
+	}
+	var exchange *event.Exchange
+	if n == 1 {
+		exchange = qe[0]
+	}
 	next, images, rest, restI := JoinQueue(q[:n]), slices.Concat(all[:n]...), q[n:], trimImages(all[n:])
 	if len(rest) == 0 {
 		rest, restI = nil, nil
 	}
 	s.info.Queue, s.info.QueueImages = rest, restI
-	if err := s.deliverQueued(next, images); err != nil {
+	s.info.QueueExchanges = trimExchanges(qe[n:])
+	if err := s.deliverQueuedExchange(next, images, exchange); err != nil {
 		s.info.Queue, s.info.QueueImages = q, qi
+		s.info.QueueExchanges = trimExchanges(qe)
 		s.publish()
 	}
 }
@@ -1307,6 +1378,13 @@ func (s *server) sendLocked(text string) error { return s.deliver(text, nil, nil
 // deliver is sendLocked with images: images as you attached them, pics
 // where they're read from. Called with mu held.
 func (s *server) deliver(text string, images, pics []string) error {
+	return s.deliverExchange(text, images, pics, nil)
+}
+func (s *server) deliverExchange(text string, images, pics []string, exchange *event.Exchange) error {
+	if s.info.Sleeping {
+		return errors.New("session is sleeping; reconnect before sending")
+	}
+	s.idleGen++
 	s.gen++ // any continue or retry waiting is now moot
 	s.info.Limit = nil
 	if s.idle != nil {
@@ -1324,14 +1402,35 @@ func (s *server) deliver(text string, images, pics []string) error {
 		s.publish()
 		return err
 	}
+	if s.cfg.Meta["spawnedBy"] != "" {
+		s.watchdog.resetTurn()
+	}
+	// Agent-origin deliveries are recorded only after the adapter accepted the
+	// input. Its reader waits on mu, so the exchange still precedes its response.
+	if exchange != nil {
+		input := text
+		if s.untold != "" {
+			input = "<system-reminder>\n" + s.untold + "\n</system-reminder>\n\n" + input
+		}
+		if err := s.conn.Send(agent.Input{Text: input, Images: pics}); err != nil {
+			return err
+		}
+		s.untold = ""
+	}
 	// Echo it so every client shows the message before Claude answers.
 	echo := map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}, "agtop_sent": true}
 	if len(images) > 0 {
-		var names []string
-		for _, p := range images {
-			names = append(names, filepath.Base(p))
-		}
-		echo["agtop_images"] = names
+		// Keep the path: clients need it to open the attachment later.
+		echo["agtop_images"] = images
+	}
+	if exchange != nil {
+		received := *exchange
+		received.Direction = "received"
+		received.Text = text
+		received.Images = images
+		received.Receiver = event.Peer{SessionID: s.cfg.ID, Kind: string(agent.Migrated(s.cfg.Kind)), Name: s.cfg.Name}
+		echo["agtop_exchange"] = &received
+		s.recordEvent(received)
 	}
 	b, _ := jsonx.Marshal(echo)
 	s.record(b)
@@ -1339,6 +1438,12 @@ func (s *server) deliver(text string, images, pics []string) error {
 	s.info.Detail = ""
 	s.publish()
 	s.waiting = time.Now()
+	if exchange != nil {
+		return nil
+	}
+	if s.untold != "" {
+		text, s.untold = "<system-reminder>\n"+s.untold+"\n</system-reminder>\n\n"+text, ""
+	}
 	return s.conn.Send(agent.Input{Text: text, Images: pics})
 }
 
@@ -1384,39 +1489,54 @@ func (s *server) editQueue(o op) error {
 	}
 	// Each message's images go wherever it does.
 	qi := queueImages(&s.info)
+	qe := queueExchanges(&s.info)
 	switch o.Op {
 	case "queue_edit":
 		q[o.Index] = o.Text
+		if qe[o.Index] != nil {
+			copy := *qe[o.Index]
+			copy.Text = o.Text
+			qe[o.Index] = &copy
+		}
 	case "queue_remove":
 		q = append(q[:o.Index], q[o.Index+1:]...)
 		qi = slices.Delete(qi, o.Index, o.Index+1)
+		qe = slices.Delete(qe, o.Index, o.Index+1)
 	case "queue_move":
 		to := max(0, min(o.To, len(q)-1))
-		item, im := q[o.Index], qi[o.Index]
+		item, im, ex := q[o.Index], qi[o.Index], qe[o.Index]
 		q = append(q[:o.Index], q[o.Index+1:]...)
 		q = append(q[:to], append([]string{item}, q[to:]...)...)
 		qi = slices.Insert(slices.Delete(qi, o.Index, o.Index+1), to, im)
+		qe = slices.Insert(slices.Delete(qe, o.Index, o.Index+1), to, ex)
 	case "queue_merge":
 		// Into the one after it, so a burst of thoughts goes as one message.
 		if o.Index+1 >= len(q) {
 			return fmt.Errorf("nothing after queued message %d to merge with", o.Index)
 		}
+		if qe[o.Index] != nil || qe[o.Index+1] != nil {
+			return errors.New("agent messages keep their own sender; send them separately")
+		}
 		q[o.Index] = q[o.Index] + "\n\n" + q[o.Index+1]
 		q = append(q[:o.Index+1], q[o.Index+2:]...)
 		qi[o.Index] = slices.Concat(qi[o.Index], qi[o.Index+1])
 		qi = slices.Delete(qi, o.Index+1, o.Index+2)
+		qe = slices.Delete(qe, o.Index+1, o.Index+2)
 	case "queue_send":
 		text, images, was := q[o.Index], qi[o.Index], s.info.QueueImages
 		s.info.Queue = slices.Delete(slices.Clone(q), o.Index, o.Index+1)
 		s.info.QueueImages = trimImages(slices.Delete(qi, o.Index, o.Index+1))
-		if err := s.deliverQueued(text, images); err != nil {
+		s.info.QueueExchanges = trimExchanges(slices.Delete(slices.Clone(qe), o.Index, o.Index+1))
+		if err := s.deliverQueuedExchange(text, images, qe[o.Index]); err != nil {
 			s.info.Queue, s.info.QueueImages = q, was
+			s.info.QueueExchanges = trimExchanges(qe)
 			s.publish()
 			return err
 		}
 		return nil
 	}
 	s.info.Queue, s.info.QueueImages = q, trimImages(qi)
+	s.info.QueueExchanges = trimExchanges(qe)
 	s.publish()
 	return nil
 }
@@ -1426,17 +1546,26 @@ func (s *server) editQueue(o op) error {
 // Called with mu held, which it lets go.
 func (s *server) steerQueued(i int, text string) error {
 	qi := queueImages(&s.info)
-	images := qi[i]
+	qe := queueExchanges(&s.info)
+	images, exchange := qi[i], qe[i]
 	s.info.Queue = slices.Delete(slices.Clone(s.info.Queue), i, i+1)
 	s.info.QueueImages = trimImages(slices.Delete(qi, i, i+1))
+	s.info.QueueExchanges = trimExchanges(slices.Delete(qe, i, i+1))
 	s.publish()
 	s.mu.Unlock()
-	err := s.guide(text, images)
+	var err error
+	if exchange != nil {
+		err = s.guideExchange(text, images, exchange)
+	} else {
+		err = s.guide(text, images)
+	}
 	if err != nil {
 		s.mu.Lock()
 		qi := queueImages(&s.info)
+		qe := queueExchanges(&s.info)
 		s.info.Queue = slices.Insert(slices.Clone(s.info.Queue), 0, text)
 		s.info.QueueImages = trimImages(slices.Insert(qi, 0, images))
+		s.info.QueueExchanges = trimExchanges(slices.Insert(qe, 0, exchange))
 		s.publish()
 		s.mu.Unlock()
 	}
@@ -1445,36 +1574,52 @@ func (s *server) steerQueued(i int, text string) error {
 
 // op is one command from a client.
 type op struct {
-	Op        string         `json:"op"`
-	Text      string         `json:"text,omitempty"`
-	ID        string         `json:"id,omitempty"`
-	Always    bool           `json:"always,omitzero"`
-	Input     jsontext.Value `json:"input,omitzero"`
-	Message   string         `json:"message,omitempty"`
-	Interrupt bool           `json:"interrupt,omitzero"`
-	Mode      string         `json:"mode,omitempty"`
-	Model     string         `json:"model,omitempty"`
-	Effort    string         `json:"effort,omitempty"`
-	Now       bool           `json:"now,omitzero"`
-	Guide     bool           `json:"guide,omitzero"` // send: into the turn under way, not stopping it
-	Images    []string       `json:"images,omitempty"`
-	Index     int            `json:"index,omitzero"`
-	Was       string         `json:"was,omitempty"` // the queued text the client saw at Index
-	To        int            `json:"to,omitzero"`
-	Branch    *Branch        `json:"branch,omitempty"`  // what rewind leaves
-	Request   jsontext.Value `json:"request,omitzero"`  // ask: the control request
-	Proto     int            `json:"proto,omitzero"`    // hello: the client's protocol
-	Without   []string       `json:"without,omitempty"` // without: what the session goes without
+	ExpectedSession   string          `json:"expectedSession,omitempty"`
+	ExpectedUpdatedAt time.Time       `json:"expectedUpdatedAt,omitzero"`
+	Op                string          `json:"op"`
+	Exchange          *event.Exchange `json:"exchange,omitempty"`
+	Text              string          `json:"text,omitempty"`
+	ID                string          `json:"id,omitempty"`
+	Always            bool            `json:"always,omitzero"`
+	Input             jsontext.Value  `json:"input,omitzero"`
+	Message           string          `json:"message,omitempty"`
+	Interrupt         bool            `json:"interrupt,omitzero"`
+	Mode              string          `json:"mode,omitempty"`
+	Model             string          `json:"model,omitempty"`
+	Effort            string          `json:"effort,omitempty"`
+	Now               bool            `json:"now,omitzero"`
+	Guide             bool            `json:"guide,omitzero"` // send: into the turn under way, not stopping it
+	Images            []string        `json:"images,omitempty"`
+	Index             int             `json:"index,omitzero"`
+	Was               string          `json:"was,omitempty"` // the queued text the client saw at Index
+	To                int             `json:"to,omitzero"`
+	Branch            *Branch         `json:"branch,omitempty"`  // what rewind leaves
+	Request           jsontext.Value  `json:"request,omitzero"`  // ask: the control request
+	Proto             int             `json:"proto,omitzero"`    // hello: the client's protocol
+	Without           []string        `json:"without,omitempty"` // without: what the session goes without
 }
 
 func (s *server) do(o op) error {
 	if o.Op == "send" && o.Guide {
-		return s.guide(o.Text, o.Images)
+		return s.guideExchange(o.Text, o.Images, o.Exchange)
 	}
 	if o.Op == "send" {
-		return s.send(o.Text, o.Images, o.Now)
+		return s.sendExchange(o.Text, o.Images, o.Now, o.Exchange)
+	}
+	if o.Op == "exchange" {
+		if o.Exchange == nil {
+			return errors.New("missing exchange")
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.recordEvent(*o.Exchange)
+		return nil
 	}
 	s.mu.Lock()
+	if s.info.Sleeping {
+		s.mu.Unlock()
+		return errors.New("session is sleeping; reconnect before changing it")
+	}
 	conn := s.conn
 	var wasCfg, wasInfo string // the model before a switch, should the agent refuse it
 	switch o.Op {
@@ -1518,6 +1663,9 @@ func (s *server) do(o op) error {
 	case "queue_hold", "queue_separate":
 		if o.Op == "queue_hold" {
 			s.info.QueueHeld = o.Now
+			if !o.Now && s.info.State == "idle" && s.info.Limit == nil && len(s.info.Queue) > 0 {
+				s.sendQueue()
+			}
 		} else {
 			s.info.QueueSeparate = o.Now
 		}
@@ -1531,10 +1679,13 @@ func (s *server) do(o op) error {
 		// Mid-turn it cuts in, as a send now does.
 		if i := slices.Index(s.info.Queue, o.Was); i >= 0 && o.Was != "" && s.cutsIn() {
 			qi := queueImages(&s.info)
+			qe := queueExchanges(&s.info)
+			exchange := qe[i]
 			images := qi[i]
 			s.info.Queue = slices.Delete(slices.Clone(s.info.Queue), i, i+1)
 			s.info.QueueImages = trimImages(slices.Delete(qi, i, i+1))
-			s.cutIn(o.Was, images, nil, 0)
+			s.info.QueueExchanges = trimExchanges(slices.Delete(qe, i, i+1))
+			s.cutInExchange(o.Was, images, nil, 0, exchange)
 			conn := s.conn
 			s.mu.Unlock()
 			return conn.Interrupt()
@@ -1557,9 +1708,39 @@ func (s *server) do(o op) error {
 		s.mu.Unlock()
 		return s.answerAgent(conn, o.ID, req, &o)
 	case "mode":
-		s.cfg.PermissionMode = o.Mode
-		s.info.PermissionMode = o.Mode
+		known, selectable := false, false
+		if len(s.info.PermissionModes) > 0 {
+			selectable = true
+			for _, v := range s.info.PermissionModes {
+				known = known || v.ID == o.Mode
+			}
+		} else if ch, ok := agent.ChoicesOf(agent.Kind(s.cfg.Kind)); ok && len(ch.Modes) > 0 {
+			selectable = true
+			for _, v := range ch.Modes {
+				known = known || v.ID == o.Mode
+			}
+		}
+		if (selectable && !known) || (!selectable && conn == nil) {
+			s.mu.Unlock()
+			return fmt.Errorf("permission mode %q is not offered by this harness", o.Mode)
+		}
+		// Applying permissions can fail. Never advertise or persist an unaccepted
+		// mode, and never restart or drain queued messages to change it.
+		s.mu.Unlock()
+		if conn != nil {
+			if err := conn.SetMode(o.Mode); err != nil {
+				return err
+			}
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.conn != conn {
+			return errors.New("session changed while applying permissions; check the current mode")
+		}
+		s.cfg.PermissionMode, s.info.PermissionMode = o.Mode, o.Mode
+		s.saveConfig()
 		s.publish()
+		return nil
 	case "model":
 		wasCfg, wasInfo = s.cfg.Model, s.info.Model
 		s.cfg.Model = o.Model
@@ -1600,7 +1781,15 @@ func (s *server) do(o op) error {
 			return errors.New("this agent's subagents take messages only through the main session")
 		}
 		return tell(s.cfg.ID, o.ID, o.Text)
-	case "compacted":
+	case "compacted", "compacted_checked":
+		if o.Op == "compacted_checked" {
+			if o.ExpectedSession == "" || o.ExpectedUpdatedAt.IsZero() ||
+				o.ExpectedSession != s.info.SessionID || !o.ExpectedUpdatedAt.Equal(s.info.UpdatedAt) ||
+				s.info.State != "idle" || len(s.info.Queue) != 0 {
+				s.mu.Unlock()
+				return errors.New("the session changed while summarising; no conversation was replaced. Compact again when idle with an empty queue")
+			}
+		}
 		// Carry on in a fresh conversation that starts with its summary,
 		// under the same name, the one left kept as a path for /rewind.
 		if !agent.Supports(agent.Kind(s.cfg.Kind), agent.FeatureRewind) {
@@ -1633,12 +1822,16 @@ func (s *server) do(o op) error {
 		}
 		return err
 	case "stop":
+		retiring := s.stopping
 		s.info.State = "stopped"
 		s.detach()
 		s.publish()
 		s.mu.Unlock()
 		if conn != nil {
 			stopAgent(conn)
+		}
+		if retiring != nil {
+			<-retiring
 		}
 		s.stopOnce.Do(func() { close(s.quit) })
 		return nil
@@ -1650,8 +1843,6 @@ func (s *server) do(o op) error {
 	switch o.Op {
 	case "interrupt":
 		return conn.Interrupt()
-	case "mode":
-		return conn.SetMode(o.Mode)
 	case "model":
 		err := conn.SetModel(o.Model)
 		if err != nil {
@@ -1714,6 +1905,10 @@ func (s *server) rewind(sessionID string, resume bool, left *Branch) error {
 	s.info.SessionID, s.info.RewoundAt, s.info.ReplayFrom = sessionID, time.Now(), time.Time{}
 	s.info.Name = s.cfg.Name
 	s.info.Error, s.info.Retry, s.info.Needs = "", nil, ""
+	if !resume {
+		// A new conversation has no cache of its own yet, warm or cold.
+		s.info.CacheWarm, s.info.ContextTokens = time.Time{}, 0
+	}
 	if s.info.State != "stopped" {
 		s.info.State = "idle"
 	}
@@ -1739,6 +1934,7 @@ func (cfg *Config) rewindTo(sessionID string, resume bool, left *Branch, began b
 		}
 	}
 	cfg.SessionID, cfg.Resume, cfg.Fork, cfg.From, cfg.Prompt, cfg.Images = sessionID, resume, false, "", "", nil
+	cfg.PromptExchange = nil
 	if !resume {
 		// A conversation started afresh is named by its first message.
 		cfg.Name, cfg.NameFirst = FreshName(cfg.Cwd), true
@@ -1771,6 +1967,7 @@ func (c *conn) close() {
 
 func (s *server) serve(nc net.Conn) {
 	proto, ops := hello(nc)
+	archived := ReadExchanges(s.cfg.ID)
 	c := &conn{c: nc, out: make(chan []byte, 4096), gone: make(chan struct{})}
 	var enc *encoder
 	if proto >= eventsFrom {
@@ -1812,6 +2009,12 @@ func (s *server) serve(nc net.Conn) {
 				err = w.WriteByte('\n')
 			}
 			if err != nil {
+				c.close()
+				return
+			}
+		}
+		for _, e := range archived {
+			if b, err := eventLine(e); err == nil && !write(b) {
 				c.close()
 				return
 			}
@@ -1908,7 +2111,9 @@ func alive(pid int) bool {
 		return false
 	}
 	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
+	// A host rush started before a #reload exec'd it is never reaped, so
+	// once it ends it lingers as a zombie that kill(pid, 0) still finds.
+	return (err == nil || errors.Is(err, syscall.EPERM)) && !proc.Zombie(pid)
 }
 
 // runsShells reports whether Claude Code (pid) has a Bash-tool shell still
@@ -1919,7 +2124,8 @@ func runsShells(pid int) bool {
 	}
 	tab := proc.Snapshot(nil)
 	for _, c := range tab.Descendants(pid) {
-		if c != pid && strings.Contains(proc.CommandLine(c), "shell-snapshots") {
+		line := proc.CommandLine(c)
+		if c != pid && (strings.Contains(line, "shell-snapshots") || strings.Contains(line, " host run ") || strings.Contains(line, "rush spawn ")) {
 			return true
 		}
 	}

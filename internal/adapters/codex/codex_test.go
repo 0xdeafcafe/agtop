@@ -410,7 +410,7 @@ func TestCallOf(t *testing.T) {
 		{"move", `{"type":"fileChange","id":"c","changes":[{"path":"/w/a","kind":{"type":"update","move_path":"/w/b"},"diff":""}]}`,
 			tool.Call{ID: "c", Name: "apply_patch", Kind: tool.Move, Input: tool.Input{Path: "/w/a", To: "/w/b"}}},
 		{"mcp", `{"type":"mcpToolCall","id":"d","server":"linear","tool":"get_issue","arguments":{"id":1}}`,
-			tool.Call{ID: "d", Name: "get_issue", Kind: tool.MCP, Input: tool.Input{Server: "linear", Tool: "get_issue"}, Raw: jsontext.Value(`{"id":1}`)}},
+			tool.Call{ID: "d", Name: "mcp__linear__get_issue", Kind: tool.MCP, Input: tool.Input{Server: "linear", Tool: "get_issue"}, Raw: jsontext.Value(`{"id":1}`)}},
 		{"search", `{"type":"webSearch","id":"e","query":"","action":{"type":"search","query":"go generics"}}`,
 			tool.Call{ID: "e", Name: "web_search", Kind: tool.WebSearch, Input: tool.Input{Query: "go generics"}}},
 	}

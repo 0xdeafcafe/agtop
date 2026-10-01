@@ -11,3 +11,4 @@ func args(int) []string                      { return nil }
 func env(int) []string                       { return nil }
 func CommandLine(int) string                 { return "" }
 func Kill(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) }
+func Zombie(int) bool                        { return false }

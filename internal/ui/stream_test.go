@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -21,34 +22,37 @@ import (
 // A line after a quiet spell is handed over at once; lines in a burst
 // gather for at most a frame; the replay gathers whole.
 func TestHostLinesLatency(t *testing.T) {
-	lines := make(chan []byte, 64)
-	c := &hostConn{key: "k", client: &host.Client{Lines: lines}}
+	synctest.Test(t, func(t *testing.T) {
+		lines := make(chan []byte, 64)
+		c := &hostConn{key: "k", client: &host.Client{Lines: lines}}
 
-	lines <- []byte("a")
-	go func() { time.Sleep(5 * time.Millisecond); lines <- []byte("b") }()
-	if msg := c.next()().(hostLinesMsg); len(msg.lines) != 2 {
-		t.Fatalf("the replay should gather: %d lines", len(msg.lines))
-	}
+		lines <- []byte("a")
+		go func() { time.Sleep(5 * time.Millisecond); lines <- []byte("b") }()
+		if msg := c.next()().(hostLinesMsg); len(msg.lines) != 2 {
+			t.Fatalf("the replay should gather: %d lines", len(msg.lines))
+		}
 
-	c.flushed = time.Now().Add(-time.Second)
-	cmd := c.next()
-	lines <- []byte("c")
-	go func() { time.Sleep(12 * time.Millisecond); lines <- []byte("x") }()
-	if msg := cmd().(hostLinesMsg); len(msg.lines) != 1 {
-		t.Fatalf("after a quiet spell a line shouldn't wait for more: %d lines", len(msg.lines))
-	}
-	<-time.After(15 * time.Millisecond)
-	<-lines
+		c.flushed = time.Now().Add(-time.Second)
+		cmd := c.next()
+		lines <- []byte("c")
+		go func() { time.Sleep(12 * time.Millisecond); lines <- []byte("x") }()
+		if msg := cmd().(hostLinesMsg); len(msg.lines) != 1 {
+			t.Fatalf("after a quiet spell a line shouldn't wait for more: %d lines", len(msg.lines))
+		}
+		<-time.After(15 * time.Millisecond)
+		<-lines
 
-	c.flushed = time.Now()
-	cmd = c.next()
-	lines <- []byte("d")
-	go func() { time.Sleep(3 * time.Millisecond); lines <- []byte("e") }()
-	start := time.Now()
-	msg := cmd().(hostLinesMsg)
-	if took := time.Since(start); len(msg.lines) != 2 || took > frame+100*time.Millisecond {
-		t.Fatalf("in a burst: %d lines in %v", len(msg.lines), took)
-	}
+		c.flushed = time.Now()
+		cmd = c.next()
+		lines <- []byte("d")
+		go func() { time.Sleep(3 * time.Millisecond); lines <- []byte("e") }()
+		start := time.Now()
+		msg := cmd().(hostLinesMsg)
+		if took := time.Since(start); len(msg.lines) != 2 || took > frame+100*time.Millisecond {
+			t.Fatalf("in a burst: %d lines in %v", len(msg.lines), took)
+		}
+
+	})
 }
 
 // A followed transcript that grows is noticed within a few polls, not on
@@ -154,14 +158,17 @@ func TestScrolledUpStays(t *testing.T) {
 		t.Fatal("the jump should show turn 5")
 	}
 	top := append([]string{}, c.rowRefs...)
+	anchor := c.top
 	for i := 0; i < 20; i++ {
 		c.sess.Apply(host.Sent{Text: fmt.Sprintf("more %d", i)}, time.Now())
 		c.sess.Apply(headless.Message{Role: "assistant", ID: fmt.Sprintf("x%d", i), Blocks: []headless.Block{{Type: "text", Text: "and more"}}}, time.Now())
 		c.sess.Apply(headless.Result{Subtype: "success"}, time.Now())
 		m.View()
 	}
-	if !shows() || fmt.Sprint(c.rowRefs) != fmt.Sprint(top) {
-		t.Fatalf("the window moved:\n%v\n%v", top, c.rowRefs)
+	// When the turn finishes its activity dock disappears, giving the
+	// transcript more rows at the bottom. Its top anchor must stay put.
+	if !shows() || c.top.ref != anchor.ref || c.top.off != anchor.off {
+		t.Fatalf("the window moved: anchor %+v -> %+v\n%v\n%v", anchor, c.top, top, c.rowRefs)
 	}
 	// Scrolling yourself still moves it.
 	c.scroll += 5
@@ -248,4 +255,56 @@ func TestInsetRowMatchesHeader(t *testing.T) {
 	if got, want := col(row, "%"), col(head, "CPU"); got != want {
 		t.Errorf("the row's CPU ends at %d, the header's at %d:\n%s\n%s", got, want, head, row)
 	}
+}
+
+// Opening a row keeps it where it is on screen and grows below it, even
+// followed to the end, where the window would otherwise push it up.
+func TestOpeningGrowsDown(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	c := m.host
+	m.View()
+	firstY := func(ref string) int {
+		for y, r := range c.rowRefs {
+			if r == ref {
+				return y
+			}
+		}
+		return -1
+	}
+	for y := c.bodyTop; y < len(c.rowRefs); y++ {
+		ref := c.rowRefs[y]
+		if ref == "" || m.isOpen(c, ref) || firstY(ref) != y {
+			continue
+		}
+		before := len(c.rowRefs)
+		c.keepRow(ref)
+		c.open[ref] = true
+		m.View()
+		if got := firstY(ref); got != y {
+			t.Fatalf("%s moved from row %d to %d on opening (rows %d -> %d)", ref, y, got, before, len(c.rowRefs))
+		}
+		return
+	}
+	t.Skip("nothing closed in view to open")
+}
+
+// Enter opens and closes the row picked when nothing's typed, as space
+// does; it isn't only for sending.
+func TestEnterOpensThePickedRow(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	c := m.host
+	m.paneFocus = true
+	m.View()
+	for _, ref := range c.rowRefs[c.bodyTop:] {
+		if ref == "" || strings.Contains(ref, ":u:") || strings.HasPrefix(ref, "sub:") || m.isOpen(c, ref) {
+			continue
+		}
+		c.sel, c.input = ref, nil
+		m.paneKey(tea.KeyPressMsg{Code: tea.KeyEnter}, "enter")
+		if !m.isOpen(c, ref) {
+			t.Fatalf("enter should open %s", ref)
+		}
+		return
+	}
+	t.Skip("nothing closed in view to open")
 }

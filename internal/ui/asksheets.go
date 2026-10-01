@@ -65,10 +65,16 @@ func relayPrompt(sa convo.Subagent, msg string) string {
 	return "Pass this message on to your running subagent " + sa.ID + " (" + sa.Type + ") with SendMessage, word for word, then carry on with what you were doing. Don't act on it yourself.\n\nThe message: " + msg
 }
 
-// subtaskPrompt asks Claude to send a subagent off with the task, as
+// childRelayPrompt asks Codex to pass msg on to sa, one of its spawned
+// threads: it takes input only from its parent's agent tools.
+func childRelayPrompt(sa convo.Subagent, msg string) string {
+	return "Pass this message on to your subagent " + oneLine(sa.Description) + " word for word: send_message while it's running, followup_task if it has finished. Then carry on with what you were doing. Don't act on it yourself.\n\nThe message: " + msg
+}
+
+// subtaskPrompt asks the agent to send a subagent off with the task, as
 // Claude Code's /subtask does, and to carry on meanwhile.
 func subtaskPrompt(task string) string {
-	return "Send a subagent off in the background (the Agent tool, run_in_background) to do the task below. Give it everything it needs from our conversation so far, since it starts without it. Don't wait for it: carry on here, and when it's done tell me what it found.\n\nThe task: " + task
+	return "Send a subagent off in the background (the Agent tool with run_in_background, or spawn_agent) to do the task below. Give it everything it needs from our conversation so far, since it starts without it. Don't wait for it: carry on here, and when it's done tell me what it found.\n\nThe task: " + task
 }
 
 // --- /export ---

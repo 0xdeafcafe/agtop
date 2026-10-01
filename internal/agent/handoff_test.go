@@ -33,3 +33,10 @@ func TestHandoffKeepsTheLatest(t *testing.T) {
 		t.Errorf("hand-off is %d bytes", len(text))
 	}
 }
+
+func TestHandoffReportsOmittedCallsWithoutSummaries(t *testing.T) {
+	text := Handoff(Conversation{EarlierSteps: 12}).Text
+	if !strings.Contains(text, "12 earlier tool calls omitted") {
+		t.Fatal("lost omission count when recent calls have no summary")
+	}
+}

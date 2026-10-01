@@ -55,3 +55,15 @@ func TestSpawnAgentChild(t *testing.T) {
 		t.Fatalf("child %+v %v", s, ok)
 	}
 }
+
+// Codex 0.155 tells of a spawn as a subAgentActivity item, not a
+// spawnAgent call: its start is the subagent, naming the child's thread.
+func TestSubAgentActivitySpawn(t *testing.T) {
+	c, ok := callOf(threadItem{Type: "subAgentActivity", ID: "call_1", Kind: "started", AgentThreadID: "kid", AgentPath: "/root/pong"}, nil)
+	if !ok || c.Kind != tool.Subagent || c.Input.Child != "kid" || c.Input.Description != "pong" {
+		t.Fatalf("started read as %+v %v", c, ok)
+	}
+	if _, ok := callOf(threadItem{Type: "subAgentActivity", Kind: "completed", AgentThreadID: "kid"}, nil); ok {
+		t.Fatal("completed read as a spawn")
+	}
+}

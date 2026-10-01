@@ -128,17 +128,17 @@ func TestRender(t *testing.T) {
 	if os.Getenv("CONVO_SHOW") != "" {
 	}
 	want := []string{
-		"▾ ✓ you  the ux right now is totally broken when i attach",
-		"#1  4 steps   10s   $0.52",
-		"Looking at how attach restores the terminal modes.", // narration
-		"▸ 3 steps: read, search, go build · all ok",         // clean run folded
-		"✓ ✎ internal/daemon/attach.go",                      // an edit never folds
+		"▏  the ux right now is totally broken when i attach", // your message, on its fill
+		"4 steps   10s   $0.52",                               // the turn's foot
+		"Looking at how attach restores the terminal modes.",  // narration
+		"▸ show 3 steps: read, search, go build · all ok",     // clean run folded
+		"✓ ✎ internal/daemon/attach.go",                       // an edit never folds
 		"+2 −1",
-		"   Fixed the alt screen.", // answer on the conversation axis, markdown stripped
-		"▾ ✻ you  add modern key stuff to input too",
+		"▏ Fixed the alt screen.", // answer on the conversation axis, markdown stripped
+		"▏  add modern key stuff to input too",
 		"✗ $ in internal/ui · go vet ./...", // cd leads, quieter
 		"exit 1",
-		"▸ internal/ui/editor.go:41:2: unreachable code", // failure opened itself
+		"editor.go:41 unreachable code", // a failed build says where, in its card
 		"✎ internal/ui/editor.go",
 		"new · 3 lines",
 		"⇉ Explore  find the preview pane",
@@ -168,9 +168,9 @@ func TestFoldAndOpen(t *testing.T) {
 		s.Apply(say("Done."), at(52))
 		s.Apply(headless.Result{Subtype: "success"}, at(53))
 	}
-	out := plain(s.Render(Options{Width: 110, Now: at(60)}))
-	if !strings.Contains(out, "▸ ✓ #1  the ux right now is totally broken when i a…  → Fixed the alt screen.") {
-		t.Errorf("first turn should fold to ask → outcome:\n%s", out)
+	out := plain(s.Render(Options{Width: 110, Now: at(60), Open: map[string]bool{"t1": false}}))
+	if !strings.Contains(out, "▸ 4 steps · 10s · $0.52 · show") || !strings.Contains(out, "the ux right now is totally broken when i attach") || strings.Contains(out, "Fixed the alt screen.") {
+		t.Errorf("a collapsed turn keeps its message and hides the rest:\n%s", out)
 	}
 	// Opening a step shows its diff; opening the folded run lists its steps.
 	o := Options{Width: 110, Now: at(60), Open: map[string]bool{"t1": true, "t1:s:e1": true, "t1:run:1": true}}
@@ -350,8 +350,8 @@ func tailTranscript(t *testing.T, read func(*Tail) (bool, error)) {
 		t.Fatal("second read saw nothing")
 	}
 	s := tl.Sess
-	if len(s.Turns) != 2 || s.Turns[0].Live || s.Turns[0].Outcome() != "Fixed it." || s.Turns[1].Prompt != "/compact" {
-		t.Fatalf("turns: %d, first live=%v outcome=%q second=%q", len(s.Turns), s.Turns[0].Live, s.Turns[0].Outcome(), s.Turns[1].Prompt)
+	if len(s.Turns) != 2 || s.Turns[0].Live || s.Turns[0].Outcome() != "Fixed it." || s.Turns[1].Cause != "/compact" {
+		t.Fatalf("turns: %d, first live=%v outcome=%q second=%q", len(s.Turns), s.Turns[0].Live, s.Turns[0].Outcome(), s.Turns[1].Cause)
 	}
 	if ch, _ := read(tl); ch {
 		t.Error("nothing new should mean no change")
@@ -546,14 +546,14 @@ func TestShellTurnsAndStyling(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success"}, at(100))
 	raw := s.Render(Options{Width: 120, Now: at(100)})
 	out := plain(raw)
-	if !strings.Contains(out, "you  $ ls /tmp") || strings.Contains(out, "bash-input") {
+	if !strings.Contains(out, "▏  $ ls /tmp") || strings.Contains(out, "bash-input") {
 		t.Errorf("shell heading:\n%s", out)
 	}
 	joined := ""
 	for _, l := range raw {
 		joined += l.Text
 	}
-	for _, want := range []string{cWhite + bold + "/design:design-critique", cWhite + bold + "@internal/ui/view.go", "\x1b]8;;https://example.com", cText + "Image #1"} {
+	for _, want := range []string{cWhite + bold + "/design:design-critique", cWhite + bold + "@internal/ui/view.go", "\x1b]8;;https://example.com", dim("▣ Image #1")} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing styled %q", want)
 		}
@@ -613,8 +613,8 @@ func TestRailEnds(t *testing.T) {
 			}
 		}
 		lines = s.Render(Options{Width: 90, Now: at(5), Open: map[string]bool{ref: open}})
-		// The row before the gap between turns must not be a bare rail.
-		if n := len(lines); n >= 2 && strings.TrimSpace(stripANSI(lines[n-2].Text)) == "▏" {
+		// The rule never ends on a bare row.
+		if n := len(lines); n >= 1 && strings.TrimSpace(stripANSI(lines[n-1].Text)) == "▏" {
 			t.Fatalf("open=%v: the rail ends on an empty row\n%s", open, plain(lines))
 		}
 	}
@@ -725,7 +725,9 @@ func TestAnswerTable(t *testing.T) {
 	s.Apply(say("Here:\n\n| Benchmark | Before | After |\n|---|---|---|\n| Frame | **1.38ms** | 0.33ms |\n| Rail | 202µs | 14µs |"), at(1))
 	s.Apply(headless.Result{Subtype: "success"}, at(2))
 	out := plain(s.Render(Options{Width: 100, Now: at(3)}))
-	for _, want := range []string{"Benchmark   Before   After", "Frame       1.38ms   0.33ms", "Rail        202µs    14µs", "───"} {
+	for _, want := range []string{
+		"Benchmark  Before  After", "Frame      1.38ms  0.33ms", "Rail       202µs   14µs",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
@@ -745,7 +747,7 @@ func TestNarrationTable(t *testing.T) {
 	s.Apply(say("Done."), at(4))
 	s.Apply(headless.Result{Subtype: "success"}, at(5))
 	out := plain(s.Render(Options{Width: 100, Now: at(6), Open: map[string]bool{"t1": true}}))
-	for _, want := range []string{"#   Screen", "1   Every page", "───"} {
+	for _, want := range []string{"# · Screen", "1 · Every page"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
@@ -855,7 +857,7 @@ func TestShowDrawsAFigure(t *testing.T) {
 	}
 	// The frame is square: every row of it the same width.
 	var ws []int
-	for _, l := range strings.Split(out, "\n") {
+	for _, l := range strings.Split(out[strings.LastIndex(out[:strings.Index(out, "╭─ ◇")], "\n")+1:], "\n") {
 		if strings.ContainsAny(l, "╭│╰") && strings.ContainsAny(l, "╮│╯") && strings.Contains(l, "─") || strings.HasPrefix(strings.TrimSpace(l), "│") {
 			ws = append(ws, cellw.String(l))
 		}
@@ -907,13 +909,13 @@ func TestPastesAndImagesFold(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success"}, at(1))
 	s.Apply(host.Sent{Images: []string{"image", "image"}}, at(2))
 	out := plain(s.Render(Options{Width: 120, Now: at(3)}))
-	for _, want := range []string{"▤ pasted text #1 · 4 lines: line1 … line4", "▣ shot.png", "▣ Image #1   ▣ Image #2"} {
+	for _, want := range []string{"▤ pasted\n", "▏  line1\n", "▏  line4\n", "▣ shot.png", "▣ Image #1   ▣ Image #2"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "line1\n") || strings.Contains(out, "pasted_content") {
-		t.Errorf("paste shown whole:\n%s", out)
+	if strings.Contains(out, "pasted_content") || strings.Contains(out, "pasted text #") {
+		t.Errorf("a short paste is its own text, not a chip:\n%s", out)
 	}
 }
 
@@ -1085,9 +1087,9 @@ func TestAnswerNestedLists(t *testing.T) {
 	md := "- one\n  - one a\n    - one a i\n  - one b\n- two\n\n1. first\n   - first bullet\n     1. deep number\n2. second\n\n* top\n    * four-space child"
 	got := strings.Join(answerLines(t, md, 80), "\n")
 	for _, want := range []string{
-		"    • one\n      ◦ one a\n        ▪ one a i\n      ◦ one b\n    • two",
-		"    1. first\n      ◦ first bullet\n        1. deep number\n    2. second",
-		"    • top\n      ◦ four-space child",
+		"  • one\n    ◦ one a\n      ▪ one a i\n    ◦ one b\n  • two",
+		"  1. first\n    ◦ first bullet\n      1. deep number\n  2. second",
+		"  • top\n    ◦ four-space child",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing\n%s\nin\n%s", want, got)
@@ -1105,11 +1107,11 @@ func TestAnswerNestedListWraps(t *testing.T) {
 			item = append(item, l)
 		}
 	}
-	if len(item) < 3 || !strings.HasPrefix(item[0], "      ◦ word") {
+	if len(item) < 3 || !strings.HasPrefix(item[0], "    ◦ word") {
 		t.Fatalf("item:\n%s", strings.Join(lines, "\n"))
 	}
 	for _, l := range item[1:] {
-		if !strings.HasPrefix(l, "        ") || strings.HasPrefix(l, "         ") {
+		if !strings.HasPrefix(l, "      ") || strings.HasPrefix(l, "       ") {
 			t.Fatalf("not under the item's text: %q\n%s", l, strings.Join(lines, "\n"))
 		}
 	}
@@ -1137,7 +1139,7 @@ func TestOpenTurnShowsTheWholeMessage(t *testing.T) {
 		if strings.Contains(txt, "On it.") {
 			break
 		}
-		body.WriteString(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(txt), "▾")))
+		body.WriteString(strings.Trim(strings.TrimSpace(txt), "▏│╭╮╰╯─ "))
 	}
 	got := strings.ReplaceAll(body.String(), " ", "")
 	for _, want := range []string{url + url + url, strings.ReplaceAll(tail, " ", ""), "asecondparagraph"} {

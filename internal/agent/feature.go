@@ -33,6 +33,8 @@ const (
 	FeatureStatusLine   Feature = "statusline" // runs rush as its statusline
 	FeatureScreen       Feature = "screen"     // its own TUI, shown beside rush's
 	FeatureHandoffIn    Feature = "handoff"    // starts from another agent's conversation
+	FeaturePort         Feature = "port"       // takes another agent's conversation whole, as its own history
+	FeaturePrompt       Feature = "prompt"     // takes rush's instructions as its system prompt, not atop the first message
 	FeatureSettings     Feature = "settings"   // its settings files: permission rules, env, what the Settings tab sums up
 	FeatureStats        Feature = "stats"      // its own record of the account's use, by day and model
 
@@ -82,6 +84,8 @@ var allFeatures = []FeatureInfo{
 	{FeatureStatusLine, "Statusline"},
 	{FeatureScreen, "Its own screen"},
 	{FeatureHandoffIn, "Hand-off in"},
+	{FeaturePort, "Hand-off in whole"},
+	{FeaturePrompt, "rush's instructions"},
 	{FeatureSettings, "Settings files"},
 	{FeatureStats, "Usage history"},
 	{FeatureLive, "Running sessions"},

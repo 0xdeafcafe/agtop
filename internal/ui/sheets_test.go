@@ -164,6 +164,8 @@ func TestSlashAliasComesFirst(t *testing.T) {
 func TestStatusSheetDrag(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 140, h: 50}
+	// Use an explicit detailed layout so drag coverage is independent of defaults.
+	m.bars.Top = statusline.Layout{Lines: [][]string{{"today", "usage"}, {"ram", "tokens", "cpu", "net", "disk", "battery", "tmp"}}, Sep: " · "}
 	m.openTopBar(nil)
 	st := m.sheet.(*statusSheet)
 	if w := m.sheetWidth(); w != m.w-6 {

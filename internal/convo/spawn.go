@@ -9,6 +9,7 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/agtools"
 )
 
 // Spawn is another agent a shell command ran: claude -p, codex exec,
@@ -407,6 +408,31 @@ func rushStart(args []string, c command, body []string, stdin string) (Spawn, bo
 	return sp, true
 }
 
+// toolRun is the agent st's call of rush's spawn_agent tool starts, as
+// its input says, read once per input; nil for any other step.
+func (st *Step) toolRun() *Spawn {
+	if !agtools.IsSpawn(st.Tool) {
+		return nil
+	}
+	if st.toolAt != len(st.Input)+1 {
+		st.toolAt = len(st.Input) + 1
+		st.toolSp = nil
+		if in, ok := agtools.ReadSpawn(st.Input); ok {
+			st.toolSp = &Spawn{Name: in.Agent, Prompt: in.Prompt, Model: in.Model}
+		}
+	}
+	return st.toolSp
+}
+
+// agentRun is the agent st is drawn as: the one it was found to run, else
+// the one its spawn_agent call names.
+func (st *Step) agentRun() *Spawn {
+	if st.run != nil {
+		return st.run
+	}
+	return st.toolRun()
+}
+
 func quoted(w string) bool { return strings.HasPrefix(w, `"`) || strings.HasPrefix(w, "'") }
 
 // promptOf is a prompt as written: quoted, or fed in by $(cat <<'EOF' …).
@@ -445,6 +471,9 @@ func unquoteArg(w string) string {
 // Spawn is the agent the step's command ran, when it ran one, or the
 // subagent it started when that keeps a session of its own.
 func (st *Step) Spawn() (Spawn, bool) {
+	if sp := st.toolRun(); sp != nil {
+		return *sp, true
+	}
 	if st.kind() == tool.Subagent {
 		in := st.in()
 		if in.Child == "" {
@@ -490,16 +519,19 @@ type Window struct {
 	Step     string
 	Command  string
 	From, To time.Time
+	// Asked is what a spawn_agent call asked: the agent it started was
+	// asked exactly that.
+	Asked string
 }
 
-// Windows are every shell step's, in order; one still running (or its
-// task) runs to now.
+// Windows are every shell step's and spawn_agent call's, in order; one
+// still running (or its task) runs to now.
 func (s *Session) Windows(now time.Time, grace time.Duration) []Window {
 	var out []Window
 	for _, t := range s.Turns {
 		for _, it := range t.Items {
 			st := it.Step
-			if it.Kind != KStep || st == nil || st.kind() != tool.Shell || st.Start.IsZero() {
+			if it.Kind != KStep || st == nil || st.kind() != tool.Shell && st.toolRun() == nil || st.Start.IsZero() {
 				continue
 			}
 			end := st.End
@@ -509,7 +541,11 @@ func (s *Session) Windows(now time.Time, grace time.Duration) []Window {
 			if st.Status == Running || end.IsZero() || s.JobRunning(st.ID) {
 				end = now
 			}
-			out = append(out, Window{Step: st.ID, Command: st.in().Command, From: st.Start, To: end.Add(grace)})
+			w := Window{Step: st.ID, Command: st.in().Command, From: st.Start, To: end.Add(grace)}
+			if sp := st.toolRun(); sp != nil {
+				w.Asked = sp.Prompt
+			}
+			out = append(out, w)
 		}
 	}
 	return out

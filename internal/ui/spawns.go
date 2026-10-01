@@ -189,7 +189,7 @@ func hostedRuns(list *host.Lister, parent string, known map[string]bool) (out []
 		if in.Meta["spawnedBy"] != parent {
 			continue
 		}
-		live[in.ID] = in.State != "stopped"
+		live[in.ID] = in.State != "stopped" && in.State != "idle" // idle: its turn is done
 		if known[in.ID] || in.SessionID == "" || in.StartedAt.IsZero() {
 			continue
 		}
@@ -238,11 +238,12 @@ func hostedSession(k agent.Kind, cfg host.Config, in host.Info) (agent.Session, 
 	return s, false
 }
 
-// claim is the step that ran a session of kind k begun at at: of the shell
-// steps whose window holds it, the one whose command names its program,
-// else the latest to start before it; "" when no window holds it, or none
-// names it while a subagent (whose shell is the session's too) works.
-func claim(wins []convo.Window, k agent.Kind, at time.Time, subBusy bool) string {
+// claim is the step that ran a session of kind k, asked asked, begun at at:
+// of the steps whose window holds it, a spawn_agent call that asked just
+// that, else the shell step whose command names its program, else the
+// latest to start before it; "" when no window holds it, or none names it
+// while a subagent (whose shell is the session's too) works.
+func claim(wins []convo.Window, k agent.Kind, asked string, at time.Time, subBusy bool) string {
 	prog := agent.ProgramOf(k)
 	best, named := "", false
 	var from time.Time
@@ -251,6 +252,12 @@ func claim(wins []convo.Window, k agent.Kind, at time.Time, subBusy bool) string
 			continue
 		}
 		n := prog != "" && names(w.Command, prog)
+		if w.Asked != "" {
+			if strings.TrimSpace(w.Asked) != strings.TrimSpace(asked) {
+				continue // it started another
+			}
+			n = true
+		}
 		if best == "" || n && !named || n == named && w.From.After(from) {
 			best, named, from = w.Step, n, w.From
 		}
@@ -308,7 +315,7 @@ func (m *Model) onSpawnFound(msg spawnFoundMsg) {
 			continue
 		}
 		sub, subs := c.subAt(h.s.CreatedAt)
-		step := claim(wins, h.sp.Kind, h.s.CreatedAt, subs > 0)
+		step := claim(wins, h.sp.Kind, h.sp.Prompt, h.s.CreatedAt, subs > 0)
 		if step == "" && subs == 1 && c.sess.Step(sub) != nil {
 			step = sub // under the subagent that ran it
 		}
@@ -459,8 +466,11 @@ func findSpawn(w spawnWant, mine []agent.Profile, own string, taken map[string]b
 	}
 	if w.sp.Child != "" {
 		f, ok := a.(agent.ChildFinder)
+		if !ok {
+			return agent.Session{}, false // its children keep no sessions rush can find
+		}
 		for _, p := range append(mine, a.Profiles()...) {
-			if s, found := f.FindChild(p, w.parent, w.sp.Child, w.start); ok && found && !taken[s.Transcript] {
+			if s, found := f.FindChild(p, w.parent, w.sp.Child, w.start); found && !taken[s.Transcript] {
 				return s, true
 			}
 		}

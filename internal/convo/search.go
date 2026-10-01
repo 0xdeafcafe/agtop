@@ -244,14 +244,10 @@ func (s *Session) SearchView(q string, o Options) []Line {
 			snip = sub(snip)
 		}
 		left := "  " + dim(fmt.Sprintf("#%-4d", h.Turn)) + " " + who + " " + snip
-		b := ""
 		if h.Ref == o.Selected {
-			b = bgSelU
-			if o.Focused {
-				b = bgSel
-			}
+			left = cursor() + strings.TrimPrefix(left, " ")
 		}
-		out = append(out, Line{Text: row(b, left, "", o.Width, w), Ref: h.Ref})
+		out = append(out, Line{Text: row("", left, "", o.Width, w), Ref: h.Ref})
 	}
 	return out
 }

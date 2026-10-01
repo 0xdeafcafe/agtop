@@ -370,13 +370,19 @@ func (s *Session) Interrupt() error {
 	}
 	s.amu.Lock()
 	waiting := s.approvals
+	questions := s.questions
 	s.approvals = map[string]jsontext.Value{}
+	s.questions = map[string]*elicitation{}
 	s.amu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for aid, id := range waiting {
 		_ = s.rpc.reply(id, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}, nil)
 		s.emit(event.ApprovalCancelled{ID: aid})
+	}
+	for qid, q := range questions {
+		_ = s.rpc.reply(q.id, map[string]string{"action": "cancel"}, nil)
+		s.emit(event.ApprovalCancelled{ID: qid})
 	}
 	return nil
 }
@@ -401,6 +407,24 @@ func (s *Session) SetModel(model string) error {
 		return nil
 	}
 	return fmt.Errorf("acp: set model: %w", ErrUnsupported)
+}
+
+// SetEffort applies the agent's advertised thinking configuration.
+func (s *Session) SetEffort(value string) error {
+	s.mu.Lock()
+	opt := s.option("thought_level")
+	if opt == nil {
+		opt = s.option("thinking")
+	}
+	id := ""
+	if opt != nil {
+		id = opt.ID
+	}
+	s.mu.Unlock()
+	if id == "" {
+		return fmt.Errorf("acp: thinking level: %w", ErrUnsupported)
+	}
+	return s.setOption(id, value)
 }
 
 // SetMode puts the session in one of its Modes.
@@ -477,8 +501,31 @@ func (s *Session) emitInit() {
 	if !s.ready {
 		return
 	}
-	s.emit(event.Init{SessionID: s.id, Model: s.model(), Cwd: s.cwd, Mode: s.modeName(), Version: s.info.Version,
-		Commands: append([]string(nil), s.commands...)})
+	s.emit(event.Init{SessionID: s.id, Model: s.model(), Cwd: s.cwd, Mode: s.modeName(), ModeID: s.mode, Modes: s.permissionModes(), Version: s.info.Version,
+		Effort: s.effort(), Commands: append([]string(nil), s.commands...)})
+}
+
+// permissionModes preserves protocol IDs; display names cannot be sent as IDs.
+func (s *Session) permissionModes() []event.PermissionMode {
+	out := make([]event.PermissionMode, 0, len(s.modes))
+	for _, m := range s.modes {
+		out = append(out, event.PermissionMode{ID: m.ID, Name: m.Name, Description: m.Description})
+	}
+	if len(out) == 0 {
+		if opt := s.option("mode"); opt != nil {
+			var add func([]configValue)
+			add = func(values []configValue) {
+				for _, v := range values {
+					if v.Value != "" {
+						out = append(out, event.PermissionMode{ID: v.Value, Name: v.Name, Description: v.Description})
+					}
+					add(v.Options)
+				}
+			}
+			add(opt.Options)
+		}
+	}
+	return out
 }
 
 // modeName is the mode the session is in, by its name when it has one:
@@ -589,4 +636,13 @@ func lastLine(s string) string {
 		return s[i+1:]
 	}
 	return s
+}
+
+func (s *Session) effort() string {
+	for _, category := range []string{"thought_level", "thinking"} {
+		if o := s.option(category); o != nil {
+			return o.current()
+		}
+	}
+	return ""
 }

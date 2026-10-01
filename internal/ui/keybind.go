@@ -151,10 +151,31 @@ func (m *Model) runAction(id string) tea.Cmd {
 		return m.runPluginCommand(rest, a)
 	}
 	switch id {
+	case "session.history.open", "session.history.close":
+		m.setHistoryFold(id == "session.history.open")
+		return nil
+	case "session.setup":
+		if m.host != nil {
+			return m.openSwitchSheet(m.host)
+		}
+		return nil
+	case "session.mode":
+		return m.cycleSessionPermission()
+	case "guide.open":
+		m.helpPage = 1
+		if m.paneFocus && m.host != nil {
+			m.helpPage = 3
+		}
+		m.mode = modeHelp
+		return nil
 	case "prompt.stash":
 		return m.stashCommand("stash")
 	case "prompt.history":
 		return m.stashCommand("history")
 	}
 	return nil
+}
+
+func (m *Model) cycleSessionPermission() tea.Cmd {
+	return m.permissionCommand(m.host, "", false)
 }

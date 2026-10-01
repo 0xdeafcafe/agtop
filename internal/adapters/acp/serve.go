@@ -89,6 +89,9 @@ func (s *Session) withdraw(id jsontext.Value) {
 		s.mu.Unlock()
 	case question:
 		_ = s.rpc.reply(q.id, nil, cancelled)
+		s.mu.Lock()
+		s.emit(event.ApprovalCancelled{ID: key})
+		s.mu.Unlock()
 	}
 }
 

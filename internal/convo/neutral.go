@@ -18,6 +18,8 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 		t.Heard = now
 	}
 	switch e := ev.(type) {
+	case event.Exchange:
+		s.exchange(e, now)
 	case event.Init:
 		s.Model, s.Cwd = e.Model, e.Cwd
 		s.Version, s.MCP, s.NTools = e.Version, e.MCP, len(e.Tools)
@@ -31,6 +33,8 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 		if e.Window > 0 {
 			s.Window = e.Window
 		}
+	case event.StartNotice:
+		s.addHooks([]Hook{{Event: firstNonEmpty(e.Event, "SessionStart"), Text: e.Text}})
 	case event.PartStart:
 		s.partStart(e.Kind, now)
 	case event.Delta:
@@ -38,9 +42,7 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 	case event.Compacted:
 		s.compacted(&e, now)
 	case event.Message:
-		if text, ok := said(&e); ok {
-			// What you said, as the agent's history tells it.
-			s.Apply(host.Sent{Text: text}, now)
+		if s.userMessage(&e, now) {
 			return
 		}
 		if t := s.Live(); t != nil && e.Role == "assistant" {
@@ -193,20 +195,4 @@ func (s *Session) ensureStep(c tool.Call, now time.Time) {
 		return
 	}
 	s.message(&event.Message{Role: "assistant", Parts: []event.Part{{Kind: event.ToolCall, Call: &c}}}, now)
-}
-
-// said is a message of yours: a user message of text alone that the
-// agent didn't put there itself.
-func said(m *event.Message) (string, bool) {
-	if m.Role != "user" || m.Injected || len(m.Parts) == 0 {
-		return "", false
-	}
-	var texts []string
-	for _, p := range m.Parts {
-		if p.Kind != event.Text {
-			return "", false
-		}
-		texts = append(texts, p.Text)
-	}
-	return strings.Join(texts, "\n\n"), true
 }

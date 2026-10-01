@@ -34,7 +34,7 @@ func queueHint(q queued, w int) string {
 	if q.held {
 		hold = "let go"
 	}
-	pairs := []string{"enter", "edit", "shift+↑↓", "merge up/down", "[ ]", "move", "s", "send this now", "g", "steer with it", "G", "steer with all", "⌫", "drop", "h", hold}
+	pairs := []string{"space", "edit", "shift+↑↓", "merge up/down", "[ ]", "move", "s", "send this now", "g", "steer with it", "G", "steer with all", "⌫", "drop", "h", hold}
 	if !q.local {
 		how := "one per turn"
 		if q.separate {
@@ -72,7 +72,11 @@ func (m *Model) queueKey(c *hostConn, s string) (tea.Cmd, bool) {
 		return nil, false
 	}
 	switch s {
-	case "enter", "e":
+	case "space", "e":
+		if len(c.input) > 0 {
+			m.flash("Finish or stash your message before editing the queue", false)
+			return nil, true
+		}
 		// Edit it in the box; enter there saves it back in place. The
 		// queue holds meanwhile, so it doesn't go half edited.
 		c.pastes = pastes{}
@@ -134,26 +138,35 @@ func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
 	items := slices.Clone(m.queueOf(c).items)
 	// A rush session's queued images go wherever their message does.
 	qi := make([][]string, len(items))
+	qe := make([]*event.Exchange, len(items))
 	if c.client != nil {
 		copy(qi, c.sess.Info.QueueImages)
+		copy(qe, c.sess.Info.QueueExchanges)
 	}
-	was, im := items[i], qi[i]
+	was, im, origin := items[i], qi[i], qe[i]
 	switch op {
 	case "move":
 		items = slices.Insert(slices.Delete(items, i, i+1), to, was)
 		qi = slices.Insert(slices.Delete(qi, i, i+1), to, im)
+		qe = slices.Insert(slices.Delete(qe, i, i+1), to, origin)
 	case "merge":
 		if i+1 >= len(items) {
 			m.flash("nothing after it to merge with", true)
+			return nil
+		}
+		if qe[i] != nil || qe[i+1] != nil {
+			m.flash("agent messages keep their sender · send them separately with s", false)
 			return nil
 		}
 		items[i] += "\n\n" + items[i+1]
 		items = slices.Delete(items, i+1, i+2)
 		qi[i] = slices.Concat(im, qi[i+1])
 		qi = slices.Delete(qi, i+1, i+2)
+		qe = slices.Delete(qe, i+1, i+2)
 	case "send", "drop":
 		items = slices.Delete(items, i, i+1)
 		qi = slices.Delete(qi, i, i+1)
+		qe = slices.Delete(qe, i, i+1)
 		// The pick stays where it was, on the next message.
 		if len(items) == 0 {
 			c.sel = ""
@@ -178,7 +191,7 @@ func (m *Model) queueEdit(c *hostConn, op string, i, to int) tea.Cmd {
 		}
 		return nil
 	}
-	c.sess.Info.Queue, c.sess.Info.QueueImages = items, qi
+	c.sess.Info.Queue, c.sess.Info.QueueImages, c.sess.Info.QueueExchanges = items, qi, qe
 	cl := c.client
 	return hostCmd(func() error {
 		switch op {
@@ -217,6 +230,10 @@ func (m *Model) sendQueueNow(c *hostConn, extra string) tea.Cmd {
 		return m.sendSubQueueNow(c, sq, sa, extra)
 	}
 	queued := m.queueOf(c).items
+	if c.client != nil && hasQueuedExchange(c) && (len(queued) > 1 || extra != "") {
+		m.flash("agent messages keep their sender · send them separately with s", false)
+		return nil
+	}
 	items := slices.Clone(queued)
 	if extra != "" {
 		items = append(items, extra)
@@ -235,7 +252,7 @@ func (m *Model) sendQueueNow(c *hostConn, extra string) tea.Cmd {
 		return m.sendLocal(c.key, a, q)
 	}
 	n := len(queued)
-	c.sess.Info.Queue, c.sess.Info.QueueImages = nil, nil
+	c.sess.Info.Queue, c.sess.Info.QueueImages, c.sess.Info.QueueExchanges = nil, nil, nil
 	cl := c.client
 	return hostCmd(func() error {
 		if n == 0 {
@@ -279,15 +296,22 @@ func (m *Model) steerQueue(c *hostConn, i int, all bool) tea.Cmd {
 		return nil
 	}
 	queued := slices.Clone(m.queueOf(c).items)
+	if all && len(queued) > 1 && hasQueuedExchange(c) {
+		m.flash("agent messages keep their sender · steer with each separately using g", false)
+		return nil
+	}
 	was := queued[i]
 	if all {
-		c.sess.Info.Queue, c.sess.Info.QueueImages = nil, nil
+		c.sess.Info.Queue, c.sess.Info.QueueImages, c.sess.Info.QueueExchanges = nil, nil, nil
 		i, c.sel = 0, ""
 	} else {
 		qi := make([][]string, len(queued))
 		copy(qi, c.sess.Info.QueueImages)
 		c.sess.Info.Queue = slices.Delete(slices.Clone(queued), i, i+1)
 		c.sess.Info.QueueImages = slices.Delete(qi, i, i+1)
+		qe := make([]*event.Exchange, len(queued))
+		copy(qe, c.sess.Info.QueueExchanges)
+		c.sess.Info.QueueExchanges = slices.Delete(qe, i, i+1)
 		if c.sel = ""; len(c.sess.Info.Queue) > 0 {
 			c.sel = fmt.Sprintf("q:%d", min(i, len(c.sess.Info.Queue)-1))
 		}
@@ -408,7 +432,7 @@ var rushCommands = append([]event.Command{
 	{Name: "btw", Description: "a side question in a panel over the chat (ctrl+b): not added to the conversation; ctrl+f makes it a chat of its own", ArgumentHint: "[question]"},
 	{Name: "export", Description: "the conversation as text: copy it, or save it to a file", ArgumentHint: "[file]"},
 	{Name: "subtask", Description: "send a subagent off with the task; Claude carries on, and reports back when it's done", ArgumentHint: "<task>"},
-	{Name: "handoff", Description: "carry this conversation on with another agent, in a new session (this one stays as it is)", ArgumentHint: "<agent>"},
+	{Name: "handoff", Description: "carry this conversation on in another harness, in a new session, from a summary (this one stays as it is)", ArgumentHint: "<harness>"},
 }, setupCommands...)
 
 // rushAliases are Claude Code's other names for commands rush does.
@@ -837,7 +861,7 @@ func (m *Model) runRushCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		return nil, true
 	}
 	if _, cloud := claudeCloudName(name); !canRun(c, name) || cloud && !ownScreens(c) {
-		m.flash("/"+name+" isn't something "+agentName(string(sessionAgent(c)))+" can do", true)
+		m.flash("/"+name+" isn't something "+harnessName(string(sessionAgent(c)))+" can do", true)
 		return nil, true
 	}
 	if cloud, ok := claudeCloudName(name); ok && a != nil { // ownScreens, above
@@ -886,6 +910,12 @@ func (m *Model) runRushCommand(c *hostConn, text string) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.handoffTo(c, a, arg), true
+	case "compact":
+		if a != nil {
+			if cmd, ok := m.compactTyped(c, a, arg); ok {
+				return cmd, true
+			}
+		}
 	case "agent", "profile":
 		return m.useSetup(c, name, arg, ""), true
 	case "rewind":
@@ -902,10 +932,7 @@ func (m *Model) runRushCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		if c.sess.Info.PermissionMode == "plan" || arg == "off" {
 			mode = "default"
 		}
-		c.sess.Info.PermissionMode = mode
-		m.flash("permissions: "+mode, false)
-		cl := c.client
-		return hostCmd(func() error { return cl.SetPermissionMode(mode) }), true
+		return m.setPermission(c, mode), true
 	case "diff":
 		if !m.showView(c, "changes") {
 			m.flash("no changes view for this agent", true)
@@ -966,8 +993,8 @@ func (m *Model) runRushCommand(c *hostConn, text string) (tea.Cmd, bool) {
 		m.flash("past conversations are in Agents: pick one, and a message carries it on", false)
 		return nil, true
 	case "model", "effort":
-		if arg == "" && c.client != nil && m.openChoices(c, name) {
-			return nil, true
+		if arg == "" && m.openChoices(c, name) {
+			return m.loadModels(string(sessionAgent(c))), true
 		}
 		return m.setArg(c, name, arg), true
 	}
@@ -1072,10 +1099,10 @@ func (m *Model) openScreen(c *hostConn, a *fleet.Agent, screen string) tea.Cmd {
 	key, k := c.key, sessionAgent(c)
 	sc, ok := agent.As[agent.Screener](k)
 	if !ok {
-		m.flash(agentName(string(k))+" has no screens of its own", true)
+		m.flash(harnessName(string(k))+" has no screens of its own", true)
 		return nil
 	}
-	hint := "\033[2m  rush · " + agentName(string(k)) + "'s /" + screen + " · when you're done: esc, then ctrl+c twice to come back\033[0m"
+	hint := "\033[2m  rush · " + harnessName(string(k)) + "'s /" + screen + " · when you're done: esc, then ctrl+c twice to come back\033[0m"
 	acct, cwd := a.Acct, firstNonEmpty(c.sess.Info.Cwd, a.Cwd)
 	return func() tea.Msg {
 		cmd := sc.Screen(acct, cwd, screen, hint) // it reads the account's settings
@@ -1106,4 +1133,8 @@ func (m *Model) onScreenDone(msg screenDoneMsg) tea.Cmd {
 	}
 	cl := c.client
 	return hostCmd(func() error { return cl.Send("/reload-plugins") })
+}
+
+func hasQueuedExchange(c *hostConn) bool {
+	return slices.ContainsFunc(c.sess.Info.QueueExchanges, func(e *event.Exchange) bool { return e != nil })
 }

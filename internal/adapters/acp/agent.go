@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agtools"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // Agent is an agent rush knows only through ACP: how to start it, and
@@ -16,6 +18,7 @@ import (
 type Agent struct {
 	ID      agent.Kind
 	Title   string
+	Company string   // whose models it runs, when that isn't Title: Google for Gemini CLI
 	Command string   // its program
 	Args    []string // what makes it speak ACP
 	ACP     string   // the program that does, beside Command, when it's another: vibe-acp
@@ -37,31 +40,39 @@ type Agent struct {
 	More map[agent.Feature]agent.Support
 	// Tried is how far rush's support for it has been tried.
 	Tried agent.Level
+	// Pub is where it's published, when that's known.
+	Pub agent.Published
 }
+
+// Published is where the agent's program is published.
+func (a Agent) Published() agent.Published { return a.Pub }
 
 // Known are the ACP agents rush runs. An agent that grows more than ACP
 // gives (history, limits) moves to a package of its own, as Copilot,
 // Vibe and Gemini have.
 var Known = []Agent{
-	{ID: "kimi", Title: "Kimi", Command: "kimi", Args: []string{"acp"}, Home: ".kimi-code", More: plannedLimits,
+	{ID: "kimi", Title: "Kimi CLI", Company: "Moonshot", Command: "kimi", Args: []string{"acp"}, Home: ".kimi",
 		Once: `kimi -p "<task>"`, Model: "-m", Flags: map[string]string{"-p": "prompt", "--prompt": "prompt",
 			"-m": "model", "--model": "model", "--output-format": "=text"}},
 	{ID: "opencode", Title: "OpenCode", Command: "opencode", Args: []string{"acp"}, Home: ".config/opencode",
+		Pub:  agent.Published{NPM: "opencode-ai", Update: []string{"upgrade"}},
 		Once: `opencode run "<task>"`, Model: "-m", Flags: map[string]string{"-m": "model", "--model": "model",
 			"--dir": "cwd", "--format": "=default"}},
 }
 
 func init() {
 	for _, a := range Known {
-		agent.Register(a)
+		if a.ID == "kimi" {
+			agent.Register(Kimi{a})
+		} else {
+			agent.Register(a)
+		}
 	}
 }
 
 func (a Agent) Kind() agent.Kind { return a.ID }
 func (a Agent) Name() string     { return a.Title }
-
-// plannedLimits are Kimi's: its billing API isn't read yet.
-var plannedLimits = map[agent.Feature]agent.Support{agent.FeatureQuota: agent.Planned}
+func (a Agent) Maker() string    { return a.Company }
 
 // features are what ACP gives any agent. Rewind, fork, context breakdowns,
 // background tasks and a screen of its own have no ACP equivalent.
@@ -70,7 +81,7 @@ var features = map[agent.Feature]agent.Support{
 	agent.FeatureModel: agent.Yes.With("when the agent offers models"),
 	agent.FeatureModes: agent.Yes.With("the agent's own"), agent.FeaturePlan: agent.Yes.With("when the agent has a plan mode"),
 	agent.FeatureImages: agent.Yes, agent.FeatureQuestions: agent.Yes, agent.FeatureMCP: agent.Yes,
-	agent.FeatureHandoffIn:  agent.Yes,
+	agent.FeatureHandoffIn: agent.Yes, agent.FeatureSubagents: agent.Yes.With("when the agent has a subagent tool"),
 	agent.FeatureBackground: agent.No.With("ACP has no background tasks"),
 	agent.FeatureHistory:    agent.Planned, agent.FeaturePricing: agent.Planned,
 }
@@ -151,6 +162,20 @@ func (a Agent) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 	if o.Resume {
 		opts.Resume = o.SessionID
 	}
+	for _, server := range o.Tools {
+		if server.Name == agtools.Server && server.Args != nil {
+			exe, err := os.Executable()
+			if err != nil {
+				return nil, err
+			}
+			descriptor, err := jsonx.Marshal(map[string]any{"name": server.Name, "command": exe, "args": server.Args, "env": agtools.Env()})
+			if err != nil {
+				return nil, err
+			}
+			opts.MCPServers = append(opts.MCPServers, descriptor)
+		}
+	}
+
 	s, err := Start(ctx, opts)
 	if err != nil {
 		return nil, err
@@ -163,6 +188,14 @@ func (a Agent) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, err
 	}
 	if o.Model != "" {
 		if err := s.SetModel(o.Model); err != nil {
+			_ = s.Close()
+			return nil, err
+		}
+	}
+	// A saved effort the model doesn't offer (switched to one that
+	// doesn't think) starts it at the model's own.
+	if o.Effort != "" {
+		if err := s.SetEffort(o.Effort); err != nil && !errors.Is(err, errors.ErrUnsupported) {
 			_ = s.Close()
 			return nil, err
 		}

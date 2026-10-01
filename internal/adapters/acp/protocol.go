@@ -72,7 +72,15 @@ type sessionResult struct {
 
 // configOption is one of a session's settings: its model, its mode, how
 // hard it thinks.
+type configValue struct {
+	Value       string        `json:"value"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Options     []configValue `json:"options"`
+}
+
 type configOption struct {
+	Options      []configValue  `json:"options"`
 	ID           string         `json:"id"`
 	Name         string         `json:"name"`
 	Category     string         `json:"category"`
@@ -112,6 +120,10 @@ type toolCall struct {
 	Locations  []location     `json:"locations"`
 	RawInput   jsontext.Value `json:"rawInput"`
 	RawOutput  jsontext.Value `json:"rawOutput"`
+	// Meta is Vibe's word for what the tool does: "subagent" for its task.
+	Meta *struct {
+		EffectKind string `json:"effect_kind"`
+	} `json:"_meta"`
 }
 
 type toolContent struct {

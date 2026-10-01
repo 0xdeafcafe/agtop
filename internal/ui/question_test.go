@@ -234,12 +234,13 @@ func TestSlashQueueTasks(t *testing.T) {
 		t.Fatal("/compact belongs to Claude Code")
 	}
 
-	// Enter on a queued message pulls it into the box for editing, and
+	// Space on a queued message pulls it into the empty box for editing, and
 	// holds the queue until it's saved.
+	c.input = nil // the command above has been handled
 	m.queueLocal("", "first")
 	m.queueLocal("", "second")
 	c.sel = "q:1"
-	if _, used := m.queueKey(c, "enter"); !used || string(c.input) != "second" || c.editQ != 2 || c.sel != "" {
+	if _, used := m.queueKey(c, "space"); !used || string(c.input) != "second" || c.editQ != 2 || c.sel != "" {
 		t.Fatalf("edit queued: used=%v input=%q editQ=%d", used, string(c.input), c.editQ)
 	}
 	if !m.localQ[""].held {
@@ -580,21 +581,21 @@ func TestAnswersCarryPreview(t *testing.T) {
 func TestFleetSlash(t *testing.T) {
 	m, _ := benchModel(200, 50)
 	m.paneFocus = false
-	m.input = []rune("#so")
+	m.input = []rune("#vie")
 	got, lead := m.promptPicker()
-	if lead != "#" || len(got) == 0 || got[0].Name != "sort" {
-		t.Fatalf("#so offers %v", got)
+	if lead != "#" || len(got) == 0 || got[0].Name != "view" {
+		t.Fatalf("#vie offers %v", got)
 	}
-	if _, ok := m.fleetSlashKey("enter"); !ok || string(m.input) != "#sort " {
-		t.Fatalf("enter on #sort, which needs an argument, left %q", string(m.input))
+	if _, ok := m.fleetSlashKey("enter"); !ok || string(m.input) != "#view " {
+		t.Fatalf("enter on #view, which needs an argument, left %q", string(m.input))
 	}
-	m.input = []rune("#sort c")
-	if got, _ := m.promptPicker(); len(got) != 2 || got[0].Name != "sort cost" || got[1].Name != "sort cpu" {
-		t.Fatalf("#sort c offers %v", got)
+	m.input = []rune("#view ")
+	if got, _ := m.promptPicker(); len(got) != 3 || got[0].Name != "view split" || got[1].Name != "view agent" {
+		t.Fatalf("#view offers %v", got)
 	}
 	m.fleetSlashKey("down")
 	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	if string(m.input) != "#sort cpu" {
+	if string(m.input) != "#view agent" {
 		t.Fatalf("tab left %q", string(m.input))
 	}
 	for _, in := range []string{"#nothing", "# Plan", "#123 is broken", "hello #so"} {

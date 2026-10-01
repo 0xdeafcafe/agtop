@@ -34,13 +34,13 @@ func TestMessageCard(t *testing.T) {
 	got := plain(s.Render(Options{Width: 100, Now: at(20)}))
 	for _, w := range []string{
 		"✓ ⌕ loaded SendMessage, Monitor",
-		"╭─ → to Slim the menubar ─",
+		"╭ → to Slim the menubar",
 		"│ Resume the menubar work",
 		"│ Your session was interrupted.",
-		"woke it up ─╯",
-		"╭─ → to agent a012345 ─",
+		"╰ woke it up",
+		"╭ → to agent a012345",
 		"│ Stop there.",
-		"read at its next step ─╯",
+		"╰ read at its next step",
 		"◔ wake in 25m",
 	} {
 		if !strings.Contains(got, w) {
@@ -86,7 +86,7 @@ func TestMessageToSession(t *testing.T) {
 		s.Apply(e, at(i))
 	}
 	got := plain(s.Render(Options{Width: 100, Now: at(20)}))
-	for _, w := range []string{"→ to Settings plugins refactor (rush-8a) ─", "→ to main ─"} {
+	for _, w := range []string{"→ to Settings plugins refactor (rush-8a)", "→ to main"} {
 		if !strings.Contains(got, w) {
 			t.Errorf("missing %q in\n%s", w, got)
 		}

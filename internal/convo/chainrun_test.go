@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -204,5 +205,49 @@ func TestJobCallStandsIn(t *testing.T) {
 	}
 	if s.JobCommand(b2) != "" {
 		t.Errorf("a description isn't a command: %q", s.JobCommand(b2))
+	}
+}
+
+func TestWatchShellsNeutralExactCommand(t *testing.T) {
+	now := time.Now()
+	command := "go build ./... && go test ./..."
+	for _, name := range []string{"exec_command", "run_shell_command", "Shell", "bash"} {
+		t.Run(name, func(t *testing.T) {
+			s, st := runningChain(command, now)
+			st.Tool = name
+			st.setCall(&tool.Call{ID: st.ID, Name: name, Kind: tool.Shell, Input: tool.Input{Command: command}})
+			kids := []ShellProc{{PID: 42, Args: []string{"go", "test", "./..."}, Start: now}}
+			s.WatchShells([]Shell{{Command: "unrelated MCP server", Start: now, Kids: kids}}, now)
+			if len(st.parts) != 0 {
+				t.Fatal("unrelated shell acquired call by timestamp")
+			}
+			s.WatchShells([]Shell{{Command: command, Start: now, Kids: kids}}, now.Add(time.Second))
+			if st.parts[1] == nil || st.parts[1].procs[0].PID != 42 {
+				t.Fatalf("neutral shell not tracked: %+v", st.parts)
+			}
+		})
+	}
+}
+
+func TestJobProgressAgeIgnoresDuplicateHeartbeatAndResets(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.applyJob(event.TaskStarted{ID: "job"}, now)
+	progress := event.TaskProgress{ID: "job", Summary: "Compiling", Tokens: 12}
+	s.applyJob(progress, now.Add(time.Second))
+	s.applyJob(progress, now.Add(time.Minute))
+	j := s.Job("job")
+	if !j.ProgressAt.Equal(now.Add(time.Second)) {
+		t.Fatal("duplicate heartbeat counted as progress")
+	}
+	progress.Tokens++
+	s.applyJob(progress, now.Add(2*time.Minute))
+	if !j.ProgressAt.Equal(now.Add(2 * time.Minute)) {
+		t.Fatal("new work did not count as progress")
+	}
+	s.applyJob(event.TaskDone{ID: "job", Status: "completed"}, now.Add(3*time.Minute))
+	s.applyJob(event.TaskStarted{ID: "job"}, now.Add(4*time.Minute))
+	if !j.ProgressAt.IsZero() || j.Summary != "" || j.Tokens != 0 {
+		t.Fatalf("restarted task retains stale progress: %+v", j)
 	}
 }

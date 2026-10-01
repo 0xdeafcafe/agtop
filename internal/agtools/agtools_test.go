@@ -32,7 +32,7 @@ func TestHandshake(t *testing.T) {
 	if show["name"] != "show" || show["_meta"].(map[string]any)["anthropic/alwaysLoad"] != true {
 		t.Fatalf("tools/list: %v", show)
 	}
-	if got := Allowed(); len(got) != 1 || got[0] != Show {
+	if got := Allowed(); len(got) != 4 || got[0] != Show {
 		t.Fatalf("allowed: %v", got)
 	}
 }
@@ -48,5 +48,16 @@ func TestShow(t *testing.T) {
 	}
 	if u := rpc(t, `{"jsonrpc":"2.0","id":4,"method":"resources/list"}`); u["error"] == nil {
 		t.Fatalf("unknown method: %v", u)
+	}
+}
+
+func TestServe(t *testing.T) {
+	in := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n" + `{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"
+	var out strings.Builder
+	if err := Serve(strings.NewReader(in), &out, Handle); err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Split(strings.TrimSpace(out.String()), "\n"); len(lines) != 1 || !strings.Contains(lines[0], `"show"`) {
+		t.Fatalf("one answer, to the request alone: %q", out.String())
 	}
 }

@@ -65,6 +65,9 @@ func (m *Model) cardOverlay(a *fleet.Agent, c *hostConn, out []string, top, rows
 		return
 	}
 	bw := min(w-4, 104)
+	if cardKind(c) == "limit" {
+		bw = min(bw, 88)
+	}
 	c.inModal = true
 	card := m.cardRows(a, c, bw-2, rows-3)
 	c.inModal = false

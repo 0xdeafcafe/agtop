@@ -32,6 +32,7 @@ type Job struct {
 	OutputFile string // where its output is, once it's done
 	Summary    string // its latest progress, or how it ended
 	LastTool   string
+	ProgressAt time.Time // last reported change in progress, not a heartbeat
 	Tokens     int
 	ToolUses   int
 }
@@ -180,6 +181,9 @@ func (s *Session) applyJob(ev event.Event, now time.Time) {
 		}
 	case event.TaskProgress:
 		j := s.job(ev.ID, now)
+		if ev.Summary != "" && ev.Summary != j.Summary || ev.LastTool != "" && ev.LastTool != j.LastTool || ev.Tokens > j.Tokens || ev.ToolUses > j.ToolUses {
+			j.ProgressAt = now
+		}
 		j.Summary, j.LastTool = firstNonEmpty(ev.Summary, j.Summary), firstNonEmpty(ev.LastTool, j.LastTool)
 		j.Tokens, j.ToolUses = max(j.Tokens, ev.Tokens), max(j.ToolUses, ev.ToolUses)
 		if s.JobKind(j) == "monitor" {
@@ -221,6 +225,8 @@ func (s *Session) reopenJob(j *Job, now time.Time) {
 		return
 	}
 	j.Status, j.Error, j.End, j.Start, j.OutputFile = "", "", time.Time{}, now, ""
+	j.ProgressAt = time.Time{}
+	j.Summary, j.LastTool, j.Tokens, j.ToolUses = "", "", 0, 0
 	delete(s.TaskStatus, j.ID)
 }
 

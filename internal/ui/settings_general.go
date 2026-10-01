@@ -9,15 +9,14 @@ import (
 	"github.com/0xdeafcafe/rush/internal/menubar"
 )
 
-// General is everything that holds whatever agent runs: how rush looks
-// after sessions, then how it looks (interfaceSections).
+// General controls session lifecycle, notifications and background work.
 func (m *Model) generalSections() []section {
 	c := &m.store.Config
 	d := &c.Dispatch
 	var secs []section
 
 	rest := choiceSetting("Rest idle sessions after", restValue(d.RestMinutes),
-		"How long an idle rush-mode session keeps its agent running. An idle agent holds 150-580 MB; after this it stops, and your next message starts it again in about a second. The host, the conversation and its queue stay, and so does the prompt cache.",
+		"How long an idle rush-mode session keeps its harness running. An idle harness holds 150-580 MB; after this it stops, and your next message starts it again in about a second. The host, the conversation and its queue stay, and so does the prompt cache.",
 		[][2]string{
 			{"", "the agent stops a moment after its turn, with nothing left running in the background."},
 			{"2 min", "the agent stays up 2 minutes after its turn."},
@@ -129,7 +128,7 @@ func (m *Model) generalSections() []section {
 		},
 	}
 	secs = append(secs, section{title: "Stalls", rows: []setting{stalls}})
-	return append(secs, m.interfaceSections()...)
+	return secs
 }
 
 // onOffWord is on or off.

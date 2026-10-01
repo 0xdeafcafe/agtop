@@ -126,6 +126,8 @@ func describe(e event.Event) string {
 		return fmt.Sprintf("quota %s %s %.0f%% %s", e.Plan, w.Label, w.Percent, e.FetchedAt.Format(time.TimeOnly))
 	case event.Context:
 		return fmt.Sprintf("context %d/%d", e.Tokens, e.Window)
+	case event.StartNotice:
+		return "start " + e.Event + " " + e.Text
 	case event.Compacted:
 		return fmt.Sprintf("compacted %d", e.Before)
 	case event.Limited:
@@ -206,6 +208,8 @@ func TestHistoryItems(t *testing.T) {
 	got := history(t, itemTurn(&rollout{t0: t0}), time.Time{})
 	same(t, got, []string{
 		"init thread-1 gpt-5 /work never 0.1.0",
+		"start SessionStart <permissions>x</permissions>",
+		"start SessionStart <environment_context>\n  <cwd>/work</cwd>\n</environment_context>",
 		"user() text:fix the build; image:/tmp/a.png",
 		"assistant(gpt-5) thinking:Looking",
 		"assistant(gpt-5) text:On it.",
@@ -250,6 +254,8 @@ func TestHistoryResponses(t *testing.T) {
 		event("turn_aborted", map[string]any{"reason": "interrupted", "duration_ms": 2000})
 	same(t, history(t, r, time.Time{}), []string{
 		"init thread-2 gpt-5-mini /work on-request 0.1.0",
+		"start SessionStart # AGENTS.md instructions for /work\n\n<INSTRUCTIONS>be nice</INSTRUCTIONS>",
+		"start SessionStart <environment_context>x</environment_context>",
 		"user() image:image/png; text:what is <b>this</b>?",
 		"assistant(gpt-5-mini) thinking:Hmm",
 		"assistant(gpt-5-mini) call:c1 exec_command shell ls",

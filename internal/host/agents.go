@@ -50,14 +50,22 @@ func runners() []runner {
 		if !ok {
 			continue // no stand-in hosts it
 		}
-		r := runner{k: k, prov: prov, name: base.Name(), ready: signedIn(base) && hasKey(a)}
+		r := runner{k: k, prov: prov, name: base.Name()}
+		cached, hasSnapshot := a.(agent.RunnerSnapshot)
+		if hasSnapshot {
+			r.models, r.ready = cached.RunnerSnapshot()
+		} else {
+			r.ready = signedIn(base) && hasKey(a)
+		}
 		r.cmd, r.flag = sp.SpawnCommand()
 		if k != base.Kind() {
 			r.cmd = "RUSH_AGENT=" + string(k) + " " + r.cmd
 		}
 		ch, _ := agent.ChoicesOf(k)
-		r.models = ch.Models
-		if ml, ok := base.(agent.ModelLister); ok && len(r.models) == 0 {
+		if !hasSnapshot {
+			r.models = ch.Models
+		}
+		if ml, ok := base.(agent.ModelLister); ok && !hasSnapshot && len(r.models) == 0 {
 			if ps := agent.ProfilesOf(base); len(ps) > 0 {
 				r.models = ml.ListModels(ps[0])
 			}
@@ -72,29 +80,15 @@ func runners() []runner {
 	return out
 }
 
-// command is the shell command that runs r on model (its own default for
-// ""), with the task read from the file $F.
-func (r runner) command(model string) string {
-	cmd := strings.Replace(r.cmd, `"<task>"`, `"$(cat "$F")"`, 1)
-	switch {
-	case model == "":
-	case strings.HasSuffix(r.flag, "="): // a variable, set before the command
-		cmd = r.flag + model + " " + cmd
-	default:
-		cmd += " " + r.flag + " " + model
-	}
-	return cmd
-}
-
 // agentsPrompt tells a session which agents it can start from its shell,
-// for a harness that takes no agent definitions (agentDefs is the rest's).
+// for a harness that takes no MCP tools (Pi): the rest have spawn_agent.
 // "" when there's none to tell of.
 func agentsPrompt() string {
 	var lines []string
 	for _, r := range runners() {
 		out := ""
 		if !r.ready {
-			out = "; not signed in, so don't run it: tell the user to sign it in or give it its key, in rush, Settings, " + r.name
+			out = "; availability unverified, so don't run it: check or refresh its account in rush, Settings, " + r.name
 		}
 		var ids []string
 		for _, c := range r.models {
@@ -128,61 +122,62 @@ func agentsPrompt() string {
 		"\nWhen the user asks for one by name (\"an ollama lane\"), run that line as given; a model named on its own, or by part of its name, is the line whose list has it, run with that model. Pick one by what the work needs: a cheaper or local model for routine work, another provider for a second opinion. Treat them as you treat your own subagent types: if one fails to start, use another and tell the user; never debug its sign-in or setup."
 }
 
-// agentDefs are the agents a Claude Code session of kind session can hand
-// work to, as its own subagent types (--agents): a name and what it's for,
-// nothing of the harness or provider behind it. One of Claude's own models
-// runs as a subagent does; any other is a subagent that hands the task to
-// it from the shell and brings back its answer.
-func agentDefs(session agent.Kind) map[string]jsontext.Value {
-	defs := map[string]jsontext.Value{}
+// toolsNote tells a session that has rush's tools how to reach other agents.
+const toolsNote = "An agent the user names (\"have <name> do it\", \"use <name> for that\", \"a codex lane\") is one of the agents rush's spawn_agent tool lists: start it with that tool, in the background when you have other work meanwhile, not from your shell."
+
+// pick is an agent a session can start: a runner on one of its models,
+// by the name the session calls it.
+type pick struct {
+	name, desc string
+	r          runner
+	model      string // "" for its own default
+}
+
+// picks are the agents a session can start, each named once.
+func picks() []pick {
+	var out []pick
+	taken := map[string]bool{}
 	for _, r := range runners() {
 		models := r.models
 		if len(models) == 0 {
 			models = []agent.Choice{{}} // its own default
 		}
 		for _, c := range models {
-			name := defName(r, c.ID, defs)
+			name := defName(r, c.ID, taken)
+			taken[name] = true
 			desc := strings.TrimSuffix(or(c.Note, "A capable general agent"), ".") + "."
-			desc = strings.ToUpper(desc[:1]) + desc[1:]
-			def := map[string]any{"description": desc, "model": "haiku", "tools": []string{"Bash"}}
-			switch {
-			case !r.ready:
-				def["description"] = desc + " Not available right now."
-				def["prompt"] = "Reply with only this, word for word: " + name + " can't take work until it's signed in: in rush, Settings, " + r.name + "."
-				def["tools"] = []string{}
-			case r.k == session && r.prov == string(session) && plainModel(c.ID):
-				def = map[string]any{"description": desc, "model": c.ID, "prompt": workPrompt}
-			default:
-				def["prompt"] = relayPrompt(r.command(c.ID))
-			}
-			if b, err := jsonx.Marshal(def); err == nil {
-				defs[name] = b
-			}
+			out = append(out, pick{name: name, desc: strings.ToUpper(desc[:1]) + desc[1:], r: r, model: c.ID})
+		}
+	}
+	return out
+}
+
+// agentDefs are the subagent types (--agents) a Claude Code session of kind
+// session runs itself: its own models, by name. Every other agent is
+// spawn_agent's.
+func agentDefs(session agent.Kind) map[string]jsontext.Value {
+	defs := map[string]jsontext.Value{}
+	for _, p := range picks() {
+		if p.r.k != session || p.r.prov != string(session) || !plainModel(p.model) || !p.r.ready {
+			continue
+		}
+		if b, err := jsonx.Marshal(map[string]any{"description": p.desc, "model": p.model, "prompt": workPrompt}); err == nil {
+			defs[p.name] = b
 		}
 	}
 	return defs
 }
 
-// agentsNote tells a session with agentDefs how to reach them.
-const agentsNote = "An agent the user names (\"have <name> do it\", \"use <name> for that\") is one of your subagent types: start it with the Agent tool, as any subagent, not by message."
+// agentsNote tells a session with agentDefs how to reach them, and the rest.
+const agentsNote = "An agent the user names (\"have <name> do it\", \"use <name> for that\") is one of your subagent types, started with the Agent tool, or else one of the agents rush's spawn_agent tool lists, started with that tool; never by message or from your shell."
 
 // workPrompt is a subagent's that does the work itself.
 const workPrompt = "Do the task you're given, fully and carefully, then report what you did and what you found: short, with the details the one who asked needs to carry on."
 
-// relayPrompt is a subagent's that hands its task to cmd and brings back
-// what it says. It must never answer itself, however easy the task.
-func relayPrompt(cmd string) string {
-	return "You are a relay, not an assistant: you know nothing and can do nothing but run one command. " +
-		"Your first action, always, is the Bash call below, with timeout 600000 and the task you were given, word for word with all its context, where it says <the task>. " +
-		"Never answer, shorten or change the task yourself, however easy it looks: an answer that didn't come from the command's output is wrong.\n\n" +
-		"F=$(mktemp) && cat > \"$F\" <<'RUSH_TASK'\n<the task>\nRUSH_TASK\n" + cmd + "\n\n" +
-		"Then reply with exactly what it printed, in full. If it failed or printed an error, reply with that error, word for word, and nothing else."
-}
-
 // defName is what an agent on model is called: the model's own short name
 // (astra for gpt-6-astra) when that's free, else its whole id, else the
 // agent's with it; the agent's own for its default.
-func defName(r runner, model string, taken map[string]jsontext.Value) string {
+func defName(r runner, model string, taken map[string]bool) string {
 	clean := func(s string) string {
 		s = strings.Trim(strings.Map(func(c rune) rune {
 			if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
@@ -206,7 +201,7 @@ func defName(r runner, model string, taken map[string]jsontext.Value) string {
 		}
 	}
 	for _, n := range tries {
-		if _, ok := taken[n]; !ok && n != "" {
+		if !taken[n] && n != "" {
 			return n
 		}
 	}

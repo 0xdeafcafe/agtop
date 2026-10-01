@@ -47,7 +47,7 @@ func TestDormantUntilInstalled(t *testing.T) {
 	defer func() { appBundle = old }()
 	defer agent.Recheck()
 	agent.Recheck()
-	if a, ok := agent.Get(Kind); !ok || a.Name() != "GLM" {
+	if _, ok := agent.Get(Kind); !ok || agent.Label(Kind) != "GLM (ZCode)" {
 		t.Fatal("GLM isn't registered")
 	}
 	if p := agent.Path(Kind); p != "" {

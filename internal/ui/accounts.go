@@ -23,6 +23,7 @@ import (
 
 // accountsState is what Accounts knows beyond the snapshot.
 type accountsState struct {
+	summary map[string]agent.AccountSummary
 	// now is the account each agent other than Claude Code is signed in
 	// as, by kind: its id.
 	now map[string]string
@@ -42,6 +43,9 @@ type accountsState struct {
 	// renew is why a login's sign-in couldn't be refreshed, and when, or
 	// "" while it's being refreshed, by login id.
 	renew map[string]renewNote
+	// catalogs is every installed agent's models, read once off the UI
+	// for #new's words (readCatalogs).
+	catalogs *pending[map[string][]agent.Choice]
 }
 
 type renewNote struct {
@@ -55,6 +59,9 @@ var loginsKind = agent.Kind(state.LoginsKind)
 
 // ready makes the maps, for a Model made without New.
 func (s *accountsState) ready() {
+	if s.summary == nil {
+		s.summary = map[string]agent.AccountSummary{}
+	}
 	if s.now == nil {
 		s.now, s.why, s.switchedAt = map[string]string{}, map[string]string{}, map[string]time.Time{}
 	}
@@ -104,6 +111,9 @@ func (m *Model) agentOrder() []agent.Adapter {
 	inst := agent.InstalledAll()
 	by := map[string]agent.Adapter{}
 	for _, a := range inst {
+		if agent.CurrentKind(a.Kind()) != a.Kind() {
+			continue
+		}
 		by[string(a.Kind())] = a
 	}
 	var out []agent.Adapter
@@ -149,8 +159,24 @@ func signInAccount(s state.SignIn) agent.Account {
 	return agent.Account{Kind: agent.Kind(s.Kind), ID: s.ID, Key: acctKey(s.Kind, s.ID), Name: s.Name, Email: s.Email, Plan: s.Plan}
 }
 
+// accountFrame holds read-only results only while View renders. It is cleared
+// before processing another update, so account/config changes need no invalidation.
+type accountFrame struct {
+	rows, inUse     []acctRow
+	rowsOK, inUseOK bool
+	notes           []accountFrameNote
+}
+
+type accountFrameNote struct {
+	kind agent.Kind
+	text string
+}
+
 // accountRows are each installed agent, then its accounts.
 func (m *Model) accountRows() []acctRow {
+	if m.drawing && m.accountFrame.rowsOK {
+		return m.accountFrame.rows
+	}
 	var out []acctRow
 	for _, ad := range m.agentOrder() {
 		k := ad.Kind()
@@ -183,6 +209,9 @@ func (m *Model) accountRows() []acctRow {
 			}
 			out = append(out, head)
 		}
+	}
+	if m.drawing {
+		m.accountFrame.rows, m.accountFrame.rowsOK = out, true
 	}
 	return out
 }
@@ -224,6 +253,7 @@ func (m *Model) startKindIn(dir string) string {
 	if p, ok := m.startPick(dir); ok {
 		k = p.Kind
 	}
+	k = string(agent.CurrentKind(agent.Kind(k)))
 	if m.drawing {
 		m.kindMemo = kindMemo{dir: dir, kind: k, ok: true}
 	}
@@ -276,13 +306,45 @@ func (m *Model) findSignIns() tea.Cmd {
 	}
 	var cmds []tea.Cmd
 	for _, ad := range agent.InstalledAll() {
+		if agent.CurrentKind(ad.Kind()) != ad.Kind() {
+			continue
+		}
 		if kc, ok := ad.(agent.KeyChecker); ok {
-			if p, found := m.profileOf(ad); found {
-				cmds = append(cmds, func() tea.Msg { return signInsMsg{kind: string(ad.Kind()), err: kc.CheckKey(p)} })
+			p, found := m.profileOf(ad)
+			_, native := ad.(agent.Authenticator)
+			if !found && native {
+				p = agent.Profile{Kind: ad.Kind()}
+			}
+			if found || native {
+				cmds = append(cmds, func() tea.Msg {
+					// Native login may have created or migrated its config home since
+					// the nonblocking profile snapshot was last refreshed.
+					if _, native := ad.(agent.Authenticator); native {
+						if profiles := ad.Profiles(); len(profiles) > 0 {
+							p = profiles[0]
+						}
+					}
+					msg := signInsMsg{kind: string(ad.Kind()), err: kc.CheckKey(p)}
+					if info, ok := ad.(agent.AccountSummaryReader); ok {
+						v := info.AccountSummary(p)
+						msg.summary = &v
+					}
+					return msg
+				})
 			}
 			continue
 		}
 		acc, ok := ad.(agent.Accounts)
+		if info, isInfo := ad.(agent.AccountSummaryReader); !ok && isInfo {
+			// signed in by its own program, with nothing to switch: only what it says of itself
+			if p, found := m.profileOf(ad); found {
+				cmds = append(cmds, func() tea.Msg {
+					v := info.AccountSummary(p)
+					return signInsMsg{kind: string(ad.Kind()), summary: &v}
+				})
+			}
+			continue
+		}
 		if !ok || ad.Kind() == loginsKind {
 			continue
 		}
@@ -304,14 +366,18 @@ func (m *Model) findSignIns() tea.Cmd {
 
 // signInsMsg is who an agent is signed in as, and the accounts it knows.
 type signInsMsg struct {
-	kind  string
-	cur   agent.Account
-	err   error
-	known []agent.Account
+	summary *agent.AccountSummary
+	kind    string
+	cur     agent.Account
+	err     error
+	known   []agent.Account
 }
 
 func (msg signInsMsg) applyTo(m *Model) tea.Cmd {
 	m.accts.ready()
+	if msg.summary != nil {
+		m.accts.summary[msg.kind] = *msg.summary
+	}
 	cfg := &m.store.Config
 	before := append([]state.SignIn(nil), cfg.SignIns...)
 	note := func(a agent.Account) {
@@ -398,7 +464,10 @@ func (m *Model) addAccount(k agent.Kind) tea.Cmd {
 	acc, ok := ad.(agent.Accounts)
 	p, found := m.profileOf(ad)
 	if !ok || !found {
-		m.flash(agentName(string(k))+" signs in through its own program; rush can't keep more than one account of it", true)
+		if _, native := ad.(agent.Authenticator); native {
+			return m.nativeSignIn(k)
+		}
+		m.flash(harnessName(string(k))+" does not expose a sign-in flow to rush", true)
 		return nil
 	}
 	// Making the sign-in (its home, its command) touches the disk: done

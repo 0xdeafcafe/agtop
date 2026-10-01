@@ -26,7 +26,11 @@ func (m *Model) relayout() tea.Cmd {
 	}
 	_, paneW, _ := m.layout()
 	// The pane draws the Session 3 columns in from its edge (listView).
-	if !c.stale && (!c.drewConvo || c.paneW == paneW-3) {
+	width := paneW - 3
+	if m.minimapEnabled(c, width) {
+		width = m.conversationWidth(width)
+	}
+	if !c.stale && (!c.drewConvo || c.paneW == width) {
 		return nil
 	}
 	m.relayPending = true

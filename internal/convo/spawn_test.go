@@ -147,3 +147,37 @@ func TestCheckIsAShellStep(t *testing.T) {
 		t.Errorf("drawn as an agent:\n%s", out)
 	}
 }
+
+// A spawn_agent call is drawn as the agent it starts, its prompt as the
+// brief and the answer as its reply; found, the agent's own steps go under it.
+func TestSpawnToolCall(t *testing.T) {
+	s := New()
+	s.Apply(host.Sent{Text: "ask astra"}, at(0))
+	s.Apply(toolUse("t1", "mcp__rush__spawn_agent", map[string]any{"agent": "astra", "prompt": "Review the diff for races"}), at(1))
+	if d, _ := s.Doing(); d != "asking astra" {
+		t.Errorf("doing: %q", d)
+	}
+	st := s.Step("t1")
+	if sp, ok := st.Spawn(); !ok || sp.Name != "astra" || sp.Prompt != "Review the diff for races" {
+		t.Errorf("spawn: %+v %v", sp, ok)
+	}
+	if ws := s.Windows(at(2), 0); len(ws) != 1 || ws[0].Asked != "Review the diff for races" {
+		t.Errorf("windows: %+v", ws)
+	}
+	kid := New()
+	kid.Apply(host.Sent{Text: "Review the diff for races"}, at(1))
+	kid.Apply(toolUse("k1", "Bash", map[string]any{"command": "git diff", "description": "Read the diff"}), at(2))
+	kid.Apply(toolResult("k1", "+x", false, nil), at(3))
+	s.SetChildren(st, []Child{{ID: "c1", Spawn: Spawn{Kind: "codex", Name: "Codex", Prompt: "Review the diff for races"}, Sess: kid, Live: true, Start: at(1)}})
+	s.Apply(toolResult("t1", "Codex (c1) finished:\n\nNo races found.", false, nil), at(5))
+	out := plain(s.Render(Options{Width: 100, Now: at(9), Verbose: true}))
+	for _, want := range []string{"Codex", "Review the diff for races", "Read the diff"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+	t.Log("\n" + out)
+	if strings.Contains(out, "mcp__rush") || strings.Contains(out, "spawn agent") {
+		t.Errorf("drawn as the tool, not the agent:\n%s", out)
+	}
+}

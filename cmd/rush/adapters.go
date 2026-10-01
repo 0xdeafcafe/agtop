@@ -3,6 +3,7 @@ package main
 // The agents rush knows: each registers itself with internal/agent.
 import (
 	_ "github.com/0xdeafcafe/rush/internal/adapters/acp"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/antigravity"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/claude"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/codex"
 	_ "github.com/0xdeafcafe/rush/internal/adapters/copilot"

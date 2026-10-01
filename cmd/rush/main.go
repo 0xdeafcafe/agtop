@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -16,8 +17,10 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/advisor"
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/agtools"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/instances"
 	"github.com/0xdeafcafe/rush/internal/menubar"
 	"github.com/0xdeafcafe/rush/internal/plugin"
 	"github.com/0xdeafcafe/rush/internal/plugind"
@@ -43,11 +46,15 @@ const usage = `rush — a lighter agents view for Claude Code
   rush off         give "claude agents" back to Claude Code (instant, no shell reload)
   rush status      show whether it is on
   rush update      install the newest rush, with go install
+  rush reload      reload every running rush view in place, as #reload does
   rush menubar     put rush in the menu bar: usage, what's working, and
                     questions you can answer from their notification
   rush menubar off take it out again
   rush plugin      sandboxed plugins: list, approve, revoke
   rush gate        queue intensive programs agents run: run, status
+  rush community   shared questions and agent help ("rush community help")
+  rush room        a group chat of fresh agents arguing a topic to a verdict
+                    ("rush room help")
   rush session     start, send to, stop and list rush-mode sessions without
                     the view ("rush session help" for the commands)
   rush open <id> --hosted
@@ -95,6 +102,10 @@ func main() {
 			profiled(func() { err = host.Run(args[2]) })
 			exitIf(err)
 			return
+		case "community":
+			os.Exit(communityCmd(args[1:], os.Stdin, os.Stdout, os.Stderr))
+		case "room", "rooms":
+			os.Exit(roomCmd(args[1:], os.Stdin, os.Stdout, os.Stderr))
 		case "session", "sessions":
 			os.Exit(sessionCmd(args[1:], os.Stdin, os.Stdout, os.Stderr))
 		case "inbox":
@@ -114,6 +125,17 @@ func main() {
 		case "menubar":
 			exitIf(menuBar(args[1:]))
 			return
+		case "mcp-tools":
+			// rush's own tools, for a session's agent that runs MCP servers
+			// as processes: not meant to be run by hand.
+			id := ""
+			if len(args) > 2 && args[1] == "--session" {
+				id = args[2]
+			}
+			// The agents it starts find the real programs, not the session's stand-ins.
+			_ = os.Setenv("PATH", host.WithoutShims(os.Getenv("PATH")))
+			exitIf(agtools.Serve(os.Stdin, os.Stdout, agtools.Handler(host.AgentTools(id))))
+			return
 		case "plugin", "plugins":
 			exitIf(pluginCmd(args[1:]))
 			return
@@ -129,6 +151,9 @@ func main() {
 			// Claude Code's statusLine command, set up by /statusline in a
 			// Session: the session's JSON in, one line out.
 			exitIf(statusline.Run(os.Stdin, os.Stdout))
+			return
+		case "reload":
+			fmt.Printf("reloaded %d rush view(s)\n", instances.Reload(0))
 			return
 		case "update":
 			exitIf(selfUpdate())
@@ -163,10 +188,22 @@ func main() {
 	// So the menu bar app comes back to this terminal: noted while the
 	// first frame draws, not before it.
 	here := make(chan func(), 1)
+	// SIGUSR1 is `rush reload`: #reload, asked for from outside. Only a view
+	// that's listed is signalled, and it's listed once this is set.
+	reloads := make(chan os.Signal, 1)
+	signal.Notify(reloads, syscall.SIGUSR1)
+	go func() {
+		for range reloads {
+			p.Send(ui.ReloadMsg())
+		}
+	}()
+	unlist := instances.Register()
 	go func() { here <- menubar.Here() }()
 	var err error
 	var last tea.Model
 	profiled(func() { last, err = p.Run() })
+	// Unlisted before a reload's exec, which starts with SIGUSR1 unhandled.
+	unlist()
 	advisor.Stop() // a pass still running would spend on an answer nobody reads
 	_ = state.Flush()
 	(<-here)()

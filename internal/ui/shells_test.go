@@ -28,3 +28,21 @@ func TestShellsReachTheOpenSubagent(t *testing.T) {
 		t.Fatalf("the subagent's chain should know what runs now: %+v %v", rp, ok)
 	}
 }
+
+func TestShellCommandArgv(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"/bin/zsh", "-lc", "go build && go test"}, "go build && go test"},
+		{[]string{"bash", "--noprofile", "-c", "echo 'hello world'"}, "echo 'hello world'"},
+		{[]string{"sh", "script.sh", "-c", "unrelated"}, ""},
+		{[]string{"node", "-c", "unrelated"}, ""},
+		{[]string{"bash", "--rcfile", "profile", "-c", "unrelated"}, ""},
+		{[]string{"bash", "--", "-c", "unrelated"}, ""},
+	} {
+		if got := shellCommand(tc.args); got != tc.want {
+			t.Errorf("%q: got %q want %q", tc.args, got, tc.want)
+		}
+	}
+}

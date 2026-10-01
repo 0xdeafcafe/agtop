@@ -33,15 +33,19 @@ func contextLines(c *hostConn, w int) []string {
 		}
 		why := "the breakdown comes when this turn ends"
 		if note := agent.FeatureOf(sessionAgent(c), agent.FeatureContext).Note; note != "" {
-			why = agentName(string(sessionAgent(c))) + " says " + note
+			why = harnessName(string(sessionAgent(c))) + " says " + note
 		}
 		switch {
+		case !canScreen(c, "context"):
+			why = harnessName(string(sessionAgent(c))) + " reports context usage without a detailed breakdown"
+		case c.sleeping || s.Info.Sleeping:
+			why = "this session is idle; the breakdown refreshes when it resumes"
 		case c.client == nil:
 			why = "a breakdown needs a rush-mode session: sessions outside rush only say how full it is"
 		case s.Info.Proto < 2:
 			why = "this agent's host is older than the breakdown: it comes once the host restarts (it does after resting idle)"
 		case s.Info.ClaudePID == 0:
-			why = agentName(string(sessionAgent(c))) + " is asleep: the breakdown comes when it next wakes"
+			why = harnessName(string(sessionAgent(c))) + " is asleep: the breakdown comes when it next wakes"
 		}
 		return append(out, dim("  "+why))
 	}
@@ -77,11 +81,11 @@ func contextLines(c *hostConn, w int) []string {
 // account's use (Claude Code's /stats), by day and by model, fitted to h.
 func (k *infoSheet) historyLines(a *fleet.Agent, w, h int) []string {
 	if !k.loaded {
-		return []string{dim("  reading " + agentName(a.Kind) + "'s record…")}
+		return []string{dim("  reading " + harnessName(a.Kind) + "'s record…")}
 	}
 	st := k.stats
 	if k.statsErr != nil {
-		why := agentName(a.Kind) + " hasn't kept a record for this account yet"
+		why := harnessName(a.Kind) + " hasn't kept a record for this account yet"
 		if !errors.Is(k.statsErr, fs.ErrNotExist) {
 			why = "couldn't read its record: " + k.statsErr.Error()
 		}
@@ -291,7 +295,7 @@ func (m *Model) settingsLinks(c *hostConn, a *fleet.Agent, n settingsCounts) []s
 	}
 	k := sessionAgent(c)
 	all := []settingsLink{
-		{name: agentName(string(k)), value: join(model, count(env, "env var", "env vars")), about: "settings.json and the environment every session starts with",
+		{name: harnessName(string(k)), value: join(model, count(env, "env var", "env vars")), about: "settings.json and the environment every session starts with",
 			open: func(m *Model) tea.Cmd { m.sheet = nil; m.openAgentSettings(k); return nil }},
 		{name: "Permissions", screen: "permissions", value: join(mode, count(allow, "allow", "allow"), count(ask, "ask", "ask"), count(deny, "deny", "deny")), about: "what tools may do without asking",
 			open: func(m *Model) tea.Cmd { return m.openPermissions(c, a) }},

@@ -20,9 +20,11 @@ func (m *Model) overlayBox(base string, body []string, bw int) string {
 	lines := strings.Split(base, "\n")
 	box := boxLines(body, bw)
 	for y := range lines {
-		lines[y] = faint(ansi.Strip(fit(lines[y], m.w)))
+		lines[y] = faint(unplace(ansi.Strip(fit(lines[y], m.w))))
 	}
-	return strings.Join(pasteAt(lines, box, max(1, (len(lines)-len(box))/2), (m.w-bw)/2), "\n")
+	top, left := max(1, (len(lines)-len(box))/2), (m.w-bw)/2
+	m.keepOverlay(left, top, bw, len(box), left+2, top+2)
+	return strings.Join(pasteAt(lines, box, top, left), "\n")
 }
 
 // boxLines is body in a rounded box bw wide, a blank line inside top and

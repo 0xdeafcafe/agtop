@@ -232,13 +232,8 @@ func (s *Session) ChangesView(o Options) []Line {
 	var out []Line
 	add := func(ref, left, right string) {
 		if ref != "" && ref == o.Selected {
-			bar := faint("▍")
-			b := bgSelU
-			if o.Focused {
-				bar, b = paint(cOrange, "▍"), bgSel
-			}
-			left = bar + strings.TrimPrefix(left, " ")
-			out = append(out, Line{Text: row(b, left, right, o.Width, w), Ref: ref})
+			left = cursor() + strings.TrimPrefix(left, " ")
+			out = append(out, Line{Text: row("", left, right, o.Width, w), Ref: ref})
 			return
 		}
 		out = append(out, Line{Text: row("", left, right, o.Width, w), Ref: ref})

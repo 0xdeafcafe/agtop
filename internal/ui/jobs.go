@@ -19,7 +19,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/host"
 )
 
-// What Claude Code runs besides talking: shells, monitors and workflows,
+// What an agent runs besides talking: shells, monitors and workflows,
 // in the background or with the turn waiting on them. The dock shows the
 // ones running, the background view all of them; either lets you stop
 // one, or send one the turn is waiting on into the background.
@@ -54,11 +54,10 @@ func jobIcon(kind string) (string, string) {
 	return "$", cSub
 }
 
-// jobLabel is what a task is doing in a line: the command for a shell,
-// its description otherwise.
+// jobLabel leads with the task description, falling back to its command.
 func jobLabel(c *hostConn, j *convo.Job) string {
 	l := j.Label
-	if cmd := c.sess.JobCommand(j); cmd != "" && c.sess.JobKind(j) == "shell" {
+	if cmd := c.sess.JobCommand(j); l == "" && cmd != "" {
 		l = cmd
 	}
 	if j.Agent != "" {
@@ -139,11 +138,11 @@ func (c *hostConn) jobsOf(id string) []*convo.Job {
 func (c *hostConn) jobHint(j *convo.Job) string {
 	switch rp, ok := c.sess.RunningPart(j.ToolUseID); {
 	case j.Background:
-		return keys("x", "stop", "shift+x", "…and say why", "enter", "output")
+		return keys("x", "stop", "shift+x", "…and say why", "space", "output", "d", "command details")
 	case ok:
 		return keys("k", "kill "+firstWord(rp.Command), "b", "background", "x", "stop", "shift+x", "…and say why")
 	}
-	return keys("b", "background", "x", "stop", "shift+x", "…and say why", "enter", "output")
+	return keys("b", "background", "x", "stop", "shift+x", "…and say why", "space", "output", "d", "command details")
 }
 
 // jobRow is a dock task's row, lead before its mark, whose it is after its
@@ -227,8 +226,8 @@ func (m *Model) jobPID(c *hostConn, j *convo.Job) int {
 // it runs, never hears.
 var crashRe = regexp.MustCompile(`^panic: |Traceback \(most recent call last\)|\bFATAL\b|EADDRINUSE|address already in use|app crashed|exited with code [1-9]|Segmentation fault|npm ERR!|ELIFECYCLE|Cannot find module|command not found|^error(\[E\d+\])?: |^Killed$|^fatal error: `)
 
-// crashQuiet is how long a task's output stays as it is, ending on a
-// crash, before it's called crashed: long enough for a restart to show.
+// crashQuiet suppresses transient error output while a program may restart.
+// The warning reports output evidence, never an inferred process state.
 const crashQuiet = 20 * time.Second
 
 // jobCrashed is whether a running task's output ends on a crash and has
@@ -247,7 +246,7 @@ func (m *Model) jobCrashed(c *hostConn, j *convo.Job, now time.Time) bool {
 // jobRight is what ends a task's row: what it uses and how it's doing.
 func (m *Model) jobRight(c *hostConn, j *convo.Job, now time.Time) string {
 	if m.jobCrashed(c, j, now) {
-		return paint(cRed, "⚠ crashed? x stops it") + dim("  ·  ") + jobState(j, now) + "  "
+		return paint(cRed, "⚠ error in recent output") + dim("  ·  ") + jobState(j, now) + "  "
 	}
 	return m.jobUsage(c, j) + jobState(j, now) + "  "
 }
@@ -302,6 +301,9 @@ func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
 	}
 	now := time.Now()
 	for i := start; i < min(len(jobs), start+dockJobsShown); i++ {
+		if c.panelRefs != nil {
+			c.panelRefs[c.previewBase+len(out)] = "job:" + jobs[i].ID
+		}
 		out = append(out, m.jobRow(c, jobs[i], i, w, "  ", true, now)...)
 	}
 	if rest := len(jobs) - start - dockJobsShown; rest > 0 {
@@ -331,12 +333,15 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 	if len(run) > 0 {
 		head = paint(cOrange, fmt.Sprintf("%d running", len(run))) + dim(" · ") + head
 	}
-	how := "enter or click shows output · x stops · b backgrounds"
+	how := "space or click: output · d: command details · x: stop"
 	lines := []convo.Line{{Text: fit("  "+head+dim(" · "+how), w)}, {Text: ""}}
 	if len(run)+len(done) == 0 {
-		return append(lines, convo.Line{Text: dim("  nothing running · shells, monitors and workflows Claude starts show here")})
+		return append(lines, convo.Line{Text: dim("  nothing running · shells, monitors and workflows your agent starts show here")})
 	}
-	now := time.Now()
+	now := o.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
 	// edge runs down the left of an opened task, beside every part of it,
 	// so its processes, command and output read as inside it: the pick's
 	// bar when it's picked.
@@ -396,7 +401,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 			var key jobRowsKey
 			if memo := !j.Running() && !c.open[ref]; memo {
 				key = jobRowsKey{w: w, pal: cText + cSub, status: j.Status, end: j.End, from: from, tail: len(tail),
-					facts: fmt.Sprint(j.ToolUses, j.Tokens, len(j.Error), len(j.Summary))}
+					steps: j.ToolUses, tokens: j.Tokens, errorText: j.Error, summary: j.Summary, label: j.Label, agent: j.Agent}
 				if len(tail) > 0 {
 					key.last = tail[len(tail)-1]
 				}
@@ -406,11 +411,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				}
 			}
 			right := m.jobRight(c, j, now)
-			// A shell says what it's for; its command comes under it.
-			label, cmd := jobLabel(c, j), ""
-			if full := c.sess.JobCommand(j); kind == "shell" && full != "" && j.Label != "" && j.Label != full {
-				label, cmd = oneLine(j.Label), jobLabel(c, j)
-			}
+			label := jobLabel(c, j)
 			who := jobWho(c, j)
 			left := "  " + fold + " " + mark + " " + paint(cText+bold, fmt.Sprintf("%-8s", kind)) + " " +
 				who + paint(cSub, cellw.Truncate(label, max(12, w-cellw.String(ansi.Strip(right))-cellw.String(ansi.Strip(who))-18), "…"))
@@ -429,17 +430,17 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				facts = append(facts, oneLine(s))
 			}
 			if len(facts) > 0 {
-				rows = append(rows, cellw.Truncate("      "+faint(strings.Join(facts, faint(" · "))), w-2, "…"))
+				rows = append(rows, cellw.Truncate("      "+paint(cSub, strings.Join(facts, dim(" · "))), w-2, "…"))
 			}
-			// Opened: the whole command, a command a line with how long
-			// each ran; closed, the command on a line.
+			if activity := c.jobActivity(j, from, now); activity != "" {
+				rows = append(rows, "      "+activity)
+			}
+			// The launch script is secondary to progress and recent output.
 			var body []convo.Line
-			if c.open[ref] {
+			if c.open[ref] && c.open["job-details:"+j.ID] {
 				body = c.sess.JobLines(j, o, 6)
 			}
-			if len(body) == 0 && cmd != "" {
-				rows = append(rows, cellw.Truncate("      "+faint("$ "+cmd), w-2, "…"))
-			}
+			var processes []string
 			var followed []string // what a tail -f under it follows
 			if pid := m.jobPID(c, j); pid != 0 && c.open[ref] {
 				// Opened, what it runs: the processes under it, busiest first.
@@ -449,16 +450,19 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				}
 				sort.SliceStable(nodes, func(a, b int) bool { return nodes[a].CPU > nodes[b].CPU })
 				for _, n := range nodes[:min(len(nodes), 5)] {
-					rows = append(rows, "      "+dim(fit(m.shortCmd(n.PID, n.Comm), max(10, w-24)))+
+					name := filepath.Base(n.Comm)
+					if c.open["job-details:"+j.ID] {
+						name = m.shortCmd(n.PID, n.Comm)
+					}
+					processes = append(processes, "      "+paint(cSub, fit(name, max(10, w-24)))+
 						cpuColor(n.CPU, right1(fmt.Sprintf("%.0f%%", n.CPU), 6))+memColor(n.Footprint, right1(mem(n.Footprint), 8)))
 				}
 			}
-			top := len(rows)
 			switch {
 			case len(tail) > 0 && from != c.jobOutput(j):
 				rows = append(rows, "      "+faint("from "+c.shownPath(from))+c.tailWhen(from, now))
 			case len(tail) > 0 && c.open[ref]:
-				rows = append(rows, "      "+faint("output")+c.tailWhen(from, now))
+				rows = append(rows, "      "+paint(cSub+bold, "Recent output")+c.tailWhen(from, now))
 			}
 			if len(tail) == 0 && c.open[ref] && !j.Background {
 				// Claude Code keeps no file for a call the turn waited on:
@@ -468,14 +472,14 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				}
 			}
 			for _, l := range tail {
-				rows = append(rows, cellw.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
+				rows = append(rows, cellw.Truncate("      "+paint(cFaint, "│ ")+paint(cText, l), w-2, "…"))
 			}
 			if len(tail) == 0 && c.open[ref] {
 				none := "no output"
 				if j.Running() {
 					none = "no output yet"
 				}
-				rows = append(rows, "      "+faint(none))
+				rows = append(rows, "      "+paint(cSub, none))
 			}
 			if c.open[ref] {
 				// Opened: every other file its command writes, and those what
@@ -495,7 +499,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 					}
 					rows = append(rows, "      "+faint("from "+c.shownPath(f))+c.tailWhen(f, now))
 					for _, l := range more {
-						rows = append(rows, cellw.Truncate("      "+paint(cFaint, "│ ")+dim(l), w-2, "…"))
+						rows = append(rows, cellw.Truncate("      "+paint(cFaint, "│ ")+paint(cText, l), w-2, "…"))
 					}
 				}
 			}
@@ -505,13 +509,23 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 				}
 				c.jobRows[j.ID] = jobRowsMemo{key: key, rows: rows}
 			}
-			emit(ref, rows[:top], true)
-			for _, l := range body {
-				lines = append(lines, convo.Line{Text: edge(ref, l.Text), Ref: ref})
+			emit(ref, rows, true)
+			if c.open[ref] {
+				if len(processes) > 0 {
+					emit(ref, []string{"      " + dim("Processes · busiest first")}, false)
+					emit(ref, processes, false)
+				}
+				details := "▸ command details · d to show"
+				if c.open["job-details:"+j.ID] {
+					details = "▾ command details · d to hide"
+				}
+				if c.sess.JobCommand(j) != "" || len(processes) > 0 {
+					emit(ref, []string{"      " + paint(cSub, details)}, false)
+				}
+				for _, l := range body {
+					lines = append(lines, convo.Line{Text: edge(ref, l.Text), Ref: ref})
+				}
 			}
-			// Under the command's well the output reads as the call's, as in
-			// the conversation, not as the pick again.
-			emit(ref, rows[top:], len(body) == 0)
 		}
 		lines = append(lines, convo.Line{Text: ""})
 	}
@@ -551,7 +565,22 @@ func (m *Model) jobKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.backgroundJob(c, j), true
-	case s == "enter" && empty:
+	case s == "d" && empty:
+		if c.sess.JobCommand(j) == "" && m.jobPID(c, j) == 0 {
+			m.flash("this task did not report a launch command or process details", false)
+			return nil, true
+		}
+		ref := "job-details:" + j.ID
+		c.open[ref] = !c.open[ref]
+		c.open["job:"+j.ID] = true
+		for i, v := range m.views(c) {
+			if v == "background" {
+				c.view = i
+			}
+		}
+		c.sel, c.selMoved = "job:"+j.ID, true
+		return nil, true
+	case s == "space" || s == "right":
 		ref := "job:" + j.ID
 		if m.viewName(c) != "background" {
 			// From the dock: the background view, on it, opened.
@@ -563,7 +592,7 @@ func (m *Model) jobKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 			c.open[ref], c.sel, c.selMoved = true, ref, true
 			return nil, true
 		}
-		c.open[ref] = !c.open[ref]
+		c.open[ref] = s == "right" || !c.open[ref]
 		return nil, true
 	}
 	return nil, false
@@ -674,16 +703,25 @@ const writesFor = 5 * time.Minute
 // background or lately ended, so a long session doesn't read them all.
 // body is left as it is; the rows go in a copy.
 func (m *Model) withWrites(c *hostConn, body []convo.Line, w int) []convo.Line {
+	return m.withWritesFrom(c, body, w, 0)
+}
+
+// withWritesFrom is withWrites reading body from row from on: the shell
+// steps above it finished long ago.
+func (m *Model) withWritesFrom(c *hostConn, body []convo.Line, w, from int) []convo.Line {
 	now := time.Now()
 	var out []convo.Line
-	for i := range body {
+	for i := max(0, from); i < len(body); i++ {
 		if out != nil {
 			out = append(out, body[i])
 		}
 		ref := body[i].Ref
+		if ref == "" || i+1 < len(body) && body[i+1].Ref == ref {
+			continue // nothing's, or not its last row
+		}
 		_, id, ok := strings.Cut(ref, ":s:")
-		if !ok || i+1 < len(body) && body[i+1].Ref == ref {
-			continue // not a step, or not its last row
+		if !ok {
+			continue // not a step
 		}
 		st := c.sess.Step(id)
 		if st == nil || st.Tool != "Bash" {
@@ -691,7 +729,7 @@ func (m *Model) withWrites(c *hostConn, body []convo.Line, w int) []convo.Line {
 		}
 		// Running, it shows what it writes whether opened or not.
 		running := st.Status == convo.Running || c.sess.JobRunning(id)
-		// The cheap test first: isOpen looks through the whole session.
+		// The cheap test first: isOpen may draw the step's turn.
 		if !running && (st.End.IsZero() || now.Sub(st.End) > writesFor) {
 			continue
 		}
@@ -760,7 +798,7 @@ func (c *hostConn) writeRows(id string, st *convo.Step, running bool, now time.T
 		}
 		rows = append(rows, "  "+faint("from "+c.shownPath(f))+c.tailWhen(f, now))
 		for _, l := range lines {
-			rows = append(rows, "  "+paint(cFaint, "│ ")+dim(l))
+			rows = append(rows, "  "+paint(cFaint, "│ ")+paint(cText, l))
 		}
 	}
 	return rows
@@ -802,10 +840,12 @@ func (c *hostConn) jobWrites(j *convo.Job) []string {
 
 // jobRowsKey is what a finished task's rows are drawn from.
 type jobRowsKey struct {
-	w                              int
-	pal, status, from, last, facts string
-	end                            time.Time
-	tail                           int
+	w                                int
+	pal, status, from, last          string
+	errorText, summary, label, agent string
+	steps, tokens                    int
+	end                              time.Time
+	tail                             int
 }
 
 // jobRowsMemo is a finished task's rows as last drawn, unpicked.

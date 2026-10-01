@@ -3,6 +3,7 @@ package pi
 import (
 	"encoding/base64"
 	"encoding/json/jsontext"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -220,18 +221,29 @@ type args struct {
 		OldText string `json:"oldText"`
 		NewText string `json:"newText"`
 	} `json:"edits"` // edit
-	OldText string `json:"oldText"` // edit, as older pis took one
-	NewText string `json:"newText"`
+	OldText string    `json:"oldText"` // edit, as older pis took one
+	NewText string    `json:"newText"`
+	Agent   string    `json:"agent"` // subagent
+	Task    string    `json:"task"`
+	Tasks   []subtask `json:"tasks"` // subagent, in parallel
+	Chain   []subtask `json:"chain"` // subagent, one after another
 }
 
-// callOf is a tool call as rush draws it. Pi's own tools are read, bash,
-// edit, write, grep, find and ls; an extension's are drawn by name.
+// subtask is a subagent extension's task: which agent, and what to do.
+type subtask struct {
+	Agent string `json:"agent"`
+	Task  string `json:"task"`
+}
+
+// callOf is a tool call as rush draws it. Pi's own tools are read, bash
+// (or powershell), edit, write, grep, find and ls; the subagent extension's
+// is a subagent; other extensions' are drawn by name.
 func callOf(b *block) tool.Call {
 	c := tool.Call{ID: b.ID, Name: b.Name, Raw: b.Arguments}
 	var a args
 	_ = jsonx.Unmarshal(b.Arguments, &a)
 	switch b.Name {
-	case "bash":
+	case "bash", "powershell":
 		c.Kind, c.Input.Command, c.Input.Timeout = tool.Shell, a.Command, int(a.Timeout*1000)
 	case "read":
 		c.Kind, c.Input.Path, c.Input.Offset, c.Input.Limit = tool.Read, a.Path, a.Offset, a.Limit
@@ -251,6 +263,16 @@ func callOf(b *block) tool.Call {
 		c.Kind, c.Input.Pattern, c.Input.Path = tool.Glob, a.Pattern, a.Path
 	case "ls":
 		c.Kind, c.Input.Pattern, c.Input.Path = tool.Glob, "*", a.Path
+	case "subagent":
+		c.Kind, c.Input.Agent, c.Input.Prompt = tool.Subagent, a.Agent, a.Task
+		if many := slices.Concat(a.Tasks, a.Chain); len(many) > 0 {
+			var agents, tasks []string
+			for _, t := range many {
+				agents, tasks = append(agents, t.Agent), append(tasks, t.Agent+": "+t.Task)
+			}
+			c.Input.Agent, c.Input.Prompt = strings.Join(agents, ", "), strings.Join(tasks, "\n\n")
+		}
+		c.Input.Description = oneLine(c.Input.Prompt)
 	}
 	return c
 }
@@ -258,7 +280,7 @@ func callOf(b *block) tool.Call {
 // outputOf is what a tool result says. An edit's details carry its diff.
 func outputOf(m *message) tool.Output {
 	o := tool.Output{CallID: m.ToolCallID, Text: m.text(), IsError: m.IsError, Raw: m.Details}
-	if m.ToolName == "bash" {
+	if m.ToolName == "bash" || m.ToolName == "powershell" {
 		o.Stdout = o.Text
 	}
 	if m.ToolName == "edit" && len(m.Details) > 0 {

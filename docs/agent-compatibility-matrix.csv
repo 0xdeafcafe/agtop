@@ -1,0 +1,799 @@
+adapter,provider,harness,level,current,feature,label,declared_support,audit_status,note
+anthropic-pi,Anthropic,Pi,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,resume,Resume,yes,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,fork,Fork,yes,declaration; see caveats,"the whole session, not from a message"
+anthropic-pi,Anthropic,Pi,preview,True,rewind,Rewind,no,declaration; see caveats,its /tree is its own screen's
+anthropic-pi,Anthropic,Pi,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,guide,Guide mid-turn,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,model,Switch model,yes,declaration; see caveats,"any model Pi has, at once"
+anthropic-pi,Anthropic,Pi,preview,True,effort,Effort,no,declaration; see caveats,as the provider serves it
+anthropic-pi,Anthropic,Pi,preview,True,modes,Permission modes,no,declaration; see caveats,Pi asks before nothing: every tool runs
+anthropic-pi,Anthropic,Pi,preview,True,plan,Plan mode,no,declaration; see caveats,only as an extension
+anthropic-pi,Anthropic,Pi,preview,True,images,Images,yes,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,questions,Questions,yes,declaration; see caveats,an extension's select and confirm
+anthropic-pi,Anthropic,Pi,preview,True,subagents,Subagents,no,declaration; see caveats,only as an extension
+anthropic-pi,Anthropic,Pi,preview,True,background,Background tasks,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,context,Context breakdown,yes,declaration; see caveats,"how full it is, not what fills it"
+anthropic-pi,Anthropic,Pi,preview,True,compact,Compact,yes,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,commands,Commands and skills,no,declaration; see caveats,not for a provider in another's harness yet
+anthropic-pi,Anthropic,Pi,preview,True,btw,Side questions (btw),no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,dirs,cd and add-dir,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,mcp,MCP,no,declaration; see caveats,only as an extension
+anthropic-pi,Anthropic,Pi,preview,True,hooks,Hooks,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,plugins,Plugins,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,statusline,Statusline,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,screen,Its own screen,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,port,Hand-off in whole,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,prompt,rush's instructions,yes,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,settings,Settings files,yes,declaration; see caveats,"settings.json, yours and the project's"
+anthropic-pi,Anthropic,Pi,preview,True,stats,Usage history,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,live,Running sessions,no,declaration; see caveats,not for a provider in another's harness yet
+anthropic-pi,Anthropic,Pi,preview,True,history,Past sessions,no,declaration; see caveats,not for a provider in another's harness yet
+anthropic-pi,Anthropic,Pi,preview,True,remote,Remote sessions,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,switch,Account switching,no,declaration; see caveats,"one API key, kept in Settings › Providers"
+anthropic-pi,Anthropic,Pi,preview,True,signin,Sign-in,no,declaration; see caveats,"an API key, not a sign-in"
+anthropic-pi,Anthropic,Pi,preview,True,quota,Limits,no,declaration; see caveats,paid per token with the API key
+anthropic-pi,Anthropic,Pi,preview,True,pricing,Pricing,no,declaration; see caveats,"the provider's own prices, which rush doesn't know"
+anthropic-pi,Anthropic,Pi,preview,True,efficiency,Efficiency,no,declaration; see caveats,
+anthropic-pi,Anthropic,Pi,preview,True,memory,Memory,yes,declaration; see caveats,its AGENTS.md files
+antigravity,Google,Antigravity CLI,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,resume,Resume,yes,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,fork,Fork,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,rewind,Rewind,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,guide,Guide mid-turn,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,model,Switch model,no,declaration; see caveats,choose before starting; streaming sessions cannot switch models
+antigravity,Google,Antigravity CLI,preview,True,effort,Effort,yes,declaration; see caveats,selected at startup
+antigravity,Google,Antigravity CLI,preview,True,modes,Permission modes,yes,declaration; see caveats,selected at startup; headless tools follow native policy
+antigravity,Google,Antigravity CLI,preview,True,plan,Plan mode,yes,declaration; see caveats,selected at startup
+antigravity,Google,Antigravity CLI,preview,True,images,Images,no,declaration; see caveats,agy's streaming input accepts text only
+antigravity,Google,Antigravity CLI,preview,True,questions,Questions,no,declaration; see caveats,native headless policy; no interactive approval protocol
+antigravity,Google,Antigravity CLI,preview,True,subagents,Subagents,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,background,Background tasks,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,context,Context breakdown,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,compact,Compact,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,commands,Commands and skills,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,btw,Side questions (btw),no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,dirs,cd and add-dir,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,mcp,MCP,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,hooks,Hooks,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,plugins,Plugins,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,statusline,Statusline,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,screen,Its own screen,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,handoff,Hand-off in,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,port,Hand-off in whole,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,prompt,rush's instructions,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,settings,Settings files,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,stats,Usage history,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,live,Running sessions,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,history,Past sessions,yes,declaration; see caveats,conversations started in Rush; native imports are not available
+antigravity,Google,Antigravity CLI,preview,True,remote,Remote sessions,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,switch,Account switching,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,signin,Sign-in,yes,declaration; see caveats,Antigravity's native Google sign-in
+antigravity,Google,Antigravity CLI,preview,True,quota,Limits,no,declaration; see caveats,use /usage in Antigravity; Gemini Code Assist limits do not apply
+antigravity,Google,Antigravity CLI,preview,True,pricing,Pricing,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,efficiency,Efficiency,no,declaration; see caveats,
+antigravity,Google,Antigravity CLI,preview,True,memory,Memory,no,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,run,Run in rush mode,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,resume,Resume,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,fork,Fork,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,rewind,Rewind,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,interrupt,Interrupt,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,guide,Guide mid-turn,yes,declaration; see caveats,at its next step
+claude,Anthropic,Claude Code,full,True,model,Switch model,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,effort,Effort,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,modes,Permission modes,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,plan,Plan mode,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,images,Images,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,questions,Questions,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,subagents,Subagents,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,background,Background tasks,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,context,Context breakdown,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,compact,Compact,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,commands,Commands and skills,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,btw,Side questions (btw),yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,dirs,cd and add-dir,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,mcp,MCP,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,hooks,Hooks,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,plugins,Plugins,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,statusline,Statusline,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,screen,Its own screen,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,handoff,Hand-off in,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,port,Hand-off in whole,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,prompt,rush's instructions,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,settings,Settings files,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,stats,Usage history,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,live,Running sessions,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,history,Past sessions,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,remote,Remote sessions,no,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,switch,Account switching,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,signin,Sign-in,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,quota,Limits,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,pricing,Pricing,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,efficiency,Efficiency,yes,declaration; see caveats,
+claude,Anthropic,Claude Code,full,True,memory,Memory,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,run,Run in rush mode,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,resume,Resume,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,fork,Fork,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,rewind,Rewind,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,interrupt,Interrupt,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,guide,Guide mid-turn,yes,declaration; see caveats,steered into the turn
+codex,OpenAI,Codex,tested,True,model,Switch model,yes,declaration; see caveats,from the next turn
+codex,OpenAI,Codex,tested,True,effort,Effort,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,modes,Permission modes,yes,declaration; see caveats,"read-only, auto, full-access"
+codex,OpenAI,Codex,tested,True,plan,Plan mode,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,images,Images,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,questions,Questions,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,subagents,Subagents,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,background,Background tasks,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,context,Context breakdown,yes,declaration; see caveats,"how full it is, not what fills it"
+codex,OpenAI,Codex,tested,True,compact,Compact,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,commands,Commands and skills,planned,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,btw,Side questions (btw),no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,dirs,cd and add-dir,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,mcp,MCP,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,hooks,Hooks,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,plugins,Plugins,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,statusline,Statusline,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,screen,Its own screen,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,handoff,Hand-off in,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,port,Hand-off in whole,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,prompt,rush's instructions,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,settings,Settings files,planned,declaration; see caveats,config.toml
+codex,OpenAI,Codex,tested,True,stats,Usage history,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,live,Running sessions,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,history,Past sessions,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,remote,Remote sessions,no,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,switch,Account switching,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,signin,Sign-in,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,quota,Limits,yes,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,pricing,Pricing,planned,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,efficiency,Efficiency,planned,declaration; see caveats,
+codex,OpenAI,Codex,tested,True,memory,Memory,planned,declaration; see caveats,its AGENTS.md files
+copilot,GitHub,Copilot,tested,True,run,Run in rush mode,yes,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,resume,Resume,yes,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,fork,Fork,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,rewind,Rewind,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,interrupt,Interrupt,yes,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,guide,Guide mid-turn,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,model,Switch model,yes,declaration; see caveats,when the agent offers models
+copilot,GitHub,Copilot,tested,True,effort,Effort,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,modes,Permission modes,yes,declaration; see caveats,the agent's own
+copilot,GitHub,Copilot,tested,True,plan,Plan mode,yes,declaration; see caveats,when the agent has a plan mode
+copilot,GitHub,Copilot,tested,True,images,Images,yes,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,questions,Questions,yes,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,subagents,Subagents,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,background,Background tasks,no,declaration; see caveats,ACP has no background tasks
+copilot,GitHub,Copilot,tested,True,context,Context breakdown,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,compact,Compact,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,commands,Commands and skills,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,btw,Side questions (btw),no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,dirs,cd and add-dir,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,mcp,MCP,yes,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,hooks,Hooks,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,plugins,Plugins,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,statusline,Statusline,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,screen,Its own screen,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,handoff,Hand-off in,yes,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,port,Hand-off in whole,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,prompt,rush's instructions,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,settings,Settings files,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,stats,Usage history,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,live,Running sessions,yes,declaration; see caveats,"the coding agent's, on GitHub"
+copilot,GitHub,Copilot,tested,True,history,Past sessions,yes,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,remote,Remote sessions,yes,declaration; see caveats,view only
+copilot,GitHub,Copilot,tested,True,switch,Account switching,yes,declaration; see caveats,gh's accounts
+copilot,GitHub,Copilot,tested,True,signin,Sign-in,yes,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,quota,Limits,yes,declaration; see caveats,premium requests
+copilot,GitHub,Copilot,tested,True,pricing,Pricing,planned,declaration; see caveats,its models' premium-request multipliers
+copilot,GitHub,Copilot,tested,True,efficiency,Efficiency,no,declaration; see caveats,
+copilot,GitHub,Copilot,tested,True,memory,Memory,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,resume,Resume,yes,declaration; see caveats,without replaying the conversation
+deepseek,DeepSeek,dsh,preview,True,fork,Fork,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,rewind,Rewind,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,guide,Guide mid-turn,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,model,Switch model,yes,declaration; see caveats,when dsh offers models
+deepseek,DeepSeek,dsh,preview,True,effort,Effort,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,modes,Permission modes,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,plan,Plan mode,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,images,Images,yes,declaration; see caveats,on models that take them
+deepseek,DeepSeek,dsh,preview,True,questions,Questions,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,subagents,Subagents,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,background,Background tasks,no,declaration; see caveats,ACP has no background tasks
+deepseek,DeepSeek,dsh,preview,True,context,Context breakdown,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,compact,Compact,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,commands,Commands and skills,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,btw,Side questions (btw),no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,dirs,cd and add-dir,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,mcp,MCP,yes,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,hooks,Hooks,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,plugins,Plugins,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,statusline,Statusline,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,screen,Its own screen,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,port,Hand-off in whole,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,prompt,rush's instructions,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,settings,Settings files,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,stats,Usage history,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,live,Running sessions,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,history,Past sessions,no,declaration; see caveats,dsh's session logs are compressed and still change
+deepseek,DeepSeek,dsh,preview,True,remote,Remote sessions,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,switch,Account switching,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,signin,Sign-in,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,quota,Limits,yes,declaration; see caveats,the API key's balance
+deepseek,DeepSeek,dsh,preview,True,pricing,Pricing,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,efficiency,Efficiency,no,declaration; see caveats,
+deepseek,DeepSeek,dsh,preview,True,memory,Memory,no,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,resume,Resume,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,fork,Fork,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,rewind,Rewind,no,declaration; see caveats,provider-specific transcript branching and file rewind are not integrated
+deepseek-claude,DeepSeek,Claude Code,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,guide,Guide mid-turn,yes,declaration; see caveats,at its next step
+deepseek-claude,DeepSeek,Claude Code,preview,True,model,Switch model,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,effort,Effort,no,declaration; see caveats,as the provider serves it
+deepseek-claude,DeepSeek,Claude Code,preview,True,modes,Permission modes,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,plan,Plan mode,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,images,Images,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,questions,Questions,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,subagents,Subagents,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,background,Background tasks,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,context,Context breakdown,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,compact,Compact,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,commands,Commands and skills,no,declaration; see caveats,not for a provider in another's harness yet
+deepseek-claude,DeepSeek,Claude Code,preview,True,btw,Side questions (btw),yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,dirs,cd and add-dir,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,mcp,MCP,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,hooks,Hooks,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,plugins,Plugins,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,statusline,Statusline,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,screen,Its own screen,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,port,Hand-off in whole,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,prompt,rush's instructions,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,settings,Settings files,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,stats,Usage history,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,live,Running sessions,no,declaration; see caveats,not for a provider in another's harness yet
+deepseek-claude,DeepSeek,Claude Code,preview,True,history,Past sessions,no,declaration; see caveats,not for a provider in another's harness yet
+deepseek-claude,DeepSeek,Claude Code,preview,True,remote,Remote sessions,no,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,switch,Account switching,no,declaration; see caveats,"one API key, kept in Settings › Providers"
+deepseek-claude,DeepSeek,Claude Code,preview,True,signin,Sign-in,no,declaration; see caveats,"an API key, not a sign-in"
+deepseek-claude,DeepSeek,Claude Code,preview,True,quota,Limits,no,declaration; see caveats,paid per token with the API key
+deepseek-claude,DeepSeek,Claude Code,preview,True,pricing,Pricing,no,declaration; see caveats,"the provider's own prices, which rush doesn't know"
+deepseek-claude,DeepSeek,Claude Code,preview,True,efficiency,Efficiency,yes,declaration; see caveats,
+deepseek-claude,DeepSeek,Claude Code,preview,True,memory,Memory,yes,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,resume,Resume,yes,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,fork,Fork,yes,declaration; see caveats,"the whole session, not from a message"
+deepseek-pi,DeepSeek,Pi,preview,True,rewind,Rewind,no,declaration; see caveats,its /tree is its own screen's
+deepseek-pi,DeepSeek,Pi,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,guide,Guide mid-turn,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,model,Switch model,yes,declaration; see caveats,"any model Pi has, at once"
+deepseek-pi,DeepSeek,Pi,preview,True,effort,Effort,no,declaration; see caveats,as the provider serves it
+deepseek-pi,DeepSeek,Pi,preview,True,modes,Permission modes,no,declaration; see caveats,Pi asks before nothing: every tool runs
+deepseek-pi,DeepSeek,Pi,preview,True,plan,Plan mode,no,declaration; see caveats,only as an extension
+deepseek-pi,DeepSeek,Pi,preview,True,images,Images,yes,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,questions,Questions,yes,declaration; see caveats,an extension's select and confirm
+deepseek-pi,DeepSeek,Pi,preview,True,subagents,Subagents,no,declaration; see caveats,only as an extension
+deepseek-pi,DeepSeek,Pi,preview,True,background,Background tasks,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,context,Context breakdown,yes,declaration; see caveats,"how full it is, not what fills it"
+deepseek-pi,DeepSeek,Pi,preview,True,compact,Compact,yes,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,commands,Commands and skills,no,declaration; see caveats,not for a provider in another's harness yet
+deepseek-pi,DeepSeek,Pi,preview,True,btw,Side questions (btw),no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,dirs,cd and add-dir,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,mcp,MCP,no,declaration; see caveats,only as an extension
+deepseek-pi,DeepSeek,Pi,preview,True,hooks,Hooks,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,plugins,Plugins,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,statusline,Statusline,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,screen,Its own screen,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,port,Hand-off in whole,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,prompt,rush's instructions,yes,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,settings,Settings files,yes,declaration; see caveats,"settings.json, yours and the project's"
+deepseek-pi,DeepSeek,Pi,preview,True,stats,Usage history,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,live,Running sessions,no,declaration; see caveats,not for a provider in another's harness yet
+deepseek-pi,DeepSeek,Pi,preview,True,history,Past sessions,no,declaration; see caveats,not for a provider in another's harness yet
+deepseek-pi,DeepSeek,Pi,preview,True,remote,Remote sessions,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,switch,Account switching,no,declaration; see caveats,"one API key, kept in Settings › Providers"
+deepseek-pi,DeepSeek,Pi,preview,True,signin,Sign-in,no,declaration; see caveats,"an API key, not a sign-in"
+deepseek-pi,DeepSeek,Pi,preview,True,quota,Limits,no,declaration; see caveats,paid per token with the API key
+deepseek-pi,DeepSeek,Pi,preview,True,pricing,Pricing,no,declaration; see caveats,"the provider's own prices, which rush doesn't know"
+deepseek-pi,DeepSeek,Pi,preview,True,efficiency,Efficiency,no,declaration; see caveats,
+deepseek-pi,DeepSeek,Pi,preview,True,memory,Memory,yes,declaration; see caveats,its AGENTS.md files
+gemini,Google,Gemini CLI,preview,False,run,Run in rush mode,yes,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,resume,Resume,yes,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,fork,Fork,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,rewind,Rewind,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,interrupt,Interrupt,yes,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,guide,Guide mid-turn,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,model,Switch model,yes,declaration; see caveats,when the agent offers models
+gemini,Google,Gemini CLI,preview,False,effort,Effort,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,modes,Permission modes,yes,declaration; see caveats,the agent's own
+gemini,Google,Gemini CLI,preview,False,plan,Plan mode,yes,declaration; see caveats,when the agent has a plan mode
+gemini,Google,Gemini CLI,preview,False,images,Images,yes,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,questions,Questions,yes,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,subagents,Subagents,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,background,Background tasks,no,declaration; see caveats,ACP has no background tasks
+gemini,Google,Gemini CLI,preview,False,context,Context breakdown,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,compact,Compact,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,commands,Commands and skills,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,btw,Side questions (btw),no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,dirs,cd and add-dir,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,mcp,MCP,yes,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,hooks,Hooks,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,plugins,Plugins,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,statusline,Statusline,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,screen,Its own screen,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,handoff,Hand-off in,yes,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,port,Hand-off in whole,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,prompt,rush's instructions,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,settings,Settings files,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,stats,Usage history,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,live,Running sessions,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,history,Past sessions,yes,declaration; see caveats,saved local conversations
+gemini,Google,Gemini CLI,preview,False,remote,Remote sessions,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,switch,Account switching,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,signin,Sign-in,yes,declaration; see caveats,native terminal login; no account swapping
+gemini,Google,Gemini CLI,preview,False,quota,Limits,yes,declaration; see caveats,legacy Code Assist quota
+gemini,Google,Gemini CLI,preview,False,pricing,Pricing,planned,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,efficiency,Efficiency,no,declaration; see caveats,
+gemini,Google,Gemini CLI,preview,False,memory,Memory,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+glm,GLM,ZCode,preview,True,resume,Resume,yes,declaration; see caveats,
+glm,GLM,ZCode,preview,True,fork,Fork,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,rewind,Rewind,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+glm,GLM,ZCode,preview,True,guide,Guide mid-turn,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,model,Switch model,yes,declaration; see caveats,when the agent offers models
+glm,GLM,ZCode,preview,True,effort,Effort,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,modes,Permission modes,yes,declaration; see caveats,the agent's own
+glm,GLM,ZCode,preview,True,plan,Plan mode,yes,declaration; see caveats,when the agent has a plan mode
+glm,GLM,ZCode,preview,True,images,Images,yes,declaration; see caveats,
+glm,GLM,ZCode,preview,True,questions,Questions,yes,declaration; see caveats,
+glm,GLM,ZCode,preview,True,subagents,Subagents,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,background,Background tasks,no,declaration; see caveats,ACP has no background tasks
+glm,GLM,ZCode,preview,True,context,Context breakdown,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,compact,Compact,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,commands,Commands and skills,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,btw,Side questions (btw),no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,dirs,cd and add-dir,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,mcp,MCP,yes,declaration; see caveats,
+glm,GLM,ZCode,preview,True,hooks,Hooks,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,plugins,Plugins,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,statusline,Statusline,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,screen,Its own screen,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+glm,GLM,ZCode,preview,True,port,Hand-off in whole,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,prompt,rush's instructions,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,settings,Settings files,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,stats,Usage history,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,live,Running sessions,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,history,Past sessions,planned,declaration; see caveats,
+glm,GLM,ZCode,preview,True,remote,Remote sessions,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,switch,Account switching,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,signin,Sign-in,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,quota,Limits,yes,declaration; see caveats,the GLM Coding Plan's
+glm,GLM,ZCode,preview,True,pricing,Pricing,planned,declaration; see caveats,
+glm,GLM,ZCode,preview,True,efficiency,Efficiency,no,declaration; see caveats,
+glm,GLM,ZCode,preview,True,memory,Memory,no,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,resume,Resume,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,fork,Fork,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,rewind,Rewind,no,declaration; see caveats,provider-specific transcript branching and file rewind are not integrated
+glm-claude,GLM,Claude Code,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,guide,Guide mid-turn,yes,declaration; see caveats,at its next step
+glm-claude,GLM,Claude Code,preview,True,model,Switch model,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,effort,Effort,no,declaration; see caveats,as the provider serves it
+glm-claude,GLM,Claude Code,preview,True,modes,Permission modes,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,plan,Plan mode,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,images,Images,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,questions,Questions,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,subagents,Subagents,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,background,Background tasks,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,context,Context breakdown,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,compact,Compact,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,commands,Commands and skills,no,declaration; see caveats,not for a provider in another's harness yet
+glm-claude,GLM,Claude Code,preview,True,btw,Side questions (btw),yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,dirs,cd and add-dir,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,mcp,MCP,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,hooks,Hooks,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,plugins,Plugins,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,statusline,Statusline,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,screen,Its own screen,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,port,Hand-off in whole,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,prompt,rush's instructions,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,settings,Settings files,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,stats,Usage history,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,live,Running sessions,no,declaration; see caveats,not for a provider in another's harness yet
+glm-claude,GLM,Claude Code,preview,True,history,Past sessions,no,declaration; see caveats,not for a provider in another's harness yet
+glm-claude,GLM,Claude Code,preview,True,remote,Remote sessions,no,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,switch,Account switching,no,declaration; see caveats,"one API key, kept in Settings › Providers"
+glm-claude,GLM,Claude Code,preview,True,signin,Sign-in,no,declaration; see caveats,"an API key, not a sign-in"
+glm-claude,GLM,Claude Code,preview,True,quota,Limits,no,declaration; see caveats,paid per token with the API key
+glm-claude,GLM,Claude Code,preview,True,pricing,Pricing,no,declaration; see caveats,"the provider's own prices, which rush doesn't know"
+glm-claude,GLM,Claude Code,preview,True,efficiency,Efficiency,yes,declaration; see caveats,
+glm-claude,GLM,Claude Code,preview,True,memory,Memory,yes,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,resume,Resume,yes,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,fork,Fork,yes,declaration; see caveats,"the whole session, not from a message"
+glm-pi,GLM,Pi,preview,True,rewind,Rewind,no,declaration; see caveats,its /tree is its own screen's
+glm-pi,GLM,Pi,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,guide,Guide mid-turn,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,model,Switch model,yes,declaration; see caveats,"any model Pi has, at once"
+glm-pi,GLM,Pi,preview,True,effort,Effort,no,declaration; see caveats,as the provider serves it
+glm-pi,GLM,Pi,preview,True,modes,Permission modes,no,declaration; see caveats,Pi asks before nothing: every tool runs
+glm-pi,GLM,Pi,preview,True,plan,Plan mode,no,declaration; see caveats,only as an extension
+glm-pi,GLM,Pi,preview,True,images,Images,yes,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,questions,Questions,yes,declaration; see caveats,an extension's select and confirm
+glm-pi,GLM,Pi,preview,True,subagents,Subagents,no,declaration; see caveats,only as an extension
+glm-pi,GLM,Pi,preview,True,background,Background tasks,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,context,Context breakdown,yes,declaration; see caveats,"how full it is, not what fills it"
+glm-pi,GLM,Pi,preview,True,compact,Compact,yes,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,commands,Commands and skills,no,declaration; see caveats,not for a provider in another's harness yet
+glm-pi,GLM,Pi,preview,True,btw,Side questions (btw),no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,dirs,cd and add-dir,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,mcp,MCP,no,declaration; see caveats,only as an extension
+glm-pi,GLM,Pi,preview,True,hooks,Hooks,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,plugins,Plugins,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,statusline,Statusline,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,screen,Its own screen,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,port,Hand-off in whole,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,prompt,rush's instructions,yes,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,settings,Settings files,yes,declaration; see caveats,"settings.json, yours and the project's"
+glm-pi,GLM,Pi,preview,True,stats,Usage history,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,live,Running sessions,no,declaration; see caveats,not for a provider in another's harness yet
+glm-pi,GLM,Pi,preview,True,history,Past sessions,no,declaration; see caveats,not for a provider in another's harness yet
+glm-pi,GLM,Pi,preview,True,remote,Remote sessions,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,switch,Account switching,no,declaration; see caveats,"one API key, kept in Settings › Providers"
+glm-pi,GLM,Pi,preview,True,signin,Sign-in,no,declaration; see caveats,"an API key, not a sign-in"
+glm-pi,GLM,Pi,preview,True,quota,Limits,no,declaration; see caveats,paid per token with the API key
+glm-pi,GLM,Pi,preview,True,pricing,Pricing,no,declaration; see caveats,"the provider's own prices, which rush doesn't know"
+glm-pi,GLM,Pi,preview,True,efficiency,Efficiency,no,declaration; see caveats,
+glm-pi,GLM,Pi,preview,True,memory,Memory,yes,declaration; see caveats,its AGENTS.md files
+kimi,Moonshot,Kimi CLI,tested,True,run,Run in rush mode,yes,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,resume,Resume,yes,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,fork,Fork,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,rewind,Rewind,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,interrupt,Interrupt,yes,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,guide,Guide mid-turn,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,model,Switch model,yes,declaration; see caveats,when the agent offers models
+kimi,Moonshot,Kimi CLI,tested,True,effort,Effort,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,modes,Permission modes,yes,declaration; see caveats,the agent's own
+kimi,Moonshot,Kimi CLI,tested,True,plan,Plan mode,yes,declaration; see caveats,when the agent has a plan mode
+kimi,Moonshot,Kimi CLI,tested,True,images,Images,yes,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,questions,Questions,yes,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,subagents,Subagents,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,background,Background tasks,no,declaration; see caveats,ACP has no background tasks
+kimi,Moonshot,Kimi CLI,tested,True,context,Context breakdown,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,compact,Compact,yes,declaration; see caveats,its own /compact
+kimi,Moonshot,Kimi CLI,tested,True,commands,Commands and skills,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,btw,Side questions (btw),no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,dirs,cd and add-dir,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,mcp,MCP,yes,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,hooks,Hooks,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,plugins,Plugins,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,statusline,Statusline,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,screen,Its own screen,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,handoff,Hand-off in,yes,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,port,Hand-off in whole,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,prompt,rush's instructions,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,settings,Settings files,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,stats,Usage history,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,live,Running sessions,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,history,Past sessions,yes,declaration; see caveats,saved local conversations
+kimi,Moonshot,Kimi CLI,tested,True,remote,Remote sessions,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,switch,Account switching,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,signin,Sign-in,yes,declaration; see caveats,native terminal login; no account swapping
+kimi,Moonshot,Kimi CLI,tested,True,quota,Limits,yes,declaration; see caveats,"Kimi Code plans only, as its /usage reads them"
+kimi,Moonshot,Kimi CLI,tested,True,pricing,Pricing,planned,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,efficiency,Efficiency,no,declaration; see caveats,
+kimi,Moonshot,Kimi CLI,tested,True,memory,Memory,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,run,Run in rush mode,yes,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,resume,Resume,yes,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,fork,Fork,yes,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,rewind,Rewind,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,interrupt,Interrupt,yes,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,guide,Guide mid-turn,yes,declaration; see caveats,at its next step
+ollama,Ollama,Claude Code,tested,True,model,Switch model,yes,declaration; see caveats,any model Ollama has that calls tools
+ollama,Ollama,Claude Code,tested,True,effort,Effort,no,declaration; see caveats,"a model thinks or doesn't, as it was made"
+ollama,Ollama,Claude Code,tested,True,modes,Permission modes,yes,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,plan,Plan mode,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,images,Images,yes,declaration; see caveats,on models that take them
+ollama,Ollama,Claude Code,tested,True,questions,Questions,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,subagents,Subagents,no,declaration; see caveats,left out to keep the prompt small
+ollama,Ollama,Claude Code,tested,True,background,Background tasks,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,context,Context breakdown,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,compact,Compact,yes,declaration; see caveats,at the window the model was loaded with
+ollama,Ollama,Claude Code,tested,True,commands,Commands and skills,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,btw,Side questions (btw),no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,dirs,cd and add-dir,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,mcp,MCP,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,hooks,Hooks,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,plugins,Plugins,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,statusline,Statusline,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,screen,Its own screen,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,handoff,Hand-off in,yes,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,port,Hand-off in whole,yes,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,prompt,rush's instructions,yes,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,settings,Settings files,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,stats,Usage history,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,live,Running sessions,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,history,Past sessions,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,remote,Remote sessions,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,switch,Account switching,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,signin,Sign-in,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,quota,Limits,no,declaration; see caveats,no limits but this machine's
+ollama,Ollama,Claude Code,tested,True,pricing,Pricing,yes,declaration; see caveats,free: it runs on this machine
+ollama,Ollama,Claude Code,tested,True,efficiency,Efficiency,no,declaration; see caveats,
+ollama,Ollama,Claude Code,tested,True,memory,Memory,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,run,Run in rush mode,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,resume,Resume,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,fork,Fork,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,rewind,Rewind,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,interrupt,Interrupt,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,guide,Guide mid-turn,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,model,Switch model,yes,declaration; see caveats,any model Ollama has that calls tools
+ollama-codex,Ollama,Codex,tested,True,effort,Effort,no,declaration; see caveats,"a model thinks or doesn't, as it was made"
+ollama-codex,Ollama,Codex,tested,True,modes,Permission modes,yes,declaration; see caveats,"read-only, auto, full-access"
+ollama-codex,Ollama,Codex,tested,True,plan,Plan mode,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,images,Images,yes,declaration; see caveats,on models that take them
+ollama-codex,Ollama,Codex,tested,True,questions,Questions,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,subagents,Subagents,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,background,Background tasks,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,context,Context breakdown,yes,declaration; see caveats,"how full it is, not what fills it"
+ollama-codex,Ollama,Codex,tested,True,compact,Compact,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,commands,Commands and skills,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,btw,Side questions (btw),no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,dirs,cd and add-dir,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,mcp,MCP,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,hooks,Hooks,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,plugins,Plugins,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,statusline,Statusline,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,screen,Its own screen,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,handoff,Hand-off in,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,port,Hand-off in whole,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,prompt,rush's instructions,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,settings,Settings files,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,stats,Usage history,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,live,Running sessions,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,history,Past sessions,yes,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,remote,Remote sessions,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,switch,Account switching,no,declaration; see caveats,"no accounts, only this machine"
+ollama-codex,Ollama,Codex,tested,True,signin,Sign-in,no,declaration; see caveats,nothing to sign in to
+ollama-codex,Ollama,Codex,tested,True,quota,Limits,no,declaration; see caveats,no limits but this machine's
+ollama-codex,Ollama,Codex,tested,True,pricing,Pricing,yes,declaration; see caveats,free: it runs on this machine
+ollama-codex,Ollama,Codex,tested,True,efficiency,Efficiency,no,declaration; see caveats,
+ollama-codex,Ollama,Codex,tested,True,memory,Memory,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,run,Run in rush mode,yes,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,resume,Resume,yes,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,fork,Fork,yes,declaration; see caveats,"the whole session, not from a message"
+ollama-pi,Ollama,Pi,tested,True,rewind,Rewind,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,interrupt,Interrupt,yes,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,guide,Guide mid-turn,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,model,Switch model,yes,declaration; see caveats,any model Ollama has that calls tools
+ollama-pi,Ollama,Pi,tested,True,effort,Effort,no,declaration; see caveats,"a model thinks or doesn't, as it was made"
+ollama-pi,Ollama,Pi,tested,True,modes,Permission modes,no,declaration; see caveats,Pi asks before nothing: every tool runs
+ollama-pi,Ollama,Pi,tested,True,plan,Plan mode,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,images,Images,yes,declaration; see caveats,on models that take them
+ollama-pi,Ollama,Pi,tested,True,questions,Questions,yes,declaration; see caveats,an extension's select and confirm
+ollama-pi,Ollama,Pi,tested,True,subagents,Subagents,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,background,Background tasks,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,context,Context breakdown,yes,declaration; see caveats,"how full it is, not what fills it"
+ollama-pi,Ollama,Pi,tested,True,compact,Compact,yes,declaration; see caveats,at the window the model was loaded with
+ollama-pi,Ollama,Pi,tested,True,commands,Commands and skills,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,btw,Side questions (btw),no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,dirs,cd and add-dir,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,mcp,MCP,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,hooks,Hooks,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,plugins,Plugins,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,statusline,Statusline,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,screen,Its own screen,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,handoff,Hand-off in,yes,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,port,Hand-off in whole,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,prompt,rush's instructions,yes,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,settings,Settings files,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,stats,Usage history,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,live,Running sessions,yes,declaration; see caveats,sessions written to in the last two minutes
+ollama-pi,Ollama,Pi,tested,True,history,Past sessions,yes,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,remote,Remote sessions,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,switch,Account switching,no,declaration; see caveats,"no accounts, only this machine"
+ollama-pi,Ollama,Pi,tested,True,signin,Sign-in,no,declaration; see caveats,nothing to sign in to
+ollama-pi,Ollama,Pi,tested,True,quota,Limits,no,declaration; see caveats,no limits but this machine's
+ollama-pi,Ollama,Pi,tested,True,pricing,Pricing,yes,declaration; see caveats,free: it runs on this machine
+ollama-pi,Ollama,Pi,tested,True,efficiency,Efficiency,no,declaration; see caveats,
+ollama-pi,Ollama,Pi,tested,True,memory,Memory,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,run,Run in rush mode,yes,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,resume,Resume,yes,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,fork,Fork,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,rewind,Rewind,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,interrupt,Interrupt,yes,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,guide,Guide mid-turn,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,model,Switch model,yes,declaration; see caveats,any model Ollama has that calls tools
+ollama-vibe,Ollama,Vibe,tested,True,effort,Effort,no,declaration; see caveats,"a model thinks or doesn't, as it was made"
+ollama-vibe,Ollama,Vibe,tested,True,modes,Permission modes,yes,declaration; see caveats,Vibe's own
+ollama-vibe,Ollama,Vibe,tested,True,plan,Plan mode,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,images,Images,yes,declaration; see caveats,on models that take them
+ollama-vibe,Ollama,Vibe,tested,True,questions,Questions,yes,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,subagents,Subagents,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,background,Background tasks,no,declaration; see caveats,ACP has no background tasks
+ollama-vibe,Ollama,Vibe,tested,True,context,Context breakdown,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,compact,Compact,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,commands,Commands and skills,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,btw,Side questions (btw),no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,dirs,cd and add-dir,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,mcp,MCP,yes,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,hooks,Hooks,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,plugins,Plugins,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,statusline,Statusline,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,screen,Its own screen,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,handoff,Hand-off in,yes,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,port,Hand-off in whole,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,prompt,rush's instructions,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,settings,Settings files,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,stats,Usage history,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,live,Running sessions,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,history,Past sessions,planned,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,remote,Remote sessions,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,switch,Account switching,no,declaration; see caveats,"no accounts, only this machine"
+ollama-vibe,Ollama,Vibe,tested,True,signin,Sign-in,no,declaration; see caveats,nothing to sign in to
+ollama-vibe,Ollama,Vibe,tested,True,quota,Limits,no,declaration; see caveats,no limits but this machine's
+ollama-vibe,Ollama,Vibe,tested,True,pricing,Pricing,yes,declaration; see caveats,free: it runs on this machine
+ollama-vibe,Ollama,Vibe,tested,True,efficiency,Efficiency,no,declaration; see caveats,
+ollama-vibe,Ollama,Vibe,tested,True,memory,Memory,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,resume,Resume,yes,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,fork,Fork,yes,declaration; see caveats,"the whole session, not from a message"
+openai-pi,OpenAI,Pi,preview,True,rewind,Rewind,no,declaration; see caveats,its /tree is its own screen's
+openai-pi,OpenAI,Pi,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,guide,Guide mid-turn,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,model,Switch model,yes,declaration; see caveats,"any model Pi has, at once"
+openai-pi,OpenAI,Pi,preview,True,effort,Effort,no,declaration; see caveats,as the provider serves it
+openai-pi,OpenAI,Pi,preview,True,modes,Permission modes,no,declaration; see caveats,Pi asks before nothing: every tool runs
+openai-pi,OpenAI,Pi,preview,True,plan,Plan mode,no,declaration; see caveats,only as an extension
+openai-pi,OpenAI,Pi,preview,True,images,Images,yes,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,questions,Questions,yes,declaration; see caveats,an extension's select and confirm
+openai-pi,OpenAI,Pi,preview,True,subagents,Subagents,no,declaration; see caveats,only as an extension
+openai-pi,OpenAI,Pi,preview,True,background,Background tasks,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,context,Context breakdown,yes,declaration; see caveats,"how full it is, not what fills it"
+openai-pi,OpenAI,Pi,preview,True,compact,Compact,yes,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,commands,Commands and skills,no,declaration; see caveats,not for a provider in another's harness yet
+openai-pi,OpenAI,Pi,preview,True,btw,Side questions (btw),no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,dirs,cd and add-dir,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,mcp,MCP,no,declaration; see caveats,only as an extension
+openai-pi,OpenAI,Pi,preview,True,hooks,Hooks,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,plugins,Plugins,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,statusline,Statusline,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,screen,Its own screen,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,port,Hand-off in whole,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,prompt,rush's instructions,yes,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,settings,Settings files,yes,declaration; see caveats,"settings.json, yours and the project's"
+openai-pi,OpenAI,Pi,preview,True,stats,Usage history,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,live,Running sessions,no,declaration; see caveats,not for a provider in another's harness yet
+openai-pi,OpenAI,Pi,preview,True,history,Past sessions,no,declaration; see caveats,not for a provider in another's harness yet
+openai-pi,OpenAI,Pi,preview,True,remote,Remote sessions,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,switch,Account switching,no,declaration; see caveats,"one API key, kept in Settings › Providers"
+openai-pi,OpenAI,Pi,preview,True,signin,Sign-in,no,declaration; see caveats,"an API key, not a sign-in"
+openai-pi,OpenAI,Pi,preview,True,quota,Limits,no,declaration; see caveats,paid per token with the API key
+openai-pi,OpenAI,Pi,preview,True,pricing,Pricing,no,declaration; see caveats,"the provider's own prices, which rush doesn't know"
+openai-pi,OpenAI,Pi,preview,True,efficiency,Efficiency,no,declaration; see caveats,
+openai-pi,OpenAI,Pi,preview,True,memory,Memory,yes,declaration; see caveats,its AGENTS.md files
+opencode,OpenCode,OpenCode,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,resume,Resume,yes,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,fork,Fork,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,rewind,Rewind,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,guide,Guide mid-turn,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,model,Switch model,yes,declaration; see caveats,when the agent offers models
+opencode,OpenCode,OpenCode,preview,True,effort,Effort,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,modes,Permission modes,yes,declaration; see caveats,the agent's own
+opencode,OpenCode,OpenCode,preview,True,plan,Plan mode,yes,declaration; see caveats,when the agent has a plan mode
+opencode,OpenCode,OpenCode,preview,True,images,Images,yes,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,questions,Questions,yes,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,subagents,Subagents,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,background,Background tasks,no,declaration; see caveats,ACP has no background tasks
+opencode,OpenCode,OpenCode,preview,True,context,Context breakdown,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,compact,Compact,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,commands,Commands and skills,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,btw,Side questions (btw),no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,dirs,cd and add-dir,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,mcp,MCP,yes,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,hooks,Hooks,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,plugins,Plugins,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,statusline,Statusline,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,screen,Its own screen,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,port,Hand-off in whole,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,prompt,rush's instructions,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,settings,Settings files,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,stats,Usage history,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,live,Running sessions,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,history,Past sessions,planned,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,remote,Remote sessions,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,switch,Account switching,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,signin,Sign-in,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,quota,Limits,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,pricing,Pricing,planned,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,efficiency,Efficiency,no,declaration; see caveats,
+opencode,OpenCode,OpenCode,preview,True,memory,Memory,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,run,Run in rush mode,yes,declaration; see caveats,
+pi,Pi,Pi,tested,True,resume,Resume,yes,declaration; see caveats,
+pi,Pi,Pi,tested,True,fork,Fork,yes,declaration; see caveats,"the whole session, not from a message"
+pi,Pi,Pi,tested,True,rewind,Rewind,no,declaration; see caveats,its /tree is its own screen's
+pi,Pi,Pi,tested,True,interrupt,Interrupt,yes,declaration; see caveats,
+pi,Pi,Pi,tested,True,guide,Guide mid-turn,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,model,Switch model,yes,declaration; see caveats,"any model Pi has, at once"
+pi,Pi,Pi,tested,True,effort,Effort,yes,declaration; see caveats,"its thinking level, from the start"
+pi,Pi,Pi,tested,True,modes,Permission modes,no,declaration; see caveats,Pi asks before nothing: every tool runs
+pi,Pi,Pi,tested,True,plan,Plan mode,no,declaration; see caveats,only as an extension
+pi,Pi,Pi,tested,True,images,Images,yes,declaration; see caveats,
+pi,Pi,Pi,tested,True,questions,Questions,yes,declaration; see caveats,an extension's select and confirm
+pi,Pi,Pi,tested,True,subagents,Subagents,no,declaration; see caveats,only as an extension
+pi,Pi,Pi,tested,True,background,Background tasks,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,context,Context breakdown,yes,declaration; see caveats,"how full it is, not what fills it"
+pi,Pi,Pi,tested,True,compact,Compact,yes,declaration; see caveats,
+pi,Pi,Pi,tested,True,commands,Commands and skills,yes,declaration; see caveats,prompt templates and skills; not packages' or extensions'
+pi,Pi,Pi,tested,True,btw,Side questions (btw),no,declaration; see caveats,
+pi,Pi,Pi,tested,True,dirs,cd and add-dir,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,mcp,MCP,no,declaration; see caveats,only as an extension
+pi,Pi,Pi,tested,True,hooks,Hooks,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,plugins,Plugins,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,statusline,Statusline,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,screen,Its own screen,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,handoff,Hand-off in,yes,declaration; see caveats,
+pi,Pi,Pi,tested,True,port,Hand-off in whole,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,prompt,rush's instructions,yes,declaration; see caveats,
+pi,Pi,Pi,tested,True,settings,Settings files,yes,declaration; see caveats,"settings.json, yours and the project's"
+pi,Pi,Pi,tested,True,stats,Usage history,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,live,Running sessions,yes,declaration; see caveats,sessions written to in the last two minutes
+pi,Pi,Pi,tested,True,history,Past sessions,yes,declaration; see caveats,
+pi,Pi,Pi,tested,True,remote,Remote sessions,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,switch,Account switching,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,signin,Sign-in,yes,declaration; see caveats,its own /login; no account swapping
+pi,Pi,Pi,tested,True,quota,Limits,no,declaration; see caveats,each provider keeps its own limits
+pi,Pi,Pi,tested,True,pricing,Pricing,no,declaration; see caveats,Pi prices each turn itself
+pi,Pi,Pi,tested,True,efficiency,Efficiency,no,declaration; see caveats,
+pi,Pi,Pi,tested,True,memory,Memory,yes,declaration; see caveats,its AGENTS.md files
+vibe,Mistral,Vibe,preview,True,run,Run in rush mode,yes,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,resume,Resume,yes,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,fork,Fork,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,rewind,Rewind,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,interrupt,Interrupt,yes,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,guide,Guide mid-turn,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,model,Switch model,yes,declaration; see caveats,when the agent offers models
+vibe,Mistral,Vibe,preview,True,effort,Effort,yes,declaration; see caveats,model-supported thinking levels
+vibe,Mistral,Vibe,preview,True,modes,Permission modes,yes,declaration; see caveats,the agent's own
+vibe,Mistral,Vibe,preview,True,plan,Plan mode,yes,declaration; see caveats,when the agent has a plan mode
+vibe,Mistral,Vibe,preview,True,images,Images,yes,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,questions,Questions,yes,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,subagents,Subagents,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,background,Background tasks,no,declaration; see caveats,ACP has no background tasks
+vibe,Mistral,Vibe,preview,True,context,Context breakdown,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,compact,Compact,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,commands,Commands and skills,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,btw,Side questions (btw),no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,dirs,cd and add-dir,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,mcp,MCP,yes,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,hooks,Hooks,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,plugins,Plugins,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,statusline,Statusline,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,screen,Its own screen,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,handoff,Hand-off in,yes,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,port,Hand-off in whole,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,prompt,rush's instructions,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,settings,Settings files,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,stats,Usage history,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,live,Running sessions,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,history,Past sessions,yes,declaration; see caveats,saved local conversations
+vibe,Mistral,Vibe,preview,True,remote,Remote sessions,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,switch,Account switching,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,signin,Sign-in,yes,declaration; see caveats,native terminal login; no account swapping
+vibe,Mistral,Vibe,preview,True,quota,Limits,no,declaration; see caveats,"Vibe says its plan, not what's left of it"
+vibe,Mistral,Vibe,preview,True,pricing,Pricing,planned,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,efficiency,Efficiency,no,declaration; see caveats,
+vibe,Mistral,Vibe,preview,True,memory,Memory,no,declaration; see caveats,

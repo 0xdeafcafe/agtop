@@ -29,8 +29,9 @@ var cli = acp.Agent{ID: Kind, Title: "Copilot", Command: "copilot", Args: []stri
 		agent.FeatureLive: agent.Yes.With("the coding agent's, on GitHub"), agent.FeatureHistory: agent.Yes,
 		agent.FeatureRemote: agent.Yes.With("view only"),
 		agent.FeatureSwitch: agent.Yes.With("gh's accounts"), agent.FeatureSignIn: agent.Yes,
-		agent.FeatureQuota:   agent.Yes.With("premium requests"),
-		agent.FeaturePricing: agent.Planned.With("its models' premium-request multipliers"),
+		agent.FeatureQuota:      agent.Yes.With("premium requests"),
+		agent.FeatureBackground: agent.Yes.With("async shells, ended once Copilot reads one back"),
+		agent.FeaturePricing:    agent.Planned.With("its models' premium-request multipliers"),
 	}}
 
 func (Adapter) Kind() agent.Kind { return Kind }
@@ -38,6 +39,9 @@ func (Adapter) Name() string     { return "Copilot" }
 
 // Maker is GitHub, whose service Copilot's models come through.
 func (Adapter) Maker() string { return "GitHub" }
+
+// Published is @github/copilot.
+func (Adapter) Published() agent.Published { return agent.Published{NPM: "@github/copilot"} }
 
 // Program is the Copilot CLI: what runs its sessions here. Its coding
 // agent's sessions on GitHub need only gh, and are listed without it.

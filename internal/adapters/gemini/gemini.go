@@ -6,6 +6,7 @@ package gemini
 
 import (
 	"github.com/0xdeafcafe/rush/internal/adapters/acp"
+	_ "github.com/0xdeafcafe/rush/internal/adapters/antigravity"
 	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
@@ -14,10 +15,11 @@ const Kind agent.Kind = "gemini"
 
 func init() {
 	agent.Register(Adapter{acp.Agent{
-		ID: Kind, Title: "Gemini", Command: "gemini", Args: []string{"--experimental-acp"}, Home: ".gemini",
+		ID: Kind, Title: "Gemini CLI", Company: "Google", Command: "gemini", Args: []string{"--experimental-acp"}, Home: ".gemini",
+		Pub:   agent.Published{NPM: "@google/gemini-cli"},
 		Creds: []string{credsFile}, Keys: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
 		SignIn: "run gemini once and pick Sign in with Google (free), or set GEMINI_API_KEY",
-		More:   map[agent.Feature]agent.Support{agent.FeatureQuota: agent.Yes.With("signed in with Google: each model's daily requests")},
+		More:   map[agent.Feature]agent.Support{agent.FeatureQuota: agent.Yes.With("legacy Code Assist quota")},
 		Once:   `gemini -p "<task>"`, Model: "-m", Flags: map[string]string{"-p": "prompt", "--prompt": "prompt",
 			"-m": "model", "--model": "model", "-o": "=text", "--output-format": "=text"},
 	}})
@@ -32,3 +34,5 @@ var (
 	_ agent.KeyChecker  = Adapter{}
 	_ agent.QuotaSource = Adapter{}
 )
+
+func (Adapter) Replacement() agent.Kind { return "antigravity" }

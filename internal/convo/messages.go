@@ -81,9 +81,8 @@ func SetPeers(names map[string]string) {
 
 // sentTo is who a message went to, a session named as the list names it
 // with its codename after.
-// ponytail: a one-line label is memoized by step alone, so a session
-// renamed after it was drawn keeps its old name in that row; stepKey would
-// need a peers generation to follow it.
+// ponytail: a session renamed after it was named here keeps its old name
+// in that row until its turn redraws; a peers generation would follow it.
 func (d *drawer) sentTo(st *Step) string {
 	to := d.stepMemo(st, 'r', d.recipient)
 	if p := peers.Load(); p != nil {
@@ -91,6 +90,7 @@ func (d *drawer) sentTo(st *Step) string {
 			return ansi.Truncate(n, 32, "…") + " (" + to + ")"
 		}
 	}
+	lookupWaits.Add(1) // not named yet: redrawn when SetPeers moves gen
 	return to
 }
 
@@ -181,13 +181,7 @@ func (d *drawer) message(st *Step, ref string, indent int) {
 		if gist != "" {
 			rows = wrap(paint(cWhite, gist), room)
 		}
-		for _, l := range strings.Split(strings.TrimSpace(body), "\n") {
-			if strings.TrimSpace(l) == "" {
-				rows = append(rows, "")
-				continue
-			}
-			rows = append(rows, wrap(sub(expandTabs(l)), room)...)
-		}
+		rows = append(rows, d.messageMarkdown(body, room)...)
 	case gist != "":
 		rows = cardText(gist, strings.Split(body, "\n"), room)
 	default:
@@ -366,4 +360,15 @@ func answered(st *Step) [][2]string {
 		qa[i] = [2]string{q.Question, strings.TrimSuffix(strings.TrimRight(seg, ", "), `"`)}
 	}
 	return qa
+}
+
+// Reuse conversation Markdown while keeping the enclosing message's ref and width.
+func (d *drawer) messageMarkdown(body string, room int) []string {
+	child := drawer{s: d.s, t: d.t, o: Options{Width: room + 2, Verbose: d.o.Verbose}, cw: room + 2}
+	child.markdown(strings.TrimSpace(body), 1, cSub, true)
+	rows := make([]string, 0, len(child.lines))
+	for _, line := range child.lines {
+		rows = append(rows, strings.TrimRight(ansi.TruncateLeft(line.Text, 1, ""), " "))
+	}
+	return rows
 }

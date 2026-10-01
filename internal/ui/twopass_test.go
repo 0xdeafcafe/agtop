@@ -78,7 +78,8 @@ func TestNumbersOnlyOnceWhole(t *testing.T) {
 	}
 	m.onWhole(whole(t, c))
 	m.View()
-	if !slices.ContainsFunc(c.shown, func(l convo.Line) bool { return strings.Contains(ansi.Strip(l.Text), "#60") }) {
+	// Turn numbers aren't drawn, but each turn's rows carry its number.
+	if !slices.ContainsFunc(c.shown, func(l convo.Line) bool { return l.Ref == "t60" }) {
 		t.Error("the last turn isn't #60 once the whole is read")
 	}
 }
@@ -121,7 +122,7 @@ func TestCountingUntilWhole(t *testing.T) {
 // A hosted session opens in stages, none waiting on the next: the header
 // from its host's info, its transcript's end before the replay, that with
 // the replay, then the whole, with what the host sent meanwhile on top.
-func TestHostedOpensInStages(t *testing.T) {
+func TestHostedOpensAtLatestWithoutShowingPreReplayPrefix(t *testing.T) {
 	at := func(n int) time.Time {
 		return time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC).Add(time.Duration(n) * time.Minute)
 	}
@@ -151,9 +152,13 @@ func TestHostedOpensInStages(t *testing.T) {
 		t.Fatal("no header from the host's info")
 	}
 	o := convo.Options{Width: 150, Open: map[string]bool{}}
-	replay := m.onPre(c.readPre(o)().(preMsg))
-	if last := c.sess.Turns[len(c.sess.Turns)-1]; !c.sess.Partial || last.Prompt != "question 50" {
-		t.Fatalf("the end before the replay: partial %v, %q", c.sess.Partial, last.Prompt)
+	prepared := c.readPre(o)().(preMsg)
+	if last := prepared.sess.Turns[len(prepared.sess.Turns)-1]; !prepared.sess.Partial || last.Prompt != "question 50" {
+		t.Fatal("bounded history before replay was not prepared")
+	}
+	replay := m.onPre(prepared)
+	if len(c.sess.Turns) != 0 || c.ready {
+		t.Fatal("an older history prefix was shown before the latest replay arrived")
 	}
 	cmds := m.onReplay(replay().(replayMsg))().(tea.BatchMsg)
 	if last := c.sess.Turns[len(c.sess.Turns)-1]; last.Prompt != "question 60" || !c.ready {

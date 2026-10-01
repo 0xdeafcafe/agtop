@@ -56,3 +56,9 @@ func (Adapter) ChangePlugins(p agent.Profile, dir string, c agent.PluginChange) 
 }
 
 var _ agent.Plugger = Adapter{}
+
+// SkillRoots are the folders of the skills Claude Code has in cwd, less
+// the project's own, for another agent to read as well.
+func (Adapter) SkillRoots(p agent.Profile, cwd string) []string {
+	return claude.SkillRoots(p.Dir, cwd)
+}

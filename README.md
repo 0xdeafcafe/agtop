@@ -33,7 +33,7 @@ rush update     # fresh bottle
 
 ## what it does
 
-- **the list**: all your agents, what each one's doing in words ("running pnpm test") and what it's costing you in tokens, dollars, cpu and ram. anything that's died, hit a limit or is sat waiting on a question floats to the top, `ctrl+b` tells it to crack on, and `ctrl+x` is the safeword (say it twice to a stopped agent and it's gone for good).
+- **the list**: all your agents, what each one's doing in words ("running pnpm test") and what it's costing you in tokens, dollars, cpu and ram. anything that's died, hit a limit or is sat waiting on a question floats to the top, `ctrl+b` tells it to crack on, and `ctrl+x` (or esc twice in a session) asks whether to close it, restart it, switch its harness or model, or delete it for good.
 - **sessions**: steps fold away, code's highlighted, and when a bash chain hangs it tells you which command it's stuck on - `k` is the safety shears, cutting that one loose so the rest of the chain carries on. every hunk in a diff knows which turn wrote it too.
 - **overview**: what's going on across your repos right now, and everything that happened today.
 - **efficiency**: where your tokens are going, and whether rtk, serena and the rest of the token savers are doing anything for you. there's also an opt-in advisor where haiku does the digging and opus checks its homework, for about $0.30 a pass.
@@ -55,6 +55,10 @@ rush also puts the cap back on an idle claude code a few seconds after its turn 
   </tr>
 </table>
 
+## conversation keys
+
+The same keys work with every harness: **Enter** or **Space** expands or collapses the selected row; Enter sends only from the message box, so a draft left there is never sent while a row is selected. **Esc** returns to the message box without clearing that draft. Typing also returns to the box; Space types a normal space when the box has focus. **Shift+Tab** opens model, effort and harness controls, and **F1** shows the current shortcuts.
+
 ## providers
 
 rush runs anything it has an adapter for, and only shows the ones you've got installed.
@@ -64,14 +68,16 @@ rush runs anything it has an adapter for, and only shows the ones you've got ins
 | claude code | headless, hosted by rush | full |
 | codex | `codex app-server` | tested |
 | copilot | copilot cli, via `gh`'s token | tested |
-| gemini, kimi, opencode, vibe | agent client protocol | preview |
+| kimi | agent client protocol, Kimi Code 2 history | tested |
+| Antigravity (`agy`) | persistent streaming JSON | preview |
+| opencode, vibe | agent client protocol | preview |
 | deepseek | `dsh` | preview |
 | glm | zcode, via `zcode-acp-server` | preview |
 | ollama | claude code on ollama, tuned per model | preview |
 
 full is what i use every day, tested has been run against the real thing, and preview is built but hasn't been tried against it yet.
 
-- **switching**: `#with codex` starts new sessions on codex, and `/handoff codex` passes the bottle, so codex picks up in a new session with the conversation so far, what changed and what's left to do.
+- **switching**: `#new codex@openai-sub` starts a session on codex, once, and `/handoff codex` passes the bottle, so codex picks up in a new session with the conversation so far, what changed and what's left to do.
 - **accounts**: all your sign-ins per provider, with their limits. switch account and each rush session moves over once it's safe, sane and between turns, bringing its conversation and queue with it.
 - **profiles**: which providers a folder runs on and in what order, and what happens when one taps out - wait for the reset, try another account, or hand the conversation on to the next provider. each provider comes with one of its own out of the box.
 - **harnesses**: some providers can be strapped into more than one, so ollama's models run in claude code by default, or in pi or codex if you'd rather.

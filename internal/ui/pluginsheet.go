@@ -53,7 +53,7 @@ const (
 func (m *Model) openPlugins(c *hostConn, a *fleet.Agent) tea.Cmd {
 	plug, ok := agent.As[agent.Plugger](sessionAgent(c))
 	if !ok || !canScreen(c, "plugin") {
-		m.flash(agentName(string(sessionAgent(c)))+" has no plugins rush manages", true)
+		m.flash(harnessName(string(sessionAgent(c)))+" has no plugins rush manages", true)
 		return nil
 	}
 	p := &pluginSheet{conn: c.key, plug: plug, acct: a.Acct, cwd: firstNonEmpty(c.sess.Info.Cwd, a.Cwd), costs: map[string]string{}, costAsked: map[string]bool{}}

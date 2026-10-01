@@ -33,17 +33,23 @@ func (Adapter) Maker() string { return "OpenAI" }
 // KeyEnv is where Codex reads an OpenAI API key from.
 func (Adapter) KeyEnv() string { return "OPENAI_API_KEY" }
 
+// Speaks is the one API Codex talks to.
+func (Adapter) Speaks() string { return "OpenAI's Responses API" }
+
 // Program is codex.
 func (Adapter) Program() (string, []string) { return "codex", []string{".codex/bin"} }
 
-// features are what app-server gives rush. Codex has no subagents, no
-// plan mode among its approval presets, and nothing to rewind to.
+// Published is @openai/codex.
+func (Adapter) Published() agent.Published { return agent.Published{NPM: "@openai/codex"} }
+
+// features are what Rush currently integrates from app-server, not the full
+// native Codex capability set. Conversation rollback is distinct from file rewind.
 var features = map[agent.Feature]agent.Support{
-	agent.FeatureRun: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
+	agent.FeatureRun: agent.Yes, agent.FeaturePrompt: agent.Yes, agent.FeaturePort: agent.Yes, agent.FeatureResume: agent.Yes, agent.FeatureFork: agent.Yes,
 	agent.FeatureInterrupt: agent.Yes, agent.FeatureGuide: agent.Yes.With("steered into the turn"), agent.FeatureModel: agent.Yes.With("from the next turn"),
 	agent.FeatureEffort: agent.Yes, agent.FeatureModes: agent.Yes.With("read-only, auto, full-access"),
-	agent.FeatureImages: agent.Yes, agent.FeatureQuestions: agent.Yes, agent.FeatureContext: agent.Yes.With("how full it is, not what fills it"),
-	agent.FeatureMCP: agent.Yes, agent.FeatureHandoffIn: agent.Yes,
+	agent.FeatureImages: agent.Yes, agent.FeatureQuestions: agent.Yes, agent.FeatureSubagents: agent.Yes.With("its spawn_agent threads"), agent.FeatureContext: agent.Yes.With("how full it is, not what fills it"),
+	agent.FeatureCompact: agent.Yes, agent.FeatureMCP: agent.Yes, agent.FeatureHandoffIn: agent.Yes, agent.FeatureBackground: agent.Yes.With("its background terminals and spawned threads"),
 	agent.FeatureLive: agent.Yes, agent.FeatureHistory: agent.Yes,
 	agent.FeatureSwitch: agent.Yes, agent.FeatureSignIn: agent.Yes, agent.FeatureQuota: agent.Yes,
 	agent.FeatureCommands: agent.Planned, agent.FeaturePricing: agent.Planned, agent.FeatureEfficiency: agent.Planned,

@@ -12,9 +12,10 @@ import (
 
 // cachedModel is one model in Codex's models cache.
 type cachedModel struct {
-	Slug        string `json:"slug"`
-	Visibility  string `json:"visibility"`
-	Description string `json:"description"`
+	Slug          string `json:"slug"`
+	Visibility    string `json:"visibility"`
+	Description   string `json:"description"`
+	ContextWindow int64  `json:"context_window"`
 }
 
 // readModels are every model Codex's cache in dir has, listed or not.
@@ -39,7 +40,7 @@ func (Adapter) ListModels(p agent.Profile) []agent.Choice {
 	var out []agent.Choice
 	for _, m := range readModels(p.Dir) {
 		if m.Slug != "" && m.Visibility == "list" {
-			out = append(out, agent.Choice{ID: m.Slug, Note: strings.TrimSuffix(strings.TrimSpace(m.Description), ".")})
+			out = append(out, agent.Choice{ID: m.Slug, Note: strings.TrimSuffix(strings.TrimSpace(m.Description), "."), Context: m.ContextWindow})
 		}
 	}
 	return out

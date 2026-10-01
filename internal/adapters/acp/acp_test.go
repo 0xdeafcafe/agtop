@@ -490,3 +490,25 @@ func TestKnownAgentsRegister(t *testing.T) {
 		t.Errorf("fork = %v, want ErrNoFork", err)
 	}
 }
+
+func TestThinkingConfig(t *testing.T) {
+	s, f := start(t)
+	nextOf[event.Init](t, s)
+	f.update(map[string]any{"sessionUpdate": "config_option_update", "configOptions": []any{map[string]any{"type": "select", "id": "thinking", "category": "thinking", "currentValue": "low"}}})
+	if got := nextOf[event.Init](t, s); got.Effort != "low" {
+		t.Fatalf("initial effort: %+v", got)
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.SetEffort("high") }()
+	m := f.expect("session/set_config_option")
+	if string(m.Params) != `{"configId":"thinking","sessionId":"s1","value":"high"}` {
+		t.Fatalf("thinking request: %s", m.Params)
+	}
+	f.result(m.ID, map[string]any{"configOptions": []any{map[string]any{"type": "select", "id": "thinking", "category": "thinking", "currentValue": "high"}}})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := nextOf[event.Init](t, s); got.Effort != "high" {
+		t.Fatalf("updated effort: %+v", got)
+	}
+}

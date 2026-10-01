@@ -6,6 +6,8 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
+// ponytail: efforts as models_cache.json's supported_reasoning_levels had
+// them (2026-09); read them per model if they drift.
 // Choices are Codex's reasoning efforts and rush's three presets of its
 // approval policy and sandbox (modes). Its models come and go with the
 // account, so Settings offers the ones your sessions have used, or a typed
@@ -13,10 +15,12 @@ import (
 func (Adapter) Choices() agent.Choices {
 	return agent.Choices{
 		Efforts: []agent.Choice{
-			{ID: "minimal", Note: "as little reasoning as it can; for trivial edits."},
 			{ID: "low", Note: "quick; fine for simple, well-specified tasks."},
 			{ID: "medium", Note: "a balance of speed and care."},
 			{ID: "high", Note: "careful; for tricky work."},
+			{ID: "xhigh", Note: "more careful still; for hard problems."},
+			{ID: "max", Note: "as much as the model has, bar ultra."},
+			{ID: "ultra", Note: "the most, on the models that have it (not luna)."},
 		},
 		Modes: []agent.Choice{
 			{ID: "read-only", Note: "reads and answers; asks before changing anything."},

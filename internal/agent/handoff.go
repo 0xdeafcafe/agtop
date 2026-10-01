@@ -10,14 +10,16 @@ import (
 // Conversation is a session told for a hand-off: what another agent needs
 // to carry it on.
 type Conversation struct {
-	From    Kind   // the agent it ran on
-	Name    string // what it's called
-	Cwd     string
-	First   string   // the message that started it
-	Steps   []Step   // the calls it made, oldest first
-	Changed []string // the files it changed
-	Recent  []Line   // its last turns: your messages (user) and its answers (assistant)
-	Todos   []Todo   // its todo list as it stands
+	From         Kind   // the agent it ran on
+	Name         string // what it's called
+	Cwd          string
+	First        string   // the message that started it
+	Steps        []Step   // the most recent calls it made, oldest first
+	EarlierSteps int      // older calls omitted from Steps
+	Changed      []string // the files it changed
+	Recent       []Line   // its last turns: your messages (user) and its answers (assistant)
+	History      []Line   // every turn, as for Recent, with its steps as → lines among its words
+	Todos        []Todo   // its todo list as it stands
 }
 
 // Step is one call a conversation made, and whether it failed.
@@ -57,8 +59,11 @@ func Handoff(c Conversation) Input {
 		b.WriteString("\nIt started with this message:\n")
 		quote(&b, first)
 	}
-	if done := doneWords(c.Steps); len(done) > 0 {
+	if done := doneWords(c.Steps); len(done) > 0 || c.EarlierSteps > 0 {
 		b.WriteString("\nWhat it did:\n")
+		if c.EarlierSteps > 0 {
+			fmt.Fprintf(&b, "- (%d earlier tool calls omitted)\n", c.EarlierSteps)
+		}
 		if n := len(done) - handoffDone; n > 0 {
 			fmt.Fprintf(&b, "- (%d earlier steps)\n", n)
 			done = done[n:]
@@ -152,3 +157,15 @@ func clip(s string, n int) string {
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// Carried is what a session started with c as its own history (Carry) is
+// told beside it: where it came from, and how its steps read.
+func Carried(c Conversation) string {
+	from := string(c.From)
+	if a, ok := Get(c.From); ok {
+		from = a.Name()
+	}
+	return "This conversation began in " + from + " and was moved to you, with its history as your own. " +
+		"The steps it took there are the lines starting → in its answers, in its own tools' words, not yours. " +
+		"The files are as it left them: look at them before changing anything again."
+}

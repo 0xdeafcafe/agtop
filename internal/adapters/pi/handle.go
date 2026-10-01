@@ -33,6 +33,13 @@ type line struct {
 	Method  string   `json:"method"`
 	Title   string   `json:"title"`
 	Options []string `json:"options"`
+
+	ToolCallID       string         `json:"toolCallId"` // tool_execution_start, _update, _end
+	ToolName         string         `json:"toolName"`
+	ParentToolCallID string         `json:"parentToolCallId"`
+	Args             jsontext.Value `json:"args"`
+	PartialResult    *message       `json:"partialResult"` // its content and details
+	IsError          bool           `json:"isError"`
 }
 
 // message is the line's AgentMessage, if it has one.
@@ -68,8 +75,7 @@ func other(typ string, raw []byte) event.Event {
 // events1 is what one line means as events.
 func (c *Conn) events1(typ string, raw []byte) []event.Event {
 	switch typ {
-	case "agent_settled", "turn_start", "turn_end", "queue_update", "tool_execution_start",
-		"tool_execution_update", "tool_execution_end", "auto_retry_end":
+	case "agent_settled", "turn_start", "turn_end", "queue_update", "auto_retry_end":
 		// What these say comes whole in the message events, or is pi's
 		// own bookkeeping.
 		return nil
@@ -124,6 +130,8 @@ func (c *Conn) events1(typ string, raw []byte) []event.Event {
 		return []event.Event{event.Status{Busy: true, Text: "retrying"}}
 	case "extension_ui_request":
 		return c.dialog(&l, raw)
+	case "tool_execution_start", "tool_execution_update", "tool_execution_end":
+		return subagentTask(&l)
 	}
 	return []event.Event{other(typ, raw)}
 }
@@ -193,6 +201,59 @@ func (c *Conn) messageEnd(m *message) []event.Event {
 		return out
 	}
 	return m.events("pi-" + m.Role + "-" + itoa(m.Timestamp))
+}
+
+// subagentTask is the subagent extension's run as a task the turn waits on,
+// as Claude Code tells its subagents'. Other tools' runs show in their
+// calls and results; a tool's own nested calls aren't told.
+func subagentTask(l *line) []event.Event {
+	if l.ToolName != "subagent" || l.ParentToolCallID != "" {
+		return nil
+	}
+	switch l.Type {
+	case "tool_execution_start":
+		c := callOf(&block{ID: l.ToolCallID, Name: l.ToolName, Arguments: l.Args})
+		return []event.Event{event.TaskStarted{ID: l.ToolCallID, CallID: l.ToolCallID, Kind: event.SubagentTask, Label: c.Input.Description, Agent: c.Input.Agent}}
+	case "tool_execution_update":
+		if l.PartialResult != nil {
+			return []event.Event{subagentProgress(l.ToolCallID, l.PartialResult)}
+		}
+	case "tool_execution_end":
+		status := "completed"
+		if l.IsError {
+			status = "failed"
+		}
+		return []event.Event{event.TaskDone{ID: l.ToolCallID, CallID: l.ToolCallID, Status: status}}
+	}
+	return nil
+}
+
+// subagentProgress is what a subagent run has done so far, from the
+// details of its partial result: each agent's messages and usage.
+func subagentProgress(id string, r *message) event.TaskProgress {
+	p := event.TaskProgress{ID: id, Summary: oneLine(r.text())}
+	var d struct {
+		Results []struct {
+			Messages []message `json:"messages"`
+			Usage    struct {
+				Input  int `json:"input"`
+				Output int `json:"output"`
+			} `json:"usage"`
+		} `json:"results"`
+	}
+	_ = jsonx.Unmarshal(r.Details, &d)
+	for _, res := range d.Results {
+		p.Tokens += res.Usage.Input + res.Usage.Output
+		for i := range res.Messages {
+			for _, b := range res.Messages[i].blocks() {
+				if b.Type == "toolCall" {
+					p.ToolUses++
+					p.LastTool = b.Name
+				}
+			}
+		}
+	}
+	return p
 }
 
 // confirmYes and confirmNo are a confirm's choices.

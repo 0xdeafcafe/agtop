@@ -23,8 +23,11 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	// as meta from those sending xterm's modifiers: both are cmd here.
 	s := strings.ReplaceAll(k.String(), "meta+", "super+")
 	m.hover = "" // the keyboard takes over from the mouse
+	m.topHover = headerHover{}
 	if m.host != nil {
 		m.host.subHover = ""
+		m.host.subPreview.hover = ""
+		m.host.pointerHover = paneHover{}
 	}
 	m.lastKeyAt = time.Now()
 	if cmd, used := m.remapKey(&k, &s); used {
@@ -211,8 +214,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.helpPage = (m.helpPage + 1) % len(helpPages)
 		case "[", "left", "h":
 			m.helpPage = (m.helpPage + len(helpPages) - 1) % len(helpPages)
-		case "1", "2", "3":
+		case "1", "2", "3", "4":
 			m.helpPage = int(s[0] - '1')
+		case "k":
+			m.mode = modeList
+			m.setView(placeSettings)
+			m.setSettingsPage(pageKeys)
 		default:
 			m.mode = modeList
 		}
@@ -382,6 +389,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		// Enter on an agent renames it, as in the Finder, or opens it, as
 		// you chose the first time; ⌘↓, →, tab and { } always open it.
 		if empty && a != nil && m.inKind == inPrompt {
+			if cmd, ok := m.openRoomFor(a); ok {
+				return cmd // a room, or one of its agents: the room opens
+			}
 			switch m.store.Config.EnterOn {
 			case "open":
 				return m.focusPane(a)
@@ -452,7 +462,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		return nil
 	case "ctrl+x":
-		return m.stopOrRemove(a)
+		return m.askClose(a)
 	case "ctrl+d", "alt+d":
 		// Done with it: to Done, its idle process stopped.
 		return m.markDone(a)
@@ -843,6 +853,50 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	}
 	m.didStep("hash")
 	switch name {
+	case "community":
+		return m.openCommunity(arg)
+	case "room":
+		return m.openRoom(arg)
+	case "perm", "yolo":
+		var c *hostConn
+		if m.host != nil && a != nil && m.host.key == a.Key {
+			c = m.host
+		}
+		if a != nil && c == nil {
+			m.flash("Open the session first to change its permissions", true)
+			return nil
+		}
+		return m.permissionCommand(c, arg, name == "yolo")
+	case "discuss": // folded into #room
+		return m.openRoom(arg)
+	case "agent", "model", "effort":
+		var c *hostConn
+		if m.host != nil && a != nil && m.host.key == a.Key {
+			c = m.host
+		}
+		if name == "agent" {
+			return m.useSetup(c, name, arg, "")
+		}
+		if c != nil {
+			cmd, _ := m.runRushCommand(c, "/"+name+" "+arg)
+			return cmd
+		}
+		cmd := m.openStartSheet()
+		if s, ok := m.sheet.(*startSheet); ok {
+			s.row = 4
+			if name == "effort" {
+				s.row = 5
+			}
+			if arg != "" {
+				if name == "model" {
+					s.o.model = arg
+				} else {
+					s.o.effort = arg
+				}
+			}
+		}
+		return cmd
+
 	case "stash":
 		return m.stashCommand("history")
 	case "tips":
@@ -922,29 +976,6 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			m.inKind, m.input, m.promptFor = inGroup, []rune(arg), a.Key
 			return m.submit()
 		}
-	case "split":
-		switch arg {
-		case "":
-			m.toggleSplit()
-		case "project", "none":
-			if (arg == "project") != m.splitProjects() {
-				m.toggleSplit()
-			}
-		default:
-			m.flash("split by project or none", true)
-			return nil
-		}
-		return m.refreshFolders()
-	case "by":
-		for _, g := range m.groupModes() {
-			if g == arg {
-				m.store.Config.GroupBy = g
-				_ = m.store.SaveConfig()
-				m.rebuild()
-				return nil
-			}
-		}
-		m.flash("group by one of: "+strings.Join(m.groupModes(), ", "), true)
 	case "rename":
 		if need() {
 			if arg == "" {
@@ -954,14 +985,6 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			m.inKind, m.input, m.promptFor = inRename, []rune(arg), a.Key
 			return m.submit()
 		}
-	case "sort":
-		for _, mode := range sortModes {
-			if mode == arg {
-				m.setSort(mode)
-				return nil
-			}
-		}
-		m.flash("sort by one of: "+strings.Join(sortModes, ", "), true)
 	case "native":
 		return m.nativeView()
 	case "view":
@@ -975,36 +998,24 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		default:
 			m.flash("view one of: split, agent, list", true)
 		}
-	case "width":
-		var pct float64
-		if _, err := fmt.Sscanf(strings.TrimSuffix(arg, "%"), "%g", &pct); err != nil || pct <= 0 {
-			m.store.Config.SideWidth = 0
-			_ = m.store.SaveConfig()
-			m.flash("list width back to rush's choice · /width 30% sets your own", false)
-			return nil
-		}
-		m.setSideWidth(int(pct / 100 * float64(m.w)))
 	case "rush":
 		if need() {
 			return m.moveToRush(a)
 		}
+	case "new":
+		return m.newCommand(arg)
 	case "with":
-		m.withAgent(arg)
+		return m.withAgent(arg)
 	case "profile":
 		m.usePickedProfile(arg)
-	case "hibernate":
-		var n int
-		fmt.Sscanf(arg, "%d", &n)
-		m.store.Config.Hibernate.AfterMinutes = n
-		_ = m.store.SaveConfig()
-		if n > 0 {
-			m.flash(fmt.Sprintf("finished agents stop after %dm idle", n), false)
-		} else {
-			m.flash("hibernation off", false)
-		}
 	case "update":
 		return m.installUpdate()
+	case "expand", "collapse":
+		m.setHistoryFold(name == "expand")
 	case "reload":
+		if arg == "all" {
+			return m.reloadAll()
+		}
 		return m.reload()
 	case "ask":
 		return m.askRush(arg)
@@ -1043,7 +1054,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	case "efficiency":
 		// It reads the transcripts of the accounts rush switches between.
 		if !agent.Supports(loginsKind, agent.FeatureEfficiency) {
-			m.flash(agentName(string(loginsKind))+"'s efficiency isn't something rush reads yet", true)
+			m.flash(harnessName(string(loginsKind))+"'s efficiency isn't something rush reads yet", true)
 			return nil
 		}
 		m.setView(placeEff)
@@ -1051,14 +1062,6 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			m.setEffPage(p)
 		}
 		return m.effOpen()
-	case "dock":
-		var n int
-		if _, err := fmt.Sscanf(arg, "%d", &n); err != nil {
-			m.flash("how many lines? #dock 6", true)
-			return nil
-		}
-		m.store.Config.DockLines = min(max(n, 1), 15)
-		_ = m.store.SaveConfig()
 	default:
 		m.flash("unknown command #"+name+" · # lists rush's", true)
 	}
@@ -1088,7 +1091,7 @@ func (m *Model) relaunch(a *fleet.Agent, to agent.Profile) tea.Cmd {
 	}
 	mover, ok := agent.As[agent.Mover](agent.Kind(a.Kind))
 	if !ok {
-		m.flash(agentName(a.Kind)+" can't move a session outside rush mode · /rush moves it over first", true)
+		m.flash(harnessName(a.Kind)+" can't move a session outside rush mode · /rush moves it over first", true)
 		return nil
 	}
 	mv := agent.Move{From: a.Acct, To: to, Job: a.Job, Extra: a.Extra, Note: note}
@@ -1106,6 +1109,12 @@ func (m *Model) confirmKey(s string) tea.Cmd {
 	c := m.confirm
 	if c.again != "" && s == c.again {
 		s = "y"
+	}
+	for _, ch := range c.more {
+		if s == ch.key {
+			m.confirm = nil
+			return ch.do()
+		}
 	}
 	switch s {
 	case "y", "enter":

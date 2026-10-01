@@ -118,6 +118,12 @@ type StartOptions struct {
 	// agent's own words; Prompt is added to its system prompt.
 	Agents map[string]jsontext.Value
 	Prompt string
+	// Carry, for a new session, is another agent's conversation for it to
+	// take as its own history, where it can (FeaturePort).
+	Carry []Line
+	// SkillRoots are folders of <name>/SKILL.md skills Claude Code has,
+	// for an agent that isn't Claude Code to read as well.
+	SkillRoots []string
 	// Tap, when set, gets every line the agent writes, as it writes it, in
 	// its own words: what rushes that don't read events are sent.
 	Tap func(line []byte)
@@ -167,6 +173,12 @@ type HistoryFollower interface {
 // whether that left some out.
 type TailReader interface {
 	HistoryTail(s Session, most int64) (evs []event.Event, cut bool, err error)
+}
+
+// HistoryTailBeforeReader reads a bounded tail ending before a timestamp.
+// It preserves History's cutoff while avoiding decoding the whole prefix.
+type HistoryTailBeforeReader interface {
+	HistoryTailBefore(s Session, most int64, before time.Time) ([]event.Event, bool, error)
 }
 
 // QuotaSource reads an account's limits. p is the profile to read them

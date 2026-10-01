@@ -19,6 +19,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agtools"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
@@ -86,6 +87,10 @@ type Step struct {
 	// unit is it as an item of its own, for the unit memo to keep its rows
 	// while the subagent it's under works on.
 	unit []*Item
+	// toolSp is the agent a spawn_agent call starts, as of an input
+	// toolAt-1 long.
+	toolSp *Spawn
+	toolAt int
 	// agent is agentName's answer, as of a result agentFor long.
 	agent    string
 	agentFor int
@@ -115,6 +120,7 @@ const (
 	KText Kind = iota
 	KThinking
 	KStep
+	KExchange  // a correlated message to or from another agent
 	KInterject // you, sending mid-turn
 	KCompact   // the conversation was compacted here; Text is the summary
 	KNotice    // Claude Code telling you something; Level says how loudly
@@ -133,14 +139,17 @@ func (it *Item) grow(x string) {
 
 // Item is one thing in a turn, in order.
 type Item struct {
-	Kind    Kind
-	Text    string
-	Compact *event.Compacted
-	buf     *strings.Builder // while it streams
-	Level   string           // a notice's: info, warning, error
-	Images  []string         // files sent with an interjection
-	Step    *Step
-	Answer  bool // the turn's final words, promoted when the turn ends
+	Exchange *event.Exchange
+	Kind     Kind
+	Text     string
+	Compact  *event.Compacted
+	buf      *strings.Builder   // while it streams
+	Level    string             // a notice's: info, warning, error
+	Images   []string           // files sent with an interjection
+	Pictures []*event.ImageData // embedded images from provider history
+	userRef  string
+	Step     *Step
+	Answer   bool // the turn's final words, promoted when the turn ends
 	// drawn is how it (and a run of steps from it) was last drawn in an
 	// open turn: see drawer.memoized.
 	drawn *unitDrawn
@@ -148,18 +157,19 @@ type Item struct {
 
 // Turn runs from your message to Claude's last word.
 type Turn struct {
-	N       int
-	Prompt  string
-	Items   []*Item
-	Start   time.Time
-	End     time.Time
-	Live    bool
-	Cost    float64
-	Err     string // why it ended badly, if it did
-	Stopped bool   // you stopped it
-	Model   string // the main agent's model for this turn
-	Effort  string
-	Images  []string // names of images sent with the prompt
+	N        int
+	Prompt   string
+	Items    []*Item
+	Start    time.Time
+	End      time.Time
+	Live     bool
+	Cost     float64
+	Err      string // why it ended badly, if it did
+	Stopped  bool   // you stopped it
+	Model    string // the main agent's model for this turn
+	Effort   string
+	Images   []string           // paths or names of images sent with the prompt
+	Pictures []*event.ImageData // embedded images from provider history
 	// From is set when the turn wasn't started by you: a background task
 	// reporting back, another session's message, a subagent's report.
 	From string
@@ -248,7 +258,9 @@ type ToolStat struct {
 
 // Session is everything known about one rush-mode session.
 type Session struct {
-	Turns []*Turn
+	Turns     []*Turn
+	Hooks     []Hook // what start hooks told the agent, shown ahead of the first turn
+	exchanges map[string]sentEcho
 	// Fast is whether the last render drew a running timer still showing
 	// tenths: frames every 100ms keep it moving.
 	Fast bool
@@ -275,6 +287,8 @@ type Session struct {
 	Requests    []Request
 	Tools       map[string]*ToolStat
 
+	echoes     []sentEcho
+	userIDs    map[string]bool
 	streaming  *Item
 	woke       *Job      // the background task that last ended or fired
 	wokeAt     time.Time // when, or when the turn it came during ended
@@ -296,7 +310,9 @@ type Session struct {
 	stepVer    int           // bumped whenever a step is added or changes
 	asked      []*Step       // the steps asked for approval and maybe still waiting: Pending's
 	changes    []*FileChange // Changes, as of changesVer
-	parts      [][]Line      // RenderInto's scratch, one entry per turn
+	parts      [][]Line      // the turns as last drawn, one entry per turn
+	index      rowIndex      // each turn's rows, for RenderWindow, TurnRow and TurnAt
+	older      olderEffort   // Effort of the turns before the newest
 	searchHits []Hit         // the last search, for searchKey
 	searchKey  string
 	changesVer int
@@ -346,16 +362,36 @@ func New() *Session {
 
 // Effort is the effort it runs at: the one rush set, else the one its
 // transcript says the last turn ran at (a CLI default or settings.json).
+// The turns before the newest are looked through once, not every frame.
 func (s *Session) Effort() string {
 	if s.Info.Effort != "" {
 		return s.Info.Effort
 	}
-	for _, tn := range slices.Backward(s.Turns) {
-		if tn.Effort != "" {
-			return tn.Effort
+	n := len(s.Turns)
+	if n == 0 {
+		return ""
+	}
+	if e := s.Turns[n-1].Effort; e != "" {
+		return e
+	}
+	if o := &s.older; o.n != n || o.first != s.Turns[0] {
+		o.n, o.first, o.effort = n, s.Turns[0], ""
+		for _, tn := range slices.Backward(s.Turns[:n-1]) {
+			if tn.Effort != "" {
+				o.effort = tn.Effort
+				break
+			}
 		}
 	}
-	return ""
+	return s.older.effort
+}
+
+// olderEffort is the effort the turns before the newest last ran at, as
+// counted over n turns from first.
+type olderEffort struct {
+	n      int
+	first  *Turn
+	effort string
 }
 
 // Live is the turn in progress, if any.
@@ -420,16 +456,7 @@ func (s *Session) Apply(ev any, now time.Time) {
 	}
 	switch ev := ev.(type) {
 	case host.Sent:
-		if s.light {
-			ev.Text = strings.Clone(firstLine(ev.Text))
-		}
-		if t := s.Live(); t != nil {
-			t.Items = append(t.Items, &Item{Kind: KInterject, Text: ev.Text, Images: ev.Images})
-			t.touch()
-			return
-		}
-		s.streaming, s.woke = nil, nil
-		s.Turns = append(s.Turns, &Turn{N: len(s.Turns) + 1, Prompt: ev.Text, Start: now, Live: true, steps: map[string]*Step{}, Effort: s.Info.Effort, Images: ev.Images})
+		s.sent(ev, now, true)
 	case host.InfoEvent:
 		// A model switched mid-session comes only as the host's info: the
 		// agent's init said the one it started on.
@@ -617,7 +644,11 @@ func (s *Session) call(c *tool.Call, parent *Step, t *Turn, sub bool, now time.T
 		if s.inFlight == nil {
 			s.inFlight = map[string]flight{}
 		}
-		s.inFlight[c.ID] = flight{name, now, nativeDoing(name, input)}
+		doing := nativeDoing(name, input)
+		if in, ok := agtools.ReadSpawn(input); ok && agtools.IsSpawn(name) {
+			doing = "asking " + in.Agent
+		}
+		s.inFlight[c.ID] = flight{name, now, doing}
 		return
 	}
 	st := &Step{ID: c.ID, Tool: name, Input: input, Start: now, Exit: -1, parent: parent, turn: t}

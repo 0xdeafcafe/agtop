@@ -77,7 +77,8 @@ type Action struct {
 	// Source is who added it: "" for rush, else the plugin's name.
 	Source string
 	// Runs is handed back to be run, as a command is, though it has keys:
-	// for one whose key is another's in a context below it.
+	// for one whose key is another's in a context below it, or whose keys
+	// are all chords, so no key can stand in for it.
 	Runs bool
 }
 

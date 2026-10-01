@@ -54,7 +54,8 @@ func TestShellAgentReadsNative(t *testing.T) {
 			t.Fatalf("open %v: %d rows against %d\n%s\n%s", open, len(al), len(sl), a, s)
 		}
 		for i := range al {
-			if strings.TrimRight(al[i], " ") != strings.TrimRight(sl[i], " ") {
+			// The time is right-aligned, so the name's length moves it: compare words.
+			if strings.Join(strings.Fields(al[i]), " ") != strings.Join(strings.Fields(sl[i]), " ") {
 				t.Errorf("open %v, row %d:\n agent %q\n shell %q", open, i, al[i], sl[i])
 			}
 		}

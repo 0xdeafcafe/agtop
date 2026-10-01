@@ -3,37 +3,20 @@ package ui
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/host"
 )
 
-// withAgent sets the agent new sessions run, or, with no agent named, says
-// which it is and what else is installed.
-func (m *Model) withAgent(kind string) {
-	kind = strings.ToLower(strings.TrimSpace(kind))
-	d := &m.store.Config.Dispatch
-	if kind == "" {
-		var names []string
-		for _, a := range host.Installed() {
-			names = append(names, string(a.Kind()))
-		}
-		m.flash("new sessions run "+agentName(d.Kind)+" · installed: "+strings.Join(names, ", "), false)
-		return
+// withAgent is #with: what the next session starts as, once, as #new
+// without a task (newCommand); alone, it says what that is. It never
+// changes a default: Settings › Providers does.
+func (m *Model) withAgent(arg string) tea.Cmd {
+	if strings.TrimSpace(arg) != "" {
+		return m.newCommand(arg)
 	}
-	if k := agent.Kind(kind); agent.Installed(k) && !agent.Runs(k) && agent.Hint(k) != "" {
-		// There, but only for what it can do without its own program.
-		m.flash(agentName(kind)+" can't run sessions here yet: "+agent.Hint(k), false)
-		return
-	}
-	cfg := host.Config{}
-	if err := cfg.UseAgent(kind); err != nil {
-		m.flash(err.Error(), true)
-		return
-	}
-	// New sessions run it: first in the default profile.
-	m.store.Config.SetDefaultProvider(kind)
-	_ = m.store.SaveConfig()
-	m.flash("new sessions run "+agentName(kind), false)
+	m.flash("the next session starts as "+m.startWith(m.startDir(), true)+" · #with harness@provider picks another, once", false)
+	return nil
 }
 
 // modelWord is model id as the agent of kind names it: "Opus 5.5".
@@ -45,11 +28,10 @@ func modelWord(kind, id string) string {
 	return agent.ModelName(k, id)
 }
 
-// agentName is an agent's name, by its kind.
-func agentName(kind string) string {
-	k := agent.Kind(kind)
-	if a, ok := agent.Get(k); ok {
-		return a.Name()
-	}
-	return string(k)
-}
+// agentName is what runs sessions of kind, as rush names it:
+// Provider (Harness), OpenAI (Codex).
+func agentName(kind string) string { return agent.Label(agent.Kind(kind)) }
+
+// harnessName is the harness sessions of kind run in: Claude Code, Codex.
+// What a program does itself (reads memory, draws screens) says it.
+func harnessName(kind string) string { return agent.HarnessLabel(agent.Kind(kind)) }

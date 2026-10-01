@@ -26,7 +26,7 @@ func (m *Model) View() tea.View {
 	if !m.sameFrame || frame == "" {
 		m.drawing = true
 		frame = m.render()
-		m.drawing, m.kindMemo = false, kindMemo{}
+		m.drawing, m.kindMemo, m.accountFrame = false, kindMemo{}, accountFrame{}
 		m.lastFrame = frame
 	}
 	m.sameFrame = false
@@ -109,7 +109,7 @@ func (m *Model) headH() int {
 	if m.w < narrowHead || m.store.Config.HideLogo {
 		return 3
 	}
-	return clkH
+	return clkH // the bottle keeps its top gap; its foot shares the pages row
 }
 
 // topH is the rows above the body: the header and the row under it. Zen
@@ -128,14 +128,30 @@ func (m *Model) underHead() []string {
 	if m.store.Config.HideLogo {
 		lead = "   "
 	}
-	return []string{fit(lead+strings.TrimLeft(m.pages(), " "), m.w), faint(strings.Repeat("─", m.w))}
+	if m.dialog != nil {
+		lead = "  "
+	}
+	if m.w >= narrowHead && !m.store.Config.HideLogo && m.headerIconTail != "" {
+		lead = "  " + m.headerIconTail + strings.Repeat(" ", max(1, 6+clkW-2-cellw.String(m.headerIconTail)))
+	}
+	m.headerPointerLines[1] = fit(lead+strings.TrimLeft(m.pagesWidth(max(0, m.w-cellw.String(lead)+3)), " "), m.w)
+	return []string{m.headerPointerLines[1], faint(strings.Repeat("─", m.w))}
 }
 
 // narrowHead is the width below which the header drops clanker's body for
 // his face and keeps its lines whole.
 const narrowHead = 60
 
-func (m *Model) header() []string {
+func (m *Model) header() (rows []string) {
+	defer func() {
+		row := 3
+		if m.w < narrowHead || m.store.Config.HideLogo {
+			row = 2
+		}
+		if row < len(rows) {
+			m.headerPointerLines[0] = rows[row]
+		}
+	}()
 	t := m.tally()
 	md := m.mood(t)
 	robot, gap := clanker(m.clkState(md, t)), "   "
@@ -193,25 +209,21 @@ func (m *Model) header() []string {
 		}
 		return body + strings.Repeat(" ", gap) + rt
 	}
-	out := make([]string, len(robot))
-	for i, r := range robot {
-		out[i] = "  " + r
-	}
-	// The text sits in the middle of the bottle's height, the tabs under it.
-	out[1] = line(robot[1], left1, right1)
-	out[2] = line(robot[2], left2, right2)
 	// < > (or , .) go between the places; in a Session's box they're
 	// text, so it's ctrl+\\ there. The hint goes first when it won't fit.
 	places := "< >"
 	if m.hosted != "" || m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil {
 		places = "ctrl+\\"
 	}
-	strip := "  " + robot[3] + gap + strings.Join(m.tabs(), " ")
-	out[3] = withTabHint(strip, places, "places", "", m.w)
 	if m.store.Config.HideLogo {
-		return out[1:4]
+		strip := "  " + gap + strings.Join(m.tabs(), " ")
+		return []string{line(robot[1], left1, right1), line(robot[2], left2, right2), withTabHint(strip, places, "places", "", m.w)}
 	}
-	return out
+	// Keep the icon's original screen rows, while the text and everything
+	// below it move up. Its last row shares the pages row's unused left side.
+	m.headerIconTail = robot[len(robot)-1]
+	return []string{"", line(robot[0], left1, right1), line(robot[1], left2, right2),
+		withTabHint("  "+robot[2]+gap+strings.Join(m.tabs(), " "), places, "places", "", m.w), "  " + robot[3]}
 }
 
 // withTabHint is a strip of tabs with a quiet hint after it, the keys
@@ -247,44 +259,26 @@ func (m *Model) pageTabs() (names []string, cur int, turn func(int) tea.Cmd) {
 // clickTab goes to the place or page whose tab is at x on row y of the
 // header, reporting whether there was one.
 func (m *Model) clickTab(x, y int) (tea.Cmd, bool) {
-	if m.zen || y >= m.topH() {
+	h := m.headerTabAt(x, y)
+	if !h.valid {
 		return nil, false
 	}
-	// at is which of names is drawn over x in line.
-	at := func(line string, names []string) int {
-		line = ansi.Strip(line)
-		for i, n := range names {
-			if j := strings.Index(line, n); j >= 0 {
-				if c := cellw.String(line[:j]); x >= c-1 && x <= c+cellw.String(n) {
-					return i
-				}
-			}
-		}
-		return -1
+	if h.page {
+		_, _, turn := m.pageTabs()
+		return turn(h.index), true
 	}
-	if y == m.headH() {
-		names, _, turn := m.pageTabs()
-		if i := at(m.underHead()[0], names); i >= 0 {
-			return turn(i), true
-		}
-		return nil, false
-	}
-	tabRow := 3 // under the text beside clanker; the last line of the narrow header
-	if m.w < narrowHead || m.store.Config.HideLogo {
-		tabRow = 2
-	}
-	if y == tabRow {
-		if i := at(m.header()[y], viewNames); i >= 0 && (m.hosted == "" || i != placeProjects) {
-			m.setView(i)
-			return tea.Batch(m.loadPreview(), m.effOpen(), m.projectsOpen()), true
-		}
-	}
-	return nil, false
+	m.setView(h.index)
+	return tea.Batch(m.loadPreview(), m.effOpen(), m.projectsOpen()), true
 }
 
 // pages are the pages of the place you're in, the one showing bright; [
 // and ] go through them. In Agents it says whether Zen is on.
-func (m *Model) pages() string {
+func (m *Model) pages() string { return m.pagesWidth(m.w) }
+
+func (m *Model) pagesWidth(width int) string {
+	if m.dialog != nil {
+		return m.settingsTabs(max(1, width-3))
+	}
 	hint := "[ ]"
 	switch {
 	case m.zen:
@@ -300,6 +294,8 @@ func (m *Model) pages() string {
 	for i, n := range names {
 		if i == cur {
 			out[i] = paint(cText+bold, n)
+		} else if m.topHover.valid && m.topHover.page && m.topHover.index == i {
+			out[i] = hoverLine(paint(cText, n), cellw.String(n))
 		} else {
 			out[i] = dim(n)
 		}
@@ -307,7 +303,7 @@ func (m *Model) pages() string {
 	full := "   " + strings.Join(out, dim(" · ")) + faint("  "+hint)
 	// Where the row hasn't the room for every page, the one showing and
 	// where it is among them.
-	if cellw.String(ansi.Strip(full)) > m.w {
+	if cellw.String(ansi.Strip(full)) > width {
 		return "   " + faint("‹ ") + paint(cText+bold, names[cur]) + faint(fmt.Sprintf(" %d/%d › ", cur+1, len(names))) + faint(hint)
 	}
 	return full
@@ -318,6 +314,8 @@ func (m *Model) tabs() []string {
 	for i, v := range viewNames {
 		if i == m.view {
 			tabs = append(tabs, tabOn+" "+v+" "+reset)
+		} else if m.topHover.valid && !m.topHover.page && m.topHover.index == i {
+			tabs = append(tabs, hoverLine(paint(cText, " "+v+" "), cellw.String(v)+2))
 		} else {
 			tabs = append(tabs, tabOff+" "+v+" "+reset)
 		}
@@ -409,7 +407,7 @@ func roughly(d time.Duration) string {
 // by how it is going, with a tick for how far through the window we are,
 // so being ahead of pace shows at a glance; then the percentage and, with
 // when, when it resets.
-func usageMeter(label string, pct float64, resets time.Time, window time.Duration, now time.Time, w int, when bool) string {
+func usageMeter(label string, pct float64, resets time.Time, window time.Duration, rate float64, now time.Time, w int, when bool) string {
 	pace := -1.0 // share of the window gone, when we know when it ends
 	if !resets.IsZero() && resets.After(now) {
 		pace = 1 - float64(resets.Sub(now))/float64(window)
@@ -444,9 +442,22 @@ func usageMeter(label string, pct float64, resets time.Time, window time.Duratio
 	}
 	s := dim(label+" ") + b.String() + " " + paint(c, fmt.Sprintf("%.0f%%", pct))
 	if when {
-		s += resetIn(resets, now, window > 24*time.Hour)
+		s += runsOut(pct, rate, resets, now) + resetIn(resets, now, window > 24*time.Hour)
 	}
 	return s
+}
+
+// runsOut says how long the window lasts at the rate it fills: red when that
+// is before it resets, "ok" when it outlasts the reset, nothing until a rate is known.
+func runsOut(pct, rate float64, resets, now time.Time) string {
+	if rate <= 0 || pct >= 100 {
+		return ""
+	}
+	left := time.Duration((100 - pct) / rate * float64(time.Hour))
+	if !resets.IsZero() && resets.After(now) && left >= resets.Sub(now) {
+		return faint(" ⌛ok")
+	}
+	return paint(cRed, " ⌛"+roughly(left))
 }
 
 // activeUsage is the current account's plan usage, with when each window
@@ -494,7 +505,7 @@ func (m *Model) activeUsage(w int) string {
 func (m *Model) usageDetail(u usage.Quota, cells int, when bool) string {
 	var parts []string
 	for _, win := range u.Windows {
-		parts = append(parts, usageMeter(win.Label, win.Percent, win.ResetsAt, win.Span, m.snap.At, cells, when))
+		parts = append(parts, usageMeter(win.Label, win.Percent, win.ResetsAt, win.Span, win.Rate(m.snap.At), m.snap.At, cells, when))
 	}
 	if next, ok := m.upcoming(u.Used("")); ok {
 		// Where sessions go at the switch: glyph, name, and a short
@@ -518,6 +529,7 @@ func (m *Model) render() string {
 	if m.w == 0 {
 		return ""
 	}
+	m.over = overlayHit{} // kept again by the box drawn on top, if any
 	if m.bar != nil {
 		return m.overlayBar(m.renderScreen())
 	}
@@ -533,7 +545,7 @@ func (m *Model) render() string {
 func (m *Model) renderScreen() string {
 	switch m.mode {
 	case modeHelp:
-		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 50))
+		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 80))
 	case modeEff:
 		return m.frame(m.effBody(), m.effHint())
 	case modeProjects:
@@ -610,7 +622,7 @@ func (m *Model) frameCursor(body []string) int {
 
 func (m *Model) statusOr(hint string) string {
 	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
-		c := cSub
+		c := cText
 		if m.statusErr {
 			c = cRed
 		}
@@ -625,6 +637,9 @@ func (c *confirmation) keys() string {
 	if c.onBang != nil && c.bangText != "" {
 		keys += "   " + paint(cOrange, "!") + dim(" "+c.bangText)
 	}
+	for _, ch := range c.more {
+		keys += "   " + paint(cOrange, ch.key) + dim(" "+ch.text)
+	}
 	if c.onNo != nil {
 		return keys + "   " + paint(cOrange, "n") + dim(" "+c.noText) + "   " + paint(cOrange, "esc") + dim(" cancel")
 	}
@@ -634,16 +649,20 @@ func (c *confirmation) keys() string {
 // confirmModal draws the question being asked in a box over base: the
 // question, its detail, then its keys.
 func (m *Model) confirmModal(base string) string {
-	c := m.confirm
 	bw := min(m.w-4, 72)
+	return m.modalOver(base, m.confirmBody(bw), bw, cYellow)
+}
+
+// confirmBody is the question's box's inside, for a box bw wide.
+func (m *Model) confirmBody(bw int) []string {
+	c := m.confirm
 	body := []string{paint(cText+bold, c.question)}
 	if c.detail != "" {
 		for _, l := range wrap(c.detail, bw-4) {
 			body = append(body, dim(l))
 		}
 	}
-	body = append(body, "", c.keys())
-	return m.modalOver(base, body, bw, cYellow)
+	return append(body, "", c.keys())
 }
 
 // modalOver draws body in a box bw wide, edged in col, centred over base
@@ -651,10 +670,12 @@ func (m *Model) confirmModal(base string) string {
 func (m *Model) modalOver(base string, body []string, bw int, col string) string {
 	lines := strings.Split(base, "\n")
 	for y := range lines {
-		lines[y] = faint(ansi.Strip(fit(lines[y], m.w)))
+		lines[y] = faint(unplace(ansi.Strip(fit(lines[y], m.w))))
 	}
 	box := edgedBox(body, bw, col)
-	return strings.Join(pasteAt(lines, box, max(1, (len(lines)-len(box))/2), (m.w-bw)/2), "\n")
+	top, left := max(1, (len(lines)-len(box))/2), (m.w-bw)/2
+	m.keepOverlay(left, top, bw, len(box), left+2, top+2)
+	return strings.Join(pasteAt(lines, box, top, left), "\n")
 }
 
 // keysFit drops the least important pairs (those before the last) until the
@@ -667,6 +688,30 @@ func keysFit(w int, pairs ...string) string {
 		pairs = append(pairs[:len(pairs)-4], pairs[len(pairs)-2:]...)
 	}
 	return keys(pairs...)
+}
+
+// folderKey is the key that changes where a new agent starts, and what it
+// does: a worktree's agent offers its worktree or the checkout it came
+// from, by name; otherwise the folder picker, when there's a choice.
+func (m *Model) folderKey(a *fleet.Agent) (key, label string) {
+	if a != nil && inTree(a) && a.Key != m.pickedFor {
+		other := filepath.Base(a.Repo)
+		if m.startInTree {
+			other = filepath.Base(a.Root)
+		}
+		return convo.KeyWord(m.boundKey("list.worktree")), "start in " + other
+	}
+	if len(m.startDirs()) > 1 {
+		return "ctrl+l", "folder"
+	}
+	return "", ""
+}
+
+// fewKeys is the first n of pairs, then always, fitted to w: a row of keys
+// says what matters now and leaves the rest to ?.
+func fewKeys(w, n int, pairs, always []string) string {
+	pairs = pairs[:min(len(pairs), 2*n):min(len(pairs), 2*n)]
+	return keysFit(w, append(pairs, always...)...)
 }
 
 // needingYou counts the agents waiting on you, which ctrl+n steps through.
@@ -691,7 +736,7 @@ func needsLabel(n int) string {
 func keys(pairs ...string) string {
 	var parts []string
 	for i := 0; i+1 < len(pairs); i += 2 {
-		parts = append(parts, paint(cSub, convo.KeyWord(pairs[i]))+" "+dim(convo.KeyWord(pairs[i+1])))
+		parts = append(parts, paint(cText+bold, convo.KeyWord(pairs[i]))+" "+dim(convo.KeyWord(pairs[i+1])))
 	}
 	return strings.Join(parts, faint("  ·  "))
 }
@@ -981,6 +1026,7 @@ func (m *Model) listView() string {
 		m.listTop++
 	}
 	var pane []string
+	sessionHeader := false
 	if paneW > 0 {
 		sw := paneW - 3
 		if m.peek.on {
@@ -1001,6 +1047,8 @@ func (m *Model) listView() string {
 			if f := m.focused(); m.zenFull() && f != nil {
 				pane = append([]string{m.zenBar(f, paneW-3)}, pane...)
 			}
+		} else {
+			sessionHeader = !m.zenFull()
 		}
 	}
 	var b strings.Builder
@@ -1021,7 +1069,7 @@ func (m *Model) listView() string {
 		}
 	}
 	div := m.divider()
-	split2 := func(l, p string) {
+	split2 := func(l, p string, row int) {
 		if listFade != "" {
 			l = fadeRow(l)
 		}
@@ -1031,8 +1079,7 @@ func (m *Model) listView() string {
 			b.WriteString(reset)
 		}
 		b.WriteString(div)
-		b.WriteString("  ")
-		m.paneRow(&b, p, paneW-3, paneFade)
+		m.paneFrameRow(&b, p, paneW-3, paneFade, sessionHeader, row)
 	}
 	for i := 0; i < bodyH; i++ {
 		l, p := "", ""
@@ -1044,12 +1091,11 @@ func (m *Model) listView() string {
 		}
 		switch {
 		case listW > 0 && paneW > 0:
-			split2(l, p)
+			split2(l, p, i)
 		case listW > 0:
 			fitTo(&b, l, m.w, "")
 		default:
-			b.WriteString("  ")
-			fitTo(&b, p, m.w-2, "")
+			m.paneFrameRow(&b, p, m.w-3, "", sessionHeader, i)
 		}
 		b.WriteByte('\n')
 	}
@@ -1064,7 +1110,7 @@ func (m *Model) listView() string {
 			if j := bodyH + i; j < len(pane) {
 				p = pane[j]
 			}
-			split2(l, p)
+			split2(l, p, bodyH+i)
 		} else {
 			fitTo(&b, l, m.w, "")
 		}
@@ -1231,6 +1277,9 @@ func (m *Model) divider() string {
 	if m.dragging || m.divHover {
 		return paint(cSub, "│")
 	}
+	if m.host != nil && m.host.sess != nil {
+		return paint(harnessBorder(sessionAgent(m.host)), "│")
+	}
 	return faint("│")
 }
 
@@ -1344,7 +1393,17 @@ func (m *Model) listLines(w, h int) []string {
 			if tag != "" {
 				inset -= rowInset // under its project, as the heading would have been
 			}
-			rw, pad := w-inset, strings.Repeat(" ", inset)
+			pad := strings.Repeat(" ", max(0, inset-1)) // a column in from the ▍
+			rw := w - len(pad)
+			if _, ok := m.roomOf(l.agent); ok {
+				if strings.HasPrefix(l.agent.Key, roomKeyPrefix) {
+					emit(pad+m.roomLine(l.agent, rw, sel), l.agent.Key, sel)
+				} else {
+					emit(pad+m.roomMemberLine(l.agent, rw, sel), l.agent.Key, sel)
+				}
+				tag = ""
+				continue
+			}
 			emit(pad+m.agentLine(l.agent, rw, w, sel, nameCol-len(pad), two, tag), l.agent.Key, sel)
 			tag = ""
 			if two {
@@ -1422,9 +1481,9 @@ func (m *Model) sectionLine(l listLine, w int) string {
 		if room >= 20 && l.peek != "" { // less is a word or two cut off
 			head += "   " + faint(fit(l.peek, room))
 		}
-		return "  " + head
+		return " " + head
 	}
-	return "  " + arrow + rule(l.title, meta, w-6)
+	return " " + arrow + rule(l.title, meta, w-5)
 }
 
 // cardLines draw the focused row's details as a box: what it is doing now
@@ -1587,12 +1646,12 @@ func (m *Model) columnHeader(w int) string {
 		return dim(s)
 	}
 	name := label("AGENTS", "name")
-	left := "   " + fit(name, nameCol+2)
+	left := "  " + fit(name, nameCol+2)
 	if m.twoSided() && !m.sessionFocused() {
-		left = paint(cOrange, "▍") + "  " + fit(name, nameCol+2)
+		left = paint(cOrange, "▍") + " " + fit(name, nameCol+2)
 	}
 	if sortBy == "name" {
-		left = "   " + paint(cSub+bold, fit(name, nameCol+2))
+		left = "  " + paint(cSub+bold, fit(name, nameCol+2))
 	} else {
 		left = dim(left)
 	}
@@ -1646,7 +1705,7 @@ func (m *Model) nameColumn(w int) int {
 			continue
 		}
 		n := cellw.String(oneLine(l.agent.DisplayName))
-		if b := cellw.String(ansi.Strip(m.badges(l.agent))); b > 0 {
+		if b := cellw.String(ansi.Strip(m.badges(l.agent, false))); b > 0 {
 			n += b + 1
 		}
 		widest = max(widest, n)
@@ -1832,7 +1891,8 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 		nameColor = cDim // idle, stopped and done step back behind the working
 	}
 	name := oneLine(a.DisplayName)
-	badges := m.badges(a)
+	short := m.badges(a, false)
+	badges := short
 	if ps := m.pluginStatus(a.Key); ps != "" {
 		badges = strings.TrimSpace(badges + " " + ps)
 	}
@@ -1842,14 +1902,40 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	}
 	summary, sumColor, justDone := m.rowSummary(a)
 	room := w - 3 - cellw.String(right)
-	left := paint(nameColor, name)
+	// Reserve room for identity before shortening a long session title.
+	nameRoom := room
+	withSummary := (summary != "" || m.hasFilterMatch(a)) && !stacked
+	full, extra := "", 0
+	if sel || a.Key == m.hover {
+		full = m.badges(a, true)
+		extra = cellw.String(full) - cellw.String(short)
+	}
+	// The full badge takes its width from the gap before the summary first.
+	grew := extra > 0 && withSummary && room-nameCol-extra-2 > 8
+	if grew {
+		nameCol += extra
+	}
+	if withSummary && room-nameCol-2 > 8 {
+		nameRoom = min(nameRoom, nameCol)
+	}
+	if badges != "" {
+		nameRoom -= cellw.String(badges) + 1
+	}
+	// Failing that, it never cuts a title that fits whole beside the icon.
+	if full != "" && (grew || cellw.String(name) > nameRoom || cellw.String(name) <= nameRoom-extra) {
+		if !grew {
+			nameRoom -= extra
+		}
+		badges = strings.Replace(badges, short, full, 1)
+	}
+	left := paint(nameColor, cellw.Truncate(name, max(0, nameRoom), "…"))
 	if badges != "" {
 		left += " " + badges
 	}
 	if tag != "" && stacked { // its worktree, which has no heading of its own
 		left += "  " + tag
 	}
-	if (summary != "" || m.hasFilterMatch(a)) && !stacked {
+	if withSummary {
 		left = fit(left, nameCol)
 		if sw := room - nameCol - 2; sw > 8 {
 			if snip, ok := m.filterSnippet(a, sw); ok {
@@ -1967,17 +2053,7 @@ func shortDir(p string, n int) string {
 
 // context is where a live agent works: repository and branch.
 func (m *Model) context(a *fleet.Agent) string {
-	if a.Repo == "" {
-		if strings.Contains(a.Cwd, "/var/folders/") || strings.HasPrefix(a.Cwd, "/tmp/") {
-			return "tmp/" + filepath.Base(a.Cwd)
-		}
-		return tildify(a.Cwd)
-	}
-	s := filepath.Base(a.Repo)
-	if a.Branch != "" {
-		s += " · " + a.Branch
-	}
-	return s
+	return locationSummary(a)
 }
 
 // activity is the small column of what an agent is running beside itself:
@@ -2055,10 +2131,16 @@ func costCell(cost float64, w int) string {
 	return dim(v)
 }
 
-func (m *Model) badges(a *fleet.Agent) string {
+func (m *Model) badges(a *fleet.Agent, full bool) string {
 	var parts []string
-	if b := rowBadge(a); b != "" {
-		// Which agent, when it isn't the built-in one.
+	actual := a
+	if c := m.host; c != nil && c.key == a.Key && c.sess != nil {
+		copy := *a
+		copy.Kind = string(sessionAgent(c))
+		actual = &copy
+	}
+	if b := rowBadge(actual, full); b != "" {
+		// Always name the harness; no provider is an implicit default.
 		parts = append(parts, b)
 	}
 	for i, pr := range a.PRs {
@@ -2150,37 +2232,21 @@ func (m *Model) promptLines(w int) []string {
 		b.holder = "a group name · empty clears it"
 	case m.inKind == inReply && a != nil && !a.Rush:
 		b.topL = dim("to ") + paint(cText, ansi.Truncate(oneLine(a.DisplayName), 32, "…"))
+		if busy(a) {
+			// Say it where the message is typed: enter queues, it doesn't send.
+			b.topL += dim(" · working, so ") + paint(cOrange, "enter queues")
+		}
 		b.holder = "a message for this agent · esc leaves reply mode"
 	case typingHash(text):
 		b.topL = dim("rush command · enter runs it")
+		b.topR = m.newPreview(text) // what #new starts, or why it can't
 	default:
-		dirs := m.startDirs()
 		dir := m.startDir()
-		b.topL = dim("in ") + m.dirLabel(dir)
-		b.holder = "describe a task for a new session"
-		// What it starts as, so a model or profile is never a surprise;
-		// the folder key goes first when there's no room for both.
+		b.topL = dim("new agent in ") + m.dirLabel(dir)
+		b.holder = "describe a task"
+		// What it starts as, so a model or profile is never a surprise.
+		// The border names things; the keys to change them are below.
 		b.topR = m.startWith(dir, false)
-		folder := paint(cSub, "ctrl+l") + dim(" folder")
-		if a != nil && inTree(a) && a.Key != m.pickedFor {
-			// Said as what the key does, by name: its worktree, or the
-			// checkout it was made from.
-			other := filepath.Base(a.Repo)
-			if m.startInTree {
-				other = filepath.Base(a.Root)
-			}
-			folder = paint(cSub, convo.KeyWord(m.boundKey("list.worktree"))) + dim(" start in "+other)
-		} else if len(dirs) <= 1 {
-			folder = ""
-		}
-		if folder != "" && cellw.String(b.topL+b.topR+folder)+12 <= w {
-			b.topR = folder + faint(" · ") + b.topR
-		}
-		if key := m.boundKey("list.start"); key != "" {
-			if change := paint(cSub, convo.KeyWord(key)) + dim(" change"); cellw.String(b.topL+b.topR+change)+12 <= w {
-				b.topR += faint(" · ") + change
-			}
-		}
 	}
 	if m.sessionFocused() {
 		// The Session has the keys; this box waits, and says how back.
@@ -2220,11 +2286,14 @@ func (m *Model) promptLines(w int) []string {
 	case typingHash(text):
 		hint = keysFit(w-4, "enter", "run it", "esc", "clear", "?", "guide")
 	case len(m.input) > 0:
-		pairs := []string{"enter", "spawn agent"}
-		if sw, on := m.stash(); on && m.boundKey("prompt.stash") != "" {
-			pairs = append(pairs, m.boundKey("prompt.stash"), sw.Verb)
+		pairs := []string{"enter", "start"}
+		if key := m.boundKey("list.start"); key != "" {
+			pairs = append(pairs, convo.KeyWord(key), "model")
 		}
-		hint = keysFit(w-4, append(pairs, "ctrl+l", "folder", "esc", "clear", "?", "guide")...)
+		if fk, fl := m.folderKey(a); fk != "" {
+			pairs = append(pairs, fk, fl)
+		}
+		hint = fewKeys(w-4, 3, pairs, []string{"esc", "clear", "?", "more"})
 	case m.peeking():
 		back := "esc"
 		if from := m.agentByKey(m.peekFrom); from != nil {
@@ -2233,15 +2302,15 @@ func (m *Model) promptLines(w int) []string {
 		hint = keysFit(w-4, "↑↓", "pick", "enter · { }", "open it", "esc", back, "shift+← · #view split", "side by side", "?", "guide")
 	default:
 		// Most useful first: keysFit drops from the end, bar ? guide.
-		open, rename := "enter · { }", "ctrl+r"
+		open, rename := "enter", "ctrl+r"
 		if m.store.Config.EnterOn != "open" {
-			open, rename = "⌘↓ · { }", "enter"
+			open, rename = "⌘↓", "enter"
 		}
 		var pairs []string
 		switch {
 		case a == nil:
 		case a.Rush:
-			pairs = append(pairs, open, "talk to it")
+			pairs = append(pairs, open, "open")
 		default:
 			pairs = append(pairs, open, "open", "ctrl+o", "reply")
 		}
@@ -2257,6 +2326,12 @@ func (m *Model) promptLines(w int) []string {
 		}
 		if m.newer.Version != "" && !m.updating {
 			pairs = append([]string{"#update", "new rush"}, pairs...)
+		}
+		if n := m.updatesCount(); n > 0 {
+			pairs = append(pairs, fmt.Sprintf("%d updates", n), "in Settings")
+		}
+		if m.rebuilt {
+			pairs = append([]string{"#reload", "a newer rush is installed"}, pairs...)
 		}
 		if m.hosted != "" {
 			// Hosted's list: no command bar, and the way back to the session.
@@ -2277,7 +2352,7 @@ func (m *Model) promptLines(w int) []string {
 		if v := m.splitHint(back); v != nil && (l == 0 || p == 0) {
 			pairs = append(pairs[:2:2], append(v, pairs[2:]...)...)
 		}
-		hint = keysFit(w-4, append(pairs, "?", "guide")...)
+		hint = keysFit(w-4, append(pairs, "?", "more")...)
 	}
 	if m.status != "" && m.snap.At.Sub(m.statusAt).Seconds() < 6 {
 		hint = strings.TrimRight(m.statusOr(""), " ") // it pads to the screen, not this box
@@ -2497,10 +2572,10 @@ var helpPages = []struct {
 }{
 	{"✦ Start", [][2]string{
 		{"enter", "start an agent"},
-		{"ctrl+l", "pick its folder"},
+		{"@list.folder", "pick its folder"},
 		{"@list.worktree", "new sessions from a worktree agent: its worktree or main checkout"},
 		{"#", "rush commands"},
-		{"/", "Claude commands"},
+		{"/", "agent commands"},
 		{"⌘z · ctrl+/", "undo in a box, a cleared one too"},
 		{"@prompt.stash", "{verb} · what's typed is back after you send"},
 		{"@prompt.history", "{tab} · sent · cleared · replaced, to put back"},
@@ -2510,27 +2585,42 @@ var helpPages = []struct {
 		{"↑↓", "pick one"},
 		{"⌘↓ · { }", "open its Session"},
 		{"enter", "rename or open it, as you chose"},
-		{"ctrl+r", "rename it · tab the next"},
-		{"ctrl+n", "next one needing you"},
+		{"@list.rename", "rename it · tab the next"},
+		{"@list.needs", "next one needing you"},
 		{"@list.done", "put it away"},
-		{"ctrl+x", "stop it"},
-		{"ctrl+p", "split the list by project"},
+		{"@list.stop", "stop it"},
+		{"@list.split", "split the list by project"},
 	}},
 	{"◈ Around", [][2]string{
-		{"ctrl+z", "zen"},
+		{"@zen", "zen"},
 		{"@profile.pick", "the default profile or provider"},
 		{"< > · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
 		{"[ ]", "a Session's views, with nothing typed"},
 		{"[ ]", "a place's pages, or a sheet's tabs"},
 		{"{ }", "in Agents, between the list and the Session"},
 		{"shift+← →", "resize · past the end, one side alone"},
-		{"ctrl+6", "hide or show Agents beside a Session"},
+		{"@list.toggle", "hide or show Agents beside a Session"},
 		{"#tips", "Getting started again"},
 		{"esc esc", "quit"},
 	}},
+	{"Session", [][2]string{
+		{"@session.enter", "send from the message box"},
+		{"@session.toggle", "open or close the selected row"},
+		{"@session.history.open", "open all turns (#expand)"},
+		{"@session.history.close", "close older turns, keep latest open (#collapse)"},
+		{"@session.send", "send now, including queued messages"},
+		{"@session.first", "first message · keeps your draft"},
+		{"@session.last", "latest message · keeps your draft"},
+		{"@session.message", "full user message and attachments"},
+		{"@session.pageup", "scroll up (Page Down scrolls down)"},
+		{"@session.verbose", "show or hide step details"},
+		{"@session.history", "sent messages and saved drafts"},
+		{"@session.setup", "model, effort and harness"},
+		{"@session.focus", "back to Agents"},
+	}},
 }
 
-// helpBody is the guide: three tabs of keys.
+// helpBody shows the current bindings, including user customizations.
 func (m *Model) helpBody() []string {
 	var tabs []string
 	for i, p := range helpPages {
@@ -2548,11 +2638,17 @@ func (m *Model) helpBody() []string {
 		k := r[0]
 		if id, ok := strings.CutPrefix(k, "@"); ok {
 			k = m.boundKey(id)
+			if k == "" {
+				k = "unbound"
+			}
 		}
 		rows[i] = [2]string{w.Fill(k), w.Fill(r[1])}
 	}
 	for _, r := range keyRows(rows) {
-		out = append(out, r, "")
+		out = append(out, r)
+		if m.h >= 36 {
+			out = append(out, "")
+		}
 	}
 	// Every tab as tall as the tallest, so the box stays put.
 	most := 0
@@ -2560,7 +2656,20 @@ func (m *Model) helpBody() []string {
 		most = max(most, len(p.rows))
 	}
 	for range most - len(page.rows) {
-		out = append(out, "", "")
+		out = append(out, "")
+		if m.h >= 36 {
+			out = append(out, "")
+		}
 	}
-	return append(out, faint("[ ] next · any key closes"))
+	out = append(out, dim("ctrl+] x means Ctrl+] then x; alt is Option."), "", keys("[ ]", "tabs", "k", "customize keys", "esc / F1", "close"))
+	// Long remapped chords and small terminals must not hide descriptions.
+	width := 76
+	if m.w > 0 {
+		width = min(m.w-8, width)
+	}
+	var body []string
+	for _, line := range out {
+		body = append(body, wrap(line, width)...)
+	}
+	return body
 }

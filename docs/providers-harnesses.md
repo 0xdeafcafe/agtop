@@ -1,6 +1,6 @@
 # Providers, harnesses, models: one rush
 
-Status: proposed, 2026-09-30. Replaces Settings' Providers and Capabilities pages.
+Status: agreed 2026-09-30; Settings and Starting redesigned 2026-10-01 (see below).
 
 ## Principle
 
@@ -18,41 +18,36 @@ harness is a detail you can see, never the headline.
 
 Accounts belong to a provider and are named by you (alex, work).
 
-Compatibility is the provider's: Anthropic subscription runs only in Claude
-Code; OpenAI subscription only in Codex; API-key and local providers run in
-any harness that supports them. rush only ever offers valid combinations.
+Compatibility is the provider's: Anthropic's subscription runs in Claude
+Code, OpenAI's in Codex, and either in Pi on Pi's own sign-in (with a
+warning); API-key and local providers run in any harness that speaks their
+API. `agent.Compat` says which, and why not.
 
-## Settings > Providers (one page)
+## Settings: Providers, Harnesses, Profiles
 
-Keep today's layout and look; sharpen it. Remove what's said twice (the
-summary line repeated as "spend", "its own sign-in" under every row, "can
-do" as a truncated row pointing at another page) and anything that doesn't
-help a decision.
+The detail, mockups and matrix are in
+[providers-redesign.md](providers-redesign.md).
 
-- Left: providers only, each with its accounts and status.
-- Right, for the selected provider:
-  - Accounts (named; add, sign in, limits, spend).
-  - Harnesses: every harness this provider can run in, which ones you use,
-    and one marked default.
-  - Defaults per provider x harness: model, effort, permissions.
-  - What it can do: a plain list for the selected provider and its default
-    harness (the old Capabilities matrix is removed).
-- Profiles: named setups of provider (+ account), harness, model and effort,
-  shown as `<name>` or `<harness>:<account>` (codex:alex, claudecode:alex).
-- Folder rules stay: a folder picks a profile.
+- **Providers**: providers only (Anthropic's and OpenAI's subscriptions apart
+  from their API keys), each with its accounts or key and limits. Beside the
+  one picked: its harnesses (★ where new sessions start; any other that can
+  run it, a plan through another's sign-in with a warning), what new
+  sessions start with, what it does at a limit, and at the bottom what rush
+  can do with it and its models, as before.
+- **Harnesses**: each program; beside it the provider it previews, every
+  provider it runs on (★, ⚠ or why not), its sign-in and its own settings,
+  then the pairing's features.
+- **Profiles**: your profiles, then the folders that pick one.
 
 ## Starting and switching
 
-- The input shows what the next session starts as, as a chip.
-- The start sheet (shift+tab, or alt+m): Profile, or Provider/Account > Harness > Model >
-  Effort. Only valid combinations. For that session only; defaults untouched.
-- Commands, with autocomplete everywhere:
-  - `/profile <name>`
-  - `/agent <harness-or-provider>:<account>[:<effort>]`
-  - typed in the input, they set the next session; in a session, they switch it.
-- In a session: the header's chip opens the same sheet. Same harness: model,
-  account and effort switch in place. Another harness: the conversation is
-  handed over (as handoff does today).
+- `#new [harness][@provider[:account]] [model] [effort] [task]` starts one
+  session on any route, once: `#new codex@openai-sub gpt-6-astra high fix the
+  test`. Words complete as you type and the border says what it starts, or
+  why it can't. Without a task it's the next session's; `#with` is that.
+- The start sheet (shift+tab, alt+m) is three linked columns, Provider,
+  Harness and Model, each greying what the others can't run, with why.
+- Neither changes a default: Settings does.
 
 ## Usage everywhere
 

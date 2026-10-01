@@ -20,7 +20,7 @@ var agentExtras = map[agent.Kind]func(m *Model) []section{}
 // agentSections are what agent k's new sessions start with, then its own
 // sections, the advanced ones folded under a line of their own.
 func (m *Model) agentSections(k agent.Kind) []section {
-	secs := []section{m.startSection(k)}
+	secs := []section{m.startSection("", k)}
 	var advanced, extras []section
 	if extra := agentExtras[k]; extra != nil {
 		extras = extra(m)
@@ -59,7 +59,7 @@ func (m *Model) agentSections(k agent.Kind) []section {
 		},
 		keys: []string{"enter", "show or hide"},
 		about: func() (string, string, string) {
-			return "Advanced", "What " + agentName(string(k)) + " itself reads, beyond what rush starts it with: " + strings.Join(names, ", ") + ". Most people never need these.", ""
+			return "Advanced", "What " + harnessName(string(k)) + " itself reads, beyond what rush starts it with: " + strings.Join(names, ", ") + ". Most people never need these.", ""
 		},
 	}
 	secs = append(secs, section{rows: []setting{toggle}})
@@ -102,8 +102,7 @@ func modelTakes(k agent.Kind, model string) string {
 // agentModels are the models agent k's adapter offers, then any your
 // sessions have run that it didn't list.
 func (m *Model) agentModels(k agent.Kind) []agent.Choice {
-	ch, _ := agent.ChoicesOf(k)
-	models := append([]agent.Choice(nil), ch.Models...)
+	models := m.models(string(k))
 	seen := map[string]bool{}
 	for _, c := range models {
 		seen[c.ID] = true
@@ -117,9 +116,10 @@ func (m *Model) agentModels(k agent.Kind) []agent.Choice {
 	return models
 }
 
-// startSection is what agent k's new sessions start with: a model, an
-// effort and a permission mode, each the agent's own default until set.
-func (m *Model) startSection(k agent.Kind) section {
+// startSection is what agent k's new sessions on provider id start with
+// (empty is k's own way): a model, an effort and a permission mode, each
+// the agent's own default until set.
+func (m *Model) startSection(id string, k agent.Kind) section {
 	name := agentName(string(k))
 	sec := section{title: "New sessions start with", note: "sessions rush starts; running ones keep theirs"}
 	if !agent.Supports(k, agent.FeatureRun) {
@@ -135,14 +135,13 @@ func (m *Model) startSection(k agent.Kind) section {
 		return sec
 	}
 	d := &m.store.Config.Dispatch
-	kind := string(k)
-	st := d.StartFor(kind)
+	st := d.StartOn(id, k)
 	ch, _ := agent.ChoicesOf(k)
 	change := func(f func(*state.Start, string)) func(string) {
 		return func(v string) {
-			s := d.StartFor(kind)
+			s := d.StartOn(id, k)
 			f(&s, v)
-			d.SetStartFor(kind, s)
+			d.SetStartOn(id, k, s)
 		}
 	}
 	row := func(label, value, what string, list []agent.Choice, set func(*state.Start, string)) setting {

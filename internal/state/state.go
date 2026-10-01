@@ -55,6 +55,15 @@ func pick(rush, agtop, mark string) string {
 func Key(account, id string) string { return account + "/" + id }
 
 type Config struct {
+	// HideMinimap hides the conversation overview rail; narrow panes hide it automatically.
+	HideMinimap bool `json:"hideMinimap,omitzero"`
+	// PixelPictures draws pictures in coloured blocks even where the
+	// terminal could show them sharp.
+	PixelPictures bool `json:"pixelPictures,omitzero"`
+	// CompactKind and CompactModel preselect the user's explicit #compact
+	// choice. Empty keeps native harness compaction; never an automatic override.
+	CompactKind  string `json:"compactKind,omitempty"`
+	CompactModel string `json:"compactModel,omitempty"`
 	// APIKeys are the providers whose API key rush keeps in the vault.
 	APIKeys []string `json:"apiKeys,omitempty"`
 	// Folders are the Claude config folders an older rush was given:
@@ -134,6 +143,10 @@ type Config struct {
 	// in the Finder, or "open" it. Empty asks, the first time.
 	EnterOn string `json:"enterOn,omitempty"`
 	SortBy  string `json:"sortBy,omitempty"`
+	// NoHostRestart keeps a session's host on the rush it started with,
+	// when a newer one is installed; by default it restarts on it
+	// between turns.
+	NoHostRestart bool `json:"noHostRestart,omitzero"`
 	// StackAt is the share of the screen, in percent, at or under which
 	// the list's rows take two lines; 0 is the default, negative only
 	// when too narrow for one, 100 always. See StackPercent.
@@ -184,8 +197,9 @@ type Config struct {
 	// EnterSendsCommand has enter send a message that ends in a /command
 	// typed in full, rather than completing it first.
 	EnterSendsCommand bool `json:"enterSendsCommand,omitzero"`
-	// StopTurnUnasked has esc stop a running turn without asking first.
-	StopTurnUnasked bool `json:"stopTurnUnasked,omitzero"`
+	// RowKey is the key that opens or closes a picked conversation row:
+	// "enter", "space", or empty for either.
+	RowKey string `json:"rowKey,omitempty"`
 	// MenuBar keeps rush's menu bar icon running: usage, what's working,
 	// and questions you can answer from their notification.
 	MenuBar bool `json:"menuBar,omitzero"`
@@ -529,6 +543,9 @@ type Overlay struct {
 	Groups map[string]string    `json:"groups,omitempty"`
 	Moved  map[string]string    `json:"moved,omitempty"`
 	Seen   map[string]time.Time `json:"seen,omitempty"`
+	// Hidden are agents put away with ctrl+x: no reading lists them. Their
+	// transcripts are untouched, and the key stays here to find them by.
+	Hidden map[string]time.Time `json:"hidden,omitempty"`
 }
 
 type Store struct {
@@ -602,8 +619,16 @@ func (o Overlay) clone() Overlay {
 	return Overlay{
 		Done: maps.Clone(o.Done), Names: maps.Clone(o.Names),
 		Groups: maps.Clone(o.Groups), Moved: maps.Clone(o.Moved),
-		Seen: maps.Clone(o.Seen),
+		Seen: maps.Clone(o.Seen), Hidden: maps.Clone(o.Hidden),
 	}
+}
+
+// Hide puts the agent with key away for good; call SaveOverlay after.
+func (s *Store) Hide(key string) {
+	if s.Overlay.Hidden == nil {
+		s.Overlay.Hidden = map[string]time.Time{}
+	}
+	s.Overlay.Hidden[key] = time.Now()
 }
 
 // SaveOverlay writes state.json. With WriteBehind on, the writer encodes

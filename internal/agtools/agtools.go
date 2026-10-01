@@ -1,12 +1,19 @@
 // Package agtools is rush's own MCP server, run inside a rush session's
 // host rather than as a process: Claude Code names it in initialize and sends
 // every MCP message for it over the session's control channel. Its tools are
-// things only rush can draw, such as a drawing shown in its own frame.
+// things only rush can do: draw a drawing in its own frame, and hand work to
+// another agent (agents.go). An agent that only runs MCP servers as
+// processes runs `rush mcp-tools`: Serve.
 package agtools
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json/jsontext"
+	"io"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
@@ -53,28 +60,39 @@ var tools = []tool{{
 	Meta: map[string]any{"anthropic/alwaysLoad": true},
 }}
 
-// Allowed is what to pass --allowedTools so the tools run without asking:
-// they only draw.
-// Names are rush's tools by their own names, which all never ask.
+// Names are rush's tools by their own names, which all never ask: show
+// only draws, and the agent tools start what the Agent tool would.
 func Names() []string {
-	out := make([]string, len(tools))
-	for i, t := range tools {
-		out[i] = t.Name
+	out := make([]string, 0, len(tools)+len(agentTools))
+	for _, t := range tools {
+		out = append(out, t.Name)
+	}
+	for _, t := range agentTools {
+		out = append(out, t.Name)
 	}
 	return out
 }
 
+// Allowed is what to pass --allowedTools so the tools run without asking.
 func Allowed() []string {
-	out := make([]string, len(tools))
-	for i, t := range tools {
-		out[i] = Prefix + t.Name
+	out := Names()
+	for i, n := range out {
+		out[i] = Prefix + n
 	}
 	return out
 }
 
-// Handle answers one JSON-RPC message from Claude Code's MCP client. A
-// notification gets an empty result, which is what Claude Code expects back.
-func Handle(msg jsontext.Value) jsontext.Value {
+// Handle answers one JSON-RPC message with show alone: Handler(nil).
+func Handle(msg jsontext.Value) jsontext.Value { return Handler(nil)(msg) }
+
+// Handler answers one JSON-RPC message from an agent's MCP client, with
+// the agent tools too when ag runs them. A notification gets an empty
+// result, which is what Claude Code expects back.
+func Handler(ag Agents) func(msg jsontext.Value) jsontext.Value {
+	return func(msg jsontext.Value) jsontext.Value { return handle(ag, msg) }
+}
+
+func handle(ag Agents, msg jsontext.Value) jsontext.Value {
 	var m struct {
 		ID     jsontext.Value `json:"id"`
 		Method string         `json:"method"`
@@ -98,13 +116,20 @@ func Handle(msg jsontext.Value) jsontext.Value {
 			"serverInfo":      map[string]any{"name": Server, "version": "1"},
 		}, nil)
 	case "tools/list":
-		return reply(m.ID, map[string]any{"tools": tools}, nil)
+		list := tools
+		if ag != nil {
+			list = append(slices.Clone(tools), agentList(ag)...)
+		}
+		return reply(m.ID, map[string]any{"tools": list}, nil)
 	case "tools/call":
 		var p struct {
 			Name      string         `json:"name"`
 			Arguments jsontext.Value `json:"arguments"`
 		}
 		_ = jsonx.Unmarshal(m.Params, &p)
+		if res, ok := callAgent(ag, p.Name, p.Arguments); ok {
+			return reply(m.ID, res, nil)
+		}
 		return reply(m.ID, call(p.Name, p.Arguments), nil)
 	case "ping":
 		return reply(m.ID, map[string]any{}, nil)
@@ -148,4 +173,40 @@ func reply(id jsontext.Value, res any, e *rpcError) jsontext.Value {
 	}
 	b, _ := jsonx.Marshal(out)
 	return b
+}
+
+// Serve is the server over stdio, a message a line, for an agent that runs
+// its MCP servers as processes (Codex, the ACP agents). A notification gets
+// nothing back; each request is answered as it's done, as an agent's call
+// may wait on another agent for a while.
+func Serve(r io.Reader, w io.Writer, handle func(jsontext.Value) jsontext.Value) error {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var failed error
+	for sc.Scan() {
+		var m struct {
+			ID jsontext.Value `json:"id"`
+		}
+		if jsonx.Unmarshal(sc.Bytes(), &m) == nil && len(m.ID) == 0 {
+			continue
+		}
+		msg := jsontext.Value(bytes.Clone(sc.Bytes()))
+		wg.Go(func() {
+			out := append(handle(msg), '\n')
+			mu.Lock()
+			defer mu.Unlock()
+			if _, err := w.Write(out); err != nil && failed == nil {
+				failed = err
+			}
+		})
+	}
+	wg.Wait() // what was asked before the agent hung up is still answered
+	mu.Lock()
+	defer mu.Unlock()
+	if failed != nil {
+		return failed
+	}
+	return sc.Err()
 }

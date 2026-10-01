@@ -137,12 +137,12 @@ func TestPluginsInTheScreen(t *testing.T) {
 	c := m.host
 	m.hooks = hooks.Static(plugin.UIState{
 		Plugins: []plugin.UIPlugin{{Name: "haven", UI: []string{"overview", "notify", "input"},
-			Commands: []plugin.CommandSpec{{Name: "open", Description: "open the stack's home", Key: "alt+o"}},
+			Commands: []plugin.CommandSpec{{Name: "open", Description: "open the stack's home", Key: "alt+u"}},
 			Settings: []plugin.SettingSpec{{Key: "logs", Title: "Show log errors", Type: "bool", Default: "true"}}}},
 		Sections: map[string][]plugin.UISection{c.key: {{Plugin: "haven", ID: "stack", Title: "Stack", Lines: []plugin.Line{{Text: "app up", Tone: "good"}}}}},
 	})
 	m.setKeys(keymap.File{})
-	if got := m.keyMap().KeyText("plugin:haven.open"); got != "alt+o" {
+	if got := m.keyMap().KeyText("plugin:haven.open"); got != "alt+u" {
 		t.Fatalf("the plugin's free key should be taken: %q", got)
 	}
 	lines := m.pluginOverview(c.key)
@@ -177,7 +177,7 @@ func TestPluginsInTheScreen(t *testing.T) {
 		}
 	}
 	m.dialogKey(tea.KeyPressMsg{}, "enter")
-	if body := strings.Join(m.dialogBody(160), "\n"); !strings.Contains(body, "Show log errors") || !strings.Contains(body, "alt+o") {
+	if body := strings.Join(m.dialogBody(160), "\n"); !strings.Contains(body, "Show log errors") || !strings.Contains(body, "alt+u") {
 		t.Fatalf("Plugins page:\n%s", body)
 	}
 	if m.dialogKey(tea.KeyPressMsg{}, "esc"); m.dialog == nil || m.dialog.plugin != "" || m.view != placeSettings {
@@ -273,5 +273,61 @@ func TestCtrlDMarksDone(t *testing.T) {
 	pressKeys(m, "ctrl+d")
 	if _, now := m.store.Overlay.Done[a.Key]; now == was && m.confirm == nil {
 		t.Fatal("ctrl+d should move the agent to Done, or ask first")
+	}
+}
+
+// Help must work while drafting, show the active keys and return without
+// submitting or clearing the draft. Its Session tab exposes navigation and
+// full-message inspection instead of making users infer those from the list.
+func TestContextualShortcutGuide(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	m.paneFocus = true
+	m.host.input = []rune("unfinished message")
+	m.setKeys(keymap.File{Bindings: map[string][]string{
+		"session.first": {"ctrl+x h"},
+		"session.last":  {},
+	}})
+	pressKeys(m, "f1")
+	if m.mode != modeHelp || m.helpPage != 3 {
+		t.Fatalf("F1 should open Session help: mode=%v page=%d", m.mode, m.helpPage)
+	}
+	body := strings.Join(m.helpBody(), "\n")
+	for _, want := range []string{"ctrl+x h", "unbound", "full user message", "customize keys"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("guide missing %q: %s", want, body)
+		}
+	}
+	pressKeys(m, "f1")
+	if m.mode != modeList || string(m.host.input) != "unfinished message" {
+		t.Fatal("closing help must preserve the draft and return to the session")
+	}
+	m.paneFocus = false
+	m.input = []rune("list draft")
+	pressKeys(m, "f1")
+	if m.mode != modeHelp || m.helpPage != 1 || string(m.input) != "list draft" {
+		t.Fatal("F1 must also open Agents help while typing")
+	}
+	pressKeys(m, "k")
+	if m.view != placeSettings || m.dialog == nil || m.mode != modeList {
+		t.Fatal("k from help should open shortcut customization")
+	}
+}
+
+func TestPluginShortcutCannotSilentlyReplaceQueueAction(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	m.hooks = hooks.Static(plugin.UIState{Plugins: []plugin.UIPlugin{{Name: "haven",
+		Commands: []plugin.CommandSpec{{Name: "open", Key: "alt+o"}},
+	}}})
+	m.setKeys(keymap.File{})
+	if got := m.keyMap().KeyText("plugin:haven.open"); got != "" {
+		t.Fatalf("plugin suggestion stole the queue shortcut: %q", got)
+	}
+	if got := m.keyMap().Resolve([]keymap.Context{keymap.Session}, nil, "alt+o"); got.Key != "alt+o" {
+		t.Fatalf("queue shortcut should remain usable: %+v", got)
+	}
+	// An explicit user binding can override the default, as Settings promises.
+	m.setKeys(keymap.File{Bindings: map[string][]string{"plugin:haven.open": {"alt+o"}}})
+	if got := m.keyMap().Resolve([]keymap.Context{keymap.Session}, nil, "alt+o"); got.Run != "plugin:haven.open" {
+		t.Fatalf("explicit plugin binding not honored: %+v", got)
 	}
 }

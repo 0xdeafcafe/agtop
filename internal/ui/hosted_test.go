@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -181,7 +182,7 @@ func TestHostedFillsTheWidth(t *testing.T) {
 	var head string
 	for _, l := range strings.Split(out, "\n") {
 		// The header's second row ends with the connection, on the right.
-		if strings.Contains(ansi.Strip(l), "a message resumes it") {
+		if strings.Contains(ansi.Strip(l), "send to resume") {
 			head = ansi.Strip(l)
 			break
 		}
@@ -305,26 +306,30 @@ func isQuit(cmd tea.Cmd) bool {
 	return false
 }
 
-// esc on a running turn asks first; ! stops it and stops asking.
-func TestEscAsksBeforeStoppingTheTurn(t *testing.T) {
+// esc on a running turn stops it at once; esc again soon after asks to
+// close it, with restart beside yes.
+func TestEscStopsThenAsksToClose(t *testing.T) {
 	t.Setenv("RUSH_HOME", t.TempDir())
 	m, _ := benchModel(160, 40)
-	c := &hostConn{kind: "claude", key: m.snap.Agents[0].Key, client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
+	a := m.snap.Agents[0]
+	c := &hostConn{kind: "claude", key: a.Key, client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
 	c.sess.Turns = append(c.sess.Turns, &convo.Turn{Live: true})
 	if !canInterrupt(c) {
 		t.Skip("claude can't be interrupted here")
 	}
-	m.askStopTurn(c)
-	if m.confirm == nil || m.confirm.onBang == nil {
-		t.Fatalf("esc on a running turn should ask first")
+	m.stopTurn(c)
+	if m.confirm != nil || canInterrupt(c) || m.escKey != c.key {
+		t.Fatalf("esc on a running turn should stop it straight away, and arm esc again")
 	}
-	m.confirm.onBang()
-	if !m.store.Config.StopTurnUnasked || canInterrupt(c) {
-		t.Fatalf("! should stop the turn and stop asking")
+	m.askClose(a)
+	if m.confirm == nil || m.confirm.onYes == nil {
+		t.Fatalf("closing should ask")
 	}
-	m.confirm, c.stopArmed = nil, time.Time{}
-	m.askStopTurn(c)
-	if m.confirm != nil || canInterrupt(c) {
-		t.Fatalf("with asking off, esc should stop the turn straight away")
+	var keys []string
+	for _, ch := range m.confirm.more {
+		keys = append(keys, ch.key)
+	}
+	if !slices.Contains(keys, "r") || !strings.Contains(m.confirm.keys(), "restart") {
+		t.Errorf("close offers %v, want r to restart", keys)
 	}
 }

@@ -86,7 +86,7 @@ func (st *statusSheet) tabs() int {
 func (st *statusSheet) tabNames() []string {
 	names := slices.Clone(statusTabNames[:st.tabs()])
 	if st.line != nil {
-		names[stClaude] = agentName(string(st.kind))
+		names[stClaude] = harnessName(string(st.kind))
 	}
 	return names
 }
@@ -543,7 +543,7 @@ func (st *statusSheet) save(m *Model) tea.Cmd {
 	claude := false
 	if b, _ := jsonx.Marshal(trimmed(st.agentLay)); st.loaded && st.line != nil && string(b) != st.was {
 		claude = true
-		msg += " · " + agentName(string(st.kind)) + " sessions for " + st.prof.Name + " show theirs from their next redraw"
+		msg += " · " + harnessName(string(st.kind)) + " sessions for " + st.prof.Name + " show theirs from their next redraw"
 	}
 	line, prof := st.line, st.prof
 	return st.write(m, func() error {
@@ -628,7 +628,7 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 	about := map[int]string{
 		stAgent:  "the top of an agent's Session: right of its name, and under it",
 		stTop:    "the top right of rush, about every agent at once",
-		stClaude: "what " + agentName(string(st.kind)) + " shows under its prompt · " + st.prof.Name,
+		stClaude: "what " + harnessName(string(st.kind)) + " shows under its prompt · " + st.prof.Name,
 	}[st.tab]
 	out := []string{sheetTitle("Status lines", about, w), "", "  " + sheetTabs(st.tabNames(), st.tab), ""}
 	st.tabsY, st.tabEnds = 2, nil
@@ -638,7 +638,7 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		st.tabEnds = append(st.tabEnds, end-2)
 	}
 	if st.waiting() {
-		return append(out, dim("  reading "+agentName(string(st.kind))+"'s settings…"), "", keysFit(w, "[ ]", "tab", "esc", "cancel"))
+		return append(out, dim("  reading "+harnessName(string(st.kind))+"'s settings…"), "", keysFit(w, "[ ]", "tab", "esc", "cancel"))
 	}
 	l := st.lay()
 
@@ -655,7 +655,7 @@ func (st *statusSheet) body(m *Model, w, h int) []string {
 		if line == "" {
 			line = faint("(nothing to show: space adds a segment)")
 		}
-		name := agentName(string(st.kind))
+		name := harnessName(string(st.kind))
 		out = append(out, dim("  preview, under "+name+"'s prompt, with this session's numbers"))
 		well := []string{faint(strings.Repeat("─", cw-2)), paint(cText, "❯ ")}
 		for _, ln := range strings.Split(line, "\n") {

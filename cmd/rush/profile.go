@@ -41,7 +41,8 @@ func profiled(f func()) {
 
 // soak runs the whole view for a while against the real agents with no
 // terminal, then prints what it cost: rush --soak 60s 200x50.
-// RUSH_RENDER_SELECT opens a Session beside the list, as a user would.
+// RUSH_RENDER_SELECT opens a Session beside the list, as a user would;
+// RUSH_RENDER_KEYS are keys pressed in it a few seconds later.
 func soak(args []string) {
 	d, w, h := 30*time.Second, 200, 50
 	if len(args) > 0 {
@@ -66,6 +67,15 @@ func soak(args []string) {
 	out := &countWriter{}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithInput(nil), tea.WithOutput(out),
 		tea.WithWindowSize(w, h), tea.WithFPS(fps()), tea.WithoutSignalHandler())
+	if keys := os.Getenv("RUSH_RENDER_KEYS"); keys != "" {
+		// Pressed once the Session has opened: "]" for its next tab.
+		go func() {
+			time.Sleep(3 * time.Second)
+			for _, r := range keys {
+				p.Send(tea.KeyPressMsg{Code: r, Text: string(r)})
+			}
+		}()
+	}
 	var ru0 syscall.Rusage
 	_ = syscall.Getrusage(syscall.RUSAGE_SELF, &ru0)
 	var ms0 runtime.MemStats

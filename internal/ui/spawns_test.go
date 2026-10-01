@@ -194,7 +194,7 @@ func TestFanOutFollowed(t *testing.T) {
 func TestClaimOutsideWindows(t *testing.T) {
 	at := time.Now()
 	wins := []convo.Window{{Step: "a", Command: "claude -p hi", From: at.Add(-time.Hour), To: at.Add(-50 * time.Minute)}}
-	if got := claim(wins, "claude", at, false); got != "" {
+	if got := claim(wins, "claude", "", at, false); got != "" {
 		t.Errorf("claimed by %q", got)
 	}
 }
@@ -207,15 +207,32 @@ func TestClaimOverlap(t *testing.T) {
 		{Step: "named", Command: "run() { claude -p \"$1\"; }; run hi &", From: at.Add(-time.Minute), To: at.Add(time.Minute)},
 		{Step: "later", Command: "go test ./...", From: at.Add(-time.Second), To: at.Add(time.Minute)},
 	}
-	if got := claim(wins, "claude", at, false); got != "named" {
+	if got := claim(wins, "claude", "", at, false); got != "named" {
 		t.Errorf("claimed by %q, want the one naming claude", got)
 	}
 	wins[0].Command = "make lint"
-	if got := claim(wins, "claude", at, false); got != "later" {
+	if got := claim(wins, "claude", "", at, false); got != "later" {
 		t.Errorf("claimed by %q, want the later one", got)
 	}
 	// While a subagent works, one no step names may be its: none claims it.
-	if got := claim(wins, "claude", at, true); got != "" {
+	if got := claim(wins, "claude", "", at, true); got != "" {
 		t.Errorf("claimed by %q while a subagent worked", got)
+	}
+}
+
+// A spawn_agent call claims the agent it asked, and only that one, even
+// while a shell step that names the program overlaps it.
+func TestClaimSpawnTool(t *testing.T) {
+	at := time.Now()
+	wins := []convo.Window{
+		{Step: "shell", Command: "codex exec hi", From: at.Add(-time.Minute), To: at.Add(time.Minute)},
+		{Step: "tool-a", Asked: "review the diff", From: at.Add(-2 * time.Second), To: at.Add(time.Minute)},
+		{Step: "tool-b", Asked: "write the docs", From: at.Add(-time.Second), To: at.Add(time.Minute)},
+	}
+	if got := claim(wins, "codex", "review the diff", at, true); got != "tool-a" {
+		t.Errorf("claimed by %q, want tool-a", got)
+	}
+	if got := claim(wins, "codex", "hi", at, false); got != "shell" {
+		t.Errorf("a shell run claimed by %q", got)
 	}
 }

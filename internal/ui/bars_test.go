@@ -21,6 +21,8 @@ func barAgentFixture(t *testing.T) (*Model, *fleet.Agent, *hostConn) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, w: 160, h: 44}
+	// Exercise a deliberately detailed custom layout independently of defaults.
+	m.bars.Agent = statusline.Layout{Lines: [][]string{{"context", "cost", "billing"}, {"folder", "branch", "model", "effort", "mode", "tmp"}}, Sep: " · "}
 	a := &fleet.Agent{Key: "k", DisplayName: "fixer", Cwd: "/src/rush", Branch: "main", Acct: claude.Account{Name: "work", ConfigDir: t.TempDir()}.Profile()}
 	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}, client: &host.Client{}}
 	c.sess.Info = host.Info{Model: "claude-opus-5-5", Effort: "high", PermissionMode: "auto", CostUSD: 8.18, Queue: []string{"later"}}
@@ -34,18 +36,21 @@ func TestAgentHeaderFollowsItsLayout(t *testing.T) {
 	m, a, c := barAgentFixture(t)
 	head := func() (string, string) {
 		h := m.paneHeader(a, c, 160)
-		return ansi.Strip(h[0]), ansi.Strip(h[1])
+		return ansi.Strip(h[paneTitleRow]), ansi.Strip(h[paneMetaRow])
 	}
 	r1, r2 := head()
-	for _, want := range []string{"fixer", "ctx", "$8.18"} {
+	for _, want := range []string{"fixer", "context", "$8.18"} {
 		if !strings.Contains(r1, want) {
 			t.Fatalf("line 1 lacks %q: %q", want, r1)
 		}
 	}
-	for _, want := range []string{"/src/rush · main", "high · auto", "connected"} {
+	for _, want := range []string{"/src/rush · main", "high · auto"} {
 		if !strings.Contains(r2, want) {
 			t.Fatalf("line 2 lacks %q: %q", want, r2)
 		}
+	}
+	if strings.Contains(r2, "connected") {
+		t.Fatal("connected is the usual: the header says only when it isn't")
 	}
 	if strings.Contains(r1+r2, "queued") {
 		t.Fatal("the queue isn't shown until you add it")
@@ -78,12 +83,12 @@ func TestAgentHeaderFollowsItsLayout(t *testing.T) {
 // name and state stay.
 func TestAgentHeaderNarrowDropsTheLast(t *testing.T) {
 	m, a, c := barAgentFixture(t)
-	wide := ansi.Strip(m.paneHeader(a, c, 160)[1])
-	narrow := ansi.Strip(m.paneHeader(a, c, 44)[1])
+	wide := ansi.Strip(m.paneHeader(a, c, 160)[paneMetaRow])
+	narrow := ansi.Strip(m.paneHeader(a, c, 44)[paneMetaRow])
 	if !strings.Contains(wide, "auto") || strings.Contains(narrow, "auto") || !strings.Contains(narrow, "/src/rush") {
 		t.Fatalf("wide %q\nnarrow %q", wide, narrow)
 	}
-	if !strings.Contains(ansi.Strip(m.paneHeader(a, c, 44)[0]), "fixer") {
+	if !strings.Contains(ansi.Strip(m.paneHeader(a, c, 44)[paneTitleRow]), "fixer") {
 		t.Fatal("the name always shows")
 	}
 }
@@ -101,14 +106,14 @@ func TestSaveBarsLeavesClaudeAlone(t *testing.T) {
 		t.Fatalf("tab went to %d", st.tab)
 	}
 	st.key(m, tea.KeyPressMsg{}, "r")
-	st.cur = 0 // "today", first on line 1
+	st.cur = 1 // "today", after conditional system alerts
 	st.key(m, tea.KeyPressMsg{}, "space")
 	st.key(m, tea.KeyPressMsg{}, "enter")
 	if m.sheet != nil {
 		t.Fatalf("still open: %s", st.err)
 	}
 	got := statusline.LoadBars()
-	if got.Top.Shown("today") || !got.Top.Shown("usage") || !got.Agent.Shown("folder") || m.bars.Top.Shown("today") {
+	if got.Top.Shown("today") || !got.Top.Shown("plan") || !got.Agent.Shown("folder") || m.bars.Top.Shown("today") {
 		t.Fatalf("saved %+v", got)
 	}
 	if b, _ := os.ReadFile(settings); strings.Contains(string(b), "statusLine") {
@@ -139,22 +144,36 @@ func TestHashStatuslineOpensTheTopBar(t *testing.T) {
 func TestBarNoRoomIsShown(t *testing.T) {
 	m, a, c := barAgentFixture(t)
 	c.sess.Info.Queue = nil
-	narrow := ansi.Strip(m.paneHeader(a, c, 44)[1])
+	narrow := ansi.Strip(m.paneHeader(a, c, 44)[paneMetaRow])
 	if !strings.HasSuffix(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(narrow), "● connected")), "⋯") {
 		t.Fatalf("narrow line 2 should end ⋯: %q", narrow)
 	}
 	if d := m.barDropped(barAgent); !d["mode"] || d["folder"] {
 		t.Fatalf("dropped %v", d)
 	}
-	if wide := ansi.Strip(m.paneHeader(a, c, 160)[1]); strings.Contains(wide, "⋯") {
+	if wide := ansi.Strip(m.paneHeader(a, c, 160)[paneMetaRow]); strings.Contains(wide, "⋯") {
 		t.Fatalf("wide has room: %q", wide)
 	}
 	// A narrow builder (no pane behind it here): what its preview left out
 	// is flagged.
 	m.openStatusLine(c, a)
-	raw := strings.Join(m.sheet.body(m, 56, 40), "\n")
+	raw := strings.Join(m.sheet.body(m, 44, 40), "\n")
 	text := ansi.Strip(raw)
 	if !strings.Contains(raw, paint(cYellow, "■")) || !strings.Contains(text, "hasn't room") {
 		t.Fatalf("builder:\n%s", text)
+	}
+}
+
+func TestContextDetailsShowsUsedAndCapacity(t *testing.T) {
+	m, a, c := barAgentFixture(t)
+	c.sess.Window = 200_000
+	var got string
+	for _, seg := range agentSegs {
+		if seg.id == "context-detail" {
+			got = ansi.Strip(seg.draw(&barCtx{m: m, a: a, c: c}))
+		}
+	}
+	if !strings.Contains(got, "170k/200k") || !strings.Contains(got, "85%") {
+		t.Fatalf("context capacity missing: %q", got)
 	}
 }

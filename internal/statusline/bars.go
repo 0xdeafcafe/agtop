@@ -22,28 +22,30 @@ type Bars struct {
 // BarLines is how many lines each of rush's own has room for.
 const BarLines = 2
 
-// DefaultTop and DefaultAgent are what rush showed before they could be
-// changed.
+// DefaultTop keeps everyday status quiet; detailed segments remain available
+// in the status-line editor.
 func DefaultTop() Layout {
-	return Layout{Lines: [][]string{{"today", "usage"}, {"ram", "tokens", "cpu", "net", "disk", "battery", "tmp"}}, Sep: " · "}
+	return Layout{Lines: [][]string{{"system", "today", "plan", "memory", "version"}, {}}, Sep: " · "}
 }
 
-// oldTops are the top bar's defaults before disk and battery, before the
-// network, and before tokens; one saved unchanged from any of those gets
-// what came since.
+// oldTops are exact historical defaults, including the full metric strip.
+// Only an unchanged default and separator migrate to the quieter layout.
 var oldTops = [][][]string{
+	{{"today", "plan"}, {"memory", "system", "statushelp"}},
+	{{"today", "usage"}, {"ram", "tokens", "cpu", "net", "disk", "battery", "tmp"}},
 	{{"today", "usage"}, {"ram", "cpu", "tmp"}},
 	{{"today", "usage"}, {"ram", "cpu", "disk", "battery", "tmp"}},
 	{{"today", "usage"}, {"ram", "cpu", "net", "disk", "battery", "tmp"}},
 }
 
-// oldAgents are the agent bar's defaults before billing.
+// oldAgents are exact historical agent defaults.
 var oldAgents = [][][]string{
+	{{"context", "cost", "billing"}, {"folder", "branch", "model", "effort", "mode", "tmp"}},
 	{{"context", "cost"}, {"folder", "branch", "model", "effort", "mode", "tmp"}},
 }
 
 func DefaultAgent() Layout {
-	return Layout{Lines: [][]string{{"context", "cost", "billing"}, {"folder", "branch", "model", "effort", "mode", "tmp"}}, Sep: " · "}
+	return Layout{Lines: [][]string{{"context", "model", "effort", "billing", "rush"}, {"folder", "branch"}}, Sep: " · "}
 }
 
 // BarsPath is where they're kept.

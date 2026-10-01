@@ -22,6 +22,9 @@ type ToolServer struct {
 	// Handle answers one JSON-RPC message. It may take a while; the
 	// session carries on meanwhile.
 	Handle func(msg jsontext.Value) jsontext.Value
+	// Args run it as a process instead, for an agent that only runs its
+	// MCP servers so: rush's own executable with these.
+	Args []string
 }
 
 // Responder is a Conn that takes an approval's answer with more than an

@@ -184,11 +184,11 @@ func (g *clkGrid) shimmer(f, n int, tint string, strength float64) {
 func clkInk(r byte) string {
 	switch r {
 	case 'K':
-		return rgb(30, 30, 32)
+		return rgb(64, 64, 68)
 	case 'G':
-		return rgb(84, 84, 88)
+		return rgb(112, 112, 116)
 	case 'k':
-		return rgb(52, 52, 56)
+		return rgb(88, 88, 92)
 	case 'A':
 		return rgb(158, 76, 14)
 	case 'a':

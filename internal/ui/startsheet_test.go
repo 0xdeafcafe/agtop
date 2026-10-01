@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	_ "github.com/0xdeafcafe/rush/internal/adapters/codex"
@@ -25,7 +24,7 @@ func TestStartOver(t *testing.T) {
 	if got := m.nextStart(dir); got.kind != "codex" || got.model != "gpt-5.5" || got.effort != "high" {
 		t.Fatalf("picked: %+v", got)
 	}
-	if w := ansi.Strip(m.startWith(dir, true)); !strings.HasPrefix(w, "codex") || !strings.Contains(w, "high effort") {
+	if w := ansi.Strip(m.startWith(dir, true)); !strings.HasPrefix(w, "OpenAI (Codex)") || !strings.Contains(w, "high effort") {
 		t.Errorf("the box should say what it starts as: %q", w)
 	}
 }
@@ -52,44 +51,67 @@ func TestRoutes(t *testing.T) {
 	}
 }
 
-// Provider and harness are picked apart: Ollama moves from Claude Code to
-// Pi on the Harness row and stays Ollama; another provider starts in its
-// own harness.
+// Provider and harness are picked apart: a provider keeps the harness
+// when it runs there (Ollama, then OpenAI's plan, in Pi), and a harness
+// keeps the provider when it runs it.
 func TestStartHarness(t *testing.T) {
-	m, _ := benchModel(120, 40)
-	s := &startSheet{routes: routes([]string{"claude", "ollama", "codex", "ollama-pi"}, func(string) bool { return false }), o: m.startDefaults("ollama"), row: 2}
-	if got := s.choices(m, 1); strings.Join(got, ",") != "claude,ollama,codex" {
-		t.Errorf("providers: %v", got)
+	for _, k := range []agent.Kind{"ollama", "pi", "codex"} {
+		if !agent.Runs(k) {
+			t.Skipf("%s isn't installed here", k)
+		}
 	}
-	s.key(m, tea.KeyPressMsg{}, "right")
+	m, _ := benchModel(120, 40)
+	s := &startSheet{o: m.startDefaults("ollama"), row: 2}
+	s.set(m, "pi")
 	if s.o.kind != "ollama-pi" {
-		t.Errorf("Ollama in the next harness: %+v", s.o)
+		t.Errorf("Ollama in Pi: %+v", s.o)
 	}
 	s.row = 1
-	s.key(m, tea.KeyPressMsg{}, "right")
-	if s.o.kind != "codex" {
-		t.Errorf("the next provider, in its own harness: %+v", s.o)
+	s.set(m, "codex")
+	if s.o.kind != "openai-plan-pi" || s.o.billing != "" {
+		t.Errorf("OpenAI's plan, still in Pi: %+v", s.o)
+	}
+	s.set(m, "ollama")
+	s.row = 2
+	s.set(m, "codex")
+	if s.o.kind != "ollama-codex" {
+		t.Errorf("Ollama, now in Codex: %+v", s.o)
+	}
+	// Through a harness that can't run Ollama, and back: Ollama is kept.
+	s.set(m, "copilot")
+	if s.set(m, "pi"); s.o.kind != "ollama-pi" {
+		t.Errorf("Ollama, back in Pi: %+v", s.o)
+	}
+	s.set(m, "codex")
+	text := ansi.Strip(strings.Join(s.body(m, 110, 40), "\n"))
+	for _, want := range []string{"PROVIDER", "HARNESS", "MODEL", "same as  #new codex@ollama"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the sheet doesn't show %q:\n%s", want, text)
+		}
 	}
 }
 
-// One name for a setup everywhere: <harness>:<account>, the provider
-// standing in for the account in another's harness.
+// One name for a setup to type: <provider>-<harness>:<account>, or :key
+// for its provider's API key. The names from before still work.
 func TestSetupName(t *testing.T) {
 	for _, c := range []struct {
 		k                agent.Kind
 		billing, account string
-		want             string
+		want, old        string
 	}{
-		{"claude", "", "Alex Work", "claudecode:alex-work"},
-		{"claude", "key", "", "claudecode:key"},
-		{"codex", "", "alex", "codex:alex"},
-		{"codex", "", "", "codex"},
-		{"ollama", "", "", "claudecode:ollama"},
-		{"ollama-pi", "", "", "pi:ollama"},
-		{"anthropic-pi", "key", "", "pi:claude-key"},
+		{"claude", "", "Alex Work", "anthropic-claudecode:alex-work", "claudecode:alex-work"},
+		{"claude", "key", "", "anthropic-claudecode:key", "claudecode:key"},
+		{"codex", "", "alex", "openai-codex:alex", "codex:alex"},
+		{"codex", "", "", "openai-codex", "codex"},
+		{"ollama", "", "", "ollama-claudecode", "claudecode:ollama"},
+		{"ollama-pi", "", "", "ollama-pi", "pi:ollama"},
+		{"anthropic-pi", "key", "", "anthropic-pi:key", "pi:claude-key"},
 	} {
 		if got := setupName(c.k, c.billing, c.account); got != c.want {
 			t.Errorf("%s %q %q: got %s, want %s", c.k, c.billing, c.account, got, c.want)
+		}
+		if got := oldSetupName(c.k, c.billing, c.account); got != c.old {
+			t.Errorf("%s %q %q: old name %s, want %s", c.k, c.billing, c.account, got, c.old)
 		}
 	}
 }

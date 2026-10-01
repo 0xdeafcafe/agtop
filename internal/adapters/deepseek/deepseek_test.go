@@ -45,7 +45,7 @@ func TestDormantUntilInstalled(t *testing.T) {
 	t.Setenv("DSH_HOME", "")
 	defer agent.Recheck()
 	agent.Recheck()
-	if a, ok := agent.Get(Kind); !ok || a.Name() != "DeepSeek" {
+	if _, ok := agent.Get(Kind); !ok || agent.Label(Kind) != "DeepSeek (dsh)" {
 		t.Fatal("DeepSeek isn't registered")
 	}
 	if p := agent.Path(Kind); p != "" {

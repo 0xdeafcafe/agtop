@@ -33,3 +33,13 @@ func TestReloadKeepsThePlace(t *testing.T) {
 		t.Fatalf("restored %q pane %v, want %q", n.sel, n.paneFocus, sel)
 	}
 }
+
+// `rush reload` signals the view, which sends ReloadMsg: it lands as #reload.
+func TestReloadMsgIsReload(t *testing.T) {
+	m, _ := benchModel(120, 40)
+	m.paneFocus = true
+	ReloadMsg().(applyMsg)(m)
+	if _, ok := m.Reload(); !ok {
+		t.Fatal("ReloadMsg didn't reload")
+	}
+}

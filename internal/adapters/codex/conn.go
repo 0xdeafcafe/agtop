@@ -5,6 +5,9 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"os"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
+	"github.com/0xdeafcafe/rush/internal/agtools"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
@@ -67,6 +71,8 @@ type Conn struct {
 	calls   map[string]tool.Call // tool calls by item id, for approvals
 	open    map[string]bool      // items streaming as a message
 	tokens  usage.TokenUsage     // this turn's
+	kids    map[string]*kid      // the threads it spawned, by id
+	shells  map[string]*shell    // commands not yet completed, by item id
 
 	qmu    sync.Mutex
 	queue  []event.Event
@@ -135,6 +141,21 @@ func (c *Conn) begin(rpc *client, o agent.StartOptions) error {
 	}
 	set("model", o.Model)
 	set("cwd", o.Dir)
+	// rush's own prompt, which Claude Code gets in --append-system-prompt.
+	set("developerInstructions", strings.TrimSpace(o.Prompt))
+	if i := slices.IndexFunc(o.Tools, func(t agent.ToolServer) bool { return t.Name == agtools.Server && t.Args != nil }); i >= 0 {
+		// rush's own tools, which Claude Code is served in process, as a
+		// process; a call may wait on another agent's whole task.
+		if exe, err := os.Executable(); err == nil {
+			// Codex starts it with a bare environment; it needs the session's (RUSH_HOME).
+			params["config"] = map[string]any{"mcp_servers." + agtools.Server: map[string]any{"command": exe, "args": o.Tools[i].Args,
+				"tool_timeout_sec": 3600, "env_vars": envNames(append(os.Environ(), o.Env...))}}
+		}
+	}
+	if len(o.SkillRoots) > 0 {
+		// Claude Code's skills beside Codex's own; not reading them is no reason not to start.
+		_ = rpc.call(c.ctx, "skills/extraRoots/set", map[string]any{"extraRoots": o.SkillRoots}, nil)
+	}
 	if m, ok := modes[o.Mode]; ok {
 		params["approvalPolicy"], params["sandbox"] = m.approval, m.sandbox
 	}
@@ -162,6 +183,12 @@ func (c *Conn) begin(rpc *client, o agent.StartOptions) error {
 	c.mu.Lock()
 	c.thread, c.model = res.Thread.ID, res.Model
 	c.mu.Unlock()
+	if method == "thread/start" && len(o.Carry) > 0 {
+		// Another agent's conversation, as this thread's own history.
+		if err := rpc.call(c.ctx, "thread/inject_items", map[string]any{"threadId": res.Thread.ID, "items": carried(o.Carry)}, nil); err != nil {
+			return fmt.Errorf("codex: taking the conversation on: %w", err)
+		}
+	}
 	init := event.Init{SessionID: res.Thread.ID, Model: res.Model, Cwd: res.Cwd, Mode: o.Mode, Version: c.version}
 	if init.Mode == "" {
 		_ = jsonx.Unmarshal(res.ApprovalPolicy, &init.Mode)
@@ -194,8 +221,21 @@ func (c *Conn) readQuota() {
 
 func (c *Conn) Events() <-chan event.Event { return c.events }
 
-// Send starts a turn, or steers the running one.
+// Send starts a turn, or steers the running one. /compact compacts the
+// thread, as a turn of its own.
 func (c *Conn) Send(in agent.Input) error {
+	if strings.TrimSpace(in.Text) == "/compact" {
+		if len(in.Images) != 0 {
+			return errors.New("codex: /compact does not accept attachments")
+		}
+		c.mu.Lock()
+		thread, turn := c.thread, c.turn
+		c.mu.Unlock()
+		if turn != "" {
+			return errors.New("codex: let the current turn finish before compacting")
+		}
+		return c.rpc.call(c.ctx, "thread/compact/start", map[string]any{"threadId": thread}, nil)
+	}
 	input := []map[string]any{{"type": "text", "text": in.Text, "text_elements": []any{}}}
 	for _, p := range in.Images {
 		input = append(input, map[string]any{"type": "localImage", "path": p})
@@ -407,4 +447,29 @@ func (c *Conn) pump() {
 			}
 		}
 	}
+}
+
+// carried are lines as Responses API messages: yours as input, the other
+// agent's answers as output.
+func carried(lines []agent.Line) []map[string]any {
+	out := make([]map[string]any, 0, len(lines))
+	for _, l := range lines {
+		part := "input_text"
+		if l.Role == "assistant" {
+			part = "output_text"
+		}
+		out = append(out, map[string]any{"type": "message", "role": l.Role, "content": []map[string]any{{"type": part, "text": l.Text}}})
+	}
+	return out
+}
+
+// envNames are the names of env's variables, each once.
+func envNames(env []string) []string {
+	var names []string
+	for _, kv := range env {
+		if k, _, ok := strings.Cut(kv, "="); ok && k != "" && !slices.Contains(names, k) {
+			names = append(names, k)
+		}
+	}
+	return names
 }

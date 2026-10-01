@@ -39,6 +39,10 @@ func TestSkipPastLeavesPastSessionsOut(t *testing.T) {
 	l.Watch(time.Hour)
 	count := func() (past, live int) {
 		for _, a := range l.Load(true).Agents {
+			// Other installed adapters may see live sessions through explicit home overrides.
+			if a.Kind != "pastfake" {
+				continue
+			}
 			switch {
 			case a.Past:
 				past++
@@ -55,5 +59,33 @@ func TestSkipPastLeavesPastSessionsOut(t *testing.T) {
 	l.SkipPast(false)
 	if past, live := count(); past != 1 || live != 1 {
 		t.Fatalf("after: %d past, %d running; want 1, 1", past, live)
+	}
+}
+
+// An agent hidden in the overlay is in no reading, however it's found, and
+// the transcript behind it is left alone.
+func TestHiddenAgentsAreInNoReading(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("RUSH_HOME", home+"/rush")
+	agent.Register(pastAgent{dir: home + "/past"})
+
+	s := &state.Store{}
+	l := NewLoader(s)
+	keys := func() (out []string) {
+		for _, a := range l.Load(true).Agents {
+			if a.Kind == "pastfake" {
+				out = append(out, a.Key)
+			}
+		}
+		return out
+	}
+	all := keys()
+	if len(all) != 2 {
+		t.Fatalf("want a past and a live row, got %v", all)
+	}
+	s.Hide(all[0])
+	if got := keys(); len(got) != 1 || got[0] == all[0] {
+		t.Fatalf("hidden %s still listed: %v", all[0], got)
 	}
 }

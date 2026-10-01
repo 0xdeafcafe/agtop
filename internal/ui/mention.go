@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"os"
 	"slices"
 	"strings"
@@ -131,6 +132,9 @@ func (m *Model) withMentions(text, self string) string {
 			n += ". To message it, pipe the message to `" + rushExe + " session send " + a.ID + "` (add --now to reach it mid-turn)."
 		} else {
 			n += "; it isn't a rush session, so it can't be messaged from your shell."
+		}
+		if t := cmp.Or(a.TranscriptPath, a.History); t != "" {
+			n += " Its conversation so far is in " + t + "."
 		}
 		notes = append(notes, n)
 	}

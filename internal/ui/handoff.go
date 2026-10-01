@@ -63,10 +63,10 @@ func (m *Model) handoffTo(c *hostConn, a *fleet.Agent, to string) tea.Cmd {
 			names = append(names, string(t.Kind()))
 		}
 		if len(names) == 0 {
-			m.flash("no other installed agent can take this conversation on", true)
+			m.flash("no other installed harness can take this conversation on", true)
 			return nil
 		}
-		m.flash("/handoff to which agent? "+strings.Join(names, ", "), false)
+		m.flash("/handoff to which harness? "+strings.Join(names, ", "), false)
 		return nil
 	}
 	k := agent.Kind(strings.ToLower(to))
@@ -75,7 +75,7 @@ func (m *Model) handoffTo(c *hostConn, a *fleet.Agent, to string) tea.Cmd {
 		return nil
 	}
 	if !agent.Supports(k, agent.FeatureHandoffIn) {
-		m.flash(agentName(string(k))+" can't take a conversation on from another agent", true)
+		m.flash(agentName(string(k))+" can't take a conversation on from another harness", true)
 		return nil
 	}
 	cfg := host.Config{Cwd: a.Cwd, Name: a.DisplayName + " · on " + agentName(string(k)),

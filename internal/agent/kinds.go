@@ -110,3 +110,16 @@ type OnceReader interface {
 type KeyChecker interface {
 	CheckKey(p Profile) error
 }
+
+// Replaced marks a legacy harness retained for saved sessions. New-session
+// selectors use its replacement without rewriting old conversation identities.
+type Replaced interface{ Replacement() Kind }
+
+func CurrentKind(k Kind) Kind {
+	if a, ok := Get(k); ok {
+		if r, ok := a.(Replaced); ok {
+			return r.Replacement()
+		}
+	}
+	return k
+}

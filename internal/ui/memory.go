@@ -21,7 +21,7 @@ import (
 // as its adapter says: for Claude Code, its auto memory, the CLAUDE.md
 // files and rules, settings, and the agents, skills, commands and output
 // styles on disk. ↑↓ pick a file, shown in the editor in the bottom half;
-// enter edits it there, ctrl+g in $EDITOR, x deletes it.
+// space edits it there, ctrl+g in $EDITOR, x deletes it.
 
 // memFile is one file the agent reads, or one it would read if it existed.
 type memFile = agent.MemoryFile
@@ -106,7 +106,7 @@ func (m *Model) memoryLines(c *hostConn, o convo.Options, h int) []convo.Line {
 		for _, f := range files {
 			up += f.Up
 		}
-		line(spread("  "+paint(cSub+bold, "Memory")+"   "+dim("what "+agentName(string(sessionAgent(c)))+" reads for this project, and when"),
+		line(spread("  "+paint(cSub+bold, "Memory")+"   "+dim("what "+harnessName(string(sessionAgent(c)))+" reads for this project, and when"),
 			paint(cSub, "≈"+efficiency.Tokens(up))+dim(" tokens every session · "+fmt.Sprintf("%d files", len(files)))+"  ", w), "")
 		line("  "+faint(strings.Repeat("─", max(0, w-4))), "")
 		head := len(out)
@@ -277,7 +277,7 @@ func (m *Model) docPane(c *hostConn, e *docEditor, w, h int, paneFocused bool) [
 			out = append(out, "")
 		}
 		if h > 3 {
-			out[h/2] = "    " + dim("Pick a file above to see it here · enter edits it")
+			out[h/2] = "    " + dim("Pick a file above to see it here · space edits it")
 		}
 		return out
 	}
@@ -382,7 +382,7 @@ func (m *Model) docHint(e *docEditor, w int) string {
 	return keysFit(w, pairs...)
 }
 
-// memoryKey handles the memory view's keys: ↑↓ pick a file, enter edits it
+// memoryKey handles the memory view's keys: ↑↓ pick a file, space edits it
 // below, ctrl+g opens it in $EDITOR, x deletes it; while it's being edited,
 // every key is the editor's. It reports whether it used the key.
 func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bool) {
@@ -393,7 +393,7 @@ func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bo
 	if c.memEdit && c.memEd != nil {
 		return m.docKey(c, k, s), true
 	}
-	if len(c.input) > 0 {
+	if len(c.input) > 0 && !(s == "space" && strings.HasPrefix(c.sel, "mem:")) {
 		return nil, false
 	}
 	files := m.memoryOf(c)
@@ -434,7 +434,7 @@ func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bo
 			return m.effOpen(), true
 		}
 		return m.effLoad(false), true
-	case "enter", "right", "e":
+	case "space", "right", "e":
 		e := m.memDoc(c)
 		if e == nil {
 			return nil, true
@@ -469,7 +469,7 @@ func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bo
 func (m *Model) confirmForget(c *hostConn, path string) {
 	m.confirm = &confirmation{
 		question: "Delete " + tildify(path) + "?",
-		detail:   agentName(string(sessionAgent(c))) + " stops reading it · a memory note also leaves MEMORY.md",
+		detail:   harnessName(string(sessionAgent(c))) + " stops reading it · a memory note also leaves MEMORY.md",
 		onYes: func() tea.Cmd {
 			forget := os.Remove
 			if mr, ok := agent.As[agent.MemoryReader](sessionAgent(c)); ok {
@@ -583,7 +583,7 @@ func (m *Model) saveDoc(c *hostConn, then func()) tea.Cmd {
 		m.confirm = &confirmation{question: filepath.Base(e.path) + " changed on disk since you opened it.", detail: "y saves yours over it", onYes: do}
 	case bad != nil:
 		m.confirm = &confirmation{question: fmt.Sprintf("It isn't valid JSON (line %d: %s). Save anyway?", bad.line+1, bad.msg),
-			detail: agentName(string(sessionAgent(c))) + " can't read it until it's fixed", onYes: do}
+			detail: harnessName(string(sessionAgent(c))) + " can't read it until it's fixed", onYes: do}
 	default:
 		return do()
 	}

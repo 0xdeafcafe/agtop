@@ -39,7 +39,7 @@ func TestSwitchNote(t *testing.T) {
 	now := time.Now()
 	cur := usedRow("claude", "home", 92, now).q
 	others := []acctRow{usedRow("claude", "work", 85, now), usedRow("codex", "alex", 30, now), usedRow("copilot", "gh", 10, now.Add(-2*time.Hour))}
-	if got := switchNote(cur, others, now); got != "low: 92% of 5h used · codex:alex has 70% left" {
+	if got := switchNote(cur, others, now); got != "low: 92% of 5h used · OpenAI (Codex) · alex has 70% left" {
 		t.Fatalf("got %q", got)
 	}
 	if got := switchNote(cur, others[:1], now); got != "low: 92% of 5h used" {
@@ -50,5 +50,16 @@ func TestSwitchNote(t *testing.T) {
 	}
 	if got := switchNote(usedRow("claude", "home", 92, now.Add(-time.Hour)).q, others, now); strings.Contains(got, "low") {
 		t.Fatalf("old reading: %q", got)
+	}
+}
+
+func TestSessionLabelUsesHostIdentityOverStaleFleetRow(t *testing.T) {
+	m, a, c := barAgentFixture(t)
+	a.Kind = "claude"
+	c.kind = "claude"
+	c.sess.Info.Kind = "codex"
+	got := ansi.Strip(m.agentLabel(a, c, "gpt-6-sol"))
+	if !strings.HasPrefix(got, lookOf("codex").glyph+" ") || !strings.Contains(got, "Codex") {
+		t.Fatalf("stale session identity: %q", got)
 	}
 }

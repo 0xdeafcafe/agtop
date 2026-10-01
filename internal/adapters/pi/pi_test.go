@@ -526,3 +526,66 @@ func TestProfilesNeedPiInstalled(t *testing.T) {
 		t.Fatalf("pi is installed, Profiles = %+v", ps)
 	}
 }
+
+// Powershell runs a command as bash does.
+func TestPowershellIsShell(t *testing.T) {
+	c := callOf(&block{ID: "c1", Name: "powershell", Arguments: []byte(`{"command":"Get-ChildItem","timeout":5}`)})
+	if c.Kind != tool.Shell || c.Input.Command != "Get-ChildItem" || c.Input.Timeout != 5000 {
+		t.Errorf("%+v", c)
+	}
+}
+
+// A session read back draws the subagent extension's calls as subagents:
+// one agent's task, and several in parallel.
+func TestSubagentHistory(t *testing.T) {
+	session := `{"type":"session","id":"s1","cwd":"/w"}
+{"type":"message","id":"a1","message":{"role":"assistant","stopReason":"toolUse","content":[{"type":"toolCall","id":"c1","name":"subagent","arguments":{"agent":"scout","task":"Find the auth code\nand list it"}},{"type":"toolCall","id":"c2","name":"subagent","arguments":{"tasks":[{"agent":"scout","task":"models"},{"agent":"planner","task":"providers"}]}}]}}
+`
+	evs, _ := readSession(strings.NewReader(session), time.Time{})
+	var calls []tool.Call
+	for _, m := range only[event.Message](evs) {
+		for _, p := range m.Parts {
+			if p.Call != nil {
+				calls = append(calls, *p.Call)
+			}
+		}
+	}
+	if len(calls) != 2 {
+		t.Fatalf("calls: %+v", calls)
+	}
+	if c := calls[0]; c.Kind != tool.Subagent || c.Input.Agent != "scout" || c.Input.Prompt != "Find the auth code\nand list it" || c.Input.Description != "Find the auth code and list it" {
+		t.Errorf("single: %+v", c.Input)
+	}
+	if c := calls[1]; c.Kind != tool.Subagent || c.Input.Agent != "scout, planner" || c.Input.Prompt != "scout: models\n\nplanner: providers" {
+		t.Errorf("parallel: %+v", c.Input)
+	}
+}
+
+// Live, a subagent call's run is a task the turn waits on, from its start
+// through its progress to its end; other tools' runs aren't tasks.
+func TestSubagentTask(t *testing.T) {
+	c := newConn(t.Context())
+	defer c.Close()
+	lines := []string{
+		`{"type":"tool_execution_start","toolCallId":"c1","toolName":"bash","args":{"command":"ls"}}`,
+		`{"type":"tool_execution_start","toolCallId":"c2","toolName":"subagent","args":{"agent":"scout","task":"find auth"}}`,
+		`{"type":"tool_execution_update","toolCallId":"c2","toolName":"subagent","partialResult":{"content":[{"type":"text","text":"reading"}],"details":{"mode":"single","results":[{"agent":"scout","usage":{"input":100,"output":20},"messages":[{"role":"assistant","content":[{"type":"toolCall","id":"x","name":"read","arguments":{}},{"type":"toolCall","id":"y","name":"grep","arguments":{}}]}]}]}}}`,
+		`{"type":"tool_execution_end","toolCallId":"c2","toolName":"subagent","result":{"content":[]},"isError":true}`,
+	}
+	var evs []event.Event
+	for _, l := range lines {
+		var head struct {
+			Type string `json:"type"`
+		}
+		_ = jsonx.Unmarshal([]byte(l), &head)
+		evs = append(evs, c.events1(head.Type, []byte(l))...)
+	}
+	want := []event.Event{
+		event.TaskStarted{ID: "c2", CallID: "c2", Kind: event.SubagentTask, Label: "find auth", Agent: "scout"},
+		event.TaskProgress{ID: "c2", Summary: "reading", LastTool: "grep", Tokens: 120, ToolUses: 2},
+		event.TaskDone{ID: "c2", CallID: "c2", Status: "failed"},
+	}
+	if !reflect.DeepEqual(evs, want) {
+		t.Errorf("got %+v", evs)
+	}
+}

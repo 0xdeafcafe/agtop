@@ -48,9 +48,9 @@ func applyColors(g theme.Ground, colorBlind bool) {
 
 	selBG, hoverBG, panelBG = surface(44, 40, 36), surface(33, 31, 29), surface(30, 28, 26)
 	bgChrome, bgTabOn, bgBtw = surface(30, 28, 26), surface(17, 16, 14), surface(36, 33, 30)
-	bgSub, bgRuns, bgQueue = surface(24, 31, 42), surface(26, 30, 36), surface(33, 29, 37)
+	bgSub, bgRuns, bgQueue = surface(24, 31, 42), bgChrome, bgChrome
 	bgInput, bgMark, bgChip = surface(40, 36, 32), surface(74, 64, 54), surface(56, 62, 72)
-	qCard, qSel, qCap = surface(42, 36, 25), surface(60, 49, 34), surface(68, 58, 43)
+	qCard, qSel, qCap = bgChrome, selBG, surface(48, 44, 40)
 	kbHitBG = surface(250, 236, 214)
 	barChip, edSelBG, edErrBG = surface(64, 45, 37), surface(72, 62, 52), surface(96, 42, 38)
 	barShadow = surface(12, 11, 10) + ink(44, 41, 38)

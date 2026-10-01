@@ -9,8 +9,10 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
 // linesAgent's history is a prompt and an answer per line of its file.
@@ -73,5 +75,52 @@ func TestStoppedHostedOpensFromHistory(t *testing.T) {
 	msg, ok := openTail(a)().(hostOpenMsg)
 	if !ok || msg.err != nil || msg.c == nil || msg.c.hist == nil || msg.c.hist.s.Profile.Dir != "/work/.lines" {
 		t.Fatalf("opened %+v", msg)
+	}
+}
+
+func TestStoppedHistoryRestoresAgentExchanges(t *testing.T) {
+	t.Setenv("RUSH_HOME", t.TempDir())
+	id := "abcd1234"
+	dir := filepath.Join(host.Root(), id)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	e := event.Exchange{ID: "kept", Direction: "sent", Phase: "message", Text: "Persistent review", Sender: event.Peer{SessionID: id, Kind: "kimi"}, Receiver: event.Peer{SessionID: "other", Kind: "codex"}, At: time.Now()}
+	b, err := jsonx.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "exchanges.jsonl"), append(b, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, native := range []bool{false, true} {
+		a := &fleet.Agent{Key: "k", Rush: true, Kind: "lines"}
+		a.ID = id
+		if native {
+			a.Kind = "claude"
+			a.TranscriptPath = filepath.Join(t.TempDir(), "history.jsonl")
+			if err := os.WriteFile(a.TranscriptPath, []byte(`{"type":"user","timestamp":"2026-10-01T00:00:00Z","message":{"role":"user","content":"original task"}}`+"\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		msg := openTail(a)().(hostOpenMsg)
+		if msg.err != nil {
+			t.Fatal(msg.err)
+		}
+		ref := "exchange:sent:kept:other"
+		if text, ok := msg.c.sess.ExchangeText(ref); !ok || !strings.Contains(text, e.Text) {
+			t.Fatalf("native=%v missing stored exchange: %s", native, text)
+		}
+		if native {
+			whole := msg.c.readWhole(convo.Options{})().(wholeMsg)
+			if _, ok := whole.tail.Sess.ExchangeText(ref); !ok {
+				t.Fatal("full transcript discarded exchange")
+			}
+		} else {
+			s := msg.c.hist.read(&msg.c.closed)
+			if _, ok := s.ExchangeText(ref); !ok {
+				t.Fatal("history refresh discarded exchange")
+			}
+		}
 	}
 }
