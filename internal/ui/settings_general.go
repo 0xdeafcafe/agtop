@@ -111,12 +111,6 @@ func (m *Model) generalSections() []section {
 	}
 	secs = append(secs, section{title: "When an agent needs you", rows: []setting{notify, menu}})
 
-	advisor := choiceSetting("Advisor", onOffWord(c.Advisor),
-		"Now and then, after your agents have done some work, rush's advisor looks over their figures on Haiku, with Opus checking what it finds, and says what would cut tokens or time. Its notes are in Efficiency. It costs a little each pass.",
-		[][2]string{{"on", "it looks at most every 3 hours, once there's something new."}, {"off", "no advisor."}}, nil)
-	advisor.run = m.advCommand
-	secs = append(secs, section{title: "Advice", rows: []setting{advisor}})
-
 	// What keeps a turn from hanging on a stream that went silent: shown,
 	// as it's always on.
 	stalls := setting{

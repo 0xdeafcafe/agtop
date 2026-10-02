@@ -22,17 +22,15 @@ import (
 // shift+tab do.
 func TestSettingsPagesBrackets(t *testing.T) {
 	m, _ := benchModel(140, 50)
-	m.setView(placeSettings)
 	m.setSettingsPage(pageProviders)
-	n := len(m.settingsPages())
 	m.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
 	if m.dialog.page != pageHarnesses {
 		t.Fatalf("] went to page %d, not Harnesses", m.dialog.page)
 	}
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
 	m.Update(tea.KeyPressMsg{Code: '[', Text: "["})
-	if m.dialog.page != n-1 {
-		t.Fatalf("[ from Providers went to page %d, not the last (%d)", m.dialog.page, n-1)
+	if m.dialog.page != pageProfiles {
+		t.Fatalf("[ from Providers went to page %d, not Harnesses' last (Profiles)", m.dialog.page)
 	}
 	m.setSettingsPage(pageGeneral)
 	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
@@ -256,18 +254,6 @@ func TestAgentFileSections(t *testing.T) {
 	}
 }
 
-// tab turns the page in Efficiency and on Agents' Projects and Wall, where
-// there's no list and Session to go between.
-func TestTabTurnsPages(t *testing.T) {
-	m, _ := benchModel(140, 50)
-	m.setView(placeEff)
-	p := m.eff.page
-	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.eff.page == p {
-		t.Fatal("tab didn't turn Efficiency's page")
-	}
-}
-
 // What a model takes says images, PDFs and its window when the agent
 // knows them, and that it doesn't when it doesn't.
 func TestModelTakes(t *testing.T) {
@@ -296,9 +282,9 @@ func TestSettingPreviewsTheList(t *testing.T) {
 	m.store.Config.SetView("list") // the list alone, wide enough for one-line rows
 	m.full, m.preview = false, false
 	m.setView(placeSettings)
-	m.setSettingsPage(pageAppearance)
+	m.setSettingsPage(pageGeneral)
 	var stack setting
-	for i, r := range flat(m.interfaceSections()) {
+	for i, r := range flat(m.settingsPages()[pageGeneral].form(m)) {
 		if r.label == "Two-line rows" {
 			m.dialog.cursor, stack = i, r
 		}
@@ -323,8 +309,8 @@ func TestSpacesPreviewShowsASession(t *testing.T) {
 	m, _ := benchModel(200, 60)
 	m.store.Config.SetView("split")
 	m.setView(placeSettings)
-	m.setSettingsPage(pageAppearance)
-	for i, r := range flat(m.interfaceSections()) {
+	m.setSettingsPage(pageGeneral)
+	for i, r := range flat(m.settingsPages()[pageGeneral].form(m)) {
 		if r.label == "Spaces and tabs in diffs" {
 			m.dialog.cursor = i
 		}

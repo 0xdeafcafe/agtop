@@ -236,3 +236,26 @@ func TestSubagentAfterItsTurnOpensNoTurn(t *testing.T) {
 		t.Fatalf("children %d, steps %d", len(a.Children), s.Turns[0].Steps())
 	}
 }
+
+// A background subagent's call waiting on you stays waiting when a later
+// turn of the main agent, which it lands in, ends.
+func TestSubagentApprovalOutlivesTurn(t *testing.T) {
+	s := New()
+	now := time.Now()
+	s.Apply(host.Sent{Text: "dig in the background"}, now)
+	s.Apply(headless.Message{Role: "assistant", ID: "m1", Blocks: []headless.Block{{Type: "tool_use", ID: "toolu_A", Name: "Agent", Input: []byte(`{"description":"dig","run_in_background":true}`)}}}, now)
+	s.Apply(headless.Result{Subtype: "success"}, now)
+	s.Apply(host.Sent{Text: "and meanwhile?"}, now.Add(time.Minute))
+	s.Apply(headless.Message{Role: "assistant", ID: "m2", ParentToolUseID: "toolu_A", Blocks: []headless.Block{{Type: "tool_use", ID: "toolu_B", Name: "Bash", Input: []byte(`{"command":"sed -n 1p x"}`)}}}, now.Add(time.Minute))
+	s.Apply(headless.PermissionRequest{ID: "r1", Tool: "Bash", ToolUseID: "toolu_B", Input: []byte(`{"command":"sed -n 1p x"}`)}, now.Add(time.Minute))
+	s.Apply(headless.Result{Subtype: "success"}, now.Add(2*time.Minute))
+	if p := s.Pending(); len(p) != 1 || p[0].ID != "toolu_B" {
+		t.Fatalf("the subagent's ask was dropped with the turn: %d pending", len(p))
+	}
+	// One whose run we never saw start, with no turn to hold it, still asks.
+	s.Apply(headless.Message{Role: "assistant", ID: "m3", ParentToolUseID: "toolu_unknown", Blocks: []headless.Block{{Type: "tool_use", ID: "toolu_C", Name: "Bash", Input: []byte(`{"command":"pwd"}`)}}}, now.Add(3*time.Minute))
+	s.Apply(headless.PermissionRequest{ID: "r2", Tool: "Bash", ToolUseID: "toolu_C", Input: []byte(`{"command":"pwd"}`)}, now.Add(3*time.Minute))
+	if p := s.Pending(); len(p) != 2 {
+		t.Fatalf("an orphan subagent's ask should show: %d pending", len(p))
+	}
+}

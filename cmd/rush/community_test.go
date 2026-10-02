@@ -10,6 +10,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/community"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
 func boardCLI(t *testing.T, input string, args ...string) (string, int) {
@@ -45,9 +46,23 @@ func TestCommunityCLIWorkflow(t *testing.T) {
 		t.Fatal(out)
 	}
 	jsonx.Unmarshal([]byte(out), &thread)
-	if len(thread.Messages) != 2 || thread.Messages[1].Author.Kind != "kimi" || thread.Messages[1].Author.SessionID != "verified" {
+	if len(thread.Messages) != 2 || thread.Messages[1].Author.Kind != "kimi" || thread.Messages[1].Author.SessionID != "verified" || thread.Messages[1].Author.Handle != "investigator" {
 		t.Fatalf("agent attribution: %+v", thread)
 	}
+	// A rename in the fleet view is the session's @mention tag, so it's the handle too.
+	st := state.Load()
+	st.Overlay.Names[state.Key("", "a:verified")] = "Parser Sleuth"
+	if err := st.SaveOverlay(); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := boardCLI(t, "@you see the reply above", "reply", thread.ID, "--json"); code != 0 || !strings.Contains(out, `"handle":"parser-sleuth"`) {
+		t.Fatalf("renamed handle: %d %s", code, out)
+	}
+	t.Setenv("RUSH_SESSION", "")
+	if out, code := boardCLI(t, "", "mentions"); code != 0 || !strings.Contains(out, "Parser help") {
+		t.Fatalf("mentions: %d %s", code, out)
+	}
+	t.Setenv("RUSH_SESSION", "verified")
 	for _, verb := range []string{"resolve", "reopen"} {
 		if out, code := boardCLI(t, "", verb, thread.ID); code != 0 {
 			t.Fatal(out)
@@ -61,7 +76,7 @@ func TestCommunityCLIWorkflow(t *testing.T) {
 		t.Fatalf("unverified author accepted: %d %s", code, out)
 	}
 	rows, _ := community.List()
-	if len(rows[0].Messages) != 2 {
+	if len(rows[0].Messages) != 3 {
 		t.Fatal("failed attribution wrote a post")
 	}
 	if out, code := boardCLI(t, "", "ask", "Empty"); code == 0 {

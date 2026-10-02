@@ -96,6 +96,11 @@ func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, e
 	if os.Getenv(StreamWatchdogEnv) == "" {
 		ho.Env = append(ho.Env, StreamWatchdogEnv+"=1")
 	}
+	// Claude Code leaves the task list out for some models (Opus) when run
+	// headless; rush shows it live, so it's always in.
+	if os.Getenv("CLAUDE_CODE_ENABLE_TODO_TOOLS") == "" {
+		ho.Env = append(ho.Env, "CLAUDE_CODE_ENABLE_TODO_TOOLS=1")
+	}
 	// Checkpoints, as Claude Code keeps them in a terminal, so a rewind can
 	// put the files back too. The session's own environment goes last, to
 	// have the last word.

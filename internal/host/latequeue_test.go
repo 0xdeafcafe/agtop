@@ -14,7 +14,7 @@ func TestLateQueueGoesMidTurn(t *testing.T) {
 	queueLate = 50 * time.Millisecond
 	defer func() { queueLate = was }()
 	ic := &inputConn{}
-	s := &server{cfg: Config{ID: "lq"}, conn: ic, clients: map[*conn]struct{}{}}
+	s := &server{cfg: Config{ID: "lq", Kind: "claude"}, conn: ic, clients: map[*conn]struct{}{}}
 	s.info.State = "working"
 	if err := s.send("take this", nil, false); err != nil {
 		t.Fatal(err)

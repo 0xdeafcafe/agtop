@@ -72,10 +72,17 @@ func (d *drawer) userBox(ref, title, ask string, imgs []string, pics []*event.Im
 	if parts := queuedMessages(ask); len(parts) > 0 && !multi {
 		for i, part := range parts {
 			if i > 0 {
-				d.gap()
+				// Queue entries are independent user messages. d.gap deliberately
+				// leaves a filled user box alone, so add this separator as part of
+				// that box rather than relying on its usual between-section gap.
+				d.add(ref, bgUser, paint(cOrange, "▌"), "")
 			}
 			d.userBox(ref, "", part, nil, nil, false)
 		}
+		// Numbered markers already carry their original image links. When
+		// every attachment has one, don't add a second filename chip (or a
+		// second thumbnail) that points at the same image. A partial match is
+		// left alone: there is no safe way to renumber the remaining images.
 		if (len(imgs) > 0 || len(pics) > 0) && !numberedImagesCover(ask, max(len(imgs), len(pics))) {
 			d.userBox(ref, "", "", imgs, pics, false)
 		}
@@ -96,7 +103,7 @@ func (d *drawer) userBox(ref, title, ask string, imgs []string, pics []*event.Im
 				chips = append(chips, chipOf(m))
 				return ""
 			})
-			rows = append(rows, d.askRows(text, inner, func(s string) string { return styledAsk(messageLinks(s, ref), cText) }, "box:"+ref+":"+strconv.Itoa(i))...)
+			rows = append(rows, d.askRows(text, inner, func(s string) string { return styledAsk(messageLinks(s, ref), cWhite) }, "box:"+ref+":"+strconv.Itoa(i))...)
 		}
 	}
 	for i, name := range imgs {
@@ -113,7 +120,13 @@ func (d *drawer) userBox(ref, title, ask string, imgs []string, pics []*event.Im
 	if title != "" {
 		rows = append([]string{faint(title)}, rows...)
 	}
-	fill := func(s string) { d.add(ref, bgUser, d.spine()+"  "+s, "") }
+	// Its left edge is a rail in your colour, the heaviest on the page; the
+	// cursor takes it when the turn's picked.
+	edge := paint(cOrange, "▌")
+	if ref != "" && ref == d.o.Selected {
+		edge = d.spine()
+	}
+	fill := func(s string) { d.add(ref, bgUser, edge+"  "+s, "") }
 	for range boxPadTop {
 		fill("")
 	}

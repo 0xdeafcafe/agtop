@@ -52,7 +52,7 @@ var features = map[agent.Feature]agent.Support{
 	agent.FeatureCompact: agent.Yes, agent.FeatureMCP: agent.Yes, agent.FeatureHandoffIn: agent.Yes, agent.FeatureBackground: agent.Yes.With("its background terminals and spawned threads"),
 	agent.FeatureLive: agent.Yes, agent.FeatureHistory: agent.Yes,
 	agent.FeatureSwitch: agent.Yes, agent.FeatureSignIn: agent.Yes, agent.FeatureQuota: agent.Yes,
-	agent.FeatureCommands: agent.Planned, agent.FeaturePricing: agent.Planned, agent.FeatureEfficiency: agent.Planned,
+	agent.FeatureCommands: agent.Planned, agent.FeaturePricing: agent.Planned,
 	agent.FeatureMemory: agent.Planned.With("its AGENTS.md files"), agent.FeatureSettings: agent.Planned.With("config.toml"),
 }
 

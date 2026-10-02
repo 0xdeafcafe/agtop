@@ -634,6 +634,7 @@ func openHosted(args []string) error {
 	agent.NeverWait()   // nor on looking for agents' programs
 	p := tea.NewProgram(ui.NewHosted(state.Load(), version, id), tea.WithFPS(120))
 	_, err = p.Run()
+	ui.StopSchemeReports()
 	_ = state.Flush()
 	return err
 }

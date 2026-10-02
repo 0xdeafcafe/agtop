@@ -1,5 +1,54 @@
 # Rush task list
 
+## Session batch: chat layout, keys, discussion, side panels (2026-10-01)
+
+Done (installed; backup /tmp/rush-before-session-batch):
+
+- [x] Activity line follows the last message, a row of room either side, and scrolls with the conversation.
+- [x] ctrl+x stops a chat (idle); again moves it to Done; mid-turn asks first. The old menu is ctrl+] x.
+- [x] ctrl+tab / ctrl+shift+tab (ctrl+] ] / ctrl+] [) step through open chats.
+- [x] Minimap runs the pane's full height, beside the box; activity drawn at the conversation's width (no "…").
+- [x] Bottle keeps its SVG colours on dark terminals.
+- [x] ctrl+shift+n (ctrl+] =): new agent, keys to Agents' Prompt from anywhere.
+- [x] Depth levels in a Session: ctrl+] 0 prose only, 1 every run of steps folded, 2 as usual, 3 everything open; the header says which.
+- [x] Grid, slice 1: ctrl+] | / ctrl+] - pin the open agent as a live tile beside or under the Session; click swaps it in; ctrl+] k unpins.
+- [x] Agent feed: finished / needs you / failed lines fill the list's empty foot; a click picks the agent.
+- [x] Header gauges: the default top bar is a block down the right: spend and account, a bar per usage limit (fills-before-reset in red), machine. Custom /statusline layouts unchanged. No hourly spend data, so no sparkline yet.
+- [x] ctrl+] u moves a Session draft to the Prompt; ctrl+] a / ctrl+] o append to or replace the open agent's draft.
+
+In lanes (two at a time): A grid typing + mixed layout · B stacked subagent view + pull-up; then C rooms panel, discuss send mode, verdict card · D style A rails + chat anatomy; then E sidekick column · F side-list footer.
+
+Waiting on a decision (going with the recommendations):
+
+- [x] Style direction: mockup A (rails), B (tabs) or C (status bar).
+- [x] Chat anatomy: confirm the weight of each part (you, agent prose, working, failure, handoff, output, artifacts, activity, dock, hints), then build it with the style.
+- [x] Sidekick column for wide windows (ctrl+] z): a cheap model notes decisions, things against the grain, open questions. Full-width Session only for now.
+- [x] Side list footer: the next agent's setup, recent setups to click.
+- [x] Stack view splits evenly; hover no longer grows a band.
+- [x] Claude sessions get their task list on every model (CLAUDE_CODE_ENABLE_TODO_TOOLS).
+
+To build (agents stopped at the tool-call ceiling; split into smaller steps):
+
+- [x] Rooms from a chat: #discuss / ctrl+] t with a context picker (latest N exchanges).
+- [x] Room row joined under its chat in the list.
+- [x] Search (ctrl+k) sorting: ctrl+s steps status, latest, project, worktree, model, harness; kept between opens.
+- [x] Pixelated pictures no bigger than sharp ones.
+- [x] Room as a docked panel inside the chat while it runs.
+- [x] Room verdict back as a card above the box: enter sends it on, e edits it first, esc drops it (a feed line when the chat isn't open).
+- [x] The running room as a panel in its chat: round, each agent's last line, enter opens it.
+- [x] Send mode "discuss" beside queue / guide / stop.
+- [x] Queue stuck in a long Claude turn: the 2-minute hand-over into the turn checked `Kind == ""`, but sessions are written as `claude`, so it never fired.
+- [x] Quick ask float: ctrl+] q anywhere, fast model, threads kept; ctrl+] i drops it into a chat as a paste.
+- [x] Grid, slice 2: a pinned agent's session stays open, its tile is its full Session (box included), a click switches it in at once; drag the edge to resize; layout and size kept across restarts.
+- [x] Grid: click a tile's box to type into it without switching (esc leaves); a column beside and a row under at once.
+- [x] Pull up (drag or wheel) on the subagents panel title opens the stack view, growing over 6 frames.
+- [x] Stack view (ctrl+] g, or [ ]): the agent on top, a band per subagent; click focuses, hover grows a band.
+
+Known:
+
+- [x] TestRowKeySetting: the test expected the latest turn closed; it starts open, so the test now checks the row toggles.
+- [x] Appending a Prompt draft to an agent's box carries its pasted chips.
+
 ## Replace Gemini CLI with Antigrav
 
 - [x] Verify the Antigrav CLI command, protocol and migration path.

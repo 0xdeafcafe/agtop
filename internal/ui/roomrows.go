@@ -25,6 +25,7 @@ type roomRows struct {
 	rows    map[string]*fleet.Agent // each room's row, kept so selection holds
 	members map[string][]*fleet.Agent
 	of      map[string]string // a member's agent key: its room's id
+	joined  map[string][]*fleet.Agent // a chat's agent key: the rows of rooms opened from it
 }
 
 // loadRooms reads the rooms again, once a reading of the fleet lands.
@@ -36,6 +37,7 @@ func (m *Model) loadRooms() tea.Cmd {
 	rr.loading = true
 	return sheetDo(func() ([]room.Summary, error) { return rr.lister.List(), nil }, func(m *Model, list []room.Summary, _ error) tea.Cmd {
 		rr.loading, rr.list = false, list
+		m.verdictsBack(list)
 		m.rebuild()
 		return nil
 	})
@@ -65,7 +67,12 @@ func (m *Model) roomize(agents []*fleet.Agent) []*fleet.Agent {
 	if rr.members == nil {
 		rr.members = map[string][]*fleet.Agent{}
 	}
+	clear(rr.joined)
+	if rr.joined == nil {
+		rr.joined = map[string][]*fleet.Agent{}
+	}
 	out := make([]*fleet.Agent, 0, len(agents))
+	chats := map[string]bool{}
 	for _, a := range agents {
 		if s := byID[a.ID]; a.Rush && s != nil {
 			rr.of[a.Key] = s.ID
@@ -73,6 +80,7 @@ func (m *Model) roomize(agents []*fleet.Agent) []*fleet.Agent {
 			continue
 		}
 		out = append(out, a)
+		chats[a.Key] = true
 	}
 	for i := range rr.list {
 		s := &rr.list[i]
@@ -96,18 +104,27 @@ func (m *Model) roomize(agents []*fleet.Agent) []*fleet.Agent {
 			a.Spend.Cost += mb.Spend.Cost
 			a.Spend.Today += mb.Spend.Today
 		}
+		if chats[s.From] {
+			rr.joined[s.From] = append(rr.joined[s.From], a) // under its chat, not a row of its own
+			continue
+		}
 		out = append(out, a)
 	}
 	return out
 }
 
-// roomMembers are the members' rows that go under room row a.
+// roomMembers are the rows that go under row a: a room's members, or a
+// chat's rooms, each with its members.
 func (m *Model) roomMembers(a *fleet.Agent) []*fleet.Agent {
 	id, ok := strings.CutPrefix(a.Key, roomKeyPrefix)
-	if !ok {
-		return nil
+	if ok {
+		return m.rooms.members[id]
 	}
-	return m.rooms.members[id]
+	var out []*fleet.Agent
+	for _, r := range m.rooms.joined[a.Key] {
+		out = append(append(out, r), m.roomMembers(r)...)
+	}
+	return out
 }
 
 // roomOf is the room a row is, or a member of.

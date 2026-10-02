@@ -65,7 +65,7 @@ func (n *Neutral) Event(ev Event) []event.Event {
 		// Always allowing a gated call would allow rush gate run, so
 		// whatever it wraps.
 		if len(e.Suggestions) > 0 && string(e.Suggestions) != "null" && !gated {
-			out.Options = append(out.Options, event.Option{ID: "always", Label: "Always allow", Kind: event.AllowAlways})
+			out.Options = append(out.Options, event.Option{ID: "always", Label: alwaysLabel(e.Suggestions), Kind: event.AllowAlways})
 		}
 		out.Options = append(out.Options, event.Option{ID: "deny", Label: "Deny", Kind: event.RejectOnce})
 		return []event.Event{out}
@@ -270,4 +270,31 @@ func firstOf(s ...string) string {
 		}
 	}
 	return ""
+}
+
+// alwaysLabel is what always allowing saves, as Claude Code's suggested
+// rules name it: "Always allow Bash(pnpm lint:*)".
+func alwaysLabel(suggestions jsontext.Value) string {
+	var sug []struct {
+		Rules []struct {
+			ToolName    string `json:"toolName"`
+			RuleContent string `json:"ruleContent"`
+		} `json:"rules"`
+	}
+	var rules []string
+	if jsonx.Unmarshal(suggestions, &sug) == nil {
+		for _, s := range sug {
+			for _, r := range s.Rules {
+				if r.RuleContent != "" {
+					rules = append(rules, r.ToolName+"("+r.RuleContent+")")
+				} else if r.ToolName != "" {
+					rules = append(rules, r.ToolName)
+				}
+			}
+		}
+	}
+	if len(rules) == 0 {
+		return "Always allow"
+	}
+	return "Always allow " + strings.Join(rules, ", ")
 }

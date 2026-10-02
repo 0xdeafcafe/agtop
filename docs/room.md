@@ -100,7 +100,12 @@ member's own session in the same pane.
 
 `#room` selects the newest room. `#room new` or `#room <topic>` sets one up
 (topic, panel: Tab to the list, Space to choose, ←→ for the round cap), and
-Enter opens it in the pane. `#discuss` opens a room too. `ctrl+x` → `y` on the
+Enter opens it in the pane. `#discuss` opens a room too, on the chat
+you're in (or Enter in the chat's **discuss** send mode, ctrl+t, with what's
+typed as the topic): while it runs the chat shows a panel above its box, the
+round and each member's last line, Enter or a click opening the room; its
+verdict comes back as a card there: Enter sends it to the agent, `e` puts it
+in the box to edit, Esc drops it. A chat not open gets a line in the feed. `ctrl+x` → `y` on the
 room's row hides it and its members for good (stopping it if it still runs);
 its log stays on disk.
 

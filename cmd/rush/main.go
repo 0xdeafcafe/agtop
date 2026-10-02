@@ -202,6 +202,7 @@ func main() {
 	var err error
 	var last tea.Model
 	profiled(func() { last, err = p.Run() })
+	ui.StopSchemeReports()
 	// Unlisted before a reload's exec, which starts with SIGUSR1 unhandled.
 	unlist()
 	advisor.Stop() // a pass still running would spend on an answer nobody reads

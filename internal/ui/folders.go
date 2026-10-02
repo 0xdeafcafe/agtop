@@ -345,27 +345,3 @@ func (m *Model) onFolders(msg foldersMsg) {
 	m.folders.byRoot[msg.Root] = fleet.Folder(msg)
 }
 
-// advisorKey is the row key of the advisor's heading in the list.
-const advisorKey = "¶advisor"
-
-// openAdvisorAbout is a click on the advisor's heading: what it is, and a
-// way straight to its setting or to what it found.
-func (m *Model) openAdvisorAbout() {
-	m.picker = &picker{title: "rush's advisor",
-		about: "Now and then Haiku looks over your agents' figures (tokens, cost, time, what they read and ran) for what would save tokens or time, and Opus checks what it finds before you see it. These rows are those two runs; they cost a little, on your account.",
-		acts: []linkAct{
-			{"What it found, on Efficiency", func(m *Model) tea.Cmd { return m.command(nil, "/efficiency findings") }},
-			{"Its setting", func(m *Model) tea.Cmd {
-				m.setView(placeSettings)
-				m.setSettingsPage(pageGeneral)
-				rows := flat(m.generalSections())
-				for i := range rows {
-					if rows[i].label == "Advisor" {
-						m.dialog.cursor = i
-					}
-				}
-				return nil
-			}},
-			{"Look now", func(m *Model) tea.Cmd { return m.advCommand("now") }},
-		}}
-}

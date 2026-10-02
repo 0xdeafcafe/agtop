@@ -128,14 +128,14 @@ func TestRender(t *testing.T) {
 	if os.Getenv("CONVO_SHOW") != "" {
 	}
 	want := []string{
-		"▏  the ux right now is totally broken when i attach", // your message, on its fill
+		"▌  the ux right now is totally broken when i attach", // your message, on its fill
 		"4 steps   10s   $0.52",                               // the turn's foot
 		"Looking at how attach restores the terminal modes.",  // narration
 		"▸ show 3 steps: read, search, go build · all ok",     // clean run folded
 		"✓ ✎ internal/daemon/attach.go",                       // an edit never folds
 		"+2 −1",
 		"▏ Fixed the alt screen.", // answer on the conversation axis, markdown stripped
-		"▏  add modern key stuff to input too",
+		"▌  add modern key stuff to input too",
 		"✗ $ in internal/ui · go vet ./...", // cd leads, quieter
 		"exit 1",
 		"editor.go:41 unreachable code", // a failed build says where, in its card
@@ -546,7 +546,7 @@ func TestShellTurnsAndStyling(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success"}, at(100))
 	raw := s.Render(Options{Width: 120, Now: at(100)})
 	out := plain(raw)
-	if !strings.Contains(out, "▏  $ ls /tmp") || strings.Contains(out, "bash-input") {
+	if !strings.Contains(out, "▌  $ ls /tmp") || strings.Contains(out, "bash-input") {
 		t.Errorf("shell heading:\n%s", out)
 	}
 	joined := ""
@@ -635,7 +635,7 @@ func TestLiveLine(t *testing.T) {
 	s.Apply(headless.BlockStart{Index: 1, Type: "text"}, at(10))
 	s.Apply(headless.Delta{Index: 1, Text: strings.Repeat("word ", 800)}, at(10))
 	out = plain(s.Render(Options{Width: 100, Now: at(12)}))
-	if !strings.Contains(out, pick(writings, at(0))+"…  12s") || strings.Contains(out, "▏\n▏\n▏   ") {
+	if !strings.Contains(out, pick(writings, at(0))+"…  12s") || strings.Contains(out, "▏\n▏\n▌   ") {
 		t.Fatalf("no writing line:\n%s", out)
 	}
 	s.Apply(headless.Result{Subtype: "success"}, at(13))
@@ -909,7 +909,7 @@ func TestPastesAndImagesFold(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success"}, at(1))
 	s.Apply(host.Sent{Images: []string{"image", "image"}}, at(2))
 	out := plain(s.Render(Options{Width: 120, Now: at(3)}))
-	for _, want := range []string{"▤ pasted\n", "▏  line1\n", "▏  line4\n", "▣ shot.png", "▣ Image #1   ▣ Image #2"} {
+	for _, want := range []string{"▤ pasted\n", "▌  line1\n", "▌  line4\n", "▣ shot.png", "▣ Image #1   ▣ Image #2"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -1139,7 +1139,7 @@ func TestOpenTurnShowsTheWholeMessage(t *testing.T) {
 		if strings.Contains(txt, "On it.") {
 			break
 		}
-		body.WriteString(strings.Trim(strings.TrimSpace(txt), "▏│╭╮╰╯─ "))
+		body.WriteString(strings.Trim(strings.TrimSpace(txt), "▏▌│╭╮╰╯─ "))
 	}
 	got := strings.ReplaceAll(body.String(), " ", "")
 	for _, want := range []string{url + url + url, strings.ReplaceAll(tail, " ", ""), "asecondparagraph"} {

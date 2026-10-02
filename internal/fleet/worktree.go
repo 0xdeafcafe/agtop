@@ -134,11 +134,15 @@ func FindWorktrees(agents []*Agent) []Worktree {
 		}
 		flush()
 	}
+	dirs := make([][]string, len(agents)) // each agent's once, not once a worktree
+	for i, a := range agents {
+		dirs[i] = a.workDirs()
+	}
 	for i := range out {
 		w := &out[i]
-		for _, a := range agents {
-			for _, d := range a.workDirs() {
-				if d == w.Path || strings.HasPrefix(d, w.Path+"/") {
+		for j, a := range agents {
+			for _, d := range dirs[j] {
+				if strings.HasPrefix(d, w.Path) && (len(d) == len(w.Path) || d[len(w.Path)] == '/') {
 					w.Agents = append(w.Agents, a.Key)
 					break
 				}

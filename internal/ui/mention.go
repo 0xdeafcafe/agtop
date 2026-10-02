@@ -2,6 +2,7 @@ package ui
 
 import (
 	"cmp"
+	"hash/fnv"
 	"os"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/rush/internal/agent/event"
+	"github.com/0xdeafcafe/rush/internal/community"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 )
 
@@ -18,9 +20,41 @@ import (
 // Later in the message, the Prompt still sends it all to the agent tagged;
 // a Session sends it to its own agent, told how to message the one tagged.
 
-// mentionName is how an agent is tagged: its name, spaces as dashes.
+// mentionName is how an agent is tagged: the first few words of its title
+// that say something (fix-login-bug), so it's plain which agent it is;
+// with no title yet, a nickname from its key (brave-heron). Its whole
+// title and its nickname tag it too (tags), so a tag typed before the
+// title changed still works.
 func mentionName(a *fleet.Agent) string {
-	return strings.Join(strings.Fields(oneLine(a.DisplayName)), "-")
+	if t := titleTag(a.DisplayName); t != "" {
+		return t
+	}
+	return nickname(a.Key)
+}
+
+// titleTag is title's first three words that aren't filler, lowercase,
+// dashed: the same tag the community board shows as its @username.
+func titleTag(title string) string { return community.Tag(oneLine(title)) }
+
+// tags is whether tag names agent a: its tag, its nickname or its title.
+func tags(a *fleet.Agent, tag string) bool {
+	return strings.EqualFold(mentionName(a), tag) || strings.EqualFold(nickname(a.Key), tag) ||
+		strings.EqualFold(strings.Join(strings.Fields(oneLine(a.DisplayName)), "-"), tag)
+}
+
+var (
+	nickWords = strings.Fields("brave quick sleepy muddy lucky fuzzy jolly tiny grumpy sunny dizzy bold calm cheeky clever cosy daring eager fancy gentle happy humble keen lively loyal merry nimble plucky proud quiet rusty scruffy shy silly snappy speedy spry sturdy swift wily witty zesty")
+	nickNames = strings.Fields("biscuit pickle waffles noodle pepper bean maple ziggy rocket bonnie mochi pudding scout banjo tofu nugget juniper dottie fudge pip heron robin wren finch puffin magpie kestrel plover osprey lark sparrow starling swift tern ibis egret pelican toucan kiwi dodo condor")
+)
+
+// nickname is key's nickname: the same key always gets the same one.
+// ponytail: 1,600 nicknames, so two agents can share one; mentioned()
+// takes the first, and the title still tags either.
+func nickname(key string) string {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	n := h.Sum32()
+	return nickWords[n%uint32(len(nickWords))] + "-" + nickNames[n/uint32(len(nickWords))%uint32(len(nickNames))]
 }
 
 // mentionable is whether a message can reach it from here.
@@ -36,7 +70,7 @@ func (m *Model) mentioned(text string) (*fleet.Agent, string) {
 		tag, rest = tag[:i], strings.TrimSpace(tag[i:])
 	}
 	for _, a := range m.order {
-		if mentionable(a) && strings.EqualFold(mentionName(a), tag) {
+		if mentionable(a) && tags(a, tag) {
 			return a, rest
 		}
 	}
@@ -100,7 +134,7 @@ func (m *Model) mentionsIn(text string) []*fleet.Agent {
 		}
 		tag = strings.TrimRight(tag, ".,;:!?)'\"")
 		for _, a := range m.order {
-			if mentionable(a) && strings.EqualFold(mentionName(a), tag) && !slices.Contains(out, a) {
+			if mentionable(a) && tags(a, tag) && !slices.Contains(out, a) {
 				out = append(out, a)
 			}
 		}
@@ -156,10 +190,13 @@ func (m *Model) mentionMatches(in []rune, back int) []event.Command {
 	var out []event.Command
 	for _, a := range m.order {
 		name := mentionName(a)
-		if !mentionable(a) || !strings.Contains(strings.ToLower(name), q) {
+		if !mentionable(a) || !strings.Contains(strings.ToLower(name+" "+a.DisplayName), q) {
 			continue
 		}
-		d := m.groupOf[a.Key]
+		d := oneLine(a.DisplayName)
+		if g := m.groupOf[a.Key]; g != "" {
+			d += " · " + g
+		}
 		if a.Branch != "" {
 			d += " · " + a.Branch
 		}

@@ -37,12 +37,12 @@ type pathInfo struct {
 // peekFor is how long a look at a folder's top stands.
 const peekFor = 30 * time.Second
 
-// peekDir is the top of dir: its things, and when the newest changed. Only the
-// top is looked at, never walked, and not again for peekFor.
-func (m *Model) peekDir(dir string) pathInfo {
-	if p, ok := m.work.peeks[dir]; ok && time.Since(p.at) < peekFor {
-		return p
-	}
+// dirPeeks are folders being looked at, by path.
+var dirPeeks = offReads[string, pathInfo]{}
+
+// peekDir is the top of dir: its things, and when the newest changed. Only
+// the top is looked at, never walked. It reads the disk: never on the UI.
+func peekDir(dir string) pathInfo {
 	p := pathInfo{at: time.Now()}
 	if st, err := os.Lstat(dir); err == nil {
 		p.mod = st.ModTime()
@@ -54,16 +54,31 @@ func (m *Model) peekDir(dir string) pathInfo {
 			p.mod = fi.ModTime()
 		}
 	}
-	if m.work.peeks == nil {
-		m.work.peeks = map[string]pathInfo{}
-	}
-	m.work.peeks[dir] = p
 	return p
 }
 
 // peekLine is a folder's top in words: how many things, when last touched.
+// It's looked at in the background, and not again for peekFor; until the
+// first look is in it says so.
 func (m *Model) peekLine(dir string, now time.Time) string {
-	p := m.peekDir(dir)
+	if m.work.peeks == nil {
+		m.work.peeks = map[string]pathInfo{}
+	}
+	take := func() {
+		if p, ok := dirPeeks.take(dir); ok {
+			m.work.peeks[dir] = p
+		}
+	}
+	take()
+	p, ok := m.work.peeks[dir]
+	if !ok || time.Since(p.at) >= peekFor {
+		dirPeeks.start(dir, func() pathInfo { return peekDir(dir) })
+		take() // tests read at once
+		p, ok = m.work.peeks[dir]
+	}
+	if !ok {
+		return "looking…"
+	}
 	s := fmt.Sprintf("%d item%s", p.items, plural(p.items))
 	if !p.mod.IsZero() {
 		s += " · touched " + age(now.Sub(p.mod)) + " ago"
@@ -84,16 +99,20 @@ type tempList struct {
 	at   time.Time
 }
 
+// tempLists are sessions' temp folders being listed again, by agent key.
+var tempLists = offReads[string, []tempEntry]{}
+
 // tempEntries are what's at the top of a's temp folders, biggest first once
-// measured, else newest first; listed again only after peekFor.
+// measured, else newest first; nil until openTemp's listing is in. Listed
+// again, in the background, once it's stood peekFor.
 func (m *Model) tempEntries(a *fleet.Agent) []tempEntry {
+	if ents, ok := tempLists.take(a.Key); ok && m.work.lists != nil {
+		m.work.lists[a.Key] = tempList{ents: ents, at: time.Now()}
+	}
 	l, ok := m.work.lists[a.Key]
-	if !ok || time.Since(l.at) >= peekFor {
-		l = tempList{ents: listTemp(a), at: time.Now()}
-		if m.work.lists == nil {
-			m.work.lists = map[string]tempList{}
-		}
-		m.work.lists[a.Key] = l
+	if ok && time.Since(l.at) >= peekFor {
+		dirs := a.TempDirs()
+		tempLists.start(a.Key, func() []tempEntry { return listTemp(dirs) })
 	}
 	out := slices.Clone(l.ents)
 	sizes := m.work.sizes
@@ -106,9 +125,10 @@ func (m *Model) tempEntries(a *fleet.Agent) []tempEntry {
 	return out
 }
 
-func listTemp(a *fleet.Agent) []tempEntry {
+// listTemp is what's at the top of dirs. It reads the disk: never on the UI.
+func listTemp(dirs []fleet.TempDir) []tempEntry {
 	var out []tempEntry
-	for _, d := range a.TempDirs() {
+	for _, d := range dirs {
 		ents, _ := os.ReadDir(d.Path)
 		for _, e := range ents {
 			te := tempEntry{path: filepath.Join(d.Path, e.Name()), dir: e.IsDir()}
@@ -124,8 +144,8 @@ func listTemp(a *fleet.Agent) []tempEntry {
 // tempShownEntries is how many of a session's things it shows opened.
 const tempShownEntries = 40
 
-// openTemp shows or hides what's in a session's temp folders, measuring
-// each thing once, in the background, the first time it's opened.
+// openTemp shows or hides what's in a session's temp folders: listed in
+// the background, then each thing measured once, the first time it's seen.
 func (m *Model) openTemp(a *fleet.Agent) tea.Cmd {
 	if m.work.opened == nil {
 		m.work.opened = map[string]bool{}
@@ -134,35 +154,45 @@ func (m *Model) openTemp(a *fleet.Agent) tea.Cmd {
 	if !m.work.opened[a.Key] {
 		return nil
 	}
-	var todo []string
-	for _, e := range m.tempEntries(a) {
-		if _, ok := m.work.sizes[e.path]; !ok {
-			todo = append(todo, e.path)
+	dirs := a.TempDirs()
+	return later(func() []tempEntry { return listTemp(dirs) }, func(m *Model, ents []tempEntry) tea.Cmd {
+		if m.work.lists == nil {
+			m.work.lists = map[string]tempList{}
 		}
-	}
-	if len(todo) == 0 {
-		return nil
-	}
-	return later(func() map[string]int64 {
-		out := make(map[string]int64, len(todo))
-		for _, p := range todo {
-			out[p] = fleet.DiskUsage([]fleet.TempDir{{Path: p}})
+		m.work.lists[a.Key] = tempList{ents: ents, at: time.Now()}
+		var todo []string
+		for _, e := range ents {
+			if _, ok := m.work.sizes[e.path]; !ok {
+				todo = append(todo, e.path)
+			}
 		}
-		return out
-	}, func(m *Model, got map[string]int64) tea.Cmd {
-		if m.work.sizes == nil {
-			m.work.sizes = map[string]int64{}
+		if len(todo) == 0 {
+			return nil
 		}
-		for p, n := range got {
-			m.work.sizes[p] = n
-		}
-		return nil
+		return later(func() map[string]int64 {
+			out := make(map[string]int64, len(todo))
+			for _, p := range todo {
+				out[p] = fleet.DiskUsage([]fleet.TempDir{{Path: p}})
+			}
+			return out
+		}, func(m *Model, got map[string]int64) tea.Cmd {
+			if m.work.sizes == nil {
+				m.work.sizes = map[string]int64{}
+			}
+			for p, n := range got {
+				m.work.sizes[p] = n
+			}
+			return nil
+		})
 	})
 }
 
 // tempEntryRows are a session's opened temp folder, a row per thing.
 func (m *Model) tempEntryRows(a *fleet.Agent, nameW, sizeW int, now time.Time) []workRow {
 	ents := m.tempEntries(a)
+	if _, ok := m.work.lists[a.Key]; !ok {
+		return []workRow{{line: dim("    listing…")}}
+	}
 	if len(ents) == 0 {
 		return []workRow{{line: dim("    empty")}}
 	}
@@ -233,8 +263,11 @@ func (m *Model) removed(p pathRow, rm func() error) tea.Cmd {
 	return later(rm, func(m *Model, err error) tea.Cmd {
 		delete(m.work.sizes, p.path)
 		delete(m.work.peeks, p.path)
-		if p.temp != nil {
-			delete(m.work.lists, p.temp.Key)
+		if a := p.temp; a != nil {
+			if l, ok := m.work.lists[a.Key]; ok {
+				l.ents = slices.DeleteFunc(slices.Clone(l.ents), func(e tempEntry) bool { return e.path == p.path })
+				m.work.lists[a.Key] = l
+			}
 		}
 		if err != nil {
 			m.flash(err.Error(), true)

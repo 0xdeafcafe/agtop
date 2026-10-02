@@ -79,8 +79,8 @@ func TestAgentHeaderFollowsItsLayout(t *testing.T) {
 	}
 }
 
-// On a narrow screen, the segments last on a line go first; an agent's
-// name and state stay.
+// On a narrow screen, the least important segments go first, the last of
+// equals first; an agent's name and state stay.
 func TestAgentHeaderNarrowDropsTheLast(t *testing.T) {
 	m, a, c := barAgentFixture(t)
 	wide := ansi.Strip(m.paneHeader(a, c, 160)[paneMetaRow])
@@ -175,5 +175,27 @@ func TestContextDetailsShowsUsedAndCapacity(t *testing.T) {
 	}
 	if !strings.Contains(got, "170k/200k") || !strings.Contains(got, "85%") {
 		t.Fatalf("context capacity missing: %q", got)
+	}
+}
+
+// Short of room, the clock outlasts what's less important before it.
+func TestBarKeepsTheClock(t *testing.T) {
+	if got := leastKept([]string{"version", "today", "clock"}); got != 0 {
+		t.Fatalf("version should go first, went %d", got)
+	}
+	if got := leastKept([]string{"folder", "branch", "mode"}); got != 2 {
+		t.Fatalf("equals go last first, went %d", got)
+	}
+}
+
+// The second line's transparency fades its own colour toward the ground.
+func TestSubLineFade(t *testing.T) {
+	for v, want := range map[string]float64{"": 0, "25%": 0.25, "dim": 0.5, "faint": 0.75, "junk": 0} {
+		if got := subLineFade(v); got != want {
+			t.Errorf("%q fades %v, want %v", v, got, want)
+		}
+	}
+	if fadeText("\x1b[38;2;200;100;0mhi", 0) != "\x1b[38;2;200;100;0mhi" || fadeText("\x1b[38;2;200;100;0mhi", 0.5) == "\x1b[38;2;200;100;0mhi" {
+		t.Fatal("0 leaves the colour, half moves it")
 	}
 }

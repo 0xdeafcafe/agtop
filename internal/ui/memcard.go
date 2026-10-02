@@ -422,7 +422,7 @@ func (m *Model) clickCard(c *hostConn, x, y int) (tea.Cmd, bool) {
 		c.cardFocus = true
 		return m.cardKey(c, key, true)
 	}
-	return nil, false
+	return m.clickQuestion(c, x, y)
 }
 
 // cardBtnAt is the key of the card's button at x, y on screen; "" off them.

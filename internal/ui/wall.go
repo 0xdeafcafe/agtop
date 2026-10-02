@@ -828,8 +828,12 @@ func wallSpread(l, r string, w int) string {
 // wallTick keeps every tile's transcript tail fresh while the Wall is
 // open: each is looked at, and read when it grew, off the UI's goroutine.
 func (m *Model) wallTick() tea.Cmd {
+	items := m.wallItems
 	if m.mode != modeWall {
-		return nil
+		if len(m.grid.keys) == 0 {
+			return nil
+		}
+		items = m.gridItems // the grid's tiles are read the same way
 	}
 	if m.wall.reading == nil {
 		m.wall.reading = map[string]bool{}
@@ -840,7 +844,7 @@ func (m *Model) wallTick() tea.Cmd {
 		had       int64
 	}
 	var wants []want
-	for _, it := range m.wallItems() {
+	for _, it := range items() {
 		path := it.a.TranscriptPath
 		if it.sub != nil {
 			path = it.sub.Path

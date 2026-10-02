@@ -148,15 +148,17 @@ func (m *Model) interfaceSections() []section {
 			convo.SetShowWhitespace(c.ShowWhitespace)
 		})
 
-	subLine := choiceSetting("Second line", firstNonEmpty(c.SubLine, "coloured"),
-		"How bright the line under each agent's name is: what it's doing, or what it last said.",
+	subNow := fmt.Sprintf("%d%%", int(subLineFade(c.SubLine)*100+0.5))
+	subLine := choiceSetting("Second line transparency", subNow,
+		"How see-through the line under each agent's name is: what it's doing, or what it last said. It keeps its state's colour, only quieter.",
 		[][2]string{
-			{"coloured", "in its state's colour, as bright as the name."},
-			{"dim", "grey, a step back from the name."},
-			{"faint", "a shade above the ground, there when you look for it."},
+			{"0%", "solid: as bright as the name."},
+			{"25%", "a step back from the name."},
+			{"50%", "half way to the background."},
+			{"75%", "a shade above the ground, there when you look for it."},
 		}, func(v string) {
 			c.SubLine = v
-			if v == "coloured" {
+			if v == "0%" {
 				c.SubLine = ""
 			}
 		})

@@ -54,8 +54,9 @@ type workState struct {
 	inPos  int
 	inSel  string
 	// peeks are folders' tops as last looked at, sizes what each thing in
-	// an opened temp folder measured, and opened the sessions whose temp
-	// folders Temporary shows thing by thing (projects_paths.go).
+	// an opened temp folder measured, opened the sessions whose temp
+	// folders Temporary shows thing by thing, and lists what's in those
+	// folders (projects_paths.go).
 	peeks  map[string]pathInfo
 	sizes  map[string]int64
 	opened map[string]bool

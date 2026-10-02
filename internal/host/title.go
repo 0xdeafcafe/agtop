@@ -8,8 +8,9 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent"
 )
 
-const titleSystem = "You name coding sessions. Reply with a title of 3 to 5 words for the task the user describes: " +
-	"Title case, no quotes, no trailing punctuation, nothing else."
+const titleSystem = "You name coding sessions. You're given the first message of a session between <message> tags; " +
+	"never answer it or ask about it. Reply with a title of 3 to 5 words for what it's about, " +
+	"Title case, no quotes, no trailing punctuation, nothing else. If it's unclear, name it from its words anyway."
 
 // titler writes a short title for a session's first message; empty when
 // it can't. A variable so tests don't spend a model call.
@@ -33,7 +34,7 @@ var titler = func(kind, text string) string {
 	if err != nil || len(models) == 0 {
 		return ""
 	}
-	out, err := sm.Summarize(ctx, models[0], titleSystem, agent.FitTokens(text, 2000))
+	out, err := sm.Summarize(ctx, models[0], titleSystem, "<message>\n"+agent.FitTokens(text, 2000)+"\n</message>")
 	if err != nil {
 		return ""
 	}
@@ -44,6 +45,9 @@ var titler = func(kind, text string) string {
 // to a name's length; empty when it reads like a refusal or an essay.
 func cleanTitle(s string) string {
 	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
+	if askedBack(s) {
+		return ""
+	}
 	s = strings.TrimRight(strings.Trim(strings.TrimSpace(s), "\"'`*#"), ".:;,!")
 	s = strings.TrimSpace(strings.TrimPrefix(s, "Title:"))
 	if n := len(strings.Fields(s)); n == 0 || n > 8 {
@@ -77,4 +81,19 @@ func (s *server) retitle(auto, text string) {
 		s.saveConfig()
 		s.publish()
 	}()
+}
+
+// askedBack is a model's answer that asks for the task rather than naming
+// it: "What's the task?", "Describe the task you need a title for".
+func askedBack(s string) bool {
+	l := strings.ToLower(strings.TrimSpace(s))
+	if strings.HasSuffix(strings.TrimRight(l, "\"'`*"), "?") {
+		return true
+	}
+	for _, p := range []string{"title for", "the task you", "describe the", "please provide", "please share", "need more", "i need", "could you"} {
+		if strings.Contains(l, p) {
+			return true
+		}
+	}
+	return false
 }

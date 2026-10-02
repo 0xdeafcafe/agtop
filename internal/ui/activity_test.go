@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func TestActivityPinnedWhileScrollingAndFolding(t *testing.T) {
+func TestActivityScrollsWithTheEnd(t *testing.T) {
 	m, _ := benchModel(200, 45)
 	c := m.host
 	// Replace the streaming tail with a clear thinking status.
@@ -41,19 +41,15 @@ func TestActivityPinnedWhileScrollingAndFolding(t *testing.T) {
 					pulse = i
 				}
 			}
-			if pulse < c.bodyTop || pulse >= c.dockY-m.paneTop {
+			if c.scroll > 0 {
+				if pulse >= 0 {
+					t.Fatalf("scrolled up, activity scrolls away with the end: pulse=%d", pulse)
+				}
+			} else if pulse < c.bodyTop || pulse >= c.dockY-m.paneTop {
 				t.Fatalf("activity must be above the entire dock: pulse=%d dock=%d", pulse, c.dockY)
-			}
-			if c.scroll > 0 && pulse != c.dockY-m.paneTop-1 {
-				t.Fatalf("scrolled activity must hug the viewport bottom: pulse=%d dock=%d", pulse, c.dockY)
 			}
 			if !c.sess.Fast {
 				t.Fatal("body rendering stopped the dock animation")
-			}
-			for _, l := range c.shown {
-				if strings.Contains(ansi.Strip(l.Text), "━") {
-					t.Fatal("scrolling transcript still contains activity")
-				}
 			}
 		}
 	}

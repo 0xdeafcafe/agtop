@@ -18,6 +18,8 @@ const (
 	sendQueue sendMode = iota
 	sendGuide
 	sendStop
+	// sendDiscuss is enter opening a room on what's typed, not sending it.
+	sendDiscuss
 )
 
 // sendModes are the ways c's agent takes a message mid-turn.
@@ -29,7 +31,7 @@ func (c *hostConn) sendModes() []sendMode {
 	if agent.Supports(c.kindOf(), agent.FeatureInterrupt) {
 		out = append(out, sendStop)
 	}
-	return out
+	return append(out, sendDiscuss)
 }
 
 // sendModeOf is how enter sends to c now: its pick, while its agent can.
@@ -63,20 +65,24 @@ func (m *Model) cycleSendMode(c *hostConn) {
 		m.sendModes = map[string]sendMode{}
 	}
 	m.sendModes[c.key] = next
+	if next == sendDiscuss {
+		m.flash("enter "+sendModeWords[next], false)
+		return
+	}
 	m.flash("enter "+sendModeWords[next]+" while it works", false)
 }
 
 // sendModeWords say what enter does in each mode, and sendModeNames name it.
 var (
-	sendModeWords = map[sendMode]string{sendQueue: "queues", sendGuide: "guides: it reads it at its next step", sendStop: "stops it and sends"}
-	sendModeNames = map[sendMode]string{sendQueue: "queue", sendGuide: "guide", sendStop: "stop & send"}
+	sendModeWords = map[sendMode]string{sendQueue: "queues", sendGuide: "guides: it reads it at its next step", sendStop: "stops it and sends", sendDiscuss: "opens a room on what's typed: its verdict comes back here"}
+	sendModeNames = map[sendMode]string{sendQueue: "queue", sendGuide: "guide", sendStop: "stop & send", sendDiscuss: "discuss"}
 )
 
 // sendModeStates and sendModeSwitches say how enter sends now, and name the
 // mode a switch goes to: guide is what the box calls coalescing.
 var (
-	sendModeStates   = map[sendMode]string{sendQueue: "queuing", sendGuide: "coalescing", sendStop: "stop & send"}
-	sendModeSwitches = map[sendMode]string{sendQueue: "queue", sendGuide: "coalesce", sendStop: "stop & send"}
+	sendModeStates   = map[sendMode]string{sendQueue: "queuing", sendGuide: "coalescing", sendStop: "stop & send", sendDiscuss: "discussing"}
+	sendModeSwitches = map[sendMode]string{sendQueue: "queue", sendGuide: "coalesce", sendStop: "stop & send", sendDiscuss: "discuss"}
 )
 
 // sendModeTop is the box's border while the session works: how enter sends,
@@ -98,6 +104,8 @@ func (m *Model) boxKeys(c *hostConn, a *fleet.Agent, s *convo.Session) []string 
 	typed := len(c.input) > 0
 	var pairs []string
 	switch {
+	case typed && m.sendModes[c.key] == sendDiscuss:
+		pairs = append(pairs, "enter", "discuss it in a room")
 	case typed && live:
 		pairs = append(pairs, "enter", sendModeKeys[m.sendModeOf(c)], m.sendNowKey(), "send now")
 	case typed && working:
@@ -107,8 +115,8 @@ func (m *Model) boxKeys(c *hostConn, a *fleet.Agent, s *convo.Session) []string 
 	case len(m.queueOf(c).items) > 0:
 		pairs = append(pairs, m.sendNowKey(), "send the queue now")
 	}
-	if live && len(c.sendModes()) > 1 {
-		pairs = append(pairs, m.boundKey("session.sendmode"), "queue · guide · stop")
+	if live {
+		pairs = append(pairs, m.boundKey("session.sendmode"), "queue · guide · stop · discuss")
 	}
 	if working {
 		pairs = append(pairs, m.boundKey("session.stop"), "stop it")
@@ -139,7 +147,7 @@ func (m *Model) historyHint() string {
 }
 
 // sendModeKeys say what enter does in each mode, beside it in the hints.
-var sendModeKeys = map[sendMode]string{sendQueue: "queue it", sendGuide: "guide it", sendStop: "stop & send"}
+var sendModeKeys = map[sendMode]string{sendQueue: "queue it", sendGuide: "guide it", sendStop: "stop & send", sendDiscuss: "discuss it"}
 
 // boundKey is the first key bound to action id, as the hints name it.
 func (m *Model) boundKey(id string) string {

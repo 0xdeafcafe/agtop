@@ -54,7 +54,7 @@ func TestPaneHeaderFrameEdges(t *testing.T) {
 func TestPaneDockStartsWithQueue(t *testing.T) {
 	m, a, c := barAgentFixture(t)
 	rows := m.paneDock(a, c, 100, 30)
-	if len(rows) == 0 || !strings.Contains(ansi.Strip(rows[0]), "queue 1") {
+	if len(rows) == 0 || !strings.Contains(ansi.Strip(rows[0]), "queue ·1") {
 		t.Fatalf("blank strip before queue: %q", rows)
 	}
 	if c.qTop != 0 {

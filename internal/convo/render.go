@@ -35,6 +35,18 @@ type Line struct {
 	Wrap bool
 }
 
+// Depth is how much of a turn's work shows, shallowest first: Prose is
+// what's said and a row for each run of steps between; Runs folds every
+// run of steps to a row; Default folds runs of clean ones. Verbose, deeper
+// still, opens everything.
+type Depth int8
+
+const (
+	DepthDefault Depth = iota
+	DepthProse
+	DepthRuns
+)
+
 // Options say how to draw.
 type HistoryMode int
 
@@ -52,6 +64,7 @@ type Options struct {
 	Tick         int
 	Open         map[string]bool // fold overrides by ref; absent means the default
 	Verbose      bool            // ctrl+o: open everything, trim nothing
+	Depth        Depth
 	Selected     string
 	Focused      bool
 	Marks        map[string]bool // files you've marked reviewed in the changes view
@@ -96,6 +109,7 @@ type cacheKey struct {
 	wide         bool
 	pal          int // the palette it was drawn in
 	open, verb   bool
+	depth        Depth
 	hideActivity bool
 	folds, sel   string
 	tick         int
@@ -262,7 +276,7 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	// the clock redraws every frame, and only what runs in it is drawn
 	// anew; one laid out for a new width can be, a slice a render.
 	if open && !noUnitMemo {
-		d.unit = &unitKey{base: s.Info.Cwd + "|" + s.Cwd, folds: key.folds, sel: key.sel, width: o.Width, cw: d.cw, verb: o.Verbose, pal: palette, gen: lookupsGen.Load(), spine: d.spine()}
+		d.unit = &unitKey{base: s.Info.Cwd + "|" + s.Cwd, folds: key.folds, sel: key.sel, width: o.Width, cw: d.cw, verb: o.Verbose, depth: o.Depth, pal: palette, gen: lookupsGen.Load(), spine: d.spine()}
 	}
 	key.gen = lookupsGen.Load()
 	waits := lookupWaits.Load()
@@ -301,7 +315,7 @@ func (s *Session) over() bool {
 func (s *Session) Stale() bool { return s.stale }
 
 func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[string]string) cacheKey {
-	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, hideActivity: o.HideActivity, folds: folds[ref] + folds["exchange"], pal: palette, gen: lookupsGen.Load()}
+	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, depth: o.Depth, hideActivity: o.HideActivity, folds: folds[ref] + folds["exchange"], pal: palette, gen: lookupsGen.Load()}
 	exchangeSelected := false
 	if strings.HasPrefix(o.Selected, "exchange:") {
 		parts := strings.Split(o.Selected, ":")
@@ -649,16 +663,31 @@ func (d *drawer) open() {
 			keep = 0
 		}
 	}
+	prose, runs := !d.o.Verbose && d.o.Depth == DepthProse, !d.o.Verbose && d.o.Depth == DepthRuns
 	for i := 0; i < len(items); i++ {
 		it := items[i]
-		// A run of two or more clean steps folds to one row; a failure
-		// never folds.
+		// Prose alone: steps go, but for a row saying how many failed.
+		if prose && it.Kind == KStep {
+			j, failed := i, 0
+			for ; j < len(items) && items[j].Kind == KStep; j++ {
+				if items[j].Step.Status == Failed {
+					failed++
+				}
+			}
+			if failed > 0 {
+				d.add(d.ref+":run:"+strconv.Itoa(i), "", d.spine()+blanks(gutter-1)+paint(cRed, "✗ "+strconv.Itoa(failed)+" of "+plural(j-i, "step")+" failed"), "")
+			}
+			i = j - 1
+			continue
+		}
+		// A run of two or more clean steps folds to one row (any run, when
+		// folding runs); a failure never folds.
 		if !d.o.Verbose && it.Kind == KStep && i < keep {
 			j := i
-			for j < keep && j < len(items) && items[j].Kind == KStep && foldable(items[j].Step) && !d.testsFailed(items[j].Step) && items[j].Step != d.latest && !d.replyOf(items[j].Step) {
+			for j < keep && j < len(items) && items[j].Kind == KStep && (runs || foldable(items[j].Step) && items[j].Step != d.latest) && !d.testsFailed(items[j].Step) && items[j].Step.Status != Failed && !d.replyOf(items[j].Step) {
 				j++
 			}
-			if j-i >= 2 {
+			if j-i >= 2 || runs && j > i {
 				run, runRef := items[i:j], d.ref+":run:"+strconv.Itoa(i)
 				d.memoized(run, runRef, i >= len(items)-freshTail, func() {
 					if !d.o.Open[runRef] {
@@ -792,6 +821,7 @@ type unitKey struct {
 	// How the turn is drawn: set once for it.
 	folds, sel, spine, base string
 	verb                    bool
+	depth                   Depth
 	width, cw, pal          int
 	gen                     int64
 }
@@ -2050,6 +2080,43 @@ func cleanOutput(s string) string {
 	}, s)
 }
 
+// unscreen undoes a screen a program drew for its own terminal's size
+// (a TUI, an editor, a test printing one): padding to that width, gaps
+// pushing text to its right edge, an editor's ~ rows past the end of a
+// file, runs of blank rows. Drawn at another width, those wrap into blocks
+// and shapes.
+// ponytail: a 24-space gap reads as screen padding, so a table with wider
+// columns than that closes up; key it on the line's width if one does.
+func unscreen(s string) string {
+	lines := strings.Split(s, "\n")
+	out := lines[:0]
+	blank, tilde := 0, 0
+	for _, l := range lines {
+		l = strings.TrimRight(l, " \t")
+		if t := strings.TrimSpace(l); t != "" && t != "~" {
+			if i := strings.IndexFunc(l, func(r rune) bool { return r != ' ' }); i >= 0 {
+				l = l[:i] + screenGap.ReplaceAllString(l[i:], "   ")
+			}
+		}
+		switch strings.TrimSpace(l) {
+		case "":
+			if blank++; blank > 1 {
+				continue
+			}
+		case "~":
+			if tilde++; tilde > 1 {
+				continue
+			}
+		default:
+			blank, tilde = 0, 0
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
+
+var screenGap = regexp.MustCompile(` {24,}`)
+
 func stripANSI(s string) string {
 	i := strings.IndexByte(s, 0x1b)
 	if i < 0 {
@@ -3235,7 +3302,7 @@ func (d *drawer) brief(prompt string, indent int) {
 const briefRows = 4
 
 func (d *drawer) output(s string, indent int, failed bool) {
-	s = collapseCR(strings.TrimRight(s, "\n"))
+	s = unscreen(collapseCR(strings.TrimRight(s, "\n")))
 	s = d.notices(s, indent)
 	if strings.TrimSpace(s) == "" {
 		return

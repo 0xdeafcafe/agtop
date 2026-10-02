@@ -123,7 +123,7 @@ func TestMultiSelectContinue(t *testing.T) {
 	if _, used := m.questionKey(c, req, "down", true); used {
 		t.Error("↓ past Continue should leave the card")
 	}
-	lines := drawQuestion(c, "", mustQs(req), 100, 0)
+	lines := drawQuestion(c, "", mustQs(req), 100, 0, 0)
 	if !strings.Contains(ansi.Strip(strings.Join(lines, "\n")), "Continue") {
 		t.Error("the multi-select card should draw a Continue button")
 	}
@@ -138,19 +138,37 @@ func mustQs(req *event.Question) []question {
 	return qs
 }
 
-// A message that starts with y, a, n or a digit must never answer a card:
-// only ↑ onto the card, or an alt chord, does.
+// With the box empty, y, a and n answer a permission card; once a message
+// is under way they type, and enter denies with it as the reason. A digit
+// or a bare enter never answers it without focus.
 func TestCardsNeedFocus(t *testing.T) {
 	m := &Model{snap: &fleet.Snapshot{}}
-	c := &hostConn{kind: "claude", sess: convo.New()}
-	c.sess.Apply(host.Sent{Text: "go"}, time.Now())
-	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: jsontext.Value(`{"command":"ls"}`)}}}, time.Now())
-	c.sess.Apply(headless.PermissionRequest{ID: "r1", Tool: "Bash", ToolUseID: "b1"}, time.Now())
-	for _, k := range []string{"y", "a", "n", "enter", "1"} {
-		if _, used := m.cardKey(c, k, true); used {
+	newConn := func() *hostConn {
+		c := &hostConn{kind: "claude", sess: convo.New()}
+		c.sess.Apply(host.Sent{Text: "go"}, time.Now())
+		c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "Bash", Input: jsontext.Value(`{"command":"ls"}`)}}}, time.Now())
+		c.sess.Apply(headless.PermissionRequest{ID: "r1", Tool: "Bash", ToolUseID: "b1"}, time.Now())
+		return c
+	}
+	for _, k := range []string{"enter", "1"} {
+		if _, used := m.cardKey(newConn(), k, true); used {
 			t.Errorf("%q answered the card without focus", k)
 		}
 	}
+	for _, k := range []string{"y", "a", "n"} {
+		if _, used := m.cardKey(newConn(), k, true); !used {
+			t.Errorf("%q from an empty box didn't answer the card", k)
+		}
+		if _, used := m.cardKey(newConn(), k, false); used {
+			t.Errorf("%q mid-message answered the card", k)
+		}
+	}
+	c := newConn()
+	c.input = []rune("use rg instead")
+	if _, used := m.cardKey(c, "enter", false); !used || len(c.input) != 0 {
+		t.Fatal("enter with a message should deny with it")
+	}
+	c = newConn()
 	if _, used := m.cardKey(c, "up", true); !used || !c.cardFocus {
 		t.Fatal("↑ from an empty box should focus the card")
 	}
@@ -826,7 +844,7 @@ func TestQuestionKeepsTypedAnswer(t *testing.T) {
 	if string(c.input) != "both, promises first" {
 		t.Fatalf("back on question 1, its answer is in the box: %q", string(c.input))
 	}
-	if out := ansi.Strip(strings.Join(drawQuestion(c, "", qsOf(req), 120, 0), "\n")); !strings.Contains(out, "✓ both, promises first") {
+	if out := ansi.Strip(strings.Join(drawQuestion(c, "", qsOf(req), 120, 0, 0), "\n")); !strings.Contains(out, "✓ both, promises first") {
 		t.Errorf("the card should show the answer in your own words:\n%s", out)
 	}
 	m.questionKey(c, req, "right", true)
@@ -929,5 +947,55 @@ func TestQueueHover(t *testing.T) {
 	}
 	if !c.queueHover(-1) || c.qHover != 0 {
 		t.Error("moving off kept the hover")
+	}
+}
+
+// v shows the option under the cursor whole, its preview uncut, and with
+// none says so; a click on an option moves the cursor there, and a second
+// picks it.
+func TestQuestionFullViewAndClicks(t *testing.T) {
+	c := &hostConn{kind: "claude", key: "k", client: &host.Client{}, sess: convo.New(), open: map[string]bool{}}
+	m := &Model{snap: &fleet.Snapshot{}, store: &state.Store{}, host: c, paneFocus: true}
+	tall := strings.TrimSuffix(strings.Repeat("row\n", 20), "\n") + "\nlast row"
+	in, _ := jsonx.Marshal(map[string]any{"questions": []map[string]any{{"question": "Which?", "options": []map[string]any{
+		{"label": "tall", "preview": tall}, {"label": "plain", "description": "no picture"}}}}})
+	c.sess.Apply(host.Sent{Text: "go"}, time.Now())
+	c.sess.Apply(headless.Message{Role: "assistant", Blocks: []headless.Block{{Type: "tool_use", ID: "b1", Name: "AskUserQuestion", Input: in}}}, time.Now())
+	c.sess.Apply(headless.PermissionRequest{ID: "q1", Tool: "AskUserQuestion", ToolUseID: "b1", Input: in}, time.Now())
+	req := c.sess.Pending()[0].Approval.Question
+	a := &fleet.Agent{DisplayName: "x"}
+	draw := func() string { return ansi.Strip(strings.Join(m.paneDock(a, c, 100, 80), "\n")) }
+
+	c.cardFocus = true
+	if strings.Contains(draw(), "last row") {
+		t.Fatal("the list should cut a tall preview")
+	}
+	m.questionKey(c, req, "v", true)
+	if out := draw(); !strings.Contains(out, "last row") || strings.Contains(out, "plain") {
+		t.Fatalf("full view should show the whole preview and only the option under the cursor:\n%s", out)
+	}
+	m.questionKey(c, req, "down", true)
+	if out := draw(); !strings.Contains(out, "no preview for this option") || !strings.Contains(out, "no picture") {
+		t.Fatalf("full view of an option without a preview:\n%s", out)
+	}
+	m.questionKey(c, req, "esc", true)
+	if c.qFull {
+		t.Fatal("esc should leave full view")
+	}
+
+	c.qCursor = 0
+	draw()
+	row := -1
+	for r, k := range c.qHit {
+		if k == "@1" && (row < 0 || r < row) {
+			row = r
+		}
+	}
+	y := c.dockY + c.cardTop + c.qHitTop + row
+	if cmd, ok := m.clickCard(c, m.paneX()+6, y); !ok || cmd != nil || c.qCursor != 1 {
+		t.Fatalf("a click on an option should move the cursor there: ok=%v cursor=%d", ok, c.qCursor)
+	}
+	if cmd, ok := m.clickCard(c, m.paneX()+6, y); !ok || cmd == nil {
+		t.Fatal("a second click should pick it")
 	}
 }

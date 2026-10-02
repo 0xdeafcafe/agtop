@@ -39,6 +39,7 @@ type rowIndex struct {
 type layoutKey struct {
 	width               int
 	wide, verb, noActiv bool
+	depth               Depth
 }
 
 func (ix *rowIndex) add(i, d int) {
@@ -84,7 +85,7 @@ func (ix *rowIndex) set(i, rows int) {
 // every turn again when the layout or the turns before them changed, and
 // opened or folded again (from the estimates kept) when the history mode did.
 func (ix *rowIndex) sync(s *Session, o Options) {
-	lk := layoutKey{o.Width, o.Wide, o.Verbose, o.HideActivity}
+	lk := layoutKey{o.Width, o.Wide, o.Verbose, o.HideActivity, o.Depth}
 	ix.hdr = 0
 	if s.Partial {
 		ix.hdr = 1

@@ -133,14 +133,13 @@ func drawPicture(img *event.ImageData, w, h, cw, ch int, drawn bool) []string {
 	if err != nil {
 		return []string{}
 	}
-	if !drawn {
-		// Blocks hold 2 by 4 to a cell, too few to blow up: any size fits.
-		cols, rows := termimg.Fit(cfg.Width*ch, cfg.Height*ch, w, h, cw, ch)
-		return quadrants(scaled(src, 2*cols, 4*rows))
-	}
+	// Blocks take the cells the picture would take sharp: no bigger.
 	cols, rows := termimg.Fit(cfg.Width, cfg.Height, w, h, cw, ch)
 	if cols == 0 {
 		return []string{}
+	}
+	if !drawn {
+		return quadrants(scaled(src, 2*cols, 4*rows))
 	}
 	id := termimg.ID(data, cols, rows)
 	seq, err := termimg.Transmit(id, scaled(src, min(cfg.Width, cols*cw), min(cfg.Height, rows*ch)), cols, rows)

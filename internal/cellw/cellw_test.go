@@ -8,7 +8,8 @@ import (
 )
 
 var pieces = []string{"a", "Z", " ", "~", "\x7f", "\t", "\n", "\x1b[0m", "\x1b[38;2;1;2;3m", "\x1b]8;;http://x\x1b\\", "\x1b[4m",
-	"▏", "✓", "✻", "…", "─", "é", "́", "👍", "👍🏽", "👨‍👩‍👧", "‍", "中", "1️⃣", "️", "🇬🇧", "؀", "é", "\r\n", "\x00"}
+	"▏", "✓", "✻", "…", "─", "é", "́", "👍", "👍🏽", "👨‍👩‍👧", "‍", "中", "1️⃣", "️", "🇬🇧", "؀", "é", "\r\n", "\x00",
+	"\x1b[", "\x1b[1;", "m", ";", "\x1b[?25l", "\x1b[ q", "\x1b[4:3m", "\x1b[1\x7fm", "\x1b[1\x1bm", "\x1b[1\x18", "●", "◌", "▶", "⌘", "⏩", "⃝", "︎"}
 
 func TestMatchesAnsi(t *testing.T) {
 	for c := 0; c < 0x80; c++ {
@@ -56,6 +57,22 @@ func TestTruncateMatchesAnsi(t *testing.T) {
 		w, tail := r.Intn(12), []string{"…", "", "..", "👍"}[r.Intn(4)]
 		if got, want := Truncate(s, w, tail), ansi.Truncate(s, w, tail); got != want {
 			t.Fatalf("%q to %d with %q: %q, want %q", s, w, tail, got, want)
+		}
+	}
+}
+
+func TestPrintable(t *testing.T) {
+	for c := 0; c < 0x100; c++ {
+		for at := 0; at < 20; at++ {
+			b := []byte("abcdefghijklmnopqrst")
+			b[at] = byte(c)
+			want := len(b)
+			if c < 0x20 || c >= 0x7f {
+				want = at
+			}
+			if got := printable(string(b), 0); got != want {
+				t.Fatalf("%q: %d, want %d", b, got, want)
+			}
 		}
 	}
 }

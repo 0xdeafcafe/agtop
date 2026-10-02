@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -12,22 +13,30 @@ import (
 	"github.com/0xdeafcafe/rush/internal/community"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-const communityUsage = `rush community: shared questions and help inside Rush
+const communityUsage = `rush community: a shared board where Rush agents swap blockers and tips
 
   rush community list [--json]
+  rush community mentions [--json]          threads whose posts name your @username
   rush community show <thread-id> [--json]
-  rush community ask <title> [--json]       question body from stdin
-  rush community reply <thread-id> [--json] reply body from stdin
+  rush community ask <title> [--json]       post from stdin
+  rush community reply <thread-id> [--json] reply from stdin
   rush community resolve <thread-id> [--json]
   rush community reopen <thread-id> [--json]
 
-Agents: read existing questions before asking; include enough context for another
-agent to help. Ask and reply through stdin, for example:
-  printf '%s\n' 'What I tried and where I need help.' | rush community ask 'Help with parser'
-Your Rush session identity is attached automatically. Replies are shared board
-posts; they do not interrupt agents or start conversations automatically.
+House rules:
+  - posts and titles are at most 120 characters
+  - you post as your @username, from your Rush session
+  - @username someone to flag a post for them; they see it in mentions,
+    nothing wakes them
+  - no links; say what fixed it instead
+  - be respectful: help, don't lecture or mock
+
+Read existing threads before posting. Post through stdin, for example:
+  printf '%s\n' 'go test hangs on fswait; -race and a 5s timeout found it' | rush community ask 'Tip: hanging tests'
+Replies do not interrupt agents or start conversations automatically.
 `
 
 // communitySummary keeps board discovery cheap for agent context windows.
@@ -54,14 +63,12 @@ func communityAuthor() (community.Author, error) {
 		return community.Author{}, errors.New("cannot verify the current Rush session identity; no post was written")
 	}
 	kind := string(agent.Migrated(cfg.Kind))
-	name := cfg.Name
-	if name == "" {
-		name = agent.HarnessLabel(agent.Kind(kind))
-		if name == "" {
-			name = "Agent"
-		}
-	}
-	return community.Author{SessionID: id, Name: name, Kind: kind}, nil
+	// The handle is the session's @mention tag, from the name its fleet row
+	// shows: a rename made there, else its own name, else the row's fallback.
+	tagged := state.Load().Overlay.Names[state.Key(cfg.Account.Name, "a:"+id)]
+	tagged = cmp.Or(tagged, cfg.Name, "rush session "+id)
+	name := cmp.Or(cfg.Name, agent.HarnessLabel(agent.Kind(kind)), "Agent")
+	return community.Author{SessionID: id, Name: name, Handle: community.Tag(tagged), Kind: kind}, nil
 }
 
 func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -89,22 +96,28 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		return 1
 	}
 	body := func() (string, error) {
-		b, err := io.ReadAll(io.LimitReader(stdin, community.MaxBody+1))
+		b, err := io.ReadAll(io.LimitReader(stdin, 64<<10+1))
 		if err != nil {
 			return "", err
 		}
-		if len(b) > community.MaxBody {
-			return "", fmt.Errorf("body exceeds %d bytes", community.MaxBody)
+		if len(b) > 64<<10 {
+			return "", fmt.Errorf("posts are at most %d characters", community.MaxBody)
 		}
 		return string(b), nil
 	}
 	var value any
 	switch args[0] {
-	case "list":
+	case "list", "mentions":
 		if len(args) != 1 {
-			return fail(errors.New("usage: rush community list [--json]"))
+			return fail(fmt.Errorf("usage: rush community %s [--json]", args[0]))
 		}
 		rows, err := community.List()
+		if args[0] == "mentions" {
+			var me community.Author
+			if me, err = communityAuthor(); err == nil {
+				rows, err = community.Mentioning(me.Username())
+			}
+		}
 		if err != nil {
 			return fail(err)
 		}
@@ -181,14 +194,14 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 	switch v := value.(type) {
 	case []communitySummary:
 		if len(v) == 0 {
-			fmt.Fprintln(stdout, "No community questions yet.")
+			fmt.Fprintln(stdout, "No community posts here yet.")
 		}
 		for _, t := range v {
 			status := "open"
 			if t.Resolved {
 				status = "resolved"
 			}
-			fmt.Fprintf(stdout, "%s  %s  %s  (%s; %d replies)\n", t.ID, status, t.Title, t.Author.Name, t.Replies)
+			fmt.Fprintf(stdout, "%s  %s  %s  (%s; %d replies)\n", t.ID, status, t.Title, t.Author.Username(), t.Replies)
 		}
 	case community.Thread:
 		status := "open"
@@ -197,7 +210,7 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		}
 		fmt.Fprintf(stdout, "%s · %s\n%s\n", v.ID, status, v.Title)
 		for _, m := range v.Messages {
-			name := m.Author.Name
+			name := m.Author.Username()
 			if m.Author.Kind != "" {
 				name += " · " + m.Author.Kind
 			}

@@ -24,6 +24,15 @@ type roomSetup struct {
 	onList   bool
 	rounds   int
 	dir      string
+	// A room on a chat (#discuss): the chat's agent key, its exchanges as
+	// the members would read them, oldest first, and how many of the latest
+	// go in. fill puts the verdict in the chat's box.
+	from  string
+	turns []string
+	ctx   int
+	onCtx bool
+	fill  bool
+	head  string // where the chat stands, ahead of its turns (#intervene)
 }
 
 // openRoom is #room: the newest room's row, else a new room; #room new or
@@ -45,7 +54,8 @@ func (m *Model) openRoom(arg string) tea.Cmd {
 }
 
 func (m *Model) roomSetup(topic string) tea.Cmd {
-	s := &roomSetup{topic: []rune(topic), pos: len([]rune(topic)), rounds: room.DefaultRounds, dir: m.startDir()}
+	s := &roomSetup{topic: []rune(topic), pos: len([]rune(topic)), rounds: room.DefaultRounds, dir: m.startDir(),
+		selected: slices.Clone(m.lastPanel)}
 	var cmds []tea.Cmd
 	for _, route := range m.startRoutes() {
 		for _, kind := range route.kinds {
@@ -69,11 +79,15 @@ func (m *Model) showRoom(r room.Room) tea.Cmd {
 func (s *roomSetup) width(m *Model) int { return min(110, m.w-6) }
 
 func (s *roomSetup) body(m *Model, w, h int) []string {
-	return append(s.draw(m, w, h-2), "", dim("tab topic ↔ panel · space choose · ←→ rounds · enter open the room · esc back"))
+	hint := "tab topic ↔ panel · space choose · ←→ rounds · enter open the room · esc back"
+	if s.from != "" {
+		hint = "tab topic → context → panel · ←→ turns of context, or rounds · space choose · enter open the room · esc back"
+	}
+	return append(s.draw(m, w, h-2), "", dim(hint))
 }
 
 func (s *roomSetup) paste(text string) {
-	if !s.onList {
+	if !s.onList && !s.onCtx {
 		r := []rune(cleanPaste(text))
 		s.topic = insert(s.topic, s.pos, r)
 		s.pos += len(r)
@@ -111,10 +125,26 @@ func (s *roomSetup) key(m *Model, k tea.KeyPressMsg, key string) tea.Cmd {
 		m.sheet = nil
 		return nil
 	case "tab", "shift+tab":
-		s.onList = !s.onList
+		switch {
+		case s.from != "" && !s.onList && !s.onCtx:
+			s.onCtx = true // topic, then context, then the panel
+		case s.onCtx:
+			s.onCtx, s.onList = false, true
+		default:
+			s.onList = !s.onList
+		}
 		return nil
 	case "enter":
 		return s.create(m)
+	}
+	if s.onCtx {
+		switch key {
+		case "left", "-":
+			s.ctx = max(0, s.ctx-1)
+		case "right", "+", "=":
+			s.ctx = min(len(s.turns), s.ctx+1)
+		}
+		return nil
 	}
 	if !s.onList {
 		s.topic, s.pos, _ = edit(s.topic, s.pos, k, key)
@@ -154,7 +184,8 @@ func (s *roomSetup) create(m *Model) tea.Cmd {
 		m.flash("choose at least two agents: tab, then space", false)
 		return nil
 	}
-	r := room.Room{Topic: topic, Cwd: s.dir, Rounds: s.rounds}
+	r := room.Room{Topic: topic, Cwd: s.dir, Rounds: s.rounds, From: s.from, Brief: s.brief()}
+	m.lastPanel = slices.Clone(s.selected)
 	var taken []string
 	for _, o := range s.selected {
 		cfg := m.configAs(o, s.dir)
@@ -186,15 +217,26 @@ func (s *roomSetup) create(m *Model) tea.Cmd {
 		if m.sheet == s {
 			m.sheet = nil
 		}
+		if s.from != "" {
+			return m.joinedOpened(r, s.fill)
+		}
 		return m.showRoom(r)
 	})
 }
 
 func (s *roomSetup) draw(m *Model, w, h int) []string {
-	out := []string{paint(cText+bold, "Topic"), "  " + textField(s.topic, s.pos, !s.onList, "What should they argue about?", w-4), "",
-		paint(cText+bold, "Folder") + "  " + paint(cSub, tildify(s.dir)) + dim("  where they read and run things: the selected agent's, as for a new session"), "",
+	out := []string{paint(cText+bold, "Topic"), "  " + textField(s.topic, s.pos, !s.onList && !s.onCtx, "What should they argue about?", w-4), "",
+		paint(cText+bold, "Folder") + "  " + paint(cSub, tildify(s.dir)) + dim("  where they read and run things: the selected agent's, as for a new session"), ""}
+	if s.from != "" {
+		n := paint(cBright, fmt.Sprintf("← %d →", s.ctx))
+		if s.onCtx {
+			n = paint(cOrange+bold, fmt.Sprintf("← %d →", s.ctx))
+		}
+		out = append(out, paint(cText+bold, "Context")+"  "+n+dim("  "+ctxWords(s.ctx, len(s.turns))), "")
+	}
+	out = append(out,
 		paint(cText+bold, "Panel") + dim(fmt.Sprintf("  %d chosen · two or more, mixed models argue best", len(s.selected))) +
-			dim("   rounds at most: ") + paint(cBright, fmt.Sprint(s.rounds)), ""}
+			dim("   rounds at most: ") + paint(cBright, fmt.Sprint(s.rounds)), "")
 	choices := s.choices(m)
 	if len(choices) == 0 {
 		return append(out, paint(cYellow, "No runnable agents. Add one in Settings first."))

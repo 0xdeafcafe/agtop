@@ -132,7 +132,7 @@ func (s *communitySheet) thread() *community.Thread {
 }
 func communityText(s string) string { return cleanPaste(ansi.Strip(s)) }
 func communityAuthor(a community.Author) string {
-	name := firstNonEmpty(a.Name, a.SessionID, "You")
+	name := a.Username()
 	if a.Kind != "" {
 		label := agent.HarnessLabel(agent.Kind(a.Kind))
 		if name != label {
@@ -153,18 +153,19 @@ func (s *communitySheet) detail(t *community.Thread, w int) []string {
 	out = append(out, dim(status+" · "+t.ID), "")
 	for _, msg := range t.Messages {
 		out = append(out, fit(paint(cOrange, communityAuthor(msg.Author))+dim(" · "+msg.At.Local().Format("Jan 2 15:04")), w))
-		out = append(out, wrap(communityText(msg.Text), w)...)
+		text := community.MentionRE.ReplaceAllStringFunc(communityText(msg.Text), func(m string) string { return paint(cYellow, m) + cText })
+		out = append(out, wrap(paint(cText, text), w)...)
 		out = append(out, "")
 	}
 	s.cachedID, s.cachedAt, s.cachedW, s.cached = t.ID, t.UpdatedAt, w, out
 	return out
 }
 func (s *communitySheet) body(m *Model, w, h int) []string {
-	out := []string{sheetTitle("Community", "shared help for Rush agents", w)}
+	out := []string{sheetTitle("Community", "blockers and tips from Rush agents", w)}
 	s.rowIDs = map[int]string{}
 	var footer []string
 	if s.composing {
-		label := "Ask a question · first line becomes the title"
+		label := "Post a blocker or tip · 120 characters, no links · first line is the title"
 		if s.replyTo != "" {
 			label = "Reply to " + s.replyTo
 		}
@@ -189,7 +190,7 @@ func (s *communitySheet) body(m *Model, w, h int) []string {
 		if !s.loaded {
 			out = append(out, dim("Loading questions…"))
 		} else if len(s.threads) == 0 {
-			out = append(out, "", paint(cText, "No questions yet. Press n to ask."), "", dim("Agents use: rush community ask \"Question\" < question.txt"))
+			out = append(out, "", paint(cText, "No posts yet. Press n to post."), "", dim("Agents use: rush community ask \"Title\" < post.txt"))
 		} else {
 			room := max(1, h-len(out)-len(footer)-2)
 			from, to := window(len(s.threads), s.cursor, room)
@@ -223,7 +224,7 @@ func (s *communitySheet) paste(text string) {
 		return
 	}
 	text = communityText(text)
-	if len(string(s.input))+len(text) > community.MaxBody {
+	if len(s.input)+len([]rune(text)) > community.MaxBody {
 		s.problem = "Message is too long"
 		return
 	}
@@ -311,7 +312,7 @@ func (s *communitySheet) key(m *Model, k tea.KeyPressMsg, key string) tea.Cmd {
 		}
 		before, pos := s.input, s.pos
 		s.input, s.pos, _ = edit(s.input, s.pos, k, key)
-		if len(string(s.input)) > community.MaxBody {
+		if len(s.input) > community.MaxBody {
 			s.input, s.pos = before, pos
 			s.problem = "Message is too long"
 		}

@@ -53,6 +53,20 @@ func waits(f *ssa.Function) bool {
 	return false
 }
 
+// answersAtOnce is a harmless system call: what it goes by to get there
+// (Getuid on a Mac goes by rawSyscall, as a read does) doesn't make it
+// wait, so the walk back from that stops there.
+func answersAtOnce(f *ssa.Function) bool {
+	if f.Pkg == nil || f.Signature.Recv() != nil {
+		return false
+	}
+	switch f.Pkg.Pkg.Path() {
+	case "syscall", "internal/syscall/unix", "golang.org/x/sys/unix":
+		return harmless[f.Name()]
+	}
+	return false
+}
+
 func main() {
 	verbose := flag.Bool("v", false, "print every path, not one per function")
 	flag.Parse()
@@ -116,7 +130,7 @@ func main() {
 		n := back[len(back)-1]
 		back = back[:len(back)-1]
 		for _, e := range n.In {
-			if _, isGo := e.Site.(*ssa.Go); isGo || blocks[e.Caller] || pure(e) || nowait[e.Caller.Func] {
+			if _, isGo := e.Site.(*ssa.Go); isGo || blocks[e.Caller] || pure(e) || nowait[e.Caller.Func] || answersAtOnce(e.Caller.Func) {
 				continue
 			}
 			blocks[e.Caller] = true

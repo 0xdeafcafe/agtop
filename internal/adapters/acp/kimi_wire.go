@@ -124,6 +124,7 @@ func readAgentWire(r io.Reader, own string, before time.Time) ([]event.Event, er
 				}
 			}
 			Usage struct{ InputOther, Output, InputCacheRead, InputCacheCreation int64 }
+			Error struct{ Message string }
 			Info  struct {
 				TaskID, Description, Status, Kind, SubagentType, ParentToolCallID string
 				Detached                                                          bool
@@ -191,7 +192,7 @@ func readAgentWire(r io.Reader, own string, before time.Time) ([]event.Event, er
 			case "failed":
 				reason = "error"
 			}
-			out = append(out, event.TurnEnd{Reason: reason, Tokens: tokens, Duration: time.Duration(rec.DurationMs) * time.Millisecond, Turns: 1})
+			out = append(out, event.TurnEnd{Reason: reason, Err: rec.Error.Message, Tokens: tokens, Duration: time.Duration(rec.DurationMs) * time.Millisecond, Turns: 1})
 			tokens = usage.TokenUsage{}
 		case "task.started", "task.terminated":
 			// Work beside the turn: a background shell ("process") or subagent.

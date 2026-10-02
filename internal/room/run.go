@@ -13,6 +13,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
+	"github.com/0xdeafcafe/rush/internal/fswait"
 	"github.com/0xdeafcafe/rush/internal/host"
 )
 
@@ -78,7 +79,9 @@ func Run(id string) error {
 	if slices.ContainsFunc(entries, func(e Entry) bool { return e.Kind == End }) {
 		return fmt.Errorf("room %s is over", id)
 	}
-	go d.watch(off)
+	stop := make(chan struct{})
+	defer close(stop)
+	go d.watch(stop, off)
 	d.post(Entry{From: "room", Kind: Info, Text: "opening the room: " + r.Topic})
 	for i, m := range r.Members {
 		mm := &member{Member: m, i: i}
@@ -146,18 +149,25 @@ func (d *driver) open(m *member) error {
 }
 
 // watch hands the driver what you post to the log.
-// ponytail: polls every 250ms; internal/fswait.Grown if that's ever felt.
-func (d *driver) watch(off int64) {
+func (d *driver) watch(stop <-chan struct{}, off int64) {
+	file := fswait.File{Path: logPath(d.r.ID), Size: off}
 	for {
-		time.Sleep(250 * time.Millisecond)
+		if !fswait.Grown(stop, []fswait.File{file}) {
+			return
+		}
 		es, next, err := Read(d.r.ID, off)
 		if err != nil {
 			continue
 		}
 		off = next
+		file.Size = next
 		for _, e := range es {
 			if e.From == User {
-				d.user <- e
+				select {
+				case d.user <- e:
+				case <-stop:
+					return
+				}
 			}
 		}
 	}
@@ -602,7 +612,9 @@ func (d *driver) prompt(m *member, round int, final string) string {
 		for _, o := range d.ms {
 			fmt.Fprintf(&b, "- %s (%s)\n", o.Name, o.Label())
 		}
-		fmt.Fprintf(&b, "\nTopic: %s\nWorking folder: %s\n\n%s\n", d.r.Topic, d.r.Cwd, fmt.Sprintf(rules, d.r.Rounds))
+		fmt.Fprintf(&b, "\nTopic: %s\nWorking folder: %s\n", d.r.Topic, d.r.Cwd)
+		b.WriteString(ifSet("\nThe user opened this room from a chat with an agent. The latest of that chat, for context:\n\n", d.r.Brief))
+		fmt.Fprintf(&b, "\n%s\n", fmt.Sprintf(rules, d.r.Rounds))
 	}
 	delta, toYou, fromUser := d.since(m)
 	if delta != "" {

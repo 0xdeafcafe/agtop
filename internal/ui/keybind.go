@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/keymap"
 )
 
@@ -72,7 +73,8 @@ func (m *Model) keyContexts() []keymap.Context {
 		m.embedded || m.mode != modeList || m.editingDoc() {
 		return nil
 	}
-	if m.paneFocus && m.host != nil {
+	if (m.paneFocus || m.quick.focused()) && m.host != nil {
+		// The quick ask lets chords through only: ctrl+] i into the chat.
 		return []keymap.Context{keymap.Session}
 	}
 	if m.inKind == inPrompt && len(m.input) > 0 {
@@ -81,18 +83,16 @@ func (m *Model) keyContexts() []keymap.Context {
 	return []keymap.Context{keymap.List}
 }
 
-// onPages is whether a place's pages have the keys: Efficiency, Settings,
+// onPages is whether a place's pages have the keys: Settings,
 // Projects or the Wall, with nothing over them and nothing being typed.
 func (m *Model) onPages() bool {
 	if m.bar != nil || m.confirm != nil || m.sheet != nil || m.picker != nil || m.embedded || m.editingDoc() {
 		return false
 	}
 	if d := m.dialog; d != nil {
-		return m.view == placeSettings && d.asking == ""
+		return (m.view == placeSettings || m.view == placeHarnesses) && d.asking == ""
 	}
 	switch m.mode {
-	case modeEff:
-		return !m.eff.typing() && m.eff.plan == nil
 	case modeWall:
 		return true
 	}
@@ -154,13 +154,46 @@ func (m *Model) runAction(id string) tea.Cmd {
 	case "session.history.open", "session.history.close":
 		m.setHistoryFold(id == "session.history.open")
 		return nil
+	case "chat.next", "chat.prev":
+		return m.stepChat(map[bool]int{true: 1, false: -1}[id == "chat.next"])
+	case "session.depth.0", "session.depth.1", "session.depth.2", "session.depth.3":
+		if c := m.host; c != nil {
+			n := id[len(id)-1] - '0'
+			c.depth, c.verbose = []convo.Depth{convo.DepthProse, convo.DepthRuns, convo.DepthDefault, convo.DepthDefault}[n], n == 3
+			m.flash(m.depthName(n), false)
+		}
+		return nil
+	case "grid.beside", "grid.below":
+		return m.gridPin(id == "grid.below")
+	case "grid.unpin":
+		m.gridUnpin(false)
+		return nil
+	case "agent.new":
+		m.toPrompt()
+		return nil
+	case "session.toprompt":
+		return m.draftToPrompt()
+	case "prompt.append", "prompt.replace":
+		return m.promptToAgent(id == "prompt.replace")
+	case "list.close", "session.close":
+		return m.askClose(a)
 	case "session.setup":
 		if m.host != nil {
 			return m.openSwitchSheet(m.host)
 		}
 		return nil
+	case "session.discuss":
+		if c := m.host; c != nil && !isRoomKey(c.key) {
+			return m.discuss(c, "", false)
+		}
+		return nil
 	case "session.mode":
 		return m.cycleSessionPermission()
+	case "session.stack":
+		if c := m.host; c != nil && len(c.subs) > 0 {
+			m.toggleStack(c)
+		}
+		return nil
 	case "guide.open":
 		m.helpPage = 1
 		if m.paneFocus && m.host != nil {
@@ -168,6 +201,12 @@ func (m *Model) runAction(id string) tea.Cmd {
 		}
 		m.mode = modeHelp
 		return nil
+	case "quick.ask":
+		return m.toggleQuick()
+	case "session.quickask.insert":
+		return m.insertQuick()
+	case "session.recall":
+		return m.toggleRecall()
 	case "prompt.stash":
 		return m.stashCommand("stash")
 	case "prompt.history":
@@ -178,4 +217,51 @@ func (m *Model) runAction(id string) tea.Cmd {
 
 func (m *Model) cycleSessionPermission() tea.Cmd {
 	return m.permissionCommand(m.host, "", false)
+}
+
+// depthName says what depth n shows.
+func (m *Model) depthName(n byte) string {
+	return []string{"m0 · only what's said", "m1 · every run of steps folded", "m2 · as usual", "m3 · everything open"}[n]
+}
+
+// draftToPrompt moves what's typed in the Session's box to Agents' Prompt,
+// to start a new agent with.
+func (m *Model) draftToPrompt() tea.Cmd {
+	c := m.host
+	if c == nil || len(c.input) == 0 {
+		m.flash("nothing typed to move", false)
+		return nil
+	}
+	text, ps := c.input, c.pastes
+	c.input, c.back, c.pastes = nil, 0, pastes{}
+	m.toPrompt()
+	m.input, m.back, m.pastes = text, 0, ps
+	m.flash("moved to the Prompt · enter starts a new agent with it", false)
+	return nil
+}
+
+// promptToAgent puts what's typed in Agents' Prompt into the open agent's
+// box, after its draft or in place of it, and the keys go there.
+func (m *Model) promptToAgent(replace bool) tea.Cmd {
+	c := m.host
+	if c == nil {
+		m.flash("no agent open to send it to", true)
+		return nil
+	}
+	if len(m.input) == 0 {
+		m.flash("nothing typed to move", false)
+		return nil
+	}
+	switch {
+	case replace || len(c.input) == 0:
+		c.input, c.pastes = m.input, m.pastes
+	default:
+		// Its pasted chips come along, numbered again in the box's own.
+		moved := c.pastes.unfold(m.pastes.expand(string(m.input), true))
+		c.input = append(append(c.input, '\n'), moved...)
+	}
+	c.back = 0
+	m.input, m.back, m.pastes = m.input[:0], 0, pastes{}
+	m.preview, m.paneFocus = true, true
+	return nil
 }

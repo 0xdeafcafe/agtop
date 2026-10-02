@@ -3,6 +3,7 @@ package ui
 import (
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -121,5 +122,21 @@ func TestKeysPageShowsFullSelectionAndProblem(t *testing.T) {
 	problem := strings.Join(strings.Fields(m.keyMap().Problems()[0].String()), " ")
 	if !strings.Contains(text, problem) {
 		t.Fatalf("invalid binding explanation is missing: %s", text)
+	}
+}
+
+// On a wide screen the keyboard sits beside the table, lighting the
+// selected action's keys, and every action row still shows.
+func TestKeysBoardBesideTable(t *testing.T) {
+	m, _ := benchModel(200, 50)
+	m.setView(placeSettings)
+	m.setSettingsPage(pageKeys)
+	m.showKey("global.palette")
+	text := ansi.Strip(strings.Join(m.dialogBody(m.w-6), "\n"))
+	if !strings.Contains(text, "q   w   e   r") {
+		t.Fatalf("no keyboard beside the table:\n%s", text)
+	}
+	if n := len(m.keyRows()); !strings.Contains(text, "1–"+strconv.Itoa(n)+" of "+strconv.Itoa(n)) {
+		t.Fatalf("the keyboard took action rows:\n%s", text)
 	}
 }

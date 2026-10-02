@@ -223,8 +223,44 @@ func (m *Model) markDone(a *fleet.Agent) tea.Cmd {
 	return nil
 }
 
+// dismiss is ctrl+x: a chat with its process up stops and goes idle, and
+// one already stopped (or ctrl+x again straight after) goes to Done. One
+// mid-turn asks first, ctrl+x again saying yes. Hiding, restarting and
+// deleting are askClose's, ctrl+] x.
+func (m *Model) dismiss(a *fleet.Agent) tea.Cmd {
+	if a == nil {
+		return nil
+	}
+	if isRoomRow(a) || a.Past || a.Interactive {
+		return m.askClose(a)
+	}
+	if a.Done {
+		m.flash(a.DisplayName+" is done · "+m.boundKey("list.done")+" brings it back", false)
+		return nil
+	}
+	again := m.closedKey == a.Key && time.Since(m.closedAt) < 3*time.Second
+	stop := func() tea.Cmd {
+		m.closedKey, m.closedAt = a.Key, time.Now()
+		m.flash("stopped "+a.DisplayName+" · "+m.boundKey("list.stop")+" again: done", false)
+		return m.stopRun(a, "")
+	}
+	switch {
+	case again:
+		m.closedKey = ""
+		m.toggleDone(a) // its process is already on its way out
+		return nil
+	case a.Busy():
+		m.confirm = &confirmation{question: "Stop " + a.DisplayName + "?", detail: "it's mid-turn · the conversation is kept, a message resumes it",
+			yesText: "stop", again: m.boundKey("list.stop"), onYes: stop}
+		return nil
+	case a.PID != 0 || a.Live() && a.Worker != nil:
+		return stop()
+	}
+	return m.markDone(a)
+}
+
 // askClose is the one way to close an agent, esc twice in its Session or
-// ctrl+x: y hides it (stopped, gone from the list for good; its
+// ctrl+] x: y hides it (stopped, gone from the list for good; its
 // conversation kept on disk), z stops it and keeps it in the list, r
 // restarts it, s switches its harness or model, x deletes it for good.
 func (m *Model) askClose(a *fleet.Agent) tea.Cmd {

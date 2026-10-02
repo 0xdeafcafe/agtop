@@ -88,6 +88,10 @@ type runMeta struct {
 	depth       int
 	agentType   string
 	description string
+	// runMod is when the run's transcript was last written, as last
+	// looked; runSeen is whether it has been.
+	runMod  time.Time
+	runSeen bool
 }
 
 // SubagentRun is one run as SubagentRuns knows it.
@@ -230,9 +234,17 @@ func (r *SubagentRuns) list() []SubagentRun {
 		}
 		run := SubagentRun{ID: m.id, ToolUseID: m.toolUse, Depth: m.depth, Type: m.agentType, Description: m.description, Born: m.mod}
 		run.Path = filepath.Join(dir, "agent-"+m.id+".jsonl")
-		if fi, err := os.Stat(run.Path); err == nil {
-			run.Mod = fi.ModTime()
+		// A run quiet past RunStale is looked at again only with the
+		// folder, every 10s: a session can have hundreds, and each stat
+		// on every reading was most of what reading the fleet cost.
+		if !fresh || !m.runSeen || time.Since(m.runMod) < RunStale {
+			m.runMod, m.runSeen = time.Time{}, true
+			if fi, err := os.Stat(run.Path); err == nil {
+				m.runMod = fi.ModTime()
+			}
+			r.metas[p] = m
 		}
+		run.Mod = m.runMod
 		out = append(out, run)
 	}
 	return out

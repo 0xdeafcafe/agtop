@@ -24,8 +24,7 @@ func (m *Model) settingsHeading(w int) []string {
 		pageProviders:  "Whose models you use: sign-ins, keys, limits and models.",
 		pageHarnesses:  "The programs that run them, and their session defaults.",
 		pageProfiles:   "Which providers a session gets, by folder and at a limit.",
-		pageGeneral:    "Session lifecycle, notifications and background work.",
-		pageAppearance: "Make the workspace look and behave the way you want.",
+		pageGeneral:    "Sessions, notifications, background work, and how the workspace looks.",
 		pageKeys:       "Find, practice and customize your shortcuts.",
 		pagePlugins:    "Manage extensions and the access they need.",
 		pageUpdates:    "Keep rush and your installed tools up to date.",
@@ -359,8 +358,9 @@ func (s *settingHelpSheet) mouse(m *Model, ev mouseEv, _, _ int) tea.Cmd {
 // Keep the current page and its neighbours visible when the full navigation
 // does not fit. Hit testing reads these same rendered names.
 func (m *Model) settingsTabs(w int) string {
-	pages := m.settingsPages()
-	cur := m.dialog.page
+	lo, hi := placePages(m.view)
+	pages := m.settingsPages()[lo:hi]
+	cur := m.dialog.page - lo
 	render := func(from, to int) string {
 		var tabs []string
 		if from > 0 {

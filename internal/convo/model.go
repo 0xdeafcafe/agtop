@@ -103,6 +103,7 @@ type Asking struct {
 	Reason   string          // why the agent asks, when it says
 	Path     string          // the file outside the workspace that made it ask, if one did
 	Always   bool            // it can be allowed for good
+	AlwaysAs string          // what allowing it for good says it does: "Always allow Bash(pnpm lint:*)"
 	Question *event.Question // set when it asks you to choose
 }
 
@@ -413,7 +414,8 @@ func (s *Session) Pending() []*Step {
 			continue // answered: it's asked again only by adding it again
 		}
 		kept = append(kept, st)
-		if st.turn != nil && st.turn.steps[st.ID] == st {
+		// One in no turn is a subagent's whose run we never saw start.
+		if st.turn == nil || st.turn.steps[st.ID] == st {
 			out = append(out, st)
 		}
 	}
@@ -507,6 +509,9 @@ func (s *Session) endTurn(t *Turn, now time.Time) {
 	t.Live, t.End = false, now
 	s.streaming = nil
 	for _, st := range t.steps {
+		if st.Approval != nil && st.parent != nil {
+			continue // a background subagent's ask outlives the turn it landed in
+		}
 		if st.Status == Running || st.Status == Waiting {
 			st.Status, st.Approval = Lost, nil
 		}
@@ -1061,6 +1066,9 @@ func slimResult(k tool.Kind, raw jsontext.Value) jsontext.Value {
 
 // Call is the step's call as rush's own: the one its agent made, or its
 // input read from Claude Code's words, with the kind its agent gave it.
+// Under is the subagent call st was made under; nil for the main agent's.
+func (st *Step) Under() *Step { return st.parent }
+
 func (st *Step) Call() tool.Call {
 	if st.call != nil {
 		return *st.call

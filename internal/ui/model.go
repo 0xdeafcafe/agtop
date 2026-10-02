@@ -25,6 +25,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/hooks"
 	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/room"
 	"github.com/0xdeafcafe/rush/internal/menubar"
 	"github.com/0xdeafcafe/rush/internal/plugin"
 	"github.com/0xdeafcafe/rush/internal/state"
@@ -130,6 +131,8 @@ type Model struct {
 	peekFrom           string // the agent whose Session alone you left to peek at Agents
 	previews           map[string]previewEntry
 	btws               map[string]*btwThread // agents' side threads (/btw), by key
+	quick              quickAsk              // the quick ask's float and its threads
+	side               sidekick              // the sidekick column's notes, beside a wide Session
 	live               *live
 	liveOpening        string
 	liveFailed         string
@@ -139,6 +142,8 @@ type Model struct {
 	topHover           headerHover
 	hover              string
 	rowKeys            []string
+	footHits           []footHit    // the side list footer's recent setups, by column
+	events             []agentEvent // the feed at the list's foot, oldest first
 	listTop            int
 	lastClick          time.Time
 	// pressAt and pressXY are the last left press, and dbl whether the
@@ -191,13 +196,26 @@ type Model struct {
 	// again soon after asks to close it (askClose).
 	escAt     time.Time
 	escKey    string
+	// closedAt is when ctrl+x last stopped closedKey: ctrl+x again soon
+	// after moves it to Done without waiting for its process to go.
+	closedAt  time.Time
+	closedKey string
 	confirm   *confirmation
 	chipHot   chipHover
 	dialog    *dialog
 	picker    *picker
 	community *communitySheet // shared local help board
+	stream    streamState     // the board as a timeline at the list's foot
+	broadcast map[string]bool // #broadcast picking: the agents the next message goes to
 	roomFeed  *roomFeed       // the room the pane shows: see roomfeed.go
 	rooms     roomRows        // rooms as list rows: see roomrows.go
+	// lastPanel is the panel chosen last, chosen again in the next room set
+	// up; verdicts the verdicts waiting as a card in their chat, by the
+	// chat's agent key; verdictsPicked the verdicts already picked for you
+	// in their chat. See discuss.go.
+	lastPanel      []startOver
+	verdicts       map[string]room.Summary
+	verdictsPicked map[string]bool
 	sheet     sheet           // /fork, /rewind, /plugins, /statusline, /skills: see sheet.go
 	// rewound holds the message /rewind put back, by agent, for the box
 	// once the pane reconnects.
@@ -240,6 +258,7 @@ type Model struct {
 	attached     string
 	view         int
 	settingsPage int  // the Settings place's page: a tab of the dialog
+	harnessPage  int  // and the Harnesses place's
 	helpPage     int  // the guide's tab: helpPages
 	onboard      bool // teaching: Getting started and tips
 	cardShown    bool // Getting started was under the list last frame
@@ -255,16 +274,19 @@ type Model struct {
 	fxKick      bool         // a reaction started this update; its ticking needs starting
 	measuring   bool         // temp work is being measured in the background
 	clean       cleanup      // the Cleanup view's worktrees, and the tidy-up
-	eff         effState     // the Efficiency place
 	work        workState    // the Projects place and the Agents place's Wall
 	stackFor    int          // the list width a preview decides two-line rows for
 	wall        wallState    // the Wall page
+	grid        gridState    // agents pinned as tiles beside the Session
+	barSort     string       // the command bar's agent order: see barSorts
 	reaper      fleet.Reaper // ends what agents leave running when they stop
 	squeezing   bool         // transcripts are being compressed in the background
 
 	bar     *cmdBar  // the command bar, while it's open
 	barBack *spot    // where the bar last jumped from
 	jump    *barJump // a jump into a conversation that's still opening
+	// intervening is #intervene @agent while that agent's chat opens.
+	intervening *pendingIntervene
 	// listFilter narrows the Agents view to what's typed after alt+f: nil
 	// when it's closed. See listfilter.go.
 	listFilter *listFilterState
@@ -342,13 +364,19 @@ func sectionKey(title string) string { return "§" + title }
 
 func New(store *state.Store, version string) *Model { return newModel(store, version, false) }
 
+// newLoader is the fleet's reader, which reads which sessions ran which
+// agents (a few dozen bytes each) as it's made.
+//
+//uiblock:nowait New is asked for before the program starts, so nothing waits on it
+func newLoader(store *state.Store) *fleet.Loader { return fleet.NewLoader(store) }
+
 // newModel is New, leaving past conversations out of its readings when
 // skipPast (see fleet.Loader.SkipPast) until something needs every agent.
 func newModel(store *state.Store, version string, skipPast bool) *Model {
 	dir := os.Getenv("PWD") // the shell's word for now: Init asks the kernel
 	convo.SetPixelPictures(store.Config.PixelPictures)
 	m := &Model{
-		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
+		store: store, loader: newLoader(store), scanner: fleet.NewScanner(),
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
 		lastState:  map[string]string{},
 		hibernated: map[string]bool{},
@@ -369,6 +397,11 @@ func newModel(store *state.Store, version string, skipPast bool) *Model {
 	m.refresh()
 	m.rebuild()
 	m.onboard = true
+	m.grid.keys, m.grid.share = slices.Clone(store.Config.Grid), store.Config.GridShare // the grid as it was left
+	m.grid.under = map[string]bool{}
+	for _, k := range store.Config.Grid {
+		m.grid.under[k] = store.Config.GridBelow || slices.Contains(store.Config.GridBelowKeys, k)
+	}
 	return m
 }
 
@@ -437,9 +470,9 @@ func (m *Model) Init() tea.Cmd {
 	watchUI()
 	if m.hosted != "" {
 		// Only the one session: nothing about the app as a whole.
-		return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadPreview(), askColours, m.loadKeys(), m.startHooks())
+		return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadPreview(), startColours, m.loadKeys(), m.startHooks())
 	}
-	return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkHarnesses(false), m.checkPluginApprovals(), askColours)
+	return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkHarnesses(false), m.checkPluginApprovals(), startColours, m.loadStream())
 }
 
 // askColours asks the terminal for its background and text, which rush's
@@ -689,8 +722,18 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 	if k == "" {
 		return nil
 	}
-	if k == advisorKey {
-		m.openAdvisorAbout()
+	switch k {
+	case footNextKey:
+		return m.openStartSheet()
+	case footRecentKey:
+		m.footClick(x)
+		return nil
+	}
+	if id, ok := strings.CutPrefix(k, streamKeyPrefix); ok {
+		return m.openCommunity(id)
+	}
+	if m.broadcast != nil && !strings.HasPrefix(k, "§") {
+		m.broadcastPick(k)
 		return nil
 	}
 	double := k == m.sel && time.Since(m.lastClick) < 400*time.Millisecond
@@ -803,6 +846,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := m.update(msg)
 	m.pinHosted()
 	m.applyJump()
+	cmd = tea.Batch(cmd, m.interveneReady())
 	_, isTick := msg.(tickMsg)
 	m.noteProgress(isTick)
 	var copyCmd tea.Cmd
@@ -967,11 +1011,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.hosted == "" || m.mode == modeProjects {
 			cmds = append(cmds, m.measureTemp())
 		}
-		if m.mode == modeEff && !m.eff.loading && time.Since(m.eff.loaded) > 30*time.Second {
-			cmds = append(cmds, m.effLoad(true)) // new transcript lines, every 30s while it's open
-		}
 		if c := m.workTick(); c != nil {
 			cmds = append(cmds, c) // the overview reads on while it's open
+		}
+		if c := m.sideTick(); c != nil {
+			cmds = append(cmds, c)
 		}
 		if c := m.wallTick(); c != nil {
 			cmds = append(cmds, c) // and the Wall's tiles
@@ -987,7 +1031,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tick%60 == 0 && m.hosted == "" {
 			cmds = append(cmds, m.fetchUsage(), m.findLogins(), m.fetchQuotas())
 		}
-		cmds = append(cmds, m.advTick())
 		m.clkBeat(m.mood(m.tally()))
 		cmds = append(cmds, m.loadPreview())
 		if m.tick%2 == 0 {
@@ -999,19 +1042,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case configMsg:
 		m.onConfig(msg)
 		return m, nil
-	case effLoadedMsg:
-		m.onEffLoaded(msg)
-		return m, nil
 	case workTimelinesMsg:
 		m.onWorkTimelines(msg)
 		return m, nil
 	case wallReadMsg:
 		m.onWallRead(msg)
-		return m, nil
-	case effRanMsg:
-		return m, m.onEffRan(msg)
-	case advRanMsg:
-		m.onAdvRan(msg)
 		return m, nil
 	case scanMsg:
 		m.scanning = false
@@ -1062,6 +1097,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.previews[p.key] = p.e
 		}
 		return m, nil
+	case darkScheme, lightScheme:
+		return m, askColours
 	case tea.FocusMsg:
 		m.blurred = false
 		// The terminal's profile may have changed while away: light or
@@ -1254,6 +1291,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				msg.Content = t
 			}
 		}
+		if t := m.quick.thread(); m.quick.focused() {
+			r := []rune(oneLine(msg.Content))
+			t.input, t.pos = insert(t.input, t.pos, r), t.pos+len(r)
+			return m, nil
+		}
 		// A paste goes into whichever box has focus, at its cursor, newlines
 		// kept so a pasted log or snippet arrives whole.
 		// A long one shows as a chip and goes out whole.
@@ -1308,6 +1350,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(m.sheetMouse(mouseDrag, msg.X, msg.Y), m.pointerShape("grabbing"))
 		}
+		if m.grid.drag {
+			m.gridDrag(msg.X, msg.Y)
+			return m, m.pointerShape("grabbing")
+		}
 		if c := m.host; c != nil && c.minimap.dragging {
 			if msg.Button == tea.MouseLeft {
 				m.dragMinimap(c, msg.Y)
@@ -1321,6 +1367,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.endBtwDrag(t)
+		}
+		if c := m.host; c != nil && c.pullY > 0 {
+			if msg.Button == tea.MouseLeft {
+				if c.pullY-1-msg.Y >= 3 {
+					m.openStack(c, m.stackFromY(c, c.pullY-1))
+				}
+				return m, nil
+			}
+			c.pullY = 0
 		}
 		if c := m.host; c != nil && c.txt.drag {
 			if msg.Button == tea.MouseLeft {
@@ -1391,9 +1446,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.sheetMouse(mouseRelease, msg.X, msg.Y), m.pointerShape("default"))
 		}
 		var cmd tea.Cmd
+		if c := m.host; c != nil {
+			c.pullY = 0
+		}
 		if c := m.host; c != nil && c.minimap.dragging {
 			m.dragMinimap(c, msg.Y)
 			c.minimap.dragging = false
+			return m, m.pointerShape("default")
+		}
+		if m.grid.drag {
+			m.gridDrag(msg.X, msg.Y)
+			m.grid.drag = false
+			m.gridSave()
 			return m, m.pointerShape("default")
 		}
 		if t := m.btwDragging(); t != nil {
@@ -1416,6 +1480,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			at := [2]int{msg.X, msg.Y}
 			m.dbl = at == m.pressXY && time.Since(m.pressAt) < 400*time.Millisecond
 			m.pressAt, m.pressXY = time.Now(), at
+			if m.bar == nil && m.confirm == nil && m.clickQuick(msg.X, msg.Y) {
+				return m, nil // the quick ask floats over all but those
+			}
+			if m.bar == nil && m.confirm == nil && m.clickSide(msg.X, msg.Y) {
+				return m, nil
+			}
 			if cmd, ok := m.overlayClick(msg.X, msg.Y); ok {
 				return m, cmd // a sheet, question or menu: see overlayclick.go
 			}
@@ -1434,6 +1504,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.settingsMouse(msg.X, msg.Y)
 			}
 			return m, nil
+		}
+		if msg.Button == tea.MouseLeft && m.mode == modeList {
+			if cmd, ok := m.gridClick(msg.X, msg.Y); ok {
+				return m, cmd
+			}
 		}
 		if msg.Button == tea.MouseLeft {
 			if cmd := m.draftImage(msg.X, msg.Y); m.sheet != nil {
@@ -1459,6 +1534,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.embedded = true
 			}
 			m.host.txt.on = false // a click elsewhere drops what was dragged over
+			if m.clickDockSide(m.host, msg.X, msg.Y) {
+				return m, nil
+			}
 			if m.contextAt(m.host, msg.X, msg.Y) {
 				return m, m.openInfo(m.host, infoContext)
 			}
@@ -1482,6 +1560,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.pressMinimap(m.host, msg.X, msg.Y) {
 				return m, m.pointerShape("grabbing")
+			}
+			if m.clickStack(m.host, msg.Y) {
+				return m, nil
+			}
+			if m.onSubsTitle(m.host, msg.Y) {
+				m.host.pullY = msg.Y + 1 // dragged up, it opens the stack
+				return m, nil
 			}
 			if !m.embedded {
 				if cmd, ok := m.clickMessage(m.host, msg.X, msg.Y); ok {
@@ -1541,6 +1626,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					c.scrollOnly = true
 					return m, nil
 				}
+				if msg.Button == tea.MouseWheelUp && m.onSubsTitle(c, msg.Y) {
+					m.openStack(c, m.stackFromY(c, msg.Y))
+					return m, nil
+				}
 				switch msg.Button {
 				case tea.MouseWheelUp:
 					c.scroll += 3
@@ -1577,13 +1666,13 @@ func (m *Model) pointerShape(want string) tea.Cmd {
 
 // viewNames are the places at the top: ctrl+\ moves between them, and tab
 // moves within one (the list and its Session, or a place's pages).
-var viewNames = []string{"Agents", "Projects", "Efficiency", "Settings"}
+var viewNames = []string{"Agents", "Projects", "Harnesses", "Settings"}
 
 // The places, in viewNames' order.
 const (
 	placeAgents = iota
 	placeProjects
-	placeEff
+	placeHarnesses
 	placeSettings
 )
 
@@ -1600,18 +1689,43 @@ func (m *Model) setView(v int) {
 		m.work.page = agentsList
 	case placeProjects:
 		m.mode = modeProjects
-	case placeEff:
-		m.setEffPage(m.eff.page)
+	case placeHarnesses:
+		m.openDialog(m.harnessPage)
 	case placeSettings:
-		m.openDialog(m.settingsPage)
+		m.openDialog(max(m.settingsPage, pageGeneral))
 	}
 }
 
-// setSettingsPage shows one of Settings' pages.
+// placePages are the dialog's pages a place shows: Harnesses the agents'
+// set-up, Settings the rest.
+func placePages(v int) (lo, hi int) {
+	if v == placeHarnesses {
+		return pageProviders, pageGeneral
+	}
+	return pageGeneral, pageUpdates + 1
+}
+
+// setSettingsPage shows one of the dialog's pages, in the place it's on.
 func (m *Model) setSettingsPage(p int) {
-	n := len(m.settingsPages())
-	m.settingsPage = (p + n) % n
-	m.openDialog(m.settingsPage)
+	v := placeSettings
+	if p < pageGeneral {
+		v = placeHarnesses
+	}
+	if m.view != v {
+		m.setView(v)
+	}
+	if v == placeHarnesses {
+		m.harnessPage = p
+	} else {
+		m.settingsPage = p
+	}
+	m.openDialog(p)
+}
+
+// stepSettingsPage is [ and ]: the next page of the place's, round.
+func (m *Model) stepSettingsPage(d int) {
+	lo, hi := placePages(m.view)
+	m.setSettingsPage(lo + (m.dialog.page-lo+d+hi-lo)%(hi-lo))
 }
 
 // setZen turns Zen on or off. Zen is Agents with only the agent that needs
@@ -1679,12 +1793,15 @@ func (m *Model) notify() {
 			switch {
 			case failing && !wasFailing:
 				m.react(fxError)
+				m.noteEvent(a, cRed, "✗", oneLine(a.HaltReason()))
 			case prev != "blocked" && a.NeedsYou():
 				m.react(fxAsk)
+				m.noteEvent(a, cOrange, "?", oneLine(a.Needs))
 			case prev == "blocked" && (a.State == "working" || a.State == "running"):
 				m.react(fxAnswered)
 			case (prev == "working" || prev == "running") && a.State == "done":
 				m.react(fxDone)
+				m.noteEvent(a, cGreen, "✓", "finished")
 			}
 		}
 		// Not for the agent you're looking at while rush has focus.
@@ -2028,10 +2145,14 @@ func (m *Model) rebuild() {
 				}
 			}
 			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a, inset: inset})
+			under := inset
+			if !isRoomRow(a) {
+				under += rowInset // a room opened from a chat, joined under it
+			}
 			for _, mb := range m.roomMembers(a) {
 				m.order = append(m.order, mb)
 				m.groupOf[mb.Key] = g.name
-				m.lines = append(m.lines, listLine{kind: lineAgent, agent: mb, inset: inset})
+				m.lines = append(m.lines, listLine{kind: lineAgent, agent: mb, inset: under})
 			}
 		}
 		m.lines = append(m.lines, listLine{kind: lineBlank})

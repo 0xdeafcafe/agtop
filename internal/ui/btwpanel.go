@@ -252,8 +252,12 @@ func (m *Model) copyBtwSel(t *btwThread) bool {
 	return true
 }
 
-// btwDragging is the side thread a drag is under way in, if any.
+// btwDragging is the side thread a drag is under way in, if any, or the
+// quick ask's.
 func (m *Model) btwDragging() *btwThread {
+	if t := m.quick.thread(); t != nil && t.sel.drag {
+		return t // the quick ask's, which is btw's too
+	}
 	if m.host == nil {
 		return nil
 	}

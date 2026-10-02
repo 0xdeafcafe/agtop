@@ -57,6 +57,12 @@ func Key(account, id string) string { return account + "/" + id }
 type Config struct {
 	// HideMinimap hides the conversation overview rail; narrow panes hide it automatically.
 	HideMinimap bool `json:"hideMinimap,omitzero"`
+	// Grid is the agents pinned as tiles beside the Session, by key, and
+	// GridBelow whether they sit under it instead.
+	Grid          []string `json:"grid,omitempty"`
+	GridBelow     bool     `json:"gridBelow,omitzero"`      // old configs: every tile under
+	GridBelowKeys []string `json:"gridBelowKeys,omitempty"` // the tiles in the row under the Session; the rest are beside it
+	GridShare     float64  `json:"gridShare,omitzero"`      // how much of the pane the tiles take
 	// PixelPictures draws pictures in coloured blocks even where the
 	// terminal could show them sharp.
 	PixelPictures bool `json:"pixelPictures,omitzero"`
@@ -173,8 +179,9 @@ type Config struct {
 	TrimRunningTmp bool `json:"trimRunningTmp,omitzero"`
 	// KeepTranscriptsPlain turns off storing idle transcripts compressed.
 	KeepTranscriptsPlain bool `json:"keepTranscriptsPlain,omitzero"`
-	// SubLine is how bright an agent's second line in the list is: "" in
-	// its state's colour, "dim" or "faint".
+	// SubLine is how see-through an agent's second line in the list is:
+	// "" solid, else a transparency like "50%" ("dim" and "faint", from
+	// before, are 50% and 75%).
 	SubLine string `json:"subLine,omitempty"`
 	// HideLogo drops the bottle from the header, which then takes three
 	// rows instead of five.
@@ -399,6 +406,9 @@ type Start struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 	Mode   string `json:"mode,omitempty"`
+	// RestMinutes is how long its idle sessions keep the agent running,
+	// over Dispatch.RestMinutes; 0 leaves that to decide.
+	RestMinutes int `json:"restMinutes,omitzero"`
 }
 
 // StartFor is what a new session of agent kind starts with.
@@ -431,6 +441,19 @@ func (d *Dispatch) SetStartFor(kind string, s Start) {
 // starting it again takes about a second, and the prompt cache (an hour)
 // isn't lost.
 const DefaultRest = 3 * time.Second
+
+// RestFor is how long an idle session of profile and agent kind keeps its
+// agent running: the profile's RestMinutes, else the kind's, else Rest's.
+// ok is false when neither sets one.
+func (c Config) RestFor(profile, kind string) (d time.Duration, ok bool) {
+	if p, found := c.ProfileNamed(profile); found && p.RestMinutes > 0 {
+		return time.Duration(p.RestMinutes) * time.Minute, true
+	}
+	if m := c.Dispatch.Starts[kind].RestMinutes; m > 0 {
+		return time.Duration(m) * time.Minute, true
+	}
+	return c.Dispatch.Rest(), false
+}
 
 // Rest is how long an idle rush-mode session keeps Claude Code running.
 func (d Dispatch) Rest() time.Duration {

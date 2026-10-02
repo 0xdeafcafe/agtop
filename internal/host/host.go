@@ -335,6 +335,9 @@ type server struct {
 	pk       packer
 	clients  map[*conn]struct{}
 	pending  map[string]asked
+	// afterAsk is a message sent now while the agent asked something: it
+	// waited in the queue, and goes as soon as that's answered.
+	afterAsk bool
 	info     Info
 	// pics is where each queued image is read from, by its path, so it's
 	// read once, when it's queued.
@@ -345,6 +348,7 @@ type server struct {
 	ctxOut   bool // the context-usage question is out
 	// taskStart is when each of the agent's tasks still running started.
 	taskStart map[string]time.Time
+	nudged    map[string]time.Time // background tasks last asked about: see longtask.go
 	asking    int            // control requests out for clients
 	context   []byte         // the last answer, as the line clients get
 	stamped   time.Time      // when the last time mark went into the ring
@@ -399,6 +403,15 @@ func Run(id string) error {
 	}
 	if err := jsonx.Unmarshal(b, &cfg); err != nil {
 		return err
+	}
+	// A managed subagent, and Claude Code on Anthropic or Codex on OpenAI
+	// (their models stay warm in the cloud), rest as soon as they're done.
+	// Otherwise a profile's or agent's own rest wins, read on every start so
+	// a change reaches sessions already running the next time they wake.
+	if k := agent.Migrated(cfg.Kind); cfg.Meta["spawnedBy"] != "" || k == "claude" || k == "codex" {
+		cfg.IdleStop = Duration(DefaultIdleStop)
+	} else if d, ok := state.Load().Config.RestFor(cfg.Profile, string(cfg.Kind)); ok {
+		cfg.IdleStop = Duration(d)
 	}
 	if cfg.IdleStop == 0 {
 		cfg.IdleStop = Duration(DefaultIdleStop)
@@ -466,6 +479,7 @@ func Run(id string) error {
 	s.mu.Unlock()
 	go s.accept()
 	go s.watchSock(sock)
+	go s.watchLongTasks()
 	if cfg.Owner > 0 && cfg.Owner == os.Getppid() {
 		go s.watchOwner(cfg.Owner)
 	}
@@ -953,6 +967,20 @@ func (s *server) answered(id string) {
 	}
 }
 
+// afterAnswer sends what waited for the agent's question to be answered
+// (afterAsk), once nothing's asked. Called with mu held, after the answer
+// has gone, so the message never overtakes it.
+func (s *server) afterAnswer() {
+	if len(s.pending) > 0 || !s.afterAsk {
+		return
+	}
+	s.afterAsk = false
+	if len(s.info.Queue) > 0 && !s.info.QueueHeld && s.conn != nil {
+		s.sendQueue()
+		s.publish()
+	}
+}
+
 // stillWorking is whether an idle agent has work of its own going: tasks
 // in the background, a side question, or a message it hasn't begun
 // answering (a restarted agent can end a turn on a notice it had queued
@@ -1133,6 +1161,11 @@ func (s *server) sendExchange(text string, images []string, now bool, exchange *
 	}
 	waiting := s.info.Limit != nil && s.info.Limit.Continue && !s.info.Limit.ResetsAt.IsZero()
 	busy := s.info.State == "working" || s.info.State == "blocked" || waiting
+	if now && len(s.pending) > 0 {
+		// Handed to the turn now, it would call off the question or the
+		// permission the agent is waiting on: it waits behind it instead.
+		now, s.afterAsk = false, true
+	}
 	if !now && busy {
 		if len(s.info.Queue) == 0 {
 			s.queuedAt = time.Now()
@@ -1187,7 +1220,7 @@ var queueLate = 2 * time.Minute
 func (s *server) lateQueue() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cfg.Kind != "" || s.conn == nil || s.info.State != "working" || len(s.info.Queue) == 0 ||
+	if !takesInbox(s.cfg.Kind) || s.conn == nil || s.info.State != "working" || len(s.info.Queue) == 0 ||
 		s.info.QueueHeld || s.info.Limit != nil || time.Since(s.queuedAt) < queueLate {
 		return
 	}
@@ -1706,7 +1739,11 @@ func (s *server) do(o op) error {
 		s.answered(o.ID)
 		s.publish()
 		s.mu.Unlock()
-		return s.answerAgent(conn, o.ID, req, &o)
+		err := s.answerAgent(conn, o.ID, req, &o)
+		s.mu.Lock()
+		s.afterAnswer()
+		s.mu.Unlock()
+		return err
 	case "mode":
 		known, selectable := false, false
 		if len(s.info.PermissionModes) > 0 {

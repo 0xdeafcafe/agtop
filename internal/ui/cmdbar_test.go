@@ -314,13 +314,6 @@ func TestBarFindInGroup(t *testing.T) {
 	if len(m.bar.items) == 0 {
 		t.Fatal("the group's agents aren't listed")
 	}
-	// In Efficiency it finds among Efficiency's pages.
-	m.closeBar()
-	m.setView(placeEff)
-	m.Update(ctrlF())
-	if sc := m.bar.scope(); sc.kind != "place" || len(m.bar.items) != len(effPages) {
-		t.Fatalf("ctrl+f in Efficiency: %+v %d rows", sc, len(m.bar.items))
-	}
 }
 
 func TestBarStartsAnAgent(t *testing.T) {

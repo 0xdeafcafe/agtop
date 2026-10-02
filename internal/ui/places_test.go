@@ -76,16 +76,12 @@ func TestPlacesAndFocus(t *testing.T) {
 
 	m.key(places)
 	m.key(places)
-	if m.view != placeEff || m.mode != modeEff || m.eff.page != effOverview {
-		t.Fatalf("> should go to Efficiency's Overview, got view %d mode %d", m.view, m.mode)
-	}
-	m.key(next)
-	if m.eff.page != effTimeline {
-		t.Fatal("] in Efficiency should go to its Timeline")
+	if m.view != placeHarnesses || m.dialog == nil || m.dialog.page != pageProviders {
+		t.Fatalf("> > should go to Harnesses, got view %d", m.view)
 	}
 	m.key(places)
-	if m.view != placeSettings || m.dialog == nil {
-		t.Fatalf("> from Efficiency should go to Settings, got view %d", m.view)
+	if m.view != placeSettings || m.dialog == nil || m.dialog.page != pageGeneral {
+		t.Fatalf("> from Harnesses should go to Settings, got view %d", m.view)
 	}
 	m.key(back)
 	m.key(back)
@@ -99,9 +95,8 @@ func TestPlacesAndFocus(t *testing.T) {
 	}
 	m.key(places)
 	m.key(places)
-	m.key(places)
-	if m.view != placeEff || m.eff.page != effTimeline {
-		t.Fatal("> > > from Settings should go round through Agents and Projects to Efficiency, on the page it was on")
+	if m.view != placeProjects {
+		t.Fatal("> > from Settings should go round through Agents to Projects")
 	}
 	m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.view != placeAgents || m.mode != modeList {

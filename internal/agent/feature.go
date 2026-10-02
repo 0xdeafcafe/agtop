@@ -44,12 +44,11 @@ const (
 	FeatureRemote  Feature = "remote"  // sessions on the agent's own servers
 
 	// Accounts and usage.
-	FeatureSwitch     Feature = "switch"  // switches between accounts: Accounts
-	FeatureSignIn     Feature = "signin"  // signs in to another account: Accounts
-	FeatureQuota      Feature = "quota"   // reads its limits: a QuotaSource
-	FeaturePricing    Feature = "pricing" // prices its tokens: a Pricer
-	FeatureEfficiency Feature = "efficiency"
-	FeatureMemory     Feature = "memory" // the files it reads as memory, and the memory report
+	FeatureSwitch  Feature = "switch"  // switches between accounts: Accounts
+	FeatureSignIn  Feature = "signin"  // signs in to another account: Accounts
+	FeatureQuota   Feature = "quota"   // reads its limits: a QuotaSource
+	FeaturePricing Feature = "pricing" // prices its tokens: a Pricer
+	FeatureMemory  Feature = "memory"  // the files it reads as memory, and the memory report
 )
 
 // FeatureInfo is a feature and what it's called.
@@ -95,7 +94,6 @@ var allFeatures = []FeatureInfo{
 	{FeatureSignIn, "Sign-in"},
 	{FeatureQuota, "Limits"},
 	{FeaturePricing, "Pricing"},
-	{FeatureEfficiency, "Efficiency"},
 	{FeatureMemory, "Memory"},
 }
 

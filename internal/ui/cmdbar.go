@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"cmp"
 	"slices"
 	"sort"
 	"strconv"
@@ -100,7 +101,7 @@ type cmdBar struct {
 
 // spot is somewhere the bar jumped from, for "Back".
 type spot struct {
-	view, effPage, settingsPage int
+	view, settingsPage int
 	projSel                     string
 	agentsPage                  int
 	mode                        mode // which of Agents' pages
@@ -207,6 +208,12 @@ func (m *Model) barKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	case "tab", "shift+tab":
 		b.cursor = b.nextSection(map[string]int{"tab": 1, "shift+tab": -1}[s])
 		return nil
+	case "ctrl+s":
+		// The agents' order: by what they need of you, the latest, or in
+		// sections by project, worktree, model or harness.
+		m.barSort = barSorts[(slices.Index(barSorts, m.barSort)+1)%len(barSorts)]
+		b.cursor = 0
+		return m.barChanged()
 	case "ctrl+enter", "ctrl+j":
 		// ctrl+j is the same key where the terminal can't tell ctrl+enter
 		// from enter.
@@ -595,8 +602,8 @@ func (m *Model) barRebuild() {
 			// Agents first, by what they need of you; places once typed for,
 			// but for starting one and going back.
 			places := m.barPlaces(name)
-			if name == "" {
-				groups := m.barAgentGroups()
+			if name == "" || m.barSort != "status" && m.barSort != "" {
+				groups := m.barAgentGroups(name)
 				for _, g := range groups {
 					add(g.title, g.items, max(3, 12/max(1, len(groups))))
 				}
@@ -704,16 +711,12 @@ func (m *Model) barPlaces(q string) []barItem {
 			return m.projectsOpen()
 		})
 	}
-	for i, p := range effPages {
-		add(paint(cSub, "◇"), "Efficiency › "+p, "", "efficiency tokens savers usage cost "+p, func(m *Model) tea.Cmd {
-			m.goView(placeEff)
-			m.setEffPage(i)
-			return nil
-		})
-	}
 	for i, p := range m.settingsPages() {
-		add(paint(cSub, "◇"), "Settings › "+p.name, "", "settings preferences "+p.name, func(m *Model) tea.Cmd {
-			m.goView(placeSettings)
+		place := "Settings › "
+		if i < pageGeneral {
+			place = "Harnesses › "
+		}
+		add(paint(cSub, "◇"), place+p.name, "", "settings preferences harnesses agents "+p.name, func(m *Model) tea.Cmd {
 			m.setSettingsPage(i)
 			return nil
 		})
@@ -843,17 +846,59 @@ func (m *Model) barAgents(q, group string) []barItem {
 		if group != "" && m.groupOf[a.Key] != group {
 			continue
 		}
-		repo := a.Repo
-		if repo != "" {
-			repo = filepath.Base(repo)
-		}
-		where := strings.Trim(repo+" · "+a.Branch, " ·")
-		it := barItem{glyph: agentGlyph(a), title: oneLine(a.DisplayName), meta: where, tail: agentState(a, now), run: func(m *Model) tea.Cmd { return m.goAgent(a) }}
-		if it, ok := matchItem(it, q, a.Repo+" "+a.Branch+" "+a.Group+" "+a.State); ok {
+		if it, ok := m.barAgentItem(a, q, now); ok {
 			items = append(items, it)
 		}
 	}
 	return items
+}
+
+// barAgentItem is a's row in the bar, if it matches q.
+func (m *Model) barAgentItem(a *fleet.Agent, q string, now time.Time) (barItem, bool) {
+	repo := a.Repo
+	if repo != "" {
+		repo = filepath.Base(repo)
+	}
+	where := strings.Trim(repo+" · "+a.Branch, " ·")
+	it := barItem{glyph: agentGlyph(a), title: oneLine(a.DisplayName), meta: where, tail: agentState(a, now), run: func(m *Model) tea.Cmd { return m.goAgent(a) }}
+	return matchItem(it, q, a.Repo+" "+a.Branch+" "+a.Group+" "+a.State+" "+agentName(a.Kind))
+}
+
+// barSorts are the orders ctrl+s steps the bar's agents through.
+var barSorts = []string{"status", "latest", "project", "worktree", "model", "harness"}
+
+// barSortedGroups are the agents matching q, latest first, in one section
+// or a section each by the bar's sort.
+func (m *Model) barSortedGroups(q string) []barGroup {
+	now := m.snap.At
+	agents := slices.Clone(m.allAgents())
+	sort.SliceStable(agents, func(i, j int) bool { return agents[i].Age(now) < agents[j].Age(now) })
+	var out []barGroup
+	at := map[string]int{}
+	for _, a := range agents {
+		it, ok := m.barAgentItem(a, q, now)
+		if !ok {
+			continue
+		}
+		title := "Latest"
+		switch m.barSort {
+		case "project":
+			title = filepath.Base(cmp.Or(a.Repo, a.Cwd))
+		case "worktree":
+			title = strings.Trim(tildify(a.Cwd)+" · "+a.Branch, " ·")
+		case "model":
+			title = cmp.Or(modelWord(a.Kind, a.Spend.Model), "model unknown")
+		case "harness":
+			title = agentName(a.Kind)
+		}
+		i, seen := at[title]
+		if !seen {
+			i, at[title] = len(out), len(out)
+			out = append(out, barGroup{title: title})
+		}
+		out[i].items = append(out[i].items, it)
+	}
+	return out
 }
 
 type barGroup struct {
@@ -863,7 +908,10 @@ type barGroup struct {
 
 // barAgentGroups are the agents in sections by what they need of you:
 // needing you, working, idle, then earlier ones.
-func (m *Model) barAgentGroups() []barGroup {
+func (m *Model) barAgentGroups(q string) []barGroup {
+	if m.barSort != "status" && m.barSort != "" {
+		return m.barSortedGroups(q)
+	}
 	order := []string{"Needs you", "Working", "Idle", "Earlier"}
 	by := map[string][]barItem{}
 	for _, it := range m.barAgents("", "") {
@@ -1086,12 +1134,12 @@ func (m *Model) applyJump() {
 
 // here is where the screen is now, to come back to.
 func (m *Model) here() *spot {
-	s := &spot{view: m.view, agentsPage: m.work.page, mode: m.mode, effPage: m.eff.page, projSel: m.work.projSel, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
+	s := &spot{view: m.view, agentsPage: m.work.page, mode: m.mode, projSel: m.work.projSel, settingsPage: m.settingsPage, zen: m.zen, key: m.sel}
 	if a := m.agentByKey(m.sel); a != nil {
 		s.name = oneLine(a.DisplayName)
 	}
-	if pages := m.settingsPages(); m.view == placeSettings && m.settingsPage < len(pages) {
-		s.settingsName = pages[m.settingsPage].name
+	if d := m.dialog; d != nil && (m.view == placeSettings || m.view == placeHarnesses) {
+		s.settingsPage, s.settingsName = d.page, m.settingsPages()[d.page].name
 	}
 	if c := m.host; c != nil && c.key == m.sel && m.paneFocus {
 		s.paneView, s.ref = c.view, c.sel
@@ -1113,8 +1161,8 @@ func (s *spot) where() string {
 			return "Projects › System"
 		}
 		return "Projects"
-	case placeEff:
-		return "Efficiency › " + effPages[s.effPage%len(effPages)]
+	case placeHarnesses:
+		return "Harnesses › " + s.settingsName
 	case placeSettings:
 		return "Settings › " + s.settingsName
 	}
@@ -1132,12 +1180,7 @@ func (s *spot) where() string {
 func (m *Model) goSpot(s *spot) tea.Cmd {
 	m.barBack = m.here()
 	switch s.view {
-	case placeEff:
-		m.goView(placeEff)
-		m.setEffPage(s.effPage)
-		return nil
-	case placeSettings:
-		m.goView(placeSettings)
+	case placeSettings, placeHarnesses:
 		m.setSettingsPage(s.settingsPage)
 		return nil
 	case placeProjects:
@@ -1376,7 +1419,11 @@ func (m *Model) barHint(w int) string {
 		pairs = append(pairs, "ctrl+f", "just "+b.scopes[0].label)
 	}
 	if b.scope().kind == "" {
-		pairs = append(pairs, "#", "commands", "tab", "next section")
+		sort := m.barSort
+		if sort == "" {
+			sort = "status"
+		}
+		pairs = append(pairs, "#", "commands", "tab", "next section", "ctrl+s", "by "+sort)
 	}
 	if b.scope().transcripts() {
 		pairs = append(pairs, "in:name is:failed", "narrow")

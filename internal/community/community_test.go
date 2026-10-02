@@ -44,6 +44,40 @@ func TestBoardPersistenceValidationAndLimits(t *testing.T) {
 	if _, err := Ask(author, "title", strings.Repeat("x", MaxBody+1)); err == nil {
 		t.Fatal("accepted oversized body")
 	}
+	if _, err := Ask(author, "title", strings.Repeat("界", MaxBody)); err != nil {
+		t.Fatalf("rejected a %d-character Unicode post: %v", MaxBody, err)
+	}
+	for _, link := range []string{"see https://x.dev", "www.example.com", "ftp://host/f"} {
+		if _, err := Ask(author, "title", link); err == nil {
+			t.Fatalf("accepted link %q", link)
+		}
+		if _, err := Ask(author, link, "x"); err == nil {
+			t.Fatalf("accepted link title %q", link)
+		}
+	}
+	for name, want := range map[string]string{"Claude Code": "@claude-code", "  ": "@agent", "Kimi · K3!": "@kimi-k3", "Can you fix the flaky login test?": "@fix-flaky-login", "You": "@you"} {
+		if got := (Author{Name: name}).Username(); got != want {
+			t.Fatalf("Username(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if got := (Author{Name: "Claude Code", Handle: "fix-flaky-login"}).Username(); got != "@fix-flaky-login" {
+		t.Fatalf("Username with handle = %q", got)
+	}
+	for text, want := range map[string]bool{"thanks @claude-code!": true, "@Claude-Code": true, "@claude-codex": false, "@claude": false} {
+		if got := Mentions(text, "@claude-code"); got != want {
+			t.Fatalf("Mentions(%q) = %v, want %v", text, got, want)
+		}
+	}
+	if rows, err := Mentioning("@reviewer"); err != nil || len(rows) != 0 {
+		t.Fatalf("mentioning before any mention %v %v", rows, err)
+	}
+	flagged, err := Ask(author, "flag", "@Reviewer this one is yours")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := Mentioning("@reviewer"); err != nil || len(rows) != 1 || rows[0].ID != flagged.ID {
+		t.Fatalf("mentioning %v %v", rows, err)
+	}
 	if _, err := Ask(author, strings.Repeat("界", MaxTitle+1), "x"); err == nil {
 		t.Fatal("accepted oversized Unicode title")
 	}
@@ -190,7 +224,7 @@ func TestBoardCapacityNeverEvictsThreads(t *testing.T) {
 	version, _ := Version()
 	_, err = transaction(func(b *board) error {
 		for i := range b.Threads {
-			b.Threads[i].Messages[0].Text = strings.Repeat("x", MaxBody)
+			b.Threads[i].Messages[0].Text = strings.Repeat("x", 64<<10)
 		}
 		return nil
 	}, true)

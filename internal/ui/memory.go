@@ -111,15 +111,11 @@ func (m *Model) memoryLines(c *hostConn, o convo.Options, h int) []convo.Line {
 		line("  "+faint(strings.Repeat("─", max(0, w-4))), "")
 		head := len(out)
 		if r := c.memInfo; r != nil && len(r.Problems) > 0 {
-			key := "#efficiency findings"
-			if strings.HasPrefix(c.sel, "mem:") {
-				key = "f"
-			}
 			n := fmt.Sprintf("%d things to tidy", len(r.Problems))
 			if len(r.Problems) == 1 {
 				n = "1 thing to tidy"
 			}
-			left, right := "  "+paint(cYellow, "! "+n), faint(key+" shows them")+"  "
+			left, right := "  "+paint(cYellow, "! "+n), ""
 			if room := w - cellwidth(left) - cellwidth(right) - 5; room > 12 {
 				left += dim(" · " + ansi.Truncate(r.Problems[0].Title, room, "…"))
 			}
@@ -423,17 +419,6 @@ func (m *Model) memoryKey(c *hostConn, k tea.KeyPressMsg, s string) (tea.Cmd, bo
 		return nil, false
 	}
 	switch s {
-	case "f":
-		// What's untidy, in Efficiency's findings.
-		if r := c.memInfo; r == nil || len(r.Problems) == 0 {
-			return nil, false
-		}
-		m.setView(placeEff)
-		m.setEffPage(effFindings)
-		if m.eff.view == nil {
-			return m.effOpen(), true
-		}
-		return m.effLoad(false), true
 	case "space", "right", "e":
 		e := m.memDoc(c)
 		if e == nil {

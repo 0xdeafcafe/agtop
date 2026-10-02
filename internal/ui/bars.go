@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -389,21 +390,54 @@ func (m *Model) barLine(which, i int, x *barCtx, w int) string {
 		}
 	}
 	line := strings.Join(parts, dim(sep))
-	n := len(parts)
+	var dropped []string
 	if ansi.StringWidth(line) > w {
-		for n > 0 && ansi.StringWidth(strings.Join(parts[:n], dim(sep)))+ansi.StringWidth(barMore()) > w {
-			n--
+		for len(parts) > 0 && ansi.StringWidth(strings.Join(parts, dim(sep)))+ansi.StringWidth(barMore()) > w {
+			k := leastKept(ids)
+			dropped = append(dropped, ids[k])
+			parts, ids = slices.Delete(parts, k, k+1), slices.Delete(ids, k, k+1)
 		}
-		line = strings.Join(parts[:n], dim(sep)) + barMore()
-		if n == 0 {
+		line = strings.Join(parts, dim(sep)) + barMore()
+		if len(parts) == 0 {
 			line = strings.TrimLeft(barMore(), " ")
 		}
 	}
 	if m.barDrops == nil {
 		m.barDrops = map[int][]string{}
 	}
-	m.barDrops[which*10+i] = ids[n:]
+	m.barDrops[which*10+i] = dropped
 	return line
+}
+
+// barKeep is how long a segment holds on when its line is short of room:
+// the higher, the later it goes. The rest are 3.
+var barKeep = map[string]int{
+	"clock": 9, "time": 9,
+	"plan": 8, "usage": 8, "context": 8, "system": 8,
+	"today": 7, "model": 7, "queue": 7,
+	"agents": 6, "effort": 6, "mode": 6, "folder": 6, "branch": 6,
+	"account": 5, "cost": 5, "billing": 5, "battery": 5,
+	"cache": 4,
+	"accounts": 2, "context-detail": 2,
+	"version": 1, "rush": 1, "statushelp": 1, "session": 1,
+}
+
+// leastKept is which of ids goes first: the lowest barKeep, the last of
+// those.
+func leastKept(ids []string) int {
+	keep := func(id string) int {
+		if k, ok := barKeep[id]; ok {
+			return k
+		}
+		return 3
+	}
+	at := len(ids) - 1
+	for i := len(ids) - 2; i >= 0; i-- {
+		if keep(ids[i]) < keep(ids[at]) {
+			at = i
+		}
+	}
+	return at
 }
 
 // barDropped is the segments the header last left out for room.

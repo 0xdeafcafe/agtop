@@ -190,7 +190,7 @@ func clkInk(r byte) string {
 	case 'k':
 		return rgb(88, 88, 92)
 	case 'A':
-		return rgb(158, 76, 14)
+		return rgb(154, 76, 20)
 	case 'a':
 		return rgb(212, 128, 44)
 	case 'd':
@@ -275,7 +275,9 @@ func (g *clkGrid) sprite(s clkState) {
 	if fx.kind == fxShimmer {
 		band = clkBand(fx.frame, clkShine)
 	}
-	g.mono(band, md == moodNeedsYou)
+	if !darkGround() { // on a dark terminal the bottle wears its own colours
+		g.mono(band, md == moodNeedsYou)
+	}
 	if md == moodSleepy {
 		g.tint(cFaint, .5)
 	}
@@ -319,6 +321,9 @@ func (g *clkGrid) mono(band float64, keepLabel bool) {
 		}
 	}
 }
+
+// darkGround is whether the terminal's background is dark (or unknown yet).
+func darkGround() bool { return painted == (theme.Ground{}) || painted.BG.Dark() }
 
 // boldOf is bold when c is, which clkMix drops.
 func boldOf(c string) string {

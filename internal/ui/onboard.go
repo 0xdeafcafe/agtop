@@ -25,7 +25,6 @@ var steps = []struct{ id, what, key string }{
 	{"done", "Put one away", "#done"},
 	{"zen", "Try zen", "ctrl+z"},
 	{"keys", "See all the keys", "?"},
-	{"advisor", "Let the advisor find savings", "#advisor on"},
 	{"mackeys", "Give Terminal.app the ⌘ keys", "#mackeys on"},
 }
 

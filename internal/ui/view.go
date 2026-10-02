@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/statusline"
 	"github.com/0xdeafcafe/rush/internal/theme"
 )
 
@@ -222,8 +225,34 @@ func (m *Model) header() (rows []string) {
 	// Keep the icon's original screen rows, while the text and everything
 	// below it move up. Its last row shares the pages row's unused left side.
 	m.headerIconTail = robot[len(robot)-1]
-	return []string{"", line(robot[0], left1, right1), line(robot[1], left2, right2),
-		withTabHint("  "+robot[2]+gap+strings.Join(m.tabs(), " "), places, "places", "", m.w), "  " + robot[3]}
+	tabs, tail := withTabHint("  "+robot[2]+gap+strings.Join(m.tabs(), " "), places, "places", "", m.w), "  "+robot[3]
+	// The default top bar is a block of gauges down the right, a row each,
+	// rather than one line beside the counts.
+	if fmt.Sprint(m.barLayout(barTop).Lines) == fmt.Sprint(statusline.DefaultTop().Lines) {
+		gw := m.w - max(cellw.String(left1), cellw.String(left2), cellw.String(tabs)-cellw.String("  "+robot[2]+gap)) - clkW - 12
+		if g := m.headerGauges(t.today, gw); g != nil {
+			col := m.w - 2 - slices.Max(slicesMap(g, cellw.String))
+			at := func(row, r string) string {
+				if r == "" {
+					return row
+				}
+				f := fit(strings.TrimRight(row, " "), col)
+				return f + strings.Repeat(" ", max(0, col-cellw.String(f))) + r
+			}
+			g = append(g, "", "", "")
+			return []string{"", at(line(robot[0], left1, ""), g[0]), at(line(robot[1], left2, ""), g[1]), at(tabs, g[2]), at(tail, g[3])}
+		}
+	}
+	return []string{"", line(robot[0], left1, right1), line(robot[1], left2, right2), tabs, tail}
+}
+
+// slicesMap is f of each of xs.
+func slicesMap[T, U any](xs []T, f func(T) U) []U {
+	out := make([]U, len(xs))
+	for i, x := range xs {
+		out[i] = f(x)
+	}
+	return out
 }
 
 // withTabHint is a strip of tabs with a quiet hint after it, the keys
@@ -242,12 +271,11 @@ func withTabHint(strip, keys, what, rest string, w int) string {
 func (m *Model) pageTabs() (names []string, cur int, turn func(int) tea.Cmd) {
 	switch {
 	case m.dialog != nil:
-		for _, p := range m.settingsPages() {
+		lo, hi := placePages(m.view)
+		for _, p := range m.settingsPages()[lo:hi] {
 			names = append(names, p.name)
 		}
-		return names, m.dialog.page, func(i int) tea.Cmd { m.setSettingsPage(i); return nil }
-	case m.mode == modeEff:
-		return effPages, m.eff.page, func(i int) tea.Cmd { m.setEffPage(i); return m.effOpen() }
+		return names, m.dialog.page - lo, func(i int) tea.Cmd { m.setSettingsPage(lo + i); return nil }
 	case m.zen || m.hosted != "":
 		return nil, 0, nil
 	case m.mode == modeWall || m.view == placeAgents:
@@ -268,7 +296,7 @@ func (m *Model) clickTab(x, y int) (tea.Cmd, bool) {
 		return turn(h.index), true
 	}
 	m.setView(h.index)
-	return tea.Batch(m.loadPreview(), m.effOpen(), m.projectsOpen()), true
+	return tea.Batch(m.loadPreview(), m.projectsOpen()), true
 }
 
 // pages are the pages of the place you're in, the one showing bright; [
@@ -530,24 +558,23 @@ func (m *Model) render() string {
 		return ""
 	}
 	m.over = overlayHit{} // kept again by the box drawn on top, if any
+	screen := m.quickOver(m.renderScreen()) // the quick ask floats over all but these
 	if m.bar != nil {
-		return m.overlayBar(m.renderScreen())
+		return m.overlayBar(screen)
 	}
 	if m.confirm != nil {
-		return m.confirmModal(m.renderScreen())
+		return m.confirmModal(screen)
 	}
 	if m.dialog != nil && m.keysTaking() != nil {
-		return m.keysModal(m.renderScreen())
+		return m.keysModal(screen)
 	}
-	return m.renderScreen()
+	return screen
 }
 
 func (m *Model) renderScreen() string {
 	switch m.mode {
 	case modeHelp:
 		return m.overlayBox(m.listView(), m.helpBody(), min(m.w-4, 80))
-	case modeEff:
-		return m.frame(m.effBody(), m.effHint())
 	case modeProjects:
 		if m.sheet != nil {
 			return m.sheetView(m.frame(m.projectsBody(), m.projectsHint()))
@@ -662,7 +689,18 @@ func (m *Model) confirmBody(bw int) []string {
 			body = append(body, dim(l))
 		}
 	}
-	return append(body, "", c.keys())
+	// keys are the keys a confirmation waits on, and what each does. A long
+	// choice list wraps rather than slice its tail: the last key, n to
+	// cancel, must stay on screen.
+	body = append(body, "")
+	if cellw.String(c.keys()) > bw-4 {
+		for _, l := range wrap(c.keys(), bw-4) {
+			body = append(body, l)
+		}
+	} else {
+		body = append(body, c.keys())
+	}
+	return body
 }
 
 // modalOver draws body in a box bw wide, edged in col, centred over base
@@ -796,7 +834,10 @@ func (m *Model) sideWidth() int {
 		return max(floor, min(int(float64(m.w)*f+0.5), m.w*3/4))
 	}
 	// The Session never takes more than its content can use; the spare
-	// room goes to Agents.
+	// room goes to Agents. With tiles pinned beside it, they use it.
+	if len(m.grid.keys) > 0 {
+		return side
+	}
 	return max(side, m.w-1-maxPane)
 }
 
@@ -1016,7 +1057,74 @@ func (m *Model) listView() string {
 				card = append(make([]string, max(0, len(card)-len(pick))), pick...)
 			}
 		}
-		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1-len(card))...)
+		// Recall, when on, takes the foot of the list, over the feed: the
+		// open chat's notes. The list scrolls in what's left.
+		m.side.shownOn = ""
+		var recall []string
+		if card == nil && m.side.on && m.host != nil && bodyH >= 16 {
+			recall = m.sideColumn(listW, min(recallMax, bodyH/2), 0, 0)
+			for len(recall) > 0 && strings.TrimSpace(ansi.Strip(recall[len(recall)-1])) == "" {
+				recall = recall[:len(recall)-1]
+			}
+			recall = append(recall, "")
+		}
+		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1-len(card)-len(recall))...)
+		// What agents did lately fills what the list leaves empty.
+		// The next agent's setup is pinned at the foot when there's room.
+		var foot, footKeys []string
+		if card == nil && bodyH-len(left) >= 6 {
+			foot, footKeys = m.footLines(listW)
+		}
+		if recall != nil {
+			at := bodyH - len(foot) - len(recall)
+			if feed, _ := m.feedLines(listW, at-len(left)-1); feed != nil {
+				at -= len(feed)
+			}
+			for len(left) < at {
+				left = append(left, "")
+			}
+			for len(m.rowKeys) < len(left)-1+len(recall) {
+				m.rowKeys = append(m.rowKeys, "")
+			}
+			m.side.y = len(head) + len(left)
+			left = append(left, recall...)
+		}
+		// The community's posts rise through what's left above the feed,
+		// which keeps half when both want it.
+		free := bodyH - len(left) - len(foot) - 1
+		var stream, streamKeys []string
+		if card == nil {
+			feedRoom := free
+			if len(m.stream.posts) > 0 && len(m.events) > 0 {
+				feedRoom = free / 2
+			}
+			feed, _ := m.feedLines(listW, feedRoom)
+			stream, streamKeys = m.streamLines(listW, free-len(feed))
+		}
+		if stream != nil {
+			for len(m.rowKeys) < len(left)-1 {
+				m.rowKeys = append(m.rowKeys, "")
+			}
+			left, m.rowKeys = append(left, stream...), append(m.rowKeys, streamKeys...)
+		}
+		if feed, keys := m.feedLines(listW, bodyH-len(left)-len(foot)-1); card == nil && feed != nil {
+			for len(left) < bodyH-len(feed)-len(foot) {
+				left = append(left, "")
+			}
+			for len(m.rowKeys) < len(left)-1 {
+				m.rowKeys = append(m.rowKeys, "")
+			}
+			left, m.rowKeys = append(left, feed...), append(m.rowKeys, keys...)
+		}
+		if foot != nil {
+			for len(left) < bodyH-len(foot) {
+				left = append(left, "")
+			}
+			for len(m.rowKeys) < len(left)-1 {
+				m.rowKeys = append(m.rowKeys, "")
+			}
+			left, m.rowKeys = append(left, foot...), append(m.rowKeys, footKeys...)
+		}
 		if card != nil {
 			for len(left) < bodyH-len(card) {
 				left = append(left, "")
@@ -1028,27 +1136,34 @@ func (m *Model) listView() string {
 	var pane []string
 	sessionHeader := false
 	if paneW > 0 {
-		sw := paneW - 3
+		// Tiles pinned to the grid take a column beside the Session, or a
+		// row under it.
+		gl := m.gridSplit(paneW-3, paneH)
+		sw, sh := gl.sw, gl.sh
 		if m.peek.on {
 			pane = m.zenPeekLines(paneW-3, paneH)
 		} else if m.zen && len(m.zenQueue()) == 0 {
 			pane = m.zenQuiet(paneW-3, paneH)
-		} else if pane = m.rushPane(sw, paneH); pane == nil {
+		} else if pane = m.rushPane(sw, sh); pane == nil {
 			// A Claude Code agent's Session: its live screen or a summary,
 			// switched with [ ], under the same strip a rush session has.
 			var body []string
 			if m.claudeView == 0 {
-				body = m.liveLines(paneW - 3)
+				body = m.liveLines(sw)
 			}
 			if body == nil {
-				body = m.previewLines(paneW-3, paneH-1)
+				body = m.previewLines(sw, sh-1)
 			}
-			pane = append([]string{m.claudeStrip(paneW - 3)}, body...)
+			pane = append([]string{m.claudeStrip(sw)}, body...)
 			if f := m.focused(); m.zenFull() && f != nil {
-				pane = append([]string{m.zenBar(f, paneW-3)}, pane...)
+				pane = append([]string{m.zenBar(f, sw)}, pane...)
 			}
 		} else {
 			sessionHeader = !m.zenFull()
+		}
+		m.grid.at, m.grid.colX, m.grid.rowY = m.grid.at[:0], 0, 0
+		if (gl.col != nil || gl.row != nil) && !m.peek.on {
+			pane = m.gridJoin(pane, m.paneX(), len(head), gl)
 		}
 	}
 	var b strings.Builder
@@ -1134,7 +1249,7 @@ func (m *Model) listView() string {
 // rush fades it itself, every colour fadeBy of the way to the background,
 // not with the terminal's faint, which some (Terminal.app) take so far on
 // a theme's own greys that the quiet parts are lost.
-const fadeBy = 0.4
+const fadeBy = 0.3
 
 var (
 	fade  string            // the text colour on the faded side, after every reset
@@ -1354,12 +1469,18 @@ func (m *Model) listLines(w, h int) []string {
 	var cont []bool // a stacked row's second line, which the list never starts on
 	selTop, selBottom := -1, -1
 	emit := func(line, key string, sel bool) {
+		if m.broadcast[key] && line != "" {
+			line = paint(cGreen, "✓") + line[1:]
+		}
 		if sel {
 			if selTop < 0 {
 				selTop = len(all)
 			}
 			selBottom = len(all)
-			line = highlight(paint(cOrange, "▍")+line[1:], w)
+			if !m.broadcast[key] {
+				line = paint(cOrange, "▍") + line[1:]
+			}
+			line = highlight(line, w)
 		} else if key != "" && key == m.hover {
 			line = hoverLine(line, w)
 		}
@@ -1374,11 +1495,7 @@ func (m *Model) listLines(w, h int) []string {
 			key := sectionKey(l.title)
 			emit(m.sectionLine(l, w), key, key == m.sel)
 		case lineProject:
-			key := ""
-			if l.root == rushSection {
-				key = advisorKey // a click says what it is
-			}
-			emit(m.projectLine(l, w), key, false)
+			emit(m.projectLine(l, w), "", false)
 		case lineTree:
 			if two && soloTree(m.lines, i) {
 				tag = m.treeTag(l)
@@ -1748,13 +1865,39 @@ func (m *Model) agentSub(a *fleet.Agent, w int) string {
 	case summary == "":
 		text = faint(fit(m.context(a), room))
 	}
-	switch m.store.Config.SubLine {
-	case "dim":
-		text = dim(ansi.Strip(text))
-	case "faint":
-		text = faint(ansi.Strip(text))
+	if by := subLineFade(m.store.Config.SubLine); by > 0 {
+		text = fadeText(text, by)
 	}
 	return "  " + faint("╰ ") + text
+}
+
+// subLineFade is how far toward the background the second line goes, from
+// Settings' transparency: "50%" is half way. The old dim and faint are
+// half and three quarters.
+func subLineFade(v string) float64 {
+	switch v {
+	case "dim":
+		return 0.5
+	case "faint":
+		return 0.75
+	}
+	n, err := strconv.Atoi(strings.TrimSuffix(v, "%"))
+	if err != nil {
+		return 0
+	}
+	return float64(min(90, max(0, n))) / 100
+}
+
+var sgrFG = regexp.MustCompile(`38;2;(\d+);(\d+);(\d+)`)
+
+// fadeText is s with each of its text colours by of the way to the
+// background, so a state's colour stays itself, only quieter.
+func fadeText(s string, by float64) string {
+	return sgrFG.ReplaceAllStringFunc(s, func(code string) string {
+		p := sgrFG.FindStringSubmatch(code)
+		c := theme.Mix(theme.RGB{R: atoi8(p[1]), G: atoi8(p[2]), B: atoi8(p[3])}, painted.BG, by)
+		return fmt.Sprintf("38;2;%d;%d;%d", c.R, c.G, c.B)
+	})
 }
 
 // agentLine is the first line of a row: marker, name, badges, figures, and
@@ -2594,7 +2737,7 @@ var helpPages = []struct {
 	{"◈ Around", [][2]string{
 		{"@zen", "zen"},
 		{"@profile.pick", "the default profile or provider"},
-		{"< > · ctrl+\\", "Agents · Efficiency · Machine · Settings"},
+		{"< > · ctrl+\\", "Agents · Projects · Settings"},
 		{"[ ]", "a Session's views, with nothing typed"},
 		{"[ ]", "a place's pages, or a sheet's tabs"},
 		{"{ }", "in Agents, between the list and the Session"},

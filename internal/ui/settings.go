@@ -16,8 +16,8 @@ import (
 // Settings keeps whose models you pay for (Providers: accounts, key,
 // limits, models), the programs that run them (Harnesses) and how work is
 // routed between them (Profiles) apart; docs/providers-harnesses.md has
-// the model. General and Appearance separate session behavior from
-// workspace preferences. All pages share the settings shell.
+// the model; they're the Harnesses place's pages. General has session
+// behavior and how the workspace looks. All pages share the settings shell.
 
 // page is one page of Settings: a form, or one that draws itself.
 type page struct {
@@ -41,7 +41,6 @@ const (
 	pageHarnesses
 	pageProfiles
 	pageGeneral
-	pageAppearance
 	pageKeys
 	pagePlugins
 	pageUpdates
@@ -53,8 +52,7 @@ func (m *Model) settingsPages() []page {
 		providersPage(),
 		harnessesPage(),
 		profilesPage(),
-		{name: "General", form: (*Model).generalSections},
-		{name: "Appearance", form: (*Model).interfaceSections},
+		{name: "General", form: func(m *Model) []section { return append(m.generalSections(), m.interfaceSections()...) }},
 		{name: "Keys", body: (*Model).keysBody, key: (*Model).keysKey, rows: (*Model).keysLen},
 		pluginsPage(),
 		updatesPage(),
@@ -64,7 +62,6 @@ func (m *Model) settingsPages() []page {
 // openAgentSettings shows agent k's provider on Settings › Providers,
 // open: its API key's when only that runs it.
 func (m *Model) openAgentSettings(k agent.Kind) {
-	m.setView(placeSettings)
 	m.setSettingsPage(pageProviders)
 	id, _ := agent.RouteOf(k, false)
 	m.openItem(provItem{provider: id})
@@ -203,7 +200,7 @@ func (m *Model) dialogKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		m.refresh()
 		return nil
 	case "[", "]":
-		m.setSettingsPage(d.page + map[string]int{"[": -1, "]": 1}[s])
+		m.stepSettingsPage(map[string]int{"[": -1, "]": 1}[s])
 		return nil
 	case "up", "k":
 		d.cursor = roundMove(d.cursor, -1, m.dialogLen())

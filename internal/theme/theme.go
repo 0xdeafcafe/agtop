@@ -117,6 +117,11 @@ func (g Ground) Ink(c RGB) RGB {
 	// background to the background.
 	was, full := Contrast(c, Dark.BG), Contrast(g.FG, g.BG)
 	want := math.Exp(math.Log(was) * math.Log(full) / math.Log(Contrast(Dark.FG, Dark.BG)))
+	if !g.BG.Dark() {
+		// Grey on light reads weaker than the same contrast on dark: a
+		// little more of it, never past the text.
+		want = min(math.Pow(want, lightBoost), full)
+	}
 	if was >= readable {
 		// What you read stays readable, as far as the terminal's text is.
 		want = max(want, min(readable, full))
@@ -163,6 +168,10 @@ func (g Ground) Surface(c RGB) RGB {
 
 // readable is the contrast text needs to be read with ease: WCAG's AA.
 const readable = 4.5
+
+// lightBoost is how much stronger, in log contrast, grey text is drawn on
+// a light ground than its contrast on Dark says.
+const lightBoost = 1.15
 
 // Accent is a colour that says something (done, failed, rush's orange),
 // c on Dark: the same colour, pushed toward the text until it stands out

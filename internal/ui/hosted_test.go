@@ -69,7 +69,7 @@ func TestHostedShowsOneSession(t *testing.T) {
 		}
 	}
 	// The header is rush's, counting every agent, not only this one.
-	for _, want := range []string{"rush", "finished", "Agents", "Efficiency", "Settings", "ctrl+\\"} {
+	for _, want := range []string{"rush", "finished", "Agents", "Settings", "ctrl+\\"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hosted frame lacks %q:\n%s", want, out)
 		}
@@ -150,7 +150,7 @@ func TestHostedPlaces(t *testing.T) {
 	m.Frame(160, 45)
 	m.host = &hostConn{kind: "claude", key: m.hostedKey, sess: convo.New(), open: map[string]bool{}}
 
-	want := []int{placeEff, placeSettings, placeAgents}
+	want := []int{placeHarnesses, placeSettings, placeAgents}
 	for i, place := range want {
 		hostedPress(m, "ctrl+\\")
 		if m.view != place {
@@ -331,5 +331,10 @@ func TestEscStopsThenAsksToClose(t *testing.T) {
 	}
 	if !slices.Contains(keys, "r") || !strings.Contains(m.confirm.keys(), "restart") {
 		t.Errorf("close offers %v, want r to restart", keys)
+	}
+	// A stop, not a hide, comes with it: z stops the run and keeps the agent
+	// in the list rather than hiding it for good.
+	if m.confirm.yesText != "hide" || !strings.Contains(m.confirm.keys(), "stop") {
+		t.Errorf("close offers %q, want a z to stop alongside y to hide", m.confirm.keys())
 	}
 }

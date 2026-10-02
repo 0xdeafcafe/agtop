@@ -653,7 +653,7 @@ const spawnShown = 4
 // spawnLabel is a spawned agent's row, as any subagent's: ⇉, the agent's
 // name, then what the command says it's for (or what it was asked).
 func spawnLabel(sp Spawn, desc string, lbl func(string) string) string {
-	return glyphColor("⇉") + " " + lbl(sp.Name) + "  " + faint(firstNonEmpty(desc, asked(sp)))
+	return glyphColor("⇉") + " " + bold + lbl(sp.Name) + "  " + faint(firstNonEmpty(desc, asked(sp)))
 }
 
 // asked is what a spawned agent was asked, in a line.

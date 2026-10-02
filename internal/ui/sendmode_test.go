@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// ctrl+t goes round queue, guide and stop & send for Claude Code, each
+// ctrl+t goes round queue, guide, stop & send and discuss for Claude Code, each
 // session keeping its own, and the box's border says what enter does.
 func TestSendModeCycles(t *testing.T) {
 	m, _ := benchModel(120, 40)
@@ -16,11 +16,11 @@ func TestSendModeCycles(t *testing.T) {
 		t.Skip("no session open")
 	}
 	var saw []string
-	for range 3 {
+	for range 4 {
 		m.cycleSendMode(c)
 		saw = append(saw, sendModeNames[m.sendModeOf(c)])
 	}
-	if got := strings.Join(saw, ","); got != "guide,stop & send,queue" {
+	if got := strings.Join(saw, ","); got != "guide,stop & send,discuss,queue" {
 		t.Fatalf("modes went %s", got)
 	}
 	m.cycleSendMode(c)

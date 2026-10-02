@@ -115,7 +115,7 @@ func TestMemoryView(t *testing.T) {
 		out += ansi.Strip(l.Text) + "\n"
 	}
 	for _, w := range []string{"Auto memory", "work-on-main  feedback", "no worktrees or branches", "Work on main.", "Skills", "◇ CLAUDE.md", "not written yet", "markdown",
-		"tokens every session", "3 things to tidy", "f shows them", "MEMORY.md every session · a note when it's recalled", "never sent to Claude", "↳ @RTK.md", "≈100", "on recall"} {
+		"tokens every session", "3 things to tidy", "MEMORY.md every session · a note when it's recalled", "never sent to Claude", "↳ @RTK.md", "≈100", "on recall"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("view missing %q:\n%s", w, out)
 		}

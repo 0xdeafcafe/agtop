@@ -2,9 +2,11 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/agent/event"
@@ -53,18 +55,25 @@ func (m *Model) questionCard(c *hostConn, req *event.Question, w, maxH int) []st
 	}
 	var out []string
 	for fold := 0; fold <= 3; fold++ {
-		out = drawQuestion(c, title, qs, w, fold)
+		out = drawQuestion(c, title, qs, w, fold, maxH)
 		if maxH <= 0 || len(out) <= maxH {
 			break
 		}
+	}
+	c.qRows = out
+	if c.inModal {
+		c.qRows, c.qHit = nil, nil
 	}
 	return out
 }
 
 // drawQuestion draws the card, folded: 0 shows everything, and each step up
-// shows less of what isn't under the cursor.
-func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []string {
+// shows less of what isn't under the cursor. In full view (v) it's the
+// option under the cursor alone, its preview as tall as maxH allows. It
+// notes in c.qHit what a click on each row presses.
+func drawQuestion(c *hostConn, title string, qs []question, w, fold, maxH int) []string {
 	var out []string
+	c.qHit = map[int]string{}
 	edge := paint(cYellow, "▍")
 	if c.cardFocus {
 		edge = paint(cOrange, "▍")
@@ -113,10 +122,12 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 			if !ok {
 				a = paint(cYellow, "○ not answered")
 			}
+			c.qHit[len(out)] = fmt.Sprint(i + 1)
 			cl("  " + keycap(fmt.Sprint(i+1), false) + "  " + paint(cSub, name) + strings.Repeat(" ", labelW-cellw.String(name)+3) + a)
 		}
 		cl("")
 		// The button enter presses: lit while the card has the keys.
+		c.qHit[len(out)] = "enter"
 		if c.cardFocus {
 			cl("  " + tabOn + " ⏎ Send answers " + reset)
 		} else {
@@ -149,6 +160,37 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 	}
 	cl("")
 
+	if c.qFull && c.cardFocus && c.qCursor < len(q.Options) {
+		o := q.Options[c.qCursor]
+		label, rec := optionLabel(o.Label)
+		name := keycap(fmt.Sprint(c.qCursor+1), true) + " " + paint(cText+bold, label)
+		if rec {
+			name += "  " + paint(cGreen, "★ recommended")
+		}
+		c.qHit[len(out)] = fmt.Sprint("@", c.qCursor)
+		cl(spread(" "+paint(cOrange, "▌")+" "+name, dim(fmt.Sprintf("%d of %d", c.qCursor+1, len(q.Options)))+"  ", w-1))
+		if d := strings.TrimSpace(o.Description); d != "" {
+			for _, l := range wrap(convo.Inline(d, cText), textW) {
+				cl("     " + paint(cText, l))
+			}
+		}
+		cl("")
+		if o.Preview == "" {
+			cl("     " + dim("no preview for this option"))
+		} else {
+			rows := 1 << 20
+			if maxH > 0 {
+				rows = max(6, maxH-len(out)-3)
+			}
+			for _, r := range previewBox(label, o.Preview, w-6, rows) {
+				cl("     " + r)
+			}
+		}
+		cl("")
+		cl("  " + keysFit(w-6, "↑↓", "other options", "enter", "picks", "v", "back to all", "esc", "back to all"))
+		return out
+	}
+
 	// The options, then the preview beside them when there's room, or
 	// under them when there isn't.
 	cursor := -1
@@ -167,6 +209,7 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 	type orow struct {
 		text string
 		sel  bool
+		hit  string // what a click on it presses
 	}
 	var rows []orow
 	descW := max(16, min(lw-10, 104))
@@ -200,7 +243,8 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 		if o.Preview != "" && !side && o.Preview != preview {
 			name += "  " + dim("◇ preview")
 		}
-		rows = append(rows, orow{" " + bar + " " + name, on})
+		hit := fmt.Sprint("@", i)
+		rows = append(rows, orow{" " + bar + " " + name, on, hit})
 		if d := strings.TrimSpace(o.Description); d != "" {
 			ink := cSub
 			if on {
@@ -218,11 +262,11 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 				}
 			}
 			for _, l := range lines {
-				rows = append(rows, orow{" " + bar + "     " + paint(ink, l), on})
+				rows = append(rows, orow{" " + bar + "     " + paint(ink, l), on, hit})
 			}
 		}
 		if fold < 2 {
-			rows = append(rows, orow{"", false})
+			rows = append(rows, orow{"", false, ""})
 		}
 	}
 	own := cursor == len(q.Options)
@@ -237,7 +281,7 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 	if ownAnswer(q, prev) {
 		ownText += "  " + paint(cGreen, "✓ ") + paint(cText, ansi.Truncate(shownAnswer(prev), max(8, lw-40), "…"))
 	}
-	rows = append(rows, orow{" " + bar + " " + keycap("✎", own) + " " + ownText, own})
+	rows = append(rows, orow{" " + bar + " " + keycap("✎", own) + " " + ownText, own, fmt.Sprint("@", len(q.Options))})
 	if q.MultiSelect {
 		// Enter on an option only ticks it; moving on is this button.
 		btn := cursor == len(q.Options)+1
@@ -255,7 +299,7 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 		if n > 0 {
 			note = paint(cSub, fmt.Sprintf("with %d ticked", n))
 		}
-		rows = append(rows, orow{"", false}, orow{" " + bar + " " + face + " ⏎ Continue " + reset + "  " + note, btn})
+		rows = append(rows, orow{"", false, ""}, orow{" " + bar + " " + face + " ⏎ Continue " + reset + "  " + note, btn, fmt.Sprint("@", len(q.Options)+1)})
 	}
 
 	var pv []string
@@ -265,7 +309,7 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 			pw = w - 1 - lw - 3
 		}
 		name, _ := optionLabel(previewOf)
-		pv = previewBox(name, preview, pw)
+		pv = previewBox(name, preview, pw, 14)
 	}
 	n := len(rows)
 	if side {
@@ -275,6 +319,9 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 		left, sel := "", false
 		if i < len(rows) {
 			left, sel = rows[i].text, rows[i].sel
+			if rows[i].hit != "" {
+				c.qHit[len(out)] = rows[i].hit
+			}
 		}
 		bg := qCard
 		if sel {
@@ -305,7 +352,7 @@ func drawQuestion(c *hostConn, title string, qs []question, w, fold int) []strin
 		if len(qs) > 1 {
 			pairs = append(pairs, "←→", "questions")
 		}
-		pairs = append(pairs, "s", "skips", "esc", escWord(c))
+		pairs = append(pairs, "v", "full view", "s", "skips", "esc", escWord(c))
 		cl("  " + keysFit(w-6, pairs...))
 	} else {
 		cl("  " + paint(cSub, "↑") + dim(" to choose   ·   or type your own answer below and press ") + paint(cSub, "enter"))
@@ -377,8 +424,8 @@ func questionStrip(c *hostConn, qs []question, w int) string {
 
 // previewBox frames an option's preview under its name: Claude writes it as markdown, most
 // often a mockup or code, so its lines are kept as they are (fences
-// dropped), cut to the width and to 14 rows.
-func previewBox(name, md string, w int) []string {
+// dropped), cut to the width and to maxRows rows.
+func previewBox(name, md string, w, maxRows int) []string {
 	var body []string
 	for _, l := range strings.Split(strings.ReplaceAll(md, "\t", "    "), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(l), "```") {
@@ -389,7 +436,6 @@ func previewBox(name, md string, w int) []string {
 	for len(body) > 0 && strings.TrimSpace(body[len(body)-1]) == "" {
 		body = body[:len(body)-1]
 	}
-	const maxRows = 14
 	more := 0
 	if len(body) > maxRows {
 		more = len(body) - maxRows + 1
@@ -457,4 +503,34 @@ func (m *Model) holdForQuestion(c *hostConn) {
 		c.input, c.back, c.anchor, c.undo = h.input, h.back, 0, h.undo
 		c.editQ, c.editWas, c.editHeld = h.editQ, h.editWas, h.editHeld
 	}
+}
+
+// clickQuestion is a click on the question card: on an option it puts the
+// cursor there, and picks it once it's there; on a key in its hints, it
+// presses that key. It reports whether the click was the card's.
+func (m *Model) clickQuestion(c *hostConn, x, y int) (tea.Cmd, bool) {
+	if c.panelClip[1] > 0 && (y < c.panelClip[0] || y >= c.panelClip[1]) || !isQuestion(c.sess.Pending()) {
+		return nil, false
+	}
+	i := y - c.dockY - c.cardTop - c.qHitTop
+	if i < 0 || i >= len(c.qRows) {
+		return nil, false
+	}
+	k := c.qHit[i]
+	if n, ok := strings.CutPrefix(k, "@"); ok {
+		at, _ := strconv.Atoi(n)
+		if !c.cardFocus || c.qCursor != at {
+			c.cardFocus, c.qCursor = true, at
+			return nil, true
+		}
+		k = "enter"
+	}
+	if k == "" {
+		k = hintKey(c.qRows[i], x-m.paneX())
+	}
+	if k == "" {
+		return nil, false
+	}
+	c.cardFocus = true
+	return m.cardKey(c, k, true)
 }

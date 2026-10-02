@@ -2,10 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"math"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/netwatch"
 	"github.com/0xdeafcafe/rush/internal/sysinfo"
@@ -15,6 +18,12 @@ import (
 // quietPlan keeps the default provider fixed. Detailed meters for all
 // accounts, reset times, and switch forecasts remain in the usage segment.
 func (m *Model) quietPlan() string {
+	name, q := m.startPlan()
+	return planSummary(name, q, m.snap.At)
+}
+
+// startPlan is the provider and account new agents start on, and its limits.
+func (m *Model) startPlan() (string, usage.Quota) {
 	q, found := m.startQuota()
 	account := ""
 	for _, r := range m.accountRows() {
@@ -43,7 +52,59 @@ func (m *Model) quietPlan() string {
 	if account != "" {
 		name += " · " + ansi.Truncate(account, 12, "…")
 	}
-	return planSummary(name, q, m.snap.At)
+	return name, q
+}
+
+// headerGauges is the header's right side while the top bar is the
+// default: spend and the account, a bar for each limit, then the machine,
+// a row each. Nil when they don't fit in w.
+func (m *Model) headerGauges(today float64, w int) []string {
+	name, q := m.startPlan()
+	now := m.snap.At
+	rows := []string{paint(cText, money(today)) + dim(" today · "+name)}
+	wins := slices.Clone(q.Windows)
+	slices.SortStableFunc(wins, func(a, b usage.Window) int {
+		switch {
+		case a.Span == b.Span:
+			return strings.Compare(a.Label, b.Label)
+		case a.Span == 0:
+			return 1
+		case b.Span == 0:
+			return -1
+		}
+		return int(a.Span - b.Span)
+	})
+	for _, win := range wins[:min(2, len(wins))] {
+		p := win.Percent
+		fill := int(math.Round(min(100, max(0, p)) / 12.5))
+		bar := paint(usageColor(p), strings.Repeat("▰", fill)) + faint(strings.Repeat("▱", 8-fill))
+		note := runsOutFirst(p, win.Rate(now), win.ResetsAt, now)
+		switch {
+		case note != "":
+			note = paint(cRed, strings.TrimSpace(ansi.Strip(note))+" ⚠")
+		case !win.ResetsAt.IsZero() && win.ResetsAt.After(now):
+			note = dim("resets " + age(win.ResetsAt.Sub(now)))
+		}
+		label := win.Label
+		if label == "" {
+			label = "plan"
+		}
+		rows = append(rows, dim(fmt.Sprintf("%-3s ", ansi.Truncate(label, 3, ""))) + bar + paint(usageColor(p), fmt.Sprintf(" %3.0f%%", p)) + "  " + note)
+	}
+	if len(wins) == 0 && q.Problem != "" {
+		rows = append(rows, dim("limits ")+paint(cYellow, "unavailable"))
+	}
+	mc := dim(fmt.Sprintf("%.1fG RAM · %d agents", float64(m.snap.Machine.TotalMem)/(1<<30), len(m.snap.Agents)))
+	if s := quietSystem(); s != "" {
+		mc += dim(" · ") + s
+	}
+	rows = append(rows, mc)
+	for _, r := range rows {
+		if cellw.String(r) > w {
+			return nil
+		}
+	}
+	return rows
 }
 
 // planSummary orders windows by identity/duration, never by their usage,

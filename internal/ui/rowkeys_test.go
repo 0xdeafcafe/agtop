@@ -118,12 +118,13 @@ func TestRowKeySetting(t *testing.T) {
 		hc.sess.Apply(host.Sent{Text: "a message"}, time.Now())
 		hc.sel, hc.input = "t1", []rune("draft")
 		m.paneKey(tea.KeyPressMsg{}, c.not)
-		if hc.open["t1"] || string(hc.input) != "draft" || m.status == "" {
+		if _, set := hc.open["t1"]; set || string(hc.input) != "draft" || m.status == "" {
 			t.Fatalf("%s set: %s should only say what opens the row", c.set, c.not)
 		}
+		was := m.isOpen(hc, "t1") // the latest turn starts open
 		m.paneKey(tea.KeyPressMsg{}, c.opens)
-		if !hc.open["t1"] || string(hc.input) != "draft" {
-			t.Fatalf("%s set: %s should open the row", c.set, c.opens)
+		if m.isOpen(hc, "t1") == was || string(hc.input) != "draft" {
+			t.Fatalf("%s set: %s should open or close the row", c.set, c.opens)
 		}
 	}
 }

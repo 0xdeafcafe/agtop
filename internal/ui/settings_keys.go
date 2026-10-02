@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -90,7 +91,7 @@ func contextWhere(c keymap.Context) string {
 	case keymap.Prompt:
 		return "in the Agents prompt while a draft is typed"
 	case keymap.Pages:
-		return "on Settings, Efficiency, Projects and Wall pages"
+		return "on Settings, Projects and Wall pages"
 	case keymap.Any:
 		return "in the Agents list or a Session"
 	}
@@ -165,9 +166,24 @@ func (m *Model) keysBody(w int) []string {
 		}
 		return keyCaps(km.Keys(a.ID), practicing)
 	}
-	keyW := min(30, max(12, w/3))
+	// Keys first, as wide as the widest, so the eye runs down them.
+	keyW, titleW := 8, 6
+	for _, a := range rows {
+		keyW = max(keyW, cellw.String(keysOf(a)))
+		titleW = max(titleW, cellw.String(a.Title))
+	}
+	keyW = min(keyW, max(12, min(30, w/3)))
 	actionW := max(8, w-keyW-5)
-	out = append(out, paint(cText+bold, "  "+fit("ACTION", actionW)+"   BINDING"))
+	tableW := min(w, 2+keyW+3+titleW)
+	// The keyboard never takes an action row: beside the table where the
+	// screen is wide, else under it when every row already shows.
+	kb := m.keysBoard(rows, practicing, w-tableW-4)
+	side := w-tableW-4 >= kbWide
+	rowW := w
+	if side {
+		actionW, rowW = titleW, tableW
+	}
+	out = append(out, paint(cText+bold, "  "+fit("BINDING", keyW)+"   ACTION"))
 	// On very short screens preserve the action and editing controls first.
 	if len(out)+len(footer)+2 > budget && len(out) > 2 {
 		out = append(out[:1], out[len(out)-1])
@@ -185,22 +201,59 @@ func (m *Model) keysBody(w int) []string {
 		if km.Changed(a.ID) {
 			mark = paint(cBlue, "• ")
 		}
-		line := mark + fit(paint(cText, a.Title), actionW) + "   " + fit(keysOf(a), keyW)
+		line := mark + fit(keysOf(a), keyW) + "   " + fit(paint(cText, a.Title), actionW)
 		switch {
 		case i == d.cursor:
-			line = highlight(line, w)
+			line = highlight(line, rowW)
 		case i == d.keyHover-1:
-			line = hoverBG + strings.ReplaceAll(fit(line, w), reset, reset+hoverBG) + reset
+			line = hoverBG + strings.ReplaceAll(fit(line, rowW), reset, reset+hoverBG) + reset
 		}
 		out = append(out, line)
 	}
 	rangeText := strconv.Itoa(from+1) + "–" + strconv.Itoa(to) + " of " + strconv.Itoa(len(rows)) + " actions"
 	out = append(out, dim(rangeText))
+	if side && to-from+2 >= len(kb) {
+		for j, l := range kb {
+			y := d.keyTop - 1 + j
+			out[y] = fit(out[y], tableW) + "    " + l
+		}
+	} else if from == 0 && to == len(rows) && len(out)+len(kb)+1+len(footer) <= budget && w >= kbWide+2 {
+		out = append(out, "")
+		for _, l := range kb {
+			out = append(out, "  "+l)
+		}
+	}
 	out = append(out, footer...)
 	for i := range out {
 		out[i] = fit(out[i], w)
 	}
 	return out
+}
+
+// keysBoard is the keyboard for rows: the hovered or selected action's
+// keys lit, the key being practiced brightest, every key bound here plain.
+func (m *Model) keysBoard(rows []keymap.Action, practicing string, w int) []string {
+	d, km := m.dialog, m.keyMap()
+	var lit []keymap.Seq
+	switch {
+	case d.keyHover > 0 && d.keyHover <= len(rows):
+		lit = km.Keys(rows[d.keyHover-1].ID)
+	case d.cursor < len(rows):
+		lit = km.Keys(rows[d.cursor].ID)
+	}
+	hit, on, used := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	if practicing != "" {
+		hit = keyParts(d.practice)
+	}
+	for _, s := range lit {
+		maps.Copy(on, keyParts(s))
+	}
+	for _, a := range rows {
+		for _, s := range km.Keys(a.ID) {
+			maps.Copy(used, keyParts(s))
+		}
+	}
+	return append(keyboard(hit, on, used), "", fit(kbLegend(), max(kbWide, w)))
 }
 
 // keysModal asks for the keys being taken in a box over base.

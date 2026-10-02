@@ -14,7 +14,7 @@ func TestMention(t *testing.T) {
 	m := &Model{order: []*fleet.Agent{docs, fix, term}, groupOf: map[string]string{"a": "Working", "b": "Done"}}
 
 	got := m.mentionMatches([]rune("@LOG"), 0)
-	if len(got) != 1 || got[0].Name != "fix-login-bug" || got[0].Description != "Working · fix/login" {
+	if len(got) != 1 || got[0].Name != "fix-login-bug" || got[0].Description != "fix login bug · Working · fix/login" {
 		t.Fatalf("search by name, skipping what can't be messaged: %+v", got)
 	}
 	if got := m.mentionMatches([]rune("@"), 0); len(got) != 2 || got[0].Name != "docs" {
@@ -25,6 +25,12 @@ func TestMention(t *testing.T) {
 	}
 	if a, rest := m.mentioned("@Fix-Login-Bug  try again\nplease"); a != fix || rest != "try again\nplease" {
 		t.Fatalf("got %v %q", a, rest)
+	}
+	if a, rest := m.mentioned("@" + nickname("a") + " hi"); a != fix || rest != "hi" || nickname("a") != nickname("a") || !strings.Contains(nickname("a"), "-") {
+		t.Fatalf("the nickname tags it too: %v %q", a, rest)
+	}
+	if titleTag("Can you fix the flaky login test, please?") != "fix-flaky-login" || titleTag("") != "" {
+		t.Fatalf("title tag %q", titleTag("Can you fix the flaky login test, please?"))
 	}
 	if a, _ := m.mentioned("@src/main.go explain"); a != nil {
 		t.Fatal("an @ that tags no agent is left for the agent")

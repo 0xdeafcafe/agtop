@@ -86,6 +86,11 @@ type Room struct {
 	Rounds  int       `json:"rounds"` // the most rounds before a verdict is forced
 	Members []Member  `json:"members"`
 	Created time.Time `json:"created"`
+	// From is the chat the room was opened from, by its agent key: the
+	// room shows in that chat and its verdict goes back there.
+	From string `json:"from,omitempty"`
+	// Brief is what of that chat every member reads with the topic.
+	Brief string `json:"brief,omitempty"`
 }
 
 // DefaultRounds caps a room that never converges.
@@ -295,6 +300,9 @@ type Summary struct {
 	Speaking []string // whose turns are under way
 	Over     string   // why it ended, once it has
 	Verdict  bool
+	Final    string            // the verdict: each member's final position, a line each
+	Round    int               // the round under way, or the last one
+	Last     map[string]string // a member: the first line of what it said last
 	Updated  time.Time
 }
 
@@ -341,7 +349,7 @@ func (l *Lister) List() []Summary {
 
 // Summarise is room r as its log es says it stands.
 func Summarise(r Room, es []Entry) Summary {
-	s := Summary{Room: r, Sessions: map[string]string{}, Updated: r.Created}
+	s := Summary{Room: r, Sessions: map[string]string{}, Last: map[string]string{}, Updated: r.Created}
 	speaking := map[string]bool{}
 	for _, e := range es {
 		s.Updated = e.At
@@ -350,8 +358,14 @@ func Summarise(r Room, es []Entry) Summary {
 			s.Sessions[e.ID] = e.From
 		case Turn:
 			speaking[e.From] = true
+			s.Round = max(s.Round, e.Round)
+		case Note:
+			s.Last[e.From] = firstLine(e.Text)
 		case Say, Paused:
 			speaking[e.From] = false
+			if e.Kind == Say && e.From != User {
+				s.Last[e.From] = firstLine(e.Text)
+			}
 		case Control:
 			switch e.Text {
 			case "pause":
@@ -360,7 +374,7 @@ func Summarise(r Room, es []Entry) Summary {
 				s.Paused = false
 			}
 		case Verdict:
-			s.Verdict = true
+			s.Verdict, s.Final = true, e.Text
 		case End:
 			s.Over = e.Text
 		}
@@ -371,4 +385,14 @@ func Summarise(r Room, es []Entry) Summary {
 		}
 	}
 	return s
+}
+
+// firstLine is s's first line with words on it.
+func firstLine(s string) string {
+	for l := range strings.Lines(s) {
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+	}
+	return ""
 }

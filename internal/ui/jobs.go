@@ -166,11 +166,12 @@ func (m *Model) jobRow(c *hostConn, j *convo.Job, i, w int, lead string, who boo
 		lead += paint(cFaint, "↳") + " "
 	}
 	left := lead + mark + " " + name + " " +
-		paint(cSub, cellw.Truncate(jobLabel(c, j), room, "…")) + whose
-	rows := []string{spread(left, right, w)}
+		paint(cSub, cellw.Truncate(jobLabel(c, j), min(room, 40), "…")) + whose
+	// Its latest line of output, on the same row, as far as there's room.
 	if last := m.jobTail(c, j, 1); len(last) > 0 {
-		rows = append(rows, cellw.Truncate(strings.Repeat(" ", cellw.String(ansi.Strip(lead)))+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+dim(last[0]), w-2, "…"))
+		left += "  " + paint(cOrange, "›") + " " + dim(last[0])
 	}
+	rows := []string{spread(cellw.Truncate(left, max(20, w-cellw.String(ansi.Strip(right))-2), "…"), right, w)}
 	if c.sel == "job:"+j.ID {
 		for k := range rows {
 			rows[k] = picked1(rows[k], w, m.paneFocus)
@@ -276,11 +277,11 @@ func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
 			fg++
 		}
 	}
-	head := fmt.Sprintf("%d running", len(jobs))
+	head := "running"
 	if bg := len(jobs) - fg; bg > 0 && fg > 0 {
 		head += fmt.Sprintf(" · %d in the background", bg)
 	} else if fg == 0 {
-		head += " in the background"
+		head = "in the background"
 	}
 	hint := ""
 	switch {
@@ -291,7 +292,7 @@ func (m *Model) jobsPreview(c *hostConn, jobs []*convo.Job, w int) []string {
 	case m.paneFocus && len(c.input) == 0 && len(m.queueOf(c).items) == 0:
 		hint = keys("↑", "pick one to stop")
 	}
-	out := []string{spread(" "+paint(cSub, "▸ ")+paint(cText+bold, head), hint+"  ", w)}
+	out := []string{spread(" "+paint(cOrange+bold, "shell")+paint(cFaint, fmt.Sprintf(" ·%d", len(jobs)))+dim("  "+head), hint+"  ", w)}
 	start := 0
 	if picked >= dockJobsShown {
 		start = picked - dockJobsShown + 1

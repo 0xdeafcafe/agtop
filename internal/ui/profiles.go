@@ -215,7 +215,6 @@ func (m *Model) openProfilePicker() {
 	p.acts = append(p.acts, linkAct{
 		label: faint("  edit profiles…"),
 		do: func(m *Model) tea.Cmd {
-			m.setView(placeSettings)
 			m.setSettingsPage(pageProfiles)
 			return nil
 		},

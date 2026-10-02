@@ -59,7 +59,7 @@ func TestSettingsFormPointerAndPaging(t *testing.T) {
 	for _, width := range []int{58, 140, 200} {
 		m, _ := benchModel(width, 30)
 		m.setView(placeSettings)
-		m.setSettingsPage(pageAppearance)
+		m.setSettingsPage(pageGeneral)
 		m.dialogKey(tea.KeyPressMsg{}, "end")
 		if m.dialog.cursor != m.dialogLen()-1 {
 			t.Fatal("End missed last setting")
@@ -162,7 +162,7 @@ func TestSettingsTabsKeepCurrentPageClickable(t *testing.T) {
 				t.Fatalf("%d hides current page %s", w, p.name)
 			}
 			hit := m.headerTabAt(cellw.String(before)+1, m.headH())
-			if !hit.valid || !hit.page || hit.index != at {
+			if lo, _ := placePages(m.view); !hit.valid || !hit.page || hit.index != at-lo {
 				t.Fatalf("%d wrong target for %s: %+v", w, p.name, hit)
 			}
 		}
@@ -172,7 +172,7 @@ func TestSettingsTabsKeepCurrentPageClickable(t *testing.T) {
 func TestAppearanceSelectionKeepsLayoutStable(t *testing.T) {
 	m, _ := benchModel(200, 50)
 	m.setView(placeSettings)
-	m.setSettingsPage(pageAppearance)
+	m.setSettingsPage(pageGeneral)
 	rows := flat(m.interfaceSections())
 	m.dialogBody(194)
 	before := m.dialog.formGeometry

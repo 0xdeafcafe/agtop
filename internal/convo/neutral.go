@@ -57,8 +57,12 @@ func (s *Session) applyNeutral(ev event.Event, now time.Time) {
 		}
 	case event.Approval:
 		s.ensureStep(e.Call, now)
-		always := slices.ContainsFunc(e.Options, func(o event.Option) bool { return o.Kind == event.AllowAlways })
-		s.ask(e.Call.ID, &Asking{ID: e.ID, Reason: e.Reason, Path: e.Path, Always: always})
+		i := slices.IndexFunc(e.Options, func(o event.Option) bool { return o.Kind == event.AllowAlways })
+		as := ""
+		if i >= 0 {
+			as = e.Options[i].Label
+		}
+		s.ask(e.Call.ID, &Asking{ID: e.ID, Reason: e.Reason, Path: e.Path, Always: i >= 0, AlwaysAs: as})
 	case event.Question:
 		id := firstNonEmpty(e.CallID, e.ID)
 		s.ensureStep(tool.Call{ID: id, Name: "AskUserQuestion", Kind: tool.Question}, now)

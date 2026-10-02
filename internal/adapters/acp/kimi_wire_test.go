@@ -125,3 +125,17 @@ func TestKimiWireMalformedRecord(t *testing.T) {
 		t.Fatal("malformed history was silently accepted")
 	}
 }
+
+func TestKimiWireFailedTurnKeepsItsError(t *testing.T) {
+	evs, err := readKimiWire(strings.NewReader(`{"type":"turn.ended","agentId":"main","reason":"failed","error":{"code":"internal","message":"open plans/x.md: no such file or directory"},"time":1000}
+`), time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 {
+		t.Fatalf("events: %+v", evs)
+	}
+	if m, ok := evs[0].(event.TurnEnd); !ok || m.Reason != "error" || m.Err != "open plans/x.md: no such file or directory" {
+		t.Fatalf("failed turn: %+v", evs[0])
+	}
+}

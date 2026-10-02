@@ -30,6 +30,9 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.host.pointerHover = paneHover{}
 	}
 	m.lastKeyAt = time.Now()
+	if cmd, used := m.quickKey(k, s); used {
+		return cmd
+	}
 	if cmd, used := m.remapKey(&k, &s); used {
 		return cmd
 	}
@@ -91,7 +94,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		if m.hosted != "" && m.view == placeProjects {
 			m.setView(m.view + d) // hosted is one session: no other projects to go to
 		}
-		return tea.Batch(m.loadPreview(), m.effOpen(), m.projectsOpen())
+		return tea.Batch(m.loadPreview(), m.projectsOpen())
 	}
 	if s == "alt+w" && (m.dialog == nil || m.dialog.asking == "") {
 		// Which profile, or which provider, new sessions run.
@@ -122,6 +125,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			return nil
 		default:
 			return nil
+		}
+	}
+	// A tile given the keys by a click on its box has them, as the Session would.
+	if m.grid.focus != "" && m.mode == modeList && m.dialog == nil && s != "tab" {
+		if cmd, ok := m.gridKey(k, s); ok {
+			return cmd
 		}
 	}
 	if m.paneFocus && m.host != nil && m.mode == modeList && m.dialog == nil && s == "ctrl+c" {
@@ -185,17 +194,6 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			s = "["
 		}
 	}
-	// [ and ] go through a place's pages, as everywhere with pages: in
-	// Efficiency unless a note is being written or an install waits on an
-	// answer.
-	if (s == "[" || s == "]") && m.mode == modeEff && !m.eff.typing() && m.eff.plan == nil {
-		d := 1
-		if s == "[" {
-			d = -1
-		}
-		m.setEffPage(m.eff.page + d)
-		return m.effOpen()
-	}
 	if (s == "[" || s == "]") && m.mode == modeWall {
 		d := 1
 		if s == "[" {
@@ -224,8 +222,6 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.mode = modeList
 		}
 		return nil
-	case modeEff:
-		return m.effKey(k, s)
 	case modeProjects:
 		return m.projectsKey(s)
 	case modeWall:
@@ -240,7 +236,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 // keys, so they can always be typed there.
 func (m *Model) placeStep(s string) int {
 	d := map[string]int{",": -1, "<": -1, ".": 1, ">": 1, "ctrl+\\": 1}[s]
-	if d == 0 || m.dialog != nil && m.dialog.asking != "" || m.mode == modeEff && m.eff.typing() {
+	if d == 0 || m.dialog != nil && m.dialog.asking != "" {
 		return 0
 	}
 	if s == "ctrl+\\" || m.mode != modeList || m.dialog != nil {
@@ -358,6 +354,9 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 	case "esc":
 		switch {
+		case m.broadcast != nil:
+			m.broadcast = nil
+			m.flash("broadcast stopped", false)
 		case !empty:
 			m.clearPrompt()
 			if m.inKind != inReply {
@@ -462,7 +461,7 @@ func (m *Model) listKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 		return nil
 	case "ctrl+x":
-		return m.askClose(a)
+		return m.dismiss(a)
 	case "ctrl+d", "alt+d":
 		// Done with it: to Done, its idle process stopped.
 		return m.markDone(a)
@@ -602,6 +601,37 @@ func (m *Model) nextNeedingYou() tea.Cmd {
 	m.didStep("next")
 	m.sel = best.Key
 	m.rebuild()
+	return m.loadPreview()
+}
+
+// stepChat is ctrl+tab: the next open chat (Active's, in the list's
+// order), shown where you are: in its Session if you were in one.
+func (m *Model) stepChat(d int) tea.Cmd {
+	var chats []*fleet.Agent
+	at := -1
+	for _, a := range m.order {
+		if a.Key == m.sel {
+			at = len(chats)
+		} else if m.sectionOf(a.Key) != sectionKey(activeSection) {
+			continue
+		}
+		chats = append(chats, a)
+	}
+	if len(chats) < 2 && at >= 0 || len(chats) == 0 {
+		m.flash("no other chat open", false)
+		return nil
+	}
+	if at < 0 && d > 0 {
+		at = -1 // from outside Active, the first; going back, the last
+	} else if at < 0 {
+		at = 0
+	}
+	a := chats[(at+d+len(chats))%len(chats)]
+	m.sel = a.Key
+	m.rebuild()
+	if m.paneFocus {
+		return m.focusPane(a)
+	}
 	return m.loadPreview()
 }
 
@@ -784,6 +814,9 @@ func (m *Model) submit() tea.Cmd {
 		m.inKind = inReply
 		return m.replyTo(a, text, tagged)
 	}
+	if m.broadcast != nil && text != "" && !isHashCmd(text) {
+		return m.sendBroadcast(tagged)
+	}
 	if text == "" {
 		return m.attach(a)
 	}
@@ -855,6 +888,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	switch name {
 	case "community":
 		return m.openCommunity(arg)
+	case "broadcast":
+		return m.broadcastCommand(arg)
 	case "room":
 		return m.openRoom(arg)
 	case "perm", "yolo":
@@ -867,8 +902,26 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			return nil
 		}
 		return m.permissionCommand(c, arg, name == "yolo")
-	case "discuss": // folded into #room
+	case "discuss":
+		// In a Session, a room on its chat; anywhere else, as #room.
+		if c := m.host; c != nil && a != nil && c.key == a.Key && !isRoomKey(c.key) {
+			return m.discuss(c, arg, false)
+		}
 		return m.openRoom(arg)
+	case "intervene":
+		// #intervene @agent goes into that agent's chat; else the one open.
+		if f := strings.Fields(arg); len(f) > 0 && strings.HasPrefix(f[0], "@") {
+			if t := m.mentionsIn("# " + f[0]); len(t) > 0 {
+				return m.interveneOn(t[0], strings.TrimSpace(strings.TrimPrefix(arg, f[0])))
+			}
+			m.flash("no agent called "+f[0], true)
+			return nil
+		}
+		if c := m.host; c != nil && a != nil && c.key == a.Key && !isRoomKey(c.key) {
+			return m.intervene(c, arg)
+		}
+		m.flash("#intervene works in a chat, or tag one: #intervene @agent", true)
+		return nil
 	case "agent", "model", "effort":
 		var c *hostConn
 		if m.host != nil && a != nil && m.host.key == a.Key {
@@ -947,10 +1000,6 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		if need() {
 			m.askKillTree(a)
 		}
-	case "restart":
-		if need() {
-			return m.restart(a, arg)
-		}
 	case "slim":
 		m.openSlim(m.host)
 	case "compact":
@@ -965,17 +1014,6 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			}
 			return m.moveTo(a, expand(arg))
 		}
-	case "account":
-		if arg == "" {
-			m.openAgentSettings(agent.Kind(m.startKind()))
-			return nil
-		}
-		return m.useLogin(arg)
-	case "group":
-		if need() {
-			m.inKind, m.input, m.promptFor = inGroup, []rune(arg), a.Key
-			return m.submit()
-		}
 	case "rename":
 		if need() {
 			if arg == "" {
@@ -985,8 +1023,6 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			m.inKind, m.input, m.promptFor = inRename, []rune(arg), a.Key
 			return m.submit()
 		}
-	case "native":
-		return m.nativeView()
 	case "view":
 		switch arg {
 		case "split":
@@ -1041,27 +1077,14 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 			}
 			return m.attach(a)
 		}
-	case "folder":
-		m.openDirPicker()
-	case "advisor":
-		return m.advCommand(arg)
 	case "mackeys":
 		return m.macKeysCommand(arg)
+	case "ghostty":
+		return m.ghosttyCommand(arg)
 	case "statusline":
 		m.openTopBar(a)
 	case "network":
 		m.sheet = &netSheet{}
-	case "efficiency":
-		// It reads the transcripts of the accounts rush switches between.
-		if !agent.Supports(loginsKind, agent.FeatureEfficiency) {
-			m.flash(harnessName(string(loginsKind))+"'s efficiency isn't something rush reads yet", true)
-			return nil
-		}
-		m.setView(placeEff)
-		if p := map[string]int{"timeline": effTimeline, "savers": effSaversPage, "findings": effFindings}[arg]; p > 0 {
-			m.setEffPage(p)
-		}
-		return m.effOpen()
 	default:
 		m.flash("unknown command #"+name+" · # lists rush's", true)
 	}

@@ -65,7 +65,7 @@ var features = map[agent.Feature]agent.Support{
 	agent.FeatureSettings: agent.Yes, agent.FeatureStats: agent.Yes,
 	agent.FeatureLive: agent.Yes, agent.FeatureHistory: agent.Yes,
 	agent.FeatureSwitch: agent.Yes, agent.FeatureSignIn: agent.Yes, agent.FeatureQuota: agent.Yes,
-	agent.FeaturePricing: agent.Yes, agent.FeatureEfficiency: agent.Yes, agent.FeatureMemory: agent.Yes,
+	agent.FeaturePricing: agent.Yes, agent.FeatureMemory: agent.Yes,
 }
 
 func (Adapter) Features() map[agent.Feature]agent.Support { return features }
