@@ -1065,6 +1065,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		return m.reload()
 	case "ask":
 		return m.askRush(arg)
+	case "guide":
+		return m.openGuide(arg)
 	case "help":
 		m.mode = modeHelp
 		m.didStep("keys")

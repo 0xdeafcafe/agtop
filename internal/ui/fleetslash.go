@@ -55,6 +55,7 @@ var fleetCommands = []event.Command{
 	{Name: "network", Description: "whether the API answers, the network rush is on and how fast it moves, and what waits for it (#net)"},
 	{Name: "view", Description: "Agents and the Session side by side, the agent's Session alone, or Agents alone (shift+← →)", ArgumentHint: "<split|agent|list>"},
 	{Name: "stash", Description: "what you set aside, sent, cleared and replaced, to put back in the box (ctrl+r · ctrl+s sets what's typed aside)"},
+	{Name: "guide", Description: "ask the guide, a fast model that sees your sessions: what's next, which one needs you, where something is; it opens the one it means", ArgumentHint: "[question]"},
 	{Name: "ask", Description: "ask rush about itself, or have it change a setting for you: an agent in rush's own folder, with its guide", ArgumentHint: "[question]"},
 	{Name: "help", Description: "a short guide to rush"},
 	{Name: "update", Description: "install the newest rush, with go install; #reload runs it"},
