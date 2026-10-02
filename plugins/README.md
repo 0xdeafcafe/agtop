@@ -47,16 +47,6 @@ Some plugins come with rush. Their code is rush's own, so they need no approval 
 
 A slot is a locked file, so it frees itself however its holder ends. A program run from inside a queued one (`go vet` under `go test`) doesn't queue again.
 
-**kanban-vault** (off until you turn it on) keeps secrets out of what you send. When a message in a Session's box or the Prompt holds one (an API key, a token, a password in a URL, found by LangWatch's redaction rules), it asks before the message goes:
-
-```
-Save as vault secret OPENAI_API_KEY?
-your message has a secret (provider api key, sk-p… 56 chars) · saved, it goes as {{vault:OPENAI_API_KEY}} and agents use it through kv run
-y save it   n/esc send as is   ctrl+c cancel
-```
-
-`y` or enter saves it with [Kanban Code](https://github.com/langwatch/kanban-code)'s `kv add NAME --tier judged`, and the message goes with `{{vault:NAME}}` in its place and a line telling the agent to use it with `kv run NAME -- <cmd>`. `n` or esc sends it as it is; ctrl+c sends nothing. Several secrets are asked one after another. The name is the one the value is assigned to in the text (`NAME=…`), else one for its kind, made free among the vault's names. It runs `~/.local/bin/kv` through `exec`, with your environment. Turn it on with `rush plugin on kanban-vault`.
-
 **hex** (off until you turn it on) adds a hex view of what agents' steps print and read: `v` on a step cycles to its bytes, coloured by kind, with an ASCII column, and binary output opens in it. With it off, `v` still switches between text, pretty and image.
 
 ## What a plugin can't do

@@ -124,9 +124,9 @@ Something happened in one of rush's windows. Sent without waiting for the plugin
 ```json
 {"action": "allow"}
 {"action": "rewrite", "text": "the message, changed"}
-{"action": "rewrite", "replace": [{"old": "sk-…", "new": "{{vault:KEY}}"}], "append": "\n\na line at the end"}
+{"action": "rewrite", "replace": [{"old": "sk-…", "new": "{{secret:KEY}}"}], "append": "\n\na line at the end"}
 {"action": "block", "reason": "shown to the user"}
-{"action": "ask", "id": "q1", "question": "Save as vault secret KEY?", "detail": "a line under it",
+{"action": "ask", "id": "q1", "question": "Store KEY as a secret?", "detail": "a line under it",
  "choices": [{"key": "y", "label": "save it", "enter": true}, {"key": "n", "label": "send as is", "esc": true}]}
 ```
 
@@ -140,7 +140,7 @@ Plugins are asked in name order, each seeing the text as the ones before left it
 
 `{"hook": "before-send", "ui": "main", "box": "…", "session": {…}, "text": "…", "id": "q1", "key": "y"}`: the user chose `key` in the plugin's `ask` with that `id`. `text` is the message as it stands now, with the ask's own changes in it. Answer as to `ui.intercept`: `allow`, `rewrite`, `block`, or another `ask` (the next question about the same message). It has 2 minutes, so it can run a program first (`exec`). The plugins after it in name order are then asked as usual. An answer that doesn't come, or an error, holds the message back, since the choice may have been to keep something out of it.
 
-The [`kanban-vault`](../../../README.md#bundled-plugins) bundled plugin is built on this: its ask saves a pasted secret with `kv add` only when the user says yes.
+A plugin that keeps secrets out of messages is built on this: its ask stores a pasted token (through `exec`) only when the user says yes, and its rewrite puts a reference in the token's place.
 
 ### `ui.settings` (notification)
 

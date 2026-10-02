@@ -6,6 +6,5 @@ import (
 	_ "github.com/0xdeafcafe/rush/internal/bundled/drafts"
 	_ "github.com/0xdeafcafe/rush/internal/bundled/gate"
 	_ "github.com/0xdeafcafe/rush/internal/bundled/hexview"
-	_ "github.com/0xdeafcafe/rush/internal/bundled/kanbanvault"
 	_ "github.com/0xdeafcafe/rush/internal/bundled/queue"
 )
