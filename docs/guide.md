@@ -467,6 +467,8 @@ The compact top status line shows today's spend, the active provider/account's t
 
 Session tabs, harness labels and transcript rows show pointer feedback. Click a session tab to switch views without sending or clearing the composer; click the harness label to open the model/harness controls. Top navigation uses the same visible targets for hover and click. Hovering rows does not change selection or rebuild the transcript.
 
+On Linux a session's host adopts what its agent starts and leaves behind (a `setsid nohup ... &` whose shell exited), so those processes keep the host among their ancestors instead of going to init, and the host reaps them when they exit. macOS has no such hand-over.
+
 Session location labels use the current host working folder. Linked worktrees keep the main repository name, with their own branch, worktree and nested folder shown alongside it. An old transcript location cannot override the live host folder.
 
 Shell chain timing also works for other harnesses when Rush can match an observable local shell command exactly. Remote or opaque processes remain unknown. Background tasks show the age of actual reported progress when no output file is available; repeated heartbeats do not count as progress. Quiet output is evidence of silence, not proof that a task is stuck.

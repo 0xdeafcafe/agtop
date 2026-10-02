@@ -410,6 +410,11 @@ func Run(id string) error {
 	// Run from a session's shell, it finds the agents' own programs, not
 	// the stand-ins that ran it.
 	_ = os.Setenv("PATH", WithoutShims(os.Getenv("PATH")))
+	// What the session's agent starts and leaves running stays under this
+	// host when its own parent exits, so it is still found as the session's.
+	if err := proc.Subreap(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s rush: orphans go to init: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
+	}
 	var cfg Config
 	b, err := os.ReadFile(filepath.Join(dir(id), "config.json"))
 	if err != nil {
