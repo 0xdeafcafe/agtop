@@ -17,7 +17,7 @@ func TestPlanSummaryHasStableWindowsAndWidth(t *testing.T) {
 		{ID: "weekly", Label: "7d", Span: 7 * 24 * time.Hour, Percent: 35, ResetsAt: now.Add(4 * 24 * time.Hour)},
 		{ID: "short", Label: "5h", Span: 5 * time.Hour, Percent: 58, ResetsAt: now.Add(3 * time.Hour)},
 	}}
-	if got := ansi.Strip(planSummary("Anthropic", q, now)); got != "Anthropic ◷ ▇  ⌛1h  ▦ █▃ ↻4d" {
+	if got := ansi.Strip(planSummary("Anthropic", q, now)); got != "Anthropic ◷ ▇  ↻3h  ▦ █▃ ↻4d" {
 		t.Fatal(got)
 	}
 	// The short window first, whatever's used; nearly gone, the number.
@@ -41,7 +41,7 @@ func TestPlanSummaryWarnsWhenAWindowRunsOutBeforeItResets(t *testing.T) {
 	q := usage.Quota{FetchedAt: now, Windows: []usage.Window{
 		{ID: "short", Label: "5h", Span: 5 * time.Hour, Percent: 86, Burn: 28, ResetsAt: now.Add(3 * time.Hour)},
 	}}
-	if got := ansi.Strip(planSummary("Anthropic", q, now)); got != "Anthropic ◷ ▃  ⌛20m" {
+	if got := ansi.Strip(planSummary("Anthropic", q, now)); got != "Anthropic ◷ ▃  ↻3h ⌛20m" {
 		t.Fatal(got)
 	}
 }

@@ -177,19 +177,22 @@ func planSummary(name string, q usage.Quota, now time.Time) string {
 // compactWindow is a plan window in a few cells: ◷ for one of hours, ▦
 // for a longer one, what's left of it as a level two cells wide that
 // drains as it's used, and how long until it resets. With 9% or less
-// left, the level gives way to the number. A window that fills before it
-// resets says when, in red.
+// left, the level gives way to the number. One that fills within the
+// hour, before it resets, says when, in red.
 func compactWindow(win usage.Window, now time.Time) string {
 	icon := "◷"
 	if win.Span == 0 || win.Span >= 24*time.Hour {
 		icon = "▦"
 	}
 	p := min(100, max(0, win.Percent))
-	out := dim(icon+" ") + paint(usageColor(p), drain(100-p))
-	if fill := runsOut(p, win.Rate(now), win.ResetsAt, now); strings.Contains(fill, "⌛") && !strings.Contains(fill, "ok") {
-		return out + fill
+	out := dim(icon+" ") + paint(usageColor(p), drain(100-p)) + resetIn(win.ResetsAt, now, false)
+	if rate := win.Rate(now); rate > 0 && p < 100 {
+		left := time.Duration((100 - p) / rate * float64(time.Hour))
+		if left < time.Hour && (win.ResetsAt.IsZero() || left < win.ResetsAt.Sub(now)) {
+			out += paint(cRed, " ⌛"+roughly(left))
+		}
 	}
-	return out + resetIn(win.ResetsAt, now, false)
+	return out
 }
 
 // drain is left, a percentage, as two cells: sixteen steps of level

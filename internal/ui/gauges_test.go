@@ -28,7 +28,7 @@ func TestHeaderGauges(t *testing.T) {
 	}
 	rows := ansi.Strip(strings.Join(g, "\n"))
 	if !strings.Contains(g[0], "borrowed") || !strings.HasPrefix(ansi.Strip(g[1]), "◷") || !strings.HasPrefix(ansi.Strip(g[2]), "▦") ||
-		!strings.Contains(rows, "↻3h") || !strings.Contains(rows, "⌛2d") || !strings.Contains(ansi.Strip(g[3]), "RAM") {
+		!strings.Contains(rows, "↻3h") || !strings.Contains(rows, "↻2d") || !strings.Contains(ansi.Strip(g[3]), "RAM") {
 		t.Fatalf("gauges:\n%s", rows)
 	}
 	if m.headerGauges(1111, 20) != nil {
