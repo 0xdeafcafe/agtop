@@ -124,7 +124,7 @@ func TestModel(t *testing.T) {
 
 func TestRender(t *testing.T) {
 	s := session()
-	out := plain(s.Render(Options{Width: 110, Now: at(40)}))
+	out := plain(s.Render(Options{Width: 110, Now: at(40), History: HistoryOpen}))
 	if os.Getenv("CONVO_SHOW") != "" {
 	}
 	want := []string{
@@ -1185,5 +1185,32 @@ func TestColdStartReasons(t *testing.T) {
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("got\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// A turn gone past keeps what you'd look back for: your message, what came
+// straight back, what it ended on, what it changed; the steps fold to a
+// row, and opened, show again.
+func TestSettledTurn(t *testing.T) {
+	s := session()
+	o := Options{Width: 110, Now: at(40), Open: map[string]bool{}}
+	out := plain(s.Render(o))
+	for _, w := range []string{
+		"▌  the ux right now is totally broken when i attach",
+		"Looking at how attach restores the terminal modes.", // straight after you
+		"▸ 4 steps · 1 file changed +2 −1",
+		"▏ Fixed the alt screen.", // what it ended on
+		"Building the line editor", // the newest turn stays whole
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "show 3 steps") || strings.Contains(out, "✓ ✎ internal/daemon/attach.go") {
+		t.Errorf("a turn gone past should fold its steps:\n%s", out)
+	}
+	o.Open["t1:run:1"] = true
+	if out := plain(s.Render(o)); !strings.Contains(out, "✎ internal/daemon/attach.go") || !strings.Contains(out, "▾ hide 4 steps") {
+		t.Errorf("opened, the run's steps show:\n%s", out)
 	}
 }

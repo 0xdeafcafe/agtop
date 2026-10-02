@@ -1543,9 +1543,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.clickPaneTab(m.host, msg.X, msg.Y) {
 				return m, nil
 			}
-			if m.clickHistory(m.host, msg.X, msg.Y) {
-				return m, nil
-			}
 			if m.clickLabel(m.host, msg.X, msg.Y) {
 				return m, m.openSwitchSheet(m.host)
 			}

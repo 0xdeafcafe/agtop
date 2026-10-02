@@ -173,11 +173,18 @@ func (s *Session) estimate(i int, o Options) int {
 // wait on you; a fold of its own over all of that.
 func (s *Session) turnOpen(i int, o Options) bool {
 	t := s.Turns[i]
-	open := o.History != HistoryCompact || i == len(s.Turns)-1 || t.Live || t.Err != "" || waiting(t)
+	open := o.History == HistoryOpen || i == len(s.Turns)-1 || t.Live || t.Err != "" || waiting(t)
 	if v, ok := o.Open[s.turnRef(t)]; ok {
 		open = v
 	}
 	return open
+}
+
+// TurnOpen is whether the turn of ref draws open with o: whole, rather
+// than settled or folded.
+func (s *Session) TurnOpen(ref string, o Options) bool {
+	i := s.TurnOf(ref)
+	return i >= 0 && s.turnOpen(i, o)
 }
 
 func (s *Session) turnRef(t *Turn) string {
@@ -248,7 +255,7 @@ func (s *Session) drawIndexed(i int, o Options, folds map[string]string, latest 
 	if t == latestIn {
 		mine = latest
 	}
-	recent := o.History != HistoryCompact || i == len(s.Turns)-1
+	recent := o.History == HistoryOpen || i == len(s.Turns)-1
 	before := s.stale
 	s.stale = false
 	ls := s.turn(t, o, recent, folds, mine)

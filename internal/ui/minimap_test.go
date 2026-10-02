@@ -50,6 +50,7 @@ func TestMinimapCachesChangedRowsAndInvalidatesGeometry(t *testing.T) {
 func TestMinimapViewportMouseAndSetting(t *testing.T) {
 	m, _ := benchModel(200, 55)
 	c := m.host
+	c.historyMode = convo.HistoryOpen // turns whole, so the window's edges fall on them
 	// ponytail: a turn cut at the drawn window's edge is decoded again on a
 	// later visit; 49 rows keeps the edges on whole turns.
 	m.rushPane(120, 49)

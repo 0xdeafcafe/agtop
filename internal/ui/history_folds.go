@@ -3,9 +3,17 @@ package ui
 import (
 	"strings"
 
-	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/convo"
 )
+
+// historyOf is how chat c draws its turns: a room's whole, since each turn
+// is a member speaking; the rest as set.
+func (m *Model) historyOf(c *hostConn) convo.HistoryMode {
+	if isRoomKey(c.key) {
+		return convo.HistoryOpen
+	}
+	return c.historyMode
+}
 
 // setHistoryFold applies to turns still loading too. Tool-level overrides
 // survive, and a later individual choice takes precedence over the mode.
@@ -34,48 +42,8 @@ func (m *Model) setHistoryFold(open bool) {
 	c.drawn.History = c.historyMode
 	c.paneKick = true
 	if open {
-		m.flash("all turns open · tool details keep their own folds", false)
+		m.flash("every turn shown whole", false)
 	} else {
-		m.flash("older turns previewed · latest turn stays open", false)
+		m.flash("turns gone past show what matters: what was said, what changed, what was made", false)
 	}
-}
-
-// historyChips is the header's one control for the conversation: every turn
-// shows whole by default, and these two clicks (or the chords) change it all.
-// It joins the chips already there when there is room (key hint first to
-// go), recording its click targets (from the chips' start), and leaves them alone when there is not.
-func (m *Model) historyChips(c *hostConn, chips string, room int) string {
-	// One toggle: the mode in use lit, the other quiet, a dot between.
-	open, closed, sep := "open all", "collapse older", faint(" · ")
-	if c.historyMode == convo.HistoryCompact {
-		open, closed = dim(open), paint(cOrange, closed)
-	} else {
-		open, closed = paint(cOrange, open), dim(closed)
-	}
-	w1, w2, ws := cellw.String(open), cellw.String(closed), cellw.String(sep)
-	hint := dim("  " + m.boundKey("session.history.open") + " / " + m.boundKey("session.history.close"))
-	for _, tail := range []string{hint + "  ", "  "} {
-		mine := open + sep + closed + tail
-		if cellw.String(chips+mine) > room {
-			continue
-		}
-		at := cellw.String(chips)
-		c.histTabs = append(c.histTabs, paneTab{at, at + w1, 1}, paneTab{at + w1 + ws, at + w1 + ws + w2, 0})
-		return chips + mine
-	}
-	return chips
-}
-
-// clickHistory runs a header chip on the first click.
-func (m *Model) clickHistory(c *hostConn, x, y int) bool {
-	if m.zenFull() || y != m.paneTop+paneTabsRow {
-		return false
-	}
-	for _, t := range c.histTabs {
-		if x-m.paneX() >= t.start && x-m.paneX() < t.end {
-			m.setHistoryFold(t.view == 1)
-			return true
-		}
-	}
-	return false
 }

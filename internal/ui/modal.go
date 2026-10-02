@@ -31,8 +31,10 @@ func (m *Model) cardModal(c *hostConn) bool {
 	if id != c.cardShown {
 		c.cardShown, c.cardAt, c.memPick = id, time.Now(), 0
 		c.cardTyping = time.Since(c.lastKeyAt) < time.Second
-		if id != "" && id != c.cardLater && modalCard(c) {
-			c.cardFocus = true
+		// What waits on you takes the keys as it comes, unless you were
+		// typing: then ↑ gives it them.
+		if id != "" && id != c.cardLater && (modalCard(c) || !c.cardTyping && len(c.input) == 0) {
+			c.cardFocus, c.sel = true, ""
 		}
 	}
 	return modalCard(c) && id != c.cardLater && c.client != nil

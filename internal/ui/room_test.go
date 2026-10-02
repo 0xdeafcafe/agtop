@@ -49,7 +49,7 @@ func TestRoomFold(t *testing.T) {
 	for _, e := range es {
 		f.apply(s, e)
 	}
-	got := ansi.Strip(lineText(s.Render(convo.Options{Width: 100, Open: map[string]bool{}})))
+	got := ansi.Strip(lineText(s.Render(convo.Options{Width: 100, Open: map[string]bool{}, History: convo.HistoryOpen})))
 	if os.Getenv("RUSH_ROOM") != "" || testing.Verbose() {
 		t.Log("\n" + got)
 	}

@@ -9,7 +9,7 @@ func TestLookupLandedRedrawsOnlyWaitingTurns(t *testing.T) {
 	dir := t.TempDir()
 	s.Info.Cwd = dir
 	realDirs.Store(dir, "") // looked up, not in yet: realDir answers "not yet"
-	o := Options{Width: 120, Now: at(100000), Open: map[string]bool{}}
+	o := Options{Width: 120, Now: at(100000), Open: map[string]bool{}, History: HistoryOpen}
 	first := s.Turns[0]
 	s.Render(o)
 	if !s.cache[first].waits {

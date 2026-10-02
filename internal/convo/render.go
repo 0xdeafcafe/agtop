@@ -146,7 +146,7 @@ func (s *Session) RenderInto(o Options, buf []Line) []Line {
 	// when there's only time for some.
 	n := 0
 	for i := len(s.Turns) - 1; i >= 0; i-- {
-		recent := o.History != HistoryCompact || i == len(s.Turns)-1
+		recent := o.History == HistoryOpen || i == len(s.Turns)-1
 		var mine *Step
 		if s.Turns[i] == latestIn {
 			mine = latest
@@ -282,10 +282,15 @@ func (s *Session) turn(t *Turn, o Options, recent bool, folds map[string]string,
 	waits := lookupWaits.Load()
 	fastBefore := s.Fast
 	s.Fast = false // set again if this turn draws a timer in tenths
-	if open {
+	_, chosen := o.Open[ref]
+	switch {
+	case open:
 		d.open()
-	} else {
-		d.folded()
+	case chosen:
+		d.folded() // closed by hand: the message and a row
+		s.drew = true
+	default:
+		d.settled() // gone past: what matters of it
 		s.drew = true
 	}
 	d.lines = squeezed(d.lines)

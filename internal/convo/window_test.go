@@ -44,7 +44,7 @@ func TestRenderWindowDrawsOnlyItsTurns(t *testing.T) {
 // However long the session, only so many turns' drawings are kept.
 func TestRenderWindowKeepsBoundedDrawings(t *testing.T) {
 	s := benchSession(1200)
-	o := Options{Width: 120, Now: at(100000), Open: map[string]bool{}}
+	o := Options{Width: 120, Now: at(100000), Open: map[string]bool{}, History: HistoryOpen}
 	var out []Line
 	for to := 1 << 30; ; {
 		out = s.RenderWindow(o, max(0, to-200), to, out)

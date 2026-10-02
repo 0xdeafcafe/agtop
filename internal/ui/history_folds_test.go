@@ -1,10 +1,7 @@
 package ui
 
 import (
-	"strings"
 	"testing"
-
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/convo"
 )
@@ -51,32 +48,5 @@ func TestHistoryBulkKeyBindings(t *testing.T) {
 	pressKeys(m, "ctrl+]", "s")
 	if m.host.historyMode != convo.HistoryCompact || string(m.host.input) != "unfinished message" {
 		t.Fatalf("close-older: mode=%v draft=%q status=%q focus=%v", m.host.historyMode, string(m.host.input), m.status, m.paneFocus)
-	}
-}
-
-func TestHistoryHeaderChipsClickOnce(t *testing.T) {
-	m, _ := benchModel(200, 50)
-	c := m.host
-	m.View()
-	_, paneW, _ := m.layout()
-	head := m.paneHeader(m.focused(), c, paneW)
-	if row := ansi.Strip(head[paneTabsRow]); !strings.Contains(row, "open all") || !strings.Contains(row, "collapse older") {
-		t.Fatalf("header lacks the history control: %q", row)
-	}
-	if len(c.histTabs) != 2 {
-		t.Fatalf("no click targets: %v", c.histTabs)
-	}
-	for _, tab := range c.histTabs {
-		c.historyMode = convo.HistoryAuto
-		if !m.clickHistory(c, m.paneX()+tab.start, m.paneTop+paneTabsRow) {
-			t.Fatalf("click missed %v", tab)
-		}
-		want := convo.HistoryCompact
-		if tab.view == 1 {
-			want = convo.HistoryOpen
-		}
-		if c.historyMode != want {
-			t.Fatalf("mode %v after one click on %v", c.historyMode, tab)
-		}
 	}
 }

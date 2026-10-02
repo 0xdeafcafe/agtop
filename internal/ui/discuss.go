@@ -272,10 +272,12 @@ func verdictText(s room.Summary) string {
 // is picked: enter sends it on, e puts it in the box to edit, esc drops it.
 func (m *Model) verdictKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 	v, ok := m.verdicts[c.key]
-	if !ok || !empty || c.sel != "" || s != "enter" && s != "e" && s != "esc" {
+	// Behind any other card; on it, or with nothing else picked.
+	if !ok || !empty || cardKind(c) != "" || c.sel != "" && !c.cardFocus || s != "enter" && s != "e" && s != "esc" {
 		return nil, false
 	}
 	delete(m.verdicts, c.key)
+	c.cardFocus = false
 	if s == "esc" {
 		m.flash("verdict dropped", false)
 		return nil, true

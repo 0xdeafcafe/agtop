@@ -1305,7 +1305,6 @@ func tabStat(c *hostConn, v string) string {
 type hostConn struct {
 	contextLabel [2]int
 	paneTabs     []paneTab
-	histTabs     []paneTab // the header's open all / collapse older targets; view 1 opens
 	pointerHover paneHover
 	// label is where the header's agent label is drawn: its column in the
 	// pane and its width, 0 when it isn't.
@@ -1392,7 +1391,8 @@ type hostConn struct {
 	memPick              int // the memory card's button enter presses
 	cardAt, lastKeyAt    time.Time
 	cardTyping           bool
-	inModal              bool // the card is being drawn in its modal
+	inModal              bool   // the card is being drawn in its modal
+	verdictShown         string // the room whose verdict last came to this chat's dock
 	// A memory card's buttons as last drawn, for clicks: from the card's
 	// top, which is cardTop rows into the dock, which starts at dockY.
 	btns                                 []cardBtn
@@ -2025,7 +2025,7 @@ func (m *Model) rushPane(w, h int) []string {
 	} else {
 		c.minimap = conversationMap{}
 	}
-	o := convo.Options{Width: contentW, Now: paneNow(), Tick: m.tick, Open: c.open, View: c.looks, Verbose: c.verbose, Depth: c.depth, History: c.historyMode, HideActivity: true,
+	o := convo.Options{Width: contentW, Now: paneNow(), Tick: m.tick, Open: c.open, View: c.looks, Verbose: c.verbose, Depth: c.depth, History: m.historyOf(c), HideActivity: true,
 		Selected: c.sel, Focused: m.paneFocus, Wide: m.hostedAlone()}
 	var body []convo.Line
 	// body is rows [base, base+len(body)) of total; in a conversation only
@@ -2588,14 +2588,6 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	for i := range c.paneTabs {
 		c.paneTabs[i].end = min(c.paneTabs[i].end, cellw.String(strip))
 	}
-	c.histTabs = c.histTabs[:0]
-	if m.viewName(c) == "conversation" {
-		chips = m.historyChips(c, chips, hw-cellw.String(strip)-2)
-		for i := range c.histTabs {
-			c.histTabs[i].start += hw - cellw.String(chips)
-			c.histTabs[i].end += hw - cellw.String(chips)
-		}
-	}
 	row3 := spread(strip, chips, hw)
 	// A rule closes the chrome off, lit under the tab showing, orange
 	// while the Session has the keys. A row of the pane's ground keeps
@@ -2745,7 +2737,22 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if m.cardModal(c) {
 			return
 		}
-		if rows := m.cardRows(a, c, w, h*3/5); len(rows) > 0 {
+		rows := m.cardRows(a, c, w, h*3/5)
+		if v, ok := m.verdicts[c.key]; ok && len(rows) == 0 {
+			// A room's verdict waits like a card: last, behind any other.
+			if c.verdictShown != v.ID {
+				c.verdictShown = v.ID
+				if len(c.input) == 0 && time.Since(c.lastKeyAt) > time.Second {
+					c.cardFocus, c.sel = true, ""
+				}
+			}
+			edge := cBlue
+			if c.cardFocus {
+				edge = cOrange
+			}
+			rows = dockCard(bgRuns, edge, m.verdictRows(c, w-1), w)
+		}
+		if len(rows) > 0 {
 			block()
 			c.cardTop = len(out)
 			c.panelRefs[len(out)] = "panel:card"
@@ -2814,15 +2821,19 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			line(l)
 		}
 	}
-	if l := m.verdictRows(c, w); len(l) > 0 {
-		block()
-		out = append(out, dockCard(bgRuns, cBlue, l, w)...)
-	}
 	if qs := m.queueOf(c); len(qs.items) > 0 {
-		block()
+		// Beside the conversation with the rest of what's under way, when
+		// there's room: never between you and a card waiting on you.
+		side := c.sideW > 0 && m.viewName(c) == "conversation"
+		if !side {
+			block()
+		}
 		var rows []string
 		line := func(txt string) { rows = append(rows, txt) }
 		w := w - 1
+		if side {
+			w = c.sideW - 1
+		}
 		q := qs.items
 		when := dim(" · sends when this turn ends")
 		if sq, sa := m.subQueue(c); sq != nil {
@@ -2916,11 +2927,21 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if rest := len(q) - (start + 3); rest > 0 {
 			line(dim(fmt.Sprintf("  + %d more", rest)))
 		}
-		c.qTop = len(out)
-		for row, qi := range c.qAt {
-			c.panelRefs[c.qTop+row] = fmt.Sprintf("q:%d", qi)
+		if side {
+			if len(c.side) > 0 {
+				c.side = append(c.side, "")
+			}
+			for row, qi := range c.qAt {
+				c.panelRefs[sideRefs+len(c.side)+row] = fmt.Sprintf("q:%d", qi)
+			}
+			c.side, c.qAt = append(c.side, dockCard(bgQueue, cQueue, rows, w+1)...), nil // clicked through the side's refs
+		} else {
+			c.qTop = len(out)
+			for row, qi := range c.qAt {
+				c.panelRefs[c.qTop+row] = fmt.Sprintf("q:%d", qi)
+			}
+			out = append(out, dockCard(bgQueue, cQueue, rows, w+1)...)
 		}
-		out = append(out, dockCard(bgQueue, cQueue, rows, w+1)...)
 	}
 	cards()
 	// And room before the box. In a conversation it scrolls with the
@@ -3313,6 +3334,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if cmd, used := m.slashKey(c, s); used {
 		return cmd
 	}
+	if cmd, used := m.verdictKey(c, s, empty); used {
+		return cmd // what waits on you goes first
+	}
 	if cmd, used := m.queueKey(c, s); used {
 		return cmd
 	}
@@ -3351,9 +3375,6 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if s == "esc" && c.editQ > 0 {
 		c.input, c.back = c.input[:0], 0
 		return m.endQueueEdit(c)
-	}
-	if cmd, used := m.verdictKey(c, s, empty); used {
-		return cmd
 	}
 	if cmd, used := m.cardKey(c, s, empty); used {
 		return cmd
@@ -4033,11 +4054,14 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 	// What the renderer opens by default: recent turns and failures. The
 	// options the pane last drew with find it in the renderer's cache;
 	// any others would redraw its turn, twice.
-	o := convo.Options{Width: max(40, m.w/2), Now: time.Now(), Open: c.open, View: c.looks, History: c.historyMode}
+	o := convo.Options{Width: max(40, m.w/2), Now: time.Now(), Open: c.open, View: c.looks, History: m.historyOf(c)}
 	if c.drewConvo {
 		o = c.drawn
 	}
 	o.Budget = 0
+	if !strings.Contains(ref, ":") && c.sess.TurnOf(ref) >= 0 {
+		return c.sess.TurnOpen(ref, o) // a turn: settled reads as closed
+	}
 	rows := c.sess.RenderTurn(o, c.sess.TurnOf(ref))
 	if rows == nil {
 		rows = c.sess.Render(o) // not a turn's: look through them all
@@ -4849,6 +4873,9 @@ func cardID(c *hostConn) string {
 // answer from anywhere. It reports whether it used the key.
 func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 	kind := cardKind(c)
+	if _, ok := m.verdicts[c.key]; ok && kind == "" {
+		kind = "verdict" // its own keys are verdictKey's: here, ↑↓ onto and off it
+	}
 	if kind == "" {
 		c.cardFocus, c.cardAgain = false, "" // a key between cards: you've moved on
 		return nil, false

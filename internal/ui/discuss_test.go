@@ -144,3 +144,23 @@ func TestChatStatus(t *testing.T) {
 	}
 }
 
+
+// A verdict coming back takes the keys from a picked queue row: e edits
+// the verdict, not what's queued, and the queue keeps its messages.
+func TestVerdictGoesBeforeQueue(t *testing.T) {
+	t.Setenv("RUSH_HOME", t.TempDir())
+	m, _ := benchModel(200, 45)
+	c := m.host
+	c.input, c.lastKeyAt = nil, time.Time{}
+	c.sess.Info.Queue = []string{"first queued", "second queued"}
+	c.sel = "q:1"
+	m.verdicts = map[string]room.Summary{c.key: {Room: room.Room{ID: "r9", Topic: "the plan", From: c.key}, Verdict: true, Final: "Opus: go on"}}
+	m.paneDock(m.agentByKey(c.key), c, 200, 45)
+	if !c.cardFocus || c.sel != "" {
+		t.Fatalf("the verdict should take the keys as it comes: focus %v, sel %q", c.cardFocus, c.sel)
+	}
+	m.paneKey(tea.KeyPressMsg{Code: 'e', Text: "e"}, "e")
+	if got := string(c.input); !strings.Contains(got, "Opus: go on") || c.editQ != 0 || len(c.sess.Info.Queue) != 2 {
+		t.Fatalf("e should edit the verdict: box %q, editing queue %d, queue %v", got, c.editQ, c.sess.Info.Queue)
+	}
+}
