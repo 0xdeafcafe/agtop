@@ -37,7 +37,7 @@ func (m *Model) interfaceSections() []section {
 		}, func(v string) { c.EnterOn = v })
 	enter.unset = "ask"
 	group := choiceSetting("Group by", firstNonEmpty(c.GroupBy, "status"), "How agents are sorted into sections.", [][2]string{
-		{"status", "Active first: what needs you, your turn, working and idle, and what stopped recently (Settings › General); the rest of the last day under Today, older ones under Earlier."},
+		{"status", "Needs you first (questions, halts, your turn), then Stuck?, Working, and Idle (open, or stopped recently: Settings › General); the rest of the last day under Today, older ones under Earlier."},
 		{"agent", "one section per harness (Claude Code, Codex, Copilot…), handy when you run several."},
 		{"group", "your own sections; put an agent in one with /group <name>. Ungrouped agents fall back to status."},
 	}, func(v string) { c.GroupBy = v })
@@ -216,7 +216,7 @@ func (m *Model) interfaceSections() []section {
 		{"ram", "RAM", "the memory everything each agent started holds."},
 		{"tokens", "TOKENS", "how full each agent's context is."},
 		{"cost", "COST", "what each agent has spent."},
-		{"time", "TIME", "how long each has run, or since it last did."},
+		{"time", "TIME", "how long each has run; for one that needs you, how long it has waited; for a stuck one, how long it has been silent."},
 	} {
 		shown := map[bool]string{true: "shown", false: "hidden"}[c.Shows(col[0])]
 		cols = append(cols, choiceSetting(col[1], shown, "The "+col[1]+" column: "+col[2]+" A narrow list drops some by itself.",
