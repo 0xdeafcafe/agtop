@@ -79,6 +79,9 @@ type Agent struct {
 	// Remote is a session running on its agent's own servers: Copilot's
 	// coding agent on GitHub.
 	Remote bool
+	// Compaction is where its agent compacts its context, when its
+	// settings or environment set a window smaller than the model's.
+	Compaction agent.Compaction
 }
 
 // NeedsYou is a live agent asking something the user has not looked at yet.
@@ -256,6 +259,8 @@ type Loader struct {
 	// for every reading.
 	unfound map[string]time.Time
 	hosts   host.Lister
+	// compact is each row's Compaction as last worked out.
+	compact map[string]compactEntry
 	print   map[int]printEntry
 	Temp    *TempSizes
 	// pastRows are past conversations' rows as last made, and spendVer
@@ -874,6 +879,7 @@ func (l *Loader) load(sampleProcs bool) *Snapshot { //nolint:gocognit,gocyclo,ma
 		}
 		listed[a.Key] = true
 	}
+	l.compactions(snap.Agents, hosted, now)
 	for k := range l.subs {
 		if !listed[k] {
 			delete(l.subs, k) // an agent no longer listed: its runs' reader goes

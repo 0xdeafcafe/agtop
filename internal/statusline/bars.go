@@ -19,8 +19,12 @@ type Bars struct {
 	Agent Layout `json:"agent"`
 }
 
-// BarLines is how many lines each of rush's own has room for.
-const BarLines = 2
+// BarLines is how many lines the agent header has room for; TopLines,
+// rush's top, has one more, beside the tabs.
+const (
+	BarLines = 2
+	TopLines = 3
+)
 
 // DefaultTop keeps everyday status quiet; detailed segments remain available
 // in the status-line editor.

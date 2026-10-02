@@ -61,3 +61,38 @@ func (Adapter) StatusLineProfile() agent.Profile {
 }
 
 var _ agent.StatusLineProfiler = Adapter{}
+
+// Compaction is where a session on p in cwd compacts, from its process's
+// env and the settings files it reads: yours, then the project's and its
+// just-for-you one.
+func (Adapter) Compaction(p agent.Profile, cwd string, env []string) agent.Compaction {
+	src := claude.CompactSource{Env: env, State: claude.ReadSettingsCached(claudeJSON(p.Dir))}
+	paths := []string{filepath.Join(p.Dir, "settings.json")}
+	if root := projectRoot(cwd); root != "" {
+		paths = append(paths, filepath.Join(root, ".claude", "settings.json"), filepath.Join(root, ".claude", "settings.local.json"))
+	}
+	for _, path := range paths {
+		src.Settings = append(src.Settings, claude.ReadSettingsCached(path))
+	}
+	return claude.Compaction(src)
+}
+
+// projectRoot is the checkout cwd is in, found by its .git without
+// running git (the list asks for every row); else cwd itself.
+func projectRoot(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+	for dir := cwd; ; {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		up := filepath.Dir(dir)
+		if up == dir {
+			return cwd
+		}
+		dir = up
+	}
+}
+
+var _ agent.Compacter = Adapter{}
