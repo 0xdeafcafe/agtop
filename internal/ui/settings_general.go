@@ -48,8 +48,9 @@ func (m *Model) generalSections() []section {
 	active := choiceSetting("Keep stopped agents in Active for", activeValue(c.ActiveMinutes),
 		"An agent whose process has stopped (rested, hibernated or closed) stays in Active with the rest of what's in play for this long, then moves to Today.",
 		[][2]string{
-			{"", "it moves to Today half an hour after it was last active."},
+			{"", "it moves to Today 5 minutes after it was last active."},
 			{"10m", "it moves to Today 10 minutes after it was last active."},
+			{"30m", "it moves to Today half an hour after it was last active."},
 			{"60m", "it moves to Today an hour after it was last active."},
 			{"120m", "it moves to Today two hours after it was last active."},
 			{"off", "it moves to Today as soon as its process stops."},
@@ -63,7 +64,7 @@ func (m *Model) generalSections() []section {
 				fmt.Sscanf(v, "%dm", &c.ActiveMinutes)
 			}
 		})
-	active.unset = "30m"
+	active.unset = "5m"
 
 	justLeft := choiceSetting("Keep agents in Just left for", activeValue(c.JustLeftMinutes),
 		"An agent that leaves Idle goes to Just left, most recent first, so one you missed is still easy to find; after this long it moves to Today.",

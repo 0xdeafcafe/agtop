@@ -55,6 +55,8 @@ func pick(rush, agtop, mark string) string {
 func Key(account, id string) string { return account + "/" + id }
 
 type Config struct {
+	// Twatter is the feed agents share: #twatter on|off, default off.
+	Twatter bool `json:"twatter,omitzero"`
 	// HideMinimap hides the conversation overview rail; narrow panes hide it automatically.
 	HideMinimap bool `json:"hideMinimap,omitzero"`
 	// Grid is the agents pinned as tiles beside the Session, by key, and
@@ -164,7 +166,7 @@ type Config struct {
 		AfterMinutes int `json:"afterMinutes"`
 	} `json:"hibernate"`
 	// ActiveMinutes is how long a stopped agent stays in the list's Active
-	// section before Today has it; 0 is the default (30), negative off.
+	// section before Today has it; 0 is the default (5), negative off.
 	ActiveMinutes int `json:"activeMinutes,omitzero"`
 	// JustLeftMinutes and JustLeftCount bound the list's Just left, what
 	// left Idle most recently: 0 is the default (2 hours, 10), negative

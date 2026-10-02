@@ -22,7 +22,7 @@ func TestFinishedTurnsWaitForYou(t *testing.T) {
 	broke.Spend.Halt = &claude.Halt{Kind: "server_error", Text: "API Error: Response stalled mid-stream."}
 	idle.Seen = true
 	rested, old := agent("rested", "done"), agent("old", "done")
-	rested.PID, rested.Seen, rested.UpdatedAt = 0, true, now.Add(-10*time.Minute)
+	rested.PID, rested.Seen, rested.UpdatedAt = 0, true, now.Add(-3*time.Minute)
 	old.PID, old.Seen, old.UpdatedAt = 0, true, now.Add(-40*time.Minute)
 	m := &Model{store: &state.Store{}, previews: map[string]previewEntry{}, w: 120, h: 40, lastState: map[string]string{}}
 	m.snap = &fleet.Snapshot{At: now, Agents: []*fleet.Agent{quiet, broke, idle, rested, old}}

@@ -42,7 +42,7 @@ func (e agentEvent) routine() bool { return e.glyph == "✓" && !newsRe.MatchStr
 // under its title in at most room rows (none when there's no room for the
 // frame and a line), with each row's agent for a click.
 func (m *Model) feedLines(w, room int) (lines, keys []string) {
-	if room < 5 || len(m.events) == 0 || w < 24 {
+	if !agentFeedShown || room < 5 || len(m.events) == 0 || w < 24 {
 		return nil, nil
 	}
 	edge := func(s string) string { return paint(cSub+bold, s) }
@@ -68,3 +68,7 @@ func (m *Model) feedLines(w, room int) (lines, keys []string) {
 	}
 	return append(lines, edge("┗"+strings.Repeat("━", inner+2)+"┛")), append(keys, "")
 }
+
+// agentFeedShown draws the from-your-agents box; hidden for now, since
+// finished agents leave Active within minutes anyway.
+var agentFeedShown = false

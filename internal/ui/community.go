@@ -1,216 +1,162 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/community"
 	"github.com/charmbracelet/x/ansi"
 )
 
-// Community is shared local history, not a model run. Disk work stays off the
-// render path; polling stops when hidden and never sends anything to an agent.
+// The Twatter sheet is the side stream at full height: every post and reply
+// in time order, newest at the bottom. It reads m.stream, which the stream
+// already polls off the UI; a post is written off the UI too.
 type communitySheet struct {
-	threads               []community.Thread
-	selected              string
-	cursor, scroll        int
-	loading, busy, loaded bool
-	problem               string
-	revision              uint64
-	pollRevision          uint64
-	stamp                 string
-	force                 bool
-	composing             bool
-	replyTo               string
-	input                 []rune
-	pos                   int
-	rowIDs                map[int]string
-	cachedID              string
-	cachedAt              time.Time
-	cachedW               int
-	cached                []string
+	picked    string // the picked post's key, so a reload can't shift it
+	scroll    int    // the first line shown
+	follow    bool   // the cursor rides the newest post
+	composing bool
+	replyTo   string // the thread a reply goes to; "" posts anew
+	input     []rune
+	pos       int
+	busy      bool
+	problem   string
+	rows      map[int]int // body row -> post, for clicks
 }
 
 func (m *Model) openCommunity(arg string) tea.Cmd {
+	switch {
+	case arg == "on" || arg == "off": // #twatter on|off, for all of rush
+		m.store.Config.Twatter = arg == "on"
+		_ = m.store.SaveConfig()
+		m.flash("Twatter "+arg, false)
+		return nil
+	case !m.store.Config.Twatter:
+		m.flash("Twatter is off · #twatter on", true)
+		return nil
+	}
 	if m.community == nil {
-		m.community = &communitySheet{}
+		m.community = &communitySheet{follow: true}
 	}
 	s := m.community
 	m.sheet = s
-	if arg == "new" && !s.busy {
-		if len(s.input) > 0 && s.replyTo != "" {
-			s.selected = s.replyTo
-			s.composing = true
-			s.problem = "Finish your kept reply before asking a new question"
-			return nil
-		}
+	if arg == "new" {
 		s.composing, s.replyTo = true, ""
-	} else if arg != "" {
-		s.selected = arg
-		s.scroll = 0
 	}
-	return s.load(m)
-}
-func (s *communitySheet) width(m *Model) int { return min(120, m.w-6) }
-func (s *communitySheet) poll() tea.Cmd {
-	s.pollRevision++
-	generation := s.pollRevision
-	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
-		return sheetMsg{apply: func(m *Model) tea.Cmd {
-			if m.sheet != s || generation != s.pollRevision {
-				return nil
-			}
-			return s.load(m)
-		}}
-	})
-}
-func (s *communitySheet) load(m *Model) tea.Cmd {
-	if s.loading || s.busy {
-		return nil
-	}
-	s.loading = true
-	s.revision++
-	rev := s.revision
-	type reading struct {
-		threads []community.Thread
-		stamp   string
-		changed bool
-	}
-	stamp, loaded, force := s.stamp, s.loaded, s.force
-	s.force = false
-	return sheetDo(func() (reading, error) {
-		token, err := community.Version()
-		if err != nil {
-			return reading{}, err
-		}
-		if loaded && !force && token == stamp {
-			return reading{}, nil
-		}
-		threads, err := community.List()
-		return reading{threads, token, true}, err
-	}, func(m *Model, result reading, err error) tea.Cmd {
-		if m.community != s || rev != s.revision {
-			return nil
-		}
-		s.loading, s.loaded = false, true
-		if err != nil {
-			s.problem = err.Error()
-		} else if result.changed {
-			s.problem = ""
-			s.stamp = result.stamp
-			threads := result.threads
-			// Keep the selected list row stable while other agents post replies.
-			picked := ""
-			if s.cursor < len(s.threads) {
-				picked = s.threads[s.cursor].ID
-			}
-			s.threads = threads
-			s.cursor = min(s.cursor, max(0, len(threads)-1))
-			for i, t := range threads {
-				if t.ID == picked {
-					s.cursor = i
-					break
-				}
-			}
-		}
-		if m.sheet == s {
-			return s.poll()
-		}
-		return nil
-	})
-}
-func (s *communitySheet) thread() *community.Thread {
-	for i := range s.threads {
-		if s.threads[i].ID == s.selected {
-			return &s.threads[i]
+	for _, p := range m.stream.posts { // a click on the side stream picks its post
+		if arg != "" && (p.key == arg || p.id == arg) {
+			s.picked, s.follow = p.key, false
 		}
 	}
 	return nil
 }
-func communityText(s string) string { return cleanPaste(ansi.Strip(s)) }
-func communityAuthor(a community.Author) string {
-	name := a.Username()
-	if a.Kind != "" {
-		label := agent.HarnessLabel(agent.Kind(a.Kind))
-		if name != label {
-			name += " · " + label
+
+// cursor is the picked post's place in posts: the newest when following or
+// when the picked post has gone.
+func (s *communitySheet) cursor(posts []streamPost) int {
+	for i, p := range posts {
+		if !s.follow && p.key == s.picked {
+			return i
 		}
 	}
-	return communityText(name)
+	return len(posts) - 1
 }
-func (s *communitySheet) detail(t *community.Thread, w int) []string {
-	if s.cachedID == t.ID && s.cachedAt.Equal(t.UpdatedAt) && s.cachedW == w {
-		return s.cached
+func (s *communitySheet) pick(posts []streamPost, i int) {
+	if len(posts) > 0 {
+		i = max(0, min(len(posts)-1, i))
+		s.picked, s.follow = posts[i].key, i == len(posts)-1
 	}
-	out := wrap(paint(cText+bold, communityText(t.Title)), w)
-	status := "Open"
-	if t.Resolved {
-		status = "Resolved"
-	}
-	out = append(out, dim(status+" · "+t.ID), "")
-	for _, msg := range t.Messages {
-		out = append(out, fit(paint(cOrange, communityAuthor(msg.Author))+dim(" · "+msg.At.Local().Format("Jan 2 15:04")), w))
-		text := community.MentionRE.ReplaceAllStringFunc(communityText(msg.Text), func(m string) string { return paint(cYellow, m) + cText })
-		out = append(out, wrap(paint(cText, text), w)...)
-		out = append(out, "")
-	}
-	s.cachedID, s.cachedAt, s.cachedW, s.cached = t.ID, t.UpdatedAt, w, out
-	return out
 }
+func (s *communitySheet) move(posts []streamPost, by int) { s.pick(posts, s.cursor(posts)+by) }
+
+func localDay(t time.Time) string { return t.Local().Format("2006-01-02") }
+
+// dayLabel names t's local day for a separator: Today, Yesterday, Mon 29 Sep.
+func dayLabel(t, now time.Time) string {
+	switch localDay(t) {
+	case localDay(now):
+		return "Today"
+	case localDay(now.AddDate(0, 0, -1)):
+		return "Yesterday"
+	}
+	return t.Local().Format("Mon 2 Jan")
+}
+
+// jumpDay moves to the first post of the next day (dir 1) or the previous one (dir -1).
+func (s *communitySheet) jumpDay(posts []streamPost, dir int) {
+	i := s.cursor(posts)
+	if i < 0 {
+		return
+	}
+	for d := localDay(posts[i].at); i >= 0 && i < len(posts) && localDay(posts[i].at) == d; i += dir {
+	}
+	if i < 0 || i >= len(posts) {
+		return
+	}
+	for d := localDay(posts[i].at); i > 0 && localDay(posts[i-1].at) == d; i-- {
+	}
+	s.pick(posts, i)
+}
+func (s *communitySheet) width(m *Model) int { return min(120, m.w-6) }
+func communityText(s string) string          { return cleanPaste(ansi.Strip(s)) }
+
 func (s *communitySheet) body(m *Model, w, h int) []string {
-	out := []string{sheetTitle("Community", "blockers and tips from Rush agents", w)}
-	s.rowIDs = map[int]string{}
-	var footer []string
-	if s.composing {
-		label := "Post a blocker or tip · 120 characters, no links · first line is the title"
-		if s.replyTo != "" {
-			label = "Reply to " + s.replyTo
-		}
-		out = append(out, fit(paint(cText, label), w))
-		footer = keysControls(w, "enter", "Post", "shift+enter", "New line", "esc", "Keep draft / back")
-		input := textField(s.input, s.pos, true, "Write here…", w)
-		lines := strings.Split(input, "\n")
-		room := max(1, h-len(out)-len(footer)-2)
-		out = append(out, lines[max(0, len(lines)-room):]...)
-	} else if s.selected != "" {
-		footer = keysControls(w, "tab", "Reply", "d", "Resolve / reopen", "r", "Refresh", "pgup/pgdown", "Scroll", "esc", "Questions")
-		if t := s.thread(); t != nil {
-			rows := s.detail(t, w)
-			room := max(1, h-len(out)-len(footer)-2)
-			s.scroll = min(s.scroll, max(0, len(rows)-room))
-			out = append(out, rows[s.scroll:min(len(rows), s.scroll+room)]...)
-		} else if s.loaded {
-			out = append(out, dim("Question not found · Esc returns to questions"))
-		}
-	} else {
-		footer = keysControls(w, "↑ ↓", "Select", "space", "Open", "n", "Ask", "r", "Refresh", "esc", "Close")
-		if !s.loaded {
-			out = append(out, dim("Loading questions…"))
-		} else if len(s.threads) == 0 {
-			out = append(out, "", paint(cText, "No posts yet. Press n to post."), "", dim("Agents use: rush community ask \"Title\" < post.txt"))
-		} else {
-			room := max(1, h-len(out)-len(footer)-2)
-			from, to := window(len(s.threads), s.cursor, room)
-			for i := from; i < to; i++ {
-				t := s.threads[i]
-				status := "○"
-				if t.Resolved {
-					status = "✓"
-				}
-				line := fmt.Sprintf("%s %s %s %d", status, fit(communityText(t.Title), max(8, w*3/5-4)), fit(communityAuthor(t.Author), max(8, w-w*3/5-3)), max(0, len(t.Messages)-1))
-				s.rowIDs[len(out)] = t.ID
-				out = append(out, sheetRow(line, i == s.cursor, w))
-			}
-		}
-	}
+	out := []string{sheetTitle("Twatter", "what your agents tell each other", w)}
+	posts := m.stream.posts
+	status := ""
 	if s.busy {
-		out = append(out, dim("Saving…"))
+		status = dim("Posting…")
 	} else if s.problem != "" {
-		out = append(out, fit(paint(cYellow, communityText(s.problem)), w))
-	} else {
+		status = fit(paint(cYellow, communityText(s.problem)), w)
+	}
+	footer := append([]string{status}, keysControls(w, "↑ ↓", "Scroll", "[ ]", "Day", "enter", "Reply", "n", "Post", "esc", "Close")...)
+	if s.composing {
+		label := "New post · 120 characters, no links"
+		if s.replyTo != "" {
+			label = "Reply · 120 characters, no links"
+		}
+		footer = append([]string{status, fit(paint(cText, label), w), textField(s.input, s.pos, true, "Write here…", w)}, keysControls(w, "enter", "Post", "esc", "Keep draft")...)
+	}
+	room := max(1, h-len(out)-len(footer))
+	if len(posts) == 0 {
+		out = append(out, "", paint(cText, "No posts yet."), dim("Agents post with: rush twatter post \"…\""))
+	}
+	cursor := s.cursor(posts)
+	var lines []string
+	var owner []int
+	first, last, now := 0, 0, time.Now()
+	for i, p := range posts {
+		if i == 0 || localDay(p.at) != localDay(posts[i-1].at) {
+			lines, owner = append(lines, dim("── "+dayLabel(p.at, now)+" ──")), append(owner, i)
+		}
+		if i == cursor {
+			first = len(lines)
+		}
+		for _, l := range m.streamPost(p, w, now) {
+			if i == cursor {
+				l = paint(cOrange, "▍ ") + l[2:] // streamPost lines open with two spaces
+			}
+			lines, owner = append(lines, l), append(owner, i)
+		}
+		if i == cursor {
+			last = len(lines)
+		}
+		lines, owner = append(lines, ""), append(owner, i)
+	}
+	if first < s.scroll {
+		s.scroll = first
+	}
+	if last > s.scroll+room {
+		s.scroll = last - room
+	}
+	s.scroll = max(0, min(s.scroll, len(lines)-room))
+	s.rows = map[int]int{}
+	for j := s.scroll; j < min(len(lines), s.scroll+room); j++ {
+		s.rows[len(out)] = owner[j]
+		out = append(out, lines[j])
+	}
+	for len(out) < h-len(footer) {
 		out = append(out, "")
 	}
 	out = append(out, footer...)
@@ -220,166 +166,89 @@ func (s *communitySheet) body(m *Model, w, h int) []string {
 	return out
 }
 func (s *communitySheet) paste(text string) {
-	if !s.composing || s.busy {
-		return
+	r := []rune(communityText(text))
+	if s.composing && !s.busy && len(s.input)+len(r) <= community.MaxBody {
+		s.input = insert(s.input, s.pos, r)
+		s.pos += len(r)
 	}
-	text = communityText(text)
-	if len(s.input)+len([]rune(text)) > community.MaxBody {
-		s.problem = "Message is too long"
-		return
-	}
-	r := []rune(text)
-	s.input = insert(s.input, s.pos, r)
-	s.pos += len(r)
 }
-func (s *communitySheet) save(m *Model, resolve bool) tea.Cmd {
-	if s.busy {
+func (s *communitySheet) post(m *Model) tea.Cmd {
+	text, id := strings.TrimSpace(string(s.input)), s.replyTo
+	if s.busy || text == "" {
 		return nil
 	}
-	text := strings.TrimSpace(string(s.input))
-	if !resolve && text == "" {
-		return nil
-	}
-	id := s.replyTo
-	var fn func() (community.Thread, error)
-	if resolve {
-		t := s.thread()
-		if t == nil {
-			return nil
+	s.busy = true
+	return sheetDo(func() (community.Thread, error) {
+		if id != "" {
+			return community.Reply(id, community.Author{Name: "You"}, text)
 		}
-		id = t.ID
-		resolved := !t.Resolved
-		fn = func() (community.Thread, error) { return community.Resolve(id, resolved) }
-	} else if id != "" {
-		fn = func() (community.Thread, error) { return community.Reply(id, community.Author{Name: "You"}, text) }
-	} else {
 		title, _, _ := strings.Cut(text, "\n")
-		title = string([]rune(title)[:min(len([]rune(title)), community.MaxTitle)])
-		fn = func() (community.Thread, error) { return community.Ask(community.Author{Name: "You"}, title, text) }
-	}
-	s.busy, s.loading = true, false
-	s.revision++
-	return sheetDo(fn, func(m *Model, t community.Thread, err error) tea.Cmd {
+		return community.Ask(community.Author{Name: "You"}, title, text)
+	}, func(m *Model, _ community.Thread, err error) tea.Cmd {
 		s.busy = false
 		if err != nil {
 			s.problem = err.Error()
-			if m.sheet == s {
-				return s.poll()
-			}
 			return nil
 		}
-		s.problem = ""
-		s.selected = t.ID
-		s.scroll = 0
-		if !resolve {
-			s.composing = false
-			s.replyTo = ""
-			s.input = nil
-			s.pos = 0
-		}
-		for i, old := range s.threads {
-			if old.ID == t.ID {
-				s.threads[i] = t
-				return s.load(m)
-			}
-		}
-		s.threads = append([]community.Thread{t}, s.threads...)
-		return s.load(m)
+		s.problem, s.composing, s.replyTo, s.input, s.pos, s.follow = "", false, "", nil, 0, true
+		m.stream.stamp = "" // the stream's next poll reads the post
+		return nil
 	})
 }
 func (s *communitySheet) key(m *Model, k tea.KeyPressMsg, key string) tea.Cmd {
-	if key == "esc" {
-		if s.composing {
-			s.composing = false
-		} else if s.selected != "" {
-			s.selected = ""
-			s.scroll = 0
-		} else {
-			m.sheet = nil
-		}
-		return nil
-	}
-	if s.busy {
-		return nil
-	}
+	posts := m.stream.posts
 	if s.composing {
 		switch key {
+		case "esc":
+			s.composing = false
 		case "enter":
-			return s.save(m, false)
-		case "shift+enter", "ctrl+j":
-			s.paste("\n")
-			return nil
-		}
-		before, pos := s.input, s.pos
-		s.input, s.pos, _ = edit(s.input, s.pos, k, key)
-		if len(s.input) > community.MaxBody {
-			s.input, s.pos = before, pos
-			s.problem = "Message is too long"
+			return s.post(m)
+		default:
+			if before, pos := s.input, s.pos; !s.busy {
+				if s.input, s.pos, _ = edit(s.input, s.pos, k, key); len(s.input) > community.MaxBody {
+					s.input, s.pos = before, pos
+				}
+			}
 		}
 		return nil
 	}
 	switch key {
-	case "r":
-		s.force = true
-		return s.load(m)
-	case "n":
-		if len(s.input) > 0 && s.replyTo != "" {
-			s.problem = "A reply draft is kept · return to its question and press Tab"
-			return nil
-		}
-		s.composing = true
-		s.replyTo = ""
-	case "tab":
-		if s.thread() != nil {
-			if len(s.input) > 0 && s.replyTo != s.selected {
-				s.problem = "A different draft is kept · finish that draft first"
-				return nil
-			}
-			s.composing = true
-			s.replyTo = s.selected
-		}
-	case "d":
-		if s.selected != "" {
-			return s.save(m, true)
-		}
+	case "esc":
+		m.sheet = nil
 	case "up":
-		if s.selected == "" {
-			s.cursor = max(0, s.cursor-1)
-		} else {
-			s.scroll = max(0, s.scroll-1)
-		}
+		s.move(posts, -1)
 	case "down":
-		if s.selected == "" {
-			s.cursor = min(max(0, len(s.threads)-1), s.cursor+1)
-		} else {
-			s.scroll++
-		}
+		s.move(posts, 1)
 	case "pgup":
-		s.scroll = max(0, s.scroll-10)
+		s.move(posts, -10)
 	case "pgdown":
-		s.scroll += 10
-	case "space", " ":
-		if s.selected == "" && s.cursor < len(s.threads) {
-			s.selected = s.threads[s.cursor].ID
-			s.scroll = 0
+		s.move(posts, 10)
+	case "[", "shift+up":
+		s.jumpDay(posts, -1)
+	case "]", "shift+down":
+		s.jumpDay(posts, 1)
+	case "n":
+		s.composing, s.replyTo = true, ""
+	case "enter", "space", " ", "r":
+		if i := s.cursor(posts); i >= 0 {
+			s.composing, s.replyTo = true, posts[i].id
 		}
 	}
 	return nil
 }
 func (s *communitySheet) mouse(m *Model, ev mouseEv, x, y int) tea.Cmd {
-	if s.composing || s.busy {
+	if s.composing {
 		return nil
 	}
-	if ev == mouseWheelUp {
-		return s.key(m, tea.KeyPressMsg{}, "up")
-	}
-	if ev == mouseWheelDown {
-		return s.key(m, tea.KeyPressMsg{}, "down")
-	}
-	if ev == mousePress {
-		if id := s.rowIDs[y]; id != "" {
-			s.selected = id
-			s.scroll = 0
+	posts := m.stream.posts
+	switch ev {
+	case mouseWheelUp:
+		s.move(posts, -1)
+	case mouseWheelDown:
+		s.move(posts, 1)
+	case mousePress:
+		if i, ok := s.rows[y]; ok {
+			s.pick(posts, i)
 		}
 	}
 	return nil

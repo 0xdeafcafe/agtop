@@ -64,10 +64,12 @@ func init() {
 	}
 }
 
-// Username is the author's @handle, the same tag Rush's @mentions use for
-// the session, so a name on the board can be @mentioned from the prompt.
-// ponytail: fixed at post time; a later rename doesn't rewrite old posts.
+// Username is the author's @handle: an agent's fixed animal name (see
+// Name), else the tag of the name it posted under.
 func (a Author) Username() string {
+	if a.SessionID != "" {
+		return "@" + Name(a.SessionID)
+	}
 	if a.Handle != "" {
 		return "@" + a.Handle
 	}
@@ -252,6 +254,9 @@ func transaction(change func(*board) error, write bool) (board, error) {
 	}
 	return b, nil
 }
+
+// On says whether Twatter is on (#twatter on|off in rush, default off).
+func On() bool { return state.Load().Config.Twatter }
 
 func List() ([]Thread, error) {
 	b, err := transaction(nil, false)

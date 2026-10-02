@@ -22,7 +22,15 @@ func boardCLI(t *testing.T, input string, args ...string) (string, int) {
 func TestCommunityCLIWorkflow(t *testing.T) {
 	t.Setenv("RUSH_HOME", t.TempDir())
 	t.Setenv("RUSH_SESSION", "")
-	out, code := boardCLI(t, "Question\nDetails", "ask", "Parser help", "--json")
+	if out, code := boardCLI(t, "", "post", "Parser help"); code == 0 || !strings.Contains(out, "Twatter is off") {
+		t.Fatalf("posted while off: %d %s", code, out)
+	}
+	st := state.Load()
+	st.Config.Twatter = true
+	if err := st.SaveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	out, code := boardCLI(t, "", "post", "Parser help", "--json")
 	if code != 0 {
 		t.Fatal(out)
 	}
@@ -30,7 +38,7 @@ func TestCommunityCLIWorkflow(t *testing.T) {
 	if err := jsonx.Unmarshal([]byte(out), &thread); err != nil {
 		t.Fatal(err)
 	}
-	if thread.Author.Name != "You" || thread.Messages[0].Text != "Question\nDetails" {
+	if thread.Author.Name != "You" || thread.Messages[0].Text != "Parser help" {
 		t.Fatalf("human post: %+v", thread)
 	}
 	dir := filepath.Join(host.Root(), "verified")
@@ -38,52 +46,27 @@ func TestCommunityCLIWorkflow(t *testing.T) {
 	b, _ := jsonx.Marshal(host.Config{ID: "verified", Kind: "kimi", Name: "Investigator"})
 	os.WriteFile(filepath.Join(dir, "config.json"), b, 0600)
 	t.Setenv("RUSH_SESSION", "verified")
-	if out, code := boardCLI(t, "Agent reply", "--json", "reply", thread.ID); code != 0 {
+	if out, code := boardCLI(t, "", "reply", thread.ID, "Agent reply"); code != 0 {
 		t.Fatal(out)
 	}
-	out, code = boardCLI(t, "", "show", thread.ID, "--json")
-	if code != 0 {
+	if out, code := boardCLI(t, "From stdin", "reply", thread.ID); code != 0 {
 		t.Fatal(out)
 	}
+	out, _ = boardCLI(t, "", "show", thread.ID, "--json")
 	jsonx.Unmarshal([]byte(out), &thread)
-	if len(thread.Messages) != 2 || thread.Messages[1].Author.Kind != "kimi" || thread.Messages[1].Author.SessionID != "verified" || thread.Messages[1].Author.Handle != "investigator" {
+	if len(thread.Messages) != 3 || thread.Messages[1].Author.Kind != "kimi" || thread.Messages[1].Author.Username() != "@"+community.Name("verified") || thread.Messages[2].Text != "From stdin" {
 		t.Fatalf("agent attribution: %+v", thread)
 	}
-	// A rename in the fleet view is the session's @mention tag, so it's the handle too.
-	st := state.Load()
-	st.Overlay.Names[state.Key("", "a:verified")] = "Parser Sleuth"
-	if err := st.SaveOverlay(); err != nil {
-		t.Fatal(err)
-	}
-	if out, code := boardCLI(t, "@you see the reply above", "reply", thread.ID, "--json"); code != 0 || !strings.Contains(out, `"handle":"parser-sleuth"`) {
-		t.Fatalf("renamed handle: %d %s", code, out)
-	}
-	t.Setenv("RUSH_SESSION", "")
-	if out, code := boardCLI(t, "", "mentions"); code != 0 || !strings.Contains(out, "Parser help") {
-		t.Fatalf("mentions: %d %s", code, out)
-	}
-	t.Setenv("RUSH_SESSION", "verified")
-	for _, verb := range []string{"resolve", "reopen"} {
-		if out, code := boardCLI(t, "", verb, thread.ID); code != 0 {
-			t.Fatal(out)
-		}
-	}
-	if out, code := boardCLI(t, "", "list"); code != 0 || !strings.Contains(out, "Parser help") || !strings.Contains(out, "open") {
+	if out, code := boardCLI(t, "", "list"); code != 0 || !strings.Contains(out, "Parser help") {
 		t.Fatalf("list: %d %s", code, out)
 	}
 	t.Setenv("RUSH_SESSION", "unverifiable")
 	if out, code := boardCLI(t, "must not post", "reply", thread.ID, "--json"); code == 0 || !strings.Contains(out, "cannot verify") {
 		t.Fatalf("unverified author accepted: %d %s", code, out)
 	}
-	rows, _ := community.List()
-	if len(rows[0].Messages) != 3 {
-		t.Fatal("failed attribution wrote a post")
-	}
-	if out, code := boardCLI(t, "", "ask", "Empty"); code == 0 {
+	t.Setenv("RUSH_SESSION", "")
+	if out, code := boardCLI(t, "", "post"); code == 0 {
 		t.Fatalf("empty post accepted: %s", out)
-	}
-	if out, code := boardCLI(t, "", "help"); code != 0 || !strings.Contains(out, "do not interrupt") {
-		t.Fatalf("help: %s", out)
 	}
 }
 

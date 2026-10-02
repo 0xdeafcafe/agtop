@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -10,6 +11,7 @@ import (
 // What agents did lately fills the list's empty foot, newest first, and a
 // click on a line picks its agent.
 func TestFeedFillsListFoot(t *testing.T) {
+	showAgentFeed(t)
 	m, _ := benchModel(200, 60)
 	m.snap.Agents = m.snap.Agents[:3]
 	m.rebuild()
@@ -35,6 +37,7 @@ func TestFeedFillsListFoot(t *testing.T) {
 // A finish is routine, dimmed, unless its last words are news: then they
 // show instead of "finished".
 func TestFeedNews(t *testing.T) {
+	showAgentFeed(t)
 	routine := agentEvent{glyph: "✓", what: "finished", said: "Tests pass; committed the fix."}
 	news := agentEvent{glyph: "✓", what: "finished", said: "Turns out the cache was never written: root cause found."}
 	if !routine.routine() || news.routine() || (agentEvent{glyph: "✗"}).routine() {
@@ -52,5 +55,18 @@ func TestFeedNews(t *testing.T) {
 	}
 	if !strings.Contains(out, "Turns out the cache") {
 		t.Errorf("news should show its words:\n%s", out)
+	}
+}
+
+func showAgentFeed(t *testing.T) {
+	agentFeedShown = true
+	t.Cleanup(func() { agentFeedShown = false })
+}
+
+func TestAgentFeedHiddenByDefault(t *testing.T) {
+	m, _ := benchModel(100, 35)
+	m.events = []agentEvent{{at: time.Now(), key: "a", name: "A", glyph: "▶", what: "started"}}
+	if lines, _ := m.feedLines(80, 20); lines != nil {
+		t.Fatal("the from-your-agents box drew while hidden")
 	}
 }

@@ -1,12 +1,13 @@
 package ui
 
 import (
-	tea "charm.land/bubbletea/v2"
-	"github.com/0xdeafcafe/rush/internal/community"
-	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/0xdeafcafe/rush/internal/community"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func communityApply(t *testing.T, m *Model, cmd tea.Cmd) tea.Cmd {
@@ -20,123 +21,138 @@ func communityApply(t *testing.T, m *Model, cmd tea.Cmd) tea.Cmd {
 	}
 	return msg.apply(m)
 }
-func TestCommunityQuestionReplyResolveAndDraftSafety(t *testing.T) {
+
+func twatterModel(t *testing.T) *Model {
+	t.Helper()
 	t.Setenv("RUSH_HOME", t.TempDir())
 	m, _ := benchModel(100, 35)
-	communityApply(t, m, m.openCommunity(""))
-	s := m.community
-	s.key(m, tea.KeyPressMsg{}, "n")
-	s.paste("Why is this slow?\nHere is the context.")
-	communityApply(t, m, s.key(m, tea.KeyPressMsg{}, "enter"))
-	if s.composing || s.busy || s.thread() == nil {
-		t.Fatal("question was not saved")
+	now := time.Now()
+	m.stream.posts = []streamPost{
+		{key: "a/0", id: "a", title: "go test hangs on fswait", author: community.Author{Name: "Worker"}, at: now.Add(-time.Minute)},
+		{key: "b/0", id: "b", title: "flaky lint", author: community.Author{Name: "Other"}, at: now.Add(-30 * time.Second)},
+		{key: "a/1", id: "a", title: "go test hangs on fswait", author: community.Author{SessionID: "s1"}, text: "-race and a 5s timeout found it", at: now, reply: true},
 	}
-	thread := s.thread()
-	if thread.Title != "Why is this slow?" || len(thread.Messages) != 1 {
-		t.Fatalf("bad question: %+v", thread)
+	return m
+}
+
+func TestTwatterSwitch(t *testing.T) {
+	m := twatterModel(t)
+	if m.openCommunity(""); m.sheet != nil {
+		t.Fatal("the sheet opened while Twatter is off")
 	}
-	s.key(m, tea.KeyPressMsg{}, "tab")
-	s.paste("Try the bounded reader.")
-	// Leaving a reply does not send or lose it, and Enter on a selected row is inert.
-	s.key(m, tea.KeyPressMsg{}, "esc")
-	if cmd := s.key(m, tea.KeyPressMsg{}, "enter"); cmd != nil {
-		t.Fatal("navigation Enter submitted draft")
+	m.openCommunity("on")
+	if !m.store.Config.Twatter {
+		t.Fatal("#twatter on did not turn it on")
 	}
-	s.key(m, tea.KeyPressMsg{}, "esc")
-	s.key(m, tea.KeyPressMsg{}, "n")
-	if s.composing || s.replyTo != thread.ID {
-		t.Fatal("new question stole reply draft")
+	if m.openCommunity(""); m.sheet == nil {
+		t.Fatal("the sheet did not open once on")
 	}
-	s.key(m, tea.KeyPressMsg{}, "space")
-	s.key(m, tea.KeyPressMsg{}, "tab")
-	communityApply(t, m, s.key(m, tea.KeyPressMsg{}, "enter"))
-	if len(s.thread().Messages) != 2 {
-		t.Fatal("reply not persisted")
-	}
-	communityApply(t, m, s.key(m, tea.KeyPressMsg{}, "d"))
-	if !s.thread().Resolved {
-		t.Fatal("resolve not persisted")
-	}
-	communityApply(t, m, s.key(m, tea.KeyPressMsg{}, "d"))
-	if s.thread().Resolved {
-		t.Fatal("reopen not persisted")
-	}
-	list, err := community.List()
-	if err != nil || len(list) != 1 || len(list[0].Messages) != 2 {
-		t.Fatalf("reload: %+v %v", list, err)
+	m.openCommunity("off")
+	if lines, _ := m.streamLines(80, 30); m.store.Config.Twatter || lines != nil {
+		t.Fatal("#twatter off left the stream showing")
 	}
 }
-func TestCommunityLateRefreshCannotReplacePostedQuestion(t *testing.T) {
-	t.Setenv("RUSH_HOME", t.TempDir())
-	m, _ := benchModel(100, 35)
-	cmd := m.openCommunity("new")
-	old := cmd().(sheetMsg)
+
+func TestTwatterTimelineIsOneView(t *testing.T) {
+	m := twatterModel(t)
+	m.openCommunity("on")
+	m.openCommunity("")
 	s := m.community
-	s.paste("A new question")
-	communityApply(t, m, s.save(m, false))
-	id := s.selected
-	old.apply(m)
-	if s.selected != id || s.thread() == nil {
-		t.Fatal("stale load overwrote new post")
+	text := ansi.Strip(strings.Join(s.body(m, 90, 30), "\n"))
+	first, reply := strings.Index(text, "go test hangs"), strings.Index(text, "↩ go test hangs")
+	if first < 0 || reply < first || strings.Index(text, "flaky lint") > reply || !strings.Contains(text, "-race and a 5s") {
+		t.Fatalf("posts and replies should read in time order in one view:\n%s", text)
+	}
+	if c := s.cursor(m.stream.posts); c != 2 {
+		t.Fatalf("the cursor should start on the newest post, at %d", c)
+	}
+	for _, key := range []string{"enter", "space"} {
+		s.composing, s.picked, s.follow = false, "a/1", false
+		s.key(m, tea.KeyPressMsg{}, "up")
+		if s.key(m, tea.KeyPressMsg{}, key); !s.composing || s.replyTo != "b" {
+			t.Fatalf("%s should reply to the picked post: %+v", key, s)
+		}
+	}
+	m.Update(tea.PasteMsg{Content: "board draft"})
+	if string(s.input) != "board draft" {
+		t.Fatal("paste should land in the reply")
+	}
+	s.key(m, tea.KeyPressMsg{}, "esc")
+	if s.key(m, tea.KeyPressMsg{}, "esc"); m.sheet != nil {
+		t.Fatal("esc should close the sheet")
 	}
 }
-func TestCommunityRenderAndPasteIsolation(t *testing.T) {
-	for _, size := range [][2]int{{44, 24}, {80, 30}, {140, 45}} {
-		m, _ := benchModel(size[0], size[1])
-		now := time.Now()
-		s := &communitySheet{loaded: true, threads: []community.Thread{{ID: "abc", Title: strings.Repeat("Long title ", 20), Author: community.Author{Name: "Worker", Kind: "codex"}, UpdatedAt: now, Messages: []community.Message{{Author: community.Author{Name: "Worker", Kind: "codex"}, Text: "question\x1b[2J\x07\n" + strings.Repeat("full answer ", 200), At: now}}}}}
-		m.community, m.sheet = s, s
-		for _, selected := range []string{"", "abc"} {
-			s.selected = selected
-			lines := s.body(m, size[0]-10, size[1]-6)
-			if len(lines) > size[1]-6 {
-				t.Fatalf("%v clips controls", size)
-			}
-			for _, line := range lines {
-				if ansi.StringWidth(line) > size[0]-10 {
-					t.Fatalf("width overflow: %q", line)
-				}
-			}
-			if strings.Contains(strings.Join(lines, "\n"), "\x1b[2J") {
-				t.Fatal("terminal sequence passed through")
-			}
+
+func TestTwatterPostRendersWithinBounds(t *testing.T) {
+	for _, size := range [][2]int{{44, 24}, {140, 45}} {
+		m := twatterModel(t)
+		m.stream.posts[0].title = "question\x1b[2J" + strings.Repeat(" long", 60)
+		m.openCommunity("on")
+		m.openCommunity("new")
+		lines := m.community.body(m, size[0]-10, size[1]-6)
+		if len(lines) > size[1]-6 {
+			t.Fatalf("%v clips controls", size)
 		}
-		before := string(m.input)
-		m.Update(tea.PasteMsg{Content: "must not reach session"})
-		if string(m.input) != before || len(s.input) != 0 {
-			t.Fatal("paste leaked out of board")
-		}
-		s.composing = true
-		m.Update(tea.PasteMsg{Content: "board draft"})
-		if string(s.input) != "board draft" || string(m.input) != before {
-			t.Fatal("board paste not isolated")
+		for _, line := range lines {
+			if ansi.StringWidth(line) > size[0]-10 || strings.Contains(line, "\x1b[2J") {
+				t.Fatalf("bad line: %q", line)
+			}
 		}
 	}
 }
 
-func TestCommunityRefreshKeepsDraftAndSelection(t *testing.T) {
-	t.Setenv("RUSH_HOME", t.TempDir())
-	first, err := community.Ask(community.Author{Name: "Claude", Kind: "claude"}, "First question", "Details")
-	if err != nil {
-		t.Fatal(err)
+func TestTwatterTagsMentionsAndHashtags(t *testing.T) {
+	line := tagged("ping @worker about #flaky tests")
+	if ansi.Strip(line) != "ping @worker about #flaky tests" {
+		t.Fatalf("tagging changed the text: %q", ansi.Strip(line))
 	}
-	m, _ := benchModel(100, 35)
-	communityApply(t, m, m.openCommunity(first.ID))
+	if !strings.Contains(line, cBlue+"@worker"+reset) || !strings.Contains(line, cQueue+"#flaky"+reset) {
+		t.Fatalf("mention and hashtag should be coloured: %q", line)
+	}
+}
+
+func TestTwatterDaySeparatorsAndJump(t *testing.T) {
+	m := twatterModel(t)
+	now := time.Now()
+	m.stream.posts[0].at = now.AddDate(0, 0, -3)
+	m.stream.posts[1].at = now.AddDate(0, 0, -1)
+	m.openCommunity("on")
+	m.openCommunity("")
 	s := m.community
-	s.key(m, tea.KeyPressMsg{}, "tab")
-	s.paste("My unfinished reply")
-	_, err = community.Reply(first.ID, community.Author{Name: "Kimi", Kind: "kimi"}, "A new answer")
-	if err != nil {
-		t.Fatal(err)
+	text := ansi.Strip(strings.Join(s.body(m, 90, 30), "\n"))
+	old := "── " + now.AddDate(0, 0, -3).Format("Mon 2 Jan") + " ──"
+	if a, b, c := strings.Index(text, old), strings.Index(text, "── Yesterday ──"), strings.Index(text, "── Today ──"); a < 0 || a > b || b > c {
+		t.Fatalf("want a separator per day, in order:\n%s", text)
 	}
-	communityApply(t, m, s.load(m))
-	if s.selected != first.ID || string(s.input) != "My unfinished reply" || !s.composing || len(s.thread().Messages) != 2 {
-		t.Fatal("refresh lost draft, selection or external answer")
+	if !strings.Contains(text, "[ ]") {
+		t.Fatalf("the footer should name the day keys:\n%s", text)
 	}
-	// An unchanged poll must not replace the live snapshot or regenerate content.
-	before := &s.threads[0]
-	communityApply(t, m, s.load(m))
-	if &s.threads[0] != before {
-		t.Fatal("unchanged board was decoded again")
+	for _, step := range []struct{ key, want string }{{"[", "b/0"}, {"[", "a/0"}, {"[", "a/0"}, {"]", "b/0"}, {"shift+down", "a/1"}} {
+		if s.key(m, tea.KeyPressMsg{}, step.key); s.picked != step.want {
+			t.Fatalf("%s: picked %q, want %q", step.key, s.picked, step.want)
+		}
+	}
+}
+
+func TestTwatterStreamClickOpensSheetAtPost(t *testing.T) {
+	m := twatterModel(t)
+	m.openCommunity("on")
+	_, keys := m.streamLines(80, 30)
+	clicked := ""
+	for _, k := range keys {
+		if strings.HasSuffix(k, "b/0") {
+			clicked = k
+		}
+	}
+	if clicked == "" || keys[1] != streamKeyPrefix {
+		t.Fatalf("stream rows and frame title should carry board keys: %q", keys)
+	}
+	id, _ := strings.CutPrefix(clicked, streamKeyPrefix)
+	if m.openCommunity(id); m.sheet == nil || m.community.cursor(m.stream.posts) != 1 {
+		t.Fatal("a click on a stream post should open the sheet with that post picked")
+	}
+	m.stream.posts = append([]streamPost{{key: "z/0", id: "z", at: time.Now().Add(-time.Hour)}}, m.stream.posts...)
+	if m.community.picked != "b/0" || m.community.cursor(m.stream.posts) != 2 {
+		t.Fatal("the pick should follow its post when the board shifts")
 	}
 }

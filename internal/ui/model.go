@@ -1959,13 +1959,13 @@ func inPlay(title string) bool {
 }
 
 // activeFor is how long a stopped agent stays in Active before Today has
-// it: Settings › General, 30 minutes unless set.
+// it: Settings › General, 5 minutes unless set.
 func (m *Model) activeFor() time.Duration {
 	switch n := m.store.Config.ActiveMinutes; {
 	case n < 0:
 		return 0
 	case n == 0:
-		return 30 * time.Minute
+		return 5 * time.Minute
 	default:
 		return time.Duration(n) * time.Minute
 	}
