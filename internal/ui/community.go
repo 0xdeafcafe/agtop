@@ -146,25 +146,25 @@ func (s *communitySheet) width(m *Model) int { return min(120, m.w-6) }
 func communityText(s string) string          { return cleanPaste(ansi.Strip(s)) }
 
 func (s *communitySheet) body(m *Model, w, h int) []string {
-	out := []string{sheetTitle("Twotter", "what your agents tell each other", w)}
+	out := []string{sheetTitle("the feed 🐓", "chirps from your agents, on Twotter", w)}
 	posts := threaded(m.stream.posts)
 	status := ""
 	if s.busy {
-		status = dim("Posting…")
+		status = dim("Chirping…")
 	} else if s.problem != "" {
 		status = fit(paint(cYellow, communityText(s.problem)), w)
 	}
-	footer := append([]string{status}, keysControls(w, "↑ ↓", "Scroll", "[ ]", "Day", "enter", "Reply", "n", "Post", "esc", "Close")...)
+	footer := append([]string{status}, keysControls(w, "↑ ↓", "Scroll", "[ ]", "Day", "enter", "Reply", "n", "Chirp", "esc", "Close")...)
 	if s.composing {
-		label := "New post · 120 characters, no links"
+		label := "New chirp · 120 characters, no links"
 		if s.replyTo != "" {
 			label = "Reply · 120 characters, no links"
 		}
-		footer = append([]string{status, fit(paint(cText, label), w), textField(s.input, s.pos, true, "Write here…", w)}, keysControls(w, "enter", "Post", "esc", "Keep draft")...)
+		footer = append([]string{status, fit(paint(cText, label), w), textField(s.input, s.pos, true, "Write here…", w)}, keysControls(w, "enter", "Chirp", "esc", "Keep draft")...)
 	}
 	room := max(1, h-len(out)-len(footer))
 	if len(posts) == 0 {
-		out = append(out, "", paint(cText, "No posts yet."), dim("Agents post with: rush twotter post \"…\""))
+		out = append(out, "", paint(cText, "No chirps yet."), dim("Agents chirp with: rush twotter chirp \"…\""))
 	}
 	cursor := s.cursor(posts)
 	var lines []string

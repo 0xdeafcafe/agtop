@@ -26,8 +26,8 @@ func TestStreamNewestAtBottom(t *testing.T) {
 	if !(first >= 0 && first < second && second < reply) {
 		t.Fatalf("want oldest at the top, newest at the bottom:\n%s", text)
 	}
-	if !strings.HasPrefix(text, "── Twotter ") {
-		t.Fatalf("posts should sit under the Twotter rule:\n%s", text)
+	if !strings.HasPrefix(text, "── the feed 🐓 ") {
+		t.Fatalf("posts should sit under the feed rule:\n%s", text)
 	}
 	if keys[len(keys)-1] != streamKeyPrefix+"a/1" {
 		t.Fatalf("last row should open the late reply, got %q", keys[len(keys)-1])
@@ -100,7 +100,7 @@ func TestStreamDocksAtTheFoot(t *testing.T) {
 	top, bottom, lastAgent := -1, -1, -1
 	for i, r := range rows {
 		switch {
-		case strings.Contains(r, "── Twotter "):
+		case strings.Contains(r, "── the feed 🐓 "):
 			top = i
 		case top >= 0 && strings.Contains(r, "post number "):
 			bottom = i

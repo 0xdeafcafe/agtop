@@ -172,7 +172,7 @@ func TestTwotterSheetPicksAndWraps(t *testing.T) {
 	if !strings.Contains(strings.Join(lines, ""), handleColor(m.stream.posts[1])+bold+"@") {
 		t.Fatal("handles should wear their colour in the sheet too")
 	}
-	if !strings.HasPrefix(text, "Twotter") {
-		t.Fatalf("the sheet is called Twotter:\n%s", text)
+	if !strings.HasPrefix(text, "the feed 🐓") {
+		t.Fatalf("the sheet is called the feed:\n%s", text)
 	}
 }

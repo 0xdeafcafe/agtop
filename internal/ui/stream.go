@@ -131,7 +131,7 @@ func (m *Model) streamLines(w, room int) (lines, keys []string) {
 			body[at+j], bodyKeys[at+j] = hoverLine(l, inner), key
 		}
 	}
-	title := " Twotter "
+	title := " the feed 🐓 "
 	lines = []string{faint("──") + paint(cText+bold, title) + faint(strings.Repeat("─", max(0, w-3-cellw.String(title))))}
 	for _, l := range body {
 		lines = append(lines, " "+fit(l, inner))
