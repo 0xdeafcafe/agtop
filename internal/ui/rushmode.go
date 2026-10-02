@@ -2299,7 +2299,17 @@ func (m *Model) rushPane(w, h int) []string {
 		out = append(out, "")
 	}
 	if len(c.side) > 0 {
-		y, x := max(len(head), h-len(dock)-len(c.side)-1), contentW-c.sideW-1
+		// Above the dock's first row on screen, never over a card or the
+		// queue: what's short of room shows its top.
+		foot := h - len(dock)
+		for j := len(head); scrollingPanels && j < len(c.rowBody); j++ {
+			if c.rowBody[j] == -1 {
+				foot = j
+				break
+			}
+		}
+		c.side = c.side[:min(len(c.side), max(0, foot-len(head)-1))] // and clicks only what shows
+		y, x := max(len(head), foot-len(c.side)-1), contentW-c.sideW-1
 		for i := y; i < len(out); i++ {
 			out[i] = fit(out[i], contentW)
 		}
@@ -2703,6 +2713,25 @@ func (m *Model) cardRows(a *fleet.Agent, c *hostConn, w, maxH int) []string {
 	return out
 }
 
+// taskRow is the agent's task list where it is, sat on the box: the task
+// under way and how far through the list it is. A list all done says
+// nothing.
+func taskRow(s *convo.Session, w int) []string {
+	now, done, total := s.Current()
+	if total == 0 || now == nil && done == total {
+		return nil
+	}
+	bar := paint(cOrange, strings.Repeat("▰", done)) + faint(strings.Repeat("▱", total-done))
+	if total > 20 {
+		bar = ""
+	}
+	if now == nil {
+		return []string{fit("  "+faint("▾ ")+dim(fmt.Sprintf("%d of %d tasks done", done, total))+"  "+bar, w)}
+	}
+	n := paint(cSub, fmt.Sprintf("task %d of %d", min(done+1, total), total))
+	return []string{fit("  "+paint(cOrange, "▾ ")+paint(cText, oneLine(firstNonEmpty(now.Active, now.Subject)))+"  "+n+"  "+bar, w)}
+}
+
 func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	s := c.sess
 	// A card answered from the card hands the keys on to the next one
@@ -2771,17 +2800,6 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 	}
 
-	now, done, total := s.Current()
-	if total > 0 {
-		block()
-		t := ""
-		if now != nil {
-			t = paint(cOrange, "■ ") + paint(cText, oneLine(firstNonEmpty(now.Active, now.Subject)))
-		} else {
-			t = dim("no task in progress")
-		}
-		line(spread("  "+t+"  "+paint(cSub, fmt.Sprintf("%d/%d", done, total)), "", w))
-	}
 	if r := s.Info.Retry; r != nil && r.GaveUp {
 		block()
 		line("  " + paint(cRed, "✗ "+r.Reason) + dim(" · "+r.Why+" · send anything to try again"))
@@ -2833,18 +2851,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 	}
 	if qs := m.queueOf(c); len(qs.items) > 0 {
-		// Beside the conversation with the rest of what's under way, when
-		// there's room: never between you and a card waiting on you.
-		side := c.sideW > 0 && m.viewName(c) == "conversation"
-		if !side {
-			block()
-		}
+		// Full width, as what you sent: only what runs on its own sits
+		// beside the conversation.
+		block()
 		var rows []string
 		line := func(txt string) { rows = append(rows, txt) }
 		w := w - 1
-		if side {
-			w = c.sideW - 1
-		}
 		q := qs.items
 		when := dim(" · sends when this turn ends")
 		if sq, sa := m.subQueue(c); sq != nil {
@@ -2938,21 +2950,11 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if rest := len(q) - (start + 3); rest > 0 {
 			line(dim(fmt.Sprintf("  + %d more", rest)))
 		}
-		if side {
-			if len(c.side) > 0 {
-				c.side = append(c.side, "")
-			}
-			for row, qi := range c.qAt {
-				c.panelRefs[sideRefs+len(c.side)+row] = fmt.Sprintf("q:%d", qi)
-			}
-			c.side, c.qAt = append(c.side, dockCard(bgQueue, cQueue, rows, w+1)...), nil // clicked through the side's refs
-		} else {
-			c.qTop = len(out)
-			for row, qi := range c.qAt {
-				c.panelRefs[c.qTop+row] = fmt.Sprintf("q:%d", qi)
-			}
-			out = append(out, dockCard(bgQueue, cQueue, rows, w+1)...)
+		c.qTop = len(out)
+		for row, qi := range c.qAt {
+			c.panelRefs[c.qTop+row] = fmt.Sprintf("q:%d", qi)
 		}
+		out = append(out, dockCard(bgQueue, cQueue, rows, w+1)...)
 	}
 	cards()
 	// And room before the box. In a conversation it scrolls with the
@@ -3054,6 +3056,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		b.topL = paint(cOrange, "why? told to the agent") + dim(" · enter "+what+" and sends this · esc cancels")
 	}
+	out = append(out, taskRow(s, w)...)
 	b.top = c.box.top
 	b = b.scrolled()
 	c.box, c.boxIdx = b, len(out)
