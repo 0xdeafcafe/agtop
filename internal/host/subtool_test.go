@@ -72,7 +72,7 @@ func TestSpawnedAgentAnswers(t *testing.T) {
 	}
 	since := time.Now()
 	start(child)
-	got, err := awaitAnswer(child.ID, since, 5*time.Second)
+	got, err := awaitAnswer(child.ID, "", since, 5*time.Second)
 	if err != nil || !strings.Contains(got, "echo: find the bug") {
 		t.Fatalf("answer: %q %v", got, err)
 	}

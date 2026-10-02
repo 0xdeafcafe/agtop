@@ -124,14 +124,14 @@ func (sa subagents) Spawn(in agtools.SpawnInput) (string, error) {
 	if in.Background {
 		return fmt.Sprintf("%s started in the background as agent %s. Its answer is sent to you as a message when it finishes; agent_result with this id asks sooner.", p.name, started.ID), nil
 	}
-	return awaitAnswer(started.ID, since, foreground)
+	return awaitAnswer(started.ID, sa.parent, since, foreground)
 }
 
 func (sa subagents) Result(in agtools.ResultInput) (string, error) {
 	if err := sa.mine(in.ID); err != nil {
 		return "", err
 	}
-	return awaitAnswer(in.ID, time.Time{}, time.Duration(min(max(in.Wait, 0), 600))*time.Second)
+	return awaitAnswer(in.ID, sa.parent, time.Time{}, time.Duration(min(max(in.Wait, 0), 600))*time.Second)
 }
 
 func (sa subagents) Send(in agtools.SendInput) (string, error) {
@@ -158,7 +158,7 @@ func (sa subagents) Send(in agtools.SendInput) (string, error) {
 	if in.Background {
 		return "Sent. Its answer is sent to you as a message when it finishes.", nil
 	}
-	return awaitAnswer(in.ID, since, foreground)
+	return awaitAnswer(in.ID, sa.parent, since, foreground)
 }
 
 // mine refuses an id that isn't one of the session's agents.
@@ -216,8 +216,10 @@ func report(child, parent string) error {
 }
 
 // awaitAnswer waits up to wait for agent id to finish a turn ended after
-// since (any, when zero), and says how it stands.
-func awaitAnswer(id string, since time.Time, wait time.Duration) (string, error) {
+// since (any, when zero), and says how it stands. One whose turn hung is
+// left to rush's retries and its answer sent to parent when it comes, so
+// parent isn't held waiting on it.
+func awaitAnswer(id, parent string, since time.Time, wait time.Duration) (string, error) {
 	name := id
 	if c, err := ReadConfig(id); err == nil {
 		name = agentName(agent.Migrated(c.Kind)) + " (" + id + ")"
@@ -235,6 +237,12 @@ func awaitAnswer(id string, since time.Time, wait time.Duration) (string, error)
 			return name + " finished:\n\n" + or(strings.TrimSpace(a.Text), "(it said nothing)"), nil
 		case !info.Sleeping && info.HostPID > 0 && !alive(info.HostPID):
 			return "", fmt.Errorf("%s stopped: %s", name, or(info.Error, "its host went away"))
+		case info.Retry != nil && info.Retry.Hung && !info.Retry.GaveUp:
+			if err := report(id, parent); err != nil {
+				return "", err
+			}
+			return name + " stalled: nothing came from its model for minutes, so rush stopped the turn and is retrying it in the background. " +
+				"Its answer is sent to you as a message when it finishes. Check whether you still need it; if not, carry on without it.", nil
 		case !time.Now().Before(deadline):
 			what := or(info.Detail, info.State)
 			if info.Needs != "" {
