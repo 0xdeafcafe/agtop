@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // A provider's API key pays for its models per token, apart from a
@@ -16,6 +17,7 @@ func apiKeyID(p string) string { return "apikey-" + p }
 // APIKey is provider p's API key: the one rush keeps, else the one in its
 // variable. It reads the keychain: never on the UI thread.
 func APIKey(p string) string {
+	uithread.Forbid("state.APIKey")
 	if b, err := Vault().Get(apiKeyID(p)); err == nil && len(b) > 0 {
 		return string(b)
 	}
@@ -28,6 +30,7 @@ func APIKey(p string) string {
 // PutAPIKey keeps key as provider p's, or forgets p's when it's "". It
 // writes the keychain: never on the UI thread. MarkAPIKey says so after.
 func PutAPIKey(p, key string) error {
+	uithread.Forbid("state.PutAPIKey")
 	if key == "" {
 		_ = Vault().Forget(apiKeyID(p))
 		return nil

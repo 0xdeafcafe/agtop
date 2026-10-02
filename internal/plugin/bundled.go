@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // A bundled plugin ships inside rush. Its code is rush's own, so it's
@@ -130,6 +131,7 @@ func bundledOn(b *Bundle, off, on []string) bool {
 // BundlesOn says, by name, which bundled plugins you have on. It reads
 // the disk, so it's not for the UI goroutine.
 func BundlesOn() map[string]bool {
+	uithread.Forbid("plugin.BundlesOn")
 	off, on := readList(offPath()), readList(onPath())
 	out := map[string]bool{}
 	bs := Bundles()
@@ -141,6 +143,7 @@ func BundlesOn() map[string]bool {
 
 // SetBundled turns a bundled plugin on or off.
 func SetBundled(name string, on bool) error {
+	uithread.Forbid("plugin.SetBundled")
 	b, ok := BundleNamed(name)
 	if !ok {
 		return errors.New(name + " isn't bundled with rush")

@@ -17,6 +17,7 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // Dir is rush's folder.
@@ -794,6 +795,7 @@ func noteConfig(path string, b []byte) {
 // ponytail: an outside edit landing while a write-behind save is queued
 // is lost to that save; a merge would need a base to diff against.
 func ConfigOnDisk() ([]byte, bool) {
+	uithread.Forbid("state.ConfigOnDisk")
 	b, err := os.ReadFile(filepath.Join(Dir(), "config.json"))
 	if err != nil || !jsonx.Valid(b) {
 		return nil, false

@@ -3,6 +3,8 @@ package host
 import (
 	"os"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // BinStamp is a binary as it was on disk: when it was written and how big
@@ -56,6 +58,7 @@ func RestartDue(i Info, installed BinStamp) bool { return i.Stale(installed) && 
 // running as it is; the next sweep looks again. It reads every session's
 // info and restarts hosts, so never on the UI goroutine.
 func (l *Lister) Sweep(installed BinStamp, restart bool) (stale, restarted int) {
+	uithread.Forbid("host.Lister.Sweep")
 	for _, i := range l.List() {
 		if i.State == "stopped" || i.Sleeping || !i.Stale(installed) { // a sleeping one wakes on the new binary anyway
 			continue

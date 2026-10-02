@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // Worktree is a linked git worktree an agent works in, and whether it can
@@ -173,6 +174,7 @@ func (w *Worktree) checkGit() bool {
 // commits nowhere else, as "sha subject". It runs git several times:
 // never on the UI's goroutine.
 func (w *Worktree) Doomed() (files, commits []string) {
+	uithread.Forbid("fleet.Worktree.Doomed")
 	files, commits, _ = w.look()
 	return files, commits
 }

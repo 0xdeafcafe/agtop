@@ -13,6 +13,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // TempDir is a folder of an agent's scratch work.
@@ -196,6 +197,7 @@ func NewTempSizes() *TempSizes { return &TempSizes{Sizes: map[string]TempSize{}}
 
 // Load reads the last measurements, once, under any set since.
 func (t *TempSizes) Load() {
+	uithread.Forbid("fleet.TempSizes.Load")
 	t.mu.Lock()
 	done := t.loaded
 	t.mu.Unlock()

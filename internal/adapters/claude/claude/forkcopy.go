@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // CopyTranscript writes the first upTo bytes of the conversation at src (all
@@ -77,6 +79,7 @@ func (a Account) TranscriptPath(cwd, sessionID string) string {
 // project; TranscriptPath when it's nowhere yet. It reads the disk, so
 // never on the UI.
 func (a Account) FindTranscript(cwd, sessionID string) string {
+	uithread.Forbid("claude.FindTranscript")
 	p := a.TranscriptPath(cwd, sessionID)
 	if _, err := os.Stat(p); err == nil {
 		return p

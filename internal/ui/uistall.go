@@ -8,9 +8,11 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // --- the UI's own goroutine, watched ---
@@ -48,15 +50,17 @@ var stalls struct {
 // uiBusy marks the UI's goroutine busy with what (a message, or "frame"
 // for drawing one) until the returned func is called.
 func uiBusy(what any) func() {
+	leave := uithread.Enter()
 	stalls.Lock()
 	if !stalls.on {
 		stalls.Unlock()
-		return func() {}
+		return leave
 	}
 	began := time.Now()
 	stalls.began, stalls.what, stalls.caught, stalls.where = began, what, false, ""
 	stalls.Unlock()
 	return func() {
+		leave()
 		took := time.Since(began)
 		stalls.Lock()
 		defer stalls.Unlock()
@@ -77,6 +81,18 @@ func uiBusy(what any) func() {
 	}
 }
 
+// offUIBreach is what ran on the UI's goroutine that never should: a test
+// fails on it; a real run keeps its stack in stalls.log, so it's found by
+// name however quick it was this time.
+func offUIBreach(what string) {
+	if testing.Testing() {
+		panic(what + " ran on the UI's goroutine: hand it off (goOff, later, offRead)")
+	}
+	stack := make([]byte, 64<<10)
+	stack = stack[:runtime.Stack(stack, false)]
+	go appendStall(fmt.Sprintf("%s  %s ran on the UI's goroutine\n%s\n\n", time.Now().Format(time.DateTime), what, stack))
+}
+
 // watchUI starts the watchdog; it's safe to call more than once.
 func watchUI() {
 	stalls.Lock()
@@ -85,6 +101,7 @@ func watchUI() {
 		return
 	}
 	stalls.on, stalls.watching = true, true
+	uithread.Breach = offUIBreach
 	stalls.logPath = filepath.Join(state.Dir(), "stalls.log")
 	go func() {
 		for range time.Tick(stallAfter / 3) {

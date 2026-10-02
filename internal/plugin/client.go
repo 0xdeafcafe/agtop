@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // BrokerSock is where the broker listens for rush itself: session hosts
@@ -32,6 +33,7 @@ func DialBroker() (*Conn, error) { return DialBrokerWith(nil) }
 // DialBrokerWith connects to the running broker, answering what it sends
 // with h: how a rush window hears from its plugins.
 func DialBrokerWith(h Handler) (*Conn, error) {
+	uithread.Forbid("plugin.DialBroker")
 	c, err := net.DialTimeout("unix", BrokerSock(), time.Second)
 	if err != nil {
 		return nil, err
@@ -42,6 +44,7 @@ func DialBrokerWith(h Handler) (*Conn, error) {
 // EnsureBroker starts the broker if any plugin runs and it isn't running.
 // It returns once the broker is starting, not started.
 func EnsureBroker() error {
+	uithread.Forbid("plugin.EnsureBroker")
 	if len(Enabled()) == 0 {
 		return nil
 	}
@@ -115,6 +118,7 @@ func (b *Broker) get(ctx context.Context) (*Conn, error) {
 // plugin's reply, or an error reply of its own: Claude Code always gets an
 // answer.
 func (b *Broker) MCP(plugin, session string, msg jsontext.Value) jsontext.Value {
+	uithread.Forbid("plugin.MCP")
 	var head struct {
 		ID     jsontext.Value `json:"id"`
 		Method string         `json:"method"`
