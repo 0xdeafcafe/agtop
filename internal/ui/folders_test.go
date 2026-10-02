@@ -60,7 +60,7 @@ func TestProjectSplit(t *testing.T) {
 
 	m.folders.byRoot = map[string]fleet.Folder{app: {
 		Root: app, Worktrees: 3,
-		Git:   fleet.GitState{Branch: "main", Upstream: true, Ahead: 2, Changed: 4},
+		Git:   fleet.GitState{Branch: "main", Upstream: true, Ahead: 2, Changed: 4, Commit: "abc1234", Target: "origin/release"},
 		Trees: map[string]fleet.GitState{wt: {Branch: "fix", Changed: 1}},
 	}}
 	m.snap.Agents[2].PRs = []agent.PR{{Number: 12, State: "OPEN"}} // on-main's, named once on its heading
@@ -68,7 +68,7 @@ func TestProjectSplit(t *testing.T) {
 	if n := strings.Count(out, "#12 open"); n != 2 || strings.Count(out, "#12") != n {
 		t.Errorf("the PR belongs on its project's headings, not its row:\n%s", out)
 	}
-	for _, s := range []string{"app  main ↑2 ±4  ⎇3", "⎇ fix  ±1"} {
+	for _, s := range []string{"app  main ↑2  #12 open  → origin/release  abc1234  ±4  3 worktrees", "↳ fix  ±1"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("list lacks %q:\n%s", s, out)
 		}

@@ -1499,7 +1499,7 @@ func (m *Model) listLines(w, h int) []string {
 				emit(ln, "", false)
 			}
 		case lineTree:
-			if two && soloTree(m.lines, i) {
+			if soloTree(m.lines, i) { // one agent: it stays under its project, the worktree a tag
 				tag = m.treeTag(l)
 				continue
 			}
@@ -2017,7 +2017,7 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	case a.Stuck(now):
 		right += paint(cYellow, right1(age(a.Quiet(now)), wTime)) + " " // how long it's been silent
 	case live && !a.NeedsYou() && !a.Waiting():
-		right += dim(right1(dur(a.Elapsed(now)), wTime)) + " "
+		right += dim(right1(dur(m.runFor(a, now)), wTime)) + " " // this run's, not the session's
 	case m.groupOf[a.Key] == needsSection:
 		waited, col := a.Age(now), cText
 		if waited >= 30*time.Minute {
@@ -2085,7 +2085,7 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	if badges != "" {
 		left += " " + badges
 	}
-	if tag != "" && stacked { // its worktree, which has no heading of its own
+	if tag != "" { // its worktree, which has no heading of its own
 		left += "  " + tag
 	}
 	if p := m.projTitles[folderKey(a)]; p != "" && m.groupOf[a.Key] == justLeftSection {

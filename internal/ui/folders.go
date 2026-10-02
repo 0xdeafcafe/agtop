@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/fleet"
@@ -187,14 +188,11 @@ func (m *Model) rootIsRepo(root string) bool {
 // Too narrow for both, git's part goes under the name rather than being cut.
 func (m *Model) projectLine(l listLine, w int) string {
 	s := "  " + paint(cSub, l.title)
-	if g := m.folderShort(l.root); g != "" {
+	if g := m.folderShort(l.root, m.headPR(l.root, "")); g != "" {
 		if cellw.String(s)+2+cellw.String(g)+2 > w {
 			return s + "\n    " + fit(g, w-5)
 		}
 		s += "  " + g
-	}
-	if pr := m.headPR(l.root, ""); pr != "" {
-		s += "  " + pr
 	}
 	return s + " " + faint(strings.Repeat("┄", max(0, w-cellw.String(s)-3)))
 }
@@ -220,9 +218,9 @@ func (m *Model) headPR(root, tree string) string {
 	return s
 }
 
-// folderShort is what git says of a project in a few cells: branch, ↑ahead
-// ↓behind, ±changed files, and ⎇ its worktrees.
-func (m *Model) folderShort(root string) string {
+// folderShort is what git says of a project in a few cells, its PR among
+// it (gitShort), then how many worktrees it has.
+func (m *Model) folderShort(root, pr string) string {
 	f, ok := m.folders.byRoot[root]
 	if !ok {
 		if filepath.IsAbs(root) && m.rootIsRepo(root) {
@@ -230,32 +228,52 @@ func (m *Model) folderShort(root string) string {
 		}
 		return ""
 	}
-	s := gitShort(f.Git)
-	if f.Worktrees > 0 {
-		s += faint(fmt.Sprintf("  ⎇%d", f.Worktrees))
+	s := gitShort(f.Git, pr, targetShort(f.Git))
+	switch {
+	case f.Worktrees == 1:
+		s += faint("  1 worktree")
+	case f.Worktrees > 1:
+		s += faint(fmt.Sprintf("  %d worktrees", f.Worktrees))
 	}
 	return s
 }
 
-// gitShort is gitBits in a few cells, for the list.
-func gitShort(s fleet.GitState) string {
+// gitShort is gitBits in a few cells, for the list: branch ↑ahead
+// ↓behind, its PR, what it targets, HEAD's commit and ±changed files.
+func gitShort(s fleet.GitState, pr, target string) string {
 	if s.Err != "" {
 		return faint("git failed")
 	}
-	var parts []string
+	var head []string
 	if s.Branch != "" {
-		parts = append(parts, dim(s.Branch))
+		head = append(head, dim(s.Branch))
 	}
 	if s.Ahead > 0 {
-		parts = append(parts, paint(cOrange, fmt.Sprintf("↑%d", s.Ahead)))
+		head = append(head, paint(cOrange, fmt.Sprintf("↑%d", s.Ahead)))
 	}
 	if s.Behind > 0 {
-		parts = append(parts, paint(cYellow, fmt.Sprintf("↓%d", s.Behind)))
+		head = append(head, paint(cYellow, fmt.Sprintf("↓%d", s.Behind)))
 	}
+	changed := ""
 	if s.Changed > 0 {
-		parts = append(parts, dim(fmt.Sprintf("±%d", s.Changed)))
+		changed = dim(fmt.Sprintf("±%d", s.Changed))
 	}
-	return strings.Join(parts, " ")
+	var parts []string
+	for _, p := range []string{strings.Join(head, " "), pr, target, faint(s.Commit), changed} {
+		if ansi.Strip(p) != "" {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, "  ")
+}
+
+// targetShort is the upstream a branch tracks, unless it's only the
+// branch's own name on origin, which says nothing.
+func targetShort(s fleet.GitState) string {
+	if s.Target == "" || s.Target == "origin/"+s.Branch {
+		return ""
+	}
+	return faint("→ ") + dim(s.Target)
 }
 
 // baseShort is where a worktree's branch came from, and how far it's
@@ -265,7 +283,7 @@ func baseShort(s fleet.GitState) string {
 	if s.Base == "" {
 		return ""
 	}
-	out := faint(" from ") + dim(s.Base)
+	out := faint("from ") + dim(s.Base)
 	if s.Upstream {
 		return out
 	}
@@ -291,17 +309,13 @@ func (m *Model) treeLine(l listLine, w int) string {
 // from, for a tree line: its heading, or beside its one agent's name.
 func (m *Model) treeTag(l listLine) string {
 	name := filepath.Base(l.root)
-	s := faint("⎇ ") + paint(cBlue, name)
+	s := faint("↳ ") + paint(cBlue, name)
 	if st, ok := m.folders.byRoot[l.title].Trees[l.root]; ok {
 		if strings.ReplaceAll(st.Branch, "/", "-") == name {
 			st.Branch = "" // the folder is named for it: once is enough
 		}
-		if g := gitShort(st); g != "" {
+		if g := gitShort(st, m.headPR(l.title, l.root), baseShort(st)); g != "" {
 			s += "  " + g
-		}
-		s += baseShort(st)
-		if pr := m.headPR(l.title, l.root); pr != "" {
-			s += "  " + pr
 		}
 	} else if m.folders.byRoot[l.title].Root != "" || m.folders.looking > 0 {
 		s += "  " + faint("…")

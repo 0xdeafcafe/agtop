@@ -297,6 +297,10 @@ type Model struct {
 	// projTitles are the list's project names by folderKey, for the tag
 	// a row carries where no project heads it.
 	projTitles map[string]string
+	// runSince is when each working agent's run began, as the list saw it
+	// start; zero for one already working when rush opened.
+	runSince map[string]time.Time
+	runInit  bool
 	// hosted is the rush-mode session shown alone (NewHosted), and hostedKey
 	// its agent's key once the snapshot has it.
 	hosted, hostedKey string
@@ -2087,6 +2091,13 @@ func (m *Model) rebuild() {
 		}
 		titles = folderTitles(keys)
 	}
+	var atWork []*fleet.Agent
+	for _, n := range []string{workingSection, stuckSection} {
+		if g := groups[n]; g != nil {
+			atWork = append(atWork, g.agents...)
+		}
+	}
+	m.noteRuns(now, atWork)
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].rank != list[j].rank {
 			return list[i].rank < list[j].rank
@@ -2105,10 +2116,12 @@ func (m *Model) rebuild() {
 			}
 		case sb == nil && g.name == "Done":
 			less = m.doneLess
-		case sb == nil && g.name == stuckSection:
-			less = waitedLess(now) // the longest silent first
-		case sb == nil && g.name != workingSection:
-			less = stoppedLess(now) // a question first, then the one that stopped last
+		case sb == nil && (g.name == needsSection || g.name == stuckSection):
+			less = waitedLess(now) // what you'd look at first: a question, then the longest waiting or silent
+		case sb == nil && g.name == workingSection:
+			less = m.runLess(now) // the longest at it this run first
+		case sb == nil:
+			less = stoppedLess(now) // the one that stopped last first
 		}
 		if split && g.name != justLeftSection { // what just left goes by time, its project a tag
 			within := less
@@ -2304,6 +2317,45 @@ func stoppedLess(now time.Time) func(a, b *fleet.Agent) bool {
 		}
 		if x, y := a.Quiet(now), b.Quiet(now); x != y {
 			return x < y
+		}
+		return a.Key < b.Key
+	}
+}
+
+// noteRuns marks when each agent at work began this run; one no longer
+// at work is forgotten, so a restart counts from zero.
+func (m *Model) noteRuns(now time.Time, at []*fleet.Agent) {
+	next := make(map[string]time.Time, len(at))
+	for _, a := range at {
+		t, ok := m.runSince[a.Key]
+		switch {
+		case ok:
+		case !m.runInit:
+			t = time.Time{} // already at it: since before rush looked
+		default:
+			t = now
+		}
+		next[a.Key] = t
+	}
+	m.runSince = next
+	m.runInit = m.runInit || m.snap != nil && len(m.snap.Agents) > 0
+}
+
+// runFor is how long a has been at its current run: the session's whole
+// life when the run began before rush opened.
+func (m *Model) runFor(a *fleet.Agent, now time.Time) time.Duration {
+	if t := m.runSince[a.Key]; !t.IsZero() {
+		return now.Sub(t)
+	}
+	return a.Elapsed(now)
+}
+
+// runLess orders the working by how long each has been at this run,
+// longest first.
+func (m *Model) runLess(now time.Time) func(a, b *fleet.Agent) bool {
+	return func(a, b *fleet.Agent) bool {
+		if x, y := m.runFor(a, now), m.runFor(b, now); x != y {
+			return x > y
 		}
 		return a.Key < b.Key
 	}

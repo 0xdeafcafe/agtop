@@ -42,10 +42,14 @@ type Commit struct {
 // pushed.
 type GitState struct {
 	Branch   string
-	Upstream bool // the branch tracks a remote one
-	Ahead    int  // commits not on the upstream yet
-	Behind   int  // commits on the upstream not here yet
-	Changed  int  // files with uncommitted changes, untracked ones included
+	Upstream bool   // the branch tracks a remote one
+	Ahead    int    // commits not on the upstream yet
+	Behind   int    // commits on the upstream not here yet
+	Changed  int    // files with uncommitted changes, untracked ones included
+	Commit   string // HEAD's short hash
+	// Target is the upstream the branch tracks, as git names it
+	// ("origin/main").
+	Target string
 	// Base is the branch a linked worktree's branch was made from, and
 	// how far it's gone from it: commits of its own, and the base's since.
 	Base                  string
@@ -152,8 +156,12 @@ func gitState(dir string) GitState {
 			if s.Branch == "(detached)" {
 				s.Branch = "detached"
 			}
+		case strings.HasPrefix(l, "# branch.oid "):
+			if oid := strings.TrimPrefix(l, "# branch.oid "); len(oid) >= 7 && oid != "(initial)" {
+				s.Commit = oid[:7]
+			}
 		case strings.HasPrefix(l, "# branch.upstream "):
-			s.Upstream = true
+			s.Upstream, s.Target = true, strings.TrimPrefix(l, "# branch.upstream ")
 		case strings.HasPrefix(l, "# branch.ab "):
 			for f := range strings.FieldsSeq(strings.TrimPrefix(l, "# branch.ab ")) {
 				n, _ := strconv.Atoi(f[1:])

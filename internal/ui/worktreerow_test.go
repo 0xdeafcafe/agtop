@@ -29,11 +29,11 @@ func TestTreeLineNamesOnce(t *testing.T) {
 	root := "/r/.worktrees/feat-slack-migration"
 	m.folders.byRoot = map[string]fleet.Folder{"/r": {Trees: map[string]fleet.GitState{root: {Branch: "feat/slack-migration", Changed: 1, Base: "origin/main"}}}}
 	got := ansi.Strip(m.treeLine(listLine{title: "/r", root: root}, 120))
-	if strings.Contains(got, "feat/slack-migration") || !strings.Contains(got, "feat-slack-migration  ±1 from origin/main") {
+	if strings.Contains(got, "feat/slack-migration") || !strings.Contains(got, "feat-slack-migration  from origin/main  ±1") {
 		t.Fatalf("row %q", got)
 	}
 	m.folders.byRoot["/r"].Trees[root] = fleet.GitState{Branch: "other", Changed: 1}
-	if got := ansi.Strip(m.treeLine(listLine{title: "/r", root: root}, 120)); !strings.Contains(got, "feat-slack-migration  other ±1") {
+	if got := ansi.Strip(m.treeLine(listLine{title: "/r", root: root}, 120)); !strings.Contains(got, "feat-slack-migration  other  ±1") {
 		t.Fatalf("another branch is still named: %q", got)
 	}
 }
@@ -61,10 +61,10 @@ func TestSoloWorktreeRow(t *testing.T) {
 		}
 		return ""
 	}
-	if strings.Contains(out, "⎇ wt-solo ┄") || !strings.Contains(row(a.DisplayName), "⎇ wt-solo") {
+	if strings.Contains(out, "↳ wt-solo ┄") || !strings.Contains(row(a.DisplayName), "↳ wt-solo") {
 		t.Errorf("the solo worktree:\n%s", out)
 	}
-	if !strings.Contains(out, "⎇ wt-pair ┄") || strings.Contains(row(b.DisplayName), "⎇") {
+	if !strings.Contains(out, "↳ wt-pair ┄") || strings.Contains(row(b.DisplayName), "↳") {
 		t.Errorf("the worktree of two:\n%s", out)
 	}
 }
