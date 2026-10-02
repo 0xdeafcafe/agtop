@@ -661,15 +661,27 @@ func (m *Model) statusOr(hint string) string {
 
 // keys are the keys a confirmation waits on, and what each does.
 func (c *confirmation) keys() string {
+	if c.only {
+		var keys []string
+		for _, ch := range c.more {
+			k := ch.key
+			if k == c.escIs {
+				k += "/esc"
+			}
+			keys = append(keys, paint(cOrange, k)+dim(" "+ch.text))
+		}
+		cancel := "esc"
+		if c.escIs != "" {
+			cancel = "ctrl+c"
+		}
+		return strings.Join(append(keys, paint(cOrange, cancel)+dim(" cancel")), "   ")
+	}
 	keys := paint(cOrange, "y") + dim(" "+cmp.Or(c.yesText, "yes"))
 	if c.onBang != nil && c.bangText != "" {
 		keys += "   " + paint(cOrange, "!") + dim(" "+c.bangText)
 	}
 	for _, ch := range c.more {
 		keys += "   " + paint(cOrange, ch.key) + dim(" "+ch.text)
-	}
-	if c.onNo != nil && c.escIsNo {
-		return keys + "   " + paint(cOrange, "n/esc") + dim(" "+c.noText) + "   " + paint(cOrange, "ctrl+c") + dim(" cancel")
 	}
 	if c.onNo != nil {
 		return keys + "   " + paint(cOrange, "n") + dim(" "+c.noText) + "   " + paint(cOrange, "esc") + dim(" cancel")

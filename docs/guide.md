@@ -293,7 +293,7 @@ A plugin can also take part in rush's screen, as far as you approved:
 - add sections to a Session's overview and a word to its row;
 - add commands you can bind to keys, and settings under **Settings → Plugins**;
 - with `input`, see and set what you type;
-- with `intercept`, change or hold back a message before it goes.
+- with `intercept`, change or hold back a message before it goes, or ask you about it first (the bundled `kanban-vault` asks to save a pasted secret to Kanban Code's vault this way).
 
 None of it can hold rush up. The screen hands plugins events without waiting, draws what they added from a copy it already has, and gives an intercept 400 ms before the message goes as it was. The [`autodrafts`](../plugins/examples/autodrafts) and [`reconnect`](../plugins/examples/reconnect) examples rebuild drafts and reconnect-and-continue this way.
 

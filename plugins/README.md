@@ -47,6 +47,16 @@ Some plugins come with rush. Their code is rush's own, so they need no approval 
 
 A slot is a locked file, so it frees itself however its holder ends. A program run from inside a queued one (`go vet` under `go test`) doesn't queue again.
 
+**kanban-vault** (off until you turn it on) keeps secrets out of what you send. When a message in a Session's box or the Prompt holds one (an API key, a token, a password in a URL, found by LangWatch's redaction rules), it asks before the message goes:
+
+```
+Save as vault secret OPENAI_API_KEY?
+your message has a secret (provider api key, sk-p… 56 chars) · saved, it goes as {{vault:OPENAI_API_KEY}} and agents use it through kv run
+y save it   n/esc send as is   ctrl+c cancel
+```
+
+`y` or enter saves it with [Kanban Code](https://github.com/langwatch/kanban-code)'s `kv add NAME --tier judged`, and the message goes with `{{vault:NAME}}` in its place and a line telling the agent to use it with `kv run NAME -- <cmd>`. `n` or esc sends it as it is; ctrl+c sends nothing. Several secrets are asked one after another. The name is the one the value is assigned to in the text (`NAME=…`), else one for its kind, made free among the vault's names. It runs `~/.local/bin/kv` through `exec`, with your environment. Turn it on with `rush plugin on kanban-vault`.
+
 **hex** (off until you turn it on) adds a hex view of what agents' steps print and read: `v` on a step cycles to its bytes, coloured by kind, with an ASCII column, and binary output opens in it. With it off, `v` still switches between text, pretty and image.
 
 ## What a plugin can't do
@@ -67,7 +77,7 @@ A plugin can also take part in rush's own window, as far as its manifest's `ui` 
 
 - **`events`**: hear what the agent list shows happen: a session opened or left, a turn started or ended, a session stopped by an error and of what kind, the network going away and coming back. Never what was said.
 - **`input`**: see what you type in a message box, and set it. It's everything you type, so approve it with care.
-- **`intercept`** (needs `input`): be asked before a message you send goes, and change it or hold it back with a reason. All plugins together get 400 ms; after that the message goes as it was, and one that misses three times in a row isn't asked again until it restarts.
+- **`intercept`** (needs `input`): be asked before a message you send goes, and change it, hold it back with a reason, or ask you a question about it first, with a key for each answer. All plugins together get 400 ms; after that the message goes as it was, and one that misses three times in a row isn't asked again until it restarts. The plugin has 2 minutes to act on the answer you pick.
 - **`overview`**: add sections to a session's overview, and a short status to its row.
 - **`notify`**: show a short message at the bottom of the screen, a few at a time.
 - **`send`** (needs `events`): send a message as if you'd typed it, only to sessions in its workspaces that still ask you before acting, ten a minute at most.

@@ -30,8 +30,10 @@ const (
 	// approve it with care.
 	UIInput = "input"
 	// UIIntercept is asked before a message you send goes, and may change
-	// it or hold it back, with a reason shown. It needs "input". It has
-	// InterceptBudget to answer; after that the message goes as it was.
+	// it, hold it back with a reason shown, or ask you a question first. It
+	// needs "input". It has InterceptBudget to answer; after that the
+	// message goes as it was. Your answer to its question it has
+	// AnswerWait for.
 	UIIntercept = "intercept"
 	// UIOverview adds sections to a Session's overview, and a short status
 	// to its row in the list.
@@ -53,6 +55,9 @@ const (
 	InterceptBudget    = 400 * time.Millisecond
 	InterceptEach      = 250 * time.Millisecond
 	InterceptStrikeOut = 3 // timeouts in a row before it's skipped until restarted
+	// AnswerWait is how long a plugin has to act on the choice you made
+	// in its question, as running a program it may take a while.
+	AnswerWait = 2 * time.Minute
 )
 
 // Limits on what a plugin adds to the screen.
@@ -441,20 +446,123 @@ type UIDo struct {
 
 // Intercept is what a plugin is asked before a message goes.
 type Intercept struct {
-	Hook    string     `json:"hook"` // before-send
-	UI      string     `json:"ui"`
+	Hook string `json:"hook"` // before-send
+	UI   string `json:"ui"`
+	// Box is whose message box it's in: a session's id, or "" for the
+	// Prompt. Session is the session it goes to, absent for one it starts.
+	Box     string     `json:"box"`
 	Session *UISession `json:"session,omitempty"`
 	Text    string     `json:"text"`
 }
 
-// InterceptResult is a plugin's answer: let it go as it is, go changed, or
-// be held back.
+// InterceptResult is a plugin's answer: let it go as it is, go changed,
+// be held back, or ask you first.
 type InterceptResult struct {
-	Action string `json:"action"` // allow, rewrite, block
-	Text   string `json:"text,omitempty"`
-	Reason string `json:"reason,omitempty"`
-	// Plugin is who changed or held it, filled in by the broker.
+	Action string `json:"action"` // allow, rewrite, block, ask
+	// Text, for rewrite, is the whole message as it should go.
+	Text string `json:"text,omitempty"`
+	// Replace and Append, for rewrite or ask, change the message in
+	// place, so a window keeps the box's pastes as chips: each Old becomes
+	// New wherever it is, then Append goes at the end, as it is.
+	Replace []Replacement `json:"replace,omitempty"`
+	Append  string        `json:"append,omitempty"`
+	Reason  string        `json:"reason,omitempty"`
+	// An ask: the question, a line under it, and the keys that answer.
+	// The window shows it in place of sending, and hands the key chosen
+	// back to the plugin that asked (ui.intercept.answer), with ID.
+	ID       string      `json:"id,omitempty"`
+	Question string      `json:"question,omitempty"`
+	Detail   string      `json:"detail,omitempty"`
+	Choices  []AskChoice `json:"choices,omitempty"`
+	// Plugin is who changed, held or asked about it, filled in by the
+	// broker.
 	Plugin string `json:"plugin,omitempty"`
+}
+
+// Replacement is text a rewrite changes wherever it is in a message.
+type Replacement struct {
+	Old string `json:"old"`
+	New string `json:"new"`
+}
+
+// AskChoice is a key that answers a plugin's question. Enter, on one,
+// makes enter choose it too, and Esc esc; ctrl+c, and esc when no choice
+// takes it, cancel the send and leave the box as it is.
+type AskChoice struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Enter bool   `json:"enter,omitempty"`
+	Esc   bool   `json:"esc,omitempty"`
+}
+
+// InterceptAnswer is the choice made in a plugin's question: the window
+// sends it to the broker, which hands Key and ID to Plugin with the
+// message as it stood, then asks the plugins after it.
+type InterceptAnswer struct {
+	Intercept
+	Plugin string `json:"plugin"`
+	ID     string `json:"id,omitempty"`
+	Key    string `json:"key"`
+}
+
+// Limits on an ask.
+const (
+	MaxChoices     = 6
+	MaxQuestionLen = 120
+	MaxDetailLen   = 400
+	MaxChoiceLen   = 40
+	MaxAskIDLen    = 128
+)
+
+var askKeyRE = regexp.MustCompile(`^[a-z0-9]$`)
+
+// CleanAsk checks an ask and cleans its words for the screen: one to
+// MaxChoices choices, each a lowercase letter or a digit of its own, at
+// most one on enter and one on esc.
+func CleanAsk(r *InterceptResult) error {
+	if strings.TrimSpace(r.Question) == "" {
+		return errors.New("an ask needs a question")
+	}
+	if len(r.Choices) == 0 || len(r.Choices) > MaxChoices {
+		return fmt.Errorf("an ask has 1 to %d choices", MaxChoices)
+	}
+	if len(r.ID) > MaxAskIDLen {
+		return fmt.Errorf("an ask's id is at most %d bytes", MaxAskIDLen)
+	}
+	r.Question, r.Detail = clip(printable(r.Question), MaxQuestionLen), clip(printable(r.Detail), MaxDetailLen)
+	seen, enter, esc := map[string]bool{}, 0, 0
+	for i := range r.Choices {
+		c := &r.Choices[i]
+		if !askKeyRE.MatchString(c.Key) || seen[c.Key] {
+			return fmt.Errorf("choice key %q: a lowercase letter or a digit, each once", c.Key)
+		}
+		seen[c.Key] = true
+		c.Label = clip(printable(c.Label), MaxChoiceLen)
+		if c.Enter {
+			enter++
+		}
+		if c.Esc {
+			esc++
+		}
+	}
+	if enter > 1 || esc > 1 {
+		return errors.New("at most one choice on enter and one on esc")
+	}
+	return nil
+}
+
+// Apply is text with r's change: its whole Text, or its replacements then
+// what it appends.
+func (r InterceptResult) Apply(text string) string {
+	if r.Text != "" {
+		return r.Text
+	}
+	for _, p := range r.Replace {
+		if p.Old != "" {
+			text = strings.ReplaceAll(text, p.Old, p.New)
+		}
+	}
+	return text + r.Append
 }
 
 // Pick is a list a plugin asks a window to show, for you to choose from:

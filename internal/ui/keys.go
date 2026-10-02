@@ -778,9 +778,14 @@ func (m *Model) submit() tea.Cmd {
 		return nil
 	}
 	if kind != inRename && kind != inGroup {
-		text, tagged = m.vault.apply(text), m.vault.apply(tagged)
-		if cmd, asked := m.askVault(&m.vault, vaultBox{&m.input, &m.pastes}, m.submit); asked {
-			return cmd
+		if m.promptIntercepting {
+			return nil
+		}
+		if m.wantsPromptIntercept(text) {
+			if kind == inPrompt {
+				a = nil
+			}
+			return m.interceptPrompt(a)
 		}
 	}
 	// The open pane is what knows the conversation's cache; the box is
@@ -788,7 +793,7 @@ func (m *Model) submit() tea.Cmd {
 	if kind == inReply && text != "" && m.host != nil && m.host.key == a.Key && m.askCold(m.host, text, m.submit) {
 		return nil
 	}
-	m.pastes, m.undo, m.vault = pastes{}, undoStack{}, vaultGate{}
+	m.pastes, m.undo = pastes{}, undoStack{}
 	m.input, m.inKind = m.input[:0], inPrompt
 	if (kind == inPrompt || kind == inReply) && text != "" && !isHashCmd(text) {
 		m.emitBox(plugin.EvInputSent, "", tagged) // for the history's Sent
@@ -1149,17 +1154,25 @@ func (m *Model) confirmKey(s string) tea.Cmd {
 	if c.again != "" && s == c.again {
 		s = "y"
 	}
-	if s == "enter" && c.noEnter {
-		return nil
-	}
-	if s == "esc" && c.escIsNo {
-		s = "n"
+	if c.only {
+		switch {
+		case s == "enter":
+			s = c.enterIs
+		case s == "esc" && c.escIs != "":
+			s = c.escIs
+		case s == "esc" || s == "ctrl+c":
+			m.confirm = nil
+			return nil
+		}
 	}
 	for _, ch := range c.more {
 		if s == ch.key {
 			m.confirm = nil
 			return ch.do()
 		}
+	}
+	if c.only {
+		return nil
 	}
 	switch s {
 	case "y", "enter":

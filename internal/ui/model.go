@@ -69,11 +69,13 @@ type confirmation struct {
 	// again is a key that says yes too: the arrow pushed once more past
 	// the edge that asked (edgePush).
 	again string
-	// escIsNo makes esc answer n rather than cancel; noEnter keeps enter
-	// from answering y, for a yes that shouldn't go by accident.
-	escIsNo, noEnter bool
 	// more are choices beside yes, each on a key of its own.
 	more []confirmChoice
+	// only makes more the only choices, with no y or n of their own:
+	// enterIs and escIs name the choice enter and esc make, if any, and
+	// ctrl+c (and esc, when no choice takes it) cancels.
+	only           bool
+	enterIs, escIs string
 }
 
 // confirmChoice is a key a confirmation takes beside y and n.
@@ -84,8 +86,9 @@ type confirmChoice struct {
 
 type Model struct {
 	reloadFields // #reload, and what it carries
-	// vault is the vault check's answers for the Prompt's message.
-	vault vaultGate
+	// promptIntercepting is the Prompt's message out to plugins before it
+	// goes; promptIntercepted is it going, after they've had their say.
+	promptIntercepting, promptIntercepted bool
 	// upd is Settings › Updates, and the count in the key line.
 	upd updatesState
 	// sendModes are how enter sends to each session while it works, by key.

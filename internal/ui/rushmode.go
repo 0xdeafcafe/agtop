@@ -1357,7 +1357,6 @@ type hostConn struct {
 	asks     map[string]func(*Model, host.Reply) tea.Cmd // control requests out (askClaude)
 	askN     int
 	pastes   pastes // long pastes shown as chips
-	vault    vaultGate
 	undo     undoStack
 	arts     []*artifact
 	marks    map[string]bool // files marked reviewed in the changes view
@@ -3906,14 +3905,6 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	working := c.sess != nil && c.sess.Live() != nil
 	now = now || working && m.sendModeOf(c) == sendStop
 	guide := !now && working && m.sendModeOf(c) == sendGuide
-	// Asked before plugins see the message, so a secret saved to the vault
-	// never reaches them.
-	if !strings.HasSuffix(string(c.input), "\\") || now {
-		box := vaultBox{&c.input, &c.pastes}
-		if cmd, asked := m.askVault(&c.vault, box, func() tea.Cmd { return m.sendPane(c, now) }); asked {
-			return cmd
-		}
-	}
 	if m.wantsIntercept(c, now) {
 		return m.interceptSend(c, now)
 	}
@@ -3929,10 +3920,9 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	// first (a cold cache, an unknown command) runs again with them.
 	defer func() {
 		if len(c.input) == 0 {
-			c.pastes, c.vault = pastes{}, vaultGate{}
+			c.pastes = pastes{}
 		}
 	}()
-	text = c.vault.apply(text)
 	if c.editQ > 0 {
 		i, was := c.editQ-1, c.editWas
 		c.input, c.back = c.input[:0], 0

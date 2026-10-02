@@ -119,15 +119,28 @@ Something happened in one of rush's windows. Sent without waiting for the plugin
 
 ### `ui.intercept` (request) — needs `intercept`
 
-`{"hook": "before-send", "ui": "main", "session": {…}, "text": "…"}`: a message is about to go. Answer one of:
+`{"hook": "before-send", "ui": "main", "box": "a1b2c3d4", "session": {…}, "text": "…"}`: a message is about to go. `box` is whose message box it's in, a session's id or `""` for the Prompt; `session` is the session it goes to, absent for one it starts. `text` has each paste in full. Answer one of:
 
 ```json
 {"action": "allow"}
 {"action": "rewrite", "text": "the message, changed"}
+{"action": "rewrite", "replace": [{"old": "sk-…", "new": "{{vault:KEY}}"}], "append": "\n\na line at the end"}
 {"action": "block", "reason": "shown to the user"}
+{"action": "ask", "id": "q1", "question": "Save as vault secret KEY?", "detail": "a line under it",
+ "choices": [{"key": "y", "label": "save it", "enter": true}, {"key": "n", "label": "send as is", "esc": true}]}
 ```
 
+A rewrite gives the whole `text`, or changes it in place: each `old` becomes `new` wherever it is, then `append` goes at the end as it is. In place, the window keeps the box's pastes as chips; with `text`, the box becomes that text.
+
 Plugins are asked in name order, each seeing the text as the ones before left it; a `block` stops it. Each has 250 ms, and all together 400 ms. No answer in time, or an error, counts as `allow`; three in a row and the plugin isn't asked again until it restarts.
+
+**Asking first.** An `ask` stops the chain and shows the user `question`, `detail` and a key for each choice, in place of sending. It may carry `replace` and `append` too: what the plugin changed so far, put in the box while the question shows. Choices: 1 to 6, each `key` a lowercase letter or a digit, `label` up to 40 characters; `enter` on one makes enter choose it, `esc` on one makes esc choose it. ctrl+c, and esc when no choice takes it, cancel: nothing is sent and the box stays as it is. `question` is up to 120 characters, `detail` 400, `id` 128 bytes. An ask that breaks these counts as `allow`.
+
+### `ui.intercept.answer` (request) — needs `intercept`
+
+`{"hook": "before-send", "ui": "main", "box": "…", "session": {…}, "text": "…", "id": "q1", "key": "y"}`: the user chose `key` in the plugin's `ask` with that `id`. `text` is the message as it stands now, with the ask's own changes in it. Answer as to `ui.intercept`: `allow`, `rewrite`, `block`, or another `ask` (the next question about the same message). It has 2 minutes, so it can run a program first (`exec`). The plugins after it in name order are then asked as usual. An answer that doesn't come, or an error, holds the message back, since the choice may have been to keep something out of it.
+
+The [`kanban-vault`](../../../README.md#bundled-plugins) bundled plugin is built on this: its ask saves a pasted secret with `kv add` only when the user says yes.
 
 ### `ui.settings` (notification)
 
