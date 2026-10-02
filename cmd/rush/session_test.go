@@ -14,6 +14,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/0xdeafcafe/rush/internal/proc"
+	"github.com/0xdeafcafe/rush/internal/testhome"
 )
 
 // The test binary stands in for rush: host.Spawn runs `<exe> host run <id>`.
@@ -25,13 +26,9 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
-	// Hosts the tests start write shims: into a cache of their own, not
-	// the machine's, which sessions' shells run.
-	d, _ := os.MkdirTemp("", "rush-cache")
-	os.Setenv("RUSH_CACHE", d)
-	code := m.Run()
-	os.RemoveAll(d)
-	os.Exit(code)
+	// Hosts the tests start write shims and sessions: into folders of
+	// their own, not the machine's, which sessions' shells run.
+	testhome.Main(m)
 }
 
 // fakeClaude logs its arguments and every message it is sent, and ends each

@@ -405,7 +405,7 @@ rush reads Claude Code's files: `jobs/*/state.json`, `daemon/roster.json`, `jobs
 
 Other agents run through adapters in [internal/adapters](../internal/adapters): Codex over its app-server's JSON-RPC, the rest over the Agent Client Protocol, and Ollama through Claude Code. Each adapter declares which of rush's features it supports, and the core asks that rather than checking for an agent by name. Whatever the agent, its events draw as a session. Switching a Codex account puts its sign-in in `~/.codex`, keeping the one there first so its refreshed tokens aren't lost; an API-key sign-in is named by a hash of the key, never the key.
 
-Its own state (Done, names, groups, accounts and profiles, not their sign-ins) lives in `~/.config/rush`, and a cost cache in `~/Library/Caches/rush`.
+Its own state (Done, names, groups, accounts and profiles, not their sign-ins) lives in `~/.config/rush`, and a cost cache in `~/Library/Caches/rush`. A machine that ran rush as agtop has `~/.config/agtop` and its cache folder moved there when the view starts or on `rush migrate`, each old path left as a link to the new one so older builds keep working. Nothing moves while a session's host still runs from the old folder; rush says so and `rush migrate` moves it once they stop.
 
 Plugins run under `rush plugind`, sandboxed; [plugins/ARCHITECTURE.md](../plugins/ARCHITECTURE.md) has how.
 
