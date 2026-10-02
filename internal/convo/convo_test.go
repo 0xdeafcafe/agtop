@@ -128,13 +128,11 @@ func TestRender(t *testing.T) {
 	if os.Getenv("CONVO_SHOW") != "" {
 	}
 	want := []string{
-		"▌  the ux right now is totally broken when i attach", // your message, on its fill
-		"4 steps   10s   $0.52",                               // the turn's foot
-		"Looking at how attach restores the terminal modes.",  // narration
-		"▸ show 3 steps: read, search, go build · all ok",     // clean run folded
-		"✓ ✎ internal/daemon/attach.go",                       // an edit never folds
-		"+2 −1",
-		"▏ Fixed the alt screen.", // answer on the conversation axis, markdown stripped
+		"▌  the ux right now is totally broken when i attach",            // your message, on its fill
+		"4 steps   10s   $0.52",                                          // the turn's foot
+		"Looking at how attach restores the terminal modes.",             // narration
+		"▸ 4 steps  read, search, go build, edit  +2 −1 in 1 file", // its steps, a batch
+		"▏ Fixed the alt screen.",                                        // answer on the conversation axis, markdown stripped
 		"▌  add modern key stuff to input too",
 		"✗ $ in internal/ui · go vet ./...", // cd leads, quieter
 		"exit 1",
@@ -203,7 +201,7 @@ func TestStreamingAndCrash(t *testing.T) {
 		t.Fatalf("crash: live=%v err=%q status=%v", tn.Live, tn.Err, s.byID["x"].Status)
 	}
 	out := plain(s.Render(Options{Width: 100, Now: at(5)}))
-	if !strings.Contains(out, "✗ claude exited mid-turn") || !strings.Contains(out, "◌ $ sleep 100") {
+	if !strings.Contains(out, "✗ The agent stopped mid-turn") || !strings.Contains(out, "│ claude exited mid-turn: exit status 1") || !strings.Contains(out, "next message starts it again") || !strings.Contains(out, "◌ $ sleep 100") {
 		t.Errorf("crash render:\n%s", out)
 	}
 }
@@ -629,7 +627,7 @@ func TestLiveLine(t *testing.T) {
 		t.Fatalf("a timer under 5s shows tenths and asks for fast frames (fast %v):\n%s", s.Fast, out)
 	}
 	out = plain(s.Render(Options{Width: 100, Now: at(9)}))
-	if !strings.Contains(out, pick(musings, at(1))+"…  8s") || !strings.Contains(out, "turn 9s") || !strings.Contains(out, "━") || !s.Fast {
+	if !strings.Contains(out, pick(musings, at(1))+"…  8s") || !strings.Contains(out, "8s  turn 9s") {
 		t.Fatalf("no thinking line:\n%s", out)
 	}
 	s.Apply(headless.BlockStart{Index: 1, Type: "text"}, at(10))
@@ -1198,8 +1196,8 @@ func TestSettledTurn(t *testing.T) {
 	for _, w := range []string{
 		"▌  the ux right now is totally broken when i attach",
 		"Looking at how attach restores the terminal modes.", // straight after you
-		"▸ 4 steps · 1 file changed +2 −1",
-		"▏ Fixed the alt screen.", // what it ended on
+		"▸ 4 steps  read, search, go build, edit  +2 −1 in 1 file",
+		"▏ Fixed the alt screen.",  // what it ended on
 		"Building the line editor", // the newest turn stays whole
 	} {
 		if !strings.Contains(out, w) {

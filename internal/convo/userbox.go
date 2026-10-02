@@ -60,8 +60,8 @@ const boxPadTop = 0
 // Pastes up to pasteFull lines show whole; longer ones show their first
 // pasteHead and a line that opens the message.
 const (
-	pasteFull = 12
-	pasteHead = 8
+	pasteFull = 15
+	pasteHead = 12
 )
 
 // userBox is what you said: a fill one step off the ground, the turn's
@@ -78,6 +78,7 @@ func (d *drawer) userBox(ref, title, ask string, imgs []string, pics []*event.Im
 				d.add(ref, bgUser, paint(cOrange, "▌"), "")
 			}
 			d.userBox(ref, "", part, nil, nil, false)
+			d.named = true // one "you" for the lot
 		}
 		// Numbered markers already carry their original image links. When
 		// every attachment has one, don't add a second filename chip (or a
@@ -86,6 +87,7 @@ func (d *drawer) userBox(ref, title, ask string, imgs []string, pics []*event.Im
 		if (len(imgs) > 0 || len(pics) > 0) && !numberedImagesCover(ask, max(len(imgs), len(pics))) {
 			d.userBox(ref, "", "", imgs, pics, false)
 		}
+		d.named = false
 		return
 	}
 	var chips []chip
@@ -126,12 +128,16 @@ func (d *drawer) userBox(ref, title, ask string, imgs []string, pics []*event.Im
 	if ref != "" && ref == d.o.Selected {
 		edge = d.spine()
 	}
-	fill := func(s string) { d.add(ref, bgUser, edge+"  "+s, "") }
+	fill := func(s, right string) { d.add(ref, bgUser, edge+"  "+s, right) }
 	for range boxPadTop {
-		fill("")
+		fill("", "")
 	}
 	for i, r := range rows {
-		fill(r)
+		who := ""
+		if i == 0 && !d.named {
+			who = dim("you") + " " // who said it, as the agent's answer is named under it
+		}
+		fill(r, who)
 		if i > 0 {
 			d.wrapped()
 		}

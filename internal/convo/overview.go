@@ -197,7 +197,7 @@ func (s *Session) Overview(o Options) []Line {
 	// ponytail: keyed on Apply and the Info the UI sets; other direct writes aren't seen.
 	i := s.Info
 	k := overviewKey{applied: s.applied, width: o.Width, wide: o.Wide, verb: o.Verbose, pal: palette, sec: o.Now.Unix(),
-		model: i.Model, effort: i.Effort, perm: i.PermissionMode, kind: i.Kind, cost: i.CostUSD, warm: i.CacheWarm.UnixNano(), cwd: i.Cwd + "|" + s.Cwd}
+		model: i.Model, effort: i.Effort, perm: i.PermissionMode, kind: i.Kind, cost: i.CostUSD, warm: i.CacheWarm.UnixNano(), cwd: i.Cwd + "|" + s.Cwd, compact: o.Compaction}
 	if m := &s.ovMemo; m.lines != nil && m.key == k {
 		return m.lines
 	}
@@ -216,6 +216,7 @@ type overviewKey struct {
 	sec, warm                      int64
 	model, effort, perm, kind, cwd string
 	cost                           float64
+	compact                        agent.Compaction
 }
 
 func (s *Session) overview(o Options) []Line {
@@ -256,9 +257,12 @@ func (s *Session) overview(o Options) []Line {
 	ctx, ctxLabel := "—", "context"
 	ctxCol := cText
 	if s.Context > 0 && model != "" {
-		win := agent.ContextWindow(agent.Kind(s.Info.Kind), model)
-		pct := float64(s.Context) / float64(win)
-		ctx, ctxLabel = fmt.Sprintf("%.0f%%", pct*100), "context of "+tokens(int(win))
+		f := agent.FillOf(int64(s.Context), agent.ContextWindow(agent.Kind(s.Info.Kind), model), o.Compaction)
+		pct := f.Pct() / 100
+		ctx, ctxLabel = fmt.Sprintf("%.0f%%", pct*100), "context of "+tokens(int(f.Window))
+		if f.Compacts() {
+			ctxLabel = "auto-compact" // a tile has no room for both windows
+		}
 		switch {
 		case pct >= 0.8:
 			ctxCol = cRed

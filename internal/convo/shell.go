@@ -18,6 +18,7 @@ type shape struct {
 	in    string // the folder a leading cd moves to, when it isn't the session's
 	ctx   bool   // a search that prints lines around each match
 	n     int    // the most lines a read prints, when that's known
+	body  string // what a heredoc writes
 }
 
 var sedLines = regexp.MustCompile(`^(\d+)(?:,(\d+))?p$`)
@@ -111,6 +112,7 @@ func (d *drawer) shellShape(cmd string) shape {
 		case heredoc && target != "":
 			sh.kind, sh.glyph, sh.what = "write", "✎", d.rel(target)
 			sh.res = plural(body, "line")
+			sh.body = strings.Join(lines[1:len(lines)-1], "\n")
 		case prog == "cat" && into == "" && len(nonFlags(plain)) > 0:
 			sh.kind, sh.glyph, sh.what = "read", "◧", files(nonFlags(plain))
 		}

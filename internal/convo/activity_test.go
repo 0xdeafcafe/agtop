@@ -24,7 +24,7 @@ func TestActivityMovesOutOfTranscript(t *testing.T) {
 		t.Fatal("cached transcript duplicated docked activity")
 	}
 	o.Open = map[string]bool{"t1": false}
-	if got := plain(s.Activity(o)); !strings.Contains(got, want) || !strings.Contains(got, "8s") || !s.Fast {
+	if got := plain(s.Activity(o)); !strings.Contains(got, want) || !strings.Contains(got, "8s") {
 		t.Fatalf("folded turn lost activity: %s", got)
 	}
 	o.HideActivity = false

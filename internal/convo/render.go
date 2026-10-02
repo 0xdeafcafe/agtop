@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -79,6 +81,22 @@ type Options struct {
 	// (at the width before a resize, say) is used as it was, and Stale
 	// says so: the caller draws again soon, and each render redraws more.
 	Budget time.Duration
+	// NoRule leaves the turns' rule out of the gutter: the pane has a
+	// border just left of it, and two lines side by side read as a fold.
+	NoRule bool
+	// Compaction is where the session's agent compacts its context, when
+	// it's short of the model's window.
+	Compaction agent.Compaction
+	// Parent names the session this one works for as a subagent, for the
+	// card it opens on.
+	Parent string
+	// Hosted is whether rush runs the session, and so added its own
+	// prompt to the agent's; Brief is what the session's start added
+	// after it.
+	Hosted bool
+	Brief  string
+	// Agent names who answers under each of your messages.
+	Agent string
 }
 
 // rowCap is how wide a row's numbers and rules may run.
@@ -111,6 +129,8 @@ type cacheKey struct {
 	open, verb   bool
 	depth        Depth
 	hideActivity bool
+	noRule       bool
+	agent        string
 	folds, sel   string
 	tick         int
 	now          int64
@@ -118,6 +138,7 @@ type cacheKey struct {
 	gen          int64 // lookups finished: a commit card or thumbnail may read differently
 	clock        bool
 	latest       string // the session's newest step, when it's in this turn
+	opening      string // what the card atop the first turn reads
 }
 
 // Render draws every turn, oldest first.
@@ -320,7 +341,7 @@ func (s *Session) over() bool {
 func (s *Session) Stale() bool { return s.stale }
 
 func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[string]string) cacheKey {
-	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, depth: o.Depth, hideActivity: o.HideActivity, folds: folds[ref] + folds["exchange"], pal: palette, gen: lookupsGen.Load()}
+	k := cacheKey{width: o.Width, wide: o.Wide, ver: t.ver, open: open, verb: o.Verbose, depth: o.Depth, hideActivity: o.HideActivity, noRule: o.NoRule, agent: o.Agent, folds: folds[ref] + folds["exchange"], pal: palette, gen: lookupsGen.Load()}
 	exchangeSelected := false
 	if strings.HasPrefix(o.Selected, "exchange:") {
 		parts := strings.Split(o.Selected, ":")
@@ -333,6 +354,9 @@ func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[
 	}
 	if t.Live || waiting(t) {
 		k.clock, k.tick, k.now = true, o.Tick, o.Now.Unix()
+	}
+	if len(s.Turns) > 0 && s.Turns[0] == t {
+		k.opening = s.openingPrint(o)
 	}
 	return k
 }
@@ -355,6 +379,7 @@ func waiting(t *Turn) bool {
 }
 
 type drawer struct {
+	named  bool // a box of queued messages has said "you" once
 	docked bool // live activity shown independently of the transcript
 	// rule is whether the turn being drawn has its rule in the gutter: an
 	// open turn does; an answer drawn for a panel doesn't.
@@ -407,7 +432,7 @@ const freshTail = 24
 // spine is column 0, the gutter: the turn's one quiet rule, or the cursor's
 // brighter mark on a selected row. It never changes colour with the turn.
 func (d *drawer) spine() string {
-	if d.rule {
+	if d.rule && !d.o.NoRule {
 		return spineBar
 	}
 	return " "
@@ -602,6 +627,7 @@ func woke(t *Turn) (noun, how string, ok bool) {
 // either way, so folding a turn never moves it.
 func (d *drawer) head() {
 	t := d.t
+	d.opening()
 	d.hooks()
 	d.rule = true
 	// A gap above, outside the turn's rule.
@@ -643,6 +669,7 @@ func (d *drawer) head() {
 
 func (d *drawer) open() {
 	d.head()
+	d.speaker()
 	t := d.t
 	if a := d.wokeAgents(); a != nil {
 		d.replies(a, d.ref+":reply", 4)
@@ -668,13 +695,41 @@ func (d *drawer) open() {
 			keep = 0
 		}
 	}
+	if d.storied() {
+		d.story() // done: the story of it, as a turn gone past has it
+	} else {
+		d.drawItems(items, 0, len(items), keep)
+	}
+	if t.Live && !d.o.HideActivity {
+		d.liveLine()
+	}
+	switch {
+	case t.Stopped:
+		d.add("", "", d.spine()+"   "+dim("⏹ stopped"), "")
+	case t.Err != "" && !t.Live:
+		d.errCard(t.Err)
+	}
+	// The rail stops at the last thing drawn, never on an empty row.
+	for n := len(d.lines); n > 1 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) == strings.TrimSpace(stripANSI(d.spine())) && d.lines[n-1].Ref == ""; n-- {
+		d.lines = d.lines[:n-1]
+	}
+	// What the turn cost, once it's done: one dim line at its foot.
+	if m := d.meta(); m != "" && !t.Live && t.Steps()+t.agentSteps() > 0 {
+		d.add("", "", d.spine(), dim(m)+"  ")
+	}
+}
+
+// drawItems draws items[lo:hi] of an open turn: steps folded into runs as
+// the depth has it. keep is where the steps a running turn keeps in view
+// begin.
+func (d *drawer) drawItems(items []*Item, lo, hi, keep int) {
 	prose, runs := !d.o.Verbose && d.o.Depth == DepthProse, !d.o.Verbose && d.o.Depth == DepthRuns
-	for i := 0; i < len(items); i++ {
+	for i := lo; i < hi; i++ {
 		it := items[i]
 		// Prose alone: steps go, but for a row saying how many failed.
 		if prose && it.Kind == KStep {
 			j, failed := i, 0
-			for ; j < len(items) && items[j].Kind == KStep; j++ {
+			for ; j < hi && items[j].Kind == KStep; j++ {
 				if items[j].Step.Status == Failed {
 					failed++
 				}
@@ -689,7 +744,7 @@ func (d *drawer) open() {
 		// folding runs); a failure never folds.
 		if !d.o.Verbose && it.Kind == KStep && i < keep {
 			j := i
-			for j < keep && j < len(items) && items[j].Kind == KStep && (runs || foldable(items[j].Step) && items[j].Step != d.latest) && !d.testsFailed(items[j].Step) && items[j].Step.Status != Failed && !d.replyOf(items[j].Step) {
+			for j < keep && j < hi && items[j].Kind == KStep && (runs || foldable(items[j].Step) && items[j].Step != d.latest) && !d.testsFailed(items[j].Step) && items[j].Step.Status != Failed && !d.replyOf(items[j].Step) {
 				j++
 			}
 			if j-i >= 2 || runs && j > i {
@@ -722,23 +777,6 @@ func (d *drawer) open() {
 			continue
 		}
 		d.memoized(items[i:i+1], "", i >= len(items)-freshTail, func() { d.item(it) })
-	}
-	if t.Live && !d.o.HideActivity {
-		d.liveLine()
-	}
-	switch {
-	case t.Stopped:
-		d.add("", "", d.spine()+"   "+dim("⏹ stopped"), "")
-	case t.Err != "" && !t.Live:
-		d.add("", "", d.spine()+blanks(gutter-1)+paint(cRed, "✗ "+t.Err), dim("your next message picks it up"))
-	}
-	// The rail stops at the last thing drawn, never on an empty row.
-	for n := len(d.lines); n > 1 && strings.TrimSpace(stripANSI(d.lines[n-1].Text)) == strings.TrimSpace(stripANSI(d.spine())) && d.lines[n-1].Ref == ""; n-- {
-		d.lines = d.lines[:n-1]
-	}
-	// What the turn cost, once it's done: one dim line at its foot.
-	if m := d.meta(); m != "" && !t.Live && t.Steps()+t.agentSteps() > 0 {
-		d.add("", "", d.spine(), dim(m)+"  ")
 	}
 }
 
@@ -1032,7 +1070,6 @@ func (d *drawer) liveLine() {
 	if !since.IsZero() {
 		head += "  " + paint(cOrange, d.since(since))
 	}
-	d.add("", "", pad+head, "")
 	var facts []string
 	if !t.Start.IsZero() && since != t.Start {
 		facts = append(facts, "turn "+d.since(t.Start))
@@ -1050,7 +1087,12 @@ func (d *drawer) liveLine() {
 			facts = append(facts, "cache expired, read uncached")
 		}
 	}
-	d.add("", "", pad+"  "+pulseBar(32, d.glide())+"  "+dim(strings.Join(facts, " · ")), "")
+	// What it's done so far, on the same row: the spinner and its clock
+	// say it's working; a bar sweeping under them only drew the eye.
+	if len(facts) > 0 {
+		head += "  " + dim(strings.Join(facts, " · "))
+	}
+	d.add("", "", pad+head, "")
 	if r := t.Retry; r != nil {
 		// A request failed and is tried again: the model hasn't stalled,
 		// its API has.
@@ -1086,29 +1128,6 @@ func (d *drawer) air() {
 func (d *drawer) glide() int {
 	d.s.Fast = true
 	return int(d.o.Now.UnixMilli() / 100)
-}
-
-// pulseBar is a track with nothing to measure: a short lit run
-// that sweeps back and forth, its leading cell glinting.
-func pulseBar(w, tick int) string {
-	const run = 6
-	span := w - run
-	at := (tick%(2*span) + 2*span) % (2 * span)
-	fwd := at < span
-	if !fwd {
-		at = 2*span - at
-	}
-	var b strings.Builder
-	b.WriteString(faint(strings.Repeat("─", at)))
-	for i := range run {
-		if lead := fwd && i == run-1 || !fwd && i == 0; lead {
-			b.WriteString(paint(cYellow, "━"))
-		} else {
-			b.WriteString(paint(cOrange, "━"))
-		}
-	}
-	b.WriteString(faint(strings.Repeat("─", w-at-run)))
-	return b.String()
 }
 
 // pick is one of words for the stretch that began at since: the same for
@@ -1263,15 +1282,8 @@ func (d *drawer) verb(st *Step) string {
 }
 
 func (d *drawer) run(ref string, items []*Item) {
-	counts := map[string]int{}
-	var order []string
 	var first, last time.Time
 	for _, it := range items {
-		g := d.stepMemo(it.Step, 'v', d.verb)
-		if counts[g] == 0 {
-			order = append(order, g)
-		}
-		counts[g]++
 		if first.IsZero() || it.Step.Start.Before(first) {
 			first = it.Step.Start
 		}
@@ -1279,19 +1291,7 @@ func (d *drawer) run(ref string, items []*Item) {
 			last = it.Step.End
 		}
 	}
-	// What the steps were, by name: "sed ×2, grep, go build".
-	var names []string
-	for i, g := range order {
-		if i == 4 {
-			names = append(names, fmt.Sprintf("+%d more", len(order)-4))
-			break
-		}
-		if counts[g] > 1 {
-			g += fmt.Sprintf(" ×%d", counts[g])
-		}
-		names = append(names, g)
-	}
-	left := d.spine() + blanks(gutter-1) + faint("▸ show "+plural(len(items), "step")+": ") + dim(strings.Join(names, ", "))
+	left := d.spine() + blanks(gutter-1) + faint("▸ show "+plural(len(items), "step")+": ") + dim(d.runNames(items))
 	left += faint(" · all ok")
 	if !first.IsZero() && !last.IsZero() && last.Sub(first) >= 100*time.Millisecond {
 		left += faint(" · ") + took(last.Sub(first))
@@ -1300,11 +1300,40 @@ func (d *drawer) run(ref string, items []*Item) {
 	d.add(ref, "", left, "")
 }
 
+// runNames is what a run's steps were, by name: "sed ×2, grep, go build".
+func (d *drawer) runNames(items []*Item) string {
+	counts := map[string]int{}
+	var order []string
+	for _, it := range items {
+		g := d.stepMemo(it.Step, 'v', d.verb)
+		if counts[g] == 0 {
+			order = append(order, g)
+		}
+		counts[g]++
+	}
+	var names []string
+	for i, g := range order {
+		if i == 4 {
+			names = append(names, fmt.Sprintf("+%d more", len(order)-4))
+			break
+		}
+		n := counts[g]
+		if r, size := utf8.DecodeRuneInString(g); unicode.IsUpper(r) {
+			g = string(unicode.ToLower(r)) + g[size:] // "Edit" reads as the rest do
+		}
+		if n > 1 {
+			g += fmt.Sprintf(" ×%d", n)
+		}
+		names = append(names, g)
+	}
+	return strings.Join(names, ", ")
+}
+
 // gap is a blank row, unless the last row already is one, ends a fill, or
 // there is none.
 func (d *drawer) gap() {
-	if n := len(d.lines); n > 0 && !d.isBlank(n-1) && !strings.Contains(d.lines[n-1].Text, bgUser) {
-		d.blank() // what you said is filled: it ends itself
+	if n := len(d.lines); n > 0 && !d.isBlank(n-1) {
+		d.blank()
 	}
 }
 
@@ -2202,6 +2231,15 @@ func (d *drawer) statusMark(st *Step) string {
 	}
 }
 
+// stepOpen is whether a step draws what it ran and did under its row: the
+// latest does, unless a card says what it did, or you opened or closed it.
+func (d *drawer) stepOpen(st *Step, ref string) bool {
+	if v, ok := d.o.Open[ref]; ok {
+		return v
+	}
+	return d.o.Verbose || st == d.latest && len(d.stepCards(st)) == 0
+}
+
 func (d *drawer) step(st *Step, depth int) {
 	if hidden(st) {
 		return
@@ -2236,11 +2274,7 @@ func (d *drawer) step(st *Step, depth int) {
 	}
 	left := lead + label + cells
 	d.worked = true
-	// The latest step shows what it ran, unless a card says what it did.
-	open := d.o.Verbose || st == d.latest && len(d.stepCards(st)) == 0
-	if v, ok := d.o.Open[ref]; ok {
-		open = v
-	}
+	open := d.stepOpen(st, ref)
 	// A failure shows just its error until you open it for everything.
 	background := ""
 	if st.Status == Failed || d.testsFailed(st) {

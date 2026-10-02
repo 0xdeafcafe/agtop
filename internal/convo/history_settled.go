@@ -1,6 +1,7 @@
 package convo
 
 import (
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -8,41 +9,15 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 )
 
-// settled draws a turn you've gone past as what you'd look back for: what
-// you said, what came straight back and what it ended on, the words either
-// side of anything you sent mid-turn, and what the work made (pictures,
-// drawings, commits, tests, failures). The steps between fold to a row a
-// run saying what they changed; opened, they draw as an open turn's do.
+// settled draws a turn you've gone past as its story: what you said, who
+// answered, then what the agent said
+// along the way, each batch of steps between as one row (red when one
+// failed) and what the work made (pictures, drawings), and what it ended
+// on. Opened, a batch draws as an open turn's steps do.
 func (d *drawer) settled() {
 	d.head()
-	items := d.t.Items
-	first := slices.IndexFunc(items, func(it *Item) bool { return it.Kind == KStep })
-	near := func(j int) bool { return j >= 0 && j < len(items) && items[j].Kind == KInterject }
-	var run []*Item
-	at := 0
-	flush := func() {
-		if len(run) > 0 {
-			d.settledRun(d.ref+":run:"+strconv.Itoa(at), run)
-			run = nil
-		}
-	}
-	for i, it := range items {
-		switch {
-		case it.Kind == KStep && !d.artifact(it.Step):
-			if len(run) == 0 {
-				at = i
-			}
-			run = append(run, it)
-			continue
-		case it.Kind == KThinking:
-			continue
-		case it.Kind == KText && !(it.Answer || first < 0 || i < first || near(i-1) || near(i+1)):
-			continue // narration between steps
-		}
-		flush()
-		d.item(it)
-	}
-	flush()
+	d.speaker()
+	d.story()
 	switch {
 	case d.t.Stopped:
 		d.add("", "", d.spine()+"   "+dim("⏹ stopped"), "")
@@ -52,6 +27,125 @@ func (d *drawer) settled() {
 	if m := d.meta(); m != "" && d.t.Steps()+d.t.agentSteps() > 0 {
 		d.add("", "", d.spine(), dim(m)+"  ")
 	}
+}
+
+// storied is whether the open turn draws as its story: once it's done,
+// at the default depth. While it runs it draws step by step.
+func (d *drawer) storied() bool {
+	return !d.t.Live && !waiting(d.t) && !d.o.Verbose && d.o.Depth == DepthDefault
+}
+
+// story is a finished turn's body: its words, its batches, the documents
+// it wrote.
+func (d *drawer) story() {
+	items := d.t.Items
+	var run []*Item
+	at := 0
+	flush := func() {
+		if len(run) == 1 {
+			d.item(run[0]) // one step is no batch
+			run = nil
+		}
+		if len(run) > 0 {
+			d.settledRun(d.ref+":run:"+strconv.Itoa(at), run)
+			run = nil
+		}
+	}
+	for i, it := range items {
+		switch {
+		case it.Kind == KStep && d.batched(it.Step):
+			if len(run) == 0 {
+				at = i
+			}
+			run = append(run, it)
+			continue
+		case it.Kind == KThinking:
+			continue
+		}
+		flush()
+		d.item(it)
+		if it.Kind == KStep && d.doc(it.Step) {
+			d.docPreview(it.Step)
+		}
+	}
+	flush()
+}
+
+// speaker names the agent answering under what you said.
+func (d *drawer) speaker() {
+	if d.o.Agent == "" || len(d.t.Items) == 0 {
+		return
+	}
+	d.add("", "", d.spine()+" "+faint("agent · ")+paint(cSub, d.o.Agent), "")
+}
+
+// batched is whether a finished turn's step folds into its batch: plain
+// work, edits and failures do; what's part of the story stays out (a
+// message, a subagent, a picture or drawing, an artifact). A failure
+// folds too: its batch is red, and opened it shows why.
+func (d *drawer) batched(st *Step) bool {
+	switch glyphFor(st) {
+	case "⇉", "◆", "◇":
+		return false
+	}
+	switch st.Tool {
+	case "ScheduleWakeup", "Monitor", "PushNotification", "SubagentHandback", "EnterPlanMode", "ExitPlanMode":
+		return false // what it'll do next, or told you
+	}
+	return !hidden(st) && !messageTool(st.Tool) && !d.artifact(st) && !d.doc(st) && !d.replyOf(st)
+}
+
+// doc is a step that wrote a document, its last write in the turn: what
+// it made, to read looking back, where its code edits are only counted.
+func (d *drawer) doc(st *Step) bool {
+	path, _ := d.written(st)
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown", ".mdx", ".txt", ".rst", ".org", ".adoc":
+	default:
+		return false
+	}
+	for _, it := range slices.Backward(d.t.Items) {
+		if it.Kind == KStep {
+			if p, _ := d.written(it.Step); p == path {
+				return it.Step == st
+			}
+		}
+	}
+	return false
+}
+
+// written is the file a step wrote whole and what it wrote: by the write
+// tool, or a shell's cat into it from a heredoc.
+func (d *drawer) written(st *Step) (path, content string) {
+	switch {
+	case st.Status != OK:
+	case st.kind() == tool.Write:
+		return d.rel(st.in().Path), st.in().Content
+	case st.kind() == tool.Shell:
+		if sh := d.shellShape(st.in().Command); sh.kind == "write" {
+			return sh.what, sh.body
+		}
+	}
+	return "", ""
+}
+
+// docPreview is the head of a document written, as its markdown reads.
+func (d *drawer) docPreview(st *Step) {
+	const most = 12
+	_, content := d.written(st)
+	if strings.TrimSpace(content) == "" || d.stepOpen(st, d.ref+":s:"+st.ID) {
+		return // nothing to show, or shown whole already
+	}
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	head := lines[:min(len(lines), most)]
+	if strings.Count(strings.Join(head, "\n"), "```")%2 == 1 {
+		head = append(slices.Clone(head), "```") // a fence cut off closes
+	}
+	d.markdown(strings.Join(head, "\n"), gutter+2, cSub, false)
+	if n := len(lines) - len(head); n > 0 {
+		d.add("", "", d.spine()+blanks(gutter+1)+faint("… "+plural(n, "more line")), "")
+	}
+	d.gap()
 }
 
 // artifact is a step whose result is the point of looking back: a picture
@@ -77,7 +171,7 @@ func (d *drawer) settledRun(ref string, run []*Item) {
 	add, del, failed := 0, 0, 0
 	for _, x := range run {
 		st := x.Step
-		if st.Status == Failed {
+		if st.Status == Failed || d.testsFailed(st) {
 			failed++
 		}
 		if k := st.kind(); st.Status != OK || k != tool.Edit && k != tool.Write {
@@ -100,16 +194,55 @@ func (d *drawer) settledRun(ref string, run []*Item) {
 			}
 		}
 	}
-	left := d.spine() + blanks(gutter-1) + faint("▸ "+plural(len(run), "step"))
+	head := faint("▸ " + plural(len(run), "step"))
+	if failed > 0 {
+		head = paint(cRed, "▸ "+plural(len(run), "step"))
+	}
+	left := d.spine() + blanks(gutter-1) + head + "  " + faint(d.runNames(run))
 	if len(files) > 0 {
-		left += faint(" · ") + dim(plural(len(files), "file")+" changed ") + paint(cGreen, "+"+strconv.Itoa(add)) + " " + paint(cRed, "−"+strconv.Itoa(del))
+		left += "  " + paint(cGreen, "+"+strconv.Itoa(add))
+		if del > 0 {
+			left += " " + paint(cRed, "−"+strconv.Itoa(del))
+		}
+		left += faint(" in " + plural(len(files), "file"))
 	}
 	if failed > 0 {
-		left += faint(" · ") + paint(cRed, "✗ "+strconv.Itoa(failed)+" failed")
+		left += "  " + paint(cRed, "✗ "+strconv.Itoa(failed)+" failed")
 	}
 	d.worked = true
 	d.add(ref, "", left, "")
 	for _, x := range run {
-		d.cards(x.Step, gutter+2)
+		for _, c := range d.stepCards(x.Step) {
+			if !d.superseded(x.Step, c.kind) {
+				d.card(c, gutter+2)
+			}
+		}
 	}
+}
+
+// superseded is a tests or build card a later run in the turn tells again,
+// passed or not:
+// looking back, only how the last one came out matters.
+func (d *drawer) superseded(st *Step, kind string) bool {
+	if kind != "tests" && kind != "build" {
+		return false
+	}
+	after := false
+	for _, it := range d.t.Items {
+		if it.Kind != KStep {
+			continue
+		}
+		if it.Step == st {
+			after = true
+			continue
+		}
+		if !after || it.Step.kind() != tool.Shell {
+			continue
+		}
+		cmd := blankHeredocs(it.Step.in().Command)
+		if kind == "tests" && testVerb.MatchString(cmd) || kind == "build" && buildVerb.MatchString(cmd) {
+			return true
+		}
+	}
+	return false
 }

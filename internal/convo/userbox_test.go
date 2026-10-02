@@ -30,7 +30,7 @@ func TestUserFillAndShortPaste(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success"}, at(2))
 	ls := s.Render(Options{Width: 100, Now: at(3)})
 	out := plain(ls)
-	for _, want := range []string{"▌  see\n", "▌  ▤ pasted\n", "▌  Can it keep\n", "▌  its width?\n"} {
+	for _, want := range []string{"▌  see ", "▌  ▤ pasted\n", "▌  Can it keep\n", "▌  its width?\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}
@@ -43,8 +43,8 @@ func TestUserFillAndShortPaste(t *testing.T) {
 	}
 }
 
-// A long paste shows its first lines and a link that opens the message,
-// never a shortened excerpt.
+// A paste of up to 15 lines shows whole; a longer one, its first 12 and a
+// link that opens the message, never a shortened excerpt.
 func TestLongPasteShowsItsHead(t *testing.T) {
 	var b strings.Builder
 	for i := 1; i <= 20; i++ {
@@ -55,12 +55,12 @@ func TestLongPasteShowsItsHead(t *testing.T) {
 	s.Apply(headless.Result{Subtype: "success"}, at(1))
 	ls := s.Render(Options{Width: 100, Now: at(2)})
 	out := plain(ls)
-	for _, want := range []string{"▤ pasted · 20 lines", "▌  line 8\n", "… 12 more lines · click to show all"} {
+	for _, want := range []string{"▤ pasted · 20 lines", "▌  line 12\n", "… 8 more lines · click to show all"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "line 9\n") {
+	if strings.Contains(out, "line 13\n") {
 		t.Errorf("a long paste stops at its head:\n%s", out)
 	}
 	var all strings.Builder
@@ -84,7 +84,7 @@ func TestQueuedUserBoxesKeepAnIntentionalSeparator(t *testing.T) {
 	d := drawer{s: New(), t: &Turn{}, o: Options{Width: 80}, cw: 80, rule: true}
 	d.userBox("t1", "", host.JoinQueue([]string{"one", "two"}), nil, nil, false)
 	out := plain(d.lines)
-	if !strings.Contains(out, "▌  one\n▌\n▌  two") {
+	if !strings.Contains(out, "you\n▌\n▌  two") {
 		t.Fatalf("queue entries need one filled blank separator: %s", out)
 	}
 }
