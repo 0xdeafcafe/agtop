@@ -3082,7 +3082,7 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 		d.add("", bgWell, pad+faint("$ ")+quietTint(expandTabs(cmd)), "")
 		return
 	}
-	body, bodyShown := 0, 0
+	body := 0
 	// A pipe carries on its command's line while that still fits; each
 	// command of a chain keeps a line of its own, the && or || that joins it
 	// out in the margin so the commands line up.
@@ -3101,10 +3101,37 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 		}
 		lines = append(lines, subshellLines(l)...)
 	}
-	for _, l := range lines {
-		if l.verbatim {
-			body++
+	// A heredoc's lines are numbered as what reads it counts them; the
+	// word that ends it isn't one. A script fed that way which failed
+	// shows the line it stopped at, and what went wrong there.
+	no := make([]int, len(lines))
+	docs, most := 0, 0
+	for i, l := range lines {
+		if !l.verbatim {
+			continue
 		}
+		body++
+		if i == 0 || !lines[i-1].verbatim {
+			docs++
+		}
+		if i+1 < len(lines) && lines[i+1].verbatim {
+			no[i] = 1
+			if i > 0 && lines[i-1].verbatim {
+				no[i] = no[i-1] + 1
+			}
+			most = max(most, no[i])
+		}
+	}
+	fault, says := 0, ""
+	if docs == 1 && (st.Status == Failed || d.testsFailed(st)) {
+		fault, says = stdinFault(bashOut(st))
+	}
+	numW := len(strconv.Itoa(most))
+	// What a long heredoc keeps in view: its start, its end word, and the
+	// lines round where it failed.
+	shown := func(i int) bool {
+		n := no[i]
+		return d.o.Verbose || body <= 8 || n <= 6 || fault > 0 && n >= fault-1 && n <= fault+1 // n is 0 for the end word
 	}
 	blank := strings.Repeat(" ", gutter)
 	var lg *lang
@@ -3128,15 +3155,24 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 		if !l.verbatim && strings.Contains(l.text, "<<") {
 			lg, hs = heredocLang(l.text), hlState{}
 		}
+		if l.verbatim && !shown(i) {
+			if i > 0 && shown(i - 1) {
+				hid := 0
+				for j := i; j < len(lines) && lines[j].verbatim && !shown(j); j++ {
+					hid++
+				}
+				d.add("", bgWell, pad+lead+blanks(numW+2)+folded(hid), "")
+			}
+			continue
+		}
+		num := ""
 		if l.verbatim {
-			bodyShown++
-			switch {
-			case d.o.Verbose || body <= 8 || bodyShown <= 6:
-			case bodyShown == 7:
-				d.add("", bgWell, pad+lead+folded(body-7), "")
-				continue
-			case bodyShown < body:
-				continue // the last line, the heredoc's end word, still shows
+			num = blanks(numW + 2)
+			if no[i] > 0 {
+				num = faint(fmt.Sprintf("%*d  ", numW, no[i]))
+			}
+			if no[i] > 0 && no[i] == fault {
+				num = paint(cRed+bold, fmt.Sprintf("%*d", numW, no[i])) + paint(cRed, "▸ ")
 			}
 		}
 		hang := strings.Repeat(" ", l.depth*2)
@@ -3153,17 +3189,25 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 		}
 		if l.verbatim {
 			colored = highlight(lg, &hs, expandTabs(l.text), cOut, nil)
-			if bodyShown == body {
+			if no[i] == 0 {
 				colored = faint(l.text) // the word that ends it
 			}
 		}
-		for j, r := range wrap(colored, room-len(hang)) {
+		for j, r := range wrap(colored, room-len(hang)-cellw.String(num)) {
 			if j > 0 {
 				lead, r, mark = blank, "  "+r, "" // a wrapped line hangs under its own start
+				if num != "" {
+					num = blanks(numW + 2)
+				}
 			}
-			d.add("", bgWell, pad+lead+hang+r, mark)
+			d.add("", bgWell, pad+lead+num+hang+r, mark)
 			if j > 0 {
 				d.wrapped()
+			}
+		}
+		if l.verbatim && no[i] > 0 && no[i] == fault && says != "" {
+			for _, r := range wrap(paint(cRed, "✗ "+says), room-numW-2) {
+				d.add("", bgWell, pad+blank+blanks(numW+2)+r, "")
 			}
 		}
 	}

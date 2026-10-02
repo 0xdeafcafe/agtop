@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -472,8 +473,12 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 					tail = lastLines(st.Output, n)
 				}
 			}
-			for _, l := range tail {
-				rows = append(rows, cellw.Truncate("      "+paint(cFaint, "│ ")+paint(cText, l), w-2, "…"))
+			if from != c.jobOutput(j) && from != "" {
+				rows = append(rows, c.fileRows(from, tail, 6, w-2)...) // a file it writes, as the document it is
+			} else {
+				for _, l := range tail {
+					rows = append(rows, cellw.Truncate("      "+paint(cFaint, "│ ")+paint(cText, l), w-2, "…"))
+				}
 			}
 			if len(tail) == 0 && c.open[ref] {
 				none := "no output"
@@ -499,9 +504,7 @@ func (m *Model) jobLines(c *hostConn, o convo.Options) []convo.Line {
 						continue
 					}
 					rows = append(rows, "      "+faint("from "+c.shownPath(f))+c.tailWhen(f, now))
-					for _, l := range more {
-						rows = append(rows, cellw.Truncate("      "+paint(cFaint, "│ ")+paint(cText, l), w-2, "…"))
-					}
+					rows = append(rows, c.fileRows(f, more, 6, w-2)...)
 				}
 			}
 			if key.w != 0 {
@@ -798,9 +801,7 @@ func (c *hostConn) writeRows(id string, st *convo.Step, running bool, now time.T
 			continue
 		}
 		rows = append(rows, "  "+faint("from "+c.shownPath(f))+c.tailWhen(f, now))
-		for _, l := range lines {
-			rows = append(rows, "  "+paint(cFaint, "│ ")+paint(cText, l))
-		}
+		rows = append(rows, c.fileRows(f, lines, 2, 1<<10)...) // cut to the pane where they're put
 	}
 	return rows
 }
@@ -881,13 +882,36 @@ func (c *hostConn) tailOf(p string, running bool, n int) []string {
 	return e.lines[max(0, len(e.lines)-n):]
 }
 
+// fileRows is what tailOf last found of a file a command writes: a log as
+// it is, anything else as a document, its lines numbered as they are in it, coloured as its kind of
+// file has them, indent cells in and w wide.
+func (c *hostConn) fileRows(p string, lines []string, indent, w int) []string {
+	if !convo.IsCode(p) {
+		rows := make([]string, len(lines))
+		for i, l := range lines {
+			rows[i] = cellw.Truncate(blanks(indent)+paint(cFaint, "│ ")+paint(cText, l), w, "…")
+		}
+		return rows // a log, not a document
+	}
+	var nos []int
+	if e := c.tails[p]; e != nil && len(e.nos) == len(e.lines) {
+		nos = e.nos[len(e.nos)-len(lines):]
+	}
+	rows := convo.CodeRows(p, lines, nos, max(10, w-indent))
+	for i, r := range rows {
+		rows[i] = blanks(indent) + r
+	}
+	return rows
+}
+
 // tailRead is a task's output as a read in the background found it.
 type tailRead struct {
 	size  int64 // -1 when there was nothing there
 	mod   time.Time
 	lines []string
-	same  bool // unchanged: nothing was read
-	final bool // read after its task ended: it won't change
+	nos   []int // each line's number in the file, when it was counted
+	same  bool  // unchanged: nothing was read
+	final bool  // read after its task ended: it won't change
 }
 
 // readTail looks at a task's output, reading it when it isn't the size
@@ -901,7 +925,8 @@ func readTail(p string, size int64, mod time.Time, running bool) tailRead {
 		return tailRead{same: true, size: size, final: !running}
 	}
 	// Read once its task had ended, it won't change again.
-	return tailRead{size: st.Size(), mod: st.ModTime(), lines: tailLines(p, jobTailMost), final: !running}
+	lines, nos := tailLines(p, jobTailMost)
+	return tailRead{size: st.Size(), mod: st.ModTime(), lines: lines, nos: nos, final: !running}
 }
 
 // poll takes in a read that's done.
@@ -911,7 +936,7 @@ func (e *jobTailed) poll() {
 		return
 	}
 	if !r.same {
-		e.size, e.mod, e.lines = r.size, r.mod, r.lines
+		e.size, e.mod, e.lines, e.nos = r.size, r.mod, r.lines, r.nos
 	}
 	e.final = r.final && e.size >= 0
 }
@@ -980,6 +1005,7 @@ type jobTailed struct {
 	size  int64     // -1 when there was nothing there
 	mod   time.Time
 	lines []string
+	nos   []int
 	final bool // read after its task ended: it won't change
 	read  offRead[tailRead]
 }
@@ -1029,25 +1055,35 @@ var taskDirs = offReads[*hostConn, taskDir]{}
 // tailWidest is the most of a line of output kept, in bytes.
 const tailWidest = 1024
 
-// tailLines is the last n non-blank lines of a file, from its last 16KB.
-func tailLines(path string, n int) []string {
+// tailCounted is the most of a file before its tail that's read to number
+// the tail's lines; past it they go unnumbered.
+const tailCounted = 32 << 20
+
+// tailLines is the last n non-blank lines of a file, from its last 16KB,
+// and each one's number in the file (none for a file too big to count).
+func tailLines(path string, n int) ([]string, []int) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil || st.Size() == 0 {
-		return nil
+		return nil, nil
 	}
 	const most = 16 << 10
 	off := max(0, st.Size()-most)
 	buf := make([]byte, st.Size()-off)
 	if _, err := f.ReadAt(buf, off); err != nil && err != io.EOF {
-		return nil
+		return nil, nil
+	}
+	first := -1 // the number of the buffer's first line
+	if off <= tailCounted {
+		first = 1 + newlines(io.NewSectionReader(f, 0, off))
 	}
 	var out []string
-	for _, l := range strings.Split(string(buf), "\n") {
+	var nos []int
+	for k, l := range strings.Split(string(buf), "\n") {
 		// A progress bar redraws itself with \r: its latest state counts.
 		if i := strings.LastIndexByte(strings.TrimRight(l, "\r"), '\r'); i >= 0 {
 			l = l[i+1:]
@@ -1058,13 +1094,32 @@ func tailLines(path string, n int) []string {
 			if len(l) > tailWidest {
 				l = strings.ToValidUTF8(l[:tailWidest], "")
 			}
+			if off > 0 && k == 0 {
+				continue // cut mid-line
+			}
 			out = append(out, strings.ReplaceAll(l, "\t", "  "))
+			nos = append(nos, first+k)
 		}
 	}
-	if off > 0 && len(out) > 0 {
-		out = out[1:] // cut mid-line
+	if first < 0 {
+		nos = nil
+	} else {
+		nos = nos[max(0, len(nos)-n):]
 	}
-	return out[max(0, len(out)-n):]
+	return out[max(0, len(out)-n):], nos
+}
+
+// newlines counts the line ends r reads.
+func newlines(r io.Reader) int {
+	buf := make([]byte, 64<<10)
+	n := 0
+	for {
+		k, err := r.Read(buf)
+		n += bytes.Count(buf[:k], []byte{'\n'})
+		if err != nil {
+			return n
+		}
+	}
 }
 
 // lastLines is the last n non-blank lines of s.
