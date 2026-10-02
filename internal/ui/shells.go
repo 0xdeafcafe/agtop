@@ -4,6 +4,8 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -122,18 +124,22 @@ func (m *Model) pickedShell(c *hostConn) string {
 }
 
 // shellKey acts on a picked running Bash call: k kills the command of its
-// chain that runs now and lets the chain go on, and on its step in the
-// conversation, b and x do what they do on its task.
+// chain that runs now and lets the chain go on, p pauses it and lets it go
+// on again, and on its step in the conversation, b and x do what they do
+// on its task.
 func (m *Model) shellKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
-	if !empty || s != "k" && s != "b" && s != "x" {
+	if !empty || s != "k" && s != "b" && s != "x" && s != "p" {
 		return nil, false
 	}
 	id := m.pickedShell(c)
 	if id == "" {
 		return nil, false
 	}
-	if s == "k" {
+	switch s {
+	case "k":
 		return m.killPart(c, id), true
+	case "p":
+		return m.pausePart(c, id), true
 	}
 	if !strings.Contains(c.sel, ":s:") {
 		return nil, false // the task's own keys
@@ -196,6 +202,91 @@ func (m *Model) killPart(c *hostConn, id string) tea.Cmd {
 		}
 		return errors.Join(errs...)
 	})
+}
+
+// pausedPart is a command of a running chain rush has paused: the
+// processes it stopped, to let go on again.
+type pausedPart struct {
+	at    time.Time
+	what  string
+	procs []convo.PartProc
+}
+
+// paused are the commands paused in every session, by tool call ID: let go
+// when rush quits, so none is left stopped with nobody to start it.
+var paused = struct {
+	sync.Mutex
+	m map[string]pausedPart
+}{m: map[string]pausedPart{}}
+
+// pausePart pauses the command of a running chain that runs now, and all
+// it started, or lets one paused go on.
+func (m *Model) pausePart(c *hostConn, id string) tea.Cmd {
+	paused.Lock()
+	pp, was := paused.m[id]
+	delete(paused.m, id)
+	paused.Unlock()
+	if was {
+		m.flash("resumed "+pp.what+" after "+dur(time.Since(pp.at).Round(time.Second)), false)
+		return hostCmd(func() error { return signalParts(pp.procs, syscall.SIGCONT) })
+	}
+	rp, ok := c.sess.RunningPart(id)
+	if !ok {
+		m.flash("rush hasn't seen which command of it runs yet", true)
+		return nil
+	}
+	what := firstWord(rp.Command)
+	paused.Lock()
+	paused.m[id] = pausedPart{at: time.Now(), what: what, procs: rp.Procs}
+	paused.Unlock()
+	// ponytail: the agent's own timeout (Claude Code's 2m by default) keeps
+	// counting while it's paused; nothing here can stop that clock.
+	m.flash("paused "+what+" · p lets it go on · the agent's timeout still counts", false)
+	return hostCmd(func() error { return signalParts(rp.Procs, syscall.SIGSTOP) })
+}
+
+// pausedIDs are the Bash calls paused now, for the conversation to mark.
+func pausedIDs() map[string]bool {
+	paused.Lock()
+	defer paused.Unlock()
+	if len(paused.m) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(paused.m))
+	for id := range paused.m {
+		out[id] = true
+	}
+	return out
+}
+
+// pauseWord is what p does to Bash call id now.
+func pauseWord(id string) string {
+	paused.Lock()
+	defer paused.Unlock()
+	if _, ok := paused.m[id]; ok {
+		return "let it go on"
+	}
+	return "pause it"
+}
+
+// resumeAll lets every paused command go on.
+func resumeAll() {
+	paused.Lock()
+	defer paused.Unlock()
+	for id, pp := range paused.m {
+		_ = signalParts(pp.procs, syscall.SIGCONT)
+		delete(paused.m, id)
+	}
+}
+
+func signalParts(procs []convo.PartProc, sig syscall.Signal) error {
+	var errs []error
+	for _, p := range procs {
+		if _, err := actions.SignalTree(p.PID, p.Start, sig); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // shellCommand reads argv, not a flattened command line: spaces and quotes in

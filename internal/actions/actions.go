@@ -70,6 +70,24 @@ func EndTree(root int, rootStart time.Time, grace time.Duration) (int, error) {
 	return len(pids), nil
 }
 
+// SignalTree sends sig to a process and everything under it: SIGSTOP to
+// pause the lot, SIGCONT to let it go on. Root goes first, so a paused
+// tree can't start more while it's walked.
+func SignalTree(root int, rootStart time.Time, sig syscall.Signal) (int, error) {
+	tab, protected, err := treeOf(root, rootStart)
+	if err != nil {
+		return 0, err
+	}
+	_ = proc.Kill(root, sig)
+	n := 1
+	for _, pid := range tab.Descendants(root) {
+		if pid != root && !protected[pid] && proc.Kill(pid, sig) == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // treeOf samples the process table for a tree about to be ended, refusing
 // if root is no longer the process the user chose (same start time); the
 // protected set is rush and its parents.

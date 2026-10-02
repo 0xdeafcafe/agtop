@@ -260,6 +260,9 @@ func (d *drawer) partMarks(st *Step, n int) []string {
 			round = " · run " + strconv.Itoa(r.runs)
 		}
 		switch {
+		case stop.IsZero() && live && d.o.Paused[st.ID]:
+			marks[k] = paint(cYellow+bold, "⏸ paused")
+			continue
 		case stop.IsZero() && live:
 			marks[k] = paint(cOrange, d.spin(d.o.Tick)+" "+d.since(r.start)+round)
 			continue

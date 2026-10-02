@@ -2059,6 +2059,7 @@ func (m *Model) rushPane(w, h int) []string {
 	if a := m.agentByKey(c.key); a != nil && !isRoomKey(c.key) {
 		o.Agent = community.Author{Name: a.DisplayName}.Username()
 	}
+	o.Paused = pausedIDs()
 	var body []convo.Line
 	// body is rows [base, base+len(body)) of total; in a conversation only
 	// the turns around what's on screen are drawn. transcript is the rows
@@ -3141,7 +3142,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		// A running command picked in the conversation: x stops it.
 		if id := m.pickedShell(c); id != "" && strings.Contains(c.sel, ":s:") {
 			if rp, ok := c.sess.RunningPart(id); ok {
-				hint = keysFit(w-4, "x", "stop this command", "k", "kill "+firstWord(rp.Command)+" only", "shift+x · shift+k", "…and say why", "b", "background", m.rowKey(), "open or close", "esc", "back to message")
+				hint = keysFit(w-4, "x", "stop this command", "k", "kill "+firstWord(rp.Command)+" only", "p", pauseWord(id), "shift+x · shift+k", "…and say why", "b", "background", m.rowKey(), "open or close", "esc", "back to message")
 			} else {
 				hint = keysFit(w-4, "x", "stop this command", "shift+x", "…and say why", "b", "background", m.rowKey(), "open or close", "esc", "back to message")
 			}

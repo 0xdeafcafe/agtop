@@ -644,7 +644,7 @@ func (m *Model) stepChat(d int) tea.Cmd {
 // goroutine: the next start needn't read it all again.
 func (m *Model) quit() tea.Cmd {
 	sc := m.scanner
-	return func() tea.Msg { sc.Flush(); return tea.QuitMsg{} }
+	return func() tea.Msg { resumeAll(); sc.Flush(); return tea.QuitMsg{} }
 }
 
 // quitKey arms quitting on the first ctrl+c and quits on a second one.
