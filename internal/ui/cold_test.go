@@ -54,3 +54,21 @@ func TestAskCold(t *testing.T) {
 		t.Fatal("a session with no request yet has no cache to lose")
 	}
 }
+
+// A send that stops to ask keeps the box's pastes, so the chip goes out as
+// the text it stands for once you say yes.
+func TestAskColdKeepsPastes(t *testing.T) {
+	m := &Model{snap: &fleet.Snapshot{}}
+	c := &hostConn{kind: "claude", key: "k", sess: convo.New(), open: map[string]bool{}}
+	c.sess.Context = 120_000
+	c.sess.Requests = []convo.Request{{At: time.Now().Add(-3 * time.Hour)}}
+	c.input = []rune(c.pastes.add("one\ntwo\n"))
+	m.sendPane(c, false)
+	if m.confirm == nil || c.pastes.text[1] != "one\ntwo\n" {
+		t.Fatalf("asking first lost the paste: confirm=%v pastes=%v", m.confirm, c.pastes.text)
+	}
+	m.confirmKey("y")
+	if len(c.input) != 0 || len(c.pastes.text) != 0 {
+		t.Fatalf("sent, the box should be empty: %q %v", string(c.input), c.pastes.text)
+	}
+}

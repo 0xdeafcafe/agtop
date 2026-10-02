@@ -3867,7 +3867,6 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	if m.wantsIntercept(c, now) {
 		return m.interceptSend(c, now)
 	}
-	savedPastes := c.pastes
 	text := string(c.input)
 	if strings.HasSuffix(text, "\\") && !now {
 		c.input = append(c.input[:len(c.input)-1], '\n')
@@ -3876,7 +3875,13 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	}
 	// Claude Code sessions are typed into, where tags would show as typed.
 	text = strings.TrimSpace(c.pastes.expand(text, c.client != nil || m.agentByKey(c.key) == nil || m.agentByKey(c.key).Rush))
-	c.pastes = pastes{}
+	// The pastes go only with the box's text: a send that stops to ask
+	// first (a cold cache, an unknown command) runs again with them.
+	defer func() {
+		if len(c.input) == 0 {
+			c.pastes = pastes{}
+		}
+	}()
 	if c.editQ > 0 {
 		i, was := c.editQ-1, c.editWas
 		c.input, c.back = c.input[:0], 0
@@ -3948,7 +3953,6 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	if sq, _ := m.subQueue(c); now && len(images) == 0 && c.client != nil && sq == nil && hasQueuedExchange(c) {
-		c.pastes = savedPastes
 		m.flash("agent messages keep their sender · send queued messages separately with s", false)
 		return nil
 	}
