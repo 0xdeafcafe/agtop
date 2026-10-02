@@ -25,9 +25,9 @@ import (
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/hooks"
 	"github.com/0xdeafcafe/rush/internal/host"
-	"github.com/0xdeafcafe/rush/internal/room"
 	"github.com/0xdeafcafe/rush/internal/menubar"
 	"github.com/0xdeafcafe/rush/internal/plugin"
+	"github.com/0xdeafcafe/rush/internal/room"
 	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/0xdeafcafe/rush/internal/statusline"
 	"github.com/0xdeafcafe/rush/internal/theme"
@@ -194,8 +194,8 @@ type Model struct {
 	quitArmed time.Time
 	// escAt is when esc last met an empty box in escKey's Session: esc
 	// again soon after asks to close it (askClose).
-	escAt     time.Time
-	escKey    string
+	escAt  time.Time
+	escKey string
 	// closedAt is when ctrl+x last stopped closedKey: ctrl+x again soon
 	// after moves it to Done without waiting for its process to go.
 	closedAt  time.Time
@@ -216,7 +216,7 @@ type Model struct {
 	lastPanel      []startOver
 	verdicts       map[string]room.Summary
 	verdictsPicked map[string]bool
-	sheet     sheet           // /fork, /rewind, /plugins, /statusline, /skills: see sheet.go
+	sheet          sheet // /fork, /rewind, /plugins, /statusline, /skills: see sheet.go
 	// rewound holds the message /rewind put back, by agent, for the box
 	// once the pane reconnects.
 	rewound   map[string]string
@@ -242,12 +242,13 @@ type Model struct {
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
 	subNotes     map[string][]subNote   // what you sent subagents that their conversations don't show, by subQKey
 	online       onlineWatch            // sessions an API error stopped, told to continue once it can be reached
+	subNudged    map[string]bool        // agent key + subagent run told it went quiet: see stucksubs.go
 	moveWhenIdle map[string]bool        // agents to move to rush mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
 	ptrX, ptrY   int                    // where the mouse was last seen
 	ptrSeen      bool
-	pointer      string // the pointer's shape last asked of the terminal
-	sheetAt      [2]int // where the open sheet's body was drawn: x, y
+	pointer      string     // the pointer's shape last asked of the terminal
+	sheetAt      [2]int     // where the open sheet's body was drawn: x, y
 	over         overlayHit // the box over the screen, as last drawn, for the mouse
 	hibernated   map[string]bool
 	offline      bool // never ask Anthropic for usage (--soak)
@@ -1002,7 +1003,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.emitHooks()
-		cmds := []tea.Cmd{tick(), m.watchBinary(), m.recheckAfter(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline()}
+		cmds := []tea.Cmd{tick(), m.watchBinary(), m.recheckAfter(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline(), m.nudgeStuckSubs()}
 		if m.hosted == "" {
 			// autoSwitch too: a session's usage reading arrives with the
 			// snapshot, not with a fetch.
@@ -1930,10 +1931,25 @@ func (m *Model) focused() *fleet.Agent {
 	return nil
 }
 
-// activeSection holds every agent in play: one that needs you or waits on
-// you, one whose turn is yours, one working, and one idle or stopped within
-// activeFor, each row coloured by which.
-const activeSection = "Active"
+// What's in play splits by what it wants from you: Needs you (a question,
+// a finished turn, a halt), Stuck? (at work but silent for
+// fleet.StuckAfter), Working, then Idle (open, or stopped within
+// activeFor).
+const (
+	needsSection   = "Needs you"
+	stuckSection   = "Stuck?"
+	workingSection = "Working"
+	idleSection    = "Idle"
+)
+
+// inPlay is whether section title holds agents in play, not history.
+func inPlay(title string) bool {
+	switch title {
+	case needsSection, stuckSection, workingSection, idleSection:
+		return true
+	}
+	return false
+}
 
 // activeFor is how long a stopped agent stays in Active before Today has
 // it: Settings › General, 30 minutes unless set.
@@ -1991,26 +2007,20 @@ func (m *Model) rebuild() {
 		}
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
-		case a.NeedsYou():
-			add(activeSection, 1, a)
-		case a.Halted() && !a.Seen:
-			add(activeSection, 1, a) // it stopped on an error and won't go on by itself
-		case a.Waiting() || a.Halted():
-			add(activeSection, 1, a)
+		case a.NeedsYou(), a.Halted(), a.Waiting():
+			add(needsSection, 1, a) // a question, or an error it won't go on from by itself
 		case folderKey(a) == scratchSection:
 			add("Scratch", 10, a) // temp-folder runs finish on their own, not on your turn; folded
-		case a.YourTurn(now):
-			add(activeSection, 1, a) // finished without asking; often wants "keep going"
-		case a.Checking || a.JustFinished(now) && !a.Seen: // once seen, a finish needn't linger
-			add(activeSection, 1, a)
+		case a.YourTurn(now), a.JustFinished(now) && !a.Seen && !a.Checking:
+			add(needsSection, 1, a) // finished without asking; often wants "keep going"
+		case a.Stuck(now):
+			add(stuckSection, 2, a)
+		case a.Checking, a.Live(), a.Busy():
+			add(workingSection, 3, a)
 		case a.Pinned:
-			add("Pinned", 2, a)
-		case a.Live() || a.Busy():
-			add(activeSection, 1, a)
-		case a.PID != 0:
-			add(activeSection, 1, a) // your turn, working and idle share one list, a project's rows together
-		case !a.Done && a.Age(now) < m.activeFor():
-			add(activeSection, 1, a) // stopped a moment ago: it stays in play a while before Today has it
+			add("Pinned", 5, a)
+		case a.PID != 0, !a.Done && a.Age(now) < m.activeFor():
+			add(idleSection, 4, a) // open, or stopped a moment ago: in play a while before Today has it
 		case !fresh:
 			add("Earlier", 9, a)
 		case a.Done:
@@ -2104,7 +2114,7 @@ func (m *Model) rebuild() {
 			if temp >= tempShown {
 				meta += " · " + disk(temp) + " tmp"
 			}
-		case name == activeSection:
+		case name == idleSection:
 			var held uint64
 			for _, a := range g.agents {
 				if !a.Live() && !a.Busy() {

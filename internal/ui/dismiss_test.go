@@ -33,7 +33,7 @@ func TestStepChatCycles(t *testing.T) {
 	m, _ := benchModel(160, 40)
 	var open []string
 	for _, a := range m.order {
-		if m.sectionOf(a.Key) == sectionKey(activeSection) {
+		if inPlay(m.groupOf[a.Key]) {
 			open = append(open, a.Key)
 		}
 	}

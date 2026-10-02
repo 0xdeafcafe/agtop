@@ -1,0 +1,64 @@
+package ui
+
+import (
+	"fmt"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/0xdeafcafe/rush/internal/fleet"
+	"github.com/0xdeafcafe/rush/internal/host"
+)
+
+// A subagent run quiet for fleet.StuckSubAfter has outlived its prompt
+// cache, so waiting longer buys nothing. rush never kills it: once per run,
+// it moves the call its rush session waits on to the background and tells
+// the session to look at what the run has done so far.
+
+// nudgeStuckSubs sends each newly stuck subagent's session that nudge.
+func (m *Model) nudgeStuckSubs() tea.Cmd {
+	if m.offline || m.snap == nil {
+		return nil
+	}
+	if m.subNudged == nil {
+		m.subNudged = map[string]bool{}
+	}
+	var cmds []tea.Cmd
+	for _, a := range m.snap.Agents {
+		if !a.Rush || a.Past || a.Done || !a.Live() {
+			continue
+		}
+		for _, s := range a.StuckSubs(m.snap.At) {
+			k := a.Key + "\x00" + s.ID
+			if m.subNudged[k] || s.ToolUseID == "" {
+				continue
+			}
+			m.subNudged[k] = true
+			cmds = append(cmds, nudgeStuckSub(a.ID, a.DisplayName, s))
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+func nudgeStuckSub(id, name string, s fleet.SubagentTile) tea.Cmd {
+	what := s.Description
+	if what == "" {
+		what = s.Type
+	}
+	text := fmt.Sprintf("Your subagent %q has written nothing for %d minutes. rush moved it to the background so you can go on: "+
+		"look at what it has done so far. If it's good, continue; if not, stop it and do the work another way.",
+		what, int(fleet.StuckSubAfter.Minutes()))
+	return func() tea.Msg {
+		c, err := host.Dial(id)
+		if err != nil {
+			return doneMsg{err: err}
+		}
+		defer c.Close()
+		_ = c.Background(s.ToolUseID) // already in the background: the note still helps
+		if err := c.SendGuide(text, nil); err != nil {
+			if err := c.Send(text); err != nil {
+				return doneMsg{err: err}
+			}
+		}
+		return doneMsg{text: name + "'s subagent went quiet · moved to the background, " + name + " checks it"}
+	}
+}

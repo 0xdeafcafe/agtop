@@ -469,8 +469,10 @@ func (l *Loader) subagents(k agent.Kind, key, transcript string, gone bool, now 
 // Wall draws it: its own tile, beside its parent's.
 type SubagentTile struct {
 	ID, Type, Description string
-	Path                  string // its own transcript
-	Worktree              string // its checkout, when not its session's
+	Path                  string    // its own transcript
+	Worktree              string    // its checkout, when not its session's
+	ToolUseID             string    // the parent's call waiting on it
+	Mod                   time.Time // when its transcript was last written
 }
 
 // subagentTiles are the runs a SubagentRuns calls still working, as tiles:
@@ -482,7 +484,7 @@ func subagentTiles(transcript string, runs []agent.SubagentRun) []SubagentTile {
 	}
 	out := make([]SubagentTile, 0, len(runs))
 	for _, r := range runs {
-		t := SubagentTile{ID: r.ID, Type: r.Type, Description: r.Description, Path: r.Path}
+		t := SubagentTile{ID: r.ID, Type: r.Type, Description: r.Description, Path: r.Path, ToolUseID: r.ToolUseID, Mod: r.Mod}
 		t.Worktree, _ = SubWorktree(t.Path, TranscriptCwd(transcript))
 		out = append(out, t)
 	}

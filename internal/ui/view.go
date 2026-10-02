@@ -1589,7 +1589,7 @@ func (m *Model) sectionLine(l listLine, w int) string {
 		arrow = faint("▸ ")
 	}
 	meta := l.meta
-	if (l.title == activeSection || l.title == "Needs you") && m.sharedContext() != "" {
+	if l.title == needsSection && m.sharedContext() != "" {
 		meta += "  ·  " + m.sharedContext()
 	}
 	if l.folded {

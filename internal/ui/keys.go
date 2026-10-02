@@ -612,7 +612,7 @@ func (m *Model) stepChat(d int) tea.Cmd {
 	for _, a := range m.order {
 		if a.Key == m.sel {
 			at = len(chats)
-		} else if m.sectionOf(a.Key) != sectionKey(activeSection) {
+		} else if !inPlay(m.groupOf[a.Key]) {
 			continue
 		}
 		chats = append(chats, a)

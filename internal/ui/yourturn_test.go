@@ -9,8 +9,8 @@ import (
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
-// What needs you, your turn, the idle and what stopped a moment ago share
-// Active; a stopped agent moves to Today once it's been still a while.
+// A finished turn or a halt needs you; the idle and what stopped a moment
+// ago are Idle; a stopped agent moves to Today once it's been still a while.
 func TestFinishedTurnsWaitForYou(t *testing.T) {
 	now := time.Now()
 	agent := func(key, st string) *fleet.Agent {
@@ -27,7 +27,7 @@ func TestFinishedTurnsWaitForYou(t *testing.T) {
 	m := &Model{store: &state.Store{}, previews: map[string]previewEntry{}, w: 120, h: 40, lastState: map[string]string{}}
 	m.snap = &fleet.Snapshot{At: now, Agents: []*fleet.Agent{quiet, broke, idle, rested, old}}
 	m.rebuild()
-	want := map[string]string{"quiet": activeSection, "broke": activeSection, "idle": activeSection, "rested": activeSection, "old": "Today"}
+	want := map[string]string{"quiet": needsSection, "broke": needsSection, "idle": idleSection, "rested": idleSection, "old": "Today"}
 	for k, g := range want {
 		if m.groupOf[k] != g {
 			t.Errorf("%s in %q, want %q", k, m.groupOf[k], g)
@@ -39,8 +39,14 @@ func TestFinishedTurnsWaitForYou(t *testing.T) {
 			titles = append(titles, l.title)
 		}
 	}
-	if len(titles) != 2 || titles[0] != activeSection || titles[1] != "Today" {
+	if len(titles) != 3 || titles[0] != needsSection || titles[1] != idleSection || titles[2] != "Today" {
 		t.Fatalf("sections %v", titles)
+	}
+	stuck := agent("stuck", "working")
+	stuck.UpdatedAt = now.Add(-fleet.StuckAfter - time.Minute)
+	m.snap.Agents = append(m.snap.Agents, stuck)
+	if m.rebuild(); m.groupOf["stuck"] != stuckSection {
+		t.Errorf("silent at work is in %q, want %q", m.groupOf["stuck"], stuckSection)
 	}
 	m.store.Config.ActiveMinutes = -1
 	if m.rebuild(); m.groupOf["rested"] != "Today" {
