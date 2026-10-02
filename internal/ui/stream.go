@@ -11,13 +11,14 @@ import (
 	"github.com/0xdeafcafe/rush/internal/community"
 )
 
-// The stream is the community board as a timeline in the list's empty
+// The stream is the community board as a timeline docked at the list's
 // foot: every question and reply, newest at the bottom, the older ones
 // pushed up and off the top as posts come in. A click opens the thread.
 
 const (
 	streamKeyPrefix = "community:"
 	streamFresh     = 8 * time.Second // a new post stands out this long
+	streamDockPosts = 6               // the most posts the docked timeline shows
 )
 
 type streamPost struct {
@@ -77,17 +78,24 @@ func streamOf(threads []community.Thread) []streamPost {
 	return out
 }
 
+// streamDock is the timeline docked at the list's foot, on the next-agent
+// box: up to six posts, at most a third of the body; the list scrolls
+// behind it. Nil when Twatter is off, quiet or the body too short.
+func (m *Model) streamDock(w, bodyH int) (lines, keys []string) {
+	return m.streamLines(w, min(streamDockPosts+2, bodyH/3))
+}
+
 // streamLines is the timeline in at most room rows, newest at the bottom,
-// whole posts only; nil when not even a heading and one post fit.
+// whole posts only; nil when not even the frame and one post fit.
 func (m *Model) streamLines(w, room int) (lines, keys []string) {
-	if !m.store.Config.Twatter || room < 5 || len(m.stream.posts) == 0 || w < 24 {
+	if !m.store.Config.Twatter || room < 3 || len(m.stream.posts) == 0 || w < 24 {
 		return nil, nil
 	}
 	now := time.Now()
 	inner := w - 5 // "│ " … " │", and a column clear of the divider
 	var body, bodyKeys []string
 	seen := map[string]bool{}
-	for i := len(m.stream.posts) - 1; i >= 0 && len(body) < room-3; i-- {
+	for i := len(m.stream.posts) - 1; i >= 0 && len(body) < room-2; i-- {
 		p := m.stream.posts[i]
 		said := p.author.Username() + "\x00" + p.said()
 		if seen[said] {
@@ -102,12 +110,12 @@ func (m *Model) streamLines(w, room int) (lines, keys []string) {
 	}
 	edge := func(s string) string { return paint(cSub, s) }
 	title := " Twatter "
-	lines = []string{"", edge("╭─") + paint(cText+bold, title) + edge(strings.Repeat("─", max(0, inner+1-cellw.String(title)))+"╮")}
+	lines = []string{edge("╭─") + paint(cText+bold, title) + edge(strings.Repeat("─", max(0, inner+1-cellw.String(title)))+"╮")}
 	for _, l := range body {
 		lines = append(lines, edge("│")+" "+fit(l, inner)+" "+edge("│"))
 	}
 	lines = append(lines, edge("╰"+strings.Repeat("─", inner+2)+"╯"))
-	return lines, append(append([]string{"", streamKeyPrefix}, bodyKeys...), streamKeyPrefix)
+	return lines, append(append([]string{streamKeyPrefix}, bodyKeys...), streamKeyPrefix)
 }
 
 // streamRow is one post on one line for the side: who, what, how long ago.

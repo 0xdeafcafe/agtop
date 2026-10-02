@@ -144,7 +144,7 @@ func TestTwatterStreamClickOpensSheetAtPost(t *testing.T) {
 			clicked = k
 		}
 	}
-	if clicked == "" || keys[1] != streamKeyPrefix {
+	if clicked == "" || keys[0] != streamKeyPrefix {
 		t.Fatalf("stream rows and frame title should carry board keys: %q", keys)
 	}
 	id, _ := strings.CutPrefix(clicked, streamKeyPrefix)

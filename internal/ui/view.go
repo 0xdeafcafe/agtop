@@ -1068,13 +1068,19 @@ func (m *Model) listView() string {
 			}
 			recall = append(recall, "")
 		}
-		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1-len(card)-len(recall))...)
+		// Twatter docks on the next-agent box; the list scrolls behind it.
+		var docked, dockedKeys []string
+		if card == nil {
+			docked, dockedKeys = m.streamDock(listW, bodyH)
+		}
+		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1-len(card)-len(recall)-len(docked))...)
 		// What agents did lately fills what the list leaves empty.
 		// The next agent's setup is pinned at the foot when there's room.
 		var foot, footKeys []string
-		if card == nil && bodyH-len(left) >= 6 {
+		if card == nil && bodyH-len(left)-len(docked) >= 6 {
 			foot, footKeys = m.footLines(listW)
 		}
+		foot, footKeys = append(docked, foot...), append(dockedKeys, footKeys...)
 		if recall != nil {
 			at := bodyH - len(foot) - len(recall)
 			if feed, _ := m.feedLines(listW, at-len(left)-1); feed != nil {
@@ -1088,24 +1094,6 @@ func (m *Model) listView() string {
 			}
 			m.side.y = len(head) + len(left)
 			left = append(left, recall...)
-		}
-		// The community's posts rise through what's left above the feed,
-		// which keeps half when both want it.
-		free := bodyH - len(left) - len(foot) - 1
-		var stream, streamKeys []string
-		if card == nil {
-			feedRoom := free
-			if len(m.stream.posts) > 0 && len(m.events) > 0 {
-				feedRoom = free / 2
-			}
-			feed, _ := m.feedLines(listW, feedRoom)
-			stream, streamKeys = m.streamLines(listW, free-len(feed))
-		}
-		if stream != nil {
-			for len(m.rowKeys) < len(left)-1 {
-				m.rowKeys = append(m.rowKeys, "")
-			}
-			left, m.rowKeys = append(left, stream...), append(m.rowKeys, streamKeys...)
 		}
 		if feed, keys := m.feedLines(listW, bodyH-len(left)-len(foot)-1); card == nil && feed != nil {
 			for len(left) < bodyH-len(feed)-len(foot) {
