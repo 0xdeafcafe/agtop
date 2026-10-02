@@ -38,18 +38,18 @@ func twatterModel(t *testing.T) *Model {
 func TestTwatterSwitch(t *testing.T) {
 	m := twatterModel(t)
 	if m.openCommunity(""); m.sheet != nil {
-		t.Fatal("the sheet opened while Twatter is off")
+		t.Fatal("the sheet opened while Twotter is off")
 	}
 	m.openCommunity("on")
-	if !m.store.Config.Twatter {
-		t.Fatal("#twatter on did not turn it on")
+	if !m.store.Config.Twotter {
+		t.Fatal("#twotter on did not turn it on")
 	}
 	if m.openCommunity(""); m.sheet == nil {
 		t.Fatal("the sheet did not open once on")
 	}
 	m.openCommunity("off")
-	if lines, _ := m.streamLines(80, 30); m.store.Config.Twatter || lines != nil {
-		t.Fatal("#twatter off left the stream showing")
+	if lines, _ := m.streamLines(80, 30); m.store.Config.Twotter || lines != nil {
+		t.Fatal("#twotter off left the stream showing")
 	}
 }
 
@@ -59,17 +59,17 @@ func TestTwatterTimelineIsOneView(t *testing.T) {
 	m.openCommunity("")
 	s := m.community
 	text := ansi.Strip(strings.Join(s.body(m, 90, 30), "\n"))
-	first, reply := strings.Index(text, "go test hangs"), strings.Index(text, "↩ go test hangs")
-	if first < 0 || reply < first || strings.Index(text, "flaky lint") > reply || !strings.Contains(text, "-race and a 5s") {
-		t.Fatalf("posts and replies should read in time order in one view:\n%s", text)
+	first, reply, other := strings.Index(text, "go test hangs"), strings.Index(text, "↳ @"), strings.Index(text, "flaky lint")
+	if first < 0 || reply < first || other < reply || !strings.Contains(text, "-race and a 5s") {
+		t.Fatalf("posts should read in time order, each reply set in under its post:\n%s", text)
 	}
-	if c := s.cursor(m.stream.posts); c != 2 {
+	if c := s.cursor(threaded(m.stream.posts)); c != 2 {
 		t.Fatalf("the cursor should start on the newest post, at %d", c)
 	}
 	for _, key := range []string{"enter", "space"} {
 		s.composing, s.picked, s.follow = false, "a/1", false
 		s.key(m, tea.KeyPressMsg{}, "up")
-		if s.key(m, tea.KeyPressMsg{}, key); !s.composing || s.replyTo != "b" {
+		if s.key(m, tea.KeyPressMsg{}, key); !s.composing || s.replyTo != "a" {
 			t.Fatalf("%s should reply to the picked post: %+v", key, s)
 		}
 	}
@@ -121,13 +121,13 @@ func TestTwatterDaySeparatorsAndJump(t *testing.T) {
 	s := m.community
 	text := ansi.Strip(strings.Join(s.body(m, 90, 30), "\n"))
 	old := "── " + now.AddDate(0, 0, -3).Format("Mon 2 Jan") + " ──"
-	if a, b, c := strings.Index(text, old), strings.Index(text, "── Yesterday ──"), strings.Index(text, "── Today ──"); a < 0 || a > b || b > c {
+	if a, b := strings.Index(text, old), strings.Index(text, "── Yesterday ──"); a < 0 || a > b || strings.Contains(text, "── Today") {
 		t.Fatalf("want a separator per day, in order:\n%s", text)
 	}
 	if !strings.Contains(text, "[ ]") {
 		t.Fatalf("the footer should name the day keys:\n%s", text)
 	}
-	for _, step := range []struct{ key, want string }{{"[", "b/0"}, {"[", "a/0"}, {"[", "a/0"}, {"]", "b/0"}, {"shift+down", "a/1"}} {
+	for _, step := range []struct{ key, want string }{{"[", "a/0"}, {"[", "a/0"}, {"]", "b/0"}, {"shift+down", "b/0"}, {"up", "a/1"}, {"]", "b/0"}} {
 		if s.key(m, tea.KeyPressMsg{}, step.key); s.picked != step.want {
 			t.Fatalf("%s: picked %q, want %q", step.key, s.picked, step.want)
 		}
@@ -144,15 +144,35 @@ func TestTwatterStreamClickOpensSheetAtPost(t *testing.T) {
 			clicked = k
 		}
 	}
-	if clicked == "" || keys[1] != streamKeyPrefix {
+	if clicked == "" || keys[0] != streamKeyPrefix {
 		t.Fatalf("stream rows and frame title should carry board keys: %q", keys)
 	}
 	id, _ := strings.CutPrefix(clicked, streamKeyPrefix)
-	if m.openCommunity(id); m.sheet == nil || m.community.cursor(m.stream.posts) != 1 {
+	if m.openCommunity(id); m.sheet == nil || m.community.cursor(threaded(m.stream.posts)) != 2 {
 		t.Fatal("a click on a stream post should open the sheet with that post picked")
 	}
 	m.stream.posts = append([]streamPost{{key: "z/0", id: "z", at: time.Now().Add(-time.Hour)}}, m.stream.posts...)
-	if m.community.picked != "b/0" || m.community.cursor(m.stream.posts) != 2 {
+	if m.community.picked != "b/0" || m.community.cursor(threaded(m.stream.posts)) != 3 {
 		t.Fatal("the pick should follow its post when the board shifts")
+	}
+}
+
+// The sheet marks the picked post, colours handles as the dock does, and
+// shows every line of a long post.
+func TestTwotterSheetPicksAndWraps(t *testing.T) {
+	m := twatterModel(t)
+	m.stream.posts[1].title = strings.Repeat("a long flaky lint story ", 12) + "the end"
+	m.openCommunity("on")
+	m.openCommunity("b/0")
+	lines := m.community.body(m, 90, 40)
+	text := ansi.Strip(strings.Join(lines, "\n"))
+	if !strings.Contains(text, "the end") || !strings.Contains(text, "▍ @") {
+		t.Fatalf("want the picked post marked and wrapped in full:\n%s", text)
+	}
+	if !strings.Contains(strings.Join(lines, ""), handleColor(m.stream.posts[1])+bold+"@") {
+		t.Fatal("handles should wear their colour in the sheet too")
+	}
+	if !strings.HasPrefix(text, "the feed 🐓") {
+		t.Fatalf("the sheet is called the feed:\n%s", text)
 	}
 }

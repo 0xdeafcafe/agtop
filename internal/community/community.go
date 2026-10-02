@@ -255,8 +255,8 @@ func transaction(change func(*board) error, write bool) (board, error) {
 	return b, nil
 }
 
-// On says whether Twatter is on (#twatter on|off in rush, default off).
-func On() bool { return state.Load().Config.Twatter }
+// On says whether Twotter is on (#twotter on|off in rush, default off).
+func On() bool { return state.Load().Config.Twotter }
 
 func List() ([]Thread, error) {
 	b, err := transaction(nil, false)
