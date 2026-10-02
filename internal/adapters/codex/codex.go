@@ -23,6 +23,9 @@ type Adapter struct{}
 
 func (Adapter) Kind() agent.Kind { return Kind }
 
+// Warm: OpenAI keeps its models warm in the cloud.
+func (Adapter) Warm() {}
+
 // ProjectFolder is the folder it keeps in a project.
 func (Adapter) ProjectFolder() string { return ".codex" }
 func (Adapter) Name() string          { return "Codex" }

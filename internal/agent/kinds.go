@@ -37,6 +37,18 @@ func ReadsAsClaude(k Kind) bool {
 	return ok
 }
 
+// Warm is an adapter whose models stay warm in the cloud, so a session
+// done with its turn rests at once: a wake costs it nothing.
+type Warm interface {
+	Warm()
+}
+
+// StaysWarm is whether agent k's models stay warm in the cloud.
+func StaysWarm(k Kind) bool {
+	_, ok := As[Warm](k)
+	return ok
+}
+
 // SpawnFinder is an adapter that finds a session one of its programs
 // began from another's shell itself, faster than listing every session:
 // one begun in dir after start that fits, looked for in profiles.

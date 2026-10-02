@@ -41,6 +41,9 @@ func (Adapter) Words() []string { return []string{"cc", "claudecode"} }
 // ClaudeTranscripts: its transcripts are Claude Code's own.
 func (Adapter) ClaudeTranscripts() {}
 
+// Warm: Anthropic keeps Claude warm in the cloud.
+func (Adapter) Warm() {}
+
 // Program is claude, which Claude Code's own installer puts in
 // ~/.claude/local.
 func (Adapter) Program() (string, []string) { return "claude", []string{".claude/local"} }

@@ -416,7 +416,7 @@ func Run(id string) error {
 	// (their models stay warm in the cloud), rest as soon as they're done.
 	// Otherwise a profile's or agent's own rest wins, read on every start so
 	// a change reaches sessions already running the next time they wake.
-	if k := agent.Migrated(cfg.Kind); cfg.Meta["spawnedBy"] != "" || k == "claude" || k == "codex" {
+	if k := agent.Migrated(cfg.Kind); cfg.Meta["spawnedBy"] != "" || agent.StaysWarm(k) {
 		cfg.IdleStop = Duration(DefaultIdleStop)
 	} else if d, ok := state.Load().Config.RestFor(cfg.Profile, string(cfg.Kind)); ok {
 		cfg.IdleStop = Duration(d)
