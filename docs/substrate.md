@@ -27,6 +27,11 @@ It never rewrites a request. Anything smarter lives in rush.
   limit. That is a policy, so it is the first thing to argue about keeping
   out.
 
+Once it reads tokens and limits off the wire, the conversation view's
+counts move onto it (rush-ec offered, 2026-10-02). Harness clocks don't
+change: a paused Bash command's timeout (`internal/ui/shells.go`) and the
+30m background-task nudge (`internal/host/longtask.go`) stay as they are.
+
 ## Two ways to run it
 
 One package, `internal/substrate`, run two ways. Config key `substrate`:
