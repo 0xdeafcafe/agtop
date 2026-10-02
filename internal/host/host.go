@@ -2153,12 +2153,16 @@ func (s *server) serve(nc net.Conn) {
 		}
 	}()
 
+	peer := peerPID(nc)
 	sc := bufio.NewScanner(ops)
 	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
 	for sc.Scan() {
 		var o op
 		if jsonx.Unmarshal(sc.Bytes(), &o) != nil {
 			continue
+		}
+		if stopsTurn(o) {
+			s.logStop(o, peer)
 		}
 		if err := s.do(o); err != nil {
 			b, _ := jsonx.Marshal(map[string]string{"type": "agtop_error", "error": err.Error()})
@@ -2168,6 +2172,43 @@ func (s *server) serve(nc net.Conn) {
 			return
 		}
 	}
+}
+
+// stopsTurn is whether o ends or cuts into a turn under way.
+func stopsTurn(o op) bool {
+	switch o.Op {
+	case "interrupt", "stop_task", "background", "deny", "stop":
+		return true
+	case "send":
+		return o.Now && !o.Guide
+	case "queue_send":
+		return !o.Guide
+	}
+	return false
+}
+
+// logStop writes to host.log which process asked to stop the turn under
+// way, so a turn cut short can be traced to the client that did it.
+func (s *server) logStop(o op, pid int) {
+	s.mu.Lock()
+	state := s.info.State
+	s.mu.Unlock()
+	if state == "" || state == "idle" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "%s rush: %s while %s, from %s\n", time.Now().UTC().Format(time.RFC3339Nano), o.Op, state, describePID(pid))
+}
+
+// describePID names a process and the one that started it.
+func describePID(pid int) string {
+	if pid <= 0 {
+		return "an unknown client"
+	}
+	d := fmt.Sprintf("pid %d (%s)", pid, proc.CommandLine(pid))
+	if p := proc.Snapshot(nil).Procs[pid]; p != nil && p.PPID > 1 {
+		d += fmt.Sprintf(", parent pid %d (%s)", p.PPID, proc.CommandLine(p.PPID))
+	}
+	return d
 }
 
 // toolSummary picks the argument that says what a tool call does.
