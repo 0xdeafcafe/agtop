@@ -4,9 +4,9 @@ import (
 	"cmp"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -558,7 +558,7 @@ func (m *Model) render() string {
 	if m.w == 0 {
 		return ""
 	}
-	m.over = overlayHit{} // kept again by the box drawn on top, if any
+	m.over = overlayHit{}                   // kept again by the box drawn on top, if any
 	screen := m.quickOver(m.renderScreen()) // the quick ask floats over all but these
 	if m.bar != nil {
 		return m.overlayBar(screen)

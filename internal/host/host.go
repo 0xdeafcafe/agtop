@@ -351,13 +351,13 @@ type server struct {
 	// taskStart is when each of the agent's tasks still running started.
 	taskStart map[string]time.Time
 	nudged    map[string]time.Time // background tasks last asked about: see longtask.go
-	asking    int            // control requests out for clients
-	context   []byte         // the last answer, as the line clients get
-	stamped   time.Time      // when the last time mark went into the ring
-	limited   *event.Limited // the limit that stopped this turn, if one did
-	wake      *time.Timer    // a scheduled continue or retry
-	gen       int            // bumped by every send; a stale timer does nothing
-	idleGen   uint64         // invalidates callbacks already running when their timer is stopped
+	asking    int                  // control requests out for clients
+	context   []byte               // the last answer, as the line clients get
+	stamped   time.Time            // when the last time mark went into the ring
+	limited   *event.Limited       // the limit that stopped this turn, if one did
+	wake      *time.Timer          // a scheduled continue or retry
+	gen       int                  // bumped by every send; a stale timer does nothing
+	idleGen   uint64               // invalidates callbacks already running when their timer is stopped
 	idle      *time.Timer
 	// waiting is when a message went to the agent that it hasn't begun
 	// answering: zero once it has (see stillWorking).
