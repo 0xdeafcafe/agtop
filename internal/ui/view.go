@@ -1495,7 +1495,9 @@ func (m *Model) listLines(w, h int) []string {
 			key := sectionKey(l.title)
 			emit(m.sectionLine(l, w), key, key == m.sel)
 		case lineProject:
-			emit(m.projectLine(l, w), "", false)
+			for _, ln := range strings.Split(m.projectLine(l, w), "\n") {
+				emit(ln, "", false)
+			}
 		case lineTree:
 			if two && soloTree(m.lines, i) {
 				tag = m.treeTag(l)
@@ -1523,7 +1525,7 @@ func (m *Model) listLines(w, h int) []string {
 			}
 			emit(pad+m.agentLine(l.agent, rw, w, sel, nameCol-len(pad), two, tag), l.agent.Key, sel)
 			tag = ""
-			if two {
+			if two && (m.saysWhy(l.agent) || m.hasFilterMatch(l.agent)) {
 				emit(pad+m.agentSub(l.agent, rw), l.agent.Key, sel)
 				cont[len(cont)-1] = true
 			}
@@ -1932,9 +1934,9 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	case a.JustFinished(now):
 		marker = paint(cGreen, "✓")
 	case a.NeedsYou():
-		marker = paint(cYellow, "●")
+		marker = paint(cYellow+bold, "?") // a question: what to look at first
 	case a.Waiting():
-		marker = paint(cYellow, "○")
+		marker = paint(cYellow, "?")
 	case live:
 		marker = paint(cOrange, convo.Spin(a.Kind, m.tick+len(a.ID)))
 	case a.Busy():
@@ -2016,6 +2018,12 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 		right += paint(cYellow, right1(age(a.Quiet(now)), wTime)) + " " // how long it's been silent
 	case live && !a.NeedsYou() && !a.Waiting():
 		right += dim(right1(dur(a.Elapsed(now)), wTime)) + " "
+	case m.groupOf[a.Key] == needsSection:
+		waited, col := a.Age(now), cText
+		if waited >= 30*time.Minute {
+			col = cYellow
+		}
+		right += paint(col, right1(age(waited), wTime-2)) + " " + cacheWheel(a.Quiet(now)) + " " // the wheel in the column's gutter
 	default: // how long it has waited
 		right += faint(right1(age(a.Age(now)), wTime)) + " "
 	}
@@ -2049,7 +2057,7 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	room := w - 3 - cellw.String(right)
 	// Reserve room for identity before shortening a long session title.
 	nameRoom := room
-	withSummary := (summary != "" || m.hasFilterMatch(a)) && !stacked
+	withSummary := (summary != "" && m.saysWhy(a) || m.hasFilterMatch(a)) && !stacked
 	full, extra := "", 0
 	if sel || a.Key == m.hover {
 		full = m.badges(a, true)
@@ -2080,6 +2088,9 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	if tag != "" && stacked { // its worktree, which has no heading of its own
 		left += "  " + tag
 	}
+	if p := m.projTitles[folderKey(a)]; p != "" && m.groupOf[a.Key] == needsSection {
+		left += "  " + faint(p) // Needs you has no project headings
+	}
 	if withSummary {
 		left = fit(left, nameCol)
 		if sw := room - nameCol - 2; sw > 8 {
@@ -2093,6 +2104,32 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 		}
 	}
 	return " " + marker + " " + fit(left, room) + right
+}
+
+// saysWhy is whether a row's summary earns its place: a question, a halt
+// or a stuck agent says what it wants; anything else is only its name.
+func (m *Model) saysWhy(a *fleet.Agent) bool {
+	return asks(a) || a.Stuck(m.snap.At)
+}
+
+// cacheWheel is how much of the prompt cache's hour is left since the
+// agent last wrote, as a wheel ticking round; ⊘ once it has gone, when a
+// reply re-reads the whole conversation at full price.
+func cacheWheel(quiet time.Duration) string {
+	switch left := 1 - float64(quiet)/float64(cacheLife); {
+	case left > 0.8:
+		return paint(cGreen, "●")
+	case left > 0.6:
+		return paint(cGreen, "◕")
+	case left > 0.4:
+		return paint(cYellow, "◑")
+	case left > 0.2:
+		return paint(cOrange, "◔")
+	case left > 0:
+		return paint(cRed, "○")
+	default:
+		return faint("⊘")
+	}
 }
 
 // rowSummary is the latest thing an agent said or is doing, the colour to

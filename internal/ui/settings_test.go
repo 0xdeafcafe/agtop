@@ -293,6 +293,9 @@ func TestSettingPreviewsTheList(t *testing.T) {
 		t.Fatal("Two-line rows has no preview")
 	}
 	shown := func() string { return ansi.Strip(strings.Join(m.dialogBody(190), "\n")) }
+	q := m.snap.Agents[0] // only a row that asks something has a second line
+	q.State, q.PID, q.Seen, q.Checking = "blocked", 1, false, false
+	m.rebuild()
 	m.store.Config.StackAt = 100
 	if !strings.Contains(shown(), "╰ ") {
 		t.Errorf("always: no second lines in the preview:\n%s", shown())

@@ -184,9 +184,13 @@ func (m *Model) rootIsRepo(root string) bool {
 // projectLine heads a project's rows inside a section, as a quiet rule
 // under the section's so it reads as a heading, not a row: its name and
 // what git says of it in short, under every section it heads.
+// Too narrow for both, git's part goes under the name rather than being cut.
 func (m *Model) projectLine(l listLine, w int) string {
-	s := "  " + paint(cBlue, l.title)
+	s := "  " + paint(cSub, l.title)
 	if g := m.folderShort(l.root); g != "" {
+		if cellw.String(s)+2+cellw.String(g)+2 > w {
+			return s + "\n    " + fit(g, w-5)
+		}
 		s += "  " + g
 	}
 	return s + " " + faint(strings.Repeat("┄", max(0, w-cellw.String(s)-3)))
@@ -344,4 +348,3 @@ func (m *Model) onFolders(msg foldersMsg) {
 	}
 	m.folders.byRoot[msg.Root] = fleet.Folder(msg)
 }
-

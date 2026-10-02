@@ -294,6 +294,9 @@ type Model struct {
 	// groupOf is the list section each agent is in, folded or not.
 	groupOf map[string]string
 	folders folderCache // what git says of the folders in the list
+	// projTitles are the list's project names by folderKey, for the tag
+	// a row carries where no project heads it.
+	projTitles map[string]string
 	// hosted is the rush-mode session shown alone (NewHosted), and hostedKey
 	// its agent's key once the snapshot has it.
 	hosted, hostedKey string
@@ -2069,9 +2072,9 @@ func (m *Model) rebuild() {
 		case sb == nil && g.name == "Done":
 			less = m.doneLess
 		case sb == nil && (g.name == needsSection || g.name == stuckSection):
-			less = waitedLess(now) // longest waiting, or longest silent, first
+			less = waitedLess(now) // a question first, then the longest waiting or silent
 		}
-		if split {
+		if split && g.name != needsSection { // what needs you goes by urgency, its project a tag
 			within := less
 			less = func(a, b *fleet.Agent) bool {
 				if c := cmpLower(titles[folderKey(a)], titles[folderKey(b)]); c != 0 {
@@ -2130,6 +2133,7 @@ func (m *Model) rebuild() {
 		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: meta,
 			folded: fold, peek: strings.Join(names, ", ")})
 		project, tree := "\x00", ""
+		split := split && g.name != needsSection
 		for _, a := range g.agents {
 			m.order = append(m.order, a)
 			m.groupOf[a.Key] = g.name
@@ -2164,8 +2168,11 @@ func (m *Model) rebuild() {
 				m.lines = append(m.lines, listLine{kind: lineAgent, agent: mb, inset: under})
 			}
 		}
-		m.lines = append(m.lines, listLine{kind: lineBlank})
+		if !fold { // folded history stacks tight
+			m.lines = append(m.lines, listLine{kind: lineBlank})
+		}
 	}
+	m.projTitles = titles
 	m.applyRestore()
 	valid := false
 	for _, l := range m.lines {
@@ -2238,15 +2245,22 @@ func cmpLower(x, y string) int {
 	return cmp.Compare(len(x), len(y))
 }
 
-// waitedLess orders by how long each has been silent, longest first.
+// waitedLess orders a question or halt first, then by how long each has
+// been silent, longest first.
 func waitedLess(now time.Time) func(a, b *fleet.Agent) bool {
 	return func(a, b *fleet.Agent) bool {
+		if x, y := asks(a), asks(b); x != y {
+			return x
+		}
 		if x, y := a.Quiet(now), b.Quiet(now); x != y {
 			return x > y
 		}
 		return a.Key < b.Key
 	}
 }
+
+// asks is an agent waiting on an answer from you, not just a next task.
+func asks(a *fleet.Agent) bool { return a.NeedsYou() || a.Waiting() || a.Halted() }
 
 // doneLess orders Done by when each was last touched, newest first: put
 // away, or used since.
