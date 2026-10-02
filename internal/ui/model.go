@@ -2068,6 +2068,8 @@ func (m *Model) rebuild() {
 			}
 		case sb == nil && g.name == "Done":
 			less = m.doneLess
+		case sb == nil && (g.name == needsSection || g.name == stuckSection):
+			less = waitedLess(now) // longest waiting, or longest silent, first
 		}
 		if split {
 			within := less
@@ -2234,6 +2236,16 @@ func cmpLower(x, y string) int {
 		x, y = x[n:], y[k:]
 	}
 	return cmp.Compare(len(x), len(y))
+}
+
+// waitedLess orders by how long each has been silent, longest first.
+func waitedLess(now time.Time) func(a, b *fleet.Agent) bool {
+	return func(a, b *fleet.Agent) bool {
+		if x, y := a.Quiet(now), b.Quiet(now); x != y {
+			return x > y
+		}
+		return a.Key < b.Key
+	}
 }
 
 // doneLess orders Done by when each was last touched, newest first: put

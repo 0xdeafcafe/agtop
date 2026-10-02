@@ -2012,9 +2012,11 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	switch {
 	case wTime == 0:
 		right += " "
-	case live:
+	case a.Stuck(now):
+		right += paint(cYellow, right1(age(a.Quiet(now)), wTime)) + " " // how long it's been silent
+	case live && !a.NeedsYou() && !a.Waiting():
 		right += dim(right1(dur(a.Elapsed(now)), wTime)) + " "
-	default:
+	default: // how long it has waited
 		right += faint(right1(age(a.Age(now)), wTime)) + " "
 	}
 

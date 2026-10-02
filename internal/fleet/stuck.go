@@ -16,6 +16,11 @@ func (a *Agent) Stuck(now time.Time) bool {
 	if a.Past || a.Done || a.Checking || !(a.State == "working" || a.Busy()) {
 		return false
 	}
+	return a.Quiet(now) >= StuckAfter
+}
+
+// Quiet is how long since it, or any subagent of it, last wrote.
+func (a *Agent) Quiet(now time.Time) time.Duration {
 	last := a.UpdatedAt
 	if a.ModTime.After(last) {
 		last = a.ModTime
@@ -25,7 +30,7 @@ func (a *Agent) Stuck(now time.Time) bool {
 			last = s.Mod
 		}
 	}
-	return now.Sub(last) >= StuckAfter
+	return now.Sub(last)
 }
 
 // StuckSubs are its subagent runs quiet for StuckSubAfter.

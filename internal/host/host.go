@@ -256,8 +256,6 @@ type Retry struct {
 	// Proof is set while its prompt cache has expired and it waits for
 	// proof the connection holds before trying again (see netproof).
 	Proof bool `json:"proof,omitzero"`
-	// Hung is set when the turn went silent and rush stopped it (hang.go).
-	Hung bool `json:"hung,omitzero"`
 }
 
 // cacheLife is how long the prompt cache lasts. Claude Code writes the
@@ -379,12 +377,6 @@ type server struct {
 	// lastSaid is what the agent last said this turn: a spawned agent's answer.
 	lastSaid string
 	watchdog subagentWatchdog
-	// heard is when the agent last said anything, open the tool calls it
-	// has running, and hangCause set once a hung turn is being stopped
-	// (see hang.go).
-	heard     time.Time
-	open      map[string]bool
-	hangCause string
 }
 
 var lowGC sync.Once
@@ -488,7 +480,6 @@ func Run(id string) error {
 	go s.accept()
 	go s.watchSock(sock)
 	go s.watchLongTasks()
-	go s.watchHangs()
 	if cfg.Owner > 0 && cfg.Owner == os.Getppid() {
 		go s.watchOwner(cfg.Owner)
 	}
@@ -838,7 +829,6 @@ func (s *server) retry(reason string, offline bool) {
 	}
 	now := time.Now()
 	r.Reason, r.Attempt, r.Offline, r.Proof, r.Next = reason, r.Attempt+1, false, false, time.Time{}
-	r.Hung = reason == hangReason
 	s.info.Retry, s.info.State = r, "idle"
 	target := s.target()
 	go netproofFail(target, now)
@@ -1429,7 +1419,6 @@ func (s *server) deliverExchange(text string, images, pics []string, exchange *e
 	}
 	s.idleGen++
 	s.gen++ // any continue or retry waiting is now moot
-	s.heard, s.open, s.hangCause = time.Now(), nil, ""
 	s.info.Limit = nil
 	if s.idle != nil {
 		s.idle.Stop()

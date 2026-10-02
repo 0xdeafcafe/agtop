@@ -21,9 +21,7 @@ cost and stream, and the UI draws it under the call that started it.
    │  each turn end: sessions/<child>/answer.json
    │  report file set (background)? → Ensure(parent) + SendExchange(result)
    ▼
- foreground: the tool call waits for answer.json and returns it; if the
-             child's turn hangs (5m silent, see host/hang.go) it returns
-             then, the child retried in the background and reporting back
+ foreground: the tool call waits for answer.json and returns it
  background: returns "<agent> started as agent <id>" at once; the answer
              arrives later as a message from the child (an exchange row)
 ```

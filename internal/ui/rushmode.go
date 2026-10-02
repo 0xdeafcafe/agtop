@@ -2722,23 +2722,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	var out []string
 	line := func(txt string) { out = append(out, onBg(bgChrome, txt, w)) }
-	// Room between parts is ground: in a conversation the dock scrolls
-	// with the transcript (paneBody), and a row of chrome there reads as
-	// an empty band.
-	scrolls := m.viewName(c) == "conversation" && !m.zen && (c.client == nil || c.ready)
-	room := func() {
-		if scrolls {
-			out = append(out, "")
-		} else {
-			line("")
-		}
-	}
 	// Each part of the dock (the task, a card, the subagents, the queue)
 	// is its own block, a row of ground between one and the next.
 	blocks := 0
 	block := func() {
 		if blocks > 0 {
-			room()
+			line("")
 		}
 		blocks++
 	}
@@ -2963,7 +2952,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		pad = 2
 	}
 	for range pad {
-		room()
+		line("")
 	}
 	c.auxRows = len(out)
 	if !m.minimapEnabled(c, fullW) {
