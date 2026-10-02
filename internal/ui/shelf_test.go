@@ -2,6 +2,8 @@ package ui
 
 import (
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestShelfPicksAndReturns(t *testing.T) {
@@ -43,5 +45,52 @@ func TestShelfClickOnBorder(t *testing.T) {
 	}
 	if m.shelfClick(h.x0, m.promptBoxY+1) {
 		t.Fatal("a click off the border took a setup")
+	}
+}
+
+func TestComposerTicksMakeRoutes(t *testing.T) {
+	m, _ := benchModel(160, 50)
+	m.openComposer()
+	c, ok := m.sheet.(*matchSheet)
+	if !ok {
+		t.Skip("no harness runs here")
+	}
+	before := len(c.routes(m))
+	if before == 0 {
+		t.Fatal("ticked tiles make no routes")
+	}
+	// Untick every harness: nothing runs, and START won't go.
+	c.row = compHarnesses
+	for i, hk := range c.harns {
+		if c.onH[hk] {
+			c.col = i
+			c.key(m, tea.KeyPressMsg{}, "space")
+		}
+	}
+	if n := len(c.routes(m)); n != 0 {
+		t.Fatalf("%d routes with no harness ticked", n)
+	}
+	c.row = compStart
+	c.key(m, tea.KeyPressMsg{}, "enter")
+	if m.sheet == nil {
+		t.Fatal("START closed with nothing to run")
+	}
+	// Tick them back: the routes return, and START takes the chosen one.
+	c.row = compHarnesses
+	for i := range c.harns {
+		c.col = i
+		c.key(m, tea.KeyPressMsg{}, "space")
+	}
+	if len(c.routes(m)) < before {
+		t.Fatalf("routes = %d after ticking every harness, want at least %d", len(c.routes(m)), before)
+	}
+	c.row = compStart
+	c.key(m, tea.KeyPressMsg{}, "enter")
+	if m.sheet != nil {
+		t.Fatal("START didn't close the composer")
+	}
+	body := c.body(m, 120, 60)
+	if len(body) == 0 {
+		t.Fatal("no body")
 	}
 }

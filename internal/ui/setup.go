@@ -505,7 +505,7 @@ func (m *Model) useSetup(c *hostConn, name, arg, msg string) tea.Cmd {
 		case c != nil:
 			return m.openSwitchSheet(c)
 		case name == "agent":
-			return m.openStartSheet()
+			return m.openComposer()
 		}
 		m.usePickedProfile("")
 		return nil

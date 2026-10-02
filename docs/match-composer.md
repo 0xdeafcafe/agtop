@@ -193,5 +193,12 @@ than a row of its own above the box, so the list keeps its height:
 - Too narrow: tiles drop from the end; the chip stays.
 - `Tile` isn't stored yet: nothing saves a shelf until the composer does.
 
-Not yet: the alt+m unfold, the full composer, the Settings cuts, and
+The full composer (`internal/ui/matchsheet.go`) is ⌥m, shift+tab, `/agent`
+and the footer's next agent: START, provider and harness tiles you tick, the
+routes they make as a tree with each route's model on ←→, and what every
+route does against what only some do. `/model`, `/effort` and switching a
+running session keep the start sheet.
+
+Not yet: account, effort and permissions in the composer, saving ticks as a
+profile, the alt+m unfold, the Settings cuts, and
 retiring the side list's footer and the cmdbar's "new agents:" line.

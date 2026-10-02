@@ -733,7 +733,7 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 	}
 	switch k {
 	case footNextKey:
-		return m.openStartSheet()
+		return m.openComposer()
 	case footRecentKey:
 		m.footClick(x)
 		return nil
