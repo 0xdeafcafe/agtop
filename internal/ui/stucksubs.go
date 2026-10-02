@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -60,5 +61,24 @@ func nudgeStuckSub(id, name string, s fleet.SubagentTile) tea.Cmd {
 			}
 		}
 		return doneMsg{text: name + "'s subagent went quiet · moved to the background, " + name + " checks it"}
+	}
+}
+
+// askStuck asks a rush session silent for quiet what it is waiting on,
+// mid-turn, without stopping it.
+func askStuck(a *fleet.Agent, quiet time.Duration) tea.Cmd {
+	id, name := a.ID, a.DisplayName
+	text := fmt.Sprintf("You have written nothing for %d minutes. What are you waiting on? "+
+		"If a command or subagent hung, move it to the background or stop it, and carry on another way.", int(quiet.Minutes()))
+	return func() tea.Msg {
+		c, err := host.Dial(id)
+		if err != nil {
+			return doneMsg{err: err}
+		}
+		defer c.Close()
+		if err := c.SendGuide(text, nil); err != nil {
+			return doneMsg{err: err}
+		}
+		return doneMsg{text: "asked " + name + " what it's waiting on"}
 	}
 }

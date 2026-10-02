@@ -748,6 +748,11 @@ func (m *Model) keepGoing(a *fleet.Agent) tea.Cmd {
 	case a.Interactive:
 		m.flash(a.DisplayName+" is open in another terminal", true)
 		return nil
+	case a.Stuck(m.snap.At) && a.Rush:
+		return askStuck(a, a.Quiet(m.snap.At))
+	case a.Stuck(m.snap.At):
+		m.flash(a.DisplayName+" has been silent "+age(a.Quiet(m.snap.At))+" and takes nothing mid-turn · ctrl+x stops it", true)
+		return nil
 	case a.Live() || a.Busy():
 		m.flash(a.DisplayName+" is still working", false)
 		return nil

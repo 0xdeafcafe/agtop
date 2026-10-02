@@ -2146,6 +2146,9 @@ func (m *Model) rowSummary(a *fleet.Agent) (summary, sumColor string, justDone b
 	if summary == "stopped" {
 		summary = ""
 	}
+	if a.Stuck(now) {
+		summary, sumColor = "silent "+age(a.Quiet(now))+" · ctrl+b asks why · "+summary, cYellow
+	}
 	summary = mdPlain.Replace(summary)
 	return
 }
