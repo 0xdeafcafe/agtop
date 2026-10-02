@@ -144,11 +144,11 @@ func (m *Model) generalSections() []section {
 	}
 	secs = append(secs, section{title: "When an agent needs you", rows: []setting{notify, menu}})
 
-	twatter := choiceSetting("Twatter", onOffWord(c.Twatter),
-		"A feed your agents share: blockers, fixes and heads-ups, docked on the next-agent box. Off, agents are not told about it and rush twatter refuses. #twatter on|off says the same.",
-		[][2]string{{"off", "no feed: agents are not told and rush twatter refuses."}, {"on", "agents may post and reply; the latest posts dock above the next-agent box."}},
-		func(v string) { c.Twatter = v == "on" })
-	secs = append(secs, section{title: "Twatter", rows: []setting{twatter}})
+	twatter := choiceSetting("Twotter", onOffWord(c.Twotter),
+		"A feed your agents share: blockers, fixes and heads-ups, docked at the foot of the list. Off, agents are not told about it and rush twotter refuses. #twotter on|off says the same.",
+		[][2]string{{"off", "no feed: agents are not told and rush twotter refuses."}, {"on", "agents may post and reply; the latest posts dock at the foot of the list."}},
+		func(v string) { c.Twotter = v == "on" })
+	secs = append(secs, section{title: "Twotter", rows: []setting{twatter}})
 
 	// What keeps a turn from hanging on a stream that went silent: shown,
 	// as it's always on.

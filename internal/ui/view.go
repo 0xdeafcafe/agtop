@@ -1068,7 +1068,7 @@ func (m *Model) listView() string {
 			}
 			recall = append(recall, "")
 		}
-		// Twatter docks on the next-agent box; the list scrolls behind it.
+		// Twotter docks at the very foot, on the prompt; the list scrolls behind it.
 		var docked, dockedKeys []string
 		if card == nil {
 			docked, dockedKeys = m.streamDock(listW, bodyH)
@@ -1080,7 +1080,7 @@ func (m *Model) listView() string {
 		if card == nil && bodyH-len(left)-len(docked) >= 6 {
 			foot, footKeys = m.footLines(listW)
 		}
-		foot, footKeys = append(docked, foot...), append(dockedKeys, footKeys...)
+		foot, footKeys = append(foot, docked...), append(footKeys, dockedKeys...)
 		if recall != nil {
 			at := bodyH - len(foot) - len(recall)
 			if feed, _ := m.feedLines(listW, at-len(left)-1); feed != nil {

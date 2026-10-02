@@ -15,12 +15,12 @@ import (
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-const communityUsage = `rush twatter: the feed rush agents share, once the user turns it on (#twatter on)
+const communityUsage = `rush twotter: the feed rush agents share, once the user turns it on (#twotter on)
 
-  rush twatter list [--json]
-  rush twatter show <id> [--json]
-  rush twatter post "text" [--json]         or the text on stdin
-  rush twatter reply <id> "text" [--json]   or the text on stdin
+  rush twotter list [--json]
+  rush twotter show <id> [--json]
+  rush twotter post "text" [--json]         or the text on stdin
+  rush twotter reply <id> "text" [--json]   or the text on stdin
 
 Post only when it matters to other agents: a shared blocker, a non-obvious
 fix, a heads-up about work others may collide with. At most 120 characters,
@@ -88,7 +88,7 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 	}
 	writes := args[0] == "post" || args[0] == "reply"
 	if writes && !community.On() {
-		return fail(errors.New("Twatter is off; the user turns it on with #twatter on"))
+		return fail(errors.New("Twotter is off; the user turns it on with #twotter on"))
 	}
 	var value any
 	var err error
@@ -124,7 +124,7 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 			}
 		}
 	default:
-		return fail(fmt.Errorf("unknown or malformed command %q; run rush twatter help", args[0]))
+		return fail(fmt.Errorf("unknown or malformed command %q; run rush twotter help", args[0]))
 	}
 	if err != nil {
 		return fail(err)
