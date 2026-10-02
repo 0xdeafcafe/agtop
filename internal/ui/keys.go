@@ -777,12 +777,18 @@ func (m *Model) submit() tea.Cmd {
 		m.flash("pick the agent to reply to first (↑↓)", true)
 		return nil
 	}
+	if kind != inRename && kind != inGroup {
+		text, tagged = m.vault.apply(text), m.vault.apply(tagged)
+		if cmd, asked := m.askVault(&m.vault, vaultBox{&m.input, &m.pastes}, m.submit); asked {
+			return cmd
+		}
+	}
 	// The open pane is what knows the conversation's cache; the box is
 	// left as it is while you're asked.
 	if kind == inReply && text != "" && m.host != nil && m.host.key == a.Key && m.askCold(m.host, text, m.submit) {
 		return nil
 	}
-	m.pastes, m.undo = pastes{}, undoStack{}
+	m.pastes, m.undo, m.vault = pastes{}, undoStack{}, vaultGate{}
 	m.input, m.inKind = m.input[:0], inPrompt
 	if (kind == inPrompt || kind == inReply) && text != "" && !isHashCmd(text) {
 		m.emitBox(plugin.EvInputSent, "", tagged) // for the history's Sent
@@ -1142,6 +1148,12 @@ func (m *Model) confirmKey(s string) tea.Cmd {
 	c := m.confirm
 	if c.again != "" && s == c.again {
 		s = "y"
+	}
+	if s == "enter" && c.noEnter {
+		return nil
+	}
+	if s == "esc" && c.escIsNo {
+		s = "n"
 	}
 	for _, ch := range c.more {
 		if s == ch.key {

@@ -69,6 +69,9 @@ type confirmation struct {
 	// again is a key that says yes too: the arrow pushed once more past
 	// the edge that asked (edgePush).
 	again string
+	// escIsNo makes esc answer n rather than cancel; noEnter keeps enter
+	// from answering y, for a yes that shouldn't go by accident.
+	escIsNo, noEnter bool
 	// more are choices beside yes, each on a key of its own.
 	more []confirmChoice
 }
@@ -81,6 +84,8 @@ type confirmChoice struct {
 
 type Model struct {
 	reloadFields // #reload, and what it carries
+	// vault is the vault check's answers for the Prompt's message.
+	vault vaultGate
 	// upd is Settings › Updates, and the count in the key line.
 	upd updatesState
 	// sendModes are how enter sends to each session while it works, by key.
