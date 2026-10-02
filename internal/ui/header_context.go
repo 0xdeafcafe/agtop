@@ -1,13 +1,17 @@
 package ui
 
-import "fmt"
+import (
+	"fmt"
 
-func headerContext(c *hostConn) string {
+	"github.com/0xdeafcafe/rush/internal/fleet"
+)
+
+func headerContext(c *hostConn, a *fleet.Agent) string {
 	s := c.sess
 	if s.Context <= 0 || s.ContextWindow() <= 0 {
 		return ""
 	}
-	pct := 100 * float64(s.Context) / float64(s.ContextWindow())
+	pct := ctxFill(a, int64(s.Context), int64(s.ContextWindow())).Pct()
 	colour := cText
 	if pct >= 90 {
 		colour = cRed

@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/0xdeafcafe/rush/internal/adapters/claude/claude"
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/usage"
 	"github.com/0xdeafcafe/rush/internal/convo"
@@ -341,5 +342,31 @@ func TestBtwExportSubtask(t *testing.T) {
 	run("/subtask check the flaky test")
 	if len(c.sending) != 1 || !strings.Contains(c.sending[0].text, "run_in_background") || !strings.Contains(c.sending[0].text, "check the flaky test") {
 		t.Fatalf("subtask sent: %+v", c.sending)
+	}
+}
+
+func TestContextAgainstAutoCompactWindow(t *testing.T) {
+	m, c := infoModel(t)
+	c.sess.Context = 520_000
+	text := func(tab int) string {
+		m.openInfo(c, tab)
+		return ansi.Strip(strings.Join(m.sheet.(*infoSheet).body(m, 120, 50), "\n"))
+	}
+	if got := text(infoStatus); !strings.Contains(got, "52% · 520k of 1M") || strings.Contains(got, "auto-compact") {
+		t.Fatalf("no window of its own:\n%s", got)
+	}
+	m.snap.Agents[0].Compaction = agent.Compaction{Window: 400_000, Headroom: 33_000}
+	want := "130% · 520k of 400k · auto-compacts at 367k · model 1M"
+	for _, tab := range []int{infoStatus, infoContext} {
+		if got := text(tab); !strings.Contains(got, want) {
+			t.Errorf("tab %d missing %q:\n%s", tab, want, got)
+		}
+	}
+	var ov []string
+	for _, l := range c.sess.Overview(convo.Options{Width: 100, Now: time.Now(), Compaction: m.snap.Agents[0].Compaction}) {
+		ov = append(ov, ansi.Strip(l.Text))
+	}
+	if o := strings.Join(ov, "\n"); !strings.Contains(o, "130%") || !strings.Contains(o, "auto-compact") {
+		t.Fatalf("overview:\n%s", o)
 	}
 }

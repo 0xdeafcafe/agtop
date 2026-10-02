@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -23,7 +22,6 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 	"github.com/0xdeafcafe/rush/internal/agent/tool"
 	"github.com/0xdeafcafe/rush/internal/cellw"
-	"github.com/0xdeafcafe/rush/internal/community"
 	"github.com/0xdeafcafe/rush/internal/convo"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/fswait"
@@ -41,7 +39,7 @@ func (m *Model) views(c *hostConn) []string {
 		v = append(v, "tasks")
 	}
 	if len(c.subs) > 0 {
-		v = append(v, "subagents")
+		v = append(v, "subagents", "stack")
 	}
 	if slices.ContainsFunc(c.sess.Jobs(), func(j *convo.Job) bool { return j.Background && c.jobKind(j) != "subagent" }) {
 		v = append(v, "background")
@@ -53,10 +51,6 @@ func (m *Model) views(c *hostConn) []string {
 		if a := m.focused(); a != nil && liveCapable(a) {
 			v = append(v, "screen")
 		}
-	}
-	if len(c.subs) > 0 {
-		// Last, and no tab: pulled up from the subagents panel or ctrl+] g.
-		v = append(v, "stack")
 	}
 	return v
 }
@@ -570,34 +564,6 @@ func (c *hostConn) runs() agent.SubagentRuns {
 
 // runningSubs are the subagent runs still working, the latest started
 // first: one writing doesn't move it, so the dock's rows stay put.
-// dockSubs are the running subagents the dock shows: those in the
-// background. One the turn waits on shows in the conversation, under its
-// call.
-func (c *hostConn) dockSubs() []convo.Subagent {
-	var out []convo.Subagent
-	for _, sa := range c.runningSubs() {
-		if st := c.sess.Step(sa.ToolUseID); st != nil && (st.Status == convo.Running || st.Status == convo.Waiting) {
-			continue
-		}
-		out = append(out, sa)
-	}
-	return out
-}
-
-// sideRefs is where panelRefs keeps the rows drawn right of the
-// conversation: past any row of the dock.
-const sideRefs = 1 << 20
-
-// sideWidth is how wide the subagents and background tasks are drawn right
-// of the conversation's text in a pane w wide; 0 when there isn't room.
-func sideWidth(w int) int {
-	const text = 124 // convo's capRow: its rows never run further right
-	if sw := w - text - 3; sw >= 44 {
-		return min(sw, 80)
-	}
-	return 0
-}
-
 func (c *hostConn) runningSubs() []convo.Subagent {
 	// Asked several times a frame, of hundreds of runs: kept for the second
 	// unless the session changes, or onPane reads the runs (and drops it).
@@ -1136,11 +1102,14 @@ func (c *hostConn) keepRunPick(run []convo.Subagent) {
 }
 
 // runningPreview is what the conversation shows of the subagents still
-// working: a heading, then a line each (a few runs at a time, keeping
+// working: a heading, then two lines each (a few runs at a time, keeping
 // the picked one in sight): what it was asked, and what it's doing right
 // now after what it just did.
 func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []string {
-	what := "subagents"
+	what := "subagent working"
+	if len(run) > 1 {
+		what = "subagents working"
+	}
 	c.keepRunPick(run)
 	picked := strings.HasPrefix(c.sel, "run:")
 	start := 0
@@ -1161,12 +1130,9 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 	case m.paneFocus && len(c.input) == 0 && len(m.queueOf(c).items) == 0:
 		hint = keys("↑", "pick one to watch")
 	}
-	title := paint(cBlue+bold, what) + paint(cFaint, fmt.Sprintf(" ·%d", len(run)))
-	if len(run) >= 2 {
-		title += "  " + paint(cBlue, "⇡") + dim(" drag up to see them side by side")
-	}
+	title := paint(cBlue, "⇉ ") + paint(cBlue+bold, fmt.Sprintf("%d %s", len(run), what))
 	out := []string{spread(" "+title, hint+"  ", w)}
-	if c.panelRefs != nil && len(run) >= 2 {
+	if c.panelRefs != nil {
 		c.panelRefs[c.previewBase] = "subs:title" // pulled up, or wheeled up on, it opens the stack
 	}
 	if start > 0 {
@@ -1196,7 +1162,7 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 				}
 			}
 			if n := s.Totals(now).ToolCalls; n > 0 {
-				facts = append(facts, strconv.Itoa(n))
+				facts = append(facts, fmt.Sprintf("%d steps", n))
 			}
 			if !s.First.IsZero() {
 				facts = append(facts, dur(now.Sub(s.First).Round(time.Second)))
@@ -1212,19 +1178,17 @@ func (m *Model) runningPreview(c *hostConn, run []convo.Subagent, w int) []strin
 		if q := m.localQ[subQKey(c.key, sa.ID)]; q != nil && len(q.items) > 0 {
 			where += " " + paint(cQueue, fmt.Sprintf("✉%d", len(q.items)))
 		}
-		// One line a run: who, what it was asked, then what it's doing
-		// after what it just did, the facts set right.
-		desc := fmt.Sprintf("%-24s", cellw.Truncate(oneLine(sa.Description), 24, "…"))
-		left := "  " + spinOf(c.subKind(sa.ID), m.tick+i) + " " + paint(cText+bold, fmt.Sprintf("%-8s", sa.Type)) + where +
-			" " + paint(cSub, desc) + "  " + paint(cOrange, "›") + " " + doing + trail
-		top := spread(cellw.Truncate(left, max(20, w-cellw.String(ansi.Strip(right))-2), "…"), right, w)
+		top := spread("  "+spinOf(c.subKind(sa.ID), m.tick+i)+" "+paint(cText+bold, sa.Type)+where+
+			"  "+paint(cSub, cellw.Truncate(oneLine(sa.Description), max(12, w-cellw.String(ansi.Strip(right))-cellw.String(sa.Type)-cellw.String(ansi.Strip(where))-10), "…")), right, w)
+		// Hung off its spinner, so each run reads as one block.
+		act := cellw.Truncate("  "+paint(cFaint, "╰")+" "+paint(cOrange, "›")+" "+doing+trail, w-2, "…")
 		if c.sel == "run:"+sa.ID {
-			top = picked1(top, w, m.paneFocus)
+			top, act = picked1(top, w, m.paneFocus), picked1(act, w, m.paneFocus)
 		}
 		if c.panelRefs != nil {
 			c.panelRefs[c.previewBase+len(out)] = "run:" + sa.ID
 		}
-		out = append(out, top)
+		out = append(out, top, act)
 		// What it's running itself, hung under it.
 		for k, j := range c.jobsOf(sa.ID) {
 			if c.panelRefs != nil {
@@ -1306,6 +1270,7 @@ func tabStat(c *hostConn, v string) string {
 type hostConn struct {
 	contextLabel [2]int
 	paneTabs     []paneTab
+	histTabs     []paneTab // the header's open all / collapse older targets; view 1 opens
 	pointerHover paneHover
 	// label is where the header's agent label is drawn: its column in the
 	// pane and its width, 0 when it isn't.
@@ -1392,8 +1357,7 @@ type hostConn struct {
 	memPick              int // the memory card's button enter presses
 	cardAt, lastKeyAt    time.Time
 	cardTyping           bool
-	inModal              bool   // the card is being drawn in its modal
-	verdictShown         string // the room whose verdict last came to this chat's dock
+	inModal              bool // the card is being drawn in its modal
 	// A memory card's buttons as last drawn, for clicks: from the card's
 	// top, which is cardTop rows into the dock, which starts at dockY.
 	btns                                 []cardBtn
@@ -1402,10 +1366,6 @@ type hostConn struct {
 	panelFocus                           bool
 	auxRows, transcriptRows, previewBase int
 	panelRefs                            map[int]string
-	// The subagents and background tasks drawn right of the conversation,
-	// when there's room: their rows, width, and where they landed.
-	side                []string
-	sideW, sideX, sideY int
 	// The queue card's rows as last drawn: which message is on each row
 	// from its top, qTop rows into the dock; qHover is the one under the
 	// pointer, plus one.
@@ -1416,19 +1376,13 @@ type hostConn struct {
 	editAfter    string  // the step whose note to open in the editor once written
 
 	// Answering Claude's questions, one at a time.
-	qFor    string
-	qIdx    int
-	qCursor int                  // the option ↑↓ is on while the card has the keys
-	qPicks  map[int]map[int]bool // ticked options, by question
-	qAnswer map[string]string
-	qTyped  map[int][]rune // typed in the box on each question and not yet sent
-	qFull   bool           // the option under the cursor shown whole, its preview full size
-	// The question card as last drawn, for clicks: its rows, qHitTop rows
-	// into the card, and what a click on each presses ("@n" for option n).
-	qRows     []string
-	qHit      map[int]string
-	qHitTop   int
-	qHeld     *heldBox // what was in the box when a question came, back once it's answered
+	qFor      string
+	qIdx      int
+	qCursor   int                  // the option ↑↓ is on while the card has the keys
+	qPicks    map[int]map[int]bool // ticked options, by question
+	qAnswer   map[string]string
+	qTyped    map[int][]rune // typed in the box on each question and not yet sent
+	qHeld     *heldBox       // what was in the box when a question came, back once it's answered
 	stopArmed time.Time
 	lastSend  time.Time
 	sending   []sending     // sent, and not yet seen to arrive
@@ -1442,9 +1396,6 @@ type hostConn struct {
 	// selMoved asks the next draw to scroll the selection into view;
 	// rowRefs is what each drawn row of the pane belongs to, for clicks.
 	selMoved bool
-	pins     promptPins // the first and latest prompts, as pinned atop the conversation
-	brief    string     // what the session's start added to its agent's prompt, read once for briefFor
-	briefFor string
 	rowRefs  []string
 	// top is the row at the top of the window when scrolled up, so output
 	// arriving below (a replay, an agent at work) doesn't carry you down.
@@ -1492,9 +1443,9 @@ type hostConn struct {
 	paneKick    bool // a tail was opened: read it now, not on the next tick
 	subReader   agent.SubagentRuns
 	subOpen     string
-	stackGrow   int                // frames the stack view has grown for, to stackFrames
-	stackFrom   int                // rows high the stack starts growing from
-	pullY       int                // the subagents panel title's row + 1, pressed to pull up
+	stackGrow   int // frames the stack view has grown for, to stackFrames
+	stackFrom   int // rows high the stack starts growing from
+	pullY       int // the subagents panel title's row + 1, pressed to pull up
 	subList     convo.Subagents    // finds the runs, reading each one's meta once
 	subRuns     agent.SubagentRuns // which runs the transcripts say are still working: subReader's, as last read; see runs
 	subSel      string             // selection inside the opened subagent
@@ -1737,7 +1688,7 @@ func (m *Model) syncHost() tea.Cmd {
 	m.gridPark()
 	m.dropHost()
 	m.hostOpening = a.Key
-	o := convo.Options{Width: m.conversationWidth(paneW - 3), Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone(), NoRule: m.besideList()}
+	o := convo.Options{Width: m.conversationWidth(paneW - 3), Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()}
 	if fromFile {
 		if a.Rush {
 			return warmed(openSavedHost(a), o)
@@ -1863,18 +1814,11 @@ func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 	return m.host.readPre(m.warmOpts())
 }
 
-// besideList is whether the list sits left of the pane, its border just
-// left of the conversation.
-func (m *Model) besideList() bool {
-	l, _ := m.widths()
-	return l > 0
-}
-
 // warmOpts is how the pane draws a conversation, for one read in the
 // background to be drawn once there as warmed does.
 func (m *Model) warmOpts() convo.Options {
 	_, paneW, _ := m.layout()
-	return convo.Options{Width: m.conversationWidth(paneW - 3), Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone(), NoRule: m.besideList()}
+	return convo.Options{Width: m.conversationWidth(paneW - 3), Open: map[string]bool{}, Focused: m.paneFocus, Wide: m.hostedAlone()}
 }
 
 func (m *Model) onHostLines(msg hostLinesMsg) tea.Cmd {
@@ -1958,7 +1902,7 @@ var (
 func dockCard(bg, edge string, rows []string, w int) []string {
 	out := make([]string, len(rows))
 	for i, r := range rows {
-		out[i] = onBg(bg, paint(edge, "▌")+r, w)
+		out[i] = onBg(bg, paint(edge, "▍")+r, w)
 	}
 	return out
 }
@@ -2036,29 +1980,8 @@ func (m *Model) rushPane(w, h int) []string {
 	} else {
 		c.minimap = conversationMap{}
 	}
-	o := convo.Options{Width: contentW, Now: paneNow(), Tick: m.tick, Open: c.open, View: c.looks, Verbose: c.verbose, Depth: c.depth, History: m.historyOf(c), HideActivity: true,
-		// Rows keep to their usual width while cards sit right of them.
-		Selected: c.sel, Focused: m.paneFocus, Wide: m.hostedAlone() && len(c.side) == 0, NoRule: m.besideList()}
-	if a := m.agentByKey(c.key); a != nil {
-		o.Compaction = a.Compaction
-	}
-	if by := c.sess.Info.Meta["spawnedBy"]; by != "" {
-		for _, a := range m.order {
-			if a.Rush && a.ID == by {
-				o.Parent = a.DisplayName
-				break
-			}
-		}
-	}
-	if id := c.sess.Info.ID; id != "" && c.briefFor != id {
-		cfg, _ := host.ReadConfig(id) // once a session: its config doesn't change
-		c.brief, c.briefFor = strings.TrimSpace(cfg.SystemPrompt), id
-	}
-	o.Hosted, o.Brief = c.sess.Info.ID != "", c.brief
-
-	if a := m.agentByKey(c.key); a != nil && !isRoomKey(c.key) {
-		o.Agent = community.Author{Name: a.DisplayName}.Username()
-	}
+	o := convo.Options{Width: contentW, Now: paneNow(), Tick: m.tick, Open: c.open, View: c.looks, Verbose: c.verbose, Depth: c.depth, History: c.historyMode, HideActivity: true,
+		Selected: c.sel, Focused: m.paneFocus, Wide: m.hostedAlone()}
 	var body []convo.Line
 	// body is rows [base, base+len(body)) of total; in a conversation only
 	// the turns around what's on screen are drawn. transcript is the rows
@@ -2307,9 +2230,6 @@ func (m *Model) rushPane(w, h int) []string {
 		}
 		c.rowBody = append(c.rowBody, i)
 	}
-	if conv {
-		m.pinPrompts(c, s, out, len(head), start, end, contentW)
-	}
 	bodyBottom := m.paneTop + len(out)
 	c.shown, c.bodyTop, c.bodyRows, c.paneW, c.shownView = body, len(head), end-start, contentW, view
 	c.shownBase, c.shownTotal, c.shownIns, c.transcriptRows = base, total, ins, transcript
@@ -2332,24 +2252,6 @@ func (m *Model) rushPane(w, h int) []string {
 	}
 	for len(out) < h-len(dock) {
 		out = append(out, "")
-	}
-	if len(c.side) > 0 {
-		// Above the dock's first row on screen, never over a card or the
-		// queue: what's short of room shows its top.
-		foot := h - len(dock)
-		for j := len(head); scrollingPanels && j < len(c.rowBody); j++ {
-			if c.rowBody[j] == -1 {
-				foot = j
-				break
-			}
-		}
-		c.side = c.side[:min(len(c.side), max(0, foot-len(head)-1))] // and clicks only what shows
-		y, x := max(len(head), foot-len(c.side)-1), contentW-c.sideW-1
-		for i := y; i < len(out); i++ {
-			out[i] = fit(out[i], contentW)
-		}
-		pasteAt(out, c.side, y, x)
-		c.sideX, c.sideY = x, m.paneTop+y
 	}
 	if view == "subagents" && wideSubagents(c, contentW) {
 		m.drawSubPreview(c, o, out, len(head), bodyH)
@@ -2535,7 +2437,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	right := m.barLine(barAgent, 0, x, hw-cellw.String(left1)-4)
 	row1 := spread(left1, right+" ", hw)
 	c.contextLabel = [2]int{}
-	if value := headerContext(c, a); value != "" {
+	if value := headerContext(c); value != "" {
 		plain, metric := ansi.Strip(row1), ansi.Strip(value)
 		if i := strings.LastIndex(plain, metric); i >= 0 && strings.Contains(ansi.Strip(right), metric) {
 			c.contextLabel = [2]int{cellw.String(plain[:i]), cellw.String(metric)}
@@ -2591,9 +2493,6 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	// on is where the tab showing sits on the row, for the rule under it.
 	onX, onW := 0, 0
 	for i, v := range views {
-		if v == "stack" {
-			continue // no tab: see openStack
-		}
 		stat := tabStat(c, v)
 		if stat != "" {
 			stat += " "
@@ -2632,6 +2531,14 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	strip := withTabHint(indent[1:]+strings.Join(tabs, " "), "[ ]", "views", "", hw-cellw.String(chips)-2)
 	for i := range c.paneTabs {
 		c.paneTabs[i].end = min(c.paneTabs[i].end, cellw.String(strip))
+	}
+	c.histTabs = c.histTabs[:0]
+	if m.viewName(c) == "conversation" {
+		chips = m.historyChips(c, chips, hw-cellw.String(strip)-2)
+		for i := range c.histTabs {
+			c.histTabs[i].start += hw - cellw.String(chips)
+			c.histTabs[i].end += hw - cellw.String(chips)
+		}
 	}
 	row3 := spread(strip, chips, hw)
 	// A rule closes the chrome off, lit under the tab showing, orange
@@ -2694,7 +2601,6 @@ func (m *Model) cardRows(a *fleet.Agent, c *hostConn, w, maxH int) []string {
 		if len(out) > 0 {
 			out = append(out, "")
 		}
-		c.qHitTop = len(out)
 		out = append(out, m.questionCard(c, p[0].Approval.Question, w, maxH)...)
 	} else if len(p) > 0 {
 		if len(out) > 0 {
@@ -2710,25 +2616,12 @@ func (m *Model) cardRows(a *fleet.Agent, c *hostConn, w, maxH int) []string {
 			return append(out, rows...)
 		}
 		count := ""
-		if st.Call().Kind == tool.Shell && a.Cwd != "" {
-			count = "in " + shortDir(tildify(a.Cwd), 36) // where it runs
-		}
 		if len(p) > 1 {
-			count = strings.TrimPrefix(count+"   "+fmt.Sprintf("1 of %d", len(p)), "   ")
+			count = fmt.Sprintf("1 of %d", len(p))
 		}
 		what := paint(cYellow+bold, "● needs you") + "   "
 		if modal {
 			what = ""
-		}
-		if p := st.Under(); p != nil {
-			// A subagent's: say whose, since it's not the agent you're talking to.
-			who := "a subagent"
-			for _, sa := range c.subs {
-				if sa.ToolUseID == p.ID {
-					who = strings.TrimSpace(sa.Type + " · " + oneLine(sa.Description))
-				}
-			}
-			count = strings.TrimPrefix(paint(cBlue, "⇉ from "+who)+"   "+count, "   ")
 		}
 		cl(spread(bar+" "+what+paint(cText+bold, approvalTitle(st)), paint(cSub, count)+"  ", w))
 		for _, l := range approvalBody(st, a.Cwd, w-6) {
@@ -2739,32 +2632,9 @@ func (m *Model) cardRows(a *fleet.Agent, c *hostConn, w, maxH int) []string {
 		if c.cardFocus && !modal {
 			edge = paint(cOrange, "▍")
 		}
-		keys := k("y", "allow once")
-		if st.Approval != nil && st.Approval.Always {
-			keys += "   " + k("a", alwaysWords(st.Approval.AlwaysAs))
-		}
-		cl(edge + "   " + cardHint(c, keys+"   "+k("n", "deny")))
+		cl(edge + "   " + cardHint(c, k("y", "allow once")+"   "+k("a", "always allow")+"   "+k("n", "deny")))
 	}
 	return out
-}
-
-// taskRow is the agent's task list where it is, sat on the box: the task
-// under way and how far through the list it is. A list all done says
-// nothing.
-func taskRow(s *convo.Session, w int) []string {
-	now, done, total := s.Current()
-	if total == 0 || now == nil && done == total {
-		return nil
-	}
-	bar := paint(cOrange, strings.Repeat("▰", done)) + faint(strings.Repeat("▱", total-done))
-	if total > 20 {
-		bar = ""
-	}
-	if now == nil {
-		return []string{fit("  "+faint("▾ ")+dim(fmt.Sprintf("%d of %d tasks done", done, total))+"  "+bar, w)}
-	}
-	n := paint(cSub, fmt.Sprintf("task %d of %d", min(done+1, total), total))
-	return []string{fit("  "+paint(cOrange, "▾ ")+paint(cText, oneLine(firstNonEmpty(now.Active, now.Subject)))+"  "+n+"  "+bar, w)}
 }
 
 func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
@@ -2786,23 +2656,12 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	}
 	var out []string
 	line := func(txt string) { out = append(out, onBg(bgChrome, txt, w)) }
-	// Room between parts is ground: in a conversation the dock scrolls
-	// with the transcript (paneBody), and a row of chrome there reads as
-	// an empty band.
-	scrolls := m.viewName(c) == "conversation" && !m.zen && (c.client == nil || c.ready)
-	room := func() {
-		if scrolls {
-			out = append(out, "")
-		} else {
-			line("")
-		}
-	}
 	// Each part of the dock (the task, a card, the subagents, the queue)
 	// is its own block, a row of ground between one and the next.
 	blocks := 0
 	block := func() {
 		if blocks > 0 {
-			room()
+			line("")
 		}
 		blocks++
 	}
@@ -2812,22 +2671,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		if m.cardModal(c) {
 			return
 		}
-		rows := m.cardRows(a, c, w, h*3/5)
-		if v, ok := m.verdicts[c.key]; ok && len(rows) == 0 {
-			// A room's verdict waits like a card: last, behind any other.
-			if c.verdictShown != v.ID {
-				c.verdictShown = v.ID
-				if len(c.input) == 0 && time.Since(c.lastKeyAt) > time.Second {
-					c.cardFocus, c.sel = true, ""
-				}
-			}
-			edge := cBlue
-			if c.cardFocus {
-				edge = cOrange
-			}
-			rows = dockCard(bgRuns, edge, m.verdictRows(c, w-1), w)
-		}
-		if len(rows) > 0 {
+		if rows := m.cardRows(a, c, w, h*3/5); len(rows) > 0 {
 			block()
 			c.cardTop = len(out)
 			c.panelRefs[len(out)] = "panel:card"
@@ -2835,35 +2679,30 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 	}
 
+	now, done, total := s.Current()
+	if total > 0 {
+		block()
+		t := ""
+		if now != nil {
+			t = paint(cOrange, "■ ") + paint(cText, oneLine(firstNonEmpty(now.Active, now.Subject)))
+		} else {
+			t = dim("no task in progress")
+		}
+		line(spread("  "+t+"  "+paint(cSub, fmt.Sprintf("%d/%d", done, total)), "", w))
+	}
 	if r := s.Info.Retry; r != nil && r.GaveUp {
 		block()
 		line("  " + paint(cRed, "✗ "+r.Reason) + dim(" · "+r.Why+" · send anything to try again"))
 	}
-	// With room right of the conversation's text, the subagents and what
-	// runs in the background sit there, at the foot of the pane, rather
-	// than taking rows from it.
-	c.side, c.sideW = c.side[:0], 0
-	if !m.zen {
-		c.sideW = sideWidth(w)
-	}
-	panel := func(edge string, rows func(w int) []string) {
-		if c.sideW > 0 {
-			if len(c.side) > 0 {
-				c.side = append(c.side, "")
-			}
-			c.previewBase = sideRefs + len(c.side)
-			c.side = append(c.side, dockCard(bgRuns, edge, rows(c.sideW-1), c.sideW)...)
-			return
-		}
+	if run := c.runningSubs(); len(run) > 0 && m.viewName(c) == "conversation" {
 		block()
 		c.previewBase = len(out)
-		out = append(out, dockCard(bgRuns, edge, rows(w-1), w)...)
-	}
-	if run := c.dockSubs(); len(run) > 0 && m.viewName(c) == "conversation" {
-		panel(cBlue, func(w int) []string { return m.runningPreview(c, run, w) })
+		out = append(out, dockCard(bgRuns, cSub, m.runningPreview(c, run, w-1), w)...)
 	}
 	if jobs := c.looseJobs(); len(jobs) > 0 && m.viewName(c) == "conversation" {
-		panel(cOrange, func(w int) []string { return m.jobsPreview(c, jobs, w) })
+		block()
+		c.previewBase = len(out)
+		out = append(out, dockCard(bgRuns, cSub, m.jobsPreview(c, jobs, w-1), w)...)
 	}
 	if l := m.sendingLines(c, w); len(l) > 0 {
 		block()
@@ -2877,17 +2716,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 			line(l)
 		}
 	}
-	// The queue and a waiting card sit last, just above the box.
-	if l := m.chatRoomRows(c, w); len(l) > 0 {
-		block()
-		for _, l := range l {
-			c.panelRefs[len(out)] = dockRoomPrefix + m.chatRoomOn(c).ID
-			line(l)
-		}
-	}
 	if qs := m.queueOf(c); len(qs.items) > 0 {
-		// Full width, as what you sent: only what runs on its own sits
-		// beside the conversation.
 		block()
 		var rows []string
 		line := func(txt string) { rows = append(rows, txt) }
@@ -2908,7 +2737,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		pick, picked := queueSel(c, len(q))
 		var how string
-		title := " " + paint(cQueue+bold, "queue") + paint(cFaint, fmt.Sprintf(" ·%d", len(q)))
+		title := " " + paint(cSub, "⋯ ") + paint(cText+bold, fmt.Sprintf("queue %d", len(q)))
 		switch {
 		case c.qHover > 0 && !picked:
 			// What its keys do, once a click has picked it.
@@ -2917,11 +2746,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		case m.paneFocus && !picked && len(c.input) == 0:
 			how = keys("↑", "edit, reorder or steer", m.sendNowKey(), "send now") + "  "
 		}
-		// One queued: it shares the title's row.
-		single := len(q) == 1
-		if !single {
-			line(spread(title+when, how, w))
-		}
+		line(spread(title+when, how, w))
 		// Three at a time, keeping the picked one in sight.
 		start := 0
 		if picked && pick >= 3 {
@@ -2963,13 +2788,6 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 				body = faint("once it's done ") + body
 			}
 			row := cellw.Truncate("  "+paint(cSub, strconv.Itoa(i+1))+"  "+body+pics.String(), w, "…")
-			if single {
-				right := firstNonEmpty(how, strings.Replace(when, " · ", "", 1)+"  ")
-				if w-cellw.String(right) < 40 {
-					right = ""
-				}
-				row = spread(cellw.Truncate(title+"  "+body+pics.String(), w-cellw.String(right)-2, "…"), right, w)
-			}
 			switch {
 			case picked && i == pick:
 				row = picked1(row, w, m.paneFocus)
@@ -2989,7 +2807,18 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		for row, qi := range c.qAt {
 			c.panelRefs[c.qTop+row] = fmt.Sprintf("q:%d", qi)
 		}
-		out = append(out, dockCard(bgQueue, cQueue, rows, w+1)...)
+		out = append(out, dockCard(bgQueue, cSub, rows, w+1)...)
+	}
+	if l := m.chatRoomRows(c, w); len(l) > 0 {
+		block()
+		for _, l := range l {
+			c.panelRefs[len(out)] = dockRoomPrefix + m.chatRoomOn(c).ID
+			line(l)
+		}
+	}
+	if l := m.verdictRows(c, w); len(l) > 0 {
+		block()
+		out = append(out, dockCard(bgRuns, cBlue, l, w)...)
 	}
 	cards()
 	// And room before the box. In a conversation it scrolls with the
@@ -3000,7 +2829,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		pad = 2
 	}
 	for range pad {
-		room()
+		line("")
 	}
 	c.auxRows = len(out)
 	if !m.minimapEnabled(c, fullW) {
@@ -3046,7 +2875,7 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 	case isQuestion(s.Pending()):
 		addTop(paint(cYellow, "pick above, or type your own answer · enter sends it"))
 	case len(s.Pending()) > 0:
-		addTop(paint(cYellow, "y · a · n answer the card · or type why not, enter denies with it"))
+		addTop(paint(cYellow, "answer the card first, or type a note"))
 	case s.Live() != nil:
 		mode := m.sendModeTop(c)
 		if top == "" {
@@ -3091,7 +2920,6 @@ func (m *Model) paneDock(a *fleet.Agent, c *hostConn, w, h int) []string {
 		}
 		b.topL = paint(cOrange, "why? told to the agent") + dim(" · enter "+what+" and sends this · esc cancels")
 	}
-	out = append(out, taskRow(s, w)...)
 	b.top = c.box.top
 	b = b.scrolled()
 	c.box, c.boxIdx = b, len(out)
@@ -3212,9 +3040,6 @@ func approvalTitle(st *convo.Step) string {
 	return "use " + st.Tool
 }
 
-// approvalRows is as much of a command as a permission card shows.
-const approvalRows = 6
-
 func approvalBody(st *convo.Step, cwd string, w int) []string {
 	c := st.Call()
 	in := c.Input
@@ -3233,24 +3058,10 @@ func approvalBody(st *convo.Step, cwd string, w int) []string {
 	var out []string
 	switch {
 	case in.Command != "":
-		// All of it, wrapped, so you see what you allow; past a screenful,
-		// the step's ctrl+o has the rest.
-		home, _ := os.UserHomeDir()
-		cmd := in.Command
-		if home != "" {
-			cmd = strings.ReplaceAll(cmd, home+"/", "~/")
-		}
-		rows := wrap(cmd, w-4)
-		for i, l := range rows {
-			if i == approvalRows {
-				out = append(out, dim(fmt.Sprintf("  … %d more lines · ctrl+o shows all", len(rows)-i)))
-				break
-			}
-			lead := "  "
-			if i == 0 {
-				lead = paint(cBright, "$ ")
-			}
-			out = append(out, lead+paint(cText, l))
+		lines := strings.Split(in.Command, "\n")
+		out = append(out, paint(cBright, "$ ")+paint(cText, cellw.Truncate(lines[0], w-4, "…")))
+		if len(lines) > 1 {
+			out = append(out, dim(fmt.Sprintf("  +%d more lines", len(lines)-1)))
 		}
 	case path != "":
 		out = append(out, paint(cText, rel(path)))
@@ -3383,9 +3194,6 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	if cmd, used := m.slashKey(c, s); used {
 		return cmd
 	}
-	if cmd, used := m.verdictKey(c, s, empty); used {
-		return cmd // what waits on you goes first
-	}
 	if cmd, used := m.queueKey(c, s); used {
 		return cmd
 	}
@@ -3425,6 +3233,9 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		c.input, c.back = c.input[:0], 0
 		return m.endQueueEdit(c)
 	}
+	if cmd, used := m.verdictKey(c, s, empty); used {
+		return cmd
+	}
 	if cmd, used := m.cardKey(c, s, empty); used {
 		return cmd
 	}
@@ -3433,10 +3244,6 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 	}
 	switch s {
 	case "esc":
-		if empty && m.viewName(c) == "stack" {
-			c.view, c.scroll, c.scrollOnly = 0, 0, false
-			return nil
-		}
 		if empty && m.escKey == c.key && time.Since(m.escAt) < time.Second {
 			m.escAt = time.Time{}
 			return m.askClose(m.focused())
@@ -3685,7 +3492,7 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 		}
 	case "[", "]":
 		if empty {
-			d, n := 1, len(slices.DeleteFunc(m.views(c), func(v string) bool { return v == "stack" }))
+			d, n := 1, len(m.views(c))
 			if s == "[" {
 				d = -1
 			}
@@ -3774,9 +3581,6 @@ func (m *Model) paneKey(k tea.KeyPressMsg, s string) tea.Cmd {
 // clickBox places the cursor where a click lands inside either input box,
 // and gives that box the keys. It reports whether the click was in one.
 func (m *Model) clickBox(x, y int) bool {
-	if m.inKind == inPrompt && m.shelfClick(x, y) {
-		return true
-	}
 	if h := m.chipUnder(x, y); h.box != 0 && m.openChip(h) {
 		return true
 	}
@@ -3908,6 +3712,7 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	if m.wantsIntercept(c, now) {
 		return m.interceptSend(c, now)
 	}
+	savedPastes := c.pastes
 	text := string(c.input)
 	if strings.HasSuffix(text, "\\") && !now {
 		c.input = append(c.input[:len(c.input)-1], '\n')
@@ -3916,13 +3721,7 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 	}
 	// Claude Code sessions are typed into, where tags would show as typed.
 	text = strings.TrimSpace(c.pastes.expand(text, c.client != nil || m.agentByKey(c.key) == nil || m.agentByKey(c.key).Rush))
-	// The pastes go only with the box's text: a send that stops to ask
-	// first (a cold cache, an unknown command) runs again with them.
-	defer func() {
-		if len(c.input) == 0 {
-			c.pastes = pastes{}
-		}
-	}()
+	c.pastes = pastes{}
 	if c.editQ > 0 {
 		i, was := c.editQ-1, c.editWas
 		c.input, c.back = c.input[:0], 0
@@ -3994,6 +3793,7 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	if sq, _ := m.subQueue(c); now && len(images) == 0 && c.client != nil && sq == nil && hasQueuedExchange(c) {
+		c.pastes = savedPastes
 		m.flash("agent messages keep their sender · send queued messages separately with s", false)
 		return nil
 	}
@@ -4110,14 +3910,11 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 	// What the renderer opens by default: recent turns and failures. The
 	// options the pane last drew with find it in the renderer's cache;
 	// any others would redraw its turn, twice.
-	o := convo.Options{Width: max(40, m.w/2), Now: time.Now(), Open: c.open, View: c.looks, History: m.historyOf(c)}
+	o := convo.Options{Width: max(40, m.w/2), Now: time.Now(), Open: c.open, View: c.looks, History: c.historyMode}
 	if c.drewConvo {
 		o = c.drawn
 	}
 	o.Budget = 0
-	if !strings.Contains(ref, ":") && c.sess.TurnOf(ref) >= 0 {
-		return c.sess.TurnOpen(ref, o) // a turn: settled reads as closed
-	}
 	rows := c.sess.RenderTurn(o, c.sess.TurnOf(ref))
 	if rows == nil {
 		rows = c.sess.Render(o) // not a turn's: look through them all
@@ -4145,7 +3942,7 @@ func (m *Model) isOpen(c *hostConn, ref string) bool {
 func (m *Model) dockRefs(c *hostConn) []string {
 	var refs []string
 	if m.viewName(c) == "conversation" {
-		for _, sa := range c.dockSubs() {
+		for _, sa := range c.runningSubs() {
 			refs = append(refs, "run:"+sa.ID)
 			for _, j := range c.jobsOf(sa.ID) {
 				refs = append(refs, "job:"+j.ID)
@@ -4236,33 +4033,12 @@ func (m *Model) clickRow(c *hostConn, y int) {
 	if i < 0 || i >= len(c.rowRefs) || c.rowRefs[i] == "" {
 		return
 	}
-	m.clickRef(c, c.rowRefs[i])
-}
-
-// clickDockSide is a click on the subagents and background tasks drawn
-// right of the conversation, reporting whether it was on them.
-func (m *Model) clickDockSide(c *hostConn, x, y int) bool {
-	i, col := y-c.sideY, x-m.paneX()-c.sideX
-	if i < 0 || i >= len(c.side) || col < 0 || col >= c.sideW {
-		return false
-	}
-	if ref := c.panelRefs[sideRefs+i]; ref != "" {
-		m.clickRef(c, ref)
-	}
-	return true
-}
-
-// clickRef is a click on the row of ref.
-func (m *Model) clickRef(c *hostConn, ref string) {
+	ref := c.rowRefs[i]
 	if m.openDockRoom(ref) {
 		return
 	}
 	if ref == "subback" {
 		m.closeSub(c)
-		return
-	}
-	if t, ok := strings.CutPrefix(ref, pinRefPrefix); ok {
-		c.sel, c.selMoved, c.scrollOnly = t, true, false // drawn again, the scroll brings it into view
 		return
 	}
 	if ref == c.sel || strings.HasPrefix(ref, "job:") || (len(ref) > 1 && ref[0] == 't' && ref[1] >= '0' && ref[1] <= '9') {
@@ -4684,7 +4460,7 @@ func questions(req *event.Question) (title string, qs []question) {
 func (c *hostConn) syncQuestion(req *event.Question) {
 	if c.qFor != req.ID {
 		c.qFor, c.qIdx, c.qCursor, c.qPicks, c.qAnswer = req.ID, 0, 0, map[int]map[int]bool{}, map[string]string{}
-		c.qTyped, c.qFull = map[int][]rune{}, false
+		c.qTyped = map[int][]rune{}
 	}
 }
 
@@ -4752,14 +4528,6 @@ func (m *Model) questionKey(c *hostConn, req *event.Question, s string, empty bo
 			}
 			c.qCursor++
 			return nil, true
-		case "v":
-			c.qFull = !c.qFull
-			return nil, true
-		case "esc":
-			if c.qFull {
-				c.qFull = false
-				return nil, true
-			}
 		case "left", "right":
 			if len(qs) > 1 {
 				to := c.qIdx - 1
@@ -4933,9 +4701,6 @@ func cardID(c *hostConn) string {
 // answer from anywhere. It reports whether it used the key.
 func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 	kind := cardKind(c)
-	if _, ok := m.verdicts[c.key]; ok && kind == "" {
-		kind = "verdict" // its own keys are verdictKey's: here, ↑↓ onto and off it
-	}
 	if kind == "" {
 		c.cardFocus, c.cardAgain = false, "" // a key between cards: you've moved on
 		return nil, false
@@ -4972,21 +4737,13 @@ func (m *Model) cardKey(c *hostConn, s string, empty bool) (tea.Cmd, bool) {
 				s = memBtns[c.memPick][0]
 			}
 		}
-		// With the box empty its letters answer it, no ↑ needed, unless
-		// it opened on you mid-word.
-		direct := c.cardFocus || empty && c.sel == "" && !c.cardGuarded()
 		switch {
-		case s == "alt+y" || direct && s == "y" || c.cardFocus && s == "enter":
+		case s == "alt+y" || c.cardFocus && (s == "y" || s == "enter"):
 			return done(m.answerHost(c, req, true, false))
-		case s == "alt+a" || direct && s == "a":
+		case s == "alt+a" || c.cardFocus && s == "a":
 			return done(m.answerHost(c, req, true, true))
-		case s == "alt+n" || direct && s == "n":
+		case s == "alt+n" || c.cardFocus && s == "n":
 			return done(m.answerHost(c, req, false, false))
-		case !empty && !c.cardFocus && s == "enter" && !memoryWrite(pending[0]):
-			// What's typed is why not: it's denied, and the agent's told.
-			why, id := strings.TrimSpace(string(c.input)), req.ID
-			c.input, c.back = c.input[:0], 0
-			return done(hostCmd(func() error { return c.client.Deny(id, why, false) }))
 		case c.cardFocus && s == "e" && memoryWrite(pending[0]):
 			// Allowed, and opened in the memory view's editor once written.
 			c.editAfter = pending[0].ID
@@ -5061,20 +4818,7 @@ func cardHint(c *hostConn, keys string) string {
 	if c.cardFocus {
 		return paint(cOrange, "▸ ") + keys + dim("   ·   esc back to typing")
 	}
-	return keys
-}
-
-// alwaysWords is the always key's label, from what the agent says
-// allowing for good does: "always allow Bash(pnpm lint:*)", "allow for
-// this session".
-func alwaysWords(as string) string {
-	if rest, ok := strings.CutPrefix(as, "Always allow"); ok {
-		return "always allow" + rest
-	}
-	if rest, ok := strings.CutPrefix(as, "Yes, "); ok {
-		return "allow " + rest
-	}
-	return "always allow"
+	return dim("↑ to answer")
 }
 
 // selTurn is the turn picked in the conversation, or the one the picked

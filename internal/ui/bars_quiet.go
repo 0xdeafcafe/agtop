@@ -19,7 +19,28 @@ import (
 // accounts, reset times, and switch forecasts remain in the usage segment.
 func (m *Model) quietPlan() string {
 	name, q := m.startPlan()
-	return planSummary(name, q, m.snap.At)
+	k := agent.Kind(m.startKind())
+	l := lookOf(k)
+	who := paint(l.colour(), l.glyph)
+	if _, account, ok := strings.Cut(name, " · "); ok {
+		who += dim(" " + account)
+	}
+	return planSummary(who, q, m.snap.At) + m.otherDrains(k)
+}
+
+// otherDrains is every other provider in use after k: its glyph and
+// what's left of its tightest window, as drain draws it.
+func (m *Model) otherDrains(k agent.Kind) string {
+	var out string
+	for _, r := range m.inUseRows() {
+		if r.kind == k || len(r.q.Windows) == 0 {
+			continue
+		}
+		p := min(100, max(0, r.q.Since(m.snap.At).Used("")))
+		l := lookOf(r.kind)
+		out += "  " + paint(l.colour(), l.glyph) + paint(usageColor(p), drain(100-p))
+	}
+	return out
 }
 
 // startPlan is the provider and account new agents start on, and its limits.
@@ -75,21 +96,7 @@ func (m *Model) headerGauges(today float64, w int) []string {
 		return int(a.Span - b.Span)
 	})
 	for _, win := range wins[:min(2, len(wins))] {
-		p := win.Percent
-		fill := int(math.Round(min(100, max(0, p)) / 12.5))
-		bar := paint(usageColor(p), strings.Repeat("▰", fill)) + faint(strings.Repeat("▱", 8-fill))
-		note := runsOutFirst(p, win.Rate(now), win.ResetsAt, now)
-		switch {
-		case note != "":
-			note = paint(cRed, strings.TrimSpace(ansi.Strip(note))+" ⚠")
-		case !win.ResetsAt.IsZero() && win.ResetsAt.After(now):
-			note = dim("resets " + age(win.ResetsAt.Sub(now)))
-		}
-		label := win.Label
-		if label == "" {
-			label = "plan"
-		}
-		rows = append(rows, dim(fmt.Sprintf("%-3s ", ansi.Truncate(label, 3, ""))) + bar + paint(usageColor(p), fmt.Sprintf(" %3.0f%%", p)) + "  " + note)
+		rows = append(rows, compactWindow(win, now))
 	}
 	if len(wins) == 0 && q.Problem != "" {
 		rows = append(rows, dim("limits ")+paint(cYellow, "unavailable"))
@@ -107,12 +114,13 @@ func (m *Model) headerGauges(today float64, w int) []string {
 	return rows
 }
 
-// planSummary orders windows by identity/duration, never by their usage,
+// planSummary is name, drawn as the caller likes, and its windows. It
+// orders windows by identity/duration, never by their usage,
 // so changing percentages do not reorder the header on each update.
 func planSummary(name string, q usage.Quota, now time.Time) string {
 	if len(q.Windows) == 0 {
 		if q.Problem != "" {
-			return dim(name+" limits ") + paint(cYellow, "unavailable")
+			return name + dim(" limits ") + paint(cYellow, "unavailable")
 		}
 		return ""
 	}
@@ -152,16 +160,9 @@ func planSummary(name string, q usage.Quota, now time.Time) string {
 	}
 	var parts []string
 	for _, win := range chosen[:n] {
-		label := win.Label
-
-		if label == "" {
-			label = "plan"
-		}
-		p := win.Percent
-		parts = append(parts, dim(ansi.Truncate(label, 12, "…")+" ")+paint(usageColor(p), fmt.Sprintf("%3.0f%%", p))+
-			runsOutFirst(p, win.Rate(now), win.ResetsAt, now))
+		parts = append(parts, compactWindow(win, now))
 	}
-	out := dim(name+" · ") + strings.Join(parts, dim(" · "))
+	out := name + " " + strings.Join(parts, "  ")
 	if len(q.Windows) > n {
 		out += dim(fmt.Sprintf(" +%d limits", len(q.Windows)-n))
 	}
@@ -173,13 +174,34 @@ func planSummary(name string, q usage.Quota, now time.Time) string {
 	return out
 }
 
-// runsOutFirst is runsOut kept quiet: only the warning that the window runs
-// out before it resets, so the summary holds its width otherwise.
-func runsOutFirst(pct, rate float64, resets, now time.Time) string {
-	if s := runsOut(pct, rate, resets, now); !strings.Contains(s, "ok") {
-		return strings.ReplaceAll(s, "⌛", "fills in ")
+// compactWindow is a plan window in a few cells: ◷ for one of hours, ▦
+// for a longer one, what's left of it as a level two cells wide that
+// drains as it's used, and how long until it resets. With 9% or less
+// left, the level gives way to the number. A window that fills before it
+// resets says when, in red.
+func compactWindow(win usage.Window, now time.Time) string {
+	icon := "◷"
+	if win.Span == 0 || win.Span >= 24*time.Hour {
+		icon = "▦"
 	}
-	return ""
+	p := min(100, max(0, win.Percent))
+	out := dim(icon+" ") + paint(usageColor(p), drain(100-p))
+	if fill := runsOut(p, win.Rate(now), win.ResetsAt, now); strings.Contains(fill, "⌛") && !strings.Contains(fill, "ok") {
+		return out + fill
+	}
+	return out + resetIn(win.ResetsAt, now, false)
+}
+
+// drain is left, a percentage, as two cells: sixteen steps of level
+// across them, the right one emptying first; at 9 or less, the number.
+func drain(left float64) string {
+	if left < 9.5 {
+		return fmt.Sprintf("%2.0f", left)
+	}
+	const steps = " ▁▂▃▄▅▆▇█"
+	cells := []rune(steps)
+	n := int(math.Ceil(left / 100 * 16))
+	return string(cells[min(n, 8)]) + string(cells[max(0, n-8)])
 }
 
 // systemAlerts shows only conditions that need attention; healthy battery,

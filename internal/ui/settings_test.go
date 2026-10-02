@@ -339,7 +339,7 @@ func TestClickingTabs(t *testing.T) {
 		return cellw.String(before) + 1
 	}
 	m.setView(placeAgents)
-	if _, ok := m.clickTab(col(m.header()[3], "Settings"), 3); !ok || m.view != placeSettings || m.dialog == nil {
+	if _, ok := m.clickTab(col(m.header()[2], "Settings"), 2); !ok || m.view != placeSettings || m.dialog == nil {
 		t.Fatalf("clicking Settings left the view at %d", m.view)
 	}
 	if _, ok := m.clickTab(col(m.underHead()[0], "Keys"), m.headH()); !ok || m.dialog.page != pageKeys {

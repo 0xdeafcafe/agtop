@@ -15,19 +15,24 @@ func TestPlanSummaryHasStableWindowsAndWidth(t *testing.T) {
 	now := time.Now()
 	q := usage.Quota{FetchedAt: now, Windows: []usage.Window{
 		{ID: "weekly", Label: "7d", Span: 7 * 24 * time.Hour, Percent: 35, ResetsAt: now.Add(4 * 24 * time.Hour)},
-		{ID: "short", Label: "5h", Span: 5 * time.Hour, Percent: 58, ResetsAt: now.Add(time.Minute)},
+		{ID: "short", Label: "5h", Span: 5 * time.Hour, Percent: 58, ResetsAt: now.Add(3 * time.Hour)},
 	}}
-	first := ansi.Strip(planSummary("Anthropic", q, now))
-	if first != "Anthropic · 5h  58% · 7d  35%" {
-		t.Fatal(first)
+	if got := ansi.Strip(planSummary("Anthropic", q, now)); got != "Anthropic ◷ ▇  ⌛1h  ▦ █▃ ↻4d" {
+		t.Fatal(got)
 	}
+	// The short window first, whatever's used; nearly gone, the number.
 	q.Windows[0].Percent, q.Windows[1].Percent = 99, 9
-	second, _, _ := strings.Cut(ansi.Strip(planSummary("Anthropic", q, now)), " fills in ") // a run-out warning may follow
-	if len(first) != len(second) || strings.Index(second, "5h") > strings.Index(second, "7d") {
-		t.Fatalf("unstable: %q => %q", first, second)
+	got := ansi.Strip(planSummary("Anthropic", q, now))
+	if strings.Index(got, "◷") > strings.Index(got, "▦") || !strings.Contains(got, "▦  1") {
+		t.Fatal(got)
 	}
-	if strings.ContainsAny(first, "━─↑^") || strings.Contains(first, "2m") {
-		t.Fatal("summary contains moving meters or countdowns")
+}
+
+func TestDrain(t *testing.T) {
+	for left, want := range map[float64]string{100: "██", 50: "█ ", 51: "█▁", 10: "▂ ", 9: " 9", 0: " 0"} {
+		if got := drain(left); got != want {
+			t.Errorf("drain(%v) = %q, want %q", left, got, want)
+		}
 	}
 }
 
@@ -36,7 +41,7 @@ func TestPlanSummaryWarnsWhenAWindowRunsOutBeforeItResets(t *testing.T) {
 	q := usage.Quota{FetchedAt: now, Windows: []usage.Window{
 		{ID: "short", Label: "5h", Span: 5 * time.Hour, Percent: 86, Burn: 28, ResetsAt: now.Add(3 * time.Hour)},
 	}}
-	if got := ansi.Strip(planSummary("Anthropic", q, now)); got != "Anthropic · 5h  86% fills in 20m" {
+	if got := ansi.Strip(planSummary("Anthropic", q, now)); got != "Anthropic ◷ ▃  ⌛20m" {
 		t.Fatal(got)
 	}
 }
@@ -47,12 +52,12 @@ func TestPlanSummaryMarksStaleAndExpiredQuota(t *testing.T) {
 	// Even a recent fetch cannot prove new allowance once its reset elapsed.
 	q.FetchedAt = now
 	got := ansi.Strip(planSummary("OpenAI", q, now))
-	if !strings.Contains(got, " 99%") || strings.Contains(got, "  0%") || !strings.Contains(got, "refresh needed") {
+	if !strings.Contains(got, "▦  1") || !strings.Contains(got, "refresh needed") {
 		t.Fatal(got)
 	}
 	q.Windows[0].ResetsAt = now.Add(time.Hour)
 	q.FetchedAt = now.Add(-time.Hour)
-	if got := ansi.Strip(planSummary("OpenAI", q, now)); !strings.Contains(got, "99%") || !strings.Contains(got, "stale") {
+	if got := ansi.Strip(planSummary("OpenAI", q, now)); !strings.Contains(got, "▦  1") || !strings.Contains(got, "stale") {
 		t.Fatal(got)
 	}
 }

@@ -192,8 +192,11 @@ func (st *statusSheet) lay() *statusline.Layout {
 }
 
 func (st *statusSheet) maxLines() int {
-	if st.tab == stClaude {
+	switch st.tab {
+	case stClaude:
 		return statusline.MaxLines
+	case stTop:
+		return statusline.TopLines
 	}
 	return statusline.BarLines
 }

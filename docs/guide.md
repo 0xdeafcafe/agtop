@@ -205,6 +205,7 @@ Running shells, monitors, workflows and subagents sit in the dock under the conv
 - `/rewind` to before one of your messages, keeping the code or putting the files back, with a note of what the dropped turns learned.
 - `/btw` asks a side question in a panel while the agent keeps working. Its text drags to copy, as the conversation's does.
 - `/context`, `/status`, `/usage` and `/stats` open as one sheet: what fills the context, the limits, and your history by day, hour and model.
+- Context is shown against the window the session compacts in. When Claude Code's `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (in the environment or a settings file's `env`) or `autoCompactWindow` setting makes it smaller than the model's, it reads `130% · 520k of 400k · auto-compacts at 367k · model 1M`.
 - `/plugins`, `/skills`, `/permissions`, `/hooks` and `/statusline`, and `/model` and `/effort` pickers.
 
 When a turn ends and nothing is left running, Claude Code is stopped a few seconds later instead of sitting on 150–200 MB for five minutes doing nothing. The next message starts it again in about a second, with the prompt cache intact.
@@ -328,7 +329,7 @@ A plugin can also arrange the Agents list for an embedding app: with the `sideba
 - **Zen** (`ctrl+z`): only the agent that needs you and its box, then the next one. A bar across the top says where you are in the queue; `ctrl+n` skips, holding `tab` peeks at what's working, `ctrl+z` again leaves.
 - **Terminal.app** keeps ⌘ for its own menus. `#mackeys on` sets up Hammerspoon to send ⌘← → ⌘⌫ ⌘⌦ and ⌘Z on as editing keys, only while Terminal.app is in front; `#mackeys off` takes it out again.
 - **Ghostty**: `#ghostty on` puts it on LangWatch's light and dark themes, navy and orange on cream, orange on dark blue, switching with the system; rush recolours with it. Colours your config set are commented out and come back with `#ghostty off`.
-- **Status lines**: `/statusline` lays out the agent header, rush's top bar and Claude Code's own status line, with a live preview.
+- **Status lines**: `/statusline` lays out the agent header, rush's top bar (three lines, the third right of the tabs) and Claude Code's own status line, with a live preview.
 - **Colours** made from your terminal's own background and text, or set to dark or light, and a colour-blind palette, in Settings › Appearance.
 - **Copy on select**: text you drag over goes to the clipboard as you let go, unless you turn it off in Settings › Appearance; then it stays selected for cmd+c or ctrl+c.
 - **Settings from the environment**: any setting kept in `config.json` can be set for one run as `RUSH_` and its key in upper snake case, a nested one after its parent's: `RUSH_COPY_ON_SELECT=0`, `RUSH_THEME=light`, `RUSH_HIBERNATE_AFTER_MINUTES=30`. It isn't saved: `config.json` keeps what it had, unless you change the setting in rush meanwhile. Lists and maps can't be set this way.

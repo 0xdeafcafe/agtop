@@ -25,9 +25,9 @@ import (
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/hooks"
 	"github.com/0xdeafcafe/rush/internal/host"
+	"github.com/0xdeafcafe/rush/internal/room"
 	"github.com/0xdeafcafe/rush/internal/menubar"
 	"github.com/0xdeafcafe/rush/internal/plugin"
-	"github.com/0xdeafcafe/rush/internal/room"
 	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/0xdeafcafe/rush/internal/statusline"
 	"github.com/0xdeafcafe/rush/internal/theme"
@@ -142,7 +142,6 @@ type Model struct {
 	topHover           headerHover
 	hover              string
 	rowKeys            []string
-	footHits           []footHit    // the side list footer's recent setups, by column
 	events             []agentEvent // the feed at the list's foot, oldest first
 	listTop            int
 	lastClick          time.Time
@@ -161,7 +160,6 @@ type Model struct {
 	pendingCopy string
 	// Where the Prompt's box was drawn, so a click can place the cursor.
 	promptBox    box
-	shelfHits    []shelfHit // the shelf's setups on promptBox's top border, by screen column
 	promptBoxIdx int
 	promptBoxY   int
 	inKind       inputKind
@@ -195,8 +193,8 @@ type Model struct {
 	quitArmed time.Time
 	// escAt is when esc last met an empty box in escKey's Session: esc
 	// again soon after asks to close it (askClose).
-	escAt  time.Time
-	escKey string
+	escAt     time.Time
+	escKey    string
 	// closedAt is when ctrl+x last stopped closedKey: ctrl+x again soon
 	// after moves it to Done without waiting for its process to go.
 	closedAt  time.Time
@@ -206,8 +204,6 @@ type Model struct {
 	dialog    *dialog
 	picker    *picker
 	community *communitySheet // shared local help board
-	stream    streamState     // the board as a timeline at the list's foot
-	broadcast map[string]bool // #broadcast picking: the agents the next message goes to
 	roomFeed  *roomFeed       // the room the pane shows: see roomfeed.go
 	rooms     roomRows        // rooms as list rows: see roomrows.go
 	// lastPanel is the panel chosen last, chosen again in the next room set
@@ -217,7 +213,7 @@ type Model struct {
 	lastPanel      []startOver
 	verdicts       map[string]room.Summary
 	verdictsPicked map[string]bool
-	sheet          sheet // /fork, /rewind, /plugins, /statusline, /skills: see sheet.go
+	sheet     sheet           // /fork, /rewind, /plugins, /statusline, /skills: see sheet.go
 	// rewound holds the message /rewind put back, by agent, for the box
 	// once the pane reconnects.
 	rewound   map[string]string
@@ -243,13 +239,12 @@ type Model struct {
 	localQ       map[string]*localQueue // messages waiting for Claude Code sessions, by agent key
 	subNotes     map[string][]subNote   // what you sent subagents that their conversations don't show, by subQKey
 	online       onlineWatch            // sessions an API error stopped, told to continue once it can be reached
-	subNudged    map[string]bool        // agent key + subagent run told it went quiet: see stucksubs.go
 	moveWhenIdle map[string]bool        // agents to move to rush mode when their turn ends
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
 	ptrX, ptrY   int                    // where the mouse was last seen
 	ptrSeen      bool
-	pointer      string     // the pointer's shape last asked of the terminal
-	sheetAt      [2]int     // where the open sheet's body was drawn: x, y
+	pointer      string // the pointer's shape last asked of the terminal
+	sheetAt      [2]int // where the open sheet's body was drawn: x, y
 	over         overlayHit // the box over the screen, as last drawn, for the mouse
 	hibernated   map[string]bool
 	offline      bool // never ask Anthropic for usage (--soak)
@@ -295,13 +290,6 @@ type Model struct {
 	// groupOf is the list section each agent is in, folded or not.
 	groupOf map[string]string
 	folders folderCache // what git says of the folders in the list
-	// projTitles are the list's project names by folderKey, for the tag
-	// a row carries where no project heads it.
-	projTitles map[string]string
-	// runSince is when each working agent's run began, as the list saw it
-	// start; zero for one already working when rush opened.
-	runSince map[string]time.Time
-	runInit  bool
 	// hosted is the rush-mode session shown alone (NewHosted), and hostedKey
 	// its agent's key once the snapshot has it.
 	hosted, hostedKey string
@@ -373,19 +361,13 @@ func sectionKey(title string) string { return "§" + title }
 
 func New(store *state.Store, version string) *Model { return newModel(store, version, false) }
 
-// newLoader is the fleet's reader, which reads which sessions ran which
-// agents (a few dozen bytes each) as it's made.
-//
-//uiblock:nowait New is asked for before the program starts, so nothing waits on it
-func newLoader(store *state.Store) *fleet.Loader { return fleet.NewLoader(store) }
-
 // newModel is New, leaving past conversations out of its readings when
 // skipPast (see fleet.Loader.SkipPast) until something needs every agent.
 func newModel(store *state.Store, version string, skipPast bool) *Model {
 	dir := os.Getenv("PWD") // the shell's word for now: Init asks the kernel
 	convo.SetPixelPictures(store.Config.PixelPictures)
 	m := &Model{
-		store: store, loader: newLoader(store), scanner: fleet.NewScanner(),
+		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
 		lastState:  map[string]string{},
 		hibernated: map[string]bool{},
@@ -481,7 +463,7 @@ func (m *Model) Init() tea.Cmd {
 		// Only the one session: nothing about the app as a whole.
 		return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadPreview(), startColours, m.loadKeys(), m.startHooks())
 	}
-	return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkHarnesses(false), m.checkPluginApprovals(), startColours, m.loadStream())
+	return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkHarnesses(false), m.checkPluginApprovals(), startColours)
 }
 
 // askColours asks the terminal for its background and text, which rush's
@@ -729,20 +711,6 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 	}
 	k := m.rowAt(x, y)
 	if k == "" {
-		return nil
-	}
-	switch k {
-	case footNextKey:
-		return m.openStartSheet()
-	case footRecentKey:
-		m.footClick(x)
-		return nil
-	}
-	if id, ok := strings.CutPrefix(k, streamKeyPrefix); ok {
-		return m.openCommunity(id)
-	}
-	if m.broadcast != nil && !strings.HasPrefix(k, "§") {
-		m.broadcastPick(k)
 		return nil
 	}
 	double := k == m.sel && time.Since(m.lastClick) < 400*time.Millisecond
@@ -1011,7 +979,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.emitHooks()
-		cmds := []tea.Cmd{tick(), m.watchBinary(), m.recheckAfter(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline(), m.nudgeStuckSubs()}
+		cmds := []tea.Cmd{tick(), m.watchBinary(), m.recheckAfter(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline()}
 		if m.hosted == "" {
 			// autoSwitch too: a session's usage reading arrives with the
 			// snapshot, not with a fetch.
@@ -1543,13 +1511,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.embedded = true
 			}
 			m.host.txt.on = false // a click elsewhere drops what was dragged over
-			if m.clickDockSide(m.host, msg.X, msg.Y) {
-				return m, nil
-			}
 			if m.contextAt(m.host, msg.X, msg.Y) {
 				return m, m.openInfo(m.host, infoContext)
 			}
 			if m.clickPaneTab(m.host, msg.X, msg.Y) {
+				return m, nil
+			}
+			if m.clickHistory(m.host, msg.X, msg.Y) {
 				return m, nil
 			}
 			if m.clickLabel(m.host, msg.X, msg.Y) {
@@ -1939,69 +1907,22 @@ func (m *Model) focused() *fleet.Agent {
 	return nil
 }
 
-// What's in play splits by what it wants from you: Needs you (a question,
-// a finished turn, a halt), Stuck? (at work but silent for
-// fleet.StuckAfter), Working, then Idle (open, or stopped within
-// activeFor).
-const (
-	needsSection   = "Needs you"
-	stuckSection   = "Stuck?"
-	workingSection = "Working"
-	idleSection    = "Idle"
-	// justLeftSection is the way out: what left Idle, most recent first,
-	// for justLeftFor and up to justLeftCount, so one you missed is still
-	// where you'd look.
-	justLeftSection = "Just left"
-)
-
-// inPlay is whether section title holds agents in play, not history.
-func inPlay(title string) bool {
-	switch title {
-	case needsSection, stuckSection, workingSection, idleSection:
-		return true
-	}
-	return false
-}
-
-// byTime is whether section title lists what finished purely by when, the
-// most recent first, its project a tag rather than a heading.
-func byTime(title string) bool {
-	switch title {
-	case justLeftSection, "Today", "Done", "Earlier":
-		return true
-	}
-	return false
-}
+// activeSection holds every agent in play: one that needs you or waits on
+// you, one whose turn is yours, one working, and one idle or stopped within
+// activeFor, each row coloured by which.
+const activeSection = "Active"
 
 // activeFor is how long a stopped agent stays in Active before Today has
-// it: Settings › General, 5 minutes unless set.
+// it: Settings › General, 30 minutes unless set.
 func (m *Model) activeFor() time.Duration {
 	switch n := m.store.Config.ActiveMinutes; {
 	case n < 0:
 		return 0
 	case n == 0:
-		return 5 * time.Minute
+		return 30 * time.Minute
 	default:
 		return time.Duration(n) * time.Minute
 	}
-}
-
-// justLeftFor is how long an agent stays in Just left after its last
-// activity: Settings › General, 2 hours unless set; off, none do.
-func (m *Model) justLeftFor() time.Duration {
-	switch n := m.store.Config.JustLeftMinutes; {
-	case n < 0:
-		return 0
-	case n == 0:
-		return 2 * time.Hour
-	default:
-		return time.Duration(n) * time.Minute
-	}
-}
-
-// justLeftCount is how many Just left holds at most: 10 unless set.
-func (m *Model) justLeftCount() int {
-	return cmp.Or(m.store.Config.JustLeftCount, 10)
 }
 
 // rebuild groups the agents for the current group-by mode. What needs the
@@ -2018,7 +1939,6 @@ func (m *Model) rebuild() {
 		recent time.Time
 	}
 	order := map[*fleet.Agent]int{} // places under a plugin's arrangement
-	var left []*fleet.Agent         // Just left, before its count is applied
 	groups := map[string]*group{}
 	add := func(name string, rank int, a *fleet.Agent) {
 		g := groups[name]
@@ -2048,22 +1968,26 @@ func (m *Model) rebuild() {
 		}
 		fresh := a.Open() || a.Busy() || a.Pinned || a.Age(now) < 24*time.Hour
 		switch {
-		case a.NeedsYou(), a.Halted(), a.Waiting():
-			add(needsSection, 1, a) // a question, or an error it won't go on from by itself
+		case a.NeedsYou():
+			add(activeSection, 1, a)
+		case a.Halted() && !a.Seen:
+			add(activeSection, 1, a) // it stopped on an error and won't go on by itself
+		case a.Waiting() || a.Halted():
+			add(activeSection, 1, a)
 		case folderKey(a) == scratchSection:
 			add("Scratch", 10, a) // temp-folder runs finish on their own, not on your turn; folded
-		case a.YourTurn(now), a.JustFinished(now) && !a.Seen && !a.Checking:
-			add(needsSection, 1, a) // finished without asking; often wants "keep going"
-		case a.Stuck(now):
-			add(stuckSection, 2, a)
-		case a.Checking, a.Live(), a.Busy():
-			add(workingSection, 3, a)
+		case a.YourTurn(now):
+			add(activeSection, 1, a) // finished without asking; often wants "keep going"
+		case a.Checking || a.JustFinished(now) && !a.Seen: // once seen, a finish needn't linger
+			add(activeSection, 1, a)
 		case a.Pinned:
-			add("Pinned", 5, a)
-		case a.PID != 0, !a.Done && a.Age(now) < m.activeFor():
-			add(idleSection, 4, a) // open, or stopped a moment ago: in play a while before Today has it
-		case !a.Done && fresh && a.Age(now) < m.justLeftFor():
-			left = append(left, a) // left Idle a while ago: kept in sight, not gone
+			add("Pinned", 2, a)
+		case a.Live() || a.Busy():
+			add(activeSection, 1, a)
+		case a.PID != 0:
+			add(activeSection, 1, a) // your turn, working and idle share one list, a project's rows together
+		case !a.Done && a.Age(now) < m.activeFor():
+			add(activeSection, 1, a) // stopped a moment ago: it stays in play a while before Today has it
 		case !fresh:
 			add("Earlier", 9, a)
 		case a.Done:
@@ -2073,15 +1997,6 @@ func (m *Model) rebuild() {
 		case by == "group" && a.Group != "":
 			add(a.Group, 5, a)
 		default:
-			add("Today", 7, a)
-		}
-	}
-	// The most recent stay in Just left, up to its count; the rest go on to Today.
-	slices.SortStableFunc(left, func(a, b *fleet.Agent) int { return cmp.Compare(a.Age(now), b.Age(now)) })
-	for i, a := range left {
-		if i < m.justLeftCount() {
-			add(justLeftSection, 5, a)
-		} else {
 			add("Today", 7, a)
 		}
 	}
@@ -2102,13 +2017,6 @@ func (m *Model) rebuild() {
 		}
 		titles = folderTitles(keys)
 	}
-	var atWork []*fleet.Agent
-	for _, n := range []string{workingSection, stuckSection} {
-		if g := groups[n]; g != nil {
-			atWork = append(atWork, g.agents...)
-		}
-	}
-	m.noteRuns(now, atWork)
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].rank != list[j].rank {
 			return list[i].rank < list[j].rank
@@ -2127,14 +2035,8 @@ func (m *Model) rebuild() {
 			}
 		case sb == nil && g.name == "Done":
 			less = m.doneLess
-		case sb == nil && (g.name == needsSection || g.name == stuckSection):
-			less = waitedLess(now) // what you'd look at first: a question, then the longest waiting or silent
-		case sb == nil && g.name == workingSection:
-			less = m.runLess(now) // the longest at it this run first
-		case sb == nil:
-			less = stoppedLess(now) // the one that stopped last first
 		}
-		if split && !byTime(g.name) { // what finished goes by time, its project a tag
+		if split {
 			within := less
 			less = func(a, b *fleet.Agent) bool {
 				if c := cmpLower(titles[folderKey(a)], titles[folderKey(b)]); c != 0 {
@@ -2179,7 +2081,7 @@ func (m *Model) rebuild() {
 			if temp >= tempShown {
 				meta += " · " + disk(temp) + " tmp"
 			}
-		case name == idleSection:
+		case name == activeSection:
 			var held uint64
 			for _, a := range g.agents {
 				if !a.Live() && !a.Busy() {
@@ -2193,7 +2095,6 @@ func (m *Model) rebuild() {
 		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: meta,
 			folded: fold, peek: strings.Join(names, ", ")})
 		project, tree := "\x00", ""
-		split := split && !byTime(g.name)
 		for _, a := range g.agents {
 			m.order = append(m.order, a)
 			m.groupOf[a.Key] = g.name
@@ -2228,11 +2129,8 @@ func (m *Model) rebuild() {
 				m.lines = append(m.lines, listLine{kind: lineAgent, agent: mb, inset: under})
 			}
 		}
-		if !fold { // folded history stacks tight
-			m.lines = append(m.lines, listLine{kind: lineBlank})
-		}
+		m.lines = append(m.lines, listLine{kind: lineBlank})
 	}
-	m.projTitles = titles
 	m.applyRestore()
 	valid := false
 	for _, l := range m.lines {
@@ -2304,76 +2202,6 @@ func cmpLower(x, y string) int {
 	}
 	return cmp.Compare(len(x), len(y))
 }
-
-// waitedLess orders a question or halt first, then by how long each has
-// been silent, longest first.
-func waitedLess(now time.Time) func(a, b *fleet.Agent) bool {
-	return func(a, b *fleet.Agent) bool {
-		if x, y := asks(a), asks(b); x != y {
-			return x
-		}
-		if x, y := a.Quiet(now), b.Quiet(now); x != y {
-			return x > y
-		}
-		return a.Key < b.Key
-	}
-}
-
-// stoppedLess orders agents that aren't at work: one asking you something
-// first, then by when each stopped, the latest first.
-func stoppedLess(now time.Time) func(a, b *fleet.Agent) bool {
-	return func(a, b *fleet.Agent) bool {
-		if x, y := asks(a), asks(b); x != y {
-			return x
-		}
-		if x, y := a.Quiet(now), b.Quiet(now); x != y {
-			return x < y
-		}
-		return a.Key < b.Key
-	}
-}
-
-// noteRuns marks when each agent at work began this run; one no longer
-// at work is forgotten, so a restart counts from zero.
-func (m *Model) noteRuns(now time.Time, at []*fleet.Agent) {
-	next := make(map[string]time.Time, len(at))
-	for _, a := range at {
-		t, ok := m.runSince[a.Key]
-		switch {
-		case ok:
-		case !m.runInit:
-			t = time.Time{} // already at it: since before rush looked
-		default:
-			t = now
-		}
-		next[a.Key] = t
-	}
-	m.runSince = next
-	m.runInit = m.runInit || m.snap != nil && len(m.snap.Agents) > 0
-}
-
-// runFor is how long a has been at its current run: the session's whole
-// life when the run began before rush opened.
-func (m *Model) runFor(a *fleet.Agent, now time.Time) time.Duration {
-	if t := m.runSince[a.Key]; !t.IsZero() {
-		return now.Sub(t)
-	}
-	return a.Elapsed(now)
-}
-
-// runLess orders the working by how long each has been at this run,
-// longest first.
-func (m *Model) runLess(now time.Time) func(a, b *fleet.Agent) bool {
-	return func(a, b *fleet.Agent) bool {
-		if x, y := m.runFor(a, now), m.runFor(b, now); x != y {
-			return x > y
-		}
-		return a.Key < b.Key
-	}
-}
-
-// asks is an agent waiting on an answer from you, not just a next task.
-func asks(a *fleet.Agent) bool { return a.NeedsYou() || a.Waiting() || a.Halted() }
 
 // doneLess orders Done by when each was last touched, newest first: put
 // away, or used since.

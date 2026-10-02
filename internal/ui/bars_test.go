@@ -199,3 +199,15 @@ func TestSubLineFade(t *testing.T) {
 		t.Fatal("0 leaves the colour, half moves it")
 	}
 }
+
+// The top bar's third line sits right of the tabs.
+func TestTopBarThirdLine(t *testing.T) {
+	m, _, _ := barAgentFixture(t)
+	m.w = 160
+	m.bars.Top = statusline.Layout{Lines: [][]string{{"plan"}, {"memory"}, {"version"}}, Sep: " · "}
+	rows := m.header()
+	tabs := ansi.Strip(rows[2])
+	if !strings.Contains(tabs, viewNames[0]) || !strings.Contains(tabs, "rush "+m.version) {
+		t.Fatalf("tabs row %q", tabs)
+	}
+}

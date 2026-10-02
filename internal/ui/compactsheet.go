@@ -243,14 +243,15 @@ func (m *Model) compactBy(c *hostConn, id string, o summarizer) tea.Cmd {
 }
 
 // compactTyped is a typed /compact: summarised by the fast model (the
-// #compact default, else Claude's haiku in a Claude session) when the
+// #compact default, else the session's agent's quick model, Claude's haiku) when the
 // session is idle and can carry on from a summary; otherwise, given
 // instructions, or as /compact native, the harness compacts it itself.
 func (m *Model) compactTyped(c *hostConn, a *fleet.Agent, arg string) (tea.Cmd, bool) {
 	kind := agent.Migrated(firstNonEmpty(c.sess.Info.Kind, a.Kind))
 	o := summarizer{kind: agent.Kind(m.store.Config.CompactKind), label: agentName(m.store.Config.CompactKind), model: m.store.Config.CompactModel}
-	if o.model == "" && kind == "claude" {
-		o = summarizer{kind: kind, label: agentName(string(kind)), model: "haiku"}
+	if q, ok := agent.As[agent.Querier](kind); ok && o.model == "" {
+		quick, _ := q.QueryModels()
+		o = summarizer{kind: kind, label: agentName(string(kind)), model: quick}
 	}
 	st := c.sess.Info.State
 	if arg == "native" && c.client != nil {

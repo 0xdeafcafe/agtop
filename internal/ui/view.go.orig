@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -112,7 +111,7 @@ func (m *Model) headH() int {
 	if m.w < narrowHead || m.store.Config.HideLogo {
 		return 3
 	}
-	return clkH - 1 // the bottle's foot shares the pages row
+	return clkH // the bottle keeps its top gap; its foot shares the pages row
 }
 
 // topH is the rows above the body: the header and the row under it. Zen
@@ -147,7 +146,10 @@ const narrowHead = 60
 
 func (m *Model) header() (rows []string) {
 	defer func() {
-		row := 2 // the tabs
+		row := 3
+		if m.w < narrowHead || m.store.Config.HideLogo {
+			row = 2
+		}
 		if row < len(rows) {
 			m.headerPointerLines[0] = rows[row]
 		}
@@ -201,17 +203,13 @@ func (m *Model) header() (rows []string) {
 		right2 = dim("costing transcripts…   ") + right2
 	}
 
-	right := func(body, rt string) string {
+	line := func(r, l, rt string) string {
+		body := "  " + r + gap + l
 		gap := m.w - cellw.String(body) - cellw.String(rt) - 2
 		if gap < 2 {
 			return fit(body, m.w)
 		}
 		return body + strings.Repeat(" ", gap) + rt
-	}
-	line := func(r, l, rt string) string { return right("  "+r+gap+l, rt) }
-	// The top bar's third line sits right of the tabs.
-	withRight3 := func(tabs string) string {
-		return right(tabs, m.barLine(barTop, 2, x, m.w-cellw.String(tabs)-4))
 	}
 	// < > (or , .) go between the places; in a Session's box they're
 	// text, so it's ctrl+\\ there. The hint goes first when it won't fit.
@@ -221,7 +219,7 @@ func (m *Model) header() (rows []string) {
 	}
 	if m.store.Config.HideLogo {
 		strip := "  " + gap + strings.Join(m.tabs(), " ")
-		return []string{line(robot[1], left1, right1), line(robot[2], left2, right2), withRight3(withTabHint(strip, places, "places", "", m.w))}
+		return []string{line(robot[1], left1, right1), line(robot[2], left2, right2), withTabHint(strip, places, "places", "", m.w)}
 	}
 	// Keep the icon's original screen rows, while the text and everything
 	// below it move up. Its last row shares the pages row's unused left side.
@@ -241,10 +239,10 @@ func (m *Model) header() (rows []string) {
 				return f + strings.Repeat(" ", max(0, col-cellw.String(f))) + r
 			}
 			g = append(g, "", "", "")
-			return []string{at(line(robot[0], left1, ""), g[0]), at(line(robot[1], left2, ""), g[1]), at(tabs, g[2]), at(tail, g[3])}
+			return []string{"", at(line(robot[0], left1, ""), g[0]), at(line(robot[1], left2, ""), g[1]), at(tabs, g[2]), at(tail, g[3])}
 		}
 	}
-	return []string{line(robot[0], left1, right1), line(robot[1], left2, right2), withRight3(tabs), tail}
+	return []string{"", line(robot[0], left1, right1), line(robot[1], left2, right2), tabs, tail}
 }
 
 // slicesMap is f of each of xs.
@@ -835,10 +833,7 @@ func (m *Model) sideWidth() int {
 		return max(floor, min(int(float64(m.w)*f+0.5), m.w*3/4))
 	}
 	// The Session never takes more than its content can use; the spare
-	// room goes to Agents. With tiles pinned beside it, they use it.
-	if len(m.grid.keys) > 0 {
-		return side
-	}
+	// room goes to Agents.
 	return max(side, m.w-1-maxPane)
 }
 
@@ -1058,73 +1053,16 @@ func (m *Model) listView() string {
 				card = append(make([]string, max(0, len(card)-len(pick))), pick...)
 			}
 		}
-		// Recall, when on, takes the foot of the list, over the feed: the
-		// open chat's notes. The list scrolls in what's left.
-		m.side.shownOn = ""
-		var recall []string
-		if card == nil && m.side.on && m.host != nil && bodyH >= 16 {
-			recall = m.sideColumn(listW, min(recallMax, bodyH/2), 0, 0)
-			for len(recall) > 0 && strings.TrimSpace(ansi.Strip(recall[len(recall)-1])) == "" {
-				recall = recall[:len(recall)-1]
-			}
-			recall = append(recall, "")
-		}
-		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1-len(card)-len(recall))...)
+		left = append([]string{m.columnHeader(listW)}, m.listLines(listW, bodyH-1-len(card))...)
 		// What agents did lately fills what the list leaves empty.
-		// The next agent's setup is pinned at the foot when there's room.
-		var foot, footKeys []string
-		if card == nil && bodyH-len(left) >= 6 {
-			foot, footKeys = m.footLines(listW)
-		}
-		if recall != nil {
-			at := bodyH - len(foot) - len(recall)
-			if feed, _ := m.feedLines(listW, at-len(left)-1); feed != nil {
-				at -= len(feed)
-			}
-			for len(left) < at {
-				left = append(left, "")
-			}
-			for len(m.rowKeys) < len(left)-1+len(recall) {
-				m.rowKeys = append(m.rowKeys, "")
-			}
-			m.side.y = len(head) + len(left)
-			left = append(left, recall...)
-		}
-		// The community's posts rise through what's left above the feed,
-		// which keeps half when both want it.
-		free := bodyH - len(left) - len(foot) - 1
-		var stream, streamKeys []string
-		if card == nil {
-			feedRoom := free
-			if len(m.stream.posts) > 0 && len(m.events) > 0 {
-				feedRoom = free / 2
-			}
-			feed, _ := m.feedLines(listW, feedRoom)
-			stream, streamKeys = m.streamLines(listW, free-len(feed))
-		}
-		if stream != nil {
-			for len(m.rowKeys) < len(left)-1 {
-				m.rowKeys = append(m.rowKeys, "")
-			}
-			left, m.rowKeys = append(left, stream...), append(m.rowKeys, streamKeys...)
-		}
-		if feed, keys := m.feedLines(listW, bodyH-len(left)-len(foot)-1); card == nil && feed != nil {
-			for len(left) < bodyH-len(feed)-len(foot) {
+		if feed, keys := m.feedLines(listW, bodyH-len(left)-1); card == nil && feed != nil {
+			for len(left) < bodyH-len(feed) {
 				left = append(left, "")
 			}
 			for len(m.rowKeys) < len(left)-1 {
 				m.rowKeys = append(m.rowKeys, "")
 			}
 			left, m.rowKeys = append(left, feed...), append(m.rowKeys, keys...)
-		}
-		if foot != nil {
-			for len(left) < bodyH-len(foot) {
-				left = append(left, "")
-			}
-			for len(m.rowKeys) < len(left)-1 {
-				m.rowKeys = append(m.rowKeys, "")
-			}
-			left, m.rowKeys = append(left, foot...), append(m.rowKeys, footKeys...)
 		}
 		if card != nil {
 			for len(left) < bodyH-len(card) {
@@ -1141,6 +1079,12 @@ func (m *Model) listView() string {
 		// row under it.
 		gl := m.gridSplit(paneW-3, paneH)
 		sw, sh := gl.sw, gl.sh
+		// The sidekick takes the spare width right of a wide Session.
+		side := gl.col == nil && gl.row == nil && !m.peek.on && !m.zen && m.sideFits(sw)
+		m.side.shownOn, m.side.pad, m.side.headH = "", 0, 0
+		if side {
+			sw, m.side.pad = sw-sidekickW, sidekickW
+		}
 		if m.peek.on {
 			pane = m.zenPeekLines(paneW-3, paneH)
 		} else if m.zen && len(m.zenQueue()) == 0 {
@@ -1162,6 +1106,10 @@ func (m *Model) listView() string {
 		} else {
 			sessionHeader = !m.zenFull()
 		}
+		if side {
+			pane = m.sideJoin(pane, sw, sh, len(head))
+		}
+		m.side.pad = 0
 		m.grid.at, m.grid.colX, m.grid.rowY = m.grid.at[:0], 0, 0
 		if (gl.col != nil || gl.row != nil) && !m.peek.on {
 			pane = m.gridJoin(pane, m.paneX(), len(head), gl)
@@ -1469,25 +1417,13 @@ func (m *Model) listLines(w, h int) []string {
 	var all, keys []string
 	var cont []bool // a stacked row's second line, which the list never starts on
 	selTop, selBottom := -1, -1
-	wash := "" // the ground of the agent row being drawn, when it wants you
 	emit := func(line, key string, sel bool) {
-		if m.broadcast[key] && line != "" {
-			line = paint(cGreen, "✓") + line[1:]
-		}
-		if wash != "" && key != "" {
-			if sel && !m.broadcast[key] {
-				line = paint(cOrange, "▍") + line[1:]
-			}
-			line = wash + strings.ReplaceAll(fit(line, w), reset, reset+wash) + reset
-		} else if sel {
+		if sel {
 			if selTop < 0 {
 				selTop = len(all)
 			}
 			selBottom = len(all)
-			if !m.broadcast[key] {
-				line = paint(cOrange, "▍") + line[1:]
-			}
-			line = highlight(line, w)
+			line = highlight(paint(cOrange, "▍")+line[1:], w)
 		} else if key != "" && key == m.hover {
 			line = hoverLine(line, w)
 		}
@@ -1502,11 +1438,9 @@ func (m *Model) listLines(w, h int) []string {
 			key := sectionKey(l.title)
 			emit(m.sectionLine(l, w), key, key == m.sel)
 		case lineProject:
-			for _, ln := range strings.Split(m.projectLine(l, w), "\n") {
-				emit(ln, "", false)
-			}
+			emit(m.projectLine(l, w), "", false)
 		case lineTree:
-			if soloTree(m.lines, i) { // one agent: it stays under its project, the worktree a tag
+			if two && soloTree(m.lines, i) {
 				tag = m.treeTag(l)
 				continue
 			}
@@ -1530,14 +1464,12 @@ func (m *Model) listLines(w, h int) []string {
 				tag = ""
 				continue
 			}
-			wash = m.rowWash(l.agent, sel)
 			emit(pad+m.agentLine(l.agent, rw, w, sel, nameCol-len(pad), two, tag), l.agent.Key, sel)
 			tag = ""
-			if two && (m.saysWhy(l.agent) || m.hasFilterMatch(l.agent)) {
+			if two {
 				emit(pad+m.agentSub(l.agent, rw), l.agent.Key, sel)
 				cont[len(cont)-1] = true
 			}
-			wash = ""
 		}
 	}
 	if len(m.order) == 0 {
@@ -1589,28 +1521,6 @@ const tabOn = "\x1b[1;38;2;24;22;20;48;2;217;119;87m"
 
 var tabOff, hoverBG string
 
-// askBG and errBG wash a row that wants you: a question, or an error;
-// the Sel ones when it's the row picked.
-var askBG, askSelBG, errBG, errSelBG string
-
-// rowWash is the ground a row that wants you is drawn on, picked or not;
-// none for the rest.
-func (m *Model) rowWash(a *fleet.Agent, sel bool) string {
-	var bg, on string
-	switch {
-	case a.Halted():
-		bg, on = errBG, errSelBG
-	case a.YourTurn(m.snap.At) || a.JustFinished(m.snap.At):
-		return ""
-	case a.NeedsYou() || a.Waiting() || a.State == "blocked":
-		bg, on = askBG, askSelBG
-	}
-	if sel {
-		return on
-	}
-	return bg
-}
-
 func hoverLine(line string, w int) string {
 	line = fit(line, w)
 	return hoverBG + strings.ReplaceAll(line, reset, reset+hoverBG) + reset
@@ -1622,7 +1532,7 @@ func (m *Model) sectionLine(l listLine, w int) string {
 		arrow = faint("▸ ")
 	}
 	meta := l.meta
-	if l.title == needsSection && m.sharedContext() != "" {
+	if (l.title == activeSection || l.title == "Needs you") && m.sharedContext() != "" {
 		meta += "  ·  " + m.sharedContext()
 	}
 	if l.folded {
@@ -1692,12 +1602,9 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 
 	var cells []string
 	if p.Context > 0 {
-		f := ctxFill(a, int64(p.Context), agent.ContextWindow(agent.Kind(a.Kind), p.Model))
-		of := " of " + tokens(f.Window)
-		if f.Compacts() {
-			of += " auto-compact"
-		}
-		cells = append(cells, dim("context ")+ctxBar(f.Pct())+" "+paint(cText, fmt.Sprintf("%.0f%%", f.Pct()))+dim(of))
+		win := agent.ContextWindow(agent.Kind(a.Kind), p.Model)
+		pct := float64(p.Context) / float64(win) * 100
+		cells = append(cells, dim("context ")+ctxBar(pct)+" "+paint(cText, fmt.Sprintf("%.0f%%", pct))+dim(" of "+tokens(win)))
 	}
 	u := a.Spend.Usage
 	if a.Spend.Cost > 0 {
@@ -1894,46 +1801,20 @@ func (m *Model) agentSub(a *fleet.Agent, w int) string {
 		return "  " + faint("╰ ") + snip
 	}
 	summary, col, justDone := m.rowSummary(a)
-	text := paint(col, tidyFit(summary, room))
+	text := paint(col, fit(summary, room))
 	switch {
 	case justDone:
-		text = paint(cGreen, "just finished") + faint(" · ") + paint(col, tidyFit(summary, room-16))
+		text = paint(cGreen, "just finished") + faint(" · ") + paint(col, fit(summary, room-16))
 	case summary == "":
-		text = faint(tidyFit(m.context(a), room))
+		text = faint(fit(m.context(a), room))
 	}
-	if by := subLineFade(m.store.Config.SubLine); by > 0 {
-		text = fadeText(text, by)
+	switch m.store.Config.SubLine {
+	case "dim":
+		text = dim(ansi.Strip(text))
+	case "faint":
+		text = faint(ansi.Strip(text))
 	}
 	return "  " + faint("╰ ") + text
-}
-
-// subLineFade is how far toward the background the second line goes, from
-// Settings' transparency: "50%" is half way. The old dim and faint are
-// half and three quarters.
-func subLineFade(v string) float64 {
-	switch v {
-	case "dim":
-		return 0.5
-	case "faint":
-		return 0.75
-	}
-	n, err := strconv.Atoi(strings.TrimSuffix(v, "%"))
-	if err != nil {
-		return 0
-	}
-	return float64(min(90, max(0, n))) / 100
-}
-
-var sgrFG = regexp.MustCompile(`38;2;(\d+);(\d+);(\d+)`)
-
-// fadeText is s with each of its text colours by of the way to the
-// background, so a state's colour stays itself, only quieter.
-func fadeText(s string, by float64) string {
-	return sgrFG.ReplaceAllStringFunc(s, func(code string) string {
-		p := sgrFG.FindStringSubmatch(code)
-		c := theme.Mix(theme.RGB{R: atoi8(p[1]), G: atoi8(p[2]), B: atoi8(p[3])}, painted.BG, by)
-		return fmt.Sprintf("38;2;%d;%d;%d", c.R, c.G, c.B)
-	})
 }
 
 // agentLine is the first line of a row: marker, name, badges, figures, and
@@ -1968,9 +1849,9 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	case a.JustFinished(now):
 		marker = paint(cGreen, "✓")
 	case a.NeedsYou():
-		marker = paint(cYellow+bold, "?") // a question: what to look at first
+		marker = paint(cYellow, "●")
 	case a.Waiting():
-		marker = paint(cYellow, "?")
+		marker = paint(cYellow, "○")
 	case live:
 		marker = paint(cOrange, convo.Spin(a.Kind, m.tick+len(a.ID)))
 	case a.Busy():
@@ -2022,9 +1903,9 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 			return strings.Repeat(" ", wTok)
 		}
 		v := right1(tokens(a.Spend.Context), wTok)
-		f := ctxFill(a, a.Spend.Context, agent.ContextWindow(agent.Kind(a.Kind), a.Spend.Model))
+		win := agent.ContextWindow(agent.Kind(a.Kind), a.Spend.Model)
 		switch {
-		case f.Window > 0 && f.Pct() >= 80:
+		case win > 0 && float64(a.Spend.Context)/float64(win) >= 0.8:
 			return paint(cYellow, v)
 		case active:
 			return dim(v)
@@ -2048,17 +1929,9 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	switch {
 	case wTime == 0:
 		right += " "
-	case a.Stuck(now):
-		right += paint(cYellow, right1(age(a.Quiet(now)), wTime)) + " " // how long it's been silent
-	case live && !a.NeedsYou() && !a.Waiting():
-		right += dim(right1(dur(m.runFor(a, now)), wTime)) + " " // this run's, not the session's
-	case m.groupOf[a.Key] == needsSection:
-		waited, col := a.Age(now), cText
-		if waited >= 30*time.Minute {
-			col = cYellow
-		}
-		right += paint(col, right1(age(waited), wTime-2)) + " " + cacheWheel(a.Quiet(now)) + " " // the wheel in the column's gutter
-	default: // how long it has waited
+	case live:
+		right += dim(right1(dur(a.Elapsed(now)), wTime)) + " "
+	default:
 		right += faint(right1(age(a.Age(now)), wTime)) + " "
 	}
 
@@ -2091,7 +1964,7 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	room := w - 3 - cellw.String(right)
 	// Reserve room for identity before shortening a long session title.
 	nameRoom := room
-	withSummary := (summary != "" && m.saysWhy(a) || m.hasFilterMatch(a)) && !stacked
+	withSummary := (summary != "" || m.hasFilterMatch(a)) && !stacked
 	full, extra := "", 0
 	if sel || a.Key == m.hover {
 		full = m.badges(a, true)
@@ -2119,11 +1992,8 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	if badges != "" {
 		left += " " + badges
 	}
-	if tag != "" { // its worktree, which has no heading of its own
+	if tag != "" && stacked { // its worktree, which has no heading of its own
 		left += "  " + tag
-	}
-	if p := m.projTitles[folderKey(a)]; p != "" && byTime(m.groupOf[a.Key]) {
-		left += "  " + faint(p) // what finished goes by time, without project headings
 	}
 	if withSummary {
 		left = fit(left, nameCol)
@@ -2138,32 +2008,6 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 		}
 	}
 	return " " + marker + " " + fit(left, room) + right
-}
-
-// saysWhy is whether a row's summary earns its place: a question, a halt
-// or a stuck agent says what it wants; anything else is only its name.
-func (m *Model) saysWhy(a *fleet.Agent) bool {
-	return asks(a) || a.Stuck(m.snap.At)
-}
-
-// cacheWheel is how much of the prompt cache's hour is left since the
-// agent last wrote, as a wheel ticking round; ⊘ once it has gone, when a
-// reply re-reads the whole conversation at full price.
-func cacheWheel(quiet time.Duration) string {
-	switch left := 1 - float64(quiet)/float64(cacheLife); {
-	case left > 0.8:
-		return paint(cGreen, "●")
-	case left > 0.6:
-		return paint(cGreen, "◕")
-	case left > 0.4:
-		return paint(cYellow, "◑")
-	case left > 0.2:
-		return paint(cOrange, "◔")
-	case left > 0:
-		return paint(cRed, "○")
-	default:
-		return faint("⊘")
-	}
 }
 
 // rowSummary is the latest thing an agent said or is doing, the colour to
@@ -2216,9 +2060,6 @@ func (m *Model) rowSummary(a *fleet.Agent) (summary, sumColor string, justDone b
 	}
 	if summary == "stopped" {
 		summary = ""
-	}
-	if a.Stuck(now) {
-		summary, sumColor = "silent "+age(a.Quiet(now))+" · ctrl+b asks why · "+summary, cYellow
 	}
 	summary = mdPlain.Replace(summary)
 	return
@@ -2362,34 +2203,26 @@ func (m *Model) badges(a *fleet.Agent, full bool) string {
 		// Always name the harness; no provider is an implicit default.
 		parts = append(parts, b)
 	}
-	headed := len(a.PRs) > 0 && m.store != nil && m.splitProjects() && !byTime(m.groupOf[a.Key]) // its heading names its PR
 	for i, pr := range a.PRs {
-		if headed {
-			break
-		}
 		if i == 2 {
 			parts = append(parts, dim(fmt.Sprintf("+%d", len(a.PRs)-2)))
 			break
 		}
-		parts = append(parts, paint(prColor(pr), fmt.Sprintf("#%d", pr.Number)))
+		col := cGreen
+		switch pr.State {
+		case "MERGED":
+			col = cBlue
+		case "CLOSED":
+			col = cDim
+		case "DRAFT":
+			col = cSub
+		}
+		if pr.Checks.Failed > 0 && pr.State != "MERGED" && pr.State != "CLOSED" {
+			col = cRed
+		}
+		parts = append(parts, paint(col, fmt.Sprintf("#%d", pr.Number)))
 	}
 	return strings.Join(parts, " ")
-}
-
-// prColor is a pull request's state as a colour: open green, draft quiet,
-// merged blue, closed dim, red while its checks fail.
-func prColor(pr agent.PR) string {
-	switch {
-	case pr.State == "MERGED":
-		return cBlue
-	case pr.State == "CLOSED":
-		return cDim
-	case pr.Checks.Failed > 0:
-		return cRed
-	case pr.State == "DRAFT":
-		return cSub
-	}
-	return cGreen
 }
 
 // noPrompt is when there's no Prompt box: zen answers in the Session's own
@@ -2444,7 +2277,6 @@ func (m *Model) promptLines(w int) []string {
 	text := string(m.input)
 	b := m.promptBoxAt(w).scrolled()
 	m.promptTop = b.top
-	m.shelfHits = m.shelfHits[:0]
 	// An empty box with nothing asked of it shows no cursor: the list has
 	// the keys until you type, rename, or reply.
 	b.idle = len(m.input) == 0 && m.inKind == inPrompt
@@ -2472,16 +2304,9 @@ func (m *Model) promptLines(w int) []string {
 		dir := m.startDir()
 		b.topL = dim("new agent in ") + m.dirLabel(dir)
 		b.holder = "describe a task"
-		// What it starts as, so a model or profile is never a surprise,
-		// beside the others it could: ⌥1…9 or a click takes one.
-		room := w - cellw.String(b.topL) - 10
-		line, hits := m.shelfLine(dir, room)
-		b.topR = line
-		if x0 := w - 3 - cellw.String(line); cellw.String(line) <= room {
-			for _, h := range hits {
-				m.shelfHits = append(m.shelfHits, shelfHit{x0 + h.x0, x0 + h.x1, h.o})
-			}
-		}
+		// What it starts as, so a model or profile is never a surprise.
+		// The border names things; the keys to change them are below.
+		b.topR = m.startWith(dir, false)
 	}
 	if m.sessionFocused() {
 		// The Session has the keys; this box waits, and says how back.
@@ -2692,8 +2517,9 @@ func (m *Model) previewLines(w, h int) []string {
 	u := a.Spend.Usage
 	tail = append(tail, "", section("Numbers"))
 	if p.Context > 0 {
-		f := ctxFill(a, int64(p.Context), agent.ContextWindow(agent.Kind(a.Kind), p.Model))
-		tail = append(tail, dim(fit("context", 10))+ctxBar(f.Pct())+" "+paint(cText, fmt.Sprintf("%.0f%%", f.Pct()))+dim("  "+f.Of(tokens)))
+		win := agent.ContextWindow(agent.Kind(a.Kind), p.Model)
+		pct := float64(p.Context) / float64(win) * 100
+		tail = append(tail, dim(fit("context", 10))+ctxBar(pct)+" "+paint(cText, fmt.Sprintf("%.0f%%", pct))+dim(fmt.Sprintf("  %s of %s tokens", tokens(p.Context), tokens(win))))
 	}
 	tail = append(tail, dim(fit("spent", 10))+paint(cText+bold, money(a.Spend.Cost))+dim(fmt.Sprintf("  in %s · cache read %s · written %s · out %s", tokens(u.Input), tokens(u.CacheRead), tokens(u.CacheWrite5m+u.CacheWrite1h), tokens(u.Output))))
 	tail = append(tail, dim(fit("time", 10))+paint(cText, dur(a.Elapsed(now)))+dim(" since "+a.CreatedAt.Local().Format("Mon 15:04")))
@@ -2906,19 +2732,4 @@ func (m *Model) helpBody() []string {
 		body = append(body, wrap(line, width)...)
 	}
 	return body
-}
-
-// ctxFill is used tokens of a's context against win, its model's window,
-// or the smaller one its agent compacts within.
-func ctxFill(a *fleet.Agent, used, win int64) agent.Fill {
-	var c agent.Compaction
-	if a != nil {
-		c = a.Compaction
-	}
-	return agent.FillOf(used, win, c)
-}
-
-// ctxLine is a context row's value: its bar, percentage and what fills it.
-func ctxLine(f agent.Fill) string {
-	return ctxBar(f.Pct()) + " " + paint(cSub, fmt.Sprintf("%.0f%%", f.Pct())) + dim(" · "+f.Of(tokens))
 }

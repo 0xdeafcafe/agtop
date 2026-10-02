@@ -400,6 +400,9 @@ func render(args []string) {
 			if strings.HasPrefix(k, "ctrl+") {
 				keys = append(keys, tea.KeyPressMsg{Code: rune(k[5]), Mod: tea.ModCtrl})
 			}
+			if strings.HasPrefix(k, "alt+") {
+				keys = append(keys, tea.KeyPressMsg{Code: rune(k[4]), Mod: tea.ModAlt})
+			}
 		}
 	}
 	fmt.Println(ui.New(state.Load(), version).Frame(w, h, keys...))

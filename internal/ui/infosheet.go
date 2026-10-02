@@ -227,7 +227,7 @@ func (k *infoSheet) body(m *Model, w, h int) []string {
 	case infoStatus:
 		lines = statusLines(m, c, a, w)
 	case infoContext:
-		lines = contextLines(c, w)
+		lines = contextLines(c, a, w)
 	case infoUsage:
 		lines = usageLines(m, c, a, k.quota, w)
 	case infoHistory:
@@ -304,9 +304,7 @@ func statusLines(m *Model, c *hostConn, a *fleet.Agent, w int) []string {
 	out = append(out, infoRow("effort", paint(cText, s.Effort()), w))
 	out = append(out, infoRow("permissions", paint(cText, s.Info.PermissionMode), w))
 	if s.Context > 0 {
-		win := s.ContextWindow()
-		p := float64(s.Context) / float64(win) * 100
-		out = append(out, infoRow("context", ctxBar(p)+" "+paint(cSub, fmt.Sprintf("%.0f%%", p))+dim(" · "+convo.Tokens(s.Context)+" of "+convo.Tokens(win)), w))
+		out = append(out, infoRow("context", ctxLine(ctxFill(a, int64(s.Context), int64(s.ContextWindow()))), w))
 	}
 
 	av, _ := m.accountView(a)

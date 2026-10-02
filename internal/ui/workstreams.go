@@ -213,7 +213,7 @@ func (m *Model) workSession(a *fleet.Agent, w int, now time.Time) string {
 		tail = append(tail, paint(cGreen, fmt.Sprintf("✓ %d/%d", min(ticked, planned), planned)))
 	}
 	if a.Spend.Context > 0 {
-		pc := int(100 * a.Spend.Context / contextWindow(a))
+		pc := int(ctxFill(a, a.Spend.Context, agent.ContextWindow(agent.Kind(a.Kind), a.Spend.Model)).Pct())
 		c := dim
 		if pc >= 80 {
 			c = func(s string) string { return paint(cYellow, s) }
@@ -293,11 +293,4 @@ func lanesLine(a *fleet.Agent) string {
 		return "background work running"
 	}
 	return strings.Join(parts, ", ")
-}
-
-func contextWindow(a *fleet.Agent) int64 {
-	if strings.Contains(a.Spend.Model, "haiku") {
-		return 200_000
-	}
-	return 1_000_000
 }

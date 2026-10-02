@@ -55,7 +55,7 @@ func TestQuietHeaderDefaultsKeepDetailsOptional(t *testing.T) {
 		t.Fatalf("sleep reported as failure: %s", rows)
 	}
 	c.sess.Context = 0
-	if headerContext(c) != "" {
+	if headerContext(c, nil) != "" {
 		t.Fatal("missing measurement shown as zero usage")
 	}
 }

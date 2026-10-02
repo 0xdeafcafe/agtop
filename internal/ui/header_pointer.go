@@ -34,11 +34,7 @@ func (m *Model) headerTabAt(x, y int) headerHover {
 		names, _, _ := m.pageTabs()
 		return at(m.headerPointerLines[1], names, true)
 	}
-	row := 3
-	if m.w < narrowHead || m.store.Config.HideLogo {
-		row = 2
-	}
-	if y == row {
+	if y == 2 { // the tabs
 		h := at(m.headerPointerLines[0], viewNames, false)
 		if m.hosted != "" && h.index == placeProjects {
 			return headerHover{}

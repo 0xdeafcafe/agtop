@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ func applyColors(g theme.Ground, colorBlind bool) {
 	}
 
 	selBG, hoverBG, panelBG = surface(44, 40, 36), surface(33, 31, 29), surface(30, 28, 26)
+	askBG, askSelBG, errBG, errSelBG = surface(44, 38, 24), surface(62, 52, 30), surface(46, 28, 26), surface(66, 36, 32)
 	bgChrome, bgTabOn, bgBtw = surface(30, 28, 26), surface(17, 16, 14), surface(36, 33, 30)
 	bgSub, bgRuns, bgQueue = surface(24, 31, 42), bgChrome, bgChrome
 	bgInput, bgMark, bgChip = surface(40, 36, 32), surface(74, 64, 54), surface(56, 62, 72)
@@ -326,4 +328,34 @@ func rule(title, meta string, w int) string {
 		n = 0
 	}
 	return head + " " + faint(strings.Repeat("─", n))
+}
+
+// tidyFit is fit for a sentence that may not fit: your home becomes ~,
+// a long path keeps its start and its file ("~/.config/…/memory/note.md"),
+// and what still runs over ends on a word, not mid-way through one.
+func tidyFit(s string, w int) string {
+	if w <= 0 || cellw.String(s) <= w {
+		return fit(s, w)
+	}
+	if home, _ := os.UserHomeDir(); home != "" {
+		s = strings.ReplaceAll(s, home+"/", "~/")
+	}
+	words := strings.Split(s, " ")
+	for keep := 2; keep >= 1 && cellw.String(strings.Join(words, " ")) > w; keep-- {
+		for i, x := range words {
+			// A path keeps its first folder and its last parts.
+			if parts := strings.Split(x, "/"); len(parts) > keep+2 {
+				words[i] = parts[0] + "/" + parts[1] + "/…/" + strings.Join(parts[len(parts)-keep:], "/")
+			}
+		}
+	}
+	s = strings.Join(words, " ")
+	if cellw.String(s) <= w {
+		return fit(s, w)
+	}
+	cut := cellw.Truncate(s, w-1, "")
+	if i := strings.LastIndexByte(cut, ' '); s[len(cut)] != ' ' && i > 0 && cellw.String(cut[:i]) >= w*2/3 {
+		cut = cut[:i] // ends on a word
+	}
+	return fit(strings.TrimRight(cut, " ,.;:·-")+"…", w)
 }

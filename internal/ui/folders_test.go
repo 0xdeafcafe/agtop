@@ -53,7 +53,7 @@ func TestProjectSplit(t *testing.T) {
 		}
 		return strings.Join(got, " ")
 	}
-	want := "§Working ▪app on-main ⎇" + wt + " in-tree §Just left zed §Today ▪app done-here §Earlier §Scratch"
+	want := "§Working ▪app on-main ⎇" + wt + " in-tree §Just left zed §Today done-here §Earlier §Scratch" // what finished goes by time, no headings
 	if s := lines(); s != want {
 		t.Fatalf("split:\n got %s\nwant %s", s, want)
 	}
@@ -65,7 +65,7 @@ func TestProjectSplit(t *testing.T) {
 	}}
 	m.snap.Agents[2].PRs = []agent.PR{{Number: 12, State: "OPEN"}} // on-main's, named once on its heading
 	out := ansi.Strip(strings.Join(m.listLines(140, 40), "\n"))
-	if n := strings.Count(out, "#12 open"); n != 2 || strings.Count(out, "#12") != n {
+	if n := strings.Count(out, "#12 open"); n != 1 || strings.Count(out, "#12") != n {
 		t.Errorf("the PR belongs on its project's headings, not its row:\n%s", out)
 	}
 	for _, s := range []string{"app  main ↑2  #12 open  → origin/release  abc1234  ±4  3 worktrees", "↳ fix  ±1"} {
@@ -73,8 +73,8 @@ func TestProjectSplit(t *testing.T) {
 			t.Errorf("list lacks %q:\n%s", s, out)
 		}
 	}
-	if strings.Count(out, "main ↑2") != 2 {
-		t.Errorf("git should head the project in both its sections:\n%s", out)
+	if strings.Count(out, "main ↑2") != 1 {
+		t.Errorf("git should head the project once, in Working; Today has no headings:\n%s", out)
 	}
 
 	st.Config.SplitBy = "none"

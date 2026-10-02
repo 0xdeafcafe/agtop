@@ -40,13 +40,7 @@ func (m *Model) footLines(w int) (lines, keys []string) {
 	cur := m.nextStart(dir)
 	line, x := "", 2
 	for i, o := range m.recentSetups(cur) {
-		word := cmp.Or(modelWord(o.kind, o.model), agent.HarnessLabel(agent.Kind(o.kind)))
-		if o.kind != cur.kind && o.model != "" {
-			word = strings.ToLower(agent.HarnessLabel(agent.Kind(o.kind))) + "·" + word
-		}
-		if o.effort != "" {
-			word += "·" + o.effort
-		}
+		word := shortSetup(o, cur)
 		seg := strconv.Itoa(i+1) + " " + word
 		if x+cellw.String(seg) > w-1 {
 			break
@@ -59,6 +53,19 @@ func (m *Model) footLines(w int) (lines, keys []string) {
 		lines, keys = append(lines, line), append(keys, footRecentKey)
 	}
 	return lines, keys
+}
+
+// shortSetup is o in a word or two, beside cur: its model, its harness
+// too when that's not cur's, and its effort.
+func shortSetup(o, cur startOver) string {
+	word := cmp.Or(modelWord(o.kind, o.model), agent.HarnessLabel(agent.Kind(o.kind)))
+	if o.kind != cur.kind && o.model != "" {
+		word = strings.ToLower(agent.HarnessLabel(agent.Kind(o.kind))) + "·" + word
+	}
+	if o.effort != "" {
+		word += "·" + o.effort
+	}
+	return word
 }
 
 // recentSetups are up to 3 setups the fleet's agents ran, newest first,

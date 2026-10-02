@@ -30,11 +30,11 @@ func TestActivityScrollsWithTheEnd(t *testing.T) {
 			}
 			pulse := -1
 			for i, row := range rows {
-				// The tab underline is also a heavy rule.
+				// The spinner's row: its verb, then its clock.
 				if i < c.bodyTop {
 					continue
 				}
-				if strings.Contains(ansi.Strip(row), "━") {
+				if strings.Contains(ansi.Strip(row), "…  ") {
 					if pulse >= 0 {
 						t.Fatalf("duplicate activity pulse at %d and %d: %s", pulse, i, ansi.Strip(strings.Join(rows, "\n")))
 					}
@@ -57,7 +57,7 @@ func TestActivityScrollsWithTheEnd(t *testing.T) {
 	if len(m.paneActivity(c, 100)) == 0 {
 		t.Fatal("folding latest hid current activity")
 	}
-	if rows := m.paneDock(m.focused(), c, 100, 40); strings.Contains(ansi.Strip(strings.Join(rows, "\n")), "━") {
+	if rows := m.paneDock(m.focused(), c, 100, 40); strings.Contains(ansi.Strip(strings.Join(rows, "\n")), "…  ") {
 		t.Fatal("activity leaked into the task/composer dock")
 	}
 	c.sess.Apply(event.TurnEnd{Reason: "done"}, now)
@@ -90,7 +90,7 @@ func TestActivityOnlyOnChatPage(t *testing.T) {
 	c.subPeek, c.subPeekID = c.subTail, "child"
 	rows := m.subagentLines(c, convo.Options{Width: 180, Now: time.Now(), HideActivity: true})
 	for _, row := range rows {
-		if strings.Contains(ansi.Strip(row.Text), "━") {
+		if strings.Contains(ansi.Strip(row.Text), "…  ") {
 			t.Fatal("subagent preview shows running indicator")
 		}
 	}
@@ -108,7 +108,7 @@ func TestActivityFollowsShortConversationAboveQueue(t *testing.T) {
 	pulse, queue := -1, -1
 	for i, row := range rows {
 		text := ansi.Strip(row)
-		if i >= c.bodyTop && strings.Contains(text, "━") {
+		if i >= c.bodyTop && strings.Contains(text, "…  ") {
 			pulse = i
 		}
 		if strings.Contains(text, "queued follow-up") {

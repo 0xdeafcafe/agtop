@@ -106,6 +106,12 @@ func (m *Model) nextStart(dir string) startOver {
 	if m.startOver != nil {
 		return *m.startOver
 	}
+	return m.byProfile(dir)
+}
+
+// byProfile is what a new session in dir starts as by its profile,
+// whatever was picked for the next one.
+func (m *Model) byProfile(dir string) startOver {
 	k := m.startKindIn(dir)
 	if p := m.startProfile(dir); len(p.Providers) > 0 && agent.ProviderOf(agent.Kind(k)) == p.Providers[0] {
 		o := m.profileSetup(p, k)

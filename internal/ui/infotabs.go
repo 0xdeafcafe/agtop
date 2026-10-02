@@ -21,15 +21,13 @@ import (
 
 // contextLines is the Context tab: what fills the window, as a grid with
 // its legend beside it, then what's inside each part.
-func contextLines(c *hostConn, w int) []string {
+func contextLines(c *hostConn, a *fleet.Agent, w int) []string {
 	s := c.sess
 	u := s.Usage
 	if u == nil || u.Max <= 0 {
 		var out []string
 		if s.Context > 0 {
-			win := s.ContextWindow()
-			p := float64(s.Context) / float64(win) * 100
-			out = append(out, infoRow("context", ctxBar(p)+" "+paint(cSub, fmt.Sprintf("%.0f%%", p))+dim(" · "+convo.Tokens(s.Context)+" of "+convo.Tokens(win)), w), "")
+			out = append(out, infoRow("context", ctxLine(ctxFill(a, int64(s.Context), int64(s.ContextWindow()))), w), "")
 		}
 		why := "the breakdown comes when this turn ends"
 		if note := agent.FeatureOf(sessionAgent(c), agent.FeatureContext).Note; note != "" {
@@ -49,9 +47,14 @@ func contextLines(c *hostConn, w int) []string {
 		}
 		return append(out, dim("  "+why))
 	}
-	meta := convo.Tokens(u.Total) + " of " + convo.Tokens(u.Max) + fmt.Sprintf(" · %.0f%%", float64(u.Total)/float64(u.Max)*100)
+	// Its own count of where it compacts wins over rush's.
+	f := ctxFill(a, int64(u.Total), int64(u.Max))
+	meta := convo.Tokens(u.Total) + " of " + tokens(f.Window) + fmt.Sprintf(" · %.0f%%", f.Pct())
 	if u.AutoCompact && u.AutoCompactAt > 0 {
 		meta += " · auto-compacts at " + convo.Tokens(u.AutoCompactAt)
+	}
+	if f.Compacts() {
+		meta += " · model " + tokens(f.Model)
 	}
 	out := []string{infoHead(convo.PrettyModel(u.Model)) + "  " + dim(meta) + faint("  · #slim drops what it never uses"), ""}
 	grid := convo.ContextGrid(u, 20, 10)
