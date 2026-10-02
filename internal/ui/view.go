@@ -2088,8 +2088,8 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 	if tag != "" && stacked { // its worktree, which has no heading of its own
 		left += "  " + tag
 	}
-	if p := m.projTitles[folderKey(a)]; p != "" && m.groupOf[a.Key] == needsSection {
-		left += "  " + faint(p) // Needs you has no project headings
+	if p := m.projTitles[folderKey(a)]; p != "" && m.groupOf[a.Key] == justLeftSection {
+		left += "  " + faint(p) // Just left goes by time, without project headings
 	}
 	if withSummary {
 		left = fit(left, nameCol)

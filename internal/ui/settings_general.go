@@ -65,6 +65,38 @@ func (m *Model) generalSections() []section {
 		})
 	active.unset = "30m"
 
+	justLeft := choiceSetting("Keep agents in Just left for", activeValue(c.JustLeftMinutes),
+		"An agent that leaves Idle goes to Just left, most recent first, so one you missed is still easy to find; after this long it moves to Today.",
+		[][2]string{
+			{"", "it stays two hours after it was last active."},
+			{"30m", "it stays half an hour after it was last active."},
+			{"60m", "it stays an hour after it was last active."},
+			{"480m", "it stays eight hours after it was last active."},
+			{"off", "nothing goes to Just left; it moves straight to Today."},
+		}, func(v string) {
+			switch v {
+			case "off":
+				c.JustLeftMinutes = -1
+			case "":
+				c.JustLeftMinutes = 0
+			default:
+				fmt.Sscanf(v, "%dm", &c.JustLeftMinutes)
+			}
+		})
+	justLeft.unset = "120m"
+	justLeftN := choiceSetting("Just left holds at most", countValue(c.JustLeftCount),
+		"The most recent stay in Just left; older ones move on to Today.",
+		[][2]string{
+			{"", "the 10 most recent."},
+			{"5", "the 5 most recent."},
+			{"20", "the 20 most recent."},
+			{"50", "the 50 most recent."},
+		}, func(v string) {
+			c.JustLeftCount = 0
+			fmt.Sscanf(v, "%d", &c.JustLeftCount)
+		})
+	justLeftN.unset = "10"
+
 	cleanup := choiceSetting("Clean up done work after", cleanupValue(c.CleanupHours),
 		convo.KeyWord("What happens to an agent's worktree and temp work once you've marked it done (alt+d) and left it alone. Stopping an agent never removes anything. A worktree goes only if git says every change in it is committed and pushed; its branch stays. One that isn't is kept, and Projects says why on the worktree."),
 		[][2]string{
@@ -92,7 +124,7 @@ func (m *Model) generalSections() []section {
 			{"keep", "they run until you end them, with x or X in Projects › System."},
 		}, func(v string) { c.KeepOrphans = v == "keep" })
 
-	secs = append(secs, section{title: "Idle and finished", rows: []setting{rest, hibernate, active, cleanup, orphans}})
+	secs = append(secs, section{title: "Idle and finished", rows: []setting{rest, hibernate, active, justLeft, justLeftN, cleanup, orphans}})
 
 	notify := choiceSetting("Notify when an agent needs you", onOffWord(!c.Quiet),
 		"A macOS notification when an agent starts waiting on you (a question or a permission), not when you have already seen it.",
@@ -148,6 +180,14 @@ func cleanupValue(h int) string {
 		return fmt.Sprintf("%dh", h)
 	}
 	return ""
+}
+
+// countValue is a count setting as its choice says it: "" for the default.
+func countValue(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return fmt.Sprint(n)
 }
 
 // activeValue is ActiveMinutes as its choice says it.

@@ -52,7 +52,7 @@ func TestProjectSplit(t *testing.T) {
 		}
 		return strings.Join(got, " ")
 	}
-	want := "§Working ▪app on-main ⎇" + wt + " in-tree §Today ▪app done-here ▪zed zed §Earlier §Scratch"
+	want := "§Working ▪app on-main ⎇" + wt + " in-tree §Just left zed §Today ▪app done-here §Earlier §Scratch"
 	if s := lines(); s != want {
 		t.Fatalf("split:\n got %s\nwant %s", s, want)
 	}
@@ -74,7 +74,7 @@ func TestProjectSplit(t *testing.T) {
 
 	st.Config.SplitBy = "none"
 	// Today's rows go by when each stopped, the latest first.
-	if s, want := lines(), "§Working in-tree on-main §Today zed done-here §Earlier §Scratch"; s != want {
+	if s, want := lines(), "§Working in-tree on-main §Just left zed §Today done-here §Earlier §Scratch"; s != want {
 		t.Fatalf("unsplit:\n got %s\nwant %s", s, want)
 	}
 }

@@ -166,6 +166,11 @@ type Config struct {
 	// ActiveMinutes is how long a stopped agent stays in the list's Active
 	// section before Today has it; 0 is the default (30), negative off.
 	ActiveMinutes int `json:"activeMinutes,omitzero"`
+	// JustLeftMinutes and JustLeftCount bound the list's Just left, what
+	// left Idle most recently: 0 is the default (2 hours, 10), negative
+	// minutes off.
+	JustLeftMinutes int `json:"justLeftMinutes,omitzero"`
+	JustLeftCount   int `json:"justLeftCount,omitzero"`
 	// CleanupHours is how long an agent must have been done and untouched
 	// before its worktree (clean and pushed) and temp work are removed on
 	// their own; 0 is the default, and a negative number turns it off.

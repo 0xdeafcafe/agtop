@@ -27,7 +27,7 @@ func TestFinishedTurnsWaitForYou(t *testing.T) {
 	m := &Model{store: &state.Store{}, previews: map[string]previewEntry{}, w: 120, h: 40, lastState: map[string]string{}}
 	m.snap = &fleet.Snapshot{At: now, Agents: []*fleet.Agent{quiet, broke, idle, rested, old}}
 	m.rebuild()
-	want := map[string]string{"quiet": needsSection, "broke": needsSection, "idle": idleSection, "rested": idleSection, "old": "Today"}
+	want := map[string]string{"quiet": needsSection, "broke": needsSection, "idle": idleSection, "rested": idleSection, "old": justLeftSection}
 	for k, g := range want {
 		if m.groupOf[k] != g {
 			t.Errorf("%s in %q, want %q", k, m.groupOf[k], g)
@@ -39,7 +39,7 @@ func TestFinishedTurnsWaitForYou(t *testing.T) {
 			titles = append(titles, l.title)
 		}
 	}
-	if len(titles) != 3 || titles[0] != needsSection || titles[1] != idleSection || titles[2] != "Today" {
+	if len(titles) != 3 || titles[0] != needsSection || titles[1] != idleSection || titles[2] != justLeftSection {
 		t.Fatalf("sections %v", titles)
 	}
 	stuck := agent("stuck", "working")
@@ -49,8 +49,16 @@ func TestFinishedTurnsWaitForYou(t *testing.T) {
 		t.Errorf("silent at work is in %q, want %q", m.groupOf["stuck"], stuckSection)
 	}
 	m.store.Config.ActiveMinutes = -1
-	if m.rebuild(); m.groupOf["rested"] != "Today" {
+	if m.rebuild(); m.groupOf["rested"] != justLeftSection {
 		t.Errorf("with it off, a stopped agent is in %q", m.groupOf["rested"])
+	}
+	m.store.Config.JustLeftCount = 1 // the most recent stays; the rest go on to Today
+	if m.rebuild(); m.groupOf["rested"] != justLeftSection || m.groupOf["old"] != "Today" {
+		t.Errorf("count 1: rested in %q, old in %q", m.groupOf["rested"], m.groupOf["old"])
+	}
+	m.store.Config.JustLeftMinutes = -1
+	if m.rebuild(); m.groupOf["rested"] != "Today" {
+		t.Errorf("Just left off: rested in %q", m.groupOf["rested"])
 	}
 	if s, _, _ := m.rowSummary(broke); s != "stopped · Response stalled mid-stream." {
 		t.Fatalf("summary %q", s)

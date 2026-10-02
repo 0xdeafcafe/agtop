@@ -1943,6 +1943,10 @@ const (
 	stuckSection   = "Stuck?"
 	workingSection = "Working"
 	idleSection    = "Idle"
+	// justLeftSection is the way out: what left Idle, most recent first,
+	// for justLeftFor and up to justLeftCount, so one you missed is still
+	// where you'd look.
+	justLeftSection = "Just left"
 )
 
 // inPlay is whether section title holds agents in play, not history.
@@ -1967,6 +1971,24 @@ func (m *Model) activeFor() time.Duration {
 	}
 }
 
+// justLeftFor is how long an agent stays in Just left after its last
+// activity: Settings › General, 2 hours unless set; off, none do.
+func (m *Model) justLeftFor() time.Duration {
+	switch n := m.store.Config.JustLeftMinutes; {
+	case n < 0:
+		return 0
+	case n == 0:
+		return 2 * time.Hour
+	default:
+		return time.Duration(n) * time.Minute
+	}
+}
+
+// justLeftCount is how many Just left holds at most: 10 unless set.
+func (m *Model) justLeftCount() int {
+	return cmp.Or(m.store.Config.JustLeftCount, 10)
+}
+
 // rebuild groups the agents for the current group-by mode. What needs the
 // user comes first; anything finished more than a day ago goes to Earlier.
 func (m *Model) rebuild() {
@@ -1981,6 +2003,7 @@ func (m *Model) rebuild() {
 		recent time.Time
 	}
 	order := map[*fleet.Agent]int{} // places under a plugin's arrangement
+	var left []*fleet.Agent         // Just left, before its count is applied
 	groups := map[string]*group{}
 	add := func(name string, rank int, a *fleet.Agent) {
 		g := groups[name]
@@ -2024,6 +2047,8 @@ func (m *Model) rebuild() {
 			add("Pinned", 5, a)
 		case a.PID != 0, !a.Done && a.Age(now) < m.activeFor():
 			add(idleSection, 4, a) // open, or stopped a moment ago: in play a while before Today has it
+		case !a.Done && fresh && a.Age(now) < m.justLeftFor():
+			left = append(left, a) // left Idle a while ago: kept in sight, not gone
 		case !fresh:
 			add("Earlier", 9, a)
 		case a.Done:
@@ -2033,6 +2058,15 @@ func (m *Model) rebuild() {
 		case by == "group" && a.Group != "":
 			add(a.Group, 5, a)
 		default:
+			add("Today", 7, a)
+		}
+	}
+	// The most recent stay in Just left, up to its count; the rest go on to Today.
+	slices.SortStableFunc(left, func(a, b *fleet.Agent) int { return cmp.Compare(a.Age(now), b.Age(now)) })
+	for i, a := range left {
+		if i < m.justLeftCount() {
+			add(justLeftSection, 5, a)
+		} else {
 			add("Today", 7, a)
 		}
 	}
@@ -2076,7 +2110,7 @@ func (m *Model) rebuild() {
 		case sb == nil && g.name != workingSection:
 			less = stoppedLess(now) // a question first, then the one that stopped last
 		}
-		if split && g.name != needsSection { // what needs you goes by urgency, its project a tag
+		if split && g.name != justLeftSection { // what just left goes by time, its project a tag
 			within := less
 			less = func(a, b *fleet.Agent) bool {
 				if c := cmpLower(titles[folderKey(a)], titles[folderKey(b)]); c != 0 {
@@ -2135,7 +2169,7 @@ func (m *Model) rebuild() {
 		m.lines = append(m.lines, listLine{kind: lineSection, title: g.name, meta: meta,
 			folded: fold, peek: strings.Join(names, ", ")})
 		project, tree := "\x00", ""
-		split := split && g.name != needsSection
+		split := split && g.name != justLeftSection
 		for _, a := range g.agents {
 			m.order = append(m.order, a)
 			m.groupOf[a.Key] = g.name
