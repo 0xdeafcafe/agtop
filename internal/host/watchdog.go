@@ -8,12 +8,11 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent/event"
 )
 
-// These are deliberately conservative hard stops, not estimates. A stopped
-// child keeps its conversation and can be resumed with a narrower next task.
-const (
-	subagentInputLimit = 8_000_000
-	subagentToolLimit  = 40
-)
+// subagentInputLimit is the hard stop for a runaway subagent: the input
+// it has read. Tool calls aren't counted against it: real work takes
+// hundreds of them, and a loop of calls runs into this ceiling anyway, as
+// every call grows what each next one reads.
+const subagentInputLimit = 8_000_000
 
 type watchedTask struct {
 	label   string
@@ -44,7 +43,7 @@ func (w *subagentWatchdog) taskReason(e event.TaskProgress) string {
 	if t == nil || t.kind != event.SubagentTask || t.stopped {
 		return ""
 	}
-	if e.Tokens < subagentInputLimit && e.ToolUses < subagentToolLimit {
+	if e.Tokens < subagentInputLimit {
 		return ""
 	}
 	t.stopped = true
@@ -81,7 +80,7 @@ func (w *subagentWatchdog) observeMessage(m event.Message) string {
 		}
 		w.tools[id] = struct{}{}
 	}
-	if w.input < subagentInputLimit && len(w.tools) < subagentToolLimit {
+	if w.input < subagentInputLimit {
 		return ""
 	}
 	w.stoppedCause = watchdogReason("this subagent", w.input, len(w.tools))
@@ -90,8 +89,8 @@ func (w *subagentWatchdog) observeMessage(m event.Message) string {
 
 func watchdogReason(label string, input int64, tools int) string {
 	label = strings.TrimSpace(label)
-	return fmt.Sprintf("Rush stopped %s after %.1fM input tokens and %d tool calls: it crossed the subagent safety ceiling (%.0fM input tokens or %d tool calls). If the work is legitimate, resume the same subagent with a narrower next task; its prior context is preserved.",
-		label, float64(input)/1_000_000, tools, float64(subagentInputLimit)/1_000_000, subagentToolLimit)
+	return fmt.Sprintf("Rush stopped %s after %.1fM input tokens and %d tool calls: it crossed the subagent safety ceiling of %.0fM input tokens. If the work is legitimate, give it a narrower next task: send it to the subagent if it still takes messages, otherwise start a new one with what it found so far.",
+		label, float64(input)/1_000_000, tools, float64(subagentInputLimit)/1_000_000)
 }
 
 // watchTaskProgress stops only the runaway task. The parent gets the reason as
