@@ -1399,7 +1399,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dragTextSel(c, msg.X, msg.Y)
 				return m, nil
 			}
-			if cmd := m.endTextSel(c); cmd != nil {
+			// The button is up but its release never came: the terminal
+			// kept it, as on a cmd+click it opens a link for. A press that
+			// never moved is then no click of ours, so it opens nothing.
+			if !c.txt.moved {
+				c.txt = textSel{}
+			} else if cmd := m.endTextSel(c); cmd != nil {
 				return m, cmd
 			}
 		}
