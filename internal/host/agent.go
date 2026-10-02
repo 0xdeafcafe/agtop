@@ -412,6 +412,11 @@ func (s *server) onTask(ev event.Event) bool {
 		delete(s.taskStart, e.ID)
 		s.unread(e.ID)
 	case event.Background:
+		if len(e.Tasks) < len(s.info.Background) {
+			// A task that ends is reported to the agent, which takes it
+			// up in a turn of its own: it is not idle until it has.
+			s.waiting = time.Now()
+		}
 		s.info.Background = background(s.info.Background, e.Tasks, s.taskStart, time.Now())
 		if len(s.info.Background) == 0 && s.info.State == "idle" && s.conn != nil {
 			s.armIdle() // the last of it ended: rest from now

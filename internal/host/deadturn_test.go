@@ -162,3 +162,32 @@ func TestWatchdogEndsATurnWithNoAgent(t *testing.T) {
 		t.Error("the conversation doesn't say the turn was ended for want of an agent")
 	}
 }
+
+// The end of a background task wakes the agent to report it, so the idle
+// stop waits for that turn rather than resting it as it begins.
+func TestEndedTaskKeepsTheAgentUp(t *testing.T) {
+	setup(t)
+	if err := os.MkdirAll(dir("bg"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := &fakeConn{events: make(chan event.Event, 1)}
+	s := &server{cfg: Config{ID: "bg"}, conn: c, clients: map[*conn]struct{}{}, pending: map[string]asked{}}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.info.State = "idle"
+	s.onAgentEvent(c, event.Background{Tasks: []event.BackgroundTask{{ID: "b1", Type: "monitor", Label: "PR watch"}}})
+	if !s.stillWorking() {
+		t.Fatal("a running task should keep it up")
+	}
+	s.onAgentEvent(c, event.Background{})
+	if s.idle != nil {
+		s.idle.Stop()
+	}
+	if !s.stillWorking() {
+		t.Fatal("the task's end should keep it up until the agent takes it up")
+	}
+	s.onAgentEvent(c, event.Message{Role: "assistant", Parts: []event.Part{{Kind: event.Text, Text: "The monitor expired."}}})
+	if s.stillWorking() || s.info.State != "working" {
+		t.Fatalf("once it answers, the turn is the agent's: state %q", s.info.State)
+	}
+}
