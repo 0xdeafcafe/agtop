@@ -3,6 +3,7 @@ package acp
 import (
 	"bufio"
 	"encoding/json/jsontext"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -99,6 +100,12 @@ func readKimiWire(r io.Reader, before time.Time) ([]event.Event, error) {
 func readAgentWire(r io.Reader, own string, before time.Time) ([]event.Event, error) {
 	scan := bufio.NewScanner(r)
 	scan.Buffer(make([]byte, 64<<10), 32<<20)
+	partial := false // the last line has no newline yet: still being written
+	scan.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		adv, tok, err := bufio.ScanLines(data, atEOF)
+		partial = atEOF && adv == len(data) && len(data) > 0 && data[len(data)-1] != '\n'
+		return adv, tok, err
+	})
 	var out []event.Event
 	var tokens usage.TokenUsage
 	model := ""
@@ -131,7 +138,10 @@ func readAgentWire(r io.Reader, own string, before time.Time) ([]event.Event, er
 			}
 		}
 		if err := jsonx.Unmarshal(scan.Bytes(), &rec); err != nil {
-			continue // a live session's last line is often half-written
+			if partial {
+				continue // a live session's last line is often half-written
+			}
+			return nil, fmt.Errorf("kimi wire line %d: %w", line, err)
 		}
 		if rec.AgentID != "" && rec.AgentID != own {
 			continue
