@@ -1559,9 +1559,10 @@ func (d *drawer) table(rows []string, pad string, w int, col string) {
 			if len(cells) > 1 {
 				value = mdMarks.Replace(cells[1])
 			}
-			line := paint(cBlue, key) + dim(" · ") + paint(col, value)
+			// The words' own colours: blue reads as a link.
+			line := paint(strong(col), key) + faint(" · ") + paint(col, value)
 			if ri == head {
-				line = paint(cBlue+bold, key) + dim(" · ") + paint(cBlue+bold, value)
+				line = paint(cSub+bold, key) + faint(" · ") + paint(cSub+bold, value)
 			}
 			for _, part := range wrap(line, max(1, w)) {
 				d.add("", "", pad+part, "")
@@ -1575,7 +1576,7 @@ func (d *drawer) table(rows []string, pad string, w int, col string) {
 		for ri, cells := range cells {
 			ink := col
 			if ri == head {
-				ink = cBlue + bold
+				ink = cSub + bold
 			}
 			line := paint(ink, mdMarks.Replace(strings.Join(cells, " · ")))
 			for _, part := range wrap(line, max(1, w)) {
@@ -1623,7 +1624,7 @@ func (d *drawer) table(rows []string, pad string, w int, col string) {
 				}
 				ink := col
 				if ri == head {
-					ink = cBlue + bold
+					ink = cSub + bold
 				} else if i == 0 {
 					ink = cSub + bold
 				}
