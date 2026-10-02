@@ -236,24 +236,54 @@ func (s *server) watchAgent(conn agent.Conn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.conn != conn {
+		if s.cutOff == conn {
+			// Rested as it picked up work of its own: that turn is over.
+			s.cutOff = nil
+			if s.conn == nil && s.info.State == "idle" {
+				s.endTurn("Claude Code was stopped as it picked up work of its own: send a message to carry on")
+			}
+		}
 		return
 	}
 	s.conn, s.info.ClaudePID, s.info.Background = nil, 0, nil // they went with it
 	s.info.Relogin = false                                    // the next one starts on the account signed in now
 	s.reloginAt = time.Time{}
 	s.pending = map[string]asked{}
-	if s.info.State == "working" || s.info.State == "blocked" || s.info.State == "starting" {
+	if inTurn(s.info.State) {
 		// It died mid-turn; the next message resumes it.
-		s.info.State = "idle"
+		why := "Claude Code exited mid-turn"
 		if err != nil {
-			s.info.Error = err.Error()
+			why += ": " + err.Error()
 		}
-		// Whatever was waiting for this turn to end goes now, rather than
-		// sitting in a queue nothing will ever drain.
-		if len(s.info.Queue) > 0 && !s.info.QueueHeld && s.info.Limit == nil {
-			s.sendQueue()
-			return
-		}
+		s.endTurn(why)
+		return
+	}
+	s.publish()
+}
+
+// inTurn is whether a state is one of a turn under way.
+func inTurn(state string) bool {
+	return state == "working" || state == "blocked" || state == "starting"
+}
+
+// endTurn ends a turn its agent will never end, now that it has gone,
+// saying why, in the conversation too. Called with mu held.
+func (s *server) endTurn(why string) {
+	if b, err := eventLine(event.TurnEnd{Reason: "error", Err: why}); err == nil {
+		s.record(b)
+	}
+	s.info.State, s.info.Needs, s.info.Error = "idle", "", why
+	s.waiting = time.Time{}
+	s.drainOrPublish()
+}
+
+// drainOrPublish sends what was waiting for the turn to end, rather than
+// leave it in a queue nothing will ever drain, else publishes. Called with
+// mu held.
+func (s *server) drainOrPublish() {
+	if len(s.info.Queue) > 0 && !s.info.QueueHeld && s.info.Limit == nil {
+		s.sendQueue()
+		return
 	}
 	s.publish()
 }
@@ -265,6 +295,14 @@ func (s *server) onAgentEvent(conn agent.Conn, ev event.Event) {
 		if b, err := eventLine(ev); err == nil {
 			s.record(b)
 		}
+	}
+	if conn != s.conn {
+		// One being stopped says what it does to the end, but no longer
+		// sets the session's state: nothing would ever settle it again.
+		if m, ok := ev.(event.Message); ok && m.Role == "assistant" && m.Parent == "" {
+			s.cutOff = conn
+		}
+		return
 	}
 	switch e := ev.(type) {
 	case event.Init:
