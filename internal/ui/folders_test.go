@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/fleet"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
@@ -62,8 +63,12 @@ func TestProjectSplit(t *testing.T) {
 		Git:   fleet.GitState{Branch: "main", Upstream: true, Ahead: 2, Changed: 4},
 		Trees: map[string]fleet.GitState{wt: {Branch: "fix", Changed: 1}},
 	}}
+	m.snap.Agents[2].PRs = []agent.PR{{Number: 12, State: "OPEN"}} // on-main's, named once on its heading
 	out := ansi.Strip(strings.Join(m.listLines(140, 40), "\n"))
-	for _, s := range []string{"app  main ↑2 ±4  ⎇3 ┄", "⎇ fix  ±1"} {
+	if n := strings.Count(out, "#12 open"); n != 2 || strings.Count(out, "#12") != n {
+		t.Errorf("the PR belongs on its project's headings, not its row:\n%s", out)
+	}
+	for _, s := range []string{"app  main ↑2 ±4  ⎇3", "⎇ fix  ±1"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("list lacks %q:\n%s", s, out)
 		}

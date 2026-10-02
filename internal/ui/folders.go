@@ -193,7 +193,31 @@ func (m *Model) projectLine(l listLine, w int) string {
 		}
 		s += "  " + g
 	}
+	if pr := m.headPR(l.root, ""); pr != "" {
+		s += "  " + pr
+	}
 	return s + " " + faint(strings.Repeat("┄", max(0, w-cellw.String(s)-3)))
+}
+
+// headPR is the pull request a heading's agents linked, an open one first,
+// as "#7536 open": the agents in root's checkout, or tree's when given.
+func (m *Model) headPR(root, tree string) string {
+	var agents []*fleet.Agent
+	for _, a := range m.order {
+		if folderKey(a) == root && treeOf(a) == tree {
+			agents = append(agents, a)
+		}
+	}
+	prs := projectPRs(agents)
+	if len(prs) == 0 {
+		return ""
+	}
+	pr := prs[0]
+	s := paint(prColor(pr), fmt.Sprintf("#%d %s", pr.Number, strings.ToLower(pr.State)))
+	if len(prs) > 1 {
+		s += faint(fmt.Sprintf(" +%d", len(prs)-1))
+	}
+	return s
 }
 
 // folderShort is what git says of a project in a few cells: branch, ↑ahead
@@ -276,6 +300,9 @@ func (m *Model) treeTag(l listLine) string {
 			s += "  " + g
 		}
 		s += baseShort(st)
+		if pr := m.headPR(l.title, l.root); pr != "" {
+			s += "  " + pr
+		}
 	} else if m.folders.byRoot[l.title].Root != "" || m.folders.looking > 0 {
 		s += "  " + faint("…")
 	}

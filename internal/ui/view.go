@@ -2328,26 +2328,34 @@ func (m *Model) badges(a *fleet.Agent, full bool) string {
 		// Always name the harness; no provider is an implicit default.
 		parts = append(parts, b)
 	}
+	headed := len(a.PRs) > 0 && m.store != nil && m.splitProjects() && m.groupOf[a.Key] != justLeftSection // its heading names its PR
 	for i, pr := range a.PRs {
+		if headed {
+			break
+		}
 		if i == 2 {
 			parts = append(parts, dim(fmt.Sprintf("+%d", len(a.PRs)-2)))
 			break
 		}
-		col := cGreen
-		switch pr.State {
-		case "MERGED":
-			col = cBlue
-		case "CLOSED":
-			col = cDim
-		case "DRAFT":
-			col = cSub
-		}
-		if pr.Checks.Failed > 0 && pr.State != "MERGED" && pr.State != "CLOSED" {
-			col = cRed
-		}
-		parts = append(parts, paint(col, fmt.Sprintf("#%d", pr.Number)))
+		parts = append(parts, paint(prColor(pr), fmt.Sprintf("#%d", pr.Number)))
 	}
 	return strings.Join(parts, " ")
+}
+
+// prColor is a pull request's state as a colour: open green, draft quiet,
+// merged blue, closed dim, red while its checks fail.
+func prColor(pr agent.PR) string {
+	switch {
+	case pr.State == "MERGED":
+		return cBlue
+	case pr.State == "CLOSED":
+		return cDim
+	case pr.Checks.Failed > 0:
+		return cRed
+	case pr.State == "DRAFT":
+		return cSub
+	}
+	return cGreen
 }
 
 // noPrompt is when there's no Prompt box: zen answers in the Session's own
