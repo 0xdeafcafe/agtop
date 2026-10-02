@@ -256,6 +256,7 @@ func (s *server) watchAgent(conn agent.Conn) {
 
 // onAgentEvent takes one event from the session. Called with mu held.
 func (s *server) onAgentEvent(conn agent.Conn, ev event.Event) {
+	s.heardFrom(ev)
 	if !taps(conn) {
 		if b, err := eventLine(ev); err == nil {
 			s.record(b)
@@ -440,7 +441,10 @@ func (s *server) onMessage(conn agent.Conn, m event.Message) {
 func (s *server) onTurnEnd(conn agent.Conn, e event.TurnEnd) {
 	if reason := s.watchdog.stoppedCause; reason != "" {
 		e.Reason, e.Err = "error", reason
+	} else if s.hangCause != "" && len(s.info.Queue) == 0 {
+		e.Reason, e.Err = "error", s.hangCause // retried, as an API error is
 	}
+	s.hangCause, s.open = "", nil
 	defer s.turnDone(e)
 	s.began = true
 	if !s.cfg.Resume {
