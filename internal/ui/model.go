@@ -2071,8 +2071,10 @@ func (m *Model) rebuild() {
 			}
 		case sb == nil && g.name == "Done":
 			less = m.doneLess
-		case sb == nil && (g.name == needsSection || g.name == stuckSection):
-			less = waitedLess(now) // a question first, then the longest waiting or silent
+		case sb == nil && g.name == stuckSection:
+			less = waitedLess(now) // the longest silent first
+		case sb == nil && g.name != workingSection:
+			less = stoppedLess(now) // a question first, then the one that stopped last
 		}
 		if split && g.name != needsSection { // what needs you goes by urgency, its project a tag
 			within := less
@@ -2254,6 +2256,20 @@ func waitedLess(now time.Time) func(a, b *fleet.Agent) bool {
 		}
 		if x, y := a.Quiet(now), b.Quiet(now); x != y {
 			return x > y
+		}
+		return a.Key < b.Key
+	}
+}
+
+// stoppedLess orders agents that aren't at work: one asking you something
+// first, then by when each stopped, the latest first.
+func stoppedLess(now time.Time) func(a, b *fleet.Agent) bool {
+	return func(a, b *fleet.Agent) bool {
+		if x, y := asks(a), asks(b); x != y {
+			return x
+		}
+		if x, y := a.Quiet(now), b.Quiet(now); x != y {
+			return x < y
 		}
 		return a.Key < b.Key
 	}

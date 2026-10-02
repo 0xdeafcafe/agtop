@@ -73,7 +73,8 @@ func TestProjectSplit(t *testing.T) {
 	}
 
 	st.Config.SplitBy = "none"
-	if s, want := lines(), "§Working in-tree on-main §Today done-here zed §Earlier §Scratch"; s != want {
+	// Today's rows go by when each stopped, the latest first.
+	if s, want := lines(), "§Working in-tree on-main §Today zed done-here §Earlier §Scratch"; s != want {
 		t.Fatalf("unsplit:\n got %s\nwant %s", s, want)
 	}
 }
