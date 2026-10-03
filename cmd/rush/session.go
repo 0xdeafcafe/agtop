@@ -16,6 +16,7 @@ import (
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/host"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/proc"
 	"github.com/0xdeafcafe/rush/internal/state"
 	"github.com/0xdeafcafe/rush/internal/ui"
 )
@@ -31,6 +32,9 @@ const sessionUsage = `rush session: run rush-mode sessions without the view
   else the folder's rule or the default profile says.
   rush session send <id> [--now] [--image PATH]...   message text on stdin; into the
         turn under way, or with --now stopping it
+  rush session answer <id> [--deny] [--request ID]    answer text on stdin
+        answers the question the session waits on, or allows the tool call
+        it asks permission for; --deny declines it
   rush session interrupt <id>
   rush session stop <id>
   rush session info <id> [--json]
@@ -45,6 +49,26 @@ type sessionView struct {
 }
 
 func viewOf(i host.Info) sessionView { return sessionView{Info: i, Alive: host.Alive(i.HostPID)} }
+
+// runsUnder is whether pid runs under session id's host: a process its
+// agent's shell started, and not one that only inherited RUSH_SESSION.
+func runsUnder(id string, tab *proc.Table, pid int) bool {
+	info, err := host.ReadInfo(id)
+	if err != nil || info.HostPID <= 0 || tab == nil {
+		return false
+	}
+	for seen := 0; pid > 1 && seen < 64; seen++ {
+		if pid == info.HostPID {
+			return true
+		}
+		p := tab.Procs[pid]
+		if p == nil {
+			return false
+		}
+		pid = p.PPID
+	}
+	return false
+}
 
 // errNotFound is a session id with no session behind it.
 var errNotFound = errors.New("not found")
@@ -65,6 +89,8 @@ func sessionCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		asJSON, err = sessionStart(rest, stdout)
 	case "send":
 		err = sessionSend(rest, stdin, stdout)
+	case "answer":
+		err = sessionAnswer(rest, stdin, stdout)
 	case "interrupt":
 		err = sessionControl(rest, stdout, false)
 	case "stop":
@@ -316,7 +342,10 @@ func sessionStart(args []string, stdout io.Writer) (bool, error) {
 		}
 	}
 	// Started from a rush session's shell, it's that session's subagent.
-	if by := os.Getenv("RUSH_SESSION"); by != "" && !cfg.Resume && cfg.Meta["spawnedBy"] == "" {
+	// An app started from that shell inherits RUSH_SESSION too, and starts
+	// sessions of its own: those are run by its process, not under the
+	// session's host.
+	if by := os.Getenv("RUSH_SESSION"); by != "" && !cfg.Resume && cfg.Meta["spawnedBy"] == "" && runsUnder(by, proc.Snapshot(nil), os.Getpid()) {
 		if cfg.Meta == nil {
 			cfg.Meta = map[string]string{}
 		}

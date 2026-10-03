@@ -3197,7 +3197,7 @@ func (d *drawer) shellBody(st *Step, cmd string, indent int) {
 			lg, hs = heredocLang(l.text), hlState{}
 		}
 		if l.verbatim && !shown(i) {
-			if i > 0 && shown(i - 1) {
+			if i > 0 && shown(i-1) {
 				hid := 0
 				for j := i; j < len(lines) && lines[j].verbatim && !shown(j); j++ {
 					hid++
