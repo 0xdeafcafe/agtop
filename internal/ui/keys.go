@@ -647,7 +647,7 @@ func (m *Model) stepChat(d int) tea.Cmd {
 // goroutine: the next start needn't read it all again.
 func (m *Model) quit() tea.Cmd {
 	sc := m.scanner
-	return func() tea.Msg { sc.Flush(); return tea.QuitMsg{} }
+	return func() tea.Msg { resumeAll(); sc.Flush(); return tea.QuitMsg{} }
 }
 
 // quitKey arms quitting on the first ctrl+c and quits on a second one.
@@ -910,7 +910,7 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 	}
 	m.didStep("hash")
 	switch name {
-	case "twatter":
+	case "twotter":
 		return m.openCommunity(arg)
 	case "broadcast":
 		return m.broadcastCommand(arg)
@@ -1079,6 +1079,8 @@ func (m *Model) command(a *fleet.Agent, text string) tea.Cmd {
 		return m.reload()
 	case "ask":
 		return m.askRush(arg)
+	case "guide":
+		return m.openGuide(arg)
 	case "help":
 		m.mode = modeHelp
 		m.didStep("keys")

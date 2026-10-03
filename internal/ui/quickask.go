@@ -3,20 +3,26 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/0xdeafcafe/rush"
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/convo"
 )
 
-// --- quick ask: a throwaway question from anywhere ---
+// --- quick ask: the guide, a question from anywhere ---
 
-// A quick ask is a question for a fast, cheap model that belongs to no
-// chat. It floats over the top right of whatever is showing, keeps its
+// A quick ask is a question for rush's guide, a fast, cheap model that
+// belongs to no chat: it reads the sessions as the list has them and
+// rush's guide, and opens the session it points at. It floats over the top right of whatever is showing, keeps its
 // thread for follow-ups, and can go into a chat's box later as one
 // paste. Its threads are btw's (input, scrolling, text selection); only
 // who answers and where it's drawn differ.
@@ -31,14 +37,104 @@ type quickAsk struct {
 // quickKeep is how many threads are kept, in memory only.
 const quickKeep = 5
 
-const quickSystem = "You answer a developer's quick side question. Be brief and direct: a few sentences or a short code snippet, " +
-	"plain text or light markdown, no preamble."
+const quickSystem = "You are rush's guide. rush is the terminal app the user runs and watches their coding agents in; " +
+	"each message brings their sessions as rush's list has them, a number each. " +
+	"Help them find their way: what needs them next, which session is doing what, where something is, how to do something in rush. " +
+	"Sessions marked NEEDS YOU come first, then ones waiting on them, then ones that finished. " +
+	"Don't make decisions for them: point, summarise in a few lines, and say what they'd do there. " +
+	"For a fuller summary of one session, tell them to open it and ask its own agent. " +
+	"When your answer is about one session, end with a line of its own: open: N, and rush opens it for them. " +
+	"They may ask something unrelated to rush too: answer it briefly. " +
+	"Be brief and direct, plain text or light markdown, no preamble. Answer rush questions from its guide, and say when it doesn't cover something."
+
+// guideOpen is the guide's line asking rush to open a session.
+var guideOpen = regexp.MustCompile(`(?mi)^\s*open:\s*\[?(\d+)\]?\s*$\n?`)
+
+// guideFleet is the sessions as the guide reads them, numbered from 1, and
+// the keys those numbers stand for.
+// ponytail: the first 80 in list order; rank or filter if fleets outgrow that.
+func (m *Model) guideFleet() (string, []string) {
+	var b strings.Builder
+	var keys []string
+	now := time.Now()
+	for _, a := range m.order {
+		if a.Advisor || len(keys) == 80 {
+			continue
+		}
+		keys = append(keys, a.Key)
+		state := a.State
+		switch {
+		case a.NeedsYou():
+			state = "NEEDS YOU"
+		case a.Waiting():
+			state = "waiting on you (seen)"
+		case a.Past:
+			state = "past"
+		}
+		fmt.Fprintf(&b, "[%d] %s · %s · %s ago", len(keys), a.DisplayName, state, a.Age(now).Round(time.Minute))
+		if a.Repo != "" {
+			b.WriteString(" · " + filepath.Base(a.Repo))
+		}
+		if a.Branch != "" {
+			b.WriteString(" @" + a.Branch)
+		}
+		if a.Todos > 0 {
+			fmt.Fprintf(&b, " · todos %d/%d", a.TodosDone, a.Todos)
+		}
+		for _, x := range []string{a.Needs, a.Intent, a.Detail} {
+			if x = strings.Join(strings.Fields(x), " "); x != "" {
+				b.WriteString(" · " + fit(x, 200))
+			}
+		}
+		b.WriteString("\n")
+	}
+	if len(keys) == 0 {
+		return "The user has no sessions in rush yet.", nil
+	}
+	if c := m.focused(); c != nil {
+		b.WriteString("\nThe one selected now: " + c.DisplayName + "\n")
+	}
+	return "Their sessions:\n" + b.String(), keys
+}
+
+// guideOpens takes the guide's open: N off its answer and the key N stood
+// for, "" when it pointed at none.
+func guideOpens(answer string, keys []string) (string, string) {
+	found := guideOpen.FindAllStringSubmatch(answer, -1)
+	if len(found) == 0 {
+		return answer, ""
+	}
+	answer = strings.TrimSpace(guideOpen.ReplaceAllString(answer, ""))
+	n, _ := strconv.Atoi(found[len(found)-1][1])
+	if n < 1 || n > len(keys) {
+		return answer, ""
+	}
+	return answer, keys[n-1]
+}
+
+// openGuide is #guide: the float with the keys, asking q when there is one.
+func (m *Model) openGuide(q string) tea.Cmd {
+	t := m.quick.thread()
+	if t == nil || q != "" {
+		t = m.quick.newThread()
+	}
+	m.quick.shown, t.focused = true, true
+	if q = strings.TrimSpace(q); q != "" {
+		return m.askQuick(t, q)
+	}
+	return nil
+}
 
 // quickAsker answers prompt with the cheapest model rush can run without
 // a session (Claude Code's haiku, else a local Ollama model), and says
 // which. A variable so tests don't spend a model call.
 var quickAsker = func(prompt string) (string, string, error) {
-	return askCheap(quickSystem, prompt, "")
+	model, out, err := askCheap(quickSystem+"\n\n<rush-guide>\n"+rush.Guide+"\n</rush-guide>", prompt, "")
+	if err != nil && strings.Contains(err.Error(), "too small") {
+		// A local model that can't hold the guide answers without it.
+		return askCheap(quickSystem, prompt, "")
+	}
+	return model, out, err
 }
 
 // askCheap asks the cheapest model rush can run without a session, the
@@ -126,10 +222,12 @@ func quickThread(qa []btwQA) string {
 
 // askQuick asks q in thread t, with the thread so far as context.
 func (m *Model) askQuick(t *btwThread, q string) tea.Cmd {
+	sessions, keys := m.guideFleet()
 	prompt := q
 	if before := quickThread(t.qa); before != "" {
 		prompt = "Earlier in this thread:\n\n" + before + "Now: " + q
 	}
+	prompt = sessions + "\n" + prompt
 	t.qa = append(t.qa, btwQA{Question: q})
 	t.waiting, t.err, t.scroll, t.sel = time.Now(), "", 0, textSel{}
 	return sheetDo(func() ([2]string, error) {
@@ -143,8 +241,15 @@ func (m *Model) askQuick(t *btwThread, q string) tea.Cmd {
 		case strings.TrimSpace(r[1]) == "":
 			t.err = "no answer came back: ask again"
 		default:
-			t.qa[len(t.qa)-1].Response = strings.TrimSpace(r[1])
+			answer, key := guideOpens(strings.TrimSpace(r[1]), keys)
 			m.quick.model = r[0]
+			for _, a := range m.order {
+				if a.Key == key {
+					t.qa[len(t.qa)-1].Response = answer + "\n\n→ opened " + a.DisplayName
+					return m.goAgent(a)
+				}
+			}
+			t.qa[len(t.qa)-1].Response = answer
 		}
 		return nil
 	})
@@ -181,7 +286,7 @@ func (m *Model) quickKey(k tea.KeyPressMsg, s string) (tea.Cmd, bool) {
 	}
 	t := q.thread()
 	switch s {
-	case "ctrl+q", "ctrl+k", "super+k":
+	case "ctrl+q", "ctrl+k", "super+k", "alt+/":
 		return nil, false
 	case "super+c", "ctrl+c":
 		if m.copyBtwSel(t) || s == "super+c" {
@@ -286,7 +391,8 @@ func (m *Model) quickOver(screen string) string {
 		}
 	}
 	if len(t.qa) == 0 {
-		add(dim("ask anything: it belongs to no chat"))
+		add(dim("ask the guide: what's next? which one needs me? where's the login work?"))
+		add(dim("it sees your sessions, opens the one it means, and answers anything quick"))
 	}
 	var foot []string
 	if t.focused {
@@ -308,7 +414,7 @@ func (m *Model) quickOver(screen string) string {
 	if t.focused {
 		edge = cOrange
 	}
-	title := paint(cOrange+bold, "quick ask")
+	title := paint(cOrange+bold, "guide")
 	if q.model != "" {
 		title += dim(" · " + q.model)
 	}
@@ -317,7 +423,7 @@ func (m *Model) quickOver(screen string) string {
 	case t.focused && m.host != nil && quickThread(t.qa) != "":
 		hint = m.boundKey("session.quickask.insert") + " into a chat · esc"
 	case t.focused:
-		hint = "enter asks · ctrl+n new · esc"
+		hint = "enter asks · ctrl+n new · tab back · esc"
 	}
 	line := func(l, r, mid string) string {
 		room := pw - cellw.String(l) - 1

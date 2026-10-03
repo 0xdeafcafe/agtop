@@ -97,6 +97,9 @@ type Options struct {
 	Brief  string
 	// Agent names who answers under each of your messages.
 	Agent string
+	// Paused are the Bash calls, by tool call ID, whose running command
+	// rush has paused.
+	Paused map[string]bool
 }
 
 // rowCap is how wide a row's numbers and rules may run.
@@ -131,6 +134,7 @@ type cacheKey struct {
 	hideActivity bool
 	noRule       bool
 	agent        string
+	paused       int
 	folds, sel   string
 	tick         int
 	now          int64
@@ -353,7 +357,7 @@ func (s *Session) cacheKey(t *Turn, o Options, ref string, open bool, folds map[
 		k.sel = o.Selected // focus draws no differently
 	}
 	if t.Live || waiting(t) {
-		k.clock, k.tick, k.now = true, o.Tick, o.Now.Unix()
+		k.clock, k.tick, k.now, k.paused = true, o.Tick, o.Now.Unix(), len(o.Paused)
 	}
 	if len(s.Turns) > 0 && s.Turns[0] == t {
 		k.opening = s.openingPrint(o)
@@ -2265,6 +2269,9 @@ func (d *drawer) step(st *Step, depth int) {
 	lead := d.spine() + strings.Repeat(" ", indent-1) + d.statusMark(st) + " "
 	label := d.stepMemo(st, 'l', d.label)
 	cells, right := d.cells(st)
+	if d.o.Paused[st.ID] && st.Status == Running {
+		cells = strings.TrimPrefix(cells+faint(" · ")+paint(cYellow+bold, "⏸ paused"), faint(" · "))
+	}
 	if cells != "" {
 		cells = faint("  · ") + cells
 		room := d.cw - cellw.String(lead) - cellw.String(cells) - cellw.String(right) - 3

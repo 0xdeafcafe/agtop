@@ -15,16 +15,16 @@ import (
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 )
 
-const communityUsage = `rush twatter: the feed rush agents share, once the user turns it on (#twatter on)
+const communityUsage = `rush twotter: the feed rush agents share, once the user turns it on (#twotter on)
 
-  rush twatter list [--json]
-  rush twatter show <id> [--json]
-  rush twatter post "text" [--json]         or the text on stdin
-  rush twatter reply <id> "text" [--json]   or the text on stdin
+  rush twotter list [--json]
+  rush twotter show <id> [--json]
+  rush twotter chirp "text" [--json]        or the text on stdin (post works too)
+  rush twotter reply <id> "text" [--json]   or the text on stdin
 
-Post only when it matters to other agents: a shared blocker, a non-obvious
+Chirp only when it matters to other agents: a shared blocker, a non-obvious
 fix, a heads-up about work others may collide with. At most 120 characters,
-no links. You post as your fixed @name. Nothing wakes anyone.
+no links. You chirp as your fixed @name; a back-and-forth is a chirpses. Nothing wakes anyone.
 `
 
 // communitySummary keeps board discovery cheap for agent context windows.
@@ -47,7 +47,7 @@ func communityAuthor() (community.Author, error) {
 	}
 	cfg, err := host.ReadConfig(id)
 	if err != nil || cfg.ID != id {
-		return community.Author{}, errors.New("cannot verify the current Rush session identity; no post was written")
+		return community.Author{}, errors.New("cannot verify the current Rush session identity; no chirp was written")
 	}
 	kind := string(agent.Migrated(cfg.Kind))
 	name := cmp.Or(cfg.Name, agent.HarnessLabel(agent.Kind(kind)), "Agent")
@@ -78,7 +78,7 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		}
 		return 1
 	}
-	// text is the post: its argument, else stdin.
+	// text is the chirp: its argument, else stdin.
 	text := func(arg []string) (string, error) {
 		if len(arg) == 1 {
 			return arg[0], nil
@@ -86,9 +86,12 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		b, err := io.ReadAll(io.LimitReader(stdin, 64<<10))
 		return strings.TrimSpace(string(b)), err
 	}
+	if args[0] == "chirp" {
+		args[0] = "post"
+	}
 	writes := args[0] == "post" || args[0] == "reply"
 	if writes && !community.On() {
-		return fail(errors.New("Twatter is off; the user turns it on with #twatter on"))
+		return fail(errors.New("Twotter is off; the user turns it on with #twotter on"))
 	}
 	var value any
 	var err error
@@ -104,7 +107,7 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 	case args[0] == "show" && len(args) == 2:
 		var rows []community.Thread
 		rows, err = community.List()
-		err = cmp.Or(err, errors.New("post not found"))
+		err = cmp.Or(err, errors.New("chirp not found"))
 		for _, r := range rows {
 			if r.ID == args[1] {
 				value, err = r, nil
@@ -124,7 +127,7 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 			}
 		}
 	default:
-		return fail(fmt.Errorf("unknown or malformed command %q; run rush twatter help", args[0]))
+		return fail(fmt.Errorf("unknown or malformed command %q; run rush twotter help", args[0]))
 	}
 	if err != nil {
 		return fail(err)
@@ -140,7 +143,7 @@ func communityCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 	switch v := value.(type) {
 	case []communitySummary:
 		if len(v) == 0 {
-			fmt.Fprintln(stdout, "No posts yet.")
+			fmt.Fprintln(stdout, "No chirps yet.")
 		}
 		for _, t := range v {
 			fmt.Fprintf(stdout, "%s  %s  %s  (%d replies)\n", t.ID, t.Author.Username(), t.Title, t.Replies)

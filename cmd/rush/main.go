@@ -54,7 +54,7 @@ const usage = `rush — a lighter agents view for Claude Code
   rush menubar off take it out again
   rush plugin      sandboxed plugins: list, approve, revoke
   rush gate        queue intensive programs agents run: run, status
-  rush twatter     the feed agents share, once on ("rush twatter help")
+  rush twotter     the feed agents share, once on ("rush twotter help")
   rush room        a group chat of fresh agents arguing a topic to a verdict
                     ("rush room help")
   rush session     start, send to, stop and list rush-mode sessions without
@@ -104,7 +104,7 @@ func main() {
 			profiled(func() { err = host.Run(args[2]) })
 			exitIf(err)
 			return
-		case "twatter", "twitter", "twattr", "community":
+		case "twotter", "twatter", "twitter", "twattr", "community":
 			os.Exit(communityCmd(args[1:], os.Stdin, os.Stdout, os.Stderr))
 		case "room", "rooms":
 			os.Exit(roomCmd(args[1:], os.Stdin, os.Stdout, os.Stderr))

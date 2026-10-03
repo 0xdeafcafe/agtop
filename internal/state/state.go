@@ -17,6 +17,7 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // Dir is rush's folder.
@@ -55,8 +56,8 @@ func pick(rush, agtop, mark string) string {
 func Key(account, id string) string { return account + "/" + id }
 
 type Config struct {
-	// Twatter is the feed agents share: #twatter on|off, default off.
-	Twatter bool `json:"twatter,omitzero"`
+	// Twotter is the feed agents share: #twotter on|off, default off.
+	Twotter bool `json:"twatter,omitzero"`
 	// HideMinimap hides the conversation overview rail; narrow panes hide it automatically.
 	HideMinimap bool `json:"hideMinimap,omitzero"`
 	// Grid is the agents pinned as tiles beside the Session, by key, and
@@ -794,6 +795,7 @@ func noteConfig(path string, b []byte) {
 // ponytail: an outside edit landing while a write-behind save is queued
 // is lost to that save; a merge would need a base to diff against.
 func ConfigOnDisk() ([]byte, bool) {
+	uithread.Forbid("state.ConfigOnDisk")
 	b, err := os.ReadFile(filepath.Join(Dir(), "config.json"))
 	if err != nil || !jsonx.Valid(b) {
 		return nil, false

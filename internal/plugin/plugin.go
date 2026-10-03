@@ -45,6 +45,7 @@ import (
 
 	"github.com/0xdeafcafe/rush/internal/jsonx"
 	"github.com/0xdeafcafe/rush/internal/state"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // Root holds one folder per installed plugin.
@@ -443,6 +444,7 @@ func (m Manifest) WorkspaceDirs() []string {
 
 // Load reads the plugin in dir.
 func Load(dir string) (Plugin, error) {
+	uithread.Forbid("plugin.Load")
 	b, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
 	if err != nil {
 		return Plugin{}, err
@@ -460,6 +462,7 @@ func Load(dir string) (Plugin, error) {
 // Installed lists the plugins in Root(), and the folders that aren't valid
 // plugins with why.
 func Installed() ([]Plugin, map[string]error) {
+	uithread.Forbid("plugin.Installed")
 	ents, _ := os.ReadDir(Root())
 	var out []Plugin
 	bad := map[string]error{}
@@ -482,6 +485,7 @@ func Installed() ([]Plugin, map[string]error) {
 // It's what a UI's own approval dialog offers, instead of `rush plugin
 // approve`.
 func Pending() []Plugin {
+	uithread.Forbid("plugin.Pending")
 	installed, _ := Installed()
 	approved, declined := Approvals(), declinedPlugins()
 	var out []Plugin
@@ -507,6 +511,7 @@ func Pending() []Plugin {
 // Digest is a hash of every file in the plugin's folder: names, modes,
 // contents and where symlinks point.
 func Digest(dir string) (string, error) {
+	uithread.Forbid("plugin.Digest")
 	// A plugin being worked on may be a link to where it's written.
 	if r, err := filepath.EvalSymlinks(dir); err == nil {
 		dir = r
@@ -556,6 +561,7 @@ type Approval struct {
 
 // Approvals reads every approval, by plugin name.
 func Approvals() map[string]Approval {
+	uithread.Forbid("plugin.Approvals")
 	out := map[string]Approval{}
 	b, err := os.ReadFile(approvedPath())
 	if err == nil {
@@ -581,6 +587,7 @@ func saveApprovals(a map[string]Approval) error {
 
 // Approve records that p, as it is now, may run.
 func Approve(p Plugin) error {
+	uithread.Forbid("plugin.Approve")
 	d, err := Digest(p.Dir)
 	if err != nil {
 		return err
@@ -654,6 +661,7 @@ func declinedPlugins() map[string]declinedAt {
 // Decline records that p, at its current digest, was told "not now": a
 // UI's Pending won't offer it again until its files change.
 func Decline(p Plugin) error {
+	uithread.Forbid("plugin.Decline")
 	d, err := Digest(p.Dir)
 	if err != nil {
 		return err

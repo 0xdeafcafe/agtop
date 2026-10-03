@@ -6,16 +6,20 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // In tests, work handed off the UI goroutine happens at once: a frame
 // drawn or a key pressed in a test has what a later frame would.
 func init() {
-	goOff = func(f func()) { f() }
+	goOff = func(f func()) { uithread.Off(f) }
 	cmdOff = func(f func() tea.Msg) tea.Cmd {
-		msg := f()
+		var msg tea.Msg
+		uithread.Off(func() { msg = f() })
 		return func() tea.Msg { return msg }
 	}
+	uithread.Breach = offUIBreach
 }
 
 // For real, a read happens in the background: the frame draws what it had

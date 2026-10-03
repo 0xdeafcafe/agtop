@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/jsonx"
+	"github.com/0xdeafcafe/rush/internal/uithread"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
 )
@@ -221,6 +222,7 @@ var listed struct {
 // tools, the likeliest first, each with its size and whether it's loaded.
 // It asks the server, so never on the UI.
 func listModels() []agent.Choice {
+	uithread.Forbid("ollama.listModels")
 	listed.Lock()
 	defer listed.Unlock()
 	if time.Since(listed.at) < time.Minute {

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/0xdeafcafe/rush/internal/uithread"
 )
 
 // Folder is a repository agents work in, as git sees it: the main
@@ -62,6 +64,7 @@ type GitState struct {
 // commits too. It runs git several times and can take seconds on a big
 // checkout: never on the UI's goroutine.
 func CheckFolder(root string, trees []string, whole bool) Folder {
+	uithread.Forbid("fleet.CheckFolder")
 	f := Folder{Root: root, Whole: whole, Checked: time.Now()}
 	var rootDone sync.WaitGroup
 	rootDone.Go(func() { f.Git = gitState(root) })

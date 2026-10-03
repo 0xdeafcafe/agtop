@@ -141,7 +141,7 @@ func (c *hostConn) jobHint(j *convo.Job) string {
 	case j.Background:
 		return keys("x", "stop", "shift+x", "…and say why", "space", "output", "d", "command details")
 	case ok:
-		return keys("k", "kill "+firstWord(rp.Command), "b", "background", "x", "stop", "shift+x", "…and say why")
+		return keys("k", "kill "+firstWord(rp.Command), "p", pauseWord(j.ToolUseID), "b", "background", "x", "stop", "shift+x", "…and say why")
 	}
 	return keys("b", "background", "x", "stop", "shift+x", "…and say why", "space", "output", "d", "command details")
 }

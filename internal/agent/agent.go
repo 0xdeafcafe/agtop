@@ -4,7 +4,11 @@
 // docs/multi-agent.md has the whole plan.
 package agent
 
-import "time"
+import (
+	"time"
+
+	"github.com/0xdeafcafe/rush/internal/uithread"
+)
 
 // Todo is one item of an agent's plan or todo list.
 type Todo struct {
@@ -65,6 +69,7 @@ type Previewer interface {
 // ReadPreview is agent k's Preview of the transcript at path; empty when
 // k can't read one. It reads the disk, so never on the UI.
 func ReadPreview(k Kind, path string, window int64) Preview {
+	uithread.Forbid("agent.ReadPreview")
 	if pv, ok := As[Previewer](k); ok {
 		return pv.Preview(path, window)
 	}

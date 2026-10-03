@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"hash/fnv"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,13 +12,15 @@ import (
 	"github.com/0xdeafcafe/rush/internal/community"
 )
 
-// The stream is the community board as a timeline in the list's empty
-// foot: every question and reply, newest at the bottom, the older ones
+// The stream is the community board as a timeline docked at the list's
+// very foot: every question and reply, newest at the bottom, the older ones
 // pushed up and off the top as posts come in. A click opens the thread.
 
 const (
 	streamKeyPrefix = "community:"
-	streamFresh     = 8 * time.Second // a new post stands out this long
+	streamFresh     = 30 * time.Second // a new post lights the dock this long
+	streamFade      = 0.55             // how far a quiet dock fades to the ground
+	streamDockPosts = 6                // the most posts the docked timeline shows
 )
 
 type streamPost struct {
@@ -26,6 +29,7 @@ type streamPost struct {
 	author    community.Author
 	text      string
 	at        time.Time
+	rootAt    time.Time // when the post a reply answers was made; the sheet sets it
 	reply     bool
 }
 
@@ -42,7 +46,7 @@ func (m *Model) streamTick() tea.Cmd {
 }
 
 func (m *Model) loadStream() tea.Cmd {
-	if !m.store.Config.Twatter {
+	if !m.store.Config.Twotter {
 		return m.streamTick()
 	}
 	stamp := m.stream.stamp
@@ -77,47 +81,119 @@ func streamOf(threads []community.Thread) []streamPost {
 	return out
 }
 
-// streamLines is the timeline in at most room rows, newest at the bottom,
-// whole posts only; nil when not even a heading and one post fit.
+// streamDock is the timeline docked at the very foot of the list, on the
+// prompt: up to six posts, at most a third of the body; the list scrolls
+// behind it. Nil when Twotter is off, quiet or the body too short.
+func (m *Model) streamDock(w, bodyH int) (lines, keys []string) {
+	return m.streamLines(w, min(streamDockPosts+1, bodyH/3))
+}
+
+// streamLines is the timeline in at most room rows under a title rule,
+// newest at the bottom, one post a row. It stays faded until a post is new
+// or the pointer is on it; the hovered post opens out over its neighbours,
+// so the dock keeps its height and the row under the pointer stays put.
 func (m *Model) streamLines(w, room int) (lines, keys []string) {
-	if !m.store.Config.Twatter || room < 5 || len(m.stream.posts) == 0 || w < 24 {
+	if !m.store.Config.Twotter || room < 2 || len(m.stream.posts) == 0 || w < 24 {
 		return nil, nil
 	}
 	now := time.Now()
-	inner := w - 5 // "│ " … " │", and a column clear of the divider
-	var body, bodyKeys []string
+	inner := w - 2 // one column in, one clear of the divider
+	var kept []streamPost
 	seen := map[string]bool{}
-	for i := len(m.stream.posts) - 1; i >= 0 && len(body) < room-3; i-- {
+	for i := len(m.stream.posts) - 1; i >= 0 && len(kept) < room-1; i-- {
 		p := m.stream.posts[i]
 		said := p.author.Username() + "\x00" + p.said()
 		if seen[said] {
 			continue // the same agent saying the same thing again
 		}
 		seen[said] = true
-		body = append([]string{m.streamRow(p, inner, now)}, body...)
-		bodyKeys = append([]string{streamKeyPrefix + p.key}, bodyKeys...)
+		kept = append([]streamPost{p}, kept...)
 	}
-	if body == nil {
-		return nil, nil
+	cols := streamColsOf(kept, inner, now)
+	hot, hovered := strings.HasPrefix(m.hover, streamKeyPrefix), -1
+	var body, bodyKeys []string
+	for i, p := range kept {
+		hot = hot || now.Sub(p.at) < streamFresh
+		if m.hover == streamKeyPrefix+p.key {
+			hovered = i
+		}
+		body, bodyKeys = append(body, m.streamRow(p, cols, 1, now)[0]), append(bodyKeys, streamKeyPrefix+p.key)
 	}
-	edge := func(s string) string { return paint(cSub, s) }
-	title := " Twatter "
-	lines = []string{"", edge("╭─") + paint(cText+bold, title) + edge(strings.Repeat("─", max(0, inner+1-cellw.String(title)))+"╮")}
+	if hovered >= 0 {
+		key := streamKeyPrefix + kept[hovered].key
+		full := m.streamRow(kept[hovered], cols, room-1, now)
+		for len(body) < len(full) { // too few posts to open over: the dock grows up
+			body, bodyKeys = append([]string{""}, body...), append([]string{""}, bodyKeys...)
+			hovered++
+		}
+		at := min(hovered, len(body)-len(full))
+		for j, l := range full {
+			body[at+j], bodyKeys[at+j] = hoverLine(l, inner), key
+		}
+	}
+	title := " the feed 🐓 "
+	lines = []string{faint("──") + paint(cText+bold, title) + faint(strings.Repeat("─", max(0, w-3-cellw.String(title))))}
 	for _, l := range body {
-		lines = append(lines, edge("│")+" "+fit(l, inner)+" "+edge("│"))
+		lines = append(lines, " "+fit(l, inner))
 	}
-	lines = append(lines, edge("╰"+strings.Repeat("─", inner+2)+"╯"))
-	return lines, append(append([]string{"", streamKeyPrefix}, bodyKeys...), streamKeyPrefix)
+	if !hot {
+		for i, l := range lines {
+			lines[i] = fadeText(l, streamFade)
+		}
+	}
+	return lines, append([]string{streamKeyPrefix}, bodyKeys...)
 }
 
-// streamRow is one post on one line for the side: who, what, how long ago.
-func (m *Model) streamRow(p streamPost, w int, now time.Time) string {
+// streamCols is where a row's columns sit: handles padded to one width, the
+// text after them, the age right-aligned in a column of its own.
+type streamCols struct{ handle, text, age int }
+
+func streamColsOf(posts []streamPost, w int, now time.Time) streamCols {
+	c := streamCols{age: 3}
+	for _, p := range posts {
+		c.handle = max(c.handle, cellw.String(streamHandle(p)))
+		c.age = max(c.age, cellw.String(age(now.Sub(p.at))))
+	}
+	c.handle = min(c.handle, max(6, w/3))
+	c.text = max(8, w-c.handle-c.age-4)
+	return c
+}
+
+// streamRow is one post in at most rows lines: the handle in its colour,
+// the text wrapped and the last line cut with …, its age on the first line.
+func (m *Model) streamRow(p streamPost, c streamCols, rows int, now time.Time) []string {
 	when := dim(age(now.Sub(p.at)))
 	if now.Sub(p.at) < streamFresh {
 		when = paint(cOrange, age(now.Sub(p.at)))
 	}
-	left := paint(cText+bold, streamHandle(p)) + "  " + tagged(strings.Join(strings.Fields(communityText(p.said())), " "))
-	return spread(fit(left, w-cellw.String(when)-2), when, w)
+	text := strings.Join(strings.Fields(communityText(p.said())), " ")
+	wrapped := []string{text}
+	if rows > 1 {
+		if wrapped = wrap(text, c.text); len(wrapped) > rows {
+			wrapped = append(wrapped[:rows-1], wrapped[rows-1]+" "+strings.Join(wrapped[rows:], " "))
+		}
+	}
+	pad := strings.Repeat(" ", c.handle+2)
+	out := make([]string, len(wrapped))
+	for i, l := range wrapped {
+		lead := pad
+		if i == 0 {
+			lead = fit(paint(handleColor(p)+bold, streamHandle(p)), c.handle) + "  "
+		}
+		out[i] = lead + fit(tagged(l), c.text)
+		if i == 0 {
+			out[i] += "  " + strings.Repeat(" ", c.age-cellw.String(age(now.Sub(p.at)))) + when
+		}
+	}
+	return out
+}
+
+// handleColor is an author's own colour, the same wherever their name shows.
+func handleColor(p streamPost) string {
+	palette := []string{cBlue, cGreen, cYellow, cQueue, cOrange, cRed}
+	h := fnv.New32a()
+	h.Write([]byte(p.author.Username()))
+	return palette[h.Sum32()%uint32(len(palette))]
 }
 
 // streamHandle is the author as @name, whatever Username already carries.
@@ -131,32 +207,6 @@ func (p streamPost) said() string {
 		return p.text
 	}
 	return p.title
-}
-
-// streamPost is one post as a tweet: who and when, what thread a reply is
-// in, then up to three lines of what they said.
-func (m *Model) streamPost(p streamPost, w int, now time.Time) []string {
-	name := paint(cText+bold, streamHandle(p))
-	if now.Sub(p.at) < streamFresh {
-		name = paint(cOrange, "● ") + name
-	}
-	head := "  " + name + dim(" · "+age(now.Sub(p.at)))
-	if p.reply {
-		head += dim(" ↩ " + communityText(p.title))
-	}
-	out := []string{fit(head, w)}
-	text := communityText(p.text)
-	if !p.reply {
-		text = communityText(p.title)
-	}
-	wrapped := wrap(strings.Join(strings.Fields(text), " "), max(8, w-5))
-	if len(wrapped) > 3 {
-		wrapped = append(wrapped[:2], cellw.Truncate(wrapped[2], max(8, w-6), "")+"…")
-	}
-	for _, l := range wrapped {
-		out = append(out, "    "+tagged(l))
-	}
-	return out
 }
 
 // tagged paints a line's @mentions and #hashtags; the rest stays plain.

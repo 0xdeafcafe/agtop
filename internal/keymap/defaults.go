@@ -20,7 +20,7 @@ var Defaults = []Action{
 	{ID: "grid.beside", Context: Global, Title: "pin the open agent as a tile beside the Session, and pick the next", Keys: []string{"ctrl+] |", "ctrl+] \\"}, Runs: true},
 	{ID: "grid.below", Context: Global, Title: "pin the open agent as a tile under the Session, and pick the next", Keys: []string{"ctrl+] -"}, Runs: true},
 	{ID: "grid.unpin", Context: Global, Title: "take the newest tile off the grid", Keys: []string{"ctrl+] k"}, Runs: true},
-	{ID: "quick.ask", Context: Global, Title: "a quick question for a fast model, from anywhere; again moves the keys", Keys: []string{"ctrl+] q"}, Runs: true},
+	{ID: "quick.ask", Context: Global, Title: "the guide: ask rush what's next, where something is, or anything quick; again moves the keys", Keys: []string{"alt+/", "ctrl+] q"}, Runs: true},
 	{ID: "profile.pick", Context: Global, Title: "switch the default profile or provider", Keys: []string{"ctrl+] w", "alt+w"}},
 
 	{ID: "list.up", Context: List, Title: "the agent above", Keys: []string{"up"}},
