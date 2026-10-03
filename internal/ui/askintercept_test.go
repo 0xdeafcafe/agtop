@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,12 +31,21 @@ type askPlugin struct {
 	asked  map[string]askQ
 	letGo  map[string]bool
 	n      int
+	// named has it ask for the secret's name after a y, in a window that
+	// shows an input.
+	named bool
 }
 
 type askQ struct {
 	value, name string
 	failed      bool
+	// naming is the question for its name, err why the last one typed
+	// wasn't taken.
+	naming bool
+	err    string
 }
+
+var askNameRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
 var tokenRE = regexp.MustCompile(`sk-proj-[A-Za-z0-9]{40,}|ghp_[A-Za-z0-9]{36}`)
 
@@ -77,6 +87,18 @@ func (f *askPlugin) ask(q askQ, changes plugin.InterceptResult) plugin.Intercept
 	if q.failed {
 		changes.Question, changes.Detail = "Couldn't store the secret", f.addErr.Error()
 		changes.Choices = []plugin.AskChoice{{Key: "y", Label: "send as is"}, {Key: "n", Label: "back to the box", Esc: true}}
+		return changes
+	}
+	if q.naming {
+		changes.Question, changes.Detail = "Name the secret", "it goes as "+askRef("NAME")
+		changes.Input = &plugin.AskLine{Value: q.name, Error: q.err, Enter: "save"}
+		changes.Choices = []plugin.AskChoice{{Key: "b", Label: "back", Esc: true}}
+		return changes
+	}
+	if f.named {
+		changes.Question = "Save this secret?"
+		changes.Detail = fmt.Sprintf("your message has a token (%s… %d chars)", q.value[:4], len(q.value))
+		changes.Choices = []plugin.AskChoice{{Key: "y", Label: "save it", Enter: true}, {Key: "n", Label: "send as is", Esc: true}}
 		return changes
 	}
 	changes.Question = "Save as secret " + q.name + "?"
@@ -121,6 +143,22 @@ func (f *askPlugin) handle(_ context.Context, method string, params jsontext.Val
 			return f.then(in.Text, plugin.InterceptResult{}), nil
 		case q.failed:
 			return plugin.InterceptResult{Action: "block", Reason: "not sent; it's still in the box"}, nil
+		case q.naming && in.Key == "b":
+			q.naming, q.err = false, ""
+			return f.ask(q, plugin.InterceptResult{}), nil
+		case q.naming:
+			q.name, q.err = in.Value, ""
+			if !askNameRE.MatchString(in.Value) {
+				q.err = "a name is capitals, digits and _"
+			} else if was := f.saved(in.Value); was != "" && was != q.value {
+				q.err = in.Value + " is already stored: pick another name"
+			}
+			if q.err != "" {
+				return f.ask(q, plugin.InterceptResult{}), nil
+			}
+		case f.named && slices.Contains(in.Asks, plugin.AskInput):
+			q.naming = true
+			return f.ask(q, plugin.InterceptResult{}), nil
 		}
 		if f.addErr != nil {
 			q.failed = true
@@ -385,5 +423,165 @@ func TestSecretInAPaste(t *testing.T) {
 	sent := sentText(t, c)
 	if strings.Contains(sent, pastedKey) || !strings.Contains(sent, "OPENAI_API_KEY={{secret:OPENAI_API_KEY}}") {
 		t.Errorf("sent %q", sent)
+	}
+}
+
+// enter presses enter in the window, and returns what follows.
+func enter(m *Model) tea.Cmd {
+	k, _ := keyOf("enter")
+	return m.key(k)
+}
+
+// named is a box with a key in it, y said to saving it: the question for
+// its name is up.
+func named(t *testing.T, v *askPlugin) (*Model, *hostConn) {
+	t.Helper()
+	v.named = true
+	m, c := boxWithKey(t, v)
+	land(t, m, m.sendPane(c, false))
+	if m.confirm == nil || m.confirm.question != "Save this secret?" || m.confirm.line != nil {
+		t.Fatalf("want the save question with no name in it, got %+v", m.confirm)
+	}
+	land(t, m, m.confirmKey("y"))
+	if m.confirm == nil || m.confirm.line == nil {
+		t.Fatalf("want the name asked for, got %+v", m.confirm)
+	}
+	return m, c
+}
+
+// Saying y asks for the secret's name in a line that starts with the one
+// suggested, edited in place; enter saves under what's there.
+func TestYesAsksForTheName(t *testing.T) {
+	v := &askPlugin{}
+	m, c := named(t, v)
+	l := m.confirm.line
+	if string(l.buf) != "OPENAI_API_KEY" || l.pos != len(l.buf) || len(v.stored) != 0 || len(c.sending) != 0 {
+		t.Fatalf("the line starts as the suggested name, nothing saved yet: %q at %d", string(l.buf), l.pos)
+	}
+	if keys := stripAnsi(m.confirm.keys()); keys != "enter save   esc back   ctrl+c cancel" {
+		t.Errorf("keys %q", keys)
+	}
+	body := stripAnsi(strings.Join(m.confirmBody(60), "\n"))
+	if !strings.Contains(body, "Name the secret") || !strings.Contains(body, "❯ OPENAI_API_KEY▏") {
+		t.Errorf("the box shows the line:\n%s", body)
+	}
+	// Letters are typed, y and n included; the arrows move in the line.
+	pressKeys(m, "ctrl+w", "ctrl+w", "ctrl+w", "S", "T", "R", "Y", "P", "E", "_", "n", "backspace", "K", "E", "Y", "home", "M", "Y", "_", "end", "2", "left", "delete")
+	if got := string(m.confirm.line.buf); got != "MY_STRYPE_KEY" {
+		t.Fatalf("typed %q", got)
+	}
+	m.confirm.line.insert("_LIVE\n")
+	land(t, m, enter(m))
+	if v.saved("MY_STRYPE_KEY_LIVE") != pastedKey || len(v.stored) != 1 {
+		t.Fatalf("saved %v", v.stored)
+	}
+	want := "deploy with {{secret:MY_STRYPE_KEY_LIVE}} please\n\n" + askUsage("MY_STRYPE_KEY_LIVE")
+	if sent := sentText(t, c); sent != want {
+		t.Errorf("sent %q, want %q", sent, want)
+	}
+}
+
+// A name the plugin won't take keeps the question up, with why under the
+// line and what was typed still in it.
+func TestBadNameStaysOpen(t *testing.T) {
+	v := &askPlugin{stored: map[string]string{"TAKEN": "another value"}}
+	m, c := named(t, v)
+	for _, bad := range []struct{ typed, why string }{
+		{"my key", "a name is capitals, digits and _"},
+		{"TAKEN", "TAKEN is already stored: pick another name"},
+	} {
+		pressKeys(m, "ctrl+u")
+		for _, r := range bad.typed {
+			pressKeys(m, strings.Replace(string(r), " ", "space", 1))
+		}
+		land(t, m, enter(m))
+		if m.confirm == nil || m.confirm.line == nil || m.confirm.line.err != bad.why || string(m.confirm.line.buf) != bad.typed {
+			t.Fatalf("%q: want it asked again with why, got %+v", bad.typed, m.confirm)
+		}
+		if len(c.sending) != 0 || len(v.stored) != 1 {
+			t.Fatalf("%q: nothing is saved or sent: %v", bad.typed, v.stored)
+		}
+		if body := stripAnsi(strings.Join(m.confirmBody(60), "\n")); !strings.Contains(body, bad.why) {
+			t.Errorf("%q: the box says why:\n%s", bad.typed, body)
+		}
+	}
+	// Typing takes the reason away; a good name then saves.
+	pressKeys(m, "_", "2")
+	if m.confirm.line.err != "" {
+		t.Error("the reason stays after the line changed")
+	}
+	land(t, m, enter(m))
+	if v.saved("TAKEN_2") != pastedKey || !strings.Contains(sentText(t, c), "{{secret:TAKEN_2}}") {
+		t.Fatalf("saved %v", v.stored)
+	}
+}
+
+// esc in the name goes back to the question before it; ctrl+c leaves the
+// box as it was.
+func TestEscGoesBackFromTheName(t *testing.T) {
+	v := &askPlugin{}
+	m, c := named(t, v)
+	k, _ := keyOf("esc")
+	land(t, m, m.key(k))
+	if m.confirm == nil || m.confirm.line != nil || m.confirm.question != "Save this secret?" {
+		t.Fatalf("esc goes back to the save question, got %+v", m.confirm)
+	}
+	land(t, m, m.confirmKey("y"))
+	k, _ = keyOf("ctrl+c")
+	if cmd := m.key(k); cmd != nil || m.confirm != nil {
+		t.Fatal("ctrl+c closes the question and asks nothing more")
+	}
+	if len(c.sending) != 0 || string(c.input) != "deploy with "+pastedKey+" please" || c.intercepting || len(v.stored) != 0 {
+		t.Fatalf("ctrl+c leaves the box: sent %d, box %q", len(c.sending), string(c.input))
+	}
+}
+
+// Each secret in a message gets its own two questions, in order.
+func TestTwoSecretsAreNamedInTurn(t *testing.T) {
+	v := &askPlugin{named: true}
+	m, c := boxWithKey(t, v)
+	gh := "ghp_" + strings.Repeat("Zq7Wx3Rt9", 4)
+	c.input = []rune(pastedKey + " and " + gh)
+	land(t, m, m.sendPane(c, false))
+	for _, name := range []string{"OPENAI_API_KEY", "GITHUB_TOKEN"} {
+		if m.confirm == nil || m.confirm.line != nil {
+			t.Fatalf("%s: want the save question, got %+v", name, m.confirm)
+		}
+		land(t, m, m.confirmKey("y"))
+		if m.confirm == nil || m.confirm.line == nil || string(m.confirm.line.buf) != name {
+			t.Fatalf("%s: want its name asked for, got %+v", name, m.confirm)
+		}
+		pressKeys(m, "_", "A")
+		land(t, m, enter(m))
+	}
+	sent := sentText(t, c)
+	if strings.Contains(sent, pastedKey) || strings.Contains(sent, gh) ||
+		!strings.HasPrefix(sent, "{{secret:OPENAI_API_KEY_A}} and {{secret:GITHUB_TOKEN_A}}") {
+		t.Errorf("sent %q", sent)
+	}
+}
+
+// A paste while the name is asked for goes in the line, as one line, and
+// not in the box under it.
+func TestPasteGoesInTheLine(t *testing.T) {
+	m, c := named(t, &askPlugin{})
+	box := string(c.input)
+	pressKeys(m, "ctrl+u")
+	m.Update(tea.PasteMsg{Content: "MY_KEY\n"})
+	if got := string(m.confirm.line.buf); got != "MY_KEY" || string(c.input) != box {
+		t.Fatalf("line %q, box %q", got, string(c.input))
+	}
+}
+
+// A long line scrolls sideways, keeping the cursor in the box.
+func TestLineKeepsTheCursorInView(t *testing.T) {
+	l := &confirmLine{buf: []rune(strings.Repeat("A", 40) + "Z")}
+	l.pos = len(l.buf)
+	if got := stripAnsi(l.view(20)); !strings.HasSuffix(got, "Z▏") || len([]rune(got)) > 20 {
+		t.Errorf("at the end: %q", got)
+	}
+	l.pos = 0
+	if got := stripAnsi(l.view(20)); !strings.HasPrefix(got, "❯ ▏A") || strings.Contains(got, "Z") || len([]rune(got)) > 20 {
+		t.Errorf("at the start: %q", got)
 	}
 }

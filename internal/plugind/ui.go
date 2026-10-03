@@ -509,7 +509,8 @@ func (h *uiHub) answer(ctx context.Context, in plugin.InterceptAnswer) plugin.In
 	wait, cancel := context.WithTimeout(ctx, plugin.AnswerWait)
 	defer cancel()
 	raw, err := callWithin(wait, conn, "ui.intercept.answer", map[string]any{
-		"hook": in.Hook, "ui": in.UI, "box": in.Box, "session": in.Session, "text": in.Text, "id": in.ID, "key": in.Key})
+		"hook": in.Hook, "ui": in.UI, "box": in.Box, "session": in.Session, "text": in.Text, "asks": in.Asks, "id": in.ID, "key": in.Key,
+		"value": plugin.CleanInput(in.Value)})
 	var res plugin.InterceptResult
 	if err == nil {
 		err = jsonx.Unmarshal(raw, &res)
@@ -603,6 +604,7 @@ func (h *uiHub) take(name, text string, res plugin.InterceptResult, acc *plugin.
 		}
 		if res.Action == "ask" {
 			acc.Action, acc.ID, acc.Question, acc.Detail, acc.Choices = "ask", res.ID, res.Question, res.Detail, res.Choices
+			acc.Input = res.Input
 			acc.Plugin = name
 			return *acc, true
 		}

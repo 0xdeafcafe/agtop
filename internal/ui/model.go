@@ -76,6 +76,20 @@ type confirmation struct {
 	// ctrl+c (and esc, when no choice takes it) cancels.
 	only           bool
 	enterIs, escIs string
+	// line makes it a line of text to type: enter answers with it, and
+	// only esc and ctrl+c are keys of its own.
+	line *confirmLine
+}
+
+// confirmLine is the text a confirmation has you type, edited in place:
+// enter hands it to submit, err is why it wasn't taken last time, and
+// enterText what enter does with it.
+type confirmLine struct {
+	buf       []rune
+	pos       int
+	err       string
+	enterText string
+	submit    func(string) tea.Cmd
 }
 
 // confirmChoice is a key a confirmation takes beside y and n.
@@ -1265,6 +1279,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if s, ok := m.sheet.(*signInSheet); ok {
 			s.paste(msg.Content)
+			return m, nil
+		}
+		if c := m.confirm; c != nil && c.line != nil {
+			c.line.insert(msg.Content)
 			return m, nil
 		}
 		if !m.embedded {

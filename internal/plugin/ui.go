@@ -453,7 +453,14 @@ type Intercept struct {
 	Box     string     `json:"box"`
 	Session *UISession `json:"session,omitempty"`
 	Text    string     `json:"text"`
+	// Asks are the kinds of ask the window can show beside one with
+	// choices: AskInput. Absent from a window or a broker that knows only
+	// choices, so a plugin sends an ask with an input only when it's here.
+	Asks []string `json:"asks,omitempty"`
 }
+
+// AskInput, in an intercept's Asks, is an ask with a line of text to type.
+const AskInput = "input"
 
 // InterceptResult is a plugin's answer: let it go as it is, go changed,
 // be held back, or ask you first.
@@ -474,6 +481,9 @@ type InterceptResult struct {
 	Question string      `json:"question,omitempty"`
 	Detail   string      `json:"detail,omitempty"`
 	Choices  []AskChoice `json:"choices,omitempty"`
+	// Input makes the ask a line of text to type rather than a key to
+	// choose: enter answers with what was typed.
+	Input *AskLine `json:"input,omitempty"`
 	// Plugin is who changed, held or asked about it, filled in by the
 	// broker.
 	Plugin string `json:"plugin,omitempty"`
@@ -495,14 +505,30 @@ type AskChoice struct {
 	Esc   bool   `json:"esc,omitempty"`
 }
 
+// AskLine is the line of text an ask has you type: Value is what it
+// starts with, to edit in place, Error why what was typed last wasn't
+// taken, shown under it, and Enter what enter does with it, in a word or
+// two.
+type AskLine struct {
+	Value string `json:"value,omitempty"`
+	Error string `json:"error,omitempty"`
+	Enter string `json:"enter,omitempty"`
+}
+
+// KeyEnter is the Key of an answer to an ask with an input: enter, with
+// what was typed in Value.
+const KeyEnter = "enter"
+
 // InterceptAnswer is the choice made in a plugin's question: the window
 // sends it to the broker, which hands Key and ID to Plugin with the
-// message as it stood, then asks the plugins after it.
+// message as it stood, then asks the plugins after it. An ask with an
+// input is answered with KeyEnter and Value, what was typed.
 type InterceptAnswer struct {
 	Intercept
 	Plugin string `json:"plugin"`
 	ID     string `json:"id,omitempty"`
 	Key    string `json:"key"`
+	Value  string `json:"value,omitempty"`
 }
 
 // Limits on an ask.
@@ -512,18 +538,27 @@ const (
 	MaxDetailLen   = 400
 	MaxChoiceLen   = 40
 	MaxAskIDLen    = 128
+	MaxInputLen    = 200
 )
 
 var askKeyRE = regexp.MustCompile(`^[a-z0-9]$`)
 
 // CleanAsk checks an ask and cleans its words for the screen: one to
 // MaxChoices choices, each a lowercase letter or a digit of its own, at
-// most one on enter and one on esc.
+// most one on enter and one on esc. With an input, letters and digits are
+// typed and enter answers, so its only choice, if it has one, is on esc.
 func CleanAsk(r *InterceptResult) error {
 	if strings.TrimSpace(r.Question) == "" {
 		return errors.New("an ask needs a question")
 	}
-	if len(r.Choices) == 0 || len(r.Choices) > MaxChoices {
+	if in := r.Input; in != nil {
+		if len(r.Choices) > 1 || len(r.Choices) == 1 && (!r.Choices[0].Esc || r.Choices[0].Enter) {
+			return errors.New("an ask with an input has at most one choice, on esc")
+		}
+		in.Value = clip(oneLine(in.Value), MaxInputLen)
+		in.Error = clip(printable(in.Error), MaxInputLen)
+		in.Enter = clip(printable(in.Enter), MaxChoiceLen)
+	} else if len(r.Choices) == 0 || len(r.Choices) > MaxChoices {
 		return fmt.Errorf("an ask has 1 to %d choices", MaxChoices)
 	}
 	if len(r.ID) > MaxAskIDLen {
@@ -549,6 +584,15 @@ func CleanAsk(r *InterceptResult) error {
 		return errors.New("at most one choice on enter and one on esc")
 	}
 	return nil
+}
+
+// CleanInput is what was typed in an ask's input, as it's handed to the
+// plugin: one line, at most MaxInputLen.
+func CleanInput(s string) string { return clip(oneLine(s), MaxInputLen) }
+
+// oneLine is s cleaned for the screen with its line breaks as spaces.
+func oneLine(s string) string {
+	return printable(strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(s))
 }
 
 // Apply is text with r's change: its whole Text, or its replacements then

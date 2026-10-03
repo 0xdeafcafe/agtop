@@ -481,11 +481,15 @@ type interceptedMsg struct {
 	r           plugin.InterceptResult
 }
 
+// asksShown are the kinds of ask this window shows beside one with
+// choices.
+var asksShown = []string{plugin.AskInput}
+
 // interceptSend asks plugins about what's in c's box before it goes, in
 // the background; the box stays as it is until they answer.
 func (m *Model) interceptSend(c *hostConn, now bool) tea.Cmd {
 	c.intercepting = true
-	req := plugin.Intercept{Hook: "before-send", Box: c.key, Session: m.uiSession(m.agentByKey(c.key)), Text: c.pastes.out(c.input, false)}
+	req := plugin.Intercept{Hook: "before-send", Box: c.key, Session: m.uiSession(m.agentByKey(c.key)), Text: c.pastes.out(c.input, false), Asks: asksShown}
 	at := interceptedMsg{key: c.key, was: string(c.input), now: now, req: req}
 	return m.hooks.Intercept(req, func(r plugin.InterceptResult) tea.Msg { at.r = r; return at })
 }
@@ -494,7 +498,7 @@ func (m *Model) interceptSend(c *hostConn, now bool) tea.Cmd {
 // a nil a, one that starts a session.
 func (m *Model) interceptPrompt(a *fleet.Agent) tea.Cmd {
 	m.promptIntercepting = true
-	req := plugin.Intercept{Hook: "before-send", Session: m.uiSession(a), Text: m.pastes.out(m.input, false)}
+	req := plugin.Intercept{Hook: "before-send", Session: m.uiSession(a), Text: m.pastes.out(m.input, false), Asks: asksShown}
 	at := interceptedMsg{was: string(m.input), prompt: true, req: req}
 	return m.hooks.Intercept(req, func(r plugin.InterceptResult) tea.Msg { at.r = r; return at })
 }
@@ -617,9 +621,23 @@ func (m *Model) onIntercepted(msg interceptedMsg) tea.Cmd {
 // askFor shows a plugin's question about the message in b. A key that
 // answers it goes back to the plugin with the message as it stands, and
 // what the plugin then says is about the box as it is now; ctrl+c, or esc
-// when no answer takes it, leaves the box as it is.
+// when no answer takes it, leaves the box as it is. A question with an
+// input is a line to type, which enter hands back.
 func (m *Model) askFor(msg interceptedMsg, b sendBox, r plugin.InterceptResult) {
+	answer := func(key, value string) tea.Cmd {
+		*b.asking = true
+		req := msg.req
+		req.Text = r.Text
+		next := interceptedMsg{key: msg.key, was: msg.was, now: msg.now, prompt: msg.prompt, req: req, before: &r}
+		return m.hooks.Answer(plugin.InterceptAnswer{Intercept: req, Plugin: r.Plugin, ID: r.ID, Key: key, Value: value},
+			func(res plugin.InterceptResult) tea.Msg { next.r = res; return next })
+	}
 	q := &confirmation{question: r.Question, detail: r.Detail, only: true}
+	if in := r.Input; in != nil {
+		buf := []rune(in.Value)
+		q.line = &confirmLine{buf: buf, pos: len(buf), err: in.Error, enterText: in.Enter,
+			submit: func(v string) tea.Cmd { return answer(plugin.KeyEnter, v) }}
+	}
 	for _, ch := range r.Choices {
 		key := ch.Key
 		if ch.Enter {
@@ -628,14 +646,7 @@ func (m *Model) askFor(msg interceptedMsg, b sendBox, r plugin.InterceptResult) 
 		if ch.Esc {
 			q.escIs = key
 		}
-		q.more = append(q.more, confirmChoice{key: key, text: ch.Label, do: func() tea.Cmd {
-			*b.asking = true
-			req := msg.req
-			req.Text = r.Text
-			next := interceptedMsg{key: msg.key, was: msg.was, now: msg.now, prompt: msg.prompt, req: req, before: &r}
-			return m.hooks.Answer(plugin.InterceptAnswer{Intercept: req, Plugin: r.Plugin, ID: r.ID, Key: key},
-				func(res plugin.InterceptResult) tea.Msg { next.r = res; return next })
-		}})
+		q.more = append(q.more, confirmChoice{key: key, text: ch.Label, do: func() tea.Cmd { return answer(key, "") }})
 	}
 	m.confirm = q
 }

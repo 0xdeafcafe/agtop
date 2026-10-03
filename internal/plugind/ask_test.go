@@ -89,3 +89,66 @@ func TestUIInterceptBadAsk(t *testing.T) {
 		t.Fatalf("got %+v, %v", res, err)
 	}
 }
+
+// An ask may be a line to type: it reaches the window with what the line
+// starts as, and what was typed goes back to the plugin with enter, as
+// does what the window can show.
+func TestUIInterceptAskInput(t *testing.T) {
+	b := testBroker(t)
+	var asked plugin.Intercept
+	var answered plugin.InterceptAnswer
+	addPlugin(t, b, &plugin.Manifest{Name: "a", UI: []string{plugin.UIInput, plugin.UIIntercept}}, func(_ context.Context, method string, params jsontext.Value) (any, error) {
+		switch method {
+		case "ui.intercept":
+			_ = jsonx.Unmarshal(params, &asked)
+			return plugin.InterceptResult{Action: "ask", ID: "q1", Question: "Name it",
+				Input:   &plugin.AskLine{Value: "MY\nKEY\x1b", Error: "taken", Enter: "save"},
+				Choices: []plugin.AskChoice{{Key: "b", Label: "back", Esc: true}}}, nil
+		case "ui.intercept.answer":
+			_ = jsonx.Unmarshal(params, &answered)
+			return plugin.InterceptResult{Action: "rewrite", Text: "sent as " + answered.Value}, nil
+		}
+		return map[string]any{}, nil
+	})
+	u := attachUI(t, b, "main")
+
+	in := plugin.Intercept{Hook: "before-send", UI: "main", Box: "s1", Text: "hi", Asks: []string{plugin.AskInput}}
+	var ask plugin.InterceptResult
+	if err := u.call("ui.intercept", in, &ask); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked.Asks) != 1 || asked.Asks[0] != plugin.AskInput {
+		t.Fatalf("the plugin is told what the window shows: %+v", asked)
+	}
+	if ask.Action != "ask" || ask.Input == nil || ask.Input.Value != "MY KEY" || ask.Input.Error != "taken" || ask.Input.Enter != "save" || len(ask.Choices) != 1 {
+		t.Fatalf("ask = %+v, input %+v", ask, ask.Input)
+	}
+	var res plugin.InterceptResult
+	if err := u.call("ui.intercept.answer", plugin.InterceptAnswer{Intercept: in, Plugin: "a", ID: ask.ID, Key: plugin.KeyEnter, Value: "OTHER\nNAME"}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if answered.Key != plugin.KeyEnter || answered.Value != "OTHER NAME" || len(answered.Asks) != 1 {
+		t.Fatalf("the plugin was handed %+v", answered)
+	}
+	if res.Action != "rewrite" || res.Text != "sent as OTHER NAME" {
+		t.Fatalf("after the answer = %+v", res)
+	}
+}
+
+// A line to type has no keys of its own but esc: letters are typed.
+func TestUIInterceptBadAskInput(t *testing.T) {
+	for _, choices := range [][]plugin.AskChoice{
+		{{Key: "y", Label: "yes"}},
+		{{Key: "y", Label: "yes", Enter: true, Esc: true}},
+		{{Key: "b", Label: "back", Esc: true}, {Key: "n", Label: "no"}},
+	} {
+		r := plugin.InterceptResult{Action: "ask", Question: "Name it", Input: &plugin.AskLine{}, Choices: choices}
+		if plugin.CleanAsk(&r) == nil {
+			t.Errorf("%+v was taken", choices)
+		}
+	}
+	r := plugin.InterceptResult{Action: "ask", Question: "Name it", Input: &plugin.AskLine{}}
+	if err := plugin.CleanAsk(&r); err != nil {
+		t.Errorf("a line with no choice at all: %v", err)
+	}
+}
